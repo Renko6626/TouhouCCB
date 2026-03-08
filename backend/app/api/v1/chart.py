@@ -1,0 +1,246 @@
+# app/api/v1/chart.py
+
+from __future__ import annotations
+
+from datetime import datetime, timezone, timedelta
+from typing import List, Dict, Optional
+
+from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy import select, and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_async_session
+from app.models.base import Transaction
+from app.schemas.chart import (
+    PricePoint,
+    Candle,
+    PriceSeriesResponse,
+    CandleSeriesResponse,
+    Interval,
+)
+
+router = APIRouter()
+
+_INTERVAL_SECONDS: Dict[str, int] = {
+    "10s": 10,
+    "30s": 30,
+    "1m": 60,
+    "5m": 300,
+    "15m": 900,
+    "1h": 3600,
+    "1d": 86400,
+}
+
+
+def _ensure_utc(dt: datetime) -> datetime:
+    """统一成 aware UTC。naive datetime 视为 UTC。"""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _bucket_start(ts: datetime, step_seconds: int) -> datetime:
+    ts = _ensure_utc(ts)
+    epoch = int(ts.timestamp())
+    bucket = epoch - (epoch % step_seconds)
+    return datetime.fromtimestamp(bucket, tz=timezone.utc)
+
+
+def _align_range_to_buckets(from_ts: datetime, to_ts: datetime, step: int) -> tuple[datetime, datetime]:
+    """将 from/to 对齐到桶边界：from 向下取整，to 向上取整（闭区间查询仍然 OK）。"""
+    f = _bucket_start(from_ts, step)
+    t0 = _ensure_utc(to_ts)
+    # 向上取整：如果 to 本身不在边界，进到下一个桶开始
+    to_epoch = int(t0.timestamp())
+    if to_epoch % step != 0:
+        to_epoch = to_epoch + (step - (to_epoch % step))
+    t = datetime.fromtimestamp(to_epoch, tz=timezone.utc)
+    return f, t
+
+
+def _tx_price(tx: Transaction) -> float:
+    """
+    K线用“手续费前成交价”更干净：
+    - 优先 tx.price
+    - fallback：abs(cost)/shares（老数据近似，卖出含手续费会污染）
+    """
+    p = getattr(tx, "price", None)
+    if p is not None and float(p) > 0:
+        return float(p)
+    if tx.shares and float(tx.shares) > 0:
+        return float(abs(tx.cost) / float(tx.shares))
+    return 0.0
+
+
+def _validate_range(from_ts_u: datetime, to_ts_u: datetime) -> None:
+    if to_ts_u <= from_ts_u:
+        raise HTTPException(status_code=400, detail="to_ts 必须大于 from_ts")
+
+
+@router.get("/price", response_model=PriceSeriesResponse, summary="价格曲线（成交价序列）")
+async def get_price_series(
+    outcome_id: int = Query(..., description="Outcome ID"),
+    from_ts: datetime = Query(..., description="起始时间（ISO）"),
+    to_ts: datetime = Query(..., description="结束时间（ISO）"),
+    limit: int = Query(5000, ge=1, le=20000, description="最多返回点数"),
+    bucket: Optional[Interval] = Query(
+        None,
+        description="可选：按桶降采样（如 10s/30s/1m）。传入后每个桶只返回最后一笔成交价。",
+    ),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    返回成交价点序列（按时间排序）。
+    - 默认返回所有交易点（受 limit 控制）
+    - 传 bucket 后：每桶取最后一笔价（更适合画线，点更少）
+    """
+    from_ts_u = _ensure_utc(from_ts)
+    to_ts_u = _ensure_utc(to_ts)
+    _validate_range(from_ts_u, to_ts_u)
+
+    # 先把交易捞出来（方案A：只靠 Transaction）
+    stmt = (
+        select(Transaction)
+        .where(
+            and_(
+                Transaction.outcome_id == outcome_id,
+                Transaction.timestamp >= from_ts_u,
+                Transaction.timestamp <= to_ts_u,
+            )
+        )
+        .order_by(Transaction.timestamp.asc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    txs: List[Transaction] = res.scalars().all()
+
+    if not bucket:
+        points: List[PricePoint] = []
+        for tx in txs:
+            p = _tx_price(tx)
+            if p > 0:
+                points.append(PricePoint(ts=_ensure_utc(tx.timestamp), price=p))
+        return PriceSeriesResponse(
+            outcome_id=outcome_id,
+            from_ts=from_ts_u,
+            to_ts=to_ts_u,
+            points=points,
+        )
+
+    # 按桶降采样：每个桶保留最后一笔
+    step = _INTERVAL_SECONDS[str(bucket)]
+    buckets: Dict[datetime, PricePoint] = {}
+    for tx in txs:
+        p = _tx_price(tx)
+        if p <= 0:
+            continue
+        ts = _ensure_utc(tx.timestamp)
+        b0 = _bucket_start(ts, step)
+        # 因为 txs 已按时间升序，直接覆盖即可，最后就是桶内最后一笔
+        buckets[b0] = PricePoint(ts=ts, price=p)
+
+    points = [buckets[k] for k in sorted(buckets.keys())]
+    return PriceSeriesResponse(
+        outcome_id=outcome_id,
+        from_ts=from_ts_u,
+        to_ts=to_ts_u,
+        points=points,
+    )
+
+
+@router.get("/candles", response_model=CandleSeriesResponse, summary="K线（OHLCV）")
+async def get_candles(
+    outcome_id: int = Query(..., description="Outcome ID"),
+    interval: Interval = Query("10s", description="K线周期，最小 10s"),
+    from_ts: datetime = Query(..., description="起始时间（ISO）"),
+    to_ts: datetime = Query(..., description="结束时间（ISO）"),
+    fill: bool = Query(True, description="是否补齐空桶（无成交的桶用上一根 close 平铺）"),
+    limit: int = Query(5000, ge=1, le=20000, description="最多返回K线根数（防止拉太多）"),
+    max_trades: int = Query(200000, ge=1000, le=2000000, description="最多扫描交易条数（防止拖垮数据库）"),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    OHLCV K线：
+    - 读该时间段内所有成交（Transaction）
+    - 按 bucket 聚合出 o/h/l/c + v(成交量shares) + n(笔数)
+    - 可选 fill：补齐无成交桶（更适合画连续K线）
+    """
+    if str(interval) not in _INTERVAL_SECONDS:
+        raise HTTPException(status_code=400, detail="不支持的 interval")
+
+    step = _INTERVAL_SECONDS[str(interval)]
+    from_ts_u = _ensure_utc(from_ts)
+    to_ts_u = _ensure_utc(to_ts)
+    _validate_range(from_ts_u, to_ts_u)
+
+    # 对齐桶边界，保证返回的K线起止规整
+    aligned_from, aligned_to = _align_range_to_buckets(from_ts_u, to_ts_u, step)
+
+    # 粗略防止一次拉太多桶
+    max_buckets = int((aligned_to.timestamp() - aligned_from.timestamp()) // step) + 1
+    if max_buckets > limit:
+        raise HTTPException(
+            status_code=400,
+            detail=f"时间跨度过大：预计 {max_buckets} 根K线，超过 limit={limit}",
+        )
+
+    # 先快速判断交易量（防止扫爆）
+    count_stmt = (
+        select(func.count())
+        .select_from(Transaction)
+        .where(
+            and_(
+                Transaction.outcome_id == outcome_id,
+                Transaction.timestamp >= aligned_from,
+                Transaction.timestamp <= aligned_to,
+            )
+        )
+    )
+    cnt_res = await db.execute(count_stmt)
+    trade_cnt = int(cnt_res.scalar_one() or 0)
+    if trade_cnt > max_trades:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该区间交易数 {trade_cnt} 超过 max_trades={max_trades}，请缩小时间范围或提高采样周期",
+        )
+
+    stmt = (
+        select(Transaction)
+        .where(
+            and_(
+                Transaction.outcome_id == outcome_id,
+                Transaction.timestamp >= aligned_from,
+                Transaction.timestamp <= aligned_to,
+            )
+        )
+        .order_by(Transaction.timestamp.asc())
+    )
+    res = await db.execute(stmt)
+    txs: List[Transaction] = res.scalars().all()
+
+    # bucket -> candle
+    buckets: Dict[datetime, Candle] = {}
+
+    for tx in txs:
+        p = _tx_price(tx)
+        if p <= 0:
+            continue
+
+        ts = _ensure_utc(tx.timestamp)
+        b0 = _bucket_start(ts, step)
+
+        c = buckets.get(b0)
+        if c is None:
+            c = Candle(t=b0, o=p, h=p, l=p, c=p, v=0.0, n=0)
+            buckets[b0] = c
+        else:
+            c.h = max(c.h, p)
+            c.l = min(c.l, p)
+            c.c = p
+
+        c.v += float(abs(tx.shares))
+        c.n += 1
+
+    # 不 fill：直接返回有成交的桶
+    if not fill:
+        candles = [buckets[k] for k in s]()
