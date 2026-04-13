@@ -1,21 +1,37 @@
+import logging
+import secrets
+
 from sqladmin import Admin, ModelView
 from app.models.base import User, Market, Outcome, Position, Transaction
+from app.core.config import settings
 from sqladmin.authentication import AuthenticationBackend
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+
+logger = logging.getLogger(__name__)
 
 
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
-        username, password = form["username"], form["password"]
+        username = form.get("username", "")
+        password = form.get("password", "")
 
-        # ⚠️ 这里为了最小化演示，直接硬编码校验
-        # 实际项目中建议把密码放在环境变量，或者查数据库校验 hash
-        if username == "admin@secret-sealing.club" and password == "nailoong":
-            # 登录成功，设置 session token
-            request.session.update({"token": "admin_token"})
-            return True
+        # 密码校验：必须配置 ADMIN_PASSWORD_HASH (bcrypt)
+        if not settings.ADMIN_PASSWORD_HASH:
+            logger.error("ADMIN_PASSWORD_HASH 未配置，管理后台登录已禁用。请在 .env 中设置！")
+            return False
+
+        try:
+            import bcrypt
+            if username == settings.ADMIN_USERNAME and bcrypt.checkpw(
+                password.encode(), settings.ADMIN_PASSWORD_HASH.encode()
+            ):
+                token = secrets.token_urlsafe(32)
+                request.session.update({"token": token})
+                return True
+        except Exception as e:
+            logger.error(f"Admin 密码校验失败: {e}")
+
         return False
 
     async def logout(self, request: Request) -> bool:
@@ -24,9 +40,7 @@ class AdminAuth(AuthenticationBackend):
 
     async def authenticate(self, request: Request) -> bool:
         token = request.session.get("token")
-        if not token:
-            return False
-        return True
+        return bool(token)
 
 class UserAdmin(ModelView, model=User):
     name = "交易员"
@@ -60,7 +74,7 @@ def setup_admin(app, engine):
     # 这里可以添加之前提到的 AdminAuth 身份认证
 
     # AdminAuth机制
-    authentication_backend = AdminAuth(secret_key="super_secret_key_123")
+    authentication_backend = AdminAuth(secret_key=settings.ADMIN_SECRET_KEY)
 
 
     admin = Admin(app, engine, authentication_backend=authentication_backend, title="饭纲丸龙赌场后台", base_url="/api/v1/admin")

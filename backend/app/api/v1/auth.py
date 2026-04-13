@@ -1,169 +1,131 @@
-# app/api/v1/users.py
+"""
+认证路由 — Casdoor OAuth2 回调 + 当前用户信息。
 
-import secrets
-from datetime import datetime
-from typing import List, Optional
+POST /api/v1/auth/callback   前端把 Casdoor 返回的 code 发过来，换取本站 JWT
+GET  /api/v1/auth/me         返回当前登录用户信息
+"""
 
+import asyncio
+from typing import Optional
+
+from casdoor import CasdoorSDK
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_async_session
-from app.core.users import auth_backend, fastapi_users, current_user, current_superuser
-from app.schemas.auth import ActivateRequest, CreateActivationCodesRequest, ActivationCodeRead
-from app.schemas.user import UserRead, UserCreate, UserUpdate
-from app.models.base import User
-from app.models.activation import ActivationCode  # 你需要按上面新增这个模型
+from decimal import Decimal
 
+from pydantic import BaseModel
+
+from app.core.config import settings
+from app.core.database import get_async_session, managed_transaction
+from app.core.users import create_access_token, create_refresh_token, verify_refresh_token, current_active_user
+from app.models.base import User
 
 router = APIRouter()
 
-
-# -------------------------
-# fastapi-users: auth/register/users
-# -------------------------
-
-router.include_router(
-    fastapi_users.get_auth_router(auth_backend),
-    prefix="/jwt",
-)
-
-router.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-)
-
-router.include_router(
-    fastapi_users.get_users_router(UserRead, UserUpdate),
+# Casdoor SDK 实例（在模块加载时初始化，配置从环境变量读取）
+_casdoor = CasdoorSDK(
+    endpoint=settings.CASDOOR_ENDPOINT,
+    client_id=settings.CASDOOR_CLIENT_ID,
+    client_secret=settings.CASDOOR_CLIENT_SECRET,
+    certificate=settings.CASDOOR_CERTIFICATE,
+    org_name=settings.CASDOOR_ORG_NAME,
+    app_name=settings.CASDOOR_APP_NAME,
 )
 
 
-# =========================================================
-# 激活码：用户激活
-# =========================================================
-
-@router.post("/activate", summary="使用激活码激活账号")
-async def activate_account(
-    req: ActivateRequest,
-    user: User = Depends(current_user),  # 这里“active”是否合适见下方说明
+@router.post("/callback", summary="Casdoor OAuth2 回调 — 换取本站 JWT")
+async def oauth_callback(
+    code: str,
+    state: Optional[str] = None,
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    使用一次性激活码激活当前用户：
-    - 消耗激活码（置 is_used=True, 记录 used_by_user_id/used_at）
-    - 将用户置为 is_active=True, is_verified=True（你可以只开一个）
+    前端在 /auth/callback 页面拿到 Casdoor 返回的 code，POST 到此接口。
+    1. 用 code 向 Casdoor 换 access_token
+    2. 解析 JWT，取出用户身份
+    3. 查找或创建本站用户记录（首次登录自动开户）
+    4. 颁发本站 JWT
     """
+    # SDK 调用是同步阻塞的，放到线程池避免阻塞事件循环
+    import logging
+    _logger = logging.getLogger(__name__)
+    try:
+        token = await asyncio.to_thread(_casdoor.get_oauth_token, code)
+        claims = await asyncio.to_thread(_casdoor.parse_jwt_token, token.access_token)
+    except Exception as e:
+        _logger.error(f"Casdoor 认证失败: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="认证失败，请重试")
 
-    # ⚠️ 如果你希望“未激活用户也能登录来激活”，那 current_active_user 不合适。
-    # 更合理是用 fastapi-users 的 current_user(active=False) 依赖。
-    # 但你现在 core.users 里暴露的依赖我不知道是否有这个。
-    # 先按你已有的 current_active_user 写；下面我也给你“更推荐”的写法说明。
+    casdoor_id: str = claims["sub"]
+    username: str = claims.get("name") or claims.get("preferred_username") or casdoor_id
+    email: Optional[str] = claims.get("email") or None
 
-    async with db.begin():
-        # 1) 锁定激活码行，避免并发重复消费（MySQL/PG 有效）
-        code_res = await db.execute(
-            select(ActivationCode)
-            .where(ActivationCode.code == req.code)
-            .with_for_update()
-        )
-        act = code_res.scalars().first()
-        if not act:
-            raise HTTPException(status_code=404, detail="激活码不存在")
-        if act.is_used:
-            raise HTTPException(status_code=400, detail="激活码已被使用")
+    # 查找或创建本站用户
+    result = await db.execute(select(User).where(User.casdoor_id == casdoor_id))
+    user: Optional[User] = result.scalars().first()
 
-        # 2) 锁定用户行（避免并发激活/并发修改）
-        user_res = await db.execute(
-            select(User).where(User.id == user.id).with_for_update()
-        )
-        locked_user = user_res.scalars().first()
-        if not locked_user:
-            raise HTTPException(status_code=404, detail="用户不存在")
+    if not user:
+        async with managed_transaction(db):
+            # 用户名可能与已有账号冲突（极低概率），加后缀保证唯一
+            base = username
+            suffix = 0
+            while True:
+                name_check = await db.execute(select(User).where(User.username == username))
+                if not name_check.scalars().first():
+                    break
+                suffix += 1
+                username = f"{base}_{suffix}"
 
-        # 3) 置用户为激活/已验证
-        locked_user.is_active = True
-        locked_user.is_verified = True
+            user = User(
+                casdoor_id=casdoor_id,
+                username=username,
+                email=email,
+                cash=Decimal(str(settings.INITIAL_BALANCE)),
+                debt=Decimal("0"),
+                is_active=True,
+                is_superuser=False,
+            )
+            db.add(user)
+            await db.flush()   # 获取 user.id（在 commit 之前）
+    elif not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
 
-        # 4) 消耗激活码
-        act.is_used = True
-        act.used_by_user_id = locked_user.id
-        act.used_at = datetime.utcnow()
-
-    return {"message": "激活成功", "username": user.username}
-
-
-# =========================================================
-# 激活码：管理员分发/管理
-# =========================================================
-
-def _gen_code(length: int = 16) -> str:
-    # 避免 0/O, 1/I 的歧义字符
-    alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+    return {
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id),
+        "token_type": "bearer",
+    }
 
 
-@router.post(
-    "/admin/activation-codes/batch",
-    summary="批量生成激活码（仅管理员）",
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_activation_codes(
-    req: CreateActivationCodesRequest,
-    admin: User = Depends(current_superuser),
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh", summary="用 refresh token 换取新的 access token")
+async def refresh_access_token(
+    body: RefreshRequest,
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    批量生成一次性激活码，写入数据库并返回 code 列表（用于你线下分发）。
-    """
-    codes: List[str] = []
-    rows: List[ActivationCode] = []
-
-    async with db.begin():
-        # 简单防重复：生成后查库；更严格可做“插入失败重试”（依赖 unique 约束）
-        for _ in range(req.count):
-            code = _gen_code(req.length)
-            codes.append(code)
-            rows.append(ActivationCode(code=code, created_by_user_id=admin.id))
-
-        db.add_all(rows)
-
-    return {"count": len(codes), "codes": codes}
+    user_id = verify_refresh_token(body.refresh_token)
+    user = await db.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    return {
+        "access_token": create_access_token(user.id),
+        "token_type": "bearer",
+    }
 
 
-@router.get(
-    "/admin/activation-codes",
-    summary="查看激活码列表（仅管理员）",
-    response_model=List[ActivationCodeRead],
-)
-async def list_activation_codes(
-    admin: User = Depends(current_superuser),
-    db: AsyncSession = Depends(get_async_session),
-    used: Optional[bool] = None,
-    limit: int = 200,
-):
-    stmt = select(ActivationCode).order_by(ActivationCode.created_at.desc())
-    if used is not None:
-        stmt = stmt.where(ActivationCode.is_used == used)
-    stmt = stmt.limit(min(limit, 500))
-
-    res = await db.execute(stmt)
-    return res.scalars().all()
-
-
-@router.delete(
-    "/admin/activation-codes/{code_id}",
-    summary="作废激活码（仅管理员）",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def revoke_activation_code(
-    code_id: int,
-    admin: User = Depends(current_superuser),
-    db: AsyncSession = Depends(get_async_session),
-):
-    async with db.begin():
-        act = await db.get(ActivationCode, code_id)
-        if not act:
-            raise HTTPException(status_code=404, detail="激活码不存在")
-        if act.is_used:
-            raise HTTPException(status_code=400, detail="激活码已使用，不能作废")
-        await db.delete(act)
-    return None
+@router.get("/me", summary="获取当前登录用户信息")
+async def get_me(user: User = Depends(current_active_user)):
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_superuser": user.is_superuser,
+        "is_active": user.is_active,
+        "cash": user.cash,
+        "debt": user.debt,
+    }

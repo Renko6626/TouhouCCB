@@ -115,15 +115,6 @@
 - 已知问题与风险：
 - 下一步计划：
 
-## 9. 当前优先级路线（可直接执行）
-
-根据当前进度，按以下顺序推进：
-
-1. `components/market/` 核心交易组件（TradePanel / QuotePanel / MarketStatus）
-2. `composables/`（`useTrade.ts`、`useMarket.ts`、`useSSE.ts`）
-3. 图表链路（PriceChart -> CandleChart -> Toolbar）
-4. 管理员页面基础可用版
-5. 体验和性能优化（懒加载、移动端、细节打磨）
 
 ## 10. 明确禁止事项
 

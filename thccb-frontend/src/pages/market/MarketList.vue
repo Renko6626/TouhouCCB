@@ -1,237 +1,178 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
-import { NButton, NCard, NGrid, NGridItem, NInput, NSelect, NPagination, NTag, NSpace, NSpin, NEmpty } from 'naive-ui'
+import { NInput, NSelect, NPagination, NSpin, NEmpty, NButton } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
+import MarketCard from '@/components/market/MarketCard.vue'
 
+const router = useRouter()
 const marketStore = useMarketStore()
 
-// 状态
 const loading = ref(false)
 const searchQuery = ref('')
-const statusFilter = ref<string>('all')
+const statusFilter = ref<string>('trading')
+const sortBy = ref<string>('default')
 const currentPage = ref(1)
 const pageSize = 12
 
-// 状态筛选选项
 const statusOptions: SelectOption[] = [
-  { label: '全部', value: 'all' },
   { label: '交易中', value: 'trading' },
   { label: '已暂停', value: 'halt' },
-  { label: '已结算', value: 'settled' }
+  { label: '已结算', value: 'settled' },
+  { label: '全部状态', value: 'all' },
 ]
 
-// 加载市场数据
+const sortOptions: SelectOption[] = [
+  { label: '默认排序', value: 'default' },
+  { label: '流动性 高→低', value: 'liquidity_desc' },
+  { label: '流动性 低→高', value: 'liquidity_asc' },
+  { label: '选项数 多→少', value: 'outcomes_desc' },
+]
+
+// 根据筛选条件构建后端查询参数
+const buildParams = () => {
+  const params: Record<string, any> = {}
+  if (searchQuery.value.trim()) {
+    params.keyword = searchQuery.value.trim()
+  }
+  // 后端默认只返回 trading，需要额外标志才返回 halt/settled
+  if (statusFilter.value === 'all') {
+    params.include_halt = true
+    params.include_settled = true
+  } else if (statusFilter.value === 'halt') {
+    params.include_halt = true
+  } else if (statusFilter.value === 'settled') {
+    params.include_settled = true
+  }
+  // trading 是默认行为，不需要额外参数
+  return params
+}
+
 const loadMarkets = async () => {
   loading.value = true
   try {
-    await marketStore.fetchMarkets()
+    await marketStore.fetchMarkets(buildParams())
   } finally {
     loading.value = false
   }
 }
 
-// 初始化加载
-onMounted(() => {
+onMounted(() => { loadMarkets() })
+
+// 筛选条件变化时重新从后端拉取
+watch([searchQuery, statusFilter], () => {
+  currentPage.value = 1
   loadMarkets()
 })
 
-// 过滤后的市场列表
+// 对于只筛选单个状态的情况，后端可能返回多个状态，前端再做一次精确过滤
 const filteredMarkets = computed(() => {
-  let markets = marketStore.markets
+  let markets = [...marketStore.markets]
 
-  // 搜索过滤
-  if (searchQuery.value) {
-    const query = searchQuery.value.toLowerCase()
-    markets = markets.filter(market => 
-      market.title.toLowerCase().includes(query) || 
-      market.description?.toLowerCase().includes(query)
-    )
+  // 如果选了具体状态，确保只显示该状态（后端 include_halt 会同时返回 trading+halt）
+  if (statusFilter.value !== 'all') {
+    markets = markets.filter(m => m.status === statusFilter.value)
   }
 
-  // 状态过滤
-  if (statusFilter.value && statusFilter.value !== 'all') {
-    markets = markets.filter(market => market.status === statusFilter.value)
+  // 排序（纯前端）
+  if (sortBy.value === 'liquidity_desc') {
+    markets.sort((a, b) => (b.liquidity_b ?? 0) - (a.liquidity_b ?? 0))
+  } else if (sortBy.value === 'liquidity_asc') {
+    markets.sort((a, b) => (a.liquidity_b ?? 0) - (b.liquidity_b ?? 0))
+  } else if (sortBy.value === 'outcomes_desc') {
+    markets.sort((a, b) => (b.outcomes?.length ?? 0) - (a.outcomes?.length ?? 0))
   }
-
   return markets
 })
 
-// 分页后的市场列表
 const paginatedMarkets = computed(() => {
   const start = (currentPage.value - 1) * pageSize
-  const end = start + pageSize
-  return filteredMarkets.value.slice(start, end)
+  return filteredMarkets.value.slice(start, start + pageSize)
 })
 
-// 总页数
-const totalPages = computed(() => {
-  return Math.ceil(filteredMarkets.value.length / pageSize)
-})
+const totalPages = computed(() => Math.ceil(filteredMarkets.value.length / pageSize))
 
-// 获取状态标签类型
-const getStatusType = (status: string) => {
-  switch (status) {
-    case 'trading': return 'success'
-    case 'halt': return 'warning'
-    case 'settled': return 'default'
-    default: return 'default'
-  }
-}
+watch(sortBy, () => { currentPage.value = 1 })
 
-// 获取状态文本
-const getStatusText = (status: string) => {
-  switch (status) {
-    case 'trading': return '交易中'
-    case 'halt': return '已暂停'
-    case 'settled': return '已结算'
-    default: return status
-  }
-}
+const handleView = (id: number) => router.push(`/market/${id}`)
+const handleTrade = (id: number) => router.push(`/market/${id}/trade`)
 </script>
 
 <template>
   <div class="market-list-page">
-    <!-- 页面标题和操作 -->
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-        市场列表
-      </h1>
-      <p class="text-gray-600 dark:text-gray-400">
-        浏览所有预测市场，选择您感兴趣的市场进行交易
-      </p>
-    </div>
 
-    <!-- 筛选工具栏 -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div class="flex-1">
-          <NInput
-            v-model:value="searchQuery"
-            placeholder="搜索市场名称或描述..."
-            clearable
-          >
-            <template #prefix>
-              <i class="i-mdi-magnify"></i>
-            </template>
-          </NInput>
-        </div>
-        
-        <div class="flex items-center space-x-4">
-          <div class="w-48">
-            <NSelect
-              v-model:value="statusFilter"
-              :options="statusOptions"
-              placeholder="筛选状态"
-              clearable
-            />
-          </div>
-          
-          <NButton 
-            type="primary" 
-            @click="loadMarkets"
-            :loading="loading"
-          >
-            <template #icon>
-              <i class="i-mdi-refresh"></i>
-            </template>
-            刷新
-          </NButton>
-        </div>
+    <!-- 工具栏 -->
+    <div class="filter-bar">
+      <div class="search-input">
+        <NInput
+          v-model:value="searchQuery"
+          placeholder="搜索市场名称..."
+          clearable
+          style="width: 100%"
+        >
+          <template #prefix>
+            <span style="font-weight:700; color:#000;">Q</span>
+          </template>
+        </NInput>
+      </div>
+      <div class="filter-right">
+        <NSelect
+          v-model:value="sortBy"
+          :options="sortOptions"
+          style="width: 160px"
+        />
+        <NSelect
+          v-model:value="statusFilter"
+          :options="statusOptions"
+          style="width: 140px"
+        />
+        <NButton :loading="loading" @click="loadMarkets">
+          刷新
+        </NButton>
       </div>
     </div>
 
-    <!-- 加载状态 -->
-    <div v-if="loading && !marketStore.markets.length" class="text-center py-12">
+    <!-- 结果统计 -->
+    <div class="result-count">
+      共 <strong>{{ filteredMarkets.length }}</strong> 个市场
+      <span v-if="searchQuery" class="filter-tag">关键词: "{{ searchQuery }}"</span>
+      <span v-if="statusFilter !== 'trading'" class="filter-tag">
+        {{ statusOptions.find(o => o.value === statusFilter)?.label }}
+      </span>
+    </div>
+
+    <!-- 加载中 -->
+    <div v-if="loading && !marketStore.markets.length" class="loading-state">
       <NSpin size="large" />
-      <p class="mt-4 text-gray-600 dark:text-gray-400">加载市场中...</p>
+      <p>加载市场中...</p>
     </div>
 
-    <!-- 市场网格 -->
+    <!-- 市场列表 -->
     <div v-else>
-      <!-- 市场统计 -->
-      <div class="mb-4 text-sm text-gray-600 dark:text-gray-400">
-        共 {{ filteredMarkets.length }} 个市场
-        <span v-if="searchQuery">（搜索: "{{ searchQuery }}"）</span>
-        <span v-if="statusFilter">（状态: {{ getStatusText(statusFilter) }}）</span>
+      <div v-if="paginatedMarkets.length" class="market-grid">
+        <MarketCard
+          v-for="market in paginatedMarkets"
+          :key="market.id"
+          :market="market"
+          @view="handleView"
+          @trade="handleTrade"
+        />
       </div>
 
-      <!-- 市场卡片 -->
-      <NGrid :cols="1" :x-gap="16" :y-gap="16" class="mb-6">
-        <NGridItem v-for="market in paginatedMarkets" :key="market.id">
-          <NCard :title="market.title" hoverable>
-            <template #header-extra>
-              <NTag :type="getStatusType(market.status)" size="small">
-                {{ getStatusText(market.status) }}
-              </NTag>
-            </template>
-
-            <div class="mb-4">
-              <p class="text-gray-600 dark:text-gray-400 line-clamp-2">
-                {{ market.description || '暂无描述' }}
-              </p>
-            </div>
-
-            <div class="grid grid-cols-2 gap-4 mb-4">
-              <div>
-                <div class="text-sm text-gray-500">流动性</div>
-                <div class="text-lg font-semibold">
-                  ¥{{ market.liquidity_b.toLocaleString() }}
-                </div>
-              </div>
-              <div>
-                <div class="text-sm text-gray-500">选项数量</div>
-                <div class="text-lg font-semibold">
-                  {{ market.outcomes?.length || 0 }}
-                </div>
-              </div>
-            </div>
-
-            <div class="flex justify-between items-center">
-              <div class="text-sm text-gray-500">
-                选项数量: {{ market.outcomes?.length || 0 }}
-              </div>
-              <NSpace>
-                <NButton 
-                  type="primary" 
-                  size="small"
-                  @click="$router.push(`/market/${market.id}`)"
-                >
-                  查看详情
-                </NButton>
-                <NButton 
-                  v-if="market.status === 'trading'"
-                  type="default" 
-                  size="small"
-                  @click="$router.push(`/market/${market.id}/trade`)"
-                >
-                  开始交易
-                </NButton>
-              </NSpace>
-            </div>
-          </NCard>
-        </NGridItem>
-      </NGrid>
-
-      <!-- 空状态 -->
-      <div v-if="filteredMarkets.length === 0" class="text-center py-12">
+      <div v-else class="empty-state">
         <NEmpty description="没有找到匹配的市场">
           <template #extra>
-            <NButton type="primary" @click="searchQuery = ''; statusFilter = 'all'">
-              清除筛选
-            </NButton>
+            <NButton @click="searchQuery = ''; statusFilter = 'trading'; loadMarkets()">清除筛选</NButton>
           </template>
         </NEmpty>
       </div>
 
-      <!-- 分页 -->
-      <div v-if="filteredMarkets.length > pageSize" class="flex justify-center">
+      <div v-if="filteredMarkets.length > pageSize" class="pagination-bar">
         <NPagination
           v-model:page="currentPage"
           :page-count="totalPages"
           :page-size="pageSize"
-          show-size-picker
-          :page-sizes="[12, 24, 36, 48]"
         />
       </div>
     </div>
@@ -244,10 +185,52 @@ const getStatusText = (status: string) => {
   margin: 0 auto;
 }
 
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+.search-input { flex: 1; min-width: 0; }
+
+.filter-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.filter-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid #000000;
+  font-size: 11px;
+  background: #f5f5f5;
+}
+
+.loading-state {
+  text-align: center;
+  padding: 64px 0;
+  color: #666666;
+  font-size: 13px;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.pagination-bar {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+  border-top: 2px solid #000000;
+  margin-top: 8px;
+}
+
+@media (max-width: 768px) {
+  .market-grid { grid-template-columns: 1fr; }
+  .filter-right { width: 100%; justify-content: flex-end; }
+}
+
+@media (min-width: 1200px) {
+  .market-grid { grid-template-columns: repeat(3, 1fr); }
 }
 </style>

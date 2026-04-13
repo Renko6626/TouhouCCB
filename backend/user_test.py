@@ -1,104 +1,90 @@
+# TODO: 此测试依赖旧的 fastapi-users 注册/登录/PATCH 端点，
+# 现在认证已改为 Casdoor OAuth2，需要重写。
+#
+# 旧测试覆盖的场景（仍有价值，需用新方式实现）：
+# 1. 恶意注册提权 → Casdoor 化后不再适用（注册由 Casdoor 控制）
+# 2. 登录获取 Token → 现在通过 /auth/callback 换 JWT
+# 3. PATCH /me 充值 → 该端点已移除
+#
+# 新测试建议：
+# - 直接创建用户 + create_access_token() 签发 JWT
+# - 测试 /user/summary、/user/holdings、/user/transactions
+# - 测试 refresh token 机制
+
 import asyncio
 import uuid
-import sys
+from decimal import Decimal
 from httpx import AsyncClient, ASGITransport
-from app.main import app  # 确保路径正确指向你的 FastAPI 实例
+from sqlmodel import SQLModel
+from app.main import app
+from app.core.database import engine, async_session_maker
+from app.core.users import create_access_token
+from app.models.base import User
 
-# 颜色控制字符（让输出好看点）
 GREEN = "\033[92m"
 RED = "\033[91m"
 BLUE = "\033[94m"
+YELLOW = "\033[93m"
 RESET = "\033[0m"
-from app.models.base import User, Market, Outcome, Position, Transaction 
+
 
 async def test_suite():
-    # 强制初始化数据库
+    # 初始化数据库
     async with engine.begin() as conn:
-        # 这一步会确保执行时数据库里一定有表
         await conn.run_sync(SQLModel.metadata.create_all)
-    
-async def test_suite():
-    print(f"{BLUE}=== 开始执行 东方炒炒币 安全防御测试脚本 ==={RESET}\n")
 
-    # 使用 ASGITransport 直接连接 app，无需启动真正的服务器端口
+    # 创建测试用户
+    suffix = uuid.uuid4().hex[:4]
+    async with async_session_maker() as session:
+        async with session.begin():
+            user = User(
+                username=f"marisa_{suffix}",
+                email=f"marisa_{suffix}@kirisame.shop",
+                casdoor_id=f"test_{suffix}",
+                cash=Decimal("100"),
+                debt=Decimal("0"),
+            )
+            session.add(user)
+            await session.flush()
+            user_id = user.id
+
+    token = create_access_token(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        
-        unique_suffix = str(uuid.uuid4())[:6]
-        test_email = f"marisa_{unique_suffix}@gensokyo.com"
-        test_pass = "daze123456"
-        test_user = f"魔理沙_{unique_suffix}"
-
-        # --- 1. 正常注册测试 ---
-        print(f"测试 [1/5]: 正常用户注册...", end=" ")
-        reg_res = await client.post("/api/v1/auth/register", json={
-            "email": test_email,
-            "password": test_pass,
-            "username": test_user
-        })
-        if reg_res.status_code == 201:
-            print(f"{GREEN}通过{RESET}")
-        else:
-            print(f"{RED}失败: {reg_res.text}{RESET}")
-            return
-
-        # --- 2. 恶意注册提权测试 ---
-        print(f"测试 [2/5]: 恶意请求拦截 (尝试注册时设为管理员和无限现金)...", end=" ")
-        malicious_id = str(uuid.uuid4())[:6]
-        malicious_res = await client.post("/api/v1/auth/register", json={
-            "email": f"hacker_{malicious_id}@scam.com",
-            "password": "password",
-            "username": f"黑客_{malicious_id}",
-            "is_superuser": True,  # 恶意注入
-            "cash": 9999999.0,     # 恶意注入
-            "is_verified": True    # 恶意注入
-        })
-        m_data = malicious_res.json()
-        # 验证防御逻辑：字段是否被 UserManager 强制重置
-        if m_data.get("is_superuser") is False and m_data.get("cash") == 100.0:
-            print(f"{GREEN}防御成功{RESET}")
-        else:
-            print(f"{RED}防御失效! 用户成功篡改了敏感字段: {m_data}{RESET}")
-
-        # --- 3. 登录并获取 Token ---
-        print(f"测试 [3/5]: 用户登录获取 JWT Token...", end=" ")
-        login_res = await client.post("/api/v1/auth/jwt/login", data={
-            "username": test_email,
-            "password": test_pass
-        })
-        if login_res.status_code == 200:
-            token = login_res.json()["access_token"]
-            headers = {"Authorization": f"Bearer {token}"}
-            print(f"{GREEN}通过{RESET}")
-        else:
-            print(f"{RED}失败: {login_res.text}{RESET}")
-            return
-
-        # --- 4. 正常访问个人信息 ---
-        print(f"测试 [4/5]: 使用 Token 访问受保护接口 (/me)...", end=" ")
+        # --- 1. 获取用户信息 ---
+        print(f"{YELLOW}测试 [1/4]: 获取当前用户信息 (/auth/me){RESET}")
         me_res = await client.get("/api/v1/auth/me", headers=headers)
-        if me_res.status_code == 200:
-            print(f"{GREEN}通过{RESET}")
-        else:
-            print(f"{RED}失败{RESET}")
+        assert me_res.status_code == 200
+        me_data = me_res.json()
+        assert me_data["cash"] == 100.0
+        print(f"{GREEN}  通过: cash={me_data['cash']}, username={me_data['username']}{RESET}")
 
-        # --- 5. 恶意更新现金测试 ---
-        print(f"测试 [5/5]: 恶意请求拦截 (登录用户尝试 PATCH 接口给自己充值)...", end=" ")
-        update_res = await client.patch("/api/v1/auth/me", headers=headers, json={
-            "cash": 888888.0,
-            "is_superuser": True,
-            "username": "魔改后的魔理沙"
-        })
-        u_data = update_res.json()
-        # 验证：用户名允许修改，但现金和权限必须被过滤掉
-        if u_data.get("username") == "魔改后的魔理沙" and u_data.get("cash") == 100.0 and u_data.get("is_superuser") is False:
-            print(f"{GREEN}防御成功{RESET}")
-        else:
-            print(f"{RED}防御失效! 用户绕过过滤修改了现金或权限: {u_data}{RESET}")
+        # --- 2. 获取资产概览 ---
+        print(f"{YELLOW}测试 [2/4]: 获取资产概览 (/user/summary){RESET}")
+        summary_res = await client.get("/api/v1/user/summary", headers=headers)
+        assert summary_res.status_code == 200
+        summary = summary_res.json()
+        assert summary["cash"] == 100.0
+        assert summary["holdings_value"] == 0.0
+        print(f"{GREEN}  通过: net_worth={summary['net_worth']}, rank={summary['rank']}{RESET}")
 
-    print(f"\n{BLUE}=== 所有测试执行完毕 ==={RESET}")
+        # --- 3. 获取持仓（应为空） ---
+        print(f"{YELLOW}测试 [3/4]: 获取持仓明细 (/user/holdings){RESET}")
+        holdings_res = await client.get("/api/v1/user/holdings", headers=headers)
+        assert holdings_res.status_code == 200
+        assert holdings_res.json() == []
+        print(f"{GREEN}  通过: 持仓为空{RESET}")
+
+        # --- 4. 获取交易历史（应为空） ---
+        print(f"{YELLOW}测试 [4/4]: 获取交易历史 (/user/transactions){RESET}")
+        tx_res = await client.get("/api/v1/user/transactions", headers=headers)
+        assert tx_res.status_code == 200
+        assert tx_res.json() == []
+        print(f"{GREEN}  通过: 交易历史为空{RESET}")
+
+    print(f"\n{BLUE}=== 用户接口测试完成 ==={RESET}")
+
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(test_suite())
-    except KeyboardInterrupt:
-        sys.exit(0)
+    asyncio.run(test_suite())

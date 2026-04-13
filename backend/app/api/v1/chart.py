@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -75,6 +75,17 @@ def _tx_price(tx: Transaction) -> float:
 def _validate_range(from_ts_u: datetime, to_ts_u: datetime) -> None:
     if to_ts_u <= from_ts_u:
         raise HTTPException(status_code=400, detail="to_ts 必须大于 from_ts")
+
+
+def _tx_price_parts(price: float, cost: float, shares: float) -> float:
+    """
+    与 _tx_price 一致，但用于轻量列查询（不构造 ORM 对象）。
+    """
+    if price is not None and float(price) > 0:
+        return float(price)
+    if shares and float(shares) > 0:
+        return float(abs(cost) / float(shares))
+    return 0.0
 
 
 @router.get("/price", response_model=PriceSeriesResponse, summary="价格曲线（成交价序列）")
@@ -154,7 +165,7 @@ async def get_candles(
     interval: Interval = Query("10s", description="K线周期，最小 10s"),
     from_ts: datetime = Query(..., description="起始时间（ISO）"),
     to_ts: datetime = Query(..., description="结束时间（ISO）"),
-    fill: bool = Query(True, description="是否补齐空桶（无成交的桶用上一根 close 平铺）"),
+    fill: bool = Query(False, description="是否补齐空桶（无成交的桶用上一根 close 平铺）"),
     limit: int = Query(5000, ge=1, le=20000, description="最多返回K线根数（防止拉太多）"),
     max_trades: int = Query(200000, ge=1000, le=2000000, description="最多扫描交易条数（防止拖垮数据库）"),
     db: AsyncSession = Depends(get_async_session),
@@ -177,57 +188,57 @@ async def get_candles(
     aligned_from, aligned_to = _align_range_to_buckets(from_ts_u, to_ts_u, step)
 
     # 粗略防止一次拉太多桶
-    max_buckets = int((aligned_to.timestamp() - aligned_from.timestamp()) // step) + 1
+    # 统一采用 [aligned_from, aligned_to) 半开区间，避免桶边界重复。
+    max_buckets = int((aligned_to.timestamp() - aligned_from.timestamp()) // step)
     if max_buckets > limit:
         raise HTTPException(
             status_code=400,
             detail=f"时间跨度过大：预计 {max_buckets} 根K线，超过 limit={limit}",
         )
 
-    # 先快速判断交易量（防止扫爆）
-    count_stmt = (
-        select(func.count())
-        .select_from(Transaction)
-        .where(
-            and_(
-                Transaction.outcome_id == outcome_id,
-                Transaction.timestamp >= aligned_from,
-                Transaction.timestamp <= aligned_to,
-            )
-        )
+    # 单次查询：fill 时向前多扩一个 bucket 以获取 previous close，省去第二次 DB 查询
+    query_from = (
+        datetime.fromtimestamp(int(aligned_from.timestamp()) - step, tz=timezone.utc)
+        if fill else aligned_from
     )
-    cnt_res = await db.execute(count_stmt)
-    trade_cnt = int(cnt_res.scalar_one() or 0)
-    if trade_cnt > max_trades:
-        raise HTTPException(
-            status_code=400,
-            detail=f"该区间交易数 {trade_cnt} 超过 max_trades={max_trades}，请缩小时间范围或提高采样周期",
-        )
 
     stmt = (
-        select(Transaction)
+        select(Transaction.timestamp, Transaction.price, Transaction.cost, Transaction.shares)
         .where(
             and_(
                 Transaction.outcome_id == outcome_id,
-                Transaction.timestamp >= aligned_from,
-                Transaction.timestamp <= aligned_to,
+                Transaction.timestamp >= query_from,
+                Transaction.timestamp < aligned_to,
             )
         )
         .order_by(Transaction.timestamp.asc())
+        .limit(max_trades + 1)
     )
     res = await db.execute(stmt)
-    txs: List[Transaction] = res.scalars().all()
+    rows = res.all()
 
-    # bucket -> candle
+    if len(rows) > max_trades:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该区间交易数超过 max_trades={max_trades}，请缩小时间范围或提高采样周期",
+        )
+
+    # bucket -> candle，同时从前导 bucket 提取 previous close
     buckets: Dict[datetime, Candle] = {}
+    prev_close: Optional[float] = None
 
-    for tx in txs:
-        p = _tx_price(tx)
+    for ts_raw, price, cost, shares in rows:
+        p = _tx_price_parts(price=float(price or 0.0), cost=float(cost or 0.0), shares=float(shares or 0.0))
         if p <= 0:
             continue
 
-        ts = _ensure_utc(tx.timestamp)
+        ts = _ensure_utc(ts_raw)
         b0 = _bucket_start(ts, step)
+
+        # 前导 bucket 的数据只用于提取 prev_close，不放入结果
+        if b0 < aligned_from:
+            prev_close = p
+            continue
 
         c = buckets.get(b0)
         if c is None:
@@ -238,9 +249,36 @@ async def get_candles(
             c.l = min(c.l, p)
             c.c = p
 
-        c.v += float(abs(tx.shares))
+        c.v += float(abs(shares or 0.0))
         c.n += 1
 
     # 不 fill：直接返回有成交的桶
     if not fill:
-        candles = [buckets[k] for k in s]()
+        candles = [buckets[k] for k in sorted(buckets.keys())]
+        return CandleSeriesResponse(
+            outcome_id=outcome_id,
+            interval=interval,
+            from_ts=from_ts_u,
+            to_ts=to_ts_u,
+            candles=candles,
+        )
+
+    # fill=True：补齐空桶（用上一根 close 平铺）
+    candles: List[Candle] = []
+    cur = aligned_from
+    while cur < aligned_to:
+        c = buckets.get(cur)
+        if c is not None:
+            candles.append(c)
+            prev_close = c.c
+        elif prev_close is not None:
+            candles.append(Candle(t=cur, o=prev_close, h=prev_close, l=prev_close, c=prev_close, v=0.0, n=0))
+        cur = datetime.fromtimestamp(int(cur.timestamp()) + step, tz=timezone.utc)
+
+    return CandleSeriesResponse(
+        outcome_id=outcome_id,
+        interval=interval,
+        from_ts=from_ts_u,
+        to_ts=to_ts_u,
+        candles=candles,
+    )

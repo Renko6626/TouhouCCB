@@ -8,13 +8,14 @@ export interface User {
   debt: number
   is_active: boolean
   is_superuser: boolean
-  is_verified: boolean
 }
 
 export interface UserSummary {
   cash: number
   debt: number
   holdings_value: number
+  total_cost_basis: number
+  unrealized_pnl: number
   net_worth: number
   rank: string
 }
@@ -25,31 +26,23 @@ export interface Holding {
   outcome_id: number
   outcome_label: string
   amount: number
+  cost_basis: number
+  avg_price: number
+  current_price: number
+  market_value: number
+  unrealized_pnl: number
 }
 
 export interface Transaction {
   id: number
-  type: 'buy' | 'sell' | 'settle'
+  outcome_id: number
+  type: 'buy' | 'sell' | 'settle' | 'settle_lose'
   shares: number
   price: number
+  gross: number
+  fee: number
   cost: number
   timestamp: string
-}
-
-// 用户创建类型
-export interface UserCreate {
-  email: string
-  password: string
-  username: string
-  cash?: number  // 默认100.0
-  is_superuser?: boolean  // 默认false
-}
-
-// 用户更新类型
-export interface UserUpdate {
-  username?: string
-  cash?: number
-  is_superuser?: boolean
 }
 
 // 排行榜相关类型

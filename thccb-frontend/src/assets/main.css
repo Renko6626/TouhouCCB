@@ -1,35 +1,366 @@
 @import './base.css';
 
+html,
+body,
 #app {
-  max-width: 1280px;
+  width: 100%;
+}
+
+#app {
+  max-width: 1440px;
+  width: min(100% - 32px, 1440px);
   margin: 0 auto;
-  padding: 2rem;
+  padding: 16px;
   font-weight: normal;
 }
 
-a,
-.green {
+body {
+  background: #ffffff;
+  color: #000000;
+  line-height: 1.5;
+}
+
+a {
+  color: #000000;
   text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
+a:hover {
+  color: #000000;
 }
 
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
+/* 
+ * Industrial Panel - 带投影的工业风格面板
+ * 基于 .industrial-frame 扩展，添加投影效果
+ */
+.industrial-panel {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border: 4px solid #000000;
+  border-radius: 0;
+  box-shadow: 6px 6px 0 #000000;
+}
 
+.industrial-panel::before,
+.industrial-panel::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.industrial-panel::before {
+  inset: 2px;
+  background:
+    linear-gradient(#000000, #000000) top center / calc(100% - 20px) 1px no-repeat,
+    linear-gradient(#000000, #000000) bottom center / calc(100% - 20px) 1px no-repeat,
+    linear-gradient(#000000, #000000) left center / 1px calc(100% - 20px) no-repeat,
+    linear-gradient(#000000, #000000) right center / 1px calc(100% - 20px) no-repeat,
+    linear-gradient(135deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) top left / 10px 10px no-repeat,
+    linear-gradient(225deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) top right / 10px 10px no-repeat,
+    linear-gradient(315deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) bottom right / 10px 10px no-repeat,
+    linear-gradient(45deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) bottom left / 10px 10px no-repeat;
+}
+
+.industrial-panel::after {
+  inset: 5px;
+  border: 1px solid #000000;
+}
+
+.industrial-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Ensure all components have sharp corners */
+button,
+.btn,
+[role='button'],
+.n-button,
+.n-button--default,
+.n-button--primary,
+.n-button--info,
+.n-button--success,
+.n-button--warning,
+.n-button--error {
+  border-radius: 0 !important;
+}
+
+input,
+textarea,
+select,
+.n-input,
+.n-input__input,
+.n-card,
+.n-card__content,
+.n-card__header,
+.n-card__footer {
+  border-radius: 0 !important;
+}
+
+.n-card,
+.n-data-table,
+.n-data-table th,
+.n-data-table td,
+.n-menu,
+.n-menu-item,
+.n-menu-item-content,
+.n-layout-header,
+.n-layout-sider,
+.n-layout-footer,
+.n-modal,
+.n-form,
+.n-form-item,
+.n-input,
+.n-input-number,
+.n-select,
+.n-pagination,
+.n-table,
+.n-table thead,
+.n-table tbody,
+.n-table tr,
+.n-table td,
+.n-table th,
+.n-collapse,
+.n-collapse-item,
+.n-divider,
+.n-alert,
+.n-tooltip,
+.n-popover,
+.n-dropdown,
+.n-dropdown-menu,
+.n-dropdown-option,
+.n-message,
+.n-notification,
+.n-result,
+.n-empty,
+.n-tag,
+.n-avatar,
+.n-badge,
+.n-breadcrumb,
+.n-breadcrumb-item,
+.n-steps,
+.n-steps-step,
+.n-progress,
+.n-slider,
+.n-slider-handle,
+.n-switch,
+.n-checkbox,
+.n-checkbox-box,
+.n-radio,
+.n-radio-button,
+.n-tabs,
+.n-tab-pane,
+.n-tab-bar,
+.n-tree,
+.n-tree-node,
+.n-tree-node-content,
+.n-tree-node-switcher,
+.n-timeline,
+.n-timeline-item,
+.n-timeline-item-content,
+.n-skeleton,
+.n-scrollbar,
+.n-scrollbar-content,
+.n-spin,
+.n-spin-content,
+.n-drop-menu,
+.n-popconfirm {
+  border-radius: 0 !important;
+  border-color: #000000 !important;
+}
+
+/* Global button contrast on white pages */
+.n-button {
+  background: #f2f2f2;
+  box-shadow: 2px 2px 0 #000000;
+}
+
+.n-button:hover {
+  background: #ebebeb;
+}
+
+.n-button.n-button--primary-type {
+  background: #000000 !important;
+  color: #ffffff !important;
+  box-shadow: 2px 2px 0 #000000;
+}
+
+.n-button.n-button--primary-type:hover {
+  background: #111111 !important;
+}
+
+/* Table specific styles */
+.n-data-table {
+  border: 2px solid #000000;
+}
+
+.n-data-table th,
+.n-data-table td {
+  border: 1px solid #000000;
+}
+
+/* Form element borders */
+.n-input,
+.n-input-number,
+.n-select,
+.n-input .n-input__input-el {
+  border: 2px solid #000000 !important;
+}
+
+/* Modal styles */
+.n-modal {
+  border: 4px solid #000000;
+  box-shadow: inset 0 0 0 1px #000000;
+}
+
+/* Alert styles */
+.n-alert {
+  border: 2px solid #000000;
+  border-radius: 0;
+}
+
+/* Tag styles */
+.n-tag {
+  border: 1px solid #000000;
+  border-radius: 0;
+}
+
+@media (min-width: 1200px) {
   #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
+    width: min(100% - 80px, 1440px);
+    padding: 24px;
   }
+
+  body {
+    min-width: 1200px;
+  }
+}
+
+@media (max-width: 768px) {
+  #app {
+    width: 100%;
+    padding: 8px;
+  }
+
+  body {
+    min-width: auto;
+  }
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* ===================================================================
+ * Shared page components — industrial design system
+ * =================================================================== */
+
+/* Black header bar used on admin/content pages */
+.page-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 2px solid #000000;
+  background: #000000;
+  color: #ffffff;
+}
+
+.page-bar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.page-bar-title {
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+}
+
+.page-bar-sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* White bordered content panel */
+.content-panel {
+  border: 2px solid #000000;
+  background: #ffffff;
+  padding: 16px;
+}
+
+/* Section heading inside a content panel */
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #000000;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #000000;
+  margin-bottom: 12px;
+}
+
+/* Filter/search toolbar bar */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 2px solid #000000;
+  background: #ffffff;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* Result count line below filter bars */
+.result-count {
+  font-size: 13px;
+  color: #666666;
+  margin-bottom: 12px;
+}
+
+.result-count strong {
+  color: #000000;
+  font-weight: 700;
+}
+
+/* Dashed empty-state placeholder */
+.empty-state {
+  padding: 64px 0;
+  text-align: center;
+  border: 2px dashed #cccccc;
+}
+
+/* Right-aligned button row for modal footers */
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Inline form error message */
+.form-error {
+  padding: 8px 12px;
+  border: 1px solid #000000;
+  border-left: 4px solid #000000;
+  background: #f5f5f5;
+  font-size: 13px;
+  color: #000000;
+  margin-top: 8px;
 }

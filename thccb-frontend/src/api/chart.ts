@@ -33,7 +33,7 @@ export const chartApi = {
     interval: '10s' | '30s' | '1m' | '5m' | '15m' | '1h' | '1d',
     fromTs: string,
     toTs: string,
-    fill: boolean = true,
+    fill: boolean = false,
     limit: number = 5000,
     maxTrades: number = 200000
   ): Promise<CandleSeriesResponse> {

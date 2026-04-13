@@ -10,6 +10,7 @@ export class MarketStream {
 
   constructor() {
     // 初始化监听器映射
+    this.listeners.set('open', new Set())
     this.listeners.set('snapshot', new Set())
     this.listeners.set('trade', new Set())
     this.listeners.set('market_status', new Set())
@@ -43,18 +44,52 @@ export class MarketStream {
     }
   }
 
+  /** 运行时校验 SSE 事件结构是否合法 */
+  private isValidMarketEvent(data: unknown): data is MarketEvent {
+    if (typeof data !== 'object' || data === null) return false
+    const d = data as Record<string, unknown>
+    return (
+      typeof d.market_id === 'number' &&
+      typeof d.ts === 'string' &&
+      ['snapshot', 'trade', 'market_status', 'ping'].includes(d.type as string)
+    )
+  }
+
   // 设置事件处理器
   private setupEventHandlers() {
     if (!this.eventSource) return
 
+    const parsePayload = (raw: string): MarketEvent | null => {
+      try {
+        const parsed = JSON.parse(raw)
+        if (!this.isValidMarketEvent(parsed)) {
+          console.warn('[SSE] 收到非法事件格式:', parsed)
+          return null
+        }
+        return parsed
+      } catch (error) {
+        console.error('[SSE] JSON 解析失败:', error, raw)
+        return null
+      }
+    }
+
+    const handleNamedEvent = (eventType: MarketEvent['type']) => (event: MessageEvent) => {
+      const parsed = parsePayload(event.data)
+      if (!parsed) return
+      this.handleEvent({ ...parsed, type: eventType })
+    }
+
+    // 处理命名事件（后端使用 event: trade / market_status / snapshot / ping）
+    this.eventSource.addEventListener('snapshot', handleNamedEvent('snapshot'))
+    this.eventSource.addEventListener('trade', handleNamedEvent('trade'))
+    this.eventSource.addEventListener('market_status', handleNamedEvent('market_status'))
+    this.eventSource.addEventListener('ping', handleNamedEvent('ping'))
+
     // 处理消息事件
     this.eventSource.onmessage = (event) => {
-      try {
-        const data: MarketEvent = JSON.parse(event.data)
-        this.handleEvent(data)
-      } catch (error) {
-        console.error('Failed to parse event data:', error, event.data)
-      }
+      const data = parsePayload(event.data)
+      if (!data) return
+      this.handleEvent(data)
     }
 
     // 处理错误事件
@@ -81,15 +116,16 @@ export class MarketStream {
     this.eventSource.onopen = () => {
       console.log('EventSource connection opened')
       this.reconnectAttempts = 0
+      this.emit('open', { market_id: this.marketId })
     }
   }
 
   // 处理事件
   private handleEvent(event: MarketEvent) {
-    const { type, data } = event
+    const { type } = event
     
     // 触发对应类型的监听器
-    this.emit(type, data)
+    this.emit(type, event)
     
     // 如果是ping事件，可以忽略或处理心跳
     if (type === 'ping') {

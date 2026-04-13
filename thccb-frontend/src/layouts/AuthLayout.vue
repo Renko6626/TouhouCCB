@@ -1,133 +1,199 @@
 <script setup lang="ts">
-import { NLayout, NLayoutContent, NLayoutFooter } from 'naive-ui'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
-
-// 页面标题
-const pageTitle = route.meta?.title || '东方炒炒币'
+const pageTitle = route.meta?.title as string | undefined
 </script>
 
 <template>
-  <NLayout class="min-h-screen bg-gradient-to-br from-primary-50 to-gray-50 dark:from-gray-900 dark:to-gray-800">
-    <!-- 主要内容区域 -->
-    <NLayoutContent class="flex items-center justify-center p-4">
-      <div class="w-full max-w-md">
-        <!-- Logo和标题 -->
-        <div class="text-center mb-8">
-          <div class="flex justify-center mb-4">
-            <div class="w-16 h-16 bg-primary-500 rounded-full flex items-center justify-center">
-              <span class="text-white text-2xl font-bold">T</span>
-            </div>
-          </div>
-          <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-            东方炒炒币
-          </h1>
-          <p class="text-gray-600 dark:text-gray-400">
-            预测市场交易平台
-          </p>
+  <div class="auth-root">
+    <!-- 背景网格纹理 -->
+    <div class="auth-bg-grid"></div>
+
+    <div class="auth-wrapper">
+      <!-- 品牌区 -->
+      <div class="auth-brand">
+        <router-link to="/" class="brand-link">
+          <div class="brand-logo">T</div>
+          <span class="brand-name">东方炒炒币</span>
+        </router-link>
+        <p class="brand-tagline">预测市场交易平台</p>
+      </div>
+
+      <!-- 认证卡片 -->
+      <div class="auth-card">
+        <!-- 卡片标题栏 -->
+        <div v-if="pageTitle" class="auth-card-header">
+          <span class="auth-card-title">{{ pageTitle }}</span>
         </div>
 
-        <!-- 认证卡片 -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8">
-          <!-- 页面标题 -->
-          <div class="text-center mb-6">
-            <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-200">
-              {{ pageTitle }}
-            </h2>
-            <p v-if="route.meta?.description" class="text-gray-600 dark:text-gray-400 mt-2">
-              {{ route.meta.description }}
-            </p>
-          </div>
-
-          <!-- 页面内容 -->
+        <!-- 页面内容 -->
+        <div class="auth-card-body">
           <slot>
             <router-view />
           </slot>
+        </div>
 
-          <!-- 底部链接 -->
-          <div class="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <div class="flex justify-between text-sm">
-              <router-link 
-                v-if="route.name !== 'login'" 
-                to="/auth/login" 
-                class="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              >
-                已有账号？立即登录
-              </router-link>
-              <router-link 
-                v-if="route.name !== 'register'" 
-                to="/auth/register" 
-                class="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-              >
-                没有账号？立即注册
-              </router-link>
-              <router-link 
-                v-if="route.name === 'login'" 
-                to="/" 
-                class="text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-300"
-              >
-                返回首页
-              </router-link>
-            </div>
-          </div>
+        <!-- 底部导航链接 -->
+        <div class="auth-card-footer">
+          <router-link v-if="route.name !== 'login'" to="/auth/login" class="auth-link">
+            已有账号？立即登录
+          </router-link>
+          <router-link v-if="route.name !== 'register'" to="/auth/register" class="auth-link">
+            没有账号？立即注册
+          </router-link>
+          <router-link to="/" class="auth-link auth-link-muted">← 返回首页</router-link>
         </div>
       </div>
-    </NLayoutContent>
 
-    <!-- 底部 -->
-    <NLayoutFooter class="py-4 text-center text-gray-500 dark:text-gray-400 text-sm">
-      <div class="container mx-auto px-4">
-        <p>© 2026 东方炒炒币预测市场交易平台. 保留所有权利.</p>
-        <p class="mt-1">
-          <router-link to="/about" class="hover:text-primary-600 dark:hover:text-primary-400">
-            关于我们
-          </router-link>
-          <span class="mx-2">•</span>
-          <a href="#" class="hover:text-primary-600 dark:hover:text-primary-400">
-            服务条款
-          </a>
-          <span class="mx-2">•</span>
-          <a href="#" class="hover:text-primary-600 dark:hover:text-primary-400">
-            隐私政策
-          </a>
-        </p>
+      <!-- 底部版权 -->
+      <div class="auth-footer">
+        © {{ new Date().getFullYear() }} 东方炒炒币
       </div>
-    </NLayoutFooter>
-  </NLayout>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.min-h-screen {
+.auth-root {
   min-height: 100vh;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
 }
 
-/* 动画效果 */
-.bg-gradient-to-br {
-  background-size: 400% 400%;
-  animation: gradient 15s ease infinite;
+/* 细密网格背景 */
+.auth-bg-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0,0,0,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,0,0,0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  z-index: 0;
 }
 
-@keyframes gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
+.auth-wrapper {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
-/* 响应式调整 */
-@media (max-width: 640px) {
-  .max-w-md {
-    max-width: 100%;
+/* 品牌区 */
+.auth-brand {
+  margin-bottom: 28px;
+}
+
+.brand-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  margin-bottom: 6px;
+}
+
+.brand-logo {
+  width: 40px;
+  height: 40px;
+  background: #000000;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  font-size: 22px;
+  font-weight: 700;
+  color: #000000;
+  letter-spacing: 0.02em;
+}
+
+.brand-tagline {
+  font-size: 13px;
+  color: #666666;
+  margin-left: 50px;
+}
+
+/* 认证卡片 */
+.auth-card {
+  border: 4px solid #000000;
+  background: #ffffff;
+  box-shadow: 8px 8px 0 #000000;
+}
+
+.auth-card-header {
+  border-bottom: 2px solid #000000;
+  padding: 14px 24px;
+  background: #000000;
+}
+
+.auth-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.auth-card-body {
+  padding: 28px 24px 20px;
+}
+
+.auth-card-footer {
+  border-top: 2px solid #000000;
+  padding: 14px 24px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #f5f5f5;
+}
+
+.auth-link {
+  font-size: 13px;
+  color: #000000;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 500;
+}
+
+.auth-link:hover {
+  color: #333333;
+}
+
+.auth-link-muted {
+  margin-left: auto;
+  color: #666666;
+  font-weight: 400;
+}
+
+.auth-footer {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #999999;
+}
+
+@media (max-width: 480px) {
+  .auth-wrapper {
+    padding: 24px 12px;
   }
-  
-  .p-8 {
-    padding: 1.5rem;
+  .auth-card-body {
+    padding: 20px 16px 16px;
+  }
+  .auth-card-footer {
+    padding: 12px 16px;
   }
 }
 </style>

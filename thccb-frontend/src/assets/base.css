@@ -1,53 +1,105 @@
-/* color palette from <https://github.com/vuejs/theme> */
+/* color palette for industrial high-contrast black & white theme */
 :root {
   --vt-c-white: #ffffff;
-  --vt-c-white-soft: #f8f8f8;
-  --vt-c-white-mute: #f2f2f2;
+  --vt-c-white-soft: #f0f0f0;
+  --vt-c-white-mute: #e0e0e0;
 
-  --vt-c-black: #181818;
-  --vt-c-black-soft: #222222;
-  --vt-c-black-mute: #282828;
+  --vt-c-black: #000000;
+  --vt-c-black-soft: #333333;
+  --vt-c-black-mute: #666666;
 
-  --vt-c-indigo: #2c3e50;
+  --vt-c-divider-light-1: rgba(0, 0, 0, 0.8);
+  --vt-c-divider-light-2: rgba(0, 0, 0, 0.6);
+  --vt-c-divider-dark-1: rgba(255, 255, 255, 0.9);
+  --vt-c-divider-dark-2: rgba(255, 255, 255, 0.7);
 
-  --vt-c-divider-light-1: rgba(60, 60, 60, 0.29);
-  --vt-c-divider-light-2: rgba(60, 60, 60, 0.12);
-  --vt-c-divider-dark-1: rgba(84, 84, 84, 0.65);
-  --vt-c-divider-dark-2: rgba(84, 84, 84, 0.48);
-
-  --vt-c-text-light-1: var(--vt-c-indigo);
-  --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
-  --vt-c-text-dark-1: var(--vt-c-white);
-  --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
+  --vt-c-text-light-1: #000000;
+  --vt-c-text-light-2: rgba(0, 0, 0, 0.7);
+  --vt-c-text-dark-1: #ffffff;
+  --vt-c-text-dark-2: rgba(255, 255, 255, 0.8);
 }
 
-/* semantic color variables for this project */
+/* semantic color variables for this project - industrial style */
 :root {
   --color-background: var(--vt-c-white);
   --color-background-soft: var(--vt-c-white-soft);
   --color-background-mute: var(--vt-c-white-mute);
 
-  --color-border: var(--vt-c-divider-light-2);
-  --color-border-hover: var(--vt-c-divider-light-1);
+  --color-border: var(--vt-c-black);
+  --color-border-hover: var(--vt-c-black-soft);
+  --color-border-double: #000000; /* for double border effect */
 
   --color-heading: var(--vt-c-text-light-1);
   --color-text: var(--vt-c-text-light-1);
+  --color-text-muted: var(--vt-c-text-light-2);
 
   --section-gap: 160px;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+
+  /* 涨跌/盈亏色（唯一的彩色例外） */
+  --color-up: #16a34a;
+  --color-down: #dc2626;
+  --color-up-bg: #f0fdf4;
+  --color-down-bg: #fef2f2;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-background: var(--vt-c-black);
-    --color-background-soft: var(--vt-c-black-soft);
-    --color-background-mute: var(--vt-c-black-mute);
+/* Industrial style double border utility class */
+.double-border {
+  border: 2px solid var(--color-border-double);
+  box-shadow: 0 0 0 2px var(--color-border-double);
+}
 
-    --color-border: var(--vt-c-divider-dark-2);
-    --color-border-hover: var(--vt-c-divider-dark-1);
+/*
+ * Industrial Frame Style
+ * 外侧黑色粗线 + 内侧两层黑色细线 + 45deg 角部弯折装饰 + 白底
+ */
+.industrial-frame {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  border: 4px solid #000000;
+  border-radius: 0;
+}
 
-    --color-heading: var(--vt-c-text-dark-1);
-    --color-text: var(--vt-c-text-dark-2);
-  }
+.industrial-frame::before,
+.industrial-frame::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* 第一层内侧细线框 */
+.industrial-frame::before {
+  inset: 2px;
+  background:
+    linear-gradient(#000000, #000000) top center / calc(100% - 20px) 1px no-repeat,
+    linear-gradient(#000000, #000000) bottom center / calc(100% - 20px) 1px no-repeat,
+    linear-gradient(#000000, #000000) left center / 1px calc(100% - 20px) no-repeat,
+    linear-gradient(#000000, #000000) right center / 1px calc(100% - 20px) no-repeat,
+    linear-gradient(135deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) top left / 10px 10px no-repeat,
+    linear-gradient(225deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) top right / 10px 10px no-repeat,
+    linear-gradient(315deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) bottom right / 10px 10px no-repeat,
+    linear-gradient(45deg, transparent 38%, #000000 38%, #000000 62%, transparent 62%) bottom left / 10px 10px no-repeat;
+}
+
+/* 第二层内侧细线框 + 45deg 四角装饰线 */
+.industrial-frame::after {
+  inset: 5px;
+  border: 1px solid #000000;
+}
+
+.industrial-frame > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Sharp corner utility classes */
+.sharp-corners,
+.sharp-corners * {
+  border-radius: 0 !important;
 }
 
 *,
@@ -66,19 +118,7 @@ body {
     color 0.5s,
     background-color 0.5s;
   line-height: 1.6;
-  font-family:
-    Inter,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    'Fira Sans',
-    'Droid Sans',
-    'Helvetica Neue',
-    sans-serif;
+  font-family: 'IBM Plex Sans', 'Segoe UI', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 15px;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

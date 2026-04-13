@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { MarketListItem, MarketDetail, TradeResponse, QuoteResponse, MarketTrade, LeaderboardItem } from '@/types/api'
+import type { MarketListItem, MarketDetail, MarketCreate, TradeResponse, QuoteResponse, MarketTrade, LeaderboardItem } from '@/types/api'
 import { marketApi } from '@/api/market'
 
 export const useMarketStore = defineStore('market', () => {
@@ -32,11 +32,11 @@ export const useMarketStore = defineStore('market', () => {
   )
 
   // Actions
-  const fetchMarkets = async () => {
+  const fetchMarkets = async (params?: { keyword?: string; tag?: string; include_halt?: boolean; include_settled?: boolean }) => {
     loading.value = true
     error.value = null
     try {
-      markets.value = await marketApi.getMarkets()
+      markets.value = await marketApi.getMarkets(params)
     } catch (err: any) {
       error.value = err.message || '获取市场列表失败'
       console.error('获取市场列表失败:', err)
@@ -141,11 +141,11 @@ export const useMarketStore = defineStore('market', () => {
   }
 
   // 管理员操作
-  const createMarket = async (title: string, description: string, liquidity_b: number, outcomes: string[]) => {
+  const createMarket = async (data: MarketCreate) => {
     loading.value = true
     error.value = null
     try {
-      const result = await marketApi.createMarket(title, description, liquidity_b, outcomes)
+      const result = await marketApi.createMarket(data)
       // 创建成功后重新获取市场列表
       await fetchMarkets()
       return { success: true, data: result }
@@ -200,11 +200,11 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const settleMarket = async (marketId: number, winningOutcomeId: number) => {
+  const settleMarket = async (marketId: number, winningOutcomeId: number, payout: number = 1.0) => {
     loading.value = true
     error.value = null
     try {
-      const result = await marketApi.settleMarket(marketId, winningOutcomeId)
+      const result = await marketApi.resolveMarket(marketId, winningOutcomeId, payout)
       // 更新当前市场状态
       if (currentMarket.value?.id === marketId) {
         await fetchMarketDetail(marketId)

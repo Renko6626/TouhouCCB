@@ -1,29 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi_users import schemas
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
-
-class UserRead(schemas.BaseUser[int]):
-    username: str
-    cash: float
-    debt: float
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class UserCreate(schemas.BaseUserCreate):
-    username: str
-    # 虽然这里允许输入，但 UserManager 逻辑会进行拦截
-    cash: float = 100.0
-    is_superuser: bool = False
-
-
-class UserUpdate(schemas.BaseUserUpdate):
-    username: Optional[str] = None
-    cash: Optional[float] = None
-    is_superuser: Optional[bool] = None
+from app.schemas.base import Money, Price
 
 
 class HoldingRead(BaseModel):
@@ -31,21 +11,31 @@ class HoldingRead(BaseModel):
     market_title: str
     outcome_id: int
     outcome_label: str
-    amount: float
+    amount: Money
+    cost_basis: Money
+    avg_price: Price          # cost_basis / amount
+    current_price: Price      # LMSR 当前价
+    market_value: Money       # amount * current_price
+    unrealized_pnl: Money     # market_value - cost_basis
 
 
 class UserSummary(BaseModel):
-    cash: float
-    debt: float
-    holdings_value: float
-    net_worth: float
+    cash: Money
+    debt: Money
+    holdings_value: Money
+    total_cost_basis: Money   # 所有持仓总成本
+    unrealized_pnl: Money     # holdings_value - total_cost_basis
+    net_worth: Money
     rank: str
 
 
 class TransactionRead(BaseModel):
     id: int
-    type: str  # buy, sell, settle
-    shares: float
-    price: float
-    cost: float
+    outcome_id: int
+    type: str  # buy, sell, settle, settle_lose
+    shares: Money
+    price: Price
+    gross: Money
+    fee: Money
+    cost: Money
     timestamp: datetime

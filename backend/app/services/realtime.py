@@ -15,18 +15,30 @@ class MarketEvent:
     ts: str                 # ISO UTC
     data: Dict[str, Any]
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
 class MarketEventBroker:
     """
     内存版 pubsub（单进程 OK，多进程会分裂）。
     """
+
+    MAX_SUBSCRIBERS_PER_MARKET = 500
+    QUEUE_MAXSIZE = 2000
+
     def __init__(self) -> None:
         self._topics: Dict[int, set[asyncio.Queue]] = {}
         self._lock = asyncio.Lock()
 
     async def subscribe(self, market_id: int) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue(maxsize=2000)
         async with self._lock:
-            self._topics.setdefault(market_id, set()).add(q)
+            subs = self._topics.setdefault(market_id, set())
+            if len(subs) >= self.MAX_SUBSCRIBERS_PER_MARKET:
+                raise RuntimeError(f"市场 {market_id} 订阅者已满（上限 {self.MAX_SUBSCRIBERS_PER_MARKET}）")
+            q: asyncio.Queue = asyncio.Queue(maxsize=self.QUEUE_MAXSIZE)
+            subs.add(q)
         return q
 
     async def unsubscribe(self, market_id: int, q: asyncio.Queue) -> None:
@@ -47,12 +59,22 @@ class MarketEventBroker:
         )
         async with self._lock:
             subs = list(self._topics.get(market_id, set()))
-        # 尽量不阻塞发布者：慢消费者就丢弃
+
+        dead_queues = []
         for q in subs:
             try:
                 q.put_nowait(evt)
             except asyncio.QueueFull:
-                pass
+                dead_queues.append(q)
+                _logger.warning(f"SSE queue full for market {market_id}, removing slow consumer")
+
+        # 清理慢消费者
+        if dead_queues:
+            async with self._lock:
+                s = self._topics.get(market_id)
+                if s:
+                    for q in dead_queues:
+                        s.discard(q)
 
 BROKER = MarketEventBroker()
 

@@ -1,4 +1,5 @@
-from typing import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator, AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlmodel import SQLModel
@@ -7,17 +8,25 @@ from app.core.config import settings
 
 
 DATABASE_URL = settings.build_db_url()
+IS_SQLITE = DATABASE_URL.startswith("sqlite+aiosqlite://")
 
-# MySQL 异步引擎（推荐 asyncmy；若你用 aiomysql 也一样）
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=settings.DB_ECHO,          # 建议从配置读，而不是写死 True
-    pool_pre_ping=True,             # ✅ MySQL 常见断连：每次取连接先 ping
-    pool_recycle=settings.DB_POOL_RECYCLE,  # ✅ 防止 MySQL wait_timeout 导致连接失效
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    # isolation_level="READ COMMITTED",     # 可选：你想更贴近交易系统可显式设
-)
+engine_kwargs = {
+    "echo": settings.DB_ECHO,
+}
+
+if IS_SQLITE:
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_recycle": settings.DB_POOL_RECYCLE,
+            "pool_size": settings.DB_POOL_SIZE,
+            "max_overflow": settings.DB_MAX_OVERFLOW,
+        }
+    )
+
+engine = create_async_engine(DATABASE_URL, **engine_kwargs)
 
 # 异步 Session 工厂
 async_session_maker = async_sessionmaker(
@@ -35,3 +44,18 @@ async def init_db() -> None:
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         yield session
+
+
+@asynccontextmanager
+async def managed_transaction(session: AsyncSession) -> AsyncIterator[None]:
+    """Provide one safe write boundary for request-scoped AsyncSession."""
+    if session.in_transaction():
+        try:
+            yield
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+    else:
+        async with session.begin():
+            yield

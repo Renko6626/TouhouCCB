@@ -13,9 +13,7 @@ export const useUserStore = defineStore('user', () => {
   const error = ref<string | null>(null)
 
   // 计算属性
-  const totalHoldingsValue = computed(() => 
-    holdings.value.reduce((total, holding) => total + holding.amount, 0)
-  )
+  const totalHoldingsValue = computed(() => summary.value?.holdings_value ?? 0)
 
   const holdingsByMarket = computed(() => {
     const map = new Map<number, Holding[]>()
@@ -32,15 +30,13 @@ export const useUserStore = defineStore('user', () => {
     transactions.value.slice(0, 10) // 最近10条交易记录
   )
 
-  // Actions
-  const fetchSummary = async () => {
+  // Actions — manageLoading 参数控制是否由单个函数管理 loading 状态
+  // 当被 fetchAllUserData 并发调用时传 false，避免 loading 在并发中反复切换
+  const fetchSummary = async (manageLoading = true) => {
     const authStore = useAuthStore()
-    if (!authStore.isAuthenticated) {
-      return null
-    }
+    if (!authStore.isAuthenticated) return null
 
-    loading.value = true
-    error.value = null
+    if (manageLoading) { loading.value = true; error.value = null }
     try {
       summary.value = await userApi.getSummary()
       return summary.value
@@ -49,18 +45,15 @@ export const useUserStore = defineStore('user', () => {
       console.error('获取资产概览失败:', err)
       return null
     } finally {
-      loading.value = false
+      if (manageLoading) loading.value = false
     }
   }
 
-  const fetchHoldings = async () => {
+  const fetchHoldings = async (manageLoading = true) => {
     const authStore = useAuthStore()
-    if (!authStore.isAuthenticated) {
-      return []
-    }
+    if (!authStore.isAuthenticated) return []
 
-    loading.value = true
-    error.value = null
+    if (manageLoading) { loading.value = true; error.value = null }
     try {
       holdings.value = await userApi.getHoldings()
       return holdings.value
@@ -69,18 +62,15 @@ export const useUserStore = defineStore('user', () => {
       console.error('获取持仓明细失败:', err)
       return []
     } finally {
-      loading.value = false
+      if (manageLoading) loading.value = false
     }
   }
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (manageLoading = true) => {
     const authStore = useAuthStore()
-    if (!authStore.isAuthenticated) {
-      return []
-    }
+    if (!authStore.isAuthenticated) return []
 
-    loading.value = true
-    error.value = null
+    if (manageLoading) { loading.value = true; error.value = null }
     try {
       transactions.value = await userApi.getTransactions()
       return transactions.value
@@ -89,7 +79,7 @@ export const useUserStore = defineStore('user', () => {
       console.error('获取交易历史失败:', err)
       return []
     } finally {
-      loading.value = false
+      if (manageLoading) loading.value = false
     }
   }
 
@@ -103,9 +93,9 @@ export const useUserStore = defineStore('user', () => {
     error.value = null
     try {
       await Promise.all([
-        fetchSummary(),
-        fetchHoldings(),
-        fetchTransactions()
+        fetchSummary(false),
+        fetchHoldings(false),
+        fetchTransactions(false)
       ])
       return { success: true }
     } catch (err: any) {

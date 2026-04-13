@@ -1,11 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream
-
-from app.models.base import User, Position, Outcome, Market, Transaction
-from sqladmin import Admin, ModelView
 
 from dotenv import load_dotenv
 
@@ -14,18 +12,13 @@ load_dotenv()
 
 app = FastAPI(title="东方炒炒币 (Touhou Exchange)")
 
-# 配置 CORS
+# CORS — 从配置读取允许的源
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite 开发服务器
-        "http://localhost:3000",  # 备用端口
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # 启动时初始化数据库
@@ -46,10 +39,7 @@ app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 
+
 @app.get("/")
 async def root():
-    return {
-        "message": "欢迎来到大天狗交易所",
-        "docs": "/docs",
-        "admin": "/admin"
-    }
+    return {"message": "欢迎来到大天狗交易所", "docs": "/docs"}

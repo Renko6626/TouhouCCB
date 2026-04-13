@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import List, Dict, Any
 
 from fastapi import APIRouter, Depends
@@ -13,13 +14,15 @@ from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, Position, Transaction, Outcome, Market
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
-from app.services.lmsr import get_current_price
+from app.services.lmsr import get_current_price, quantize_cost, quantize_price
 
 router = APIRouter()
 
+ZERO = Decimal("0")
 
-def _rank_title(net_worth: float) -> str:
-    """幻想乡称号（可按规则书再调整）"""
+
+def _rank_title(net_worth: Decimal) -> str:
+    """幻想乡称号"""
     if net_worth > 50000:
         return "大天狗的座上宾"
     if net_worth > 10000:
@@ -36,11 +39,6 @@ async def get_user_summary(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    计算交易员的实时身价：
-    - 净值 (Net Worth) = 现金 - 负债 + 持仓市值
-    """
-    # 1) 取用户非零持仓，并预加载 outcome->market（避免异步懒加载）
     pos_stmt = (
         select(Position)
         .where(Position.user_id == user.id, Position.amount > 0)
@@ -49,40 +47,46 @@ async def get_user_summary(
     pos_res = await db.execute(pos_stmt)
     positions: List[Position] = pos_res.scalars().all()
 
-    holdings_value = 0.0
+    holdings_value = ZERO
+    total_cost_basis = ZERO
 
-    # 2) 逐市场计算 LMSR 价格（先做正确版本，后续可按 market_id 批量优化）
+    # 批量查出所有相关市场的 outcomes，避免 N+1
+    market_ids = list({pos.outcome.market_id for pos in positions})
+    outcomes_by_market: Dict[int, List[Outcome]] = {}
+    if market_ids:
+        all_outcomes_res = await db.execute(
+            select(Outcome)
+            .where(Outcome.market_id.in_(market_ids))
+            .order_by(Outcome.market_id, Outcome.id)
+        )
+        for o in all_outcomes_res.scalars().all():
+            outcomes_by_market.setdefault(o.market_id, []).append(o)
+
     for pos in positions:
         outcome: Outcome = pos.outcome
         market: Market = outcome.market
-
-        # 取该市场全部 outcomes（为 LMSR shares_list）
-        all_outcomes_stmt = (
-            select(Outcome)
-            .where(Outcome.market_id == market.id)
-            .order_by(Outcome.id)
-        )
-        all_outcomes_res = await db.execute(all_outcomes_stmt)
-        all_outcomes: List[Outcome] = all_outcomes_res.scalars().all()
+        all_outcomes = outcomes_by_market.get(market.id, [])
 
         shares_list = [float(o.total_shares) for o in all_outcomes]
         idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
         if idx is None:
-            # 数据异常：仓位指向的 outcome 不在 market outcomes 内
             continue
 
-        # ✅ 与 market.py 一致：取单个 outcome 的当前价格
-        current_price = float(get_current_price(shares_list, idx, float(market.liquidity_b)))
-        holdings_value += float(pos.amount) * current_price
+        price_f = get_current_price(shares_list, idx, float(market.liquidity_b))
+        holdings_value += pos.amount * quantize_cost(price_f)
+        total_cost_basis += pos.cost_basis
 
-    net_worth = float(user.cash) - float(user.debt) + float(holdings_value)
+    net_worth = user.cash - user.debt + holdings_value
+    unrealized_pnl = holdings_value - total_cost_basis
     rank = _rank_title(net_worth)
 
     return {
-        "cash": round(float(user.cash), 2),
-        "debt": round(float(user.debt), 2),
-        "holdings_value": round(float(holdings_value), 2),
-        "net_worth": round(float(net_worth), 2),
+        "cash": user.cash.quantize(Decimal("0.01")),
+        "debt": user.debt.quantize(Decimal("0.01")),
+        "holdings_value": holdings_value.quantize(Decimal("0.01")),
+        "total_cost_basis": total_cost_basis.quantize(Decimal("0.01")),
+        "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
+        "net_worth": net_worth.quantize(Decimal("0.01")),
         "rank": rank,
     }
 
@@ -92,10 +96,6 @@ async def get_my_holdings(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    获取详细持仓（含 market/outcome 信息）
-    - 不依赖 user.positions（避免异步懒加载）
-    """
     stmt = (
         select(Position)
         .where(Position.user_id == user.id, Position.amount > 0)
@@ -105,16 +105,47 @@ async def get_my_holdings(
     res = await db.execute(stmt)
     positions: List[Position] = res.scalars().all()
 
+    # 批量查 outcomes 用于 LMSR 定价
+    market_ids = list({pos.outcome.market_id for pos in positions})
+    outcomes_by_market: Dict[int, List[Outcome]] = {}
+    if market_ids:
+        all_outcomes_res = await db.execute(
+            select(Outcome)
+            .where(Outcome.market_id.in_(market_ids))
+            .order_by(Outcome.market_id, Outcome.id)
+        )
+        for o in all_outcomes_res.scalars().all():
+            outcomes_by_market.setdefault(o.market_id, []).append(o)
+
     results: List[HoldingRead] = []
     for pos in positions:
-        # 由于 selectinload，这里不会触发额外 DB IO
+        outcome: Outcome = pos.outcome
+        market: Market = outcome.market
+        all_outcomes = outcomes_by_market.get(market.id, [])
+
+        shares_list = [float(o.total_shares) for o in all_outcomes]
+        idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
+
+        if idx is not None:
+            price_d = quantize_price(get_current_price(shares_list, idx, float(market.liquidity_b)))
+        else:
+            price_d = ZERO
+
+        market_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
+        avg_price = quantize_price(float(pos.cost_basis) / float(pos.amount)) if pos.amount > ZERO else ZERO
+
         results.append(
             HoldingRead(
                 outcome_id=pos.outcome_id,
                 outcome_label=pos.outcome.label,
                 market_id=pos.outcome.market_id,
                 market_title=pos.outcome.market.title,
-                amount=round(float(pos.amount), 2),
+                amount=pos.amount.quantize(Decimal("0.01")),
+                cost_basis=pos.cost_basis.quantize(Decimal("0.01")),
+                avg_price=avg_price,
+                current_price=price_d,
+                market_value=market_value.quantize(Decimal("0.01")),
+                unrealized_pnl=(market_value - pos.cost_basis).quantize(Decimal("0.01")),
             )
         )
     return results

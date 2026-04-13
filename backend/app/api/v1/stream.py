@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
@@ -13,8 +14,11 @@ from sqlalchemy import select
 from app.core.database import get_async_session
 from app.models.base import Market, Outcome
 from app.schemas.market import MarketDetailRead, OutcomeQuoteRead
-from app.services.lmsr import get_current_price
+from app.services.lmsr import get_current_price, quantize_price
 from app.services.realtime import BROKER, MarketEvent, sse_pack
+
+# SSE 最大连接持续时间（秒）
+MAX_SSE_DURATION = 3600  # 1 小时
 
 router = APIRouter()
 
@@ -35,7 +39,7 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
 
     out_reads = []
     for i, o in enumerate(outcomes):
-        price = float(get_current_price(shares_list, i, b))
+        price = quantize_price(get_current_price(shares_list, i, b))
         is_winner = None
         if getattr(market, "winning_outcome_id", None) is not None:
             is_winner = (int(market.winning_outcome_id) == int(o.id))
@@ -44,8 +48,8 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
             "id": int(o.id),
             "label": str(o.label),
             "total_shares": float(o.total_shares),
-            "current_price": round(price, 6),
-            "payout": getattr(o, "payout", None),
+            "current_price": float(price),
+            "payout": float(o.payout) if o.payout is not None else None,
             "is_winner": is_winner,
         })
 
@@ -85,8 +89,13 @@ async def stream_market(
         raise HTTPException(status_code=404, detail="市场不存在")
 
     async def gen() -> AsyncGenerator[bytes, None]:
-        # 订阅
-        q = await BROKER.subscribe(market_id)
+        # 订阅（连接数超限时抛 RuntimeError）
+        try:
+            q = await BROKER.subscribe(market_id)
+        except RuntimeError:
+            raise HTTPException(status_code=503, detail="当前市场连接数已满，请稍后重试")
+
+        start_time = time.monotonic()
         try:
             # 先发 snapshot
             snap = await _build_snapshot(db, market_id)
@@ -98,10 +107,12 @@ async def stream_market(
             )
             yield sse_pack(first).encode("utf-8")
 
-            # 循环：等事件或心跳
+            # 循环：等事件或心跳，超过最大时长后断开
             while True:
+                if time.monotonic() - start_time > MAX_SSE_DURATION:
+                    break
                 try:
-                    evt = await asyncio.wait_for(q.get(), timeout=15.0)
+                    evt = await asyncio.wait_for(q.get(), timeout=25.0)
                     yield sse_pack(evt).encode("utf-8")
                 except asyncio.TimeoutError:
                     ping = MarketEvent(

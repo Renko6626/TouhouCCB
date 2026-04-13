@@ -1,4 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
+import NotFound from '@/pages/NotFound.vue'
 
 /**
  * 简化的路由定义 - 只包含实际存在的核心页面
@@ -45,6 +46,14 @@ export const routes: RouteRecordRaw[] = [
     ]
   },
 
+  // Casdoor OAuth2 回调（不挂在 /auth 父路由，避免 hideIfLoggedIn 误拦截）
+  {
+    path: '/auth/callback',
+    name: 'auth-callback',
+    component: () => import('@/pages/auth/Callback.vue'),
+    meta: { title: '登录中', requiresAuth: false },
+  },
+
   // 用户路由
   {
     path: '/user',
@@ -61,6 +70,16 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/user/Portfolio.vue'),
         meta: {
           title: '我的资产',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+      {
+        path: 'transactions',
+        name: 'transactions',
+        component: () => import('@/pages/user/Transactions.vue'),
+        meta: {
+          title: '交易记录',
           requiresAuth: true,
           requiresVerified: true
         }
@@ -97,34 +116,58 @@ export const routes: RouteRecordRaw[] = [
           requiresAuth: true,
           requiresVerified: true
         }
+      },
+      {
+        path: 'leaderboard',
+        name: 'leaderboard',
+        component: () => import('@/pages/market/Leaderboard.vue'),
+        meta: {
+          title: '财富排行榜',
+          requiresAuth: true,
+          requiresVerified: true
+        }
       }
     ]
   },
 
-  // 404页面 - 使用简单的组件
+  // 管理员路由（新增）
+  {
+    path: '/admin',
+    name: 'admin',
+    redirect: '/admin/market-manage',
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true
+    },
+    children: [
+      {
+        path: 'market-manage',
+        name: 'market-manage',
+        component: () => import('@/pages/admin/MarketManage.vue'),
+        meta: {
+          title: '市场管理',
+          requiresAuth: true,
+          requiresAdmin: true
+        }
+      },
+      {
+        path: 'system-monitor',
+        name: 'system-monitor',
+        component: () => import('@/pages/admin/SystemMonitor.vue'),
+        meta: {
+          title: '系统监控',
+          requiresAuth: true,
+          requiresAdmin: true
+        }
+      }
+    ]
+  },
+
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
-    component: {
-      template: `
-        <div class="min-h-screen flex items-center justify-center">
-          <div class="text-center">
-            <h1 class="text-4xl font-bold text-gray-800 dark:text-gray-200 mb-4">404</h1>
-            <p class="text-gray-600 dark:text-gray-400 mb-6">页面未找到</p>
-            <button 
-              @click="$router.push('/')"
-              class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700"
-            >
-              返回首页
-            </button>
-          </div>
-        </div>
-      `
-    },
-    meta: {
-      title: '页面未找到',
-      requiresAuth: false
-    }
+    component: NotFound,
+    meta: { title: '页面未找到', requiresAuth: false }
   }
 ]
 

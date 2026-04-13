@@ -7,6 +7,8 @@ export interface Market {
   liquidity_b: number
   status: 'trading' | 'halt' | 'settled'
   created_at: string
+  closes_at?: string | null
+  tags?: string[]
   winning_outcome_id?: number
   settled_at?: string
   settled_by_user_id?: number
@@ -17,6 +19,14 @@ export interface Outcome {
   label: string
   shares: number
   current_price: number
+  price_change_24h?: number | null
+  price_change_pct_24h?: number | null
+}
+
+export interface OrderBookEntry {
+  price: number
+  shares: number
+  total_shares?: number
 }
 
 export interface OutcomeQuote {
@@ -24,8 +34,10 @@ export interface OutcomeQuote {
   label: string
   total_shares: number
   current_price: number
-  payout?: number
-  is_winner?: boolean
+  payout?: number | null
+  is_winner?: boolean | null
+  price_change_24h?: number | null
+  price_change_pct_24h?: number | null
 }
 
 export interface MarketListItem {
@@ -34,6 +46,8 @@ export interface MarketListItem {
   description?: string
   liquidity_b: number
   status: string
+  closes_at?: string | null
+  tags?: string[]
   outcomes: Outcome[]
 }
 
@@ -44,6 +58,8 @@ export interface MarketDetail {
   status: string
   liquidity_b: number
   created_at: string
+  closes_at?: string | null
+  tags?: string[]
   winning_outcome_id?: number
   settled_at?: string
   settled_by_user_id?: number
@@ -55,8 +71,10 @@ export interface MarketDetail {
 export interface MarketCreate {
   title: string
   description?: string
-  liquidity_b: number  // > 0
-  outcomes: string[]   // 至少2个选项
+  liquidity_b: number
+  outcomes: string[]
+  closes_at?: string | null
+  tags?: string[]
 }
 
 export interface MarketCreateResponse {
@@ -68,13 +86,9 @@ export interface MarketCreateResponse {
 }
 
 // 结算相关类型
-export interface SettleRequest {
-  winning_outcome_id: number
-}
-
 export interface ResolveRequest {
   winning_outcome_id: number
-  payout: number  // >= 0
+  payout: number
 }
 
 export interface MarketStatusResponse {

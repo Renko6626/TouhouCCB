@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
 import { useUserStore } from '@/stores/user'
 import { useAuthStore } from '@/stores/auth'
-import { 
-  NButton, NCard, NGrid, NGridItem, NInputNumber, NSelect, 
-  NStatistic, NTag, NSpace, NSpin, NAlert, NDivider,
-  NForm, NFormItem, NRadioGroup, NRadio
-} from 'naive-ui'
-import type { SelectOption } from 'naive-ui'
+import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, useMessage } from 'naive-ui'
+import { useSSE } from '@/composables/useSSE'
+import type { MarketEvent } from '@/types/api'
+import TradePanel from '@/components/market/TradePanel.vue'
+import MarketStatus from '@/components/market/MarketStatus.vue'
+import OutcomeCard from '@/components/market/OutcomeCard.vue'
+import PriceChart from '@/components/chart/PriceChart.vue'
+import CandleChart from '@/components/chart/CandleChart.vue'
 
 const route = useRoute()
+const router = useRouter()
 const marketStore = useMarketStore()
 const userStore = useUserStore()
 const authStore = useAuthStore()
+const sse = useSSE()
+const message = useMessage()
 
 // 状态
 const loading = ref(false)
@@ -25,7 +30,11 @@ const marketId = computed(() => parseInt(route.params.id as string))
 const tradeType = ref<'buy' | 'sell'>('buy')
 const selectedOutcomeId = ref<number | null>(null)
 const shares = ref(1)
-const quoteResult = ref<any>(null)
+import type { QuoteResponse } from '@/types/api'
+const quoteResult = ref<QuoteResponse | null>(null)
+const activeChartType = ref<'price' | 'candle'>('candle')
+const candleRefreshToken = ref(0)
+let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 // 加载市场数据
 const loadMarketData = async () => {
@@ -39,18 +48,20 @@ const loadMarketData = async () => {
     ])
     // 默认选择第一个选项
     if (marketStore.currentMarket?.outcomes?.length) {
-      selectedOutcomeId.value = marketStore.currentMarket.outcomes[0].id
+      selectedOutcomeId.value = marketStore.currentMarket.outcomes[0]?.id ?? null
     }
   } finally {
     loading.value = false
   }
 }
 
-// 加载用户资产
+// 加载用户资产（并行请求）
 const loadUserData = async () => {
   if (authStore.isAuthenticated) {
-    await userStore.fetchSummary()
-    await userStore.fetchHoldings()
+    await Promise.all([
+      userStore.fetchSummary(),
+      userStore.fetchHoldings()
+    ])
   }
 }
 
@@ -58,27 +69,73 @@ const loadUserData = async () => {
 onMounted(() => {
   loadMarketData()
   loadUserData()
+  if (marketId.value) {
+    sse.connect(marketId.value)
+  }
+  sse.on('snapshot', handleRealtimeEvent)
+  sse.on('trade', handleRealtimeEvent)
+  sse.on('market_status', handleRealtimeEvent)
 })
 
-// 监听市场ID变化
+onBeforeUnmount(() => {
+  sse.off('snapshot', handleRealtimeEvent)
+  sse.off('trade', handleRealtimeEvent)
+  sse.off('market_status', handleRealtimeEvent)
+  sse.disconnect()
+  if (realtimeRefreshTimer) {
+    clearTimeout(realtimeRefreshTimer)
+    realtimeRefreshTimer = null
+  }
+  if (quoteTimer) {
+    clearTimeout(quoteTimer)
+    quoteTimer = null
+  }
+})
+
+// 监听市场ID变化：先断开旧连接再连新的
 watch(marketId, () => {
+  sse.disconnect()
   loadMarketData()
+  if (marketId.value) {
+    sse.connect(marketId.value)
+  }
 })
 
-// 获取选项选项
-const outcomeOptions = computed<SelectOption[]>(() => {
-  if (!marketStore.currentMarket?.outcomes) return []
-  
-  return marketStore.currentMarket.outcomes.map(outcome => ({
-    label: `${outcome.label} (当前价格: ¥${outcome.current_price.toFixed(2)})`,
-    value: outcome.id
-  }))
+const scheduleRealtimeRefresh = () => {
+  if (realtimeRefreshTimer) return
+  realtimeRefreshTimer = setTimeout(async () => {
+    realtimeRefreshTimer = null
+    if (!marketId.value) return
+    await Promise.all([
+      marketStore.fetchMarketDetail(marketId.value),
+      marketStore.fetchMarketTrades(marketId.value, 30),
+    ])
+  }, 300)
+}
+
+// 统一 SSE 事件处理（snapshot/trade/market_status 逻辑相同）
+const handleRealtimeEvent = (event: MarketEvent) => {
+  if (event.market_id !== marketId.value) return
+  // 交易执行期间暂停自动刷新，避免数据不一致
+  if (tradeLoading.value) return
+  candleRefreshToken.value += 1
+  scheduleRealtimeRefresh()
+}
+
+const realtimeStatusType = computed<'success' | 'warning'>(() => {
+  return sse.isConnected.value ? 'success' : 'warning'
+})
+
+const realtimeStatusText = computed(() => {
+  if (sse.isConnected.value) return '实时连接中'
+  if (sse.reconnectCount.value > 0) return `重连中 (${sse.reconnectCount.value})`
+  return '未连接'
 })
 
 // 获取当前选择的选项
 const selectedOutcome = computed(() => {
   if (!selectedOutcomeId.value || !marketStore.currentMarket?.outcomes) return null
-  return marketStore.currentMarket.outcomes.find(o => o.id === selectedOutcomeId.value)
+  return marketStore.currentMarket.outcomes.find((o: any) => o.id === selectedOutcomeId.value)
 })
 
 // 获取用户在该选项的持仓
@@ -94,10 +151,11 @@ const maxShares = computed(() => {
   }
   
   // 买入时根据用户现金计算最大可买份额
-  if (!selectedOutcome.value || !userStore.summary) return 100
-  
+  if (!selectedOutcome.value || !userStore.summary) return 0
+
   const cash = userStore.summary.cash
   const price = selectedOutcome.value.current_price
+  if (price <= 0) return 0
   return Math.floor(cash / price)
 })
 
@@ -115,13 +173,7 @@ const getQuote = async () => {
       tradeType.value
     )
     if (result?.data) {
-      // 计算衍生字段以保持兼容性
-      quoteResult.value = {
-        ...result.data,
-        price_per_share: result.data.avg_price,  // 使用avg_price作为单价
-        cost: result.data.net,                   // 使用net作为总成本
-        new_cash: undefined                      // 需要前端计算
-      }
+      quoteResult.value = result.data
     }
   } catch (error) {
     quoteResult.value = null
@@ -137,15 +189,22 @@ const estimatedNewCash = computed(() => {
     : userStore.summary.cash + Math.abs(netCost)
 })
 
+// 防抖获取报价，避免输入时连续发请求
+let quoteTimer: ReturnType<typeof setTimeout> | null = null
+const debouncedGetQuote = () => {
+  if (quoteTimer) clearTimeout(quoteTimer)
+  quoteTimer = setTimeout(() => getQuote(), 400)
+}
+
 // 监听交易参数变化
 watch([tradeType, selectedOutcomeId, shares], () => {
-  getQuote()
+  debouncedGetQuote()
 }, { immediate: true })
 
 // 执行交易
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
-  
+
   tradeLoading.value = true
   try {
     if (tradeType.value === 'buy') {
@@ -153,290 +212,200 @@ const executeTrade = async () => {
     } else {
       await marketStore.sellShares(selectedOutcomeId.value, shares.value)
     }
-    
+
+    message.success(`${tradeType.value === 'buy' ? '买入' : '卖出'}成功`)
+
     // 刷新数据
     await Promise.all([
       loadMarketData(),
       loadUserData()
     ])
-    
+
     // 重置表单
     shares.value = 1
+    quoteResult.value = null
+  } catch (err: any) {
+    message.error(err?.message || '交易失败，请重试')
   } finally {
     tradeLoading.value = false
   }
 }
 
-// 快速交易份额选项
-const quickShares = [1, 5, 10, 25, 50, 100]
 </script>
 
 <template>
   <div class="trading-view-page">
-    <!-- 页面标题 -->
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-2">
-        交易视图 - {{ marketStore.currentMarket?.title || '加载中...' }}
-      </h1>
-      <p class="text-gray-600 dark:text-gray-400">
-        买入或卖出市场选项份额
-      </p>
-    </div>
-
     <!-- 加载状态 -->
     <div v-if="loading" class="text-center py-12">
       <NSpin size="large" />
-      <p class="mt-4 text-gray-600 dark:text-gray-400">加载市场数据中...</p>
+      <p class="mt-4 text-black">加载市场数据中...</p>
     </div>
 
     <!-- 交易界面 -->
-    <div v-else-if="marketStore.currentMarket" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- 左侧：市场信息 -->
-      <div class="lg:col-span-2">
-        <NCard title="市场信息" class="mb-6">
-          <div class="space-y-4">
-            <div>
-              <h3 class="text-lg font-semibold mb-2">{{ marketStore.currentMarket.title }}</h3>
-              <p class="text-gray-600 dark:text-gray-400">
-                {{ marketStore.currentMarket.description }}
-              </p>
-            </div>
+    <div v-else-if="marketStore.currentMarket" class="space-y-6">
+      <!-- 市场概要栏 -->
+      <div class="market-summary-bar">
+        <div class="summary-main">
+          <h2 class="summary-title">{{ marketStore.currentMarket.title }}</h2>
+          <p class="summary-desc">{{ marketStore.currentMarket.description }}</p>
+        </div>
+        <div class="summary-meta">
+          <div class="summary-item">
+            <span class="summary-label">流动性</span>
+            <span class="summary-value">¥{{ marketStore.currentMarket.liquidity_b.toLocaleString() }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">选中选项</span>
+            <span class="summary-value">{{ selectedOutcome?.label || '未选择' }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">当前价格</span>
+            <span class="summary-value">
+              {{ selectedOutcome?.current_price?.toFixed(4) || '—' }}
+              <span
+                v-if="selectedOutcome?.price_change_pct_24h != null"
+                :style="{ color: selectedOutcome.price_change_pct_24h > 0 ? 'var(--color-up)' : selectedOutcome.price_change_pct_24h < 0 ? 'var(--color-down)' : '#888', fontSize: '12px', marginLeft: '6px', fontWeight: '700' }"
+              >
+                {{ selectedOutcome.price_change_pct_24h > 0 ? '+' : '' }}{{ selectedOutcome.price_change_pct_24h.toFixed(1) }}%
+              </span>
+            </span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">实时推送</span>
+            <span :class="['realtime-dot', sse.isConnected.value ? 'dot-on' : 'dot-off']">
+              {{ realtimeStatusText }}
+            </span>
+          </div>
+        </div>
+      </div>
 
-            <div class="grid grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <!-- 左侧：主图与补充信息 -->
+      <div>
+        <NCard class="mb-6">
+          <template #header>
+            <div class="flex items-center justify-between gap-4">
               <div>
-                <div class="text-sm text-gray-500">市场状态</div>
-                <NTag :type="marketStore.currentMarket.status === 'trading' ? 'success' : 'warning'">
-                  {{ marketStore.currentMarket.status === 'trading' ? '交易中' : '已暂停' }}
-                </NTag>
+                <span class="text-xs font-semibold uppercase tracking-[0.12em] text-[#888]">主视图</span>
+                <h2 class="mt-1 text-lg font-bold text-black">
+                  {{ activeChartType === 'candle' ? 'K线图' : '价格走势' }}
+                  <span class="text-sm font-normal text-[#555] ml-2">{{ selectedOutcome?.label || '请先选择选项' }}</span>
+                </h2>
               </div>
+              <div class="flex gap-2">
+                <NButton size="small" :type="activeChartType === 'price' ? 'primary' : 'default'" @click="activeChartType = 'price'">价格走势</NButton>
+                <NButton size="small" :type="activeChartType === 'candle' ? 'primary' : 'default'" @click="activeChartType = 'candle'">K线图</NButton>
+              </div>
+            </div>
+          </template>
+
+          <div class="h-[300px] sm:h-[400px] md:h-[560px]">
+            <PriceChart
+              v-if="activeChartType === 'price' && selectedOutcomeId && marketStore.currentMarket"
+              :outcome-id="selectedOutcomeId"
+              height="100%"
+            />
+            <CandleChart
+              v-else-if="selectedOutcomeId && marketStore.currentMarket"
+              :outcome-id="selectedOutcomeId"
+              :refresh-token="candleRefreshToken"
+              :auto-refresh-ms="sse.isConnected.value ? 0 : 6000"
+              height="100%"
+            />
+          </div>
+        </NCard>
+
+        <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.75fr)]">
+          <NCard>
+            <template #header>
+              <div class="flex items-center justify-between gap-4">
+                <span class="font-bold text-black">市场选项</span>
+                <MarketStatus :status="marketStore.currentMarket.status" />
+              </div>
+            </template>
+
+            <div class="space-y-4">
+
               <div>
-                <div class="text-sm text-gray-500">流动性</div>
-                <div class="text-lg font-semibold">
-                  ¥{{ marketStore.currentMarket.liquidity_b.toLocaleString() }}
+                <h4 class="font-semibold mb-3">市场选项</h4>
+                <div class="space-y-3">
+                  <OutcomeCard
+                    v-for="outcome in marketStore.currentMarket.outcomes"
+                    :key="outcome.id"
+                    :outcome="outcome"
+                    :is-selected="selectedOutcomeId === outcome.id"
+                    @click="selectedOutcomeId = outcome.id"
+                  />
                 </div>
               </div>
             </div>
+          </NCard>
 
-            <!-- 选项列表 -->
-            <div>
-              <h4 class="font-semibold mb-3">市场选项</h4>
-              <div class="space-y-3">
-                <div 
-                  v-for="outcome in marketStore.currentMarket.outcomes" 
-                  :key="outcome.id"
-                  class="p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-                  :class="{ 'border-primary-500 bg-primary-50 dark:bg-primary-900': selectedOutcomeId === outcome.id }"
-                  @click="selectedOutcomeId = outcome.id"
+          <div class="space-y-6">
+            <NCard title="最近成交" v-if="marketStore.marketTrades.length">
+              <div class="max-h-[320px] space-y-2 overflow-auto pr-1">
+                <div
+                  v-for="trade in marketStore.marketTrades.slice(0, 10)"
+                  :key="trade.id"
+                  class="flex justify-between items-center p-2"
+                  style="border-bottom: 1px solid #e0e0e0;"
                 >
-                  <div class="flex justify-between items-center">
-                    <div>
-                      <div class="font-medium">{{ outcome.label }}</div>
-                      <div class="text-sm text-gray-500">
-                        总份额: {{ outcome.total_shares.toLocaleString() }}
-                      </div>
-                    </div>
-                    <div class="text-right">
-                      <div class="text-lg font-bold text-primary-600 dark:text-primary-400">
-                        ¥{{ outcome.current_price.toFixed(2) }}
-                      </div>
-                      <div class="text-sm text-gray-500">
-                        赔付: ¥{{ outcome.payout?.toFixed(2) || '1.00' }}
-                      </div>
-                    </div>
+                  <div>
+                    <span class="font-medium text-black">
+                      {{ marketStore.currentMarket?.outcomes?.find((o: any) => o.id === trade.outcome_id)?.label || '未知选项' }}
+                    </span>
+                    <span class="text-sm ml-2" style="color:#666;">{{ trade.side === 'buy' ? '买入' : '卖出' }}</span>
+                  </div>
+                  <div class="text-right">
+                    <div class="font-medium text-black">{{ trade.shares }} 份</div>
+                    <div class="text-sm" style="color:#666;">¥{{ trade.gross.toFixed(2) }}</div>
                   </div>
                 </div>
               </div>
-            </div>
+            </NCard>
           </div>
-        </NCard>
-
-        <!-- 最近成交记录 -->
-        <NCard title="最近成交" v-if="marketStore.marketTrades.length">
-          <div class="space-y-2">
-            <div 
-              v-for="trade in marketStore.marketTrades.slice(0, 10)" 
-              :key="trade.id"
-              class="flex justify-between items-center p-2 border-b last:border-0"
-            >
-              <div>
-                <span class="font-medium">
-                  {{ marketStore.currentMarket?.outcomes?.find(o => o.id === trade.outcome_id)?.label || '未知选项' }}
-                </span>
-                <span class="text-sm text-gray-500 ml-2">{{ trade.side === 'buy' ? '买入' : '卖出' }}</span>
-              </div>
-              <div class="text-right">
-                <div class="font-medium">{{ trade.shares }} 份额</div>
-                <div class="text-sm text-gray-500">¥{{ trade.gross.toFixed(2) }}</div>
-              </div>
-            </div>
-          </div>
-        </NCard>
+        </div>
       </div>
 
       <!-- 右侧：交易面板 -->
-      <div>
-        <NCard title="交易面板">
-          <NForm>
-            <!-- 交易类型选择 -->
-            <NFormItem label="交易类型">
-              <NRadioGroup v-model:value="tradeType">
-                <NSpace>
-                  <NRadio value="buy">买入</NRadio>
-                  <NRadio value="sell" :disabled="!userHolding">卖出</NRadio>
-                </NSpace>
-              </NRadioGroup>
-            </NFormItem>
-
-            <!-- 选项选择 -->
-            <NFormItem label="选择选项">
-              <NSelect
-                v-model:value="selectedOutcomeId"
-                :options="outcomeOptions"
-                placeholder="请选择选项"
-                :loading="loading"
-              />
-            </NFormItem>
-
-            <!-- 份额输入 -->
-            <NFormItem label="交易份额">
-              <div class="space-y-3">
-                <NInputNumber
-                  v-model:value="shares"
-                  :min="1"
-                  :max="maxShares"
-                  :step="1"
-                  placeholder="输入交易份额"
-                  class="w-full"
-                />
-                
-                <!-- 快速选择 -->
-                <div class="flex flex-wrap gap-2">
-                  <NButton
-                    v-for="amount in quickShares"
-                    :key="amount"
-                    size="small"
-                    :type="shares === amount ? 'primary' : 'default'"
-                    @click="shares = amount"
-                    :disabled="amount > maxShares"
-                  >
-                    {{ amount }}
-                  </NButton>
-                  <NButton
-                    size="small"
-                    :type="shares === maxShares ? 'primary' : 'default'"
-                    @click="shares = maxShares"
-                  >
-                    最大
-                  </NButton>
-                </div>
-                
-                <div class="text-sm text-gray-500">
-                  最大可{{ tradeType === 'buy' ? '买入' : '卖出' }}: {{ maxShares }} 份额
-                  <span v-if="userHolding && tradeType === 'sell'">
-                    (当前持仓: {{ userHolding.amount }} 份额)
-                  </span>
-                </div>
-              </div>
-            </NFormItem>
-
-            <NDivider />
-
-            <!-- 交易报价 -->
-            <div v-if="quoteResult" class="mb-4">
-              <h4 class="font-semibold mb-2">交易预估</h4>
-              <div class="space-y-2">
-                <div class="flex justify-between">
-                  <span>份额数量:</span>
-                  <span class="font-medium">{{ shares }} 份额</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>单价:</span>
-                  <span class="font-medium">¥{{ quoteResult.price_per_share?.toFixed(2) || '0.00' }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>总成本:</span>
-                  <span class="font-medium text-primary-600 dark:text-primary-400">
-                    ¥{{ quoteResult.cost?.toFixed(2) || '0.00' }}
-                  </span>
-                </div>
-                <div class="flex justify-between">
-                  <span>交易后现金:</span>
-                  <span class="font-medium">¥{{ estimatedNewCash.toFixed(2) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 用户资产信息 -->
-            <div v-if="authStore.isAuthenticated && userStore.summary" class="mb-4">
-              <h4 class="font-semibold mb-2">您的资产</h4>
-              <div class="space-y-2">
-                <div class="flex justify-between">
-                  <span>现金:</span>
-                  <span class="font-medium">¥{{ userStore.summary.cash.toFixed(2) }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>负债:</span>
-                  <span class="font-medium">¥{{ userStore.summary.debt.toFixed(2) }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>持仓市值:</span>
-                  <span class="font-medium">¥{{ userStore.summary.holdings_value.toFixed(2) }}</span>
-                </div>
-                <div class="flex justify-between border-t pt-2">
-                  <span class="font-semibold">净值:</span>
-                  <span class="font-bold text-green-600 dark:text-green-400">
-                    ¥{{ userStore.summary.net_worth.toFixed(2) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <!-- 交易按钮 -->
-            <div class="mt-6">
-              <NButton
-                type="primary"
-                size="large"
-                :loading="tradeLoading"
-                :disabled="!selectedOutcomeId || shares <= 0 || shares > maxShares || !quoteResult"
-                @click="executeTrade"
-                class="w-full"
-              >
-                {{ tradeType === 'buy' ? '买入' : '卖出' }} {{ shares }} 份额
-              </NButton>
-              
-              <div v-if="quoteResult" class="mt-2 text-center text-sm text-gray-500">
-                预估成本: ¥{{ quoteResult.cost?.toFixed(2) || '0.00' }}
-              </div>
-            </div>
-          </NForm>
-        </NCard>
-
+      <div class="space-y-4 xl:sticky xl:top-6 self-start">
+        <TradePanel
+          :market="marketStore.currentMarket"
+          :selected-outcome-id="selectedOutcomeId"
+          :trade-type="tradeType"
+          :shares="shares"
+          :max-shares="maxShares"
+          :quote-result="quoteResult"
+          :estimated-new-cash="estimatedNewCash"
+          :user-holding="userHolding"
+          @update:selected-outcome-id="selectedOutcomeId = $event"
+          @update:trade-type="tradeType = $event"
+          @update:shares="shares = $event"
+          @execute-trade="executeTrade"
+        />
+        
         <!-- 交易提示 -->
-        <NAlert type="info" class="mt-4">
-          <template #icon>
-            <i class="i-mdi-information"></i>
-          </template>
-          <div class="text-sm">
-            <div class="font-medium mb-1">交易提示:</div>
-            <ul class="list-disc pl-4 space-y-1">
-              <li>价格随市场供需动态变化</li>
-              <li>买入份额后可在"我的资产"中查看</li>
-              <li>市场结算后，获胜选项的份额将按赔付价格兑换</li>
-            </ul>
-          </div>
-        </NAlert>
+        <div class="trade-tips">
+          <div class="tips-title">交易提示</div>
+          <ul class="tips-list">
+            <li>价格随市场供需动态变化</li>
+            <li>买入份额后可在「我的资产」中查看</li>
+            <li>市场结算后，获胜选项按赔付价格兑换</li>
+          </ul>
+        </div>
+      </div>
       </div>
     </div>
 
     <!-- 市场不存在 -->
     <div v-else class="text-center py-12">
-      <n-empty description="市场不存在或已被删除">
+      <NEmpty description="市场不存在或已被删除">
         <template #extra>
-          <NButton type="primary" @click="$router.push('/market/list')">
+          <NButton type="primary" @click="router.push('/market/list')">
             返回市场列表
           </NButton>
         </template>
-      </n-empty>
+      </NEmpty>
     </div>
   </div>
 </template>
@@ -445,5 +414,150 @@ const quickShares = [1, 5, 10, 25, 50, 100]
 .trading-view-page {
   max-width: 1400px;
   margin: 0 auto;
+}
+
+/* 市场概要栏 */
+.market-summary-bar {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  padding: 14px 18px;
+  border: 2px solid #000000;
+  background: #000000;
+  color: #ffffff;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.summary-main {
+  flex: 1;
+  min-width: 200px;
+}
+
+.summary-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+
+.summary-desc {
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+}
+
+.summary-meta {
+  display: flex;
+  gap: 24px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 实时状态指示 */
+.realtime-dot {
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.realtime-dot::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.dot-on {
+  color: #aaffaa;
+}
+
+.dot-on::before {
+  background: #44ff44;
+  box-shadow: 0 0 6px #44ff44;
+  animation: blink 2s ease-in-out infinite;
+}
+
+.dot-off {
+  color: rgba(255,255,255,0.4);
+}
+
+.dot-off::before {
+  background: #888888;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 交易提示 */
+.trade-tips {
+  border: 1px solid #cccccc;
+  background: #f8f8f8;
+  padding: 12px 16px;
+}
+
+.tips-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.tips-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tips-list li {
+  font-size: 12px;
+  color: #555555;
+  padding-left: 12px;
+  position: relative;
+}
+
+.tips-list li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: #000000;
 }
 </style>

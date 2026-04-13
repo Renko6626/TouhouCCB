@@ -1,19 +1,19 @@
-from datetime import datetime, timezone
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.services.realtime import BROKER
-from app.core.database import get_async_session
+from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
-from app.models.base import User, Market, Outcome, Position, Transaction
+from app.models.base import User, Market, Outcome, Position, Transaction, MarketStatus, TransactionType
 from app.schemas.market import (
     MarketCreate,
     TradeRequest,
     TradeResponse,
-    SettleRequest,
     ResolveRequest,
     SettleResult,
     MarketDetailRead,
@@ -23,11 +23,12 @@ from app.schemas.market import (
     LeaderboardItem,
     MarketTradeRead,
 )
-from app.services.lmsr import calculate_lmsr_cost, get_current_price
+from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 
 router = APIRouter()
 
-SELL_FEE_RATE = 0.00
+SELL_FEE_RATE = Decimal("0")
+ZERO = Decimal("0")
 
 
 # -----------------------------
@@ -81,27 +82,79 @@ async def _lock_outcome(db: AsyncSession, outcome_id: int) -> Outcome:
     return outcome
 
 
-def _build_prices_from_shares(outcomes: List[Outcome], shares_list: List[float], b: float) -> List[Dict[str, Any]]:
+async def _get_prices_24h_ago(db: AsyncSession, outcome_ids: List[int]) -> Dict[int, float]:
+    """
+    批量获取每个 outcome 在 24h 前的最后成交价。
+    返回 {outcome_id: price}，无成交的 outcome 不在 dict 中。
+    """
+    if not outcome_ids:
+        return {}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    # 用窗口函数取每个 outcome 在 cutoff 之前的最后一笔成交价
+    # row_number() OVER (PARTITION BY outcome_id ORDER BY timestamp DESC) = 1
+    sub = (
+        select(
+            Transaction.outcome_id,
+            Transaction.price,
+            func.row_number().over(
+                partition_by=Transaction.outcome_id,
+                order_by=Transaction.timestamp.desc(),
+            ).label("rn"),
+        )
+        .where(
+            and_(
+                Transaction.outcome_id.in_(outcome_ids),
+                Transaction.timestamp <= cutoff,
+            )
+        )
+        .subquery()
+    )
+
+    stmt = select(sub.c.outcome_id, sub.c.price).where(sub.c.rn == 1)
+    res = await db.execute(stmt)
+    return {row[0]: float(row[1]) for row in res.all() if row[1] and float(row[1]) > 0}
+
+
+def _shares_to_floats(outcomes: List[Outcome]) -> List[float]:
+    """Outcome.total_shares (Decimal) → float list，喂给 LMSR。"""
+    return [float(o.total_shares) for o in outcomes]
+
+
+def _build_prices_from_shares(
+    outcomes: List[Outcome],
+    shares_list: List[float],
+    b: float,
+    prices_24h_ago: Optional[Dict[int, float]] = None,
+) -> List[Dict[str, Any]]:
     out = []
     for i, o in enumerate(outcomes):
         p = get_current_price(shares_list, i, b)
-        out.append({
+        cur = float(quantize_price(p))
+        entry: Dict[str, Any] = {
             "id": o.id,
             "label": o.label,
-            "shares": float(shares_list[i]),
-            "current_price": round(float(p), 6),
-        })
+            "shares": float(o.total_shares),
+            "current_price": cur,
+        }
+        if prices_24h_ago is not None:
+            prev = prices_24h_ago.get(o.id)
+            if prev is not None and prev > 0:
+                entry["price_change_24h"] = round(cur - prev, 8)
+                entry["price_change_pct_24h"] = round((cur - prev) / prev * 100, 2)
+            else:
+                entry["price_change_24h"] = None
+                entry["price_change_pct_24h"] = None
+        out.append(entry)
     return out
 
 
 def _require_trading(market: Market):
-    if market.status != "trading":
+    if market.status != MarketStatus.TRADING:
         raise HTTPException(status_code=400, detail="市场当前不可交易")
-
-
-def _require_halt(market: Market):
-    if market.status != "halt":
-        raise HTTPException(status_code=400, detail="市场当前不在熔断期，无法结算")
+    if market.closes_at and datetime.now(timezone.utc) >= market.closes_at:
+        raise HTTPException(status_code=400, detail="市场已过交易截止时间")
 
 
 # ==========================================
@@ -118,13 +171,15 @@ async def create_market(
         title=data.title,
         description=data.description,
         liquidity_b=data.liquidity_b,
-        status="trading",
+        status=MarketStatus.TRADING,
+        closes_at=data.closes_at,
+        tags=",".join(data.tags) if data.tags else "",
     )
     db.add(new_market)
     await db.flush()
 
     for label in data.outcomes:
-        db.add(Outcome(market_id=new_market.id, label=label, total_shares=0.0))
+        db.add(Outcome(market_id=new_market.id, label=label, total_shares=ZERO))
 
     await db.commit()
     return {
@@ -136,96 +191,23 @@ async def create_market(
     }
 
 
-@router.post("/{market_id}/close", summary="关闭市场交易（仅限管理员）")
+@router.post("/{market_id:int}/close", summary="关闭市场交易（仅限管理员）")
 async def close_market(
     market_id: int,
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    # 用事务 + 锁 market 行，避免 close 与 settle 互相打架
-    async with db.begin():
+    async with managed_transaction(db):
         market = await _lock_market(db, market_id)
-        if market.status == "settled":
+        if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
-        market.status = "halt"
+        market.status = MarketStatus.HALT
+    await BROKER.publish(
+        market_id,
+        "market_status",
+        {"status": MarketStatus.HALT}
+    )
     return {"message": f"市场 {market.title} 已停止交易（熔断）"}
-
-
-@router.post("/{market_id}/settle", summary="结算市场（仅限管理员）")
-async def settle_market(
-    market_id: int,
-    req: SettleRequest,
-    admin: User = Depends(current_superuser),
-    db: AsyncSession = Depends(get_async_session),
-):
-    """
-    结算：赢家兑付 1.00/张，输家归零；兑付按“卖出”收 1% 手续费。
-    多进程安全：事务内锁 market + outcomes + positions + users。
-    """
-    async with db.begin():
-        market = await _lock_market(db, market_id)
-        _require_halt(market)
-
-        outcomes = await _lock_outcomes_for_market(db, market_id)
-        outcome_ids = [o.id for o in outcomes]
-        if req.winning_outcome_id not in outcome_ids:
-            raise HTTPException(status_code=400, detail="winning_outcome_id 不属于该市场")
-
-        # 标记结算
-        market.status = "settled"
-
-        # 锁住所有相关仓位（这里假设 Position 有 outcome_id 外键）
-        pos_res = await db.execute(
-            select(Position)
-            .where(Position.outcome_id.in_(outcome_ids))
-            .with_for_update()
-        )
-        positions = pos_res.scalars().all()
-
-        # 批量锁住相关用户
-        user_ids = list({p.user_id for p in positions})
-        users = {}
-        if user_ids:
-            user_res = await db.execute(
-                select(User).where(User.id.in_(user_ids)).with_for_update()
-            )
-            users = {u.id: u for u in user_res.scalars().all()}
-
-        for p in positions:
-            amt = float(p.amount)
-            if amt <= 0:
-                continue
-            u = users.get(p.user_id)
-            if not u:
-                continue
-
-            if p.outcome_id == req.winning_outcome_id:
-                gross = amt * 1.0
-                fee = gross * SELL_FEE_RATE
-                net = gross - fee
-                u.cash += net
-
-                db.add(Transaction(
-                    user_id=u.id,
-                    outcome_id=req.winning_outcome_id,
-                    type="settle_win",
-                    shares=amt,
-                    price=1.0,
-                    cost=-net,  # 负数表示现金流入（沿用你 sell 的风格）
-                ))
-            else:
-                db.add(Transaction(
-                    user_id=u.id,
-                    outcome_id=p.outcome_id,
-                    type="settle_lose",
-                    shares=amt,
-                    price=0.0,
-                    cost=0.0,
-                ))
-
-            p.amount = 0.0
-
-    return {"message": f"市场已结算：赢家 outcome_id={req.winning_outcome_id}（by {admin.username}）"}
 
 
 # ==========================================
@@ -233,41 +215,65 @@ async def settle_market(
 # ==========================================
 
 @router.get("/list", summary="获取所有活跃市场")
-async def list_markets(db: AsyncSession = Depends(get_async_session)):
-    res = await db.execute(
+async def list_markets(
+    keyword: str = Query(None, description="按标题搜索"),
+    tag: str = Query(None, description="按标签过滤"),
+    include_halt: bool = Query(False, description="是否包含熔断中的市场"),
+    include_settled: bool = Query(False, description="是否包含已结算的市场"),
+    db: AsyncSession = Depends(get_async_session),
+):
+    allowed = [MarketStatus.TRADING]
+    if include_halt:
+        allowed.append(MarketStatus.HALT)
+    if include_settled:
+        allowed.append(MarketStatus.SETTLED)
+
+    stmt = (
         select(Market)
-        .where(Market.status == "trading")
+        .where(Market.status.in_(allowed))
         .options(selectinload(Market.outcomes))
         .order_by(Market.created_at.desc())
     )
+
+    if keyword:
+        stmt = stmt.where(Market.title.contains(keyword))
+    if tag:
+        stmt = stmt.where(Market.tags.contains(tag))
+
+    res = await db.execute(stmt)
     markets = res.scalars().all()
+
+    # 批量查 24h 前价格
+    all_outcome_ids = [o.id for m in markets for o in m.outcomes]
+    prices_24h = await _get_prices_24h_ago(db, all_outcome_ids)
 
     output = []
     for m in markets:
         outcomes = list(m.outcomes)
-        shares_list = [float(o.total_shares) for o in outcomes]
+        shares_list = _shares_to_floats(outcomes)
+        tags_list = [t.strip() for t in m.tags.split(",") if t.strip()] if m.tags else []
         output.append({
             "id": m.id,
             "title": m.title,
             "description": m.description,
             "liquidity_b": float(m.liquidity_b),
             "status": m.status,
-            "outcomes": _build_prices_from_shares(outcomes, shares_list, float(m.liquidity_b)),
+            "closes_at": m.closes_at.isoformat() if m.closes_at else None,
+            "tags": tags_list,
+            "outcomes": _build_prices_from_shares(outcomes, shares_list, float(m.liquidity_b), prices_24h),
         })
     return output
 
 
-@router.get("/{market_id}", response_model=MarketDetailRead, summary="获取市场详情")
+@router.get("/{market_id:int}", response_model=MarketDetailRead, summary="获取市场详情")
 async def get_market_detail(
     market_id: int,
     db: AsyncSession = Depends(get_async_session),
 ):
-    # 1) Market
     market = await db.get(Market, market_id)
     if not market:
         raise HTTPException(status_code=404, detail="市场不存在")
 
-    # 2) Outcomes（显式查，避免 async 下 relationship 懒加载踩坑）
     o_res = await db.execute(
         select(Outcome)
         .where(Outcome.market_id == market.id)
@@ -277,29 +283,43 @@ async def get_market_detail(
     if not outcomes:
         raise HTTPException(status_code=400, detail="市场选项异常：无 outcomes")
 
-    shares_list = [float(o.total_shares) for o in outcomes]
+    shares_list = _shares_to_floats(outcomes)
     b = float(market.liquidity_b)
+
+    # 24h 前价格
+    outcome_ids = [o.id for o in outcomes]
+    prices_24h = await _get_prices_24h_ago(db, outcome_ids)
 
     out_reads: list[OutcomeQuoteRead] = []
     for i, o in enumerate(outcomes):
-        price = float(get_current_price(shares_list, i, b))
+        price = quantize_price(get_current_price(shares_list, i, b))
         is_winner = None
         if getattr(market, "winning_outcome_id", None) is not None:
             is_winner = (int(market.winning_outcome_id) == int(o.id))
+
+        prev = prices_24h.get(o.id)
+        cur_f = float(price)
+        if prev is not None and prev > 0:
+            change = round(cur_f - prev, 8)
+            change_pct = round((cur_f - prev) / prev * 100, 2)
+        else:
+            change = None
+            change_pct = None
 
         out_reads.append(
             OutcomeQuoteRead(
                 id=int(o.id),
                 label=str(o.label),
-                total_shares=float(o.total_shares),
-                current_price=round(price, 6),
-                payout=getattr(o, "payout", None),
+                total_shares=o.total_shares,
+                current_price=price,
+                payout=o.payout,
                 is_winner=is_winner,
+                price_change_24h=change,
+                price_change_pct_24h=change_pct,
             )
         )
 
-    # 3) last_trade_at（兼容 Transaction 是否有 market_id）
-    last_trade_at = None
+    # last_trade_at
     if hasattr(Transaction, "market_id"):
         tx_stmt = (
             select(Transaction.timestamp)
@@ -308,7 +328,6 @@ async def get_market_detail(
             .limit(1)
         )
     else:
-        # fallback：通过 Outcome.market_id 过滤
         tx_stmt = (
             select(Transaction.timestamp)
             .join(Outcome, Transaction.outcome_id == Outcome.id)
@@ -326,6 +345,8 @@ async def get_market_detail(
         status=str(market.status),
         liquidity_b=float(market.liquidity_b),
         created_at=market.created_at.replace(tzinfo=timezone.utc) if market.created_at.tzinfo is None else market.created_at,
+        closes_at=market.closes_at,
+        tags=[t.strip() for t in market.tags.split(",") if t.strip()] if market.tags else [],
 
         winning_outcome_id=getattr(market, "winning_outcome_id", None),
         settled_at=getattr(market, "settled_at", None),
@@ -334,63 +355,57 @@ async def get_market_detail(
         outcomes=out_reads,
         last_trade_at=last_trade_at,
     )
-    
+
+
 # ==========================================
 # 交易接口（登录用户）
 # ==========================================
+
 @router.post("/buy", response_model=TradeResponse, summary="买入胜券")
 async def buy_shares(
     req: TradeRequest,
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    多进程安全买入（MySQL 行锁 FOR UPDATE）：
-    锁顺序：Outcome -> Market -> Outcomes(同市场全部) -> User -> Position
-    """
-    shares = float(req.shares)
-    if shares <= 0:
+    shares_d = quantize_cost(float(req.shares))
+    if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
-    async with db.begin():
-        # 1) 锁目标 outcome（拿 market_id）
+    async with managed_transaction(db):
         outcome = await _lock_outcome(db, int(req.outcome_id))
-
-        # 2) 锁 market 并检查状态
         market = await _lock_market(db, int(outcome.market_id))
         _require_trading(market)
 
-        # 3) 锁该市场所有 outcomes（LMSR 状态）
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
 
-        # 4) 锁 user（防并发扣款）
         locked_user = await _lock_user(db, int(user.id))
 
-        # 5) LMSR 成本差
+        # LMSR 用 float 计算
         b = float(market.liquidity_b)
-        old_q = [float(o.total_shares) for o in all_outcomes]
-        old_cost = float(calculate_lmsr_cost(old_q, b))
+        old_q = _shares_to_floats(all_outcomes)
 
         new_q = list(old_q)
-        new_q[target_idx] += shares
-        new_cost = float(calculate_lmsr_cost(new_q, b))
+        new_q[target_idx] += float(shares_d)
 
-        pay = new_cost - old_cost
-        # 由于浮点误差，可能出现极小负数
-        if pay <= 1e-12:
+        old_cost_f = calculate_lmsr_cost(old_q, b)
+        new_cost_f = calculate_lmsr_cost(new_q, b)
+
+        # 边界：float → Decimal
+        pay = quantize_cost(new_cost_f - old_cost_f)
+        if pay <= ZERO:
             raise HTTPException(status_code=400, detail="订单异常：成本不应为非正")
 
-        if float(locked_user.cash) + 1e-12 < pay:
+        if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
 
-        # 6) 更新用户现金与市场份额
-        locked_user.cash = float(locked_user.cash) - pay
-        all_outcomes[target_idx].total_shares = new_q[target_idx]
+        # Decimal 精确运算
+        locked_user.cash -= pay
+        all_outcomes[target_idx].total_shares += shares_d
 
-        # 7) 锁 / 更新持仓
+        # 持仓
         pos_res = await db.execute(
             select(Position)
             .where(Position.user_id == locked_user.id, Position.outcome_id == outcome.id)
@@ -398,28 +413,23 @@ async def buy_shares(
         )
         position = pos_res.scalars().first()
         if not position:
-            position = Position(user_id=locked_user.id, outcome_id=outcome.id, amount=0.0)
+            position = Position(user_id=locked_user.id, outcome_id=outcome.id, amount=ZERO, cost_basis=ZERO)
             db.add(position)
-        position.amount = float(position.amount) + shares
+        position.amount += shares_d
+        position.cost_basis += pay
 
-        # 8) 交易记录（用于价格曲线 / K线）
-        avg_price = pay / shares
-        fee = 0.0
-        gross = pay  # buy 没手续费：gross=pay
+        # 交易记录
+        avg_price = quantize_price(float(pay) / float(shares_d))
 
         db.add(Transaction(
             user_id=locked_user.id,
             outcome_id=outcome.id,
-            type="buy",
-            shares=shares,
-
-            # ✅ 现金流：buy 为正支出（沿用你原记法）
-            cost=float(pay),
-
-            # ✅ 图表字段（若你已升级 Transaction）
-            price=float(avg_price),   # 手续费前单价（buy 就是 avg）
-            gross=float(gross),
-            fee=float(fee),
+            type=TransactionType.BUY,
+            shares=shares_d,
+            cost=pay,
+            price=avg_price,
+            gross=pay,
+            fee=ZERO,
         ))
 
     await BROKER.publish(
@@ -427,21 +437,20 @@ async def buy_shares(
         "trade",
         {
             "trade": {
-                "type": "buy",
+                "type": TransactionType.BUY,
                 "outcome_id": int(outcome.id),
-                "shares": float(req.shares),
+                "shares": float(shares_d),
                 "price": float(avg_price),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
     )
 
-    # 注意：出事务后 outcome / locked_user 仍是 ORM 对象，但字段值已更新
     return {
-        "shares": shares,
-        "cost": round(float(pay), 2),
-        "new_cash": round(float(locked_user.cash), 2),
-        "message": f"成功买入 {shares:g} 张 {outcome.label}（均价≈{avg_price:.6f}）",
+        "shares": float(shares_d),
+        "cost": float(pay.quantize(Decimal("0.01"))),
+        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "message": f"成功买入 {shares_d:f} 张 {outcome.label}（均价≈{avg_price}）",
     }
 
 
@@ -451,105 +460,102 @@ async def sell_shares(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    多进程安全卖出（MySQL 行锁 FOR UPDATE）：
-    锁顺序：Position -> Outcome -> Market -> Outcomes(同市场全部) -> User
-    """
-    shares = float(req.shares)
-    if shares <= 0:
+    shares_d = quantize_cost(float(req.shares))
+    if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
-    async with db.begin():
-        # 1) 锁 position 防并发卖出导致负仓
+    async with managed_transaction(db):
         pos_res = await db.execute(
             select(Position)
             .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
             .with_for_update()
         )
         position = pos_res.scalars().first()
-        if not position or float(position.amount) + 1e-12 < shares:
+        if not position or position.amount < shares_d:
             raise HTTPException(status_code=400, detail="持仓不足")
 
-        # 2) 锁 outcome / market
         outcome = await _lock_outcome(db, int(req.outcome_id))
         market = await _lock_market(db, int(outcome.market_id))
         _require_trading(market)
 
-        # 3) 锁该市场所有 outcomes（LMSR 状态）
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
 
-        # 4) 锁 user（防并发加钱/扣钱）
         locked_user = await _lock_user(db, int(user.id))
 
-        # 5) LMSR：卖出收益 = old_cost - new_cost
+        # LMSR 用 float 计算
         b = float(market.liquidity_b)
-        old_q = [float(o.total_shares) for o in all_outcomes]
-        if old_q[target_idx] + 1e-12 < shares:
+        old_q = _shares_to_floats(all_outcomes)
+        if old_q[target_idx] < float(shares_d):
             raise HTTPException(status_code=400, detail="市场总份额不足（异常状态）")
 
-        old_cost = float(calculate_lmsr_cost(old_q, b))
-
         new_q = list(old_q)
-        new_q[target_idx] -= shares
-        new_cost = float(calculate_lmsr_cost(new_q, b))
+        new_q[target_idx] -= float(shares_d)
 
-        proceeds = old_cost - new_cost
-        if proceeds < -1e-12:
-            raise HTTPException(status_code=400, detail="订单异常：收益不应为负")
-        proceeds = max(0.0, proceeds)  # 浮点抖动修正
+        old_cost_f = calculate_lmsr_cost(old_q, b)
+        new_cost_f = calculate_lmsr_cost(new_q, b)
 
-        fee = proceeds * SELL_FEE_RATE
+        # 边界：float → Decimal
+        proceeds = quantize_cost(old_cost_f - new_cost_f)
+        if proceeds < ZERO:
+            proceeds = ZERO
+
+        fee = (proceeds * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = proceeds - fee
 
-        # 6) 更新状态
-        locked_user.cash = float(locked_user.cash) + net
-        all_outcomes[target_idx].total_shares = new_q[target_idx]
-        position.amount = float(position.amount) - shares
+        # Decimal 精确运算
+        locked_user.cash += net
+        all_outcomes[target_idx].total_shares -= shares_d
 
-        # 7) 交易记录（用于价格曲线 / K线）
-        avg_price = (proceeds / shares) if shares > 0 else 0.0
+        # cost_basis 按卖出比例减少：卖掉 shares_d / amount 比例的成本
+        if position.amount > ZERO:
+            sold_ratio = shares_d / position.amount
+            position.cost_basis -= (position.cost_basis * sold_ratio).quantize(Decimal("0.000001"))
+        position.amount -= shares_d
+        # 清仓时确保 cost_basis 归零
+        if position.amount <= ZERO:
+            position.cost_basis = ZERO
+
+        # 交易记录
+        avg_price = quantize_price(float(proceeds) / float(shares_d)) if shares_d > ZERO else ZERO
 
         db.add(Transaction(
             user_id=locked_user.id,
             outcome_id=outcome.id,
-            type="sell",
-            shares=shares,
-
-            # ✅ 现金流：sell 为负数（表示现金流入）
-            cost=-float(net),
-
-            # ✅ 图表字段：K线应使用手续费前价格
-            price=float(avg_price),
-            gross=float(proceeds),
-            fee=float(fee),
+            type=TransactionType.SELL,
+            shares=shares_d,
+            cost=-net,
+            price=avg_price,
+            gross=proceeds,
+            fee=fee,
         ))
+
     await BROKER.publish(
         market.id,
         "trade",
         {
             "trade": {
-                "type": "sell",
+                "type": TransactionType.SELL,
                 "outcome_id": int(outcome.id),
-                "shares": float(req.shares),
-                "price": float(proceeds / shares if shares > 0 else 0.0),
+                "shares": float(shares_d),
+                "price": float(avg_price),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
     )
 
     return {
-        "shares": shares,
-        "cost": round(-float(net), 2),
-        "new_cash": round(float(locked_user.cash), 2),
-        "message": f"卖出成功，获得 {net:.2f}（手续费 {fee:.2f}，均价≈{avg_price:.6f}）",
+        "shares": float(shares_d),
+        "cost": float((-net).quantize(Decimal("0.01"))),
+        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
     }
 
 
 @router.post(
-    "/{market_id}/resolve",
+    "/{market_id:int}/resolve",
     response_model=SettleResult,
     summary="结算市场（指定赢家，发放兑付，仅管理员）",
     status_code=status.HTTP_200_OK,
@@ -560,24 +566,11 @@ async def resolve_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """
-    结算流程（幂等 + 强一致）：
-    1) 锁 market 行
-    2) 锁该 market 的 outcomes 行（与交易互斥）
-    3) 验证 winning_outcome_id 属于该 market
-    4) 若已 settled：直接返回（幂等）
-    5) 锁所有相关 positions（通过 join outcome.market_id 过滤）
-    6) 对赢家 outcome：按 amount * payout 发钱，清零仓位
-       对输家 outcome：清零仓位
-    7) 写入 Transaction(type="settle") 作为审计
-    8) 更新 market.status/settled_at/winning_outcome_id/settled_by_user_id
-    """
-    payout_unit = float(req.payout)
-    if payout_unit < 0:
+    payout_unit = quantize_cost(float(req.payout))
+    if payout_unit < ZERO:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
 
-    async with db.begin():
-        # 1) 锁 market
+    async with managed_transaction(db):
         m_res = await db.execute(
             select(Market).where(Market.id == market_id).with_for_update()
         )
@@ -585,21 +578,18 @@ async def resolve_market(
         if not market:
             raise HTTPException(status_code=404, detail="市场不存在")
 
-        # 幂等：如果已结算，直接返回
-        if market.status == "settled":
+        if market.status == MarketStatus.SETTLED:
             if market.winning_outcome_id is None or market.settled_at is None:
-                # 数据异常，但仍然告诉管理员
                 raise HTTPException(status_code=500, detail="市场已结算但结算字段缺失（数据异常）")
             return SettleResult(
                 market_id=market.id,
                 status=market.status,
                 winning_outcome_id=int(market.winning_outcome_id),
                 settled_at=market.settled_at,
-                total_payout=0.0,
+                total_payout=ZERO,
                 settled_positions=0,
             )
 
-        # 2) 锁 outcomes（与 buy/sell 的 outcomes 锁一致，从而互斥）
         o_res = await db.execute(
             select(Outcome)
             .where(Outcome.market_id == market.id)
@@ -610,16 +600,12 @@ async def resolve_market(
         if len(outcomes) < 2:
             raise HTTPException(status_code=400, detail="市场选项数量异常")
 
-        # 3) 验证赢家属于该市场
         winning = next((o for o in outcomes if o.id == req.winning_outcome_id), None)
         if not winning:
             raise HTTPException(status_code=400, detail="winning_outcome_id 不属于该市场")
 
-        # 建 outcome_id -> is_winner
         is_winner = {o.id: (o.id == winning.id) for o in outcomes}
 
-        # 4) 锁相关 positions（只锁这个 market 下的持仓）
-        # 通过 Outcome.market_id 过滤，避免锁全表
         p_stmt = (
             select(Position)
             .join(Outcome, Position.outcome_id == Outcome.id)
@@ -634,32 +620,27 @@ async def resolve_market(
         p_res = await db.execute(p_stmt)
         positions = p_res.scalars().all()
 
-        # 5) 批量计算兑付：赢家 amount * payout_unit
-        # 这里我们需要给用户加钱，所以要锁用户行；否则并发改 cash 会出问题
-        # 为了不 N+1，我们先聚合 payout_by_user
-        payout_by_user: dict[int, float] = {}
+        # Decimal 计算兑付
+        payout_by_user: dict[int, Decimal] = {}
         settled_positions = 0
 
         for pos in positions:
-            amt = float(pos.amount)
-            if amt <= 0:
+            if pos.amount <= ZERO:
                 continue
             settled_positions += 1
 
             if is_winner.get(pos.outcome_id, False):
-                payout_amt = amt * payout_unit
-                if payout_amt > 0:
-                    payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, 0.0) + payout_amt
+                payout_amt = pos.amount * payout_unit
+                if payout_amt > ZERO:
+                    payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
 
-            # 无论输赢，仓位清零（最简单规则）
-            pos.amount = 0.0
+            await db.delete(pos)
 
-        # 6) 给用户发钱（逐个锁 user 行并更新 cash，同时写 settle 交易记录）
-        total_payout = 0.0
+        total_payout = ZERO
         now = datetime.now(timezone.utc)
 
         for uid, pay in payout_by_user.items():
-            if pay <= 0:
+            if pay <= ZERO:
                 continue
 
             u_res = await db.execute(
@@ -667,52 +648,50 @@ async def resolve_market(
             )
             u = u_res.scalars().first()
             if not u:
-                # 极端情况：用户被删了？这里按你的业务决定。这里我选择报错回滚，避免账不平。
                 raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
 
-            u.cash = float(u.cash) + float(pay)
-            total_payout += float(pay)
+            u.cash += pay
+            total_payout += pay
 
             db.add(Transaction(
                 user_id=u.id,
-                market_id=market.id,
                 outcome_id=winning.id,
-                type="settle",
-                shares=0.0,
-                gross=float(pay),
-                fee=0.0,
-                price=0.0,
-                cost=-float(pay),   # ✅ 负数表示现金流入（与你 sell 一致）
+                type=TransactionType.SETTLE,
+                shares=ZERO,
+                gross=pay,
+                fee=ZERO,
+                price=payout_unit,
+                cost=-pay,
                 timestamp=now,
             ))
 
-        # 7) 写 outcome payout（可选）
         for o in outcomes:
-            o.payout = payout_unit if o.id == winning.id else 0.0
+            o.payout = payout_unit if o.id == winning.id else ZERO
 
-        # 8) 更新市场状态
-        market.status = "settled"
+        market.status = MarketStatus.SETTLED
         market.winning_outcome_id = winning.id
         market.settled_at = now
         market.settled_by_user_id = admin.id
+
     await BROKER.publish(
         market.id,
         "market_status",
         {
-            "status": "settled",
+            "status": MarketStatus.SETTLED,
             "winning_outcome_id": int(winning.id),
             "settled_at": now.isoformat(),
         }
     )
-    # 事务结束自动提交
+
     return SettleResult(
         market_id=market.id,
         status=market.status,
         winning_outcome_id=int(market.winning_outcome_id),
         settled_at=market.settled_at,
-        total_payout=round(float(total_payout), 6),
+        total_payout=total_payout,
         settled_positions=int(settled_positions),
     )
+
 
 @router.post("/quote", response_model=QuoteResponse, summary="下单预估（不真实成交）")
 async def quote_trade(
@@ -728,47 +707,56 @@ async def quote_trade(
     if not market:
         raise HTTPException(status_code=404, detail="市场不存在")
 
+    if market.status != MarketStatus.TRADING:
+        raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
+
     outcomes_res = await db.execute(
         select(Outcome).where(Outcome.market_id == market.id).order_by(Outcome.id)
     )
     outcomes = outcomes_res.scalars().all()
 
-    idx = next(i for i,o in enumerate(outcomes) if o.id == outcome.id)
+    idx = next((i for i, o in enumerate(outcomes) if o.id == outcome.id), None)
+    if idx is None:
+        raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
     b = float(market.liquidity_b)
     shares = float(req.shares)
 
-    old_q = [float(o.total_shares) for o in outcomes]
+    old_q = _shares_to_floats(outcomes)
     old_cost = calculate_lmsr_cost(old_q, b)
 
     new_q = list(old_q)
     if req.side == "buy":
         new_q[idx] += shares
         new_cost = calculate_lmsr_cost(new_q, b)
-        gross = new_cost - old_cost
-        fee = 0.0
+        gross = quantize_cost(new_cost - old_cost)
+        fee = ZERO
         net = gross
     else:
+        if new_q[idx] < shares:
+            raise HTTPException(status_code=400, detail="卖出数量超过市场总份额")
         new_q[idx] -= shares
         new_cost = calculate_lmsr_cost(new_q, b)
-        gross = old_cost - new_cost
-        fee = gross * SELL_FEE_RATE
+        gross = quantize_cost(old_cost - new_cost)
+        fee = (gross * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = gross - fee
 
-    avg_price = gross / shares if shares > 0 else 0.0
+    avg_price = quantize_price(float(gross) / shares) if shares > 0 else ZERO
     after_prices = _build_prices_from_shares(outcomes, new_q, b)
 
     return QuoteResponse(
         outcome_id=req.outcome_id,
         side=req.side,
-        shares=shares,
-        avg_price=round(avg_price, 6),
-        gross=round(gross, 6),
-        fee=round(fee, 6),
-        net=round(net, 6),
+        shares=quantize_cost(shares),
+        avg_price=avg_price,
+        gross=gross,
+        fee=fee,
+        net=net,
         after_prices=after_prices,
     )
+
+
 @router.get(
-    "/{market_id}/trades",
+    "/{market_id:int}/trades",
     response_model=List[MarketTradeRead],
     summary="市场逐笔成交"
 )
@@ -792,33 +780,37 @@ async def get_market_trades(
             id=tx.id,
             outcome_id=tx.outcome_id,
             side=tx.type,
-            shares=float(tx.shares),
-            price=float(tx.price),
-            gross=float(tx.gross),
-            fee=float(tx.fee),
+            shares=tx.shares,
+            price=tx.price,
+            gross=tx.gross,
+            fee=tx.fee,
             timestamp=tx.timestamp,
         )
         for tx in txs
     ]
-@router.post("/{market_id}/resume", summary="恢复市场交易（仅管理员）")
+
+
+@router.post("/{market_id:int}/resume", summary="恢复市场交易（仅管理员）")
 async def resume_market(
     market_id: int,
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    async with db.begin():
+    async with managed_transaction(db):
         market = await _lock_market(db, market_id)
-        if market.status != "halt":
+        if market.status == MarketStatus.SETTLED:
+            raise HTTPException(status_code=400, detail="市场已结算，无法恢复交易")
+        if market.status != MarketStatus.HALT:
             raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
-        market.status = "trading"
+        market.status = MarketStatus.TRADING
 
     await BROKER.publish(
         market.id,
         "market_status",
-        {"status": "trading"}
+        {"status": MarketStatus.TRADING}
     )
     return {"message": f"市场 {market.title} 已恢复交易"}
-from app.schemas.market import LeaderboardItem
+
 
 @router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富排行榜")
 async def leaderboard(
@@ -832,7 +824,7 @@ async def leaderboard(
 
     items = []
     for u in users:
-        net = float(u.cash - u.debt)
+        net = u.cash - u.debt
         rank = "初入幻想乡"
         if net > 500: rank = "人间之里商人"
         if net > 2000: rank = "命莲寺赞助者"
@@ -842,7 +834,7 @@ async def leaderboard(
         items.append(LeaderboardItem(
             user_id=u.id,
             username=u.username,
-            net_worth=round(net, 2),
+            net_worth=net.quantize(Decimal("0.01")),
             rank=rank
         ))
 
