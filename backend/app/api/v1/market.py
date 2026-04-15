@@ -423,8 +423,9 @@ async def buy_shares(
 
         # 交易记录（Decimal 直除，避免 float 往返）
         avg_price = quantize_price(pay / shares_d)
-        # 交易后瞬时市场价（K线用）
-        post_market_price = quantize_price(get_current_price(new_q, target_idx, b))
+        # 交易前后瞬时市场价（K线用：open=pre, close=post）
+        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
+        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -433,14 +434,15 @@ async def buy_shares(
             shares=shares_d,
             cost=pay,
             price=avg_price,
-            market_price=post_market_price,
+            pre_market_price=pre_mp,
+            post_market_price=post_mp,
             gross=pay,
             fee=ZERO,
         ))
 
     logger.info(
-        "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s market_price=%s new_cash=%s",
-        user.id, outcome.id, market.id, shares_d, pay, avg_price, post_market_price, locked_user.cash,
+        "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
+        user.id, outcome.id, market.id, shares_d, pay, avg_price, pre_mp, post_mp, locked_user.cash,
     )
 
     await BROKER.publish(
@@ -531,8 +533,9 @@ async def sell_shares(
 
         # 交易记录（Decimal 直除，避免 float 往返）
         avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
-        # 交易后瞬时市场价（K线用）
-        post_market_price = quantize_price(get_current_price(new_q, target_idx, b))
+        # 交易前后瞬时市场价（K线用）
+        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
+        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -541,14 +544,15 @@ async def sell_shares(
             shares=shares_d,
             cost=-net,
             price=avg_price,
-            market_price=post_market_price,
+            pre_market_price=pre_mp,
+            post_market_price=post_mp,
             gross=proceeds,
             fee=fee,
         ))
 
     logger.info(
-        "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s market_price=%s new_cash=%s",
-        user.id, outcome.id, market.id, shares_d, proceeds, fee, net, avg_price, post_market_price, locked_user.cash,
+        "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
+        user.id, outcome.id, market.id, shares_d, proceeds, fee, net, avg_price, pre_mp, post_mp, locked_user.cash,
     )
 
     await BROKER.publish(
