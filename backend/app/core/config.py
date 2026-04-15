@@ -67,7 +67,8 @@ class Settings(BaseSettings):
     CASDOOR_ORG_NAME: str = ""
     CASDOOR_APP_NAME: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Docker 容器内 .env 在 /app/.env (CWD)；本地开发在项目根 ../.env
+    model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     @property
     def is_production(self) -> bool:

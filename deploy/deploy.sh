@@ -40,7 +40,7 @@ health_check() {
 
 # 检测当前数据库后端（从 .env 读取）
 get_db_backend() {
-    grep -oP '^DB_BACKEND=\K\S+' "$PROJECT_ROOT/backend/.env" 2>/dev/null || echo "sqlite"
+    grep -oP '^DB_BACKEND=\K\S+' "$PROJECT_ROOT/.env" 2>/dev/null || echo "sqlite"
 }
 
 echo "===================================="
@@ -50,11 +50,11 @@ echo "===================================="
 
 # ── 0. 环境校验 ──
 log "[0/4] Validating environment..."
-[ -f "$PROJECT_ROOT/backend/.env" ] || fail "backend/.env not found"
+[ -f "$PROJECT_ROOT/.env" ] || fail ".env not found (copy from .env.example)"
 command -v docker >/dev/null 2>&1    || fail "docker not installed"
 docker compose version >/dev/null 2>&1 || fail "docker compose plugin not installed"
 
-if grep -q "^SECRET_KEY=change_me" "$PROJECT_ROOT/backend/.env" 2>/dev/null; then
+if grep -q "^SECRET_KEY=change_me" "$PROJECT_ROOT/.env" 2>/dev/null; then
     fail "SECRET_KEY is still the default value"
 fi
 

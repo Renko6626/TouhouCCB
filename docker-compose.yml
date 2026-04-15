@@ -32,7 +32,7 @@ services:
     ports:
       - "127.0.0.1:8004:8004"
     volumes:
-      - ./backend/.env:/app/.env:ro
+      - ./.env:/app/.env:ro
       - ./backend/data:/app/data
       - ./backups:/app/backups
     environment:

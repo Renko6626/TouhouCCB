@@ -83,41 +83,31 @@ echo "你的PAT" | docker login ghcr.io -u 你的GitHub用户名 --password-stdi
 
 ## 二、环境变量配置
 
-### 2.1 Docker Compose 根目录 `.env`
+### 2.1 项目 `.env`（唯一配置文件）
 
-docker-compose.yml 从项目根目录的 `.env` 读取变量（PostgreSQL 密码、容器 UID/GID）：
+整个项目只需要**一个 `.env` 文件**，放在项目根目录：
+
+- docker-compose.yml 自动读取（变量插值：PG_PASSWORD、UID/GID）
+- 后端容器挂载为 `/app/.env`（pydantic-settings 读取所有配置）
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`：
+编辑 `.env`，必须填写的项：
 
 ```ini
-# PostgreSQL 密码（必须与 backend/.env 中的 PG_PASSWORD 一致！）
-PG_PASSWORD=你的强密码
-
-# 容器内用户 UID:GID（用 id -u && id -g 查看你的值）
-UID=1007
-GID=1008
-```
-
-### 2.2 后端 `.env`
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-编辑 `backend/.env`，必须填写的项：
-
-```ini
-# 运行环境（生产必须设为 production）
+# 运行环境
 APP_ENV=production
 
-# 安全密钥（至少 32 字符）
+# 容器 UID/GID（用 id -u && id -g 查看）
+UID=1007
+GID=1008
+
+# 安全密钥
 SECRET_KEY=用下面的命令生成
 
-# 数据库（PG_PASSWORD 必须与根 .env 一致！）
+# 数据库
 DB_BACKEND=postgres
 PG_HOST=postgres
 PG_PASSWORD=你的强密码
@@ -474,7 +464,7 @@ rm -rf backend/venv
 
 ```
 TouhouCCB/
-├── .env                         # Docker Compose 变量（PG 密码、UID/GID，不提交）
+├── .env                         # 唯一配置文件（Docker + 后端共用，不提交）
 ├── .env.example                 # ↑ 模板
 ├── .github/workflows/ci.yml    # CI/CD（Docker 构建 + rsync + 部署）
 ├── docker-compose.yml           # Docker Compose 服务定义（backend + postgres）
@@ -485,8 +475,6 @@ TouhouCCB/
 ├── backend/
 │   ├── Dockerfile               # 后端 Docker 镜像定义
 │   ├── .dockerignore
-│   ├── .env                     # 后端环境变量（不提交）
-│   ├── .env.example
 │   ├── requirements.txt
 │   └── app/                     # FastAPI 应用代码
 ├── thccb-frontend/
