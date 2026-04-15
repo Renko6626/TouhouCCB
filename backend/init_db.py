@@ -26,13 +26,15 @@ async def init_db():
         return
 
     # 1. Drop & Create
+    is_pg = db_url.startswith("postgresql")
     async with engine.begin() as conn:
         print("-> DROP ALL TABLES")
         if is_sqlite:
             await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
         for table in reversed(SQLModel.metadata.sorted_tables):
-            await conn.execute(DropTable(table, if_exists=True))
+            # PostgreSQL 外键约束需要 CASCADE
+            await conn.execute(DropTable(table, if_exists=True, cascade=is_pg))
 
         if is_sqlite:
             await conn.execute(text("PRAGMA foreign_keys=ON"))
