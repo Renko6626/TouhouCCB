@@ -14,7 +14,7 @@ from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, Position, Transaction, Outcome, Market
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
-from app.services.lmsr import get_current_price, quantize_cost, quantize_price
+from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 
 router = APIRouter()
 
@@ -72,8 +72,15 @@ async def get_user_summary(
         if idx is None:
             continue
 
-        price_f = get_current_price(shares_list, idx, float(market.liquidity_b))
-        holdings_value += pos.amount * quantize_cost(price_f)
+        # 用 LMSR 成本差计算真实清算价值（考虑滑点），而非 瞬时价格 × 数量
+        b = float(market.liquidity_b)
+        old_cost = calculate_lmsr_cost(shares_list, b)
+        after_sell = list(shares_list)
+        after_sell[idx] -= float(pos.amount)
+        new_cost = calculate_lmsr_cost(after_sell, b)
+        liquidation_value = quantize_cost(old_cost - new_cost)
+
+        holdings_value += liquidation_value
         total_cost_basis += pos.cost_basis
 
     net_worth = user.cash - user.debt + holdings_value
@@ -127,11 +134,18 @@ async def get_my_holdings(
         idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
 
         if idx is not None:
-            price_d = quantize_price(get_current_price(shares_list, idx, float(market.liquidity_b)))
+            b = float(market.liquidity_b)
+            price_d = quantize_price(get_current_price(shares_list, idx, b))
+            # 真实清算价值 = 卖掉全部持仓 LMSR 实际返还金额（含滑点）
+            old_cost = calculate_lmsr_cost(shares_list, b)
+            after_sell = list(shares_list)
+            after_sell[idx] -= float(pos.amount)
+            new_cost = calculate_lmsr_cost(after_sell, b)
+            market_value = quantize_cost(old_cost - new_cost)
         else:
             price_d = ZERO
+            market_value = ZERO
 
-        market_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
         avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
         results.append(

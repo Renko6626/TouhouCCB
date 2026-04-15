@@ -32,6 +32,15 @@ const shares = ref(1)
 import type { QuoteResponse } from '@/types/api'
 const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
+const candleInterval = ref<'10s' | '30s' | '1m' | '5m' | '15m' | '1h'>('1m')
+const candleIntervalOptions = [
+  { label: '10秒', value: '10s' },
+  { label: '30秒', value: '30s' },
+  { label: '1分钟', value: '1m' },
+  { label: '5分钟', value: '5m' },
+  { label: '15分钟', value: '15m' },
+  { label: '1小时', value: '1h' },
+] as const
 const candleRefreshToken = ref(0)
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -296,9 +305,19 @@ const executeTrade = async () => {
                   <span class="text-sm font-normal text-[#555] ml-2">{{ selectedOutcome?.label || '请先选择选项' }}</span>
                 </h2>
               </div>
-              <div class="flex gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <NButton size="small" :type="activeChartType === 'price' ? 'primary' : 'default'" @click="activeChartType = 'price'">价格走势</NButton>
                 <NButton size="small" :type="activeChartType === 'candle' ? 'primary' : 'default'" @click="activeChartType = 'candle'">K线图</NButton>
+                <template v-if="activeChartType === 'candle'">
+                  <span class="text-xs text-[#888] ml-2">周期:</span>
+                  <NButton
+                    v-for="opt in candleIntervalOptions"
+                    :key="opt.value"
+                    size="tiny"
+                    :type="candleInterval === opt.value ? 'primary' : 'default'"
+                    @click="candleInterval = opt.value"
+                  >{{ opt.label }}</NButton>
+                </template>
               </div>
             </div>
           </template>
@@ -312,6 +331,7 @@ const executeTrade = async () => {
             <CandleChart
               v-else-if="selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
+              :interval="candleInterval"
               :refresh-token="candleRefreshToken"
               :auto-refresh-ms="sse.isConnected.value ? 0 : 6000"
               height="100%"
