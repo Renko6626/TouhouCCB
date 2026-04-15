@@ -1,19 +1,23 @@
 import math
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List
+from typing import List, Union
 
 # ── 量化精度 ──
 COST_QUANT  = Decimal("0.000001")    # 6 位小数：资金 / 份额
 PRICE_QUANT = Decimal("0.00000001")  # 8 位小数：价格
 
 
-def quantize_cost(value: float) -> Decimal:
-    """LMSR float 结果 → Decimal(16,6)，用于资金和份额。"""
+def quantize_cost(value: Union[float, Decimal]) -> Decimal:
+    """将 float 或 Decimal 量化到 Decimal(16,6)，用于资金和份额。"""
+    if isinstance(value, Decimal):
+        return value.quantize(COST_QUANT, rounding=ROUND_HALF_UP)
     return Decimal(str(value)).quantize(COST_QUANT, rounding=ROUND_HALF_UP)
 
 
-def quantize_price(value: float) -> Decimal:
-    """LMSR float 结果 → Decimal(16,8)，用于价格。"""
+def quantize_price(value: Union[float, Decimal]) -> Decimal:
+    """将 float 或 Decimal 量化到 Decimal(16,8)，用于价格。"""
+    if isinstance(value, Decimal):
+        return value.quantize(PRICE_QUANT, rounding=ROUND_HALF_UP)
     return Decimal(str(value)).quantize(PRICE_QUANT, rounding=ROUND_HALF_UP)
 
 

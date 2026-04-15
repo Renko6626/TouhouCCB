@@ -3,7 +3,7 @@ import type { User } from '@/types/api'
 
 export const authApi = {
   async oauthCallback(code: string, state: string): Promise<{ access_token: string; refresh_token: string }> {
-    return api.post('/api/v1/auth/callback', null, { params: { code, state } })
+    return api.post('/api/v1/auth/callback', { code, state })
   },
 
   async refreshToken(refresh_token: string): Promise<{ access_token: string }> {

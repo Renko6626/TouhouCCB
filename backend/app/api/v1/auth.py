@@ -1,64 +1,100 @@
 """
-认证路由 — Casdoor OAuth2 回调 + 当前用户信息。
+认证路由 — Casdoor OIDC 回调 + 当前用户信息。
 
 POST /api/v1/auth/callback   前端把 Casdoor 返回的 code 发过来，换取本站 JWT
+POST /api/v1/auth/refresh    用 refresh token 换取新的 access token
 GET  /api/v1/auth/me         返回当前登录用户信息
+
+不依赖 casdoor SDK，通过 .well-known/openid-configuration 自动发现端点。
 """
 
-import asyncio
+import logging
 from typing import Optional
+from decimal import Decimal
 
-from casdoor import CasdoorSDK
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from decimal import Decimal
-
-from pydantic import BaseModel
-
 from app.core.config import settings
 from app.core.database import get_async_session, managed_transaction
+from app.core.oidc import OIDCClient
 from app.core.users import create_access_token, create_refresh_token, verify_refresh_token, current_active_user
 from app.models.base import User
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
-# Casdoor SDK 实例（在模块加载时初始化，配置从环境变量读取）
-_casdoor = CasdoorSDK(
-    endpoint=settings.CASDOOR_ENDPOINT,
-    client_id=settings.CASDOOR_CLIENT_ID,
-    client_secret=settings.CASDOOR_CLIENT_SECRET,
-    certificate=settings.CASDOOR_CERTIFICATE,
-    org_name=settings.CASDOOR_ORG_NAME,
-    app_name=settings.CASDOOR_APP_NAME,
-)
+# OIDC 客户端实例（延迟初始化：首次请求时拉取 .well-known）
+_oidc: Optional[OIDCClient] = None
+
+
+def _get_oidc() -> OIDCClient:
+    """获取 OIDC 客户端单例。Casdoor 未配置时拒绝请求。"""
+    global _oidc
+    if _oidc is None:
+        if not settings.CASDOOR_ENDPOINT or not settings.CASDOOR_CLIENT_ID:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Casdoor SSO 未配置，无法使用 OAuth 登录",
+            )
+        _oidc = OIDCClient(
+            issuer_url=settings.CASDOOR_ENDPOINT,
+            client_id=settings.CASDOOR_CLIENT_ID,
+            client_secret=settings.CASDOOR_CLIENT_SECRET,
+        )
+    return _oidc
+
+
+class CallbackRequest(BaseModel):
+    code: str
+    state: Optional[str] = None
+    redirect_uri: Optional[str] = None
 
 
 @router.post("/callback", summary="Casdoor OAuth2 回调 — 换取本站 JWT")
 async def oauth_callback(
-    code: str,
-    state: Optional[str] = None,
+    body: CallbackRequest,
     db: AsyncSession = Depends(get_async_session),
 ):
     """
     前端在 /auth/callback 页面拿到 Casdoor 返回的 code，POST 到此接口。
-    1. 用 code 向 Casdoor 换 access_token
-    2. 解析 JWT，取出用户身份
-    3. 查找或创建本站用户记录（首次登录自动开户）
-    4. 颁发本站 JWT
+    1. 通过 OIDC .well-known 发现 token_endpoint
+    2. 用 code 向 Casdoor 换 access_token / id_token
+    3. 用 JWKS 验证 JWT，取出用户身份
+    4. 查找或创建本站用户记录（首次登录自动开户）
+    5. 颁发本站 JWT
     """
-    # SDK 调用是同步阻塞的，放到线程池避免阻塞事件循环
-    import logging
-    _logger = logging.getLogger(__name__)
+    oidc = _get_oidc()
+
+    # 构建 redirect_uri：前端可传入，否则用默认值
+    redirect_uri = body.redirect_uri or f"{settings.CASDOOR_ENDPOINT}/callback"
+
     try:
-        token = await asyncio.to_thread(_casdoor.get_oauth_token, code)
-        claims = await asyncio.to_thread(_casdoor.parse_jwt_token, token.access_token)
+        await oidc.ensure_ready()
+        token_resp = await oidc.exchange_code(body.code, redirect_uri)
     except Exception as e:
-        _logger.error(f"Casdoor 认证失败: {type(e).__name__}: {e}")
+        logger.error("OIDC token exchange failed: %s: %s", type(e).__name__, e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="认证失败，请重试")
 
-    casdoor_id: str = claims["sub"]
+    # 优先用 id_token（含用户信息），回退到 access_token
+    raw_token = token_resp.get("id_token") or token_resp.get("access_token")
+    if not raw_token:
+        logger.error("Token response missing id_token and access_token")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="认证服务返回异常")
+
+    try:
+        claims = oidc.verify_token(raw_token)
+    except Exception as e:
+        logger.error("JWT verification failed: %s: %s", type(e).__name__, e)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="令牌验证失败，请重试")
+
+    casdoor_id: str = claims.get("sub", "")
+    if not casdoor_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="令牌中缺少用户标识")
+
     username: str = claims.get("name") or claims.get("preferred_username") or casdoor_id
     email: Optional[str] = claims.get("email") or None
 
@@ -88,7 +124,7 @@ async def oauth_callback(
                 is_superuser=False,
             )
             db.add(user)
-            await db.flush()   # 获取 user.id（在 commit 之前）
+            await db.flush()
     elif not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
 

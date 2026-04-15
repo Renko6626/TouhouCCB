@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -35,7 +36,7 @@ class MarketListItem(BaseModel):
 
 class TradeRequest(BaseModel):
     outcome_id: int
-    shares: float = Field(..., gt=0)
+    shares: Decimal = Field(..., gt=0)
 
 
 class TradeResponse(BaseModel):
@@ -47,7 +48,7 @@ class TradeResponse(BaseModel):
 
 class ResolveRequest(BaseModel):
     winning_outcome_id: int
-    payout: float = Field(..., ge=0)
+    payout: Decimal = Field(..., ge=0)
 
 
 class SettleResult(BaseModel):
@@ -90,7 +91,7 @@ class MarketDetailRead(BaseModel):
 
 class QuoteRequest(BaseModel):
     outcome_id: int
-    shares: float = Field(..., gt=0)
+    shares: Decimal = Field(..., gt=0)
     side: str = Field(..., pattern="^(buy|sell)$")
 
 

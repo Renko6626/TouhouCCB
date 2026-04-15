@@ -370,7 +370,7 @@ async def buy_shares(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    shares_d = quantize_cost(float(req.shares))
+    shares_d = quantize_cost(req.shares)
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
@@ -421,8 +421,8 @@ async def buy_shares(
         position.amount += shares_d
         position.cost_basis += pay
 
-        # 交易记录
-        avg_price = quantize_price(float(pay) / float(shares_d))
+        # 交易记录（Decimal 直除，避免 float 往返）
+        avg_price = quantize_price(pay / shares_d)
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -468,7 +468,7 @@ async def sell_shares(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    shares_d = quantize_cost(float(req.shares))
+    shares_d = quantize_cost(req.shares)
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
@@ -526,8 +526,8 @@ async def sell_shares(
         if position.amount <= ZERO:
             position.cost_basis = ZERO
 
-        # 交易记录
-        avg_price = quantize_price(float(proceeds) / float(shares_d)) if shares_d > ZERO else ZERO
+        # 交易记录（Decimal 直除，避免 float 往返）
+        avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -579,7 +579,7 @@ async def resolve_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    payout_unit = quantize_cost(float(req.payout))
+    payout_unit = quantize_cost(req.payout)
     if payout_unit < ZERO:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
 
@@ -737,34 +737,35 @@ async def quote_trade(
     if idx is None:
         raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
     b = float(market.liquidity_b)
-    shares = float(req.shares)
+    shares_d = quantize_cost(req.shares)    # Decimal，用于精确计算
+    shares_f = float(req.shares)            # float，喂给 LMSR
 
     old_q = _shares_to_floats(outcomes)
     old_cost = calculate_lmsr_cost(old_q, b)
 
     new_q = list(old_q)
     if req.side == "buy":
-        new_q[idx] += shares
+        new_q[idx] += shares_f
         new_cost = calculate_lmsr_cost(new_q, b)
         gross = quantize_cost(new_cost - old_cost)
         fee = ZERO
         net = gross
     else:
-        if new_q[idx] < shares:
+        if new_q[idx] < shares_f:
             raise HTTPException(status_code=400, detail="卖出数量超过市场总份额")
-        new_q[idx] -= shares
+        new_q[idx] -= shares_f
         new_cost = calculate_lmsr_cost(new_q, b)
         gross = quantize_cost(old_cost - new_cost)
         fee = (gross * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = gross - fee
 
-    avg_price = quantize_price(float(gross) / shares) if shares > 0 else ZERO
+    avg_price = quantize_price(gross / shares_d) if shares_d > ZERO else ZERO
     after_prices = _build_prices_from_shares(outcomes, new_q, b)
 
     return QuoteResponse(
         outcome_id=req.outcome_id,
         side=req.side,
-        shares=quantize_cost(shares),
+        shares=shares_d,
         avg_price=avg_price,
         gross=gross,
         fee=fee,

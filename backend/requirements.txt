@@ -1,6 +1,6 @@
 aiosqlite==0.22.1
-casdoor>=1.22.0
 annotated-doc==0.0.4
+asyncpg==0.30.0
 annotated-types==0.7.0
 anyio==4.12.0
 argon2-cffi==25.1.0

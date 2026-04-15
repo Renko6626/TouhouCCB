@@ -132,7 +132,7 @@ async def get_my_holdings(
             price_d = ZERO
 
         market_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
-        avg_price = quantize_price(float(pos.cost_basis) / float(pos.amount)) if pos.amount > ZERO else ZERO
+        avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
         results.append(
             HoldingRead(

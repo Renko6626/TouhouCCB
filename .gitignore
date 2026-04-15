@@ -61,6 +61,7 @@ pip-wheel-metadata/
 *.db
 *.sqlite
 *.sqlite3
+backups/
 
 # ------------------------------
 # Node / Frontend (Vite + Vue)

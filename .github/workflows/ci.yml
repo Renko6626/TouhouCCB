@@ -1,0 +1,178 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ========================================
+  # 后端：检查 + 构建 Docker 镜像
+  # ========================================
+  backend:
+    name: Backend Check & Build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m venv venv
+          ./venv/bin/pip install -r requirements.txt --quiet
+
+      - name: Compile check
+        run: |
+          ./venv/bin/python -c "
+          import py_compile, glob, sys
+          files = glob.glob('app/**/*.py', recursive=True)
+          fails = []
+          for f in sorted(files):
+              try:
+                  py_compile.compile(f, doraise=True)
+              except py_compile.PyCompileError as e:
+                  fails.append(str(e))
+          if fails:
+              for f in fails:
+                  print(f, file=sys.stderr)
+              sys.exit(1)
+          print(f'All {len(files)} files compiled OK')
+          "
+
+      - name: Import check
+        run: |
+          ./venv/bin/python -c "
+          import sys
+          try:
+              from app.core.config import settings
+              from app.core.oidc import OIDCClient
+              from app.services.lmsr import calculate_lmsr_cost, quantize_cost, quantize_price
+              from app.models.base import User, Market, Outcome, Position, Transaction
+              from app.schemas.market import TradeRequest, QuoteRequest, ResolveRequest
+              from app.schemas.user import UserSummary, HoldingRead
+              from app.api.v1 import auth, user, market, chart
+              print('All module imports OK')
+          except Exception as e:
+              print(f'Import failed: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      # Docker 镜像构建 + 推送（仅 push main）
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/thccb-backend:latest
+            ghcr.io/${{ github.repository_owner }}/thccb-backend:${{ github.sha }}
+
+  # ========================================
+  # 前端：检查 + 构建 + 上传产物
+  # ========================================
+  frontend:
+    name: Frontend Check & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: thccb-frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: thccb-frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx vue-tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      # 上传 dist/ 供 deploy job 使用
+      - name: Upload dist artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: thccb-frontend/dist/
+          retention-days: 3
+
+  # ========================================
+  # CD：镜像已推送，部署到生产服务器
+  # 仅在 push main 时触发
+  # ========================================
+  deploy:
+    name: Deploy
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      # 拿到前端构建产物
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+      # rsync 前端静态文件到服务器
+      - name: Deploy frontend via rsync
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz --delete
+          path: dist/
+          remote_path: /data/sunyunbo/www/TouhouCCB/thccb-frontend/dist/
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_KEY }}
+
+      # SSH 执行后端部署脚本（docker compose pull + up）
+      - name: Deploy backend
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script_stop: true
+          script: |
+            cd /data/sunyunbo/www/TouhouCCB
+            bash deploy/deploy.sh
+
+      # 远程健康检查
+      - name: Remote health check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          script_stop: true
+          script: |
+            sleep 5
+            curl -sf --max-time 10 http://127.0.0.1:8004/api/v1/market/list > /dev/null
+            echo "Health check passed"

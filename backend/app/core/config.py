@@ -17,9 +17,16 @@ class Settings(BaseSettings):
     # 运行环境："development" | "production"
     APP_ENV: str = "development"
 
-    # 数据库后端：默认 SQLite（开箱即用）
-    DB_BACKEND: str = "sqlite"  # "sqlite" | "mysql"
+    # 数据库后端
+    DB_BACKEND: str = "sqlite"  # "sqlite" | "postgres" | "mysql"
     SQLITE_PATH: str = "data/thccb.db"
+
+    # PostgreSQL 配置（当 DB_BACKEND=postgres 时生效）
+    PG_HOST: str = "postgres"
+    PG_PORT: int = 5432
+    PG_USER: str = "thccb"
+    PG_PASSWORD: str = "change_me"
+    PG_DB: str = "thccb"
 
     # MySQL 配置（当 DB_BACKEND=mysql 时生效）
     MYSQL_HOST: str = "127.0.0.1"
@@ -53,11 +60,10 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD_HASH: str = ""  # bcrypt hash，从 .env 读取
     ADMIN_SECRET_KEY: str = Field(default="")
 
-    # Casdoor SSO
+    # Casdoor SSO（通过 .well-known/openid-configuration 自动发现，无需手动配证书）
     CASDOOR_ENDPOINT: str = ""            # e.g. https://auth.example.com
     CASDOOR_CLIENT_ID: str = ""
     CASDOOR_CLIENT_SECRET: str = ""
-    CASDOOR_CERTIFICATE: str = ""         # Casdoor 应用的 JWT 公钥证书（PEM 字符串）
     CASDOOR_ORG_NAME: str = ""
     CASDOOR_APP_NAME: str = ""
 
@@ -88,10 +94,10 @@ class Settings(BaseSettings):
                     "ADMIN_SECRET_KEY 未配置！生产环境必须在 .env 中显式设置。"
                 )
             self.ADMIN_SECRET_KEY = secrets.token_urlsafe(32)
-        # Casdoor 配置完整性校验
+        # Casdoor 配置完整性校验（JWKS 自动获取公钥，无需 CERTIFICATE）
         casdoor_fields = [
             self.CASDOOR_ENDPOINT, self.CASDOOR_CLIENT_ID,
-            self.CASDOOR_CLIENT_SECRET, self.CASDOOR_CERTIFICATE,
+            self.CASDOOR_CLIENT_SECRET,
             self.CASDOOR_ORG_NAME, self.CASDOOR_APP_NAME,
         ]
         has_any = any(casdoor_fields)
@@ -102,7 +108,6 @@ class Settings(BaseSettings):
                     ("CASDOOR_ENDPOINT", self.CASDOOR_ENDPOINT),
                     ("CASDOOR_CLIENT_ID", self.CASDOOR_CLIENT_ID),
                     ("CASDOOR_CLIENT_SECRET", self.CASDOOR_CLIENT_SECRET),
-                    ("CASDOOR_CERTIFICATE", self.CASDOOR_CERTIFICATE),
                     ("CASDOOR_ORG_NAME", self.CASDOOR_ORG_NAME),
                     ("CASDOOR_APP_NAME", self.CASDOOR_APP_NAME),
                 ] if not val
@@ -122,7 +127,9 @@ class Settings(BaseSettings):
         if self.DATABASE_URL:
             return self.DATABASE_URL
 
-        if self.DB_BACKEND.lower() == "sqlite":
+        backend = self.DB_BACKEND.lower()
+
+        if backend == "sqlite":
             db_path = Path(self.SQLITE_PATH).expanduser()
             if not db_path.is_absolute():
                 project_root = Path(__file__).resolve().parents[2]
@@ -131,9 +138,15 @@ class Settings(BaseSettings):
             db_path.parent.mkdir(parents=True, exist_ok=True)
             return f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
+        if backend == "postgres":
+            pwd = quote_plus(self.PG_PASSWORD)
+            return (
+                f"postgresql+asyncpg://{self.PG_USER}:{pwd}"
+                f"@{self.PG_HOST}:{self.PG_PORT}/{self.PG_DB}"
+            )
+
+        # MySQL
         pwd = quote_plus(self.MYSQL_PASSWORD)
-        # SQLAlchemy Async URL:
-        # mysql+asyncmy://user:pass@host:port/db?charset=utf8mb4
         return (
             f"mysql+{self.MYSQL_DRIVER}://{self.MYSQL_USER}:{pwd}"
             f"@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}"

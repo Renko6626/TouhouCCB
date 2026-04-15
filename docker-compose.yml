@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: thccb-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: thccb
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-change_me}
+      POSTGRES_DB: thccb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thccb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    image: ghcr.io/renko6626/thccb-backend:latest
+    container_name: thccb-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8004:8004"
+    volumes:
+      - ./backend/.env:/app/.env:ro
+      - ./backend/data:/app/data
+      - ./backups:/app/backups
+    environment:
+      - PYTHONPATH=.
+    # 容器内用户 UID:GID 与宿主机一致
+    user: "${UID:-1007}:${GID:-1008}"
+    # 优雅停机：给 uvicorn 时间排空 SSE 长连接
+    stop_grace_period: 8s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  pgdata:
