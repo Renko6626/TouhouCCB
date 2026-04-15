@@ -62,7 +62,7 @@ nginx -v
 ### 1.2 克隆项目
 
 ```bash
-cd /data/sunyunbo/www
+cd /home/deploy
 git clone https://github.com/你的用户名/TouhouCCB.git
 cd TouhouCCB
 ```
@@ -158,7 +158,7 @@ EOF
 ### 3.2 启用站点
 
 ```bash
-sudo ln -s /data/sunyunbo/www/TouhouCCB/deploy/nginx.conf \
+sudo ln -s /home/deploy/TouhouCCB/deploy/nginx.conf \
            /etc/nginx/sites-enabled/thccb.conf
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -198,7 +198,7 @@ mkdir -p backend/data backups
 ### 4.2 拉取镜像并启动
 
 ```bash
-cd /data/sunyunbo/www/TouhouCCB
+cd /home/deploy/TouhouCCB
 docker compose pull
 docker compose up -d
 ```
@@ -266,7 +266,7 @@ push main
 ### 5.2 手动部署
 
 ```bash
-cd /data/sunyunbo/www/TouhouCCB
+cd /home/deploy/TouhouCCB
 bash deploy/deploy.sh
 ```
 
@@ -570,7 +570,7 @@ GitHub 端：
 
 → `DEPLOY_USER` 对项目目录没有写权限。执行：
 ```bash
-sudo chown -R deploy:deploy /data/sunyunbo/www/TouhouCCB
+sudo chown -R deploy:deploy /home/deploy/TouhouCCB
 ```
 
 **Q: deploy.sh 报 "SECRET_KEY is still the default value"？**
