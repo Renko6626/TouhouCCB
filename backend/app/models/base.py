@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from pydantic import ConfigDict
-from sqlalchemy import UniqueConstraint, CheckConstraint, Column, ForeignKey, Index, Numeric
+from sqlalchemy import UniqueConstraint, CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric
 
 
 class MarketStatus(str, Enum):
@@ -56,8 +56,8 @@ class Market(SQLModel, table=True):
     description: str = ""
     liquidity_b: float = Field(default=100.0)  # LMSR 参数，保持 float
     status: str = Field(default=MarketStatus.TRADING)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    closes_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True))
+    closes_at: Optional[datetime] = Field(default=None, index=True, sa_type=DateTime(timezone=True))
     tags: str = Field(default="")
 
     outcomes: List["Outcome"] = Relationship(
@@ -84,7 +84,7 @@ class Market(SQLModel, table=True):
             "foreign_keys": "Market.winning_outcome_id"
         }
     )
-    settled_at: Optional[datetime] = Field(default=None, index=True)
+    settled_at: Optional[datetime] = Field(default=None, index=True, sa_type=DateTime(timezone=True))
     settled_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
 
 
@@ -154,7 +154,7 @@ class Transaction(SQLModel, table=True):
     # 手续费前的成交单价（K线用）— 8位精度
     price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
 
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True, sa_type=DateTime(timezone=True))
 
     user: Optional["User"] = Relationship(back_populates="transactions")
     outcome: Optional["Outcome"] = Relationship(back_populates="transactions")
