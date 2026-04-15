@@ -343,66 +343,268 @@ push main
   └── SSH: curl 健康检查
 ```
 
-### 6.2 在服务器上生成部署密钥
+CI/CD 用到的凭证全部存在 GitHub Secrets 里（加密存储），代码和日志中不可见。你需要配置 3 个 Secret + 1 个权限。下面逐步说明。
+
+### 6.2 在服务器上准备
+
+#### 6.2.1 生成部署专用 SSH 密钥
+
+在你的部署用户下执行（比如 `deploy` 用户）：
 
 ```bash
+# 生成密钥对（不设密码，GitHub Actions 不能输密码）
 ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/github_deploy -N ""
-cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys
-chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
 
-# 复制私钥 → 填到 GitHub DEPLOY_KEY
+# 把公钥加入 authorized_keys（允许用这个私钥登录）
+cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys
+
+# 修正权限（SSH 对权限很敏感）
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+
+# 查看私钥 — 下一步要完整复制到 GitHub
 cat ~/.ssh/github_deploy
 ```
 
-### 6.3 sudo 免密（nginx reload）
+终端会输出类似：
+
+```
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUA...
+（很多行 base64）
+-----END OPENSSH PRIVATE KEY-----
+```
+
+**完整复制这段内容**，包括第一行 `-----BEGIN...` 和最后一行 `-----END...`。
+
+#### 6.2.2 配置 sudo 免密
+
+deploy.sh 中 nginx reload 需要 sudo，但 SSH 自动登录时不能输密码：
 
 ```bash
-echo "$USER ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl reload nginx" \
+echo "deploy ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /bin/systemctl reload nginx" \
   | sudo tee /etc/sudoers.d/thccb-deploy
 ```
 
-### 6.4 在 GitHub 配置 Secrets
+> 把 `deploy` 替换成你的实际用户名。这只给 nginx 两条命令免密，不影响其他 sudo。
 
-仓库 → Settings → Secrets and variables → Actions → New repository secret：
-
-| Secret 名称 | 内容 |
-|---|---|
-| `DEPLOY_HOST` | 服务器公网 IP |
-| `DEPLOY_USER` | SSH 登录用户名 |
-| `DEPLOY_KEY` | 6.2 步的私钥全文 |
-
-> 不需要额外配置 GHCR 凭证——CI 使用内置的 `GITHUB_TOKEN` 推送镜像。
-
-### 6.5 验证
+验证：
 
 ```bash
-git add -A && git commit -m "test: trigger CI/CD" && git push origin main
+sudo -n nginx -t    # 不弹密码提示直接执行 = 配置正确
 ```
 
-去 GitHub Actions 页面查看，应该看到 3 个绿色 job。
+### 6.3 在 GitHub 配置 Secrets（图文步骤）
+
+#### 第一步：进入 Secrets 配置页
+
+1. 打开你的 GitHub 仓库页面（比如 `github.com/Renko6626/TouhouCCB`）
+2. 点击顶部标签栏的 **Settings**（齿轮图标，在 Code / Issues / Pull requests 右边）
+3. 左侧菜单滚动找到 **Secrets and variables**，点击展开
+4. 点击 **Actions**
+
+```
+仓库页面
+  └── Settings（顶部标签栏）
+        └── 左侧菜单：Secrets and variables
+              └── Actions
+                    └── 你在这里
+```
+
+#### 第二步：逐个添加 3 个 Secret
+
+点击绿色按钮 **New repository secret**，添加以下 3 个：
+
+**Secret 1：DEPLOY_HOST**
+
+```
+Name:   DEPLOY_HOST
+Secret: 123.45.67.89          ← 你服务器的公网 IP 地址
+```
+
+点击 **Add secret**。
+
+**Secret 2：DEPLOY_USER**
+
+```
+Name:   DEPLOY_USER
+Secret: deploy                 ← 你服务器上的部署用户名
+```
+
+点击 **Add secret**。
+
+**Secret 3：DEPLOY_KEY**
+
+```
+Name:   DEPLOY_KEY
+Secret:                        ← 粘贴 6.2.1 步复制的私钥完整内容
+```
+
+把之前复制的 `-----BEGIN OPENSSH PRIVATE KEY-----` 到 `-----END OPENSSH PRIVATE KEY-----` 整段粘贴进去。
+
+点击 **Add secret**。
+
+添加完成后，页面应该显示 3 个 secret：
+
+```
+DEPLOY_HOST    Updated just now
+DEPLOY_KEY     Updated just now
+DEPLOY_USER    Updated just now
+```
+
+> Secret 的值添加后就不可查看了（只能覆盖更新），这是正常的安全设计。
+
+#### 第三步：配置 Workflow 权限（允许推送 Docker 镜像）
+
+CI 需要把 Docker 镜像推送到 GitHub Container Registry（GHCR），需要给 workflow 写权限：
+
+1. 还是在 **Settings** 页面
+2. 左侧菜单找到 **Actions** → **General**
+3. 滚动到页面底部 **Workflow permissions** 区域
+4. 选择 **Read and write permissions**（不是默认的 Read-only）
+5. 点击 **Save**
+
+```
+Settings
+  └── Actions → General
+        └── 滚动到底部
+              └── Workflow permissions
+                    ☑ Read and write permissions    ← 选这个
+                    ☐ Read repository contents and packages permissions
+```
+
+> 这让 CI 中的 `GITHUB_TOKEN` 有权限推送镜像到 ghcr.io。不需要手动创建 PAT。
+
+#### 第四步：如果仓库是 Private，配置 GHCR 包可见性
+
+如果你的仓库是 **private**，推送后的 Docker 镜像默认也是 private，服务器 pull 时需要认证。
+
+有两种方式（选一种）：
+
+**方式 A：在服务器上 docker login（推荐，简单）**
+
+```bash
+# 在 GitHub 创建 Personal Access Token：
+#   github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)
+#   点 Generate new token (classic)
+#   勾选 read:packages
+#   生成后复制 token
+
+# 在服务器上登录
+echo "ghp_你的token" | docker login ghcr.io -u Renko6626 --password-stdin
+```
+
+**方式 B：把仓库改为 Public**
+
+如果项目本身是开源的，直接把仓库设为 Public 即可，GHCR 镜像自动可公开拉取。
+
+### 6.4 验证 CI/CD
+
+所有配置完成后，做一次测试：
+
+```bash
+# 本地随便改个文件，push 触发 CI
+echo "" >> docs/deploy.md
+git add -A
+git commit -m "test: trigger CI/CD"
+git push origin main
+```
+
+然后去 GitHub 仓库的 **Actions** 标签页（仓库顶部标签栏，在 Pull requests 右边）：
+
+```
+应该看到一个运行中的 workflow，包含 3 个 job：
+
+✅ Backend Check & Build     ← 编译检查 + Docker 镜像构建推送
+✅ Frontend Check & Build    ← TypeScript 检查 + 构建 + 上传产物
+✅ Deploy                     ← rsync 前端 + SSH 部署 + 健康检查
+```
+
+点击任意 job 可以展开看实时日志。如果某一步红了，看日志定位问题。
+
+### 6.5 完整配置检查清单
+
+全部配好后，用这个清单确认没有遗漏：
+
+```
+服务器端：
+  [ ] 部署用户已创建并加入 docker 组
+  [ ] SSH 密钥已生成，公钥已加入 authorized_keys
+  [ ] sudo 免密已配置（nginx -t 和 systemctl reload）
+  [ ] .env 已配置（cp .env.example .env 并填好）
+  [ ] docker compose up -d 能正常启动
+  [ ] 如果 private 仓库：已 docker login ghcr.io
+
+GitHub 端：
+  [ ] Secret: DEPLOY_HOST（服务器公网 IP）
+  [ ] Secret: DEPLOY_USER（部署用户名）
+  [ ] Secret: DEPLOY_KEY（SSH 私钥完整内容）
+  [ ] Settings → Actions → General → Workflow permissions → Read and write
+  [ ] push main 后 Actions 页面 3 个 job 全绿
+```
 
 ### 6.6 常见问题
 
-**Q: Docker 镜像推送失败？**
+**Q: Docker 镜像推送报 403 Forbidden？**
 
-检查仓库 Settings → Actions → General → Workflow permissions 是否勾选了 "Read and write permissions"。
+→ Workflow permissions 没有设为 "Read and write"。按 6.3 第三步操作。
 
-**Q: 服务器 docker compose pull 报 unauthorized？**
+**Q: Docker 镜像推送报 "repository name must be lowercase"？**
 
-仓库是 private 时需要在服务器上 `docker login ghcr.io`，见 1.3 节。
+→ 已修复。CI 中有自动转小写步骤。如果仍然报错，检查 ci.yml 是否是最新版本。
 
-**Q: rsync 报 permission denied？**
+**Q: Deploy job 报 SSH 连接超时？**
 
-确保 `DEPLOY_USER` 对 `/data/sunyunbo/www/TouhouCCB/thccb-frontend/dist/` 有写权限。
+检查：
+- `DEPLOY_HOST` 是否填的公网 IP（不是内网 IP 如 192.168.x.x）
+- 服务器防火墙是否放行了 22 端口：`sudo ufw status` 或 `sudo iptables -L`
+- SSH 服务是否运行：`systemctl status sshd`
+
+**Q: Deploy job 报 "Permission denied (publickey)"？**
+
+检查：
+- `DEPLOY_KEY` 是否完整复制（包括 BEGIN/END 行，没有多余空行）
+- `DEPLOY_USER` 是否与服务器上生成密钥的用户一致
+- 服务器上 `~/.ssh/authorized_keys` 权限是否 600
+- 验证方法：在本地用同一私钥手动测试
+  ```bash
+  ssh -i /path/to/private_key deploy@你的IP
+  ```
+
+**Q: rsync 报 "Permission denied"？**
+
+→ `DEPLOY_USER` 对项目目录没有写权限。执行：
+```bash
+sudo chown -R deploy:deploy /data/sunyunbo/www/TouhouCCB
+```
+
+**Q: deploy.sh 报 "SECRET_KEY is still the default value"？**
+
+→ 服务器上的 `.env` 里 SECRET_KEY 还是模板值。生成并填入：
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
 **Q: 健康检查失败？**
 
 ```bash
-# 查看容器日志
+# SSH 到服务器查看
 docker compose logs --tail 50 backend
-# 查看容器状态
 docker compose ps
 ```
+
+常见原因：
+- `.env` 中 `APP_ENV=production` 但缺少必填项 → 容器启动失败
+- PostgreSQL 还没初始化 → 先跑 `docker compose exec backend python init_db.py`
+- 端口被占用 → `sudo lsof -i :8004`
+
+**Q: PR 会触发部署吗？**
+
+不会。CI 文件中 deploy job 有条件限制：`if: github.ref == 'refs/heads/main' && github.event_name == 'push'`。PR 只跑检查，不部署。
+
+**Q: 怎么只跑 CI 检查不部署？**
+
+发 PR 而不是直接 push main。PR 的 CI 只跑 backend check + frontend check，通过后 merge 到 main 才触发部署。
 
 ---
 
