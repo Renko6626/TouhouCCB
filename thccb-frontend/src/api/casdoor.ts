@@ -1,33 +1,46 @@
-import Sdk from 'casdoor-js-sdk'
+/**
+ * Casdoor OAuth2 登录 — 纯 URL 拼接，不依赖 casdoor-js-sdk。
+ *
+ * 标准 OAuth2 Authorization Code 流程：
+ *   1. 前端拼 authorize URL → 跳转到 Casdoor 登录页
+ *   2. 用户登录后 Casdoor 重定向回 /auth/callback?code=xxx&state=yyy
+ *   3. 前端把 code 发给后端换本站 JWT
+ */
 
-const REQUIRED_ENV = [
-  'VITE_CASDOOR_URL',
-  'VITE_CASDOOR_CLIENT_ID',
-  'VITE_CASDOOR_ORG',
-  'VITE_CASDOOR_APP',
-] as const
+const CASDOOR_URL = import.meta.env.VITE_CASDOOR_URL as string
+const CLIENT_ID = import.meta.env.VITE_CASDOOR_CLIENT_ID as string
+const ORG_NAME = import.meta.env.VITE_CASDOOR_ORG as string
+const APP_NAME = import.meta.env.VITE_CASDOOR_APP as string
 
-for (const key of REQUIRED_ENV) {
-  if (!import.meta.env[key]) {
-    console.error(`[Casdoor] 缺少必要的环境变量: ${key}，请检查 .env 文件`)
-  }
+const REQUIRED = { VITE_CASDOOR_URL: CASDOOR_URL, VITE_CASDOOR_CLIENT_ID: CLIENT_ID, VITE_CASDOOR_ORG: ORG_NAME, VITE_CASDOOR_APP: APP_NAME }
+for (const [key, val] of Object.entries(REQUIRED)) {
+  if (!val) console.error(`[Casdoor] 缺少环境变量: ${key}`)
 }
 
-const casdoorSdk = new Sdk({
-  serverUrl: import.meta.env.VITE_CASDOOR_URL as string,
-  clientId: import.meta.env.VITE_CASDOOR_CLIENT_ID as string,
-  organizationName: import.meta.env.VITE_CASDOOR_ORG as string,
-  appName: import.meta.env.VITE_CASDOOR_APP as string,
-  redirectPath: '/auth/callback',
-})
+const REDIRECT_URI = `${window.location.origin}/auth/callback`
 
-/** 生成随机 state 并存入 sessionStorage，用于 CSRF 防护 */
-const withState = (url: string): string => {
+/** 生成随机 state 存入 sessionStorage，用于 CSRF 防护 */
+function generateState(): string {
   const state = crypto.randomUUID()
   sessionStorage.setItem('oauth_state', state)
-  // Casdoor SDK 生成的 URL 已带 state 参数，替换为我们自己的
-  return url.replace(/([?&])state=[^&]*/, `$1state=${state}`)
+  return state
 }
 
-export const getLoginUrl = () => withState(casdoorSdk.getSigninUrl())
-export const getRegisterUrl = () => withState(casdoorSdk.getSignupUrl())
+/** 拼接 Casdoor OAuth2 authorize URL */
+function buildAuthorizeUrl(type: 'login' | 'signup'): string {
+  const state = generateState()
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: REDIRECT_URI,
+    scope: 'openid profile email',
+    state,
+  })
+  const path = type === 'signup'
+    ? `/signup/${APP_NAME}`
+    : `/login/oauth/authorize`
+  return `${CASDOOR_URL}${path}?${params.toString()}`
+}
+
+export const getLoginUrl = () => buildAuthorizeUrl('login')
+export const getRegisterUrl = () => buildAuthorizeUrl('signup')

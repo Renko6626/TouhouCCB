@@ -15,7 +15,6 @@
     "@iconify-json/mdi": "^1.2.3",
     "@unocss/reset": "^66.6.0",
     "axios": "^1.13.4",
-    "casdoor-js-sdk": "^0.18.0",
     "dayjs": "^1.11.19",
     "echarts": "^6.0.0",
     "lightweight-charts": "^5.1.0",
