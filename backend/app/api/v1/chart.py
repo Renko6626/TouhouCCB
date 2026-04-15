@@ -59,11 +59,10 @@ def _align_range_to_buckets(from_ts: datetime, to_ts: datetime, step: int) -> tu
 
 
 def _tx_price(tx: Transaction) -> float:
-    """
-    K线用“手续费前成交价”更干净：
-    - 优先 tx.price
-    - fallback：abs(cost)/shares（老数据近似，卖出含手续费会污染）
-    """
+    """K-line price: prefer market_price > price > cost/shares."""
+    mp = getattr(tx, "market_price", None)
+    if mp is not None and float(mp) > 0:
+        return float(mp)
     p = getattr(tx, "price", None)
     if p is not None and float(p) > 0:
         return float(p)
@@ -77,10 +76,12 @@ def _validate_range(from_ts_u: datetime, to_ts_u: datetime) -> None:
         raise HTTPException(status_code=400, detail="to_ts 必须大于 from_ts")
 
 
-def _tx_price_parts(price: float, cost: float, shares: float) -> float:
+def _tx_price_parts(market_price: float, price: float, cost: float, shares: float) -> float:
     """
-    与 _tx_price 一致，但用于轻量列查询（不构造 ORM 对象）。
+    K线取价优先级：market_price（瞬时市场价）> price（执行均价）> cost/shares。
     """
+    if market_price is not None and float(market_price) > 0:
+        return float(market_price)
     if price is not None and float(price) > 0:
         return float(price)
     if shares and float(shares) > 0:
@@ -203,7 +204,7 @@ async def get_candles(
     )
 
     stmt = (
-        select(Transaction.timestamp, Transaction.price, Transaction.cost, Transaction.shares)
+        select(Transaction.timestamp, Transaction.market_price, Transaction.price, Transaction.cost, Transaction.shares)
         .where(
             and_(
                 Transaction.outcome_id == outcome_id,
@@ -227,8 +228,13 @@ async def get_candles(
     buckets: Dict[datetime, Candle] = {}
     prev_close: Optional[float] = None
 
-    for ts_raw, price, cost, shares in rows:
-        p = _tx_price_parts(price=float(price or 0.0), cost=float(cost or 0.0), shares=float(shares or 0.0))
+    for ts_raw, market_price, price, cost, shares in rows:
+        p = _tx_price_parts(
+            market_price=float(market_price or 0.0),
+            price=float(price or 0.0),
+            cost=float(cost or 0.0),
+            shares=float(shares or 0.0),
+        )
         if p <= 0:
             continue
 
