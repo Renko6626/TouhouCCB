@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { useChartData } from '@/composables/useChartData'
 import type { PricePoint } from '@/types/api'
@@ -20,6 +20,12 @@ const loadData = async () => {
   const fromTs = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
   const toTs = now.toISOString()
   await chartData.getPriceSeries(props.outcomeId, fromTs, toTs)
+  // 数据回来后初始化或更新图表
+  await nextTick()
+  if (!chartInstance) {
+    initChart()
+  }
+  updateChart()
 }
 
 const initChart = () => {
@@ -33,7 +39,13 @@ const initChart = () => {
   const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'axis',
-      formatter: '{c}¥',
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params
+        if (!p) return ''
+        const date = new Date(p.value[0])
+        const timeStr = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        return `${timeStr}<br/>价格: ¥${p.value[1].toFixed(4)}`
+      },
       borderColor: '#000',
       borderWidth: 2,
       textStyle: { color: '#000' },
@@ -54,12 +66,16 @@ const initChart = () => {
     },
     yAxis: {
       type: 'value',
+      scale: true,
       splitLine: {
         show: true,
         lineStyle: { color: '#e0e0e0', type: 'dashed' },
       },
       axisLine: { lineStyle: { color: '#000' } },
-      axisLabel: { color: '#333' },
+      axisLabel: {
+        color: '#333',
+        formatter: (v: number) => v.toFixed(2),
+      },
     },
     series: [
       {
@@ -93,20 +109,26 @@ const updateChart = () => {
 
 onMounted(() => {
   loadData()
-  initChart()
 })
 
 watch(() => props.outcomeId, () => {
+  // 切换 outcome 时重新加载
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
   loadData()
 })
 
-watch(() => chartData.priceData.value, () => {
-  updateChart()
-}, { immediate: true })
+// 窗口 resize 时重新调整图表大小
+const handleResize = () => chartInstance?.resize()
+onMounted(() => window.addEventListener('resize', handleResize))
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleResize)
   if (chartInstance) {
     chartInstance.dispose()
+    chartInstance = null
   }
 })
 </script>
@@ -116,12 +138,12 @@ onUnmounted(() => {
     :style="{ width: props.width || '100%', height: props.height || '400px' }"
     class="price-chart-container"
   >
-    <div v-if="chartData.loading" class="chart-state">
+    <div v-if="chartData.loading.value" class="chart-state">
       <p class="chart-state-text">加载价格数据中...</p>
     </div>
 
-    <div v-else-if="chartData.error" class="chart-state">
-      <p class="chart-state-text chart-state-text--error">{{ chartData.error }}</p>
+    <div v-else-if="chartData.error.value" class="chart-state">
+      <p class="chart-state-text chart-state-text--error">{{ chartData.error.value }}</p>
       <button @click="loadData()" class="chart-retry-btn">重试</button>
     </div>
 
@@ -129,7 +151,8 @@ onUnmounted(() => {
       <p class="chart-state-text">暂无价格数据</p>
     </div>
 
-    <div v-else ref="chartRef" style="width: 100%; height: 100%"></div>
+    <!-- chartRef 始终渲染，用 v-show 控制可见性 -->
+    <div v-show="chartData.priceData.value.length > 0" ref="chartRef" style="width: 100%; height: 100%"></div>
   </div>
 </template>
 

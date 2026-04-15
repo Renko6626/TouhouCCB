@@ -26,11 +26,11 @@ const props = withDefaults(defineProps<{
   lookbackMinutes?: number
   refreshToken?: number
 }>(), {
-  interval: '10s',
+  interval: '1m',
   width: '100%',
   height: '400px',
   autoRefreshMs: 10000,
-  lookbackMinutes: 30,
+  lookbackMinutes: 60,
   refreshToken: 0,
 })
 
@@ -75,7 +75,7 @@ const loadFull = async () => {
   try {
     const resp = await chartData.getCandles(
       props.outcomeId, props.interval, fromTs, toTs,
-      false, getLimitByWindow(), 50000, false,
+      true, getLimitByWindow(), 50000, false,
     )
     if (resp) {
       // 重建本地缓存
