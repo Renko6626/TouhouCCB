@@ -112,12 +112,13 @@ DB_BACKEND=postgres
 PG_HOST=postgres
 PG_PASSWORD=你的强密码
 
-# Casdoor SSO
+# Casdoor SSO（后端只需这 3 项）
 CASDOOR_ENDPOINT=https://你的casdoor地址
 CASDOOR_CLIENT_ID=你的client-id
 CASDOOR_CLIENT_SECRET=你的client-secret
-CASDOOR_ORG_NAME=你的组织名
-CASDOOR_APP_NAME=你的应用名
+
+# 前端 URL（用于 OAuth redirect_uri 回调）
+FRONTEND_URL=https://thccb.你的域名.com
 
 # CORS
 CORS_ORIGINS=https://thccb.你的域名.com

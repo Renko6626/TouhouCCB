@@ -58,12 +58,13 @@ class Settings(BaseSettings):
     # 管理后台（登录复用本站 JWT，不需要独立密码）
     ADMIN_SECRET_KEY: str = Field(default="")
 
-    # Casdoor SSO（通过 .well-known/openid-configuration 自动发现，无需手动配证书）
+    # Casdoor SSO（通过 .well-known/openid-configuration 自动发现）
     CASDOOR_ENDPOINT: str = ""            # e.g. https://auth.example.com
     CASDOOR_CLIENT_ID: str = ""
     CASDOOR_CLIENT_SECRET: str = ""
-    CASDOOR_ORG_NAME: str = ""
-    CASDOOR_APP_NAME: str = ""
+
+    # 前端 URL（用于构建 OAuth redirect_uri）
+    FRONTEND_URL: str = "http://localhost:5173"
 
     # Docker 容器内 .env 在 /app/.env (CWD)；本地开发在项目根 ../.env
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
@@ -93,11 +94,10 @@ class Settings(BaseSettings):
                     "ADMIN_SECRET_KEY 未配置！生产环境必须在 .env 中显式设置。"
                 )
             self.ADMIN_SECRET_KEY = secrets.token_urlsafe(32)
-        # Casdoor 配置完整性校验（JWKS 自动获取公钥，无需 CERTIFICATE）
+        # Casdoor 配置完整性校验（后端只需 endpoint + client_id + secret）
         casdoor_fields = [
             self.CASDOOR_ENDPOINT, self.CASDOOR_CLIENT_ID,
             self.CASDOOR_CLIENT_SECRET,
-            self.CASDOOR_ORG_NAME, self.CASDOOR_APP_NAME,
         ]
         has_any = any(casdoor_fields)
         has_all = all(casdoor_fields)
@@ -107,13 +107,11 @@ class Settings(BaseSettings):
                     ("CASDOOR_ENDPOINT", self.CASDOOR_ENDPOINT),
                     ("CASDOOR_CLIENT_ID", self.CASDOOR_CLIENT_ID),
                     ("CASDOOR_CLIENT_SECRET", self.CASDOOR_CLIENT_SECRET),
-                    ("CASDOOR_ORG_NAME", self.CASDOOR_ORG_NAME),
-                    ("CASDOOR_APP_NAME", self.CASDOOR_APP_NAME),
                 ] if not val
             ]
             raise ValueError(f"Casdoor 配置不完整，缺少: {', '.join(missing)}")
         if _prod and not has_all:
-            raise ValueError("生产环境必须完整配置 Casdoor SSO（所有 CASDOOR_* 字段均需填写）。")
+            raise ValueError("生产环境必须配置 Casdoor SSO（CASDOOR_ENDPOINT / CLIENT_ID / CLIENT_SECRET）。")
         if not has_any:
             logger.warning("Casdoor SSO 未配置，OAuth 登录不可用。")
         return self

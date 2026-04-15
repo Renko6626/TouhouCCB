@@ -69,8 +69,8 @@ async def oauth_callback(
     """
     oidc = _get_oidc()
 
-    # 构建 redirect_uri：前端可传入，否则用默认值
-    redirect_uri = body.redirect_uri or f"{settings.CASDOOR_ENDPOINT}/callback"
+    # redirect_uri 必须与前端发起授权时一致
+    redirect_uri = body.redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"
 
     try:
         await oidc.ensure_ready()
