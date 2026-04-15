@@ -408,16 +408,6 @@ const executeTrade = async () => {
           @update:shares="shares = $event"
           @execute-trade="executeTrade"
         />
-        
-        <!-- 交易提示 -->
-        <div class="trade-tips">
-          <div class="tips-title">交易提示</div>
-          <ul class="tips-list">
-            <li>价格随市场供需动态变化</li>
-            <li>买入份额后可在「我的资产」中查看</li>
-            <li>市场结算后，获胜选项按赔付价格兑换</li>
-          </ul>
-        </div>
       </div>
       </div>
     </div>
@@ -547,42 +537,4 @@ const executeTrade = async () => {
   50% { opacity: 0.4; }
 }
 
-/* 交易提示 */
-.trade-tips {
-  border: 1px solid #cccccc;
-  background: #f8f8f8;
-  padding: 12px 16px;
-}
-
-.tips-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #000000;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 8px;
-}
-
-.tips-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.tips-list li {
-  font-size: 12px;
-  color: #555555;
-  padding-left: 12px;
-  position: relative;
-}
-
-.tips-list li::before {
-  content: '—';
-  position: absolute;
-  left: 0;
-  color: #000000;
-}
 </style>
