@@ -188,10 +188,10 @@ const initChart = () => {
   })
 
   candleSeries = chartInstance.addSeries(CandlestickSeries, {
-    upColor: 'var(--color-up, #16a34a)',
-    downColor: 'var(--color-down, #dc2626)',
-    wickUpColor: 'var(--color-up, #16a34a)',
-    wickDownColor: 'var(--color-down, #dc2626)',
+    upColor: '#16a34a',
+    downColor: '#dc2626',
+    wickUpColor: '#16a34a',
+    wickDownColor: '#dc2626',
     borderVisible: false,
   })
 
