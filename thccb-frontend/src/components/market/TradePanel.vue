@@ -7,6 +7,7 @@ import {
 import type { SelectOption } from 'naive-ui'
 import { useUserStore } from '@/stores/user'
 import { useAuthStore } from '@/stores/auth'
+import { useMarketStore } from '@/stores/market'
 import type { MarketDetail, OutcomeQuote, QuoteResponse, Holding } from '@/types/api'
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const props = defineProps<{
   quoteResult: QuoteResponse | null
   estimatedNewCash: number
   userHolding: Holding | null
+  quoteExceedsCash: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,10 +31,10 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 const authStore = useAuthStore()
+const marketStore = useMarketStore()
 
 // 状态
 const loading = ref(false)
-const tradeLoading = ref(false)
 
 // 计算属性
 const outcomeOptions = computed<SelectOption[]>(() => {
@@ -88,15 +90,13 @@ const isSubmitting = ref(false)
 
 // 执行交易
 const executeTrade = async () => {
-  if (!props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult) return
+  if (!props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash) return
   if (isSubmitting.value) return
   isSubmitting.value = true
 
-  tradeLoading.value = true
   try {
     emit('executeTrade')
   } finally {
-    tradeLoading.value = false
     // 延迟解锁，防止动画期间重复点击
     setTimeout(() => { isSubmitting.value = false }, 500)
   }
@@ -165,6 +165,7 @@ const executeTrade = async () => {
           
           <div class="text-sm text-gray-500">
             最大可{{ props.tradeType === 'buy' ? '买入' : '卖出' }}: {{ props.maxShares }} 份额
+            <span v-if="props.tradeType === 'buy'">(估算值，以报价为准)</span>
             <span v-if="props.userHolding && props.tradeType === 'sell'">
               (当前持仓: {{ props.userHolding.amount }} 份额)
             </span>
@@ -190,14 +191,17 @@ const executeTrade = async () => {
           <span>{{ props.tradeType === 'buy' ? '应付' : '到手' }}:</span>
           <span>¥{{ props.quoteResult.net?.toFixed(2) }}</span>
         </div>
+        <div v-if="props.quoteExceedsCash" class="mt-2 text-xs font-semibold" style="color: #c00;">
+          现金不足：报价 ¥{{ props.quoteResult.net?.toFixed(2) }} 超出可用余额，请减少份额。
+        </div>
       </div>
 
       <div class="mt-2">
         <NButton
           type="primary"
           size="large"
-          :loading="tradeLoading"
-          :disabled="isSubmitting || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult"
+          :loading="marketStore.tradeLoading"
+          :disabled="isSubmitting || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
           @click="executeTrade"
           class="w-full"
         >

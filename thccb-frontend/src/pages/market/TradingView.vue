@@ -23,7 +23,6 @@ const message = useMessage()
 
 // 状态
 const loading = ref(false)
-const tradeLoading = ref(false)
 const marketId = computed(() => parseInt(route.params.id as string))
 
 // 交易表单
@@ -117,7 +116,7 @@ const scheduleRealtimeRefresh = () => {
 const handleRealtimeEvent = (event: MarketEvent) => {
   if (event.market_id !== marketId.value) return
   // 交易执行期间暂停自动刷新，避免数据不一致
-  if (tradeLoading.value) return
+  if (marketStore.tradeLoading) return
   candleRefreshToken.value += 1
   scheduleRealtimeRefresh()
 }
@@ -145,18 +144,26 @@ const userHolding = computed(() => {
 })
 
 // 计算最大可交易份额
+// 买入时：LMSR 非线性定价导致买入越多单价越高，线性估算会高估，
+// 所以施加保守折扣（取 70% 的线性估算值）；实际可行性以 quote 报价为准。
 const maxShares = computed(() => {
   if (tradeType.value === 'sell') {
     return userHolding.value?.amount || 0
   }
-  
-  // 买入时根据用户现金计算最大可买份额
+
   if (!selectedOutcome.value || !userStore.summary) return 0
 
   const cash = userStore.summary.cash
   const price = selectedOutcome.value.current_price
   if (price <= 0) return 0
-  return Math.floor(cash / price)
+  // 保守估算：LMSR 滑点使实际成本高于 线性(price * shares)，取 70% 避免超支
+  return Math.max(1, Math.floor((cash / price) * 0.7))
+})
+
+// 报价超出可用现金时标记为不可交易
+const quoteExceedsCash = computed(() => {
+  if (tradeType.value !== 'buy' || !quoteResult.value || !userStore.summary) return false
+  return quoteResult.value.net > userStore.summary.cash
 })
 
 // 获取交易报价
@@ -201,11 +208,10 @@ watch([tradeType, selectedOutcomeId, shares], () => {
   debouncedGetQuote()
 }, { immediate: true })
 
-// 执行交易
+// 执行交易（tradeLoading 由 marketStore 统一管理）
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
 
-  tradeLoading.value = true
   try {
     if (tradeType.value === 'buy') {
       await marketStore.buyShares(selectedOutcomeId.value, shares.value)
@@ -226,8 +232,6 @@ const executeTrade = async () => {
     quoteResult.value = null
   } catch (err: any) {
     message.error(err?.message || '交易失败，请重试')
-  } finally {
-    tradeLoading.value = false
   }
 }
 
@@ -378,6 +382,7 @@ const executeTrade = async () => {
           :quote-result="quoteResult"
           :estimated-new-cash="estimatedNewCash"
           :user-holding="userHolding"
+          :quote-exceeds-cash="quoteExceedsCash"
           @update:selected-outcome-id="selectedOutcomeId = $event"
           @update:trade-type="tradeType = $event"
           @update:shares="shares = $event"

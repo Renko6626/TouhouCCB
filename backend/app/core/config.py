@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     PROJECT_NAME: str = "东方炒炒币：饭纲丸龙的野望"
 
+    # 运行环境："development" | "production"
+    APP_ENV: str = "development"
+
     # 数据库后端：默认 SQLite（开箱即用）
     DB_BACKEND: str = "sqlite"  # "sqlite" | "mysql"
     SQLITE_PATH: str = "data/thccb.db"
@@ -60,17 +63,55 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.lower() == "production"
+
     @model_validator(mode="after")
     def _fill_secrets(self):
-        # SECRET_KEY 未配置时自动生成（开发用），但输出警告
+        _prod = self.APP_ENV.lower() == "production"
         if not self.SECRET_KEY:
+            if _prod:
+                raise ValueError(
+                    "SECRET_KEY 未配置！生产环境必须在 .env 中显式设置 SECRET_KEY（至少 32 字符）。"
+                )
             self.SECRET_KEY = secrets.token_urlsafe(48)
-            logger.warning("SECRET_KEY 未配置，已自动生成随机值。生产环境请在 .env 中设置！")
+            logger.warning("SECRET_KEY 未配置，已自动生成随机值（仅限开发环境）。")
         if len(self.SECRET_KEY) < 32:
+            if _prod:
+                raise ValueError("SECRET_KEY 长度不足 32 字符，不满足生产环境安全要求！")
             logger.warning("SECRET_KEY 长度不足 32 字符，安全性不足！")
         # ADMIN_SECRET_KEY 同理
         if not self.ADMIN_SECRET_KEY:
+            if _prod:
+                raise ValueError(
+                    "ADMIN_SECRET_KEY 未配置！生产环境必须在 .env 中显式设置。"
+                )
             self.ADMIN_SECRET_KEY = secrets.token_urlsafe(32)
+        # Casdoor 配置完整性校验
+        casdoor_fields = [
+            self.CASDOOR_ENDPOINT, self.CASDOOR_CLIENT_ID,
+            self.CASDOOR_CLIENT_SECRET, self.CASDOOR_CERTIFICATE,
+            self.CASDOOR_ORG_NAME, self.CASDOOR_APP_NAME,
+        ]
+        has_any = any(casdoor_fields)
+        has_all = all(casdoor_fields)
+        if has_any and not has_all:
+            missing = [
+                name for name, val in [
+                    ("CASDOOR_ENDPOINT", self.CASDOOR_ENDPOINT),
+                    ("CASDOOR_CLIENT_ID", self.CASDOOR_CLIENT_ID),
+                    ("CASDOOR_CLIENT_SECRET", self.CASDOOR_CLIENT_SECRET),
+                    ("CASDOOR_CERTIFICATE", self.CASDOOR_CERTIFICATE),
+                    ("CASDOOR_ORG_NAME", self.CASDOOR_ORG_NAME),
+                    ("CASDOOR_APP_NAME", self.CASDOOR_APP_NAME),
+                ] if not val
+            ]
+            raise ValueError(f"Casdoor 配置不完整，缺少: {', '.join(missing)}")
+        if _prod and not has_all:
+            raise ValueError("生产环境必须完整配置 Casdoor SSO（所有 CASDOOR_* 字段均需填写）。")
+        if not has_any:
+            logger.warning("Casdoor SSO 未配置，OAuth 登录不可用。")
         return self
 
     @property

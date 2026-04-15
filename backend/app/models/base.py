@@ -131,6 +131,7 @@ class Position(SQLModel, table=True):
 class Transaction(SQLModel, table=True):
     __table_args__ = (
         Index("ix_transaction_outcome_timestamp", "outcome_id", "timestamp"),
+        Index("ix_transaction_user_timestamp", "user_id", "timestamp"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
@@ -24,6 +25,8 @@ from app.schemas.market import (
     MarketTradeRead,
 )
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -432,6 +435,11 @@ async def buy_shares(
             fee=ZERO,
         ))
 
+    logger.info(
+        "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s new_cash=%s",
+        user.id, outcome.id, market.id, shares_d, pay, avg_price, locked_user.cash,
+    )
+
     await BROKER.publish(
         market.id,
         "trade",
@@ -531,6 +539,11 @@ async def sell_shares(
             gross=proceeds,
             fee=fee,
         ))
+
+    logger.info(
+        "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s new_cash=%s",
+        user.id, outcome.id, market.id, shares_d, proceeds, fee, net, avg_price, locked_user.cash,
+    )
 
     await BROKER.publish(
         market.id,
@@ -672,6 +685,11 @@ async def resolve_market(
         market.winning_outcome_id = winning.id
         market.settled_at = now
         market.settled_by_user_id = admin.id
+
+    logger.info(
+        "RESOLVE market_id=%s winning_outcome_id=%s payout=%s total_payout=%s settled_positions=%s admin_id=%s",
+        market.id, winning.id, payout_unit, total_payout, settled_positions, admin.id,
+    )
 
     await BROKER.publish(
         market.id,

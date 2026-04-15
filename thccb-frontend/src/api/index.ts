@@ -13,10 +13,15 @@ const instance: AxiosInstance = axios.create({
 
 // refresh token 锁：防止多个 401 同时触发多次刷新
 let isRefreshing = false
-let pendingRequests: Array<(token: string) => void> = []
+let pendingRequests: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
 
 function onRefreshed(token: string) {
-  pendingRequests.forEach((cb) => cb(token))
+  pendingRequests.forEach((p) => p.resolve(token))
+  pendingRequests = []
+}
+
+function onRefreshFailed(err: any) {
+  pendingRequests.forEach((p) => p.reject(err))
   pendingRequests = []
 }
 
@@ -55,11 +60,14 @@ instance.interceptors.response.use(
 
       if (isRefreshing) {
         // 已有一个 refresh 在进行，排队等新 token
-        return new Promise((resolve) => {
-          pendingRequests.push((newToken: string) => {
-            originalRequest.headers.Authorization = `Bearer ${newToken}`
-            originalRequest._retry = true
-            resolve(instance(originalRequest))
+        return new Promise((resolve, reject) => {
+          pendingRequests.push({
+            resolve: (newToken: string) => {
+              originalRequest.headers.Authorization = `Bearer ${newToken}`
+              originalRequest._retry = true
+              resolve(instance(originalRequest))
+            },
+            reject,
           })
         })
       }
@@ -79,7 +87,8 @@ instance.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${newToken}`
         onRefreshed(newToken)
         return instance(originalRequest)
-      } catch {
+      } catch (refreshError) {
+        onRefreshFailed(refreshError)
         authStore.logout()
         return Promise.reject(error)
       } finally {
