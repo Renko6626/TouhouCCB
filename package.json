@@ -1,8 +1,6 @@
 {
   "dependencies": {
-    "dayjs": "^1.11.19",
-    "echarts": "^6.0.0",
-    "vue-echarts": "^8.0.1"
+    "dayjs": "^1.11.19"
   },
   "devDependencies": {
     "@types/vue-router": "^2.0.0"
