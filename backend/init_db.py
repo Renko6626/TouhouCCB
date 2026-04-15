@@ -1,13 +1,14 @@
-# scripts/init_db.py
+# init_db.py — 初始化数据库（建表 + 示例数据）
+# 用法：python init_db.py 或 docker compose exec backend python init_db.py
+
 import asyncio
-from decimal import Decimal
 from sqlmodel import SQLModel
 from sqlalchemy import text
 from sqlalchemy.schema import DropTable
 
 from app.core.database import engine, async_session_maker
 from app.core.config import settings
-from app.models.base import User, Market, Outcome, MarketStatus
+from app.models.base import Market, Outcome, MarketStatus
 
 
 async def init_db():
@@ -16,7 +17,7 @@ async def init_db():
 
     print("====================================")
     print("  初始化数据库（会清空所有数据）")
-    print("DATABASE:", db_url)
+    print("  DATABASE:", db_url.split("@")[-1] if "@" in db_url else db_url)
     print("====================================")
 
     confirm = input("确认清空数据库？输入 YES: ")
@@ -24,48 +25,24 @@ async def init_db():
         print("取消操作")
         return
 
-    # ------------------------
     # 1. Drop & Create
-    # ------------------------
     async with engine.begin() as conn:
         print("-> DROP ALL TABLES")
         if is_sqlite:
             await conn.execute(text("PRAGMA foreign_keys=OFF"))
-        else:
-            await conn.execute(text("SET FOREIGN_KEY_CHECKS=0"))
 
         for table in reversed(SQLModel.metadata.sorted_tables):
             await conn.execute(DropTable(table, if_exists=True))
 
         if is_sqlite:
             await conn.execute(text("PRAGMA foreign_keys=ON"))
-        else:
-            await conn.execute(text("SET FOREIGN_KEY_CHECKS=1"))
 
         print("-> CREATE ALL TABLES")
         await conn.run_sync(SQLModel.metadata.create_all)
 
-    # ------------------------
-    # 2. 插入初始数据
-    # ------------------------
+    # 2. 插入示例数据
     async with async_session_maker() as db:
         async with db.begin():
-            # 管理员（通过 Casdoor 首次登录时自动绑定 casdoor_id）
-            admin = User(
-                username="admin",
-                email="admin@qq.com",
-                is_active=True,
-                is_superuser=True,
-                cash=Decimal("100000"),
-                debt=Decimal("0"),
-            )
-            db.add(admin)
-            await db.flush()
-
-            print(f"  管理员创建完成: {admin.username} (superuser)")
-            print("  提示: 首次通过 Casdoor 登录后自动绑定账号")
-
-            # 初始市场
             market = Market(
                 title="灵梦 vs 魔理沙 谁会赢？",
                 description="初始测试市场",
@@ -82,11 +59,12 @@ async def init_db():
             for o in outcomes:
                 db.add(o)
 
-            print("  初始市场创建完成:", market.title)
-            print("  outcomes:", [o.label for o in outcomes])
+            print("  示例市场创建完成:", market.title)
 
+    print("")
     print("====================================")
     print("  数据库初始化完成")
+    print("  第一个通过 SSO 登录的用户将自动成为管理员")
     print("====================================")
 
 

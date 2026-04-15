@@ -55,9 +55,7 @@ class Settings(BaseSettings):
     # CORS（生产环境从 .env 读取）
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174"
 
-    # 管理后台
-    ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD_HASH: str = ""  # bcrypt hash，从 .env 读取
+    # 管理后台（登录复用本站 JWT，不需要独立密码）
     ADMIN_SECRET_KEY: str = Field(default="")
 
     # Casdoor SSO（通过 .well-known/openid-configuration 自动发现，无需手动配证书）

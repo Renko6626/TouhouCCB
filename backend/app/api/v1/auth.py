@@ -14,7 +14,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -104,6 +104,10 @@ async def oauth_callback(
 
     if not user:
         async with managed_transaction(db):
+            # 第一个注册的用户自动成为管理员
+            user_count = await db.execute(select(func.count()).select_from(User))
+            is_first_user = user_count.scalar_one() == 0
+
             # 用户名可能与已有账号冲突（极低概率），加后缀保证唯一
             base = username
             suffix = 0
@@ -121,10 +125,13 @@ async def oauth_callback(
                 cash=Decimal(str(settings.INITIAL_BALANCE)),
                 debt=Decimal("0"),
                 is_active=True,
-                is_superuser=False,
+                is_superuser=is_first_user,
             )
             db.add(user)
             await db.flush()
+
+            if is_first_user:
+                logger.info("First user registered as admin: %s (id=%s)", username, user.id)
     elif not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
 

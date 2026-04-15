@@ -121,24 +121,16 @@ CASDOOR_APP_NAME=你的应用名
 
 # CORS
 CORS_ORIGINS=https://thccb.你的域名.com
-
-# Admin 后台
-ADMIN_PASSWORD_HASH=用下面的命令生成
 ```
 
 > `APP_ENV=production` 时，SECRET_KEY、ADMIN_SECRET_KEY、Casdoor 配置缺失会**拒绝启动**。
+>
+> 不需要配置管理员密码——**第一个通过 SSO 登录的用户自动成为管理员**。
 
 **生成 SECRET_KEY：**
 
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-**生成 ADMIN_PASSWORD_HASH：**
-
-```bash
-docker run --rm python:3.13-slim bash -c \
-  "pip install -q bcrypt && python -c \"import bcrypt; print(bcrypt.hashpw(b'你的密码', bcrypt.gensalt()).decode())\""
 ```
 
 ### 2.3 前端生产环境变量
@@ -216,8 +208,10 @@ docker compose up -d
 docker compose exec backend python init_db.py
 ```
 
-按提示输入 `YES`。这会创建所有表 + 管理员账号 + 示例市场。
+按提示输入 `YES`。这会创建所有表和一个示例市场。
 
+> 不需要手动创建管理员——**第一个通过 SSO 登录的用户自动成为管理员（superuser）**。
+>
 > 之后的部署不需要再跑 init_db.py。容器启动时 `create_all` 是幂等的。
 
 ### 4.4 构建前端（首次手动）
