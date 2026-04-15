@@ -59,13 +59,11 @@ def _align_range_to_buckets(from_ts: datetime, to_ts: datetime, step: int) -> tu
 
 
 def _tx_price(tx: Transaction) -> float:
-    """K-line price: prefer market_price > price > cost/shares."""
-    mp = getattr(tx, "market_price", None)
-    if mp is not None and float(mp) > 0:
-        return float(mp)
-    p = getattr(tx, "price", None)
-    if p is not None and float(p) > 0:
-        return float(p)
+    """Price series: prefer post_market_price > price > cost/shares."""
+    for attr in ("post_market_price", "market_price", "price"):
+        v = getattr(tx, attr, None)
+        if v is not None and float(v) > 0:
+            return float(v)
     if tx.shares and float(tx.shares) > 0:
         return float(abs(tx.cost) / float(tx.shares))
     return 0.0
@@ -76,17 +74,23 @@ def _validate_range(from_ts_u: datetime, to_ts_u: datetime) -> None:
         raise HTTPException(status_code=400, detail="to_ts 必须大于 from_ts")
 
 
-def _tx_price_parts(market_price: float, price: float, cost: float, shares: float) -> float:
+def _extract_prices(pre_mp: float, post_mp: float, price: float, cost: float, shares: float) -> tuple[float, float]:
     """
-    K线取价优先级：market_price（瞬时市场价）> price（执行均价）> cost/shares。
+    从一笔交易中提取 K 线的 open/close 价格。
+    open = 交易前市场价 (pre_market_price)
+    close = 交易后市场价 (post_market_price)
+    回退到旧字段兼容历史数据。
     """
-    if market_price is not None and float(market_price) > 0:
-        return float(market_price)
-    if price is not None and float(price) > 0:
-        return float(price)
-    if shares and float(shares) > 0:
-        return float(abs(cost) / float(shares))
-    return 0.0
+    def _fallback() -> float:
+        if price > 0:
+            return price
+        if shares > 0:
+            return abs(cost) / shares
+        return 0.0
+
+    o = pre_mp if pre_mp > 0 else _fallback()
+    c = post_mp if post_mp > 0 else _fallback()
+    return o, c
 
 
 @router.get("/price", response_model=PriceSeriesResponse, summary="价格曲线（成交价序列）")
@@ -204,7 +208,14 @@ async def get_candles(
     )
 
     stmt = (
-        select(Transaction.timestamp, Transaction.market_price, Transaction.price, Transaction.cost, Transaction.shares)
+        select(
+            Transaction.timestamp,
+            Transaction.pre_market_price,
+            Transaction.post_market_price,
+            Transaction.price,
+            Transaction.cost,
+            Transaction.shares,
+        )
         .where(
             and_(
                 Transaction.outcome_id == outcome_id,
@@ -228,14 +239,15 @@ async def get_candles(
     buckets: Dict[datetime, Candle] = {}
     prev_close: Optional[float] = None
 
-    for ts_raw, market_price, price, cost, shares in rows:
-        p = _tx_price_parts(
-            market_price=float(market_price or 0.0),
+    for ts_raw, pre_mp, post_mp, price, cost, shares in rows:
+        tx_open, tx_close = _extract_prices(
+            pre_mp=float(pre_mp or 0.0),
+            post_mp=float(post_mp or 0.0),
             price=float(price or 0.0),
             cost=float(cost or 0.0),
             shares=float(shares or 0.0),
         )
-        if p <= 0:
+        if tx_close <= 0:
             continue
 
         ts = _ensure_utc(ts_raw)
@@ -243,17 +255,19 @@ async def get_candles(
 
         # 前导 bucket 的数据只用于提取 prev_close，不放入结果
         if b0 < aligned_from:
-            prev_close = p
+            prev_close = tx_close
             continue
 
         c = buckets.get(b0)
         if c is None:
-            c = Candle(t=b0, o=p, h=p, l=p, c=p, v=0.0, n=0)
+            # 第一笔交易：open = 交易前价格，close = 交易后价格
+            c = Candle(t=b0, o=tx_open, h=max(tx_open, tx_close), l=min(tx_open, tx_close), c=tx_close, v=0.0, n=0)
             buckets[b0] = c
         else:
-            c.h = max(c.h, p)
-            c.l = min(c.l, p)
-            c.c = p
+            # 后续交易：只更新 high/low/close
+            c.h = max(c.h, tx_open, tx_close)
+            c.l = min(c.l, tx_open, tx_close)
+            c.c = tx_close
 
         c.v += float(abs(shares or 0.0))
         c.n += 1

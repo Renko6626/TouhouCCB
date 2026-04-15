@@ -154,8 +154,9 @@ class Transaction(SQLModel, table=True):
     # 手续费前的成交单价 — 8位精度
     price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
 
-    # 交易后该选项的瞬时市场价（K线用）
-    market_price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
+    # 交易前/后该选项的瞬时市场价（K线用）
+    pre_market_price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
+    post_market_price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
 
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True, sa_type=DateTime(timezone=True))
 
