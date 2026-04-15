@@ -9,8 +9,8 @@ services:
       POSTGRES_DB: thccb
     volumes:
       - pgdata:/var/lib/postgresql/data
-    ports:
-      - "127.0.0.1:5432:5432"
+    # 不暴露到宿主机——backend 通过 Docker 内部网络 postgres:5432 连接
+    # 如需从宿主机调试：docker compose exec postgres psql -U thccb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U thccb"]
       interval: 5s
