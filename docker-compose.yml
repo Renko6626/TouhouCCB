@@ -23,7 +23,7 @@ services:
         max-file: "3"
 
   backend:
-    image: ghcr.io/renko6626/thccb-backend:latest
+    image: ghcr.io/renko6626/thccb-backend:latest  # GHCR 要求全小写
     container_name: thccb-backend
     restart: unless-stopped
     depends_on:
