@@ -6,93 +6,108 @@
 
 | 层 | 技术 |
 |---|---|
-| 后端 | Python 3.13 + FastAPI + SQLite (SQLAlchemy 2.0 + SQLModel) + JWT 认证 |
-| 前端 | Vue 3 + TypeScript + Vite + Pinia + Naive UI + UnoCSS + ECharts |
+| 后端 | Python 3.13 + FastAPI + PostgreSQL (SQLAlchemy 2.0 + SQLModel) |
+| 前端 | Vue 3 + TypeScript + Vite + Pinia + Naive UI + UnoCSS + lightweight-charts |
 | 实时 | Server-Sent Events (SSE) |
 | 定价 | LMSR（对数市场评分规则） |
+| 认证 | Casdoor SSO（OIDC .well-known 自动发现） |
+| 部署 | Docker Compose + GitHub Actions CI/CD + nginx |
 
 ## 项目结构
 
 ```
 TouhouCCB/
-├── backend/             # FastAPI 后端
+├── .env.example              # 唯一配置模板（Docker + 后端共用）
+├── docker-compose.yml        # 服务编排（backend + postgres）
+├── deploy/
+│   ├── nginx.conf            # nginx 反代 + 速率限制
+│   └── deploy.sh             # 部署脚本（备份 + pull + 健康检查）
+├── .github/workflows/ci.yml  # CI/CD（Docker 构建 + rsync + 部署）
+├── backend/
+│   ├── Dockerfile
 │   ├── app/
-│   │   ├── api/v1/      # 路由层 (auth, market, user, chart, stream)
-│   │   ├── models/      # SQLModel 数据模型
-│   │   ├── schemas/     # Pydantic 请求/响应 schema
-│   │   ├── core/        # 配置、数据库、用户管理
-│   │   └── services/    # 业务逻辑 (lmsr.py, realtime.py)
-│   ├── data/thccb.db    # SQLite 数据库
-│   ├── init_db.py       # 数据库初始化
-│   └── run.py           # 启动入口
-└── thccb-frontend/      # Vue 3 前端
+│   │   ├── api/v1/           # 路由 (auth, market, user, chart, stream)
+│   │   ├── models/           # SQLModel 数据模型
+│   │   ├── schemas/          # Pydantic 请求/响应 schema
+│   │   ├── core/             # 配置、数据库、OIDC 客户端
+│   │   └── services/         # LMSR 算法、SSE 实时推送
+│   ├── init_db.py            # 数据库初始化
+│   └── requirements.txt
+└── thccb-frontend/
     └── src/
-        ├── api/         # Axios 请求封装
-        ├── components/  # 可复用组件 (layout/, market/, chart/)
-        ├── composables/ # 组合式函数
-        ├── layouts/     # 页面布局模板
-        ├── pages/       # 页面组件
-        ├── router/      # Vue Router 配置
-        ├── stores/      # Pinia 状态管理
-        ├── types/       # TypeScript 类型定义
-        └── utils/       # 工具函数
+        ├── api/              # Axios 请求封装
+        ├── components/       # 组件 (layout/, market/, chart/)
+        ├── composables/      # 组合式函数
+        ├── pages/            # 页面
+        ├── router/           # Vue Router
+        ├── stores/           # Pinia 状态管理
+        └── types/            # TypeScript 类型
 ```
 
-## 启动方式
+## 快速启动
+
+### 生产部署（Docker Compose）
 
 ```bash
-# 后端
+cp .env.example .env          # 编辑填入实际配置
+docker compose up -d           # 启动 PostgreSQL + 后端
+docker compose exec backend python init_db.py  # 首次初始化数据库
+```
+
+第一个通过 SSO 登录的用户自动成为管理员。
+
+详细部署文档：[docs/deploy.md](deploy.md)
+
+### 本地开发
+
+```bash
+# 后端（SQLite 模式）
 cd backend
-python init_db.py    # 首次运行初始化数据库
-python run.py        # 启动开发服务器 (localhost:8000)
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+# 编辑 ../.env，设置 DB_BACKEND=sqlite
+python init_db.py && python run.py
 
 # 前端
 cd thccb-frontend
-npm install
-npm run dev          # 启动开发服务器
-npm run type-check   # TypeScript 检查
-npm run lint         # ESLint 检查
-npm run build        # 生产构建
+npm install && npm run dev
 ```
 
-## 功能完成状态
+## 功能
 
-| 功能模块 | 后端 | 前端 | 说明 |
-|---------|------|------|------|
-| 用户注册/登录 | ✅ | ✅ | JWT 认证，激活码机制 |
-| 账号激活 | ✅ | ✅ | 一次性激活码 |
-| 市场列表 | ✅ | ✅ | 含状态筛选 |
-| 市场交易（买/卖） | ✅ | ✅ | LMSR 定价，含报价预估 |
-| 价格图表 | ✅ | ✅ | 分时图 + K 线图，ECharts |
-| 深度图 | ✅ | ✅ | 订单簿可视化 |
-| 用户持仓 | ✅ | ✅ | 含市值计算 |
-| 交易历史 | ✅ | ✅ | 含筛选 |
-| 财富排行榜 | ✅ | ✅ | 含称号系统 |
-| 实时数据 (SSE) | ✅ | 🟡 | API 封装完成，页面联调中 |
-| 管理员-激活码 | ✅ | ✅ | 生成/列表/作废 |
-| 管理员-市场管理 | ✅ | 🟡 | 创建/熔断/恢复/结算，待完整联调 |
-| 管理员-系统监控 | ✅ | 🟡 | 部分为汇总数据，非实时统计 |
+| 模块 | 状态 | 说明 |
+|------|------|------|
+| SSO 登录 | ✅ | Casdoor OIDC，首个用户自动成为管理员 |
+| 市场列表 | ✅ | 搜索、状态筛选 |
+| 交易（买/卖） | ✅ | LMSR 定价，实时报价预估，滑点保护 |
+| K 线图 | ✅ | lightweight-charts，周期可切换，MA10 均线 |
+| 价格走势 | ✅ | Area 渐变图，涨绿跌红，时间范围可调 |
+| 实时推送 | ✅ | SSE 连接，断线自动降级轮询 |
+| 持仓管理 | ✅ | LMSR 清算价值（含滑点），按市场分组 |
+| 交易历史 | ✅ | 按类型/时间筛选 |
+| 财富排行榜 | ✅ | 含称号系统 |
+| 管理后台 | ✅ | 创建/熔断/结算市场，用户管理，调整现金 |
 
 ## 页面路由
 
 | 路由 | 页面 | 权限 |
 |------|------|------|
 | `/` | 首页 | 公开 |
-| `/auth/login` | 登录 | 公开 |
-| `/auth/register` | 注册 | 公开 |
-| `/auth/activate` | 账号激活 | 公开 |
+| `/auth/login` | → 跳转 Casdoor 登录 | 公开 |
+| `/auth/register` | → 跳转 Casdoor 注册 | 公开 |
+| `/auth/callback` | OAuth 回调处理 | 公开 |
 | `/market/list` | 市场列表 | 已认证 |
 | `/market/:id/trade` | 交易视图 | 已认证 |
 | `/market/leaderboard` | 财富排行榜 | 已认证 |
 | `/user/portfolio` | 资产持仓 | 已认证 |
 | `/user/transactions` | 交易记录 | 已认证 |
-| `/admin/markets` | 市场管理 | 管理员 |
-| `/admin/activation-codes` | 激活码管理 | 管理员 |
-| `/admin/system-monitor` | 系统监控 | 管理员 |
+| `/admin/market-manage` | 管理后台 | 管理员 |
+
+## 图表架构
+
+K 线和走势图的数据不是只查目标选项的交易记录，而是查**整个市场所有选项的交易**，逐笔重放 shares 状态，计算目标选项的瞬时价格。这是因为 LMSR 中交易任何选项都会改变所有选项的价格。
 
 ## 称号系统
-
-净值排位对应称号：
 
 | 净值 | 称号 |
 |------|------|
@@ -101,14 +116,3 @@ npm run build        # 生产构建
 | > 2000 | 命莲寺的赞助者 |
 | > 500 | 人间之里的小商贩 |
 | 其他 | 初入幻想乡的无名氏 |
-
-## 待办事项
-
-- [x] SSE 实时数据驱动图表更新（连接时停用轮询，断线时降级为 6s 轮询）
-- [x] 管理员市场管理：状态列动态显示、创建表单提交期间禁用输入
-- [x] 用户资产/交易记录：增加错误状态（API 失败显示提示+重试按钮）
-- [x] 持仓市值计算修正（使用后端 holdings_value，而非错误的 amount 累加）
-- [x] 订单簿：移除不存在的 SSE 事件订阅，改为 API 轮询+优雅空状态
-- [x] SystemMonitor 成交样本扩大（5→10 个市场，最多显示 50 条）
-- [ ] 测试覆盖（Vitest + Playwright）
-- [ ] 移动端响应式优化
