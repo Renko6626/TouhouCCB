@@ -95,7 +95,7 @@ const totalPages = computed(() => Math.ceil(filteredMarkets.value.length / pageS
 
 watch(sortBy, () => { currentPage.value = 1 })
 
-const handleView = (id: number) => router.push(`/market/${id}`)
+const handleView = (id: number) => router.push(`/market/${id}/trade`)
 const handleTrade = (id: number) => router.push(`/market/${id}/trade`)
 </script>
 

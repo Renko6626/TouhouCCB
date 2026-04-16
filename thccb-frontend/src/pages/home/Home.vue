@@ -93,7 +93,7 @@ const stats = computed(() => [
           v-for="market in featuredMarkets"
           :key="market.id"
           :market="market"
-          @view="id => router.push(`/market/${id}`)"
+          @view="id => router.push(`/market/${id}/trade`)"
           @trade="id => router.push(`/market/${id}/trade`)"
         />
       </div>
