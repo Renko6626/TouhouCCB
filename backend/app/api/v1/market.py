@@ -656,6 +656,20 @@ async def resolve_market(
                 payout_amt = pos.amount * payout_unit
                 if payout_amt > ZERO:
                     payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
+            else:
+                # 亏损仓位：记录 settle_lose 交易（图表 shares 重放需要）
+                db.add(Transaction(
+                    user_id=pos.user_id,
+                    outcome_id=pos.outcome_id,
+                    type=TransactionType.SETTLE_LOSE,
+                    shares=pos.amount,
+                    gross=ZERO,
+                    fee=ZERO,
+                    price=ZERO,
+                    pre_market_price=ZERO,
+                    post_market_price=ZERO,
+                    cost=ZERO,
+                ))
 
             await db.delete(pos)
 
