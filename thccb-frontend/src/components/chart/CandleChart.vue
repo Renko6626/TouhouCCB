@@ -4,9 +4,11 @@ import {
   CandlestickSeries,
   ColorType,
   HistogramSeries,
+  LineSeries,
   createChart,
   type CandlestickData,
   type HistogramData,
+  type LineData,
   type IChartApi,
   type ISeriesApi,
   type Time,
@@ -39,6 +41,8 @@ const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick', Time> | null = null
 let volumeSeries: ISeriesApi<'Histogram', Time> | null = null
+let maSeries: ISeriesApi<'Line', Time> | null = null
+const MA_PERIOD = 10
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let resizeObserver: ResizeObserver | null = null
 const isRequesting = ref(false)
@@ -138,9 +142,25 @@ const applyIncremental = (newCandles: Candle[]) => {
   }
 }
 
+// 计算移动平均线
+const calculateMA = (sorted: [number, import('@/types/api').Candle][]): LineData<UTCTimestamp>[] => {
+  const result: LineData<UTCTimestamp>[] = []
+  for (let i = MA_PERIOD - 1; i < sorted.length; i++) {
+    let sum = 0
+    for (let j = i - MA_PERIOD + 1; j <= i; j++) {
+      sum += sorted[j][1].c
+    }
+    result.push({
+      time: sorted[i][0] as UTCTimestamp,
+      value: sum / MA_PERIOD,
+    })
+  }
+  return result
+}
+
 // 全量渲染（初始加载 / 切换时）
 const renderFull = () => {
-  if (!candleSeries || !volumeSeries) return
+  if (!candleSeries || !volumeSeries || !maSeries) return
 
   const sorted = [...localCandles.value.entries()]
     .sort(([a], [b]) => a - b)
@@ -158,6 +178,7 @@ const renderFull = () => {
 
   candleSeries.setData(candleSeriesData)
   volumeSeries.setData(volumeSeriesData)
+  maSeries.setData(calculateMA(sorted))
   chartInstance?.timeScale().fitContent()
 }
 
@@ -193,6 +214,14 @@ const initChart = () => {
     wickUpColor: '#16a34a',
     wickDownColor: '#dc2626',
     borderVisible: false,
+  })
+
+  maSeries = chartInstance.addSeries(LineSeries, {
+    color: '#f59e0b',
+    lineWidth: 2,
+    priceLineVisible: false,
+    lastValueVisible: false,
+    crosshairMarkerVisible: false,
   })
 
   volumeSeries = chartInstance.addSeries(HistogramSeries, {

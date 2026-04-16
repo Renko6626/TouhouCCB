@@ -41,6 +41,17 @@ const candleIntervalOptions = [
   { label: '15分钟', value: '15m' },
   { label: '1小时', value: '1h' },
 ] as const
+
+// interval → lookback 联动：每个周期默认显示约 80 根 K 线
+const LOOKBACK_MAP: Record<string, number> = {
+  '10s': 15,       // 15 分钟 = 90 根
+  '30s': 40,       // 40 分钟 = 80 根
+  '1m': 80,        // 80 分钟 = 80 根
+  '5m': 400,       // ~6.7 小时 = 80 根
+  '15m': 1200,     // 20 小时 = 80 根
+  '1h': 4800,      // ~3.3 天 = 80 根
+}
+const candleLookback = computed(() => LOOKBACK_MAP[candleInterval.value] || 80)
 const candleRefreshToken = ref(0)
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -309,7 +320,7 @@ const executeTrade = async () => {
                 <NButton size="small" :type="activeChartType === 'price' ? 'primary' : 'default'" @click="activeChartType = 'price'">价格走势</NButton>
                 <NButton size="small" :type="activeChartType === 'candle' ? 'primary' : 'default'" @click="activeChartType = 'candle'">K线图</NButton>
                 <template v-if="activeChartType === 'candle'">
-                  <span class="text-xs text-[#888] ml-2">周期:</span>
+                  <span class="text-xs text-[#888] ml-2">|</span>
                   <NButton
                     v-for="opt in candleIntervalOptions"
                     :key="opt.value"
@@ -332,6 +343,7 @@ const executeTrade = async () => {
               v-else-if="selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
               :interval="candleInterval"
+              :lookback-minutes="candleLookback"
               :refresh-token="candleRefreshToken"
               :auto-refresh-ms="sse.isConnected.value ? 0 : 6000"
               height="100%"
