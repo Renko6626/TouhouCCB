@@ -121,7 +121,7 @@ const loadIncremental = async () => {
 
 // 将增量蜡烛合并到本地缓存 + 用 update() 推送给 lightweight-charts
 const applyIncremental = (newCandles: Candle[]) => {
-  if (!candleSeries || !volumeSeries) return
+  if (!candleSeries || !volumeSeries || !maSeries) return
 
   for (const c of newCandles) {
     const ts = toUtcTimestamp(c.t)
@@ -140,6 +140,10 @@ const applyIncremental = (newCandles: Candle[]) => {
       color: c.c >= c.o ? '#16a34a80' : '#dc262680',
     })
   }
+
+  // 增量更新后重算均线（用最新的本地缓存）
+  const sorted = [...localCandles.value.entries()].sort(([a], [b]) => a - b)
+  maSeries.setData(calculateMA(sorted))
 }
 
 // 计算移动平均线
