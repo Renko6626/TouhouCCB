@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.database import get_async_session
-from app.core.users import current_active_user
+from app.core.database import get_async_session, managed_transaction
+from app.core.users import current_active_user, current_superuser
 from app.models.base import User, Position, Transaction, Outcome, Market
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -180,3 +184,69 @@ async def get_my_transactions(
     res = await db.execute(stmt)
     txs: List[Transaction] = res.scalars().all()
     return txs
+
+
+# ==========================================
+# 管理员接口
+# ==========================================
+
+class AdjustCashRequest(BaseModel):
+    amount: Decimal = Field(..., description="正数加钱，负数扣钱")
+    reason: str = Field(default="", description="操作原因备注")
+
+
+@router.post("/{user_id}/adjust-cash", summary="调整用户现金（仅管理员）")
+async def adjust_user_cash(
+    user_id: int,
+    req: AdjustCashRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    async with managed_transaction(db):
+        result = await db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        new_cash = user.cash + req.amount
+        if new_cash < 0:
+            raise HTTPException(status_code=400, detail=f"操作后现金为 {new_cash}，不能为负")
+
+        user.cash = new_cash
+
+    logger.info(
+        "ADJUST_CASH admin_id=%s user_id=%s amount=%s reason=%s new_cash=%s",
+        admin.id, user_id, req.amount, req.reason, new_cash,
+    )
+
+    return {
+        "user_id": user_id,
+        "username": user.username,
+        "amount": float(req.amount),
+        "new_cash": float(new_cash.quantize(Decimal("0.01"))),
+        "reason": req.reason,
+    }
+
+
+@router.get("/list", summary="获取用户列表（仅管理员）")
+async def list_users(
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    result = await db.execute(
+        select(User).order_by(User.id.asc()).limit(200)
+    )
+    users = result.scalars().all()
+    return [
+        {
+            "id": u.id,
+            "username": u.username,
+            "cash": float(u.cash.quantize(Decimal("0.01"))),
+            "debt": float(u.debt.quantize(Decimal("0.01"))),
+            "is_active": u.is_active,
+            "is_superuser": u.is_superuser,
+        }
+        for u in users
+    ]
