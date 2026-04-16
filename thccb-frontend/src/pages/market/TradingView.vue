@@ -52,6 +52,17 @@ const LOOKBACK_MAP: Record<string, number> = {
   '1h': 4800,      // ~3.3 天 = 80 根
 }
 const candleLookback = computed(() => LOOKBACK_MAP[candleInterval.value] || 80)
+
+// 价格走势图时间范围
+const priceLookback = ref(1440)  // 默认 24 小时
+const priceLookbackOptions = [
+  { label: '1小时', value: 60 },
+  { label: '6小时', value: 360 },
+  { label: '24小时', value: 1440 },
+  { label: '3天', value: 4320 },
+  { label: '7天', value: 10080 },
+] as const
+
 const candleRefreshToken = ref(0)
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -319,14 +330,23 @@ const executeTrade = async () => {
               <div class="flex items-center gap-2 flex-wrap">
                 <NButton size="small" :type="activeChartType === 'price' ? 'primary' : 'default'" @click="activeChartType = 'price'">价格走势</NButton>
                 <NButton size="small" :type="activeChartType === 'candle' ? 'primary' : 'default'" @click="activeChartType = 'candle'">K线图</NButton>
+                <span class="text-xs text-[#888] ml-2">|</span>
                 <template v-if="activeChartType === 'candle'">
-                  <span class="text-xs text-[#888] ml-2">|</span>
                   <NButton
                     v-for="opt in candleIntervalOptions"
                     :key="opt.value"
                     size="tiny"
                     :type="candleInterval === opt.value ? 'primary' : 'default'"
                     @click="candleInterval = opt.value"
+                  >{{ opt.label }}</NButton>
+                </template>
+                <template v-else>
+                  <NButton
+                    v-for="opt in priceLookbackOptions"
+                    :key="opt.value"
+                    size="tiny"
+                    :type="priceLookback === opt.value ? 'primary' : 'default'"
+                    @click="priceLookback = opt.value"
                   >{{ opt.label }}</NButton>
                 </template>
               </div>
@@ -337,6 +357,7 @@ const executeTrade = async () => {
             <PriceChart
               v-if="activeChartType === 'price' && selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
+              :lookback-minutes="priceLookback"
               height="100%"
             />
             <CandleChart

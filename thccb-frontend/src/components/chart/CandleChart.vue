@@ -301,16 +301,16 @@ onUnmounted(() => {
   >
     <div ref="chartRef" style="width:100%;height:100%"></div>
 
-    <div v-if="chartData.loading && !hasData" class="overlay-state">
+    <div v-if="chartData.loading.value && !hasData" class="overlay-state">
       <p class="overlay-text">加载K线数据中...</p>
     </div>
 
-    <div v-else-if="chartData.error && !hasData" class="overlay-state">
-      <p class="overlay-text overlay-text--error">{{ chartData.error }}</p>
+    <div v-else-if="chartData.error.value && !hasData" class="overlay-state">
+      <p class="overlay-text overlay-text--error">{{ chartData.error.value }}</p>
       <button @click="loadFull()" class="overlay-btn">重试</button>
     </div>
 
-    <div v-else-if="!chartData.loading && !chartData.error && !hasData" class="overlay-state">
+    <div v-else-if="!chartData.loading.value && !chartData.error.value && !hasData" class="overlay-state">
       <p class="overlay-text">暂无K线数据</p>
     </div>
   </div>

@@ -12,11 +12,16 @@ import {
 import { useChartData } from '@/composables/useChartData'
 import type { PricePoint } from '@/types/api'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   outcomeId: number
+  lookbackMinutes?: number
   width?: string
   height?: string
-}>()
+}>(), {
+  lookbackMinutes: 1440,
+  width: '100%',
+  height: '400px',
+})
 
 const chartData = useChartData()
 const chartRef = ref<HTMLDivElement | null>(null)
@@ -40,12 +45,13 @@ const COLORS = {
 const loadData = async () => {
   if (!props.outcomeId) return
   const now = new Date()
-  const fromTs = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+  const fromTs = new Date(now.getTime() - props.lookbackMinutes * 60 * 1000).toISOString()
   const toTs = now.toISOString()
   await chartData.getPriceSeries(props.outcomeId, fromTs, toTs)
   await nextTick()
   if (!chartInstance) {
     initChart()
+    setupResize()
   }
   updateChart()
 }
@@ -73,7 +79,7 @@ const initChart = () => {
     timeScale: {
       borderColor: '#e0e0e0',
       timeVisible: true,
-      secondsVisible: false,
+      secondsVisible: props.lookbackMinutes <= 60,
     },
     crosshair: { mode: 0 },
     width: chartRef.value.clientWidth,
@@ -139,6 +145,13 @@ watch(() => props.outcomeId, () => {
     chartInstance = null
     areaSeries = null
   }
+  loadData()
+})
+
+watch(() => props.lookbackMinutes, () => {
+  chartInstance?.applyOptions({
+    timeScale: { secondsVisible: props.lookbackMinutes <= 60 },
+  })
   loadData()
 })
 
