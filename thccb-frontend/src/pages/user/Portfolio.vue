@@ -108,7 +108,7 @@ const holdingsColumns: DataTableColumns<Holding> = [
       const canTrade = market?.status === 'trading'
       return h(NSpace, { size: 4 }, {
         default: () => [
-          h(NButton, { size: 'small', onClick: () => router.push(`/market/${row.market_id}`) }, { default: () => '详情' }),
+          h(NButton, { size: 'small', onClick: () => router.push(`/market/${row.market_id}/trade`) }, { default: () => '详情' }),
           canTrade && h(NButton, { size: 'small', type: 'primary', onClick: () => router.push(`/market/${row.market_id}/trade`) }, { default: () => '交易' }),
         ],
       })
@@ -225,8 +225,7 @@ const holdingsByMarketArray = computed(() => {
                 </span>
               </div>
               <NSpace size="small">
-                <NButton size="small" @click="router.push(`/market/${marketHoldings.market_id}`)">市场详情</NButton>
-                <NButton v-if="marketHoldings.market_status === 'trading'" type="primary" size="small" @click="router.push(`/market/${marketHoldings.market_id}/trade`)">去交易</NButton>
+                <NButton size="small" @click="router.push(`/market/${marketHoldings.market_id}/trade`)">市场详情</NButton>
               </NSpace>
             </div>
           </template>
