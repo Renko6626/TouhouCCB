@@ -145,17 +145,7 @@ export const routes: RouteRecordRaw[] = [
         name: 'market-manage',
         component: () => import('@/pages/admin/MarketManage.vue'),
         meta: {
-          title: '市场管理',
-          requiresAuth: true,
-          requiresAdmin: true
-        }
-      },
-      {
-        path: 'system-monitor',
-        name: 'system-monitor',
-        component: () => import('@/pages/admin/SystemMonitor.vue'),
-        meta: {
-          title: '系统监控',
+          title: '管理后台',
           requiresAuth: true,
           requiresAdmin: true
         }

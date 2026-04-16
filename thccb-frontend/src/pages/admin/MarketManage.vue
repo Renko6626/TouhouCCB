@@ -26,6 +26,13 @@ const marketStore = useMarketStore()
 
 const loading = ref(false)
 const searchQuery = ref('')
+
+// 统计概览
+const statsCards = computed(() => [
+  { label: '交易中市场', value: marketStore.markets.length },
+  { label: '注册用户', value: userList.value.length },
+  { label: '管理员', value: userList.value.filter(u => u.is_superuser).length },
+])
 const showCreateModal = ref(false)
 const showSettleModal = ref(false)
 
@@ -334,13 +341,21 @@ onMounted(() => {
     <!-- 页头 -->
     <div class="page-bar">
       <div class="page-bar-left">
-        <span class="page-bar-title">市场管理</span>
-        <span class="page-bar-sub">管理市场创建、熔断、恢复和结算</span>
+        <span class="page-bar-title">管理后台</span>
+        <span class="page-bar-sub">市场管理 · 用户管理 · 平台概览</span>
       </div>
       <NButton @click="showCreateModal = true">
         <template #icon><i class="i-mdi-plus-circle"></i></template>
         创建新市场
       </NButton>
+    </div>
+
+    <!-- 统计概览 -->
+    <div class="stats-bar">
+      <div v-for="card in statsCards" :key="card.label" class="stats-item">
+        <span class="stats-label">{{ card.label }}</span>
+        <span class="stats-value">{{ card.value }}</span>
+      </div>
     </div>
 
     <!-- 搜索 -->
@@ -455,6 +470,38 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.stats-bar {
+  display: flex;
+  gap: 0;
+  border: 2px solid #000;
+}
+
+.stats-item {
+  flex: 1;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid #000;
+}
+
+.stats-item:last-child { border-right: none; }
+
+.stats-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+}
+
+.stats-value {
+  font-size: 24px;
+  font-weight: 900;
+  color: #000;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-note {

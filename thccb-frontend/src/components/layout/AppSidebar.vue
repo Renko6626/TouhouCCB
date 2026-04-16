@@ -21,8 +21,7 @@ const navItems = [
 ]
 
 const adminItems = [
-  { label: '市场管理', path: '/admin/market-manage', icon: 'i-mdi-cog-outline' },
-  { label: '系统监控', path: '/admin/system-monitor', icon: 'i-mdi-monitor-dashboard' },
+  { label: '管理后台', path: '/admin/market-manage', icon: 'i-mdi-cog-outline' },
 ]
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
