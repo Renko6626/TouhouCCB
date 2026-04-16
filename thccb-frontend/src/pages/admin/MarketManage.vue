@@ -18,6 +18,7 @@ import {
 import type { MarketDetail, MarketListItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 import { marketApi } from '@/api/market'
+import { adminApi, type UserListItem } from '@/api/admin'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -47,6 +48,68 @@ const settleMarketTitle = ref('')
 const settleOutcomes = ref<Array<{ id: number; label: string }>>([])
 const settleWinningOutcomeId = ref<number | null>(null)
 const settling = ref(false)
+
+// 用户管理
+const userList = ref<UserListItem[]>([])
+const userLoading = ref(false)
+const cashForm = ref({ userId: null as number | null, amount: 0, reason: '' })
+const cashRunning = ref(false)
+
+const loadUsers = async () => {
+  userLoading.value = true
+  try {
+    userList.value = await adminApi.listUsers()
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载用户列表失败')
+  } finally {
+    userLoading.value = false
+  }
+}
+
+const submitAdjustCash = async () => {
+  if (!cashForm.value.userId) { message.error('请选择用户'); return }
+  if (cashForm.value.amount === 0) { message.error('金额不能为 0'); return }
+
+  const action = cashForm.value.amount > 0 ? '加钱' : '扣钱'
+  const confirmed = await new Promise<boolean>((resolve) => {
+    dialog.warning({
+      title: `确认${action}`,
+      content: `确认给用户 #${cashForm.value.userId} ${action} ¥${Math.abs(cashForm.value.amount)}？`,
+      positiveText: '确认',
+      negativeText: '取消',
+      onPositiveClick: () => resolve(true),
+      onNegativeClick: () => resolve(false),
+    })
+  })
+  if (!confirmed) return
+
+  cashRunning.value = true
+  try {
+    const result = await adminApi.adjustCash(cashForm.value.userId, cashForm.value.amount, cashForm.value.reason)
+    message.success(`${action}成功：${result.username} 当前现金 ¥${result.new_cash}`)
+    cashForm.value = { userId: null, amount: 0, reason: '' }
+    await loadUsers()
+  } catch (error: any) {
+    message.error(error?.message || `${action}失败`)
+  } finally {
+    cashRunning.value = false
+  }
+}
+
+const userColumns: DataTableColumns<UserListItem> = [
+  { title: 'ID', key: 'id', width: 60 },
+  { title: '用户名', key: 'username' },
+  { title: '现金', key: 'cash', width: 120, render: (row) => `¥${row.cash.toFixed(2)}` },
+  { title: '负债', key: 'debt', width: 100, render: (row) => `¥${row.debt.toFixed(2)}` },
+  {
+    title: '角色', key: 'is_superuser', width: 80,
+    render: (row) => h(NTag, { type: row.is_superuser ? 'warning' : 'default', size: 'small' }, { default: () => row.is_superuser ? '管理员' : '用户' }),
+  },
+  {
+    title: '操作', key: 'actions', width: 100,
+    render: (row) => h(NButton, { size: 'small', onClick: () => { cashForm.value.userId = row.id } }, { default: () => '调整现金' }),
+  },
+]
 
 const directOps = ref({
   marketId: null as number | null,
@@ -260,7 +323,10 @@ const columns: DataTableColumns<MarketListItem> = [
   },
 ]
 
-onMounted(() => loadMarkets())
+onMounted(() => {
+  loadMarkets()
+  loadUsers()
+})
 </script>
 
 <template>
@@ -301,6 +367,19 @@ onMounted(() => loadMarkets())
         <NButton :loading="directRunning" @click="directResume">按ID恢复</NButton>
         <NButton :loading="directRunning" @click="directSettle">按ID结算</NButton>
       </div>
+    </div>
+
+    <!-- 用户管理 -->
+    <div class="content-panel">
+      <div class="panel-heading">用户管理</div>
+      <div class="row-gap" style="margin-bottom:12px;">
+        <NInputNumber v-model:value="cashForm.userId" :min="1" placeholder="用户ID" style="width:120px" size="small" />
+        <NInputNumber v-model:value="cashForm.amount" placeholder="金额（正=加，负=扣）" style="width:200px" size="small" />
+        <NInput v-model:value="cashForm.reason" placeholder="原因（可选）" style="width:160px" size="small" />
+        <NButton size="small" :loading="cashRunning" @click="submitAdjustCash">执行</NButton>
+        <NButton size="small" :loading="userLoading" @click="loadUsers">刷新</NButton>
+      </div>
+      <NDataTable :columns="userColumns" :data="userList" :loading="userLoading" :bordered="false" size="small" :max-height="300" />
     </div>
 
     <!-- 创建市场弹窗 -->
