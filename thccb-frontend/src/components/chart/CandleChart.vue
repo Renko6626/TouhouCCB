@@ -16,6 +16,7 @@ import {
 } from 'lightweight-charts'
 import { useChartData } from '@/composables/useChartData'
 import type { Candle } from '@/types/api'
+import { getPalette, withAlpha } from '@/utils/palette'
 
 type ChartInterval = '10s' | '30s' | '1m' | '5m' | '15m' | '1h' | '1d'
 
@@ -134,10 +135,11 @@ const applyIncremental = (newCandles: Candle[]) => {
       low: c.l,
       close: c.c,
     })
+    const p = getPalette()
     volumeSeries.update({
       time: ts,
       value: c.v,
-      color: c.c >= c.o ? '#16a34a80' : '#dc262680',
+      color: withAlpha(c.c >= c.o ? p.up : p.down, 0x80),
     })
   }
 
@@ -174,10 +176,11 @@ const renderFull = () => {
     open: c.o, high: c.h, low: c.l, close: c.c,
   }))
 
+  const p = getPalette()
   const volumeSeriesData: HistogramData<UTCTimestamp>[] = sorted.map(([ts, c]) => ({
     time: ts as UTCTimestamp,
     value: c.v,
-    color: c.c >= c.o ? '#16a34a80' : '#dc262680',
+    color: withAlpha(c.c >= c.o ? p.up : p.down, 0x80),
   }))
 
   candleSeries.setData(candleSeriesData)
@@ -212,11 +215,12 @@ const initChart = () => {
     height: chartRef.value.clientHeight,
   })
 
+  const palette = getPalette()
   candleSeries = chartInstance.addSeries(CandlestickSeries, {
-    upColor: '#16a34a',
-    downColor: '#dc2626',
-    wickUpColor: '#16a34a',
-    wickDownColor: '#dc2626',
+    upColor: palette.up,
+    downColor: palette.down,
+    wickUpColor: palette.up,
+    wickDownColor: palette.down,
     borderVisible: false,
   })
 

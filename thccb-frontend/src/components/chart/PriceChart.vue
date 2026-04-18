@@ -11,6 +11,7 @@ import {
 } from 'lightweight-charts'
 import { useChartData } from '@/composables/useChartData'
 import type { PricePoint } from '@/types/api'
+import { getPalette } from '@/utils/palette'
 
 const props = withDefaults(defineProps<{
   outcomeId: number
@@ -36,10 +37,22 @@ const priceDirection = computed(() => {
   return pts[pts.length - 1].price >= pts[0].price ? 'up' : 'down'
 })
 
-const COLORS = {
-  up: { line: '#16a34a', topFill: 'rgba(22,163,74,0.25)', bottomFill: 'rgba(22,163,74,0.02)' },
-  down: { line: '#dc2626', topFill: 'rgba(220,38,38,0.25)', bottomFill: 'rgba(220,38,38,0.02)' },
-  neutral: { line: '#000000', topFill: 'rgba(0,0,0,0.12)', bottomFill: 'rgba(0,0,0,0.02)' },
+// 从 :root 的 CSS 变量读取，保持与全局色板一致
+const hexToRgba = (hex: string, alpha: number): string => {
+  const h = hex.replace('#', '')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+const buildColors = () => {
+  const p = getPalette()
+  return {
+    up:   { line: p.up,   topFill: hexToRgba(p.up,   0.25), bottomFill: hexToRgba(p.up,   0.02) },
+    down: { line: p.down, topFill: hexToRgba(p.down, 0.25), bottomFill: hexToRgba(p.down, 0.02) },
+    neutral: { line: p.neutral, topFill: 'rgba(0,0,0,0.12)', bottomFill: 'rgba(0,0,0,0.02)' },
+  }
 }
 
 const loadData = async () => {
@@ -86,7 +99,7 @@ const initChart = () => {
     height: chartRef.value.clientHeight,
   })
 
-  const c = COLORS[priceDirection.value]
+  const c = buildColors()[priceDirection.value]
   areaSeries = chartInstance.addSeries(AreaSeries, {
     lineColor: c.line,
     lineWidth: 2,
@@ -111,7 +124,7 @@ const updateChart = () => {
   areaSeries.setData(data)
 
   // 更新涨跌颜色
-  const c = COLORS[priceDirection.value]
+  const c = buildColors()[priceDirection.value]
   areaSeries.applyOptions({
     lineColor: c.line,
     topColor: c.topFill,
