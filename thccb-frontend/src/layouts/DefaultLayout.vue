@@ -81,8 +81,8 @@ const showSidebar = computed(() => {
       <!-- 主要内容区域 -->
       <NLayoutContent :native-scrollbar="false" class="p-4 md:p-6">
         <div class="mx-auto w-full max-w-[1320px]">
-          <!-- 多级面包屑导航 -->
-          <div v-if="route.meta?.breadcrumb !== false" class="mb-4" style="border-bottom: 1px solid #e0e0e0; padding-bottom: 10px;">
+          <!-- 多级面包屑导航（移动端隐藏，节省纵向空间） -->
+          <div v-if="route.meta?.breadcrumb !== false" class="breadcrumb-bar mb-4" style="border-bottom: 1px solid #e0e0e0; padding-bottom: 10px;">
             <n-breadcrumb>
               <n-breadcrumb-item>
                 <router-link to="/" class="text-black">首页</router-link>
@@ -132,6 +132,13 @@ const showSidebar = computed(() => {
 
   .n-layout-content {
     margin-left: 0 !important;
+  }
+}
+
+/* 移动端隐藏面包屑 */
+@media (max-width: 640px) {
+  .breadcrumb-bar {
+    display: none;
   }
 }
 </style>

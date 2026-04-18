@@ -199,4 +199,41 @@ watch(() => props.refreshToken, () => {
   font-size: 11px;
   color: #555;
 }
+
+/* 移动端：放大字号与间距，3 列保留但更易读 */
+@media (max-width: 640px) {
+  .ob-table {
+    font-size: 13px;
+  }
+
+  .ob-th {
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+
+  .ob-td {
+    padding: 8px 8px;
+  }
+
+  /* 方向列更窄，让价格/数量列有更多空间 */
+  .ob-table th:first-child,
+  .ob-table td:first-child {
+    width: 40px;
+    padding-left: 10px;
+    padding-right: 4px;
+  }
+
+  .ob-spread {
+    font-size: 11px;
+    gap: 8px;
+  }
+
+  .ob-header {
+    padding: 8px 10px;
+  }
+
+  .ob-count {
+    font-size: 10px;
+  }
+}
 </style>
