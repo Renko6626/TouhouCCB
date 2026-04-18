@@ -683,8 +683,8 @@ const executeTrade = async () => {
 }
 
 .mobile-trade-fab.fab-sell {
-  background: #dc2626;
-  border-color: #dc2626;
+  background: var(--color-down);
+  border-color: var(--color-down);
 }
 
 .fab-arrow {

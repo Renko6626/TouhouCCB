@@ -323,8 +323,8 @@ const actionHint = computed<string>(() => {
   color: #aaffaa;
 }
 
-.asset-pnl-up    { color: #4ade80; }
-.asset-pnl-down  { color: #ff6b6b; }
+.asset-pnl-up    { color: var(--color-up-strong); }
+.asset-pnl-down  { color: var(--color-down-strong); }
 .asset-pnl-flat  { color: rgba(255, 255, 255, 0.75); }
 
 /* 当前选项持仓块 */
@@ -468,9 +468,9 @@ const actionHint = computed<string>(() => {
 }
 
 .action-hint-tag--sell {
-  background: #dc2626;
+  background: var(--color-down);
   color: #fff;
-  border-color: #dc2626;
+  border-color: var(--color-down);
 }
 
 /* 买/卖切换 */
@@ -501,9 +501,9 @@ const actionHint = computed<string>(() => {
 }
 
 .type-btn--active-sell {
-  background: #dc2626;
+  background: var(--color-down);
   color: #fff;
-  border-color: #dc2626;
+  border-color: var(--color-down);
 }
 
 /* 份额行 */
@@ -559,7 +559,7 @@ const actionHint = computed<string>(() => {
 .quote-warn {
   font-size: 11px;
   font-weight: 600;
-  color: #c00;
+  color: var(--color-down);
   margin-top: 2px;
 }
 

@@ -183,8 +183,8 @@ watch(() => props.refreshToken, () => {
 .ob-right { text-align: right; }
 .ob-mono { font-variant-numeric: tabular-nums; }
 
-.ob-ask-price { color: #c00000; font-weight: 600; }
-.ob-bid-price { color: #006600; font-weight: 600; }
+.ob-ask-price { color: var(--color-down); font-weight: 600; }
+.ob-bid-price { color: var(--color-up); font-weight: 600; }
 
 .ob-spread-row td {
   padding: 4px 10px;

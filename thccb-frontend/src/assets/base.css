@@ -38,11 +38,19 @@
   --radius-sm: 0;
   --radius-md: 0;
 
-  /* 涨跌/盈亏色（唯一的彩色例外） */
+  /* 涨跌/盈亏色（唯一的彩色例外）
+   * 约定：绿 = 涨 / 浮盈，红 = 跌 / 浮亏。
+   * 所有新代码只允许用这几个变量，禁止硬编码其它 hex。
+   * - --color-up / --color-down      标准版，用于白底
+   * - --color-up-bg / --color-down-bg 淡底色，用于整块背景染色
+   * - --color-up-strong / --color-down-strong 深色底上使用的高亮版本（黑底对比度）
+   */
   --color-up: #16a34a;
   --color-down: #dc2626;
   --color-up-bg: #f0fdf4;
   --color-down-bg: #fef2f2;
+  --color-up-strong: #4ade80;
+  --color-down-strong: #ff6b6b;
 }
 
 /* Industrial style double border utility class */
