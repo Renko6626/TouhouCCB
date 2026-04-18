@@ -66,6 +66,15 @@ const priceLookbackOptions = [
 const candleRefreshToken = ref(0)
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
+// 手机端悬浮交易按钮：面板可见时自动隐藏
+const tradePanelRef = ref<HTMLElement | null>(null)
+const tradePanelVisible = ref(false)
+let tradePanelObserver: IntersectionObserver | null = null
+
+const scrollToTradePanel = () => {
+  tradePanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 // 加载市场数据
 const loadMarketData = async () => {
   if (!marketId.value) return
@@ -107,6 +116,21 @@ onMounted(() => {
   sse.on('market_status', handleRealtimeEvent)
 })
 
+// 交易面板可见性观察：挂载后按 ref 启用
+watch(tradePanelRef, (el) => {
+  if (tradePanelObserver) {
+    tradePanelObserver.disconnect()
+    tradePanelObserver = null
+  }
+  if (el && typeof IntersectionObserver !== 'undefined') {
+    tradePanelObserver = new IntersectionObserver(
+      ([entry]) => { tradePanelVisible.value = entry.isIntersecting },
+      { threshold: 0.15 }
+    )
+    tradePanelObserver.observe(el)
+  }
+})
+
 onBeforeUnmount(() => {
   sse.off('snapshot', handleRealtimeEvent)
   sse.off('trade', handleRealtimeEvent)
@@ -119,6 +143,10 @@ onBeforeUnmount(() => {
   if (quoteTimer) {
     clearTimeout(quoteTimer)
     quoteTimer = null
+  }
+  if (tradePanelObserver) {
+    tradePanelObserver.disconnect()
+    tradePanelObserver = null
   }
 })
 
@@ -314,10 +342,13 @@ const executeTrade = async () => {
         </div>
       </div>
 
+      <!--
+        布局：手机端按 DOM 顺序单列堆叠 → 图表 → 选项 → 交易面板 → 最近成交。
+        桌面 xl+：两列网格，交易面板固定在右侧并跨三行 sticky。
+      -->
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <!-- 左侧：主图与补充信息 -->
-      <div>
-        <NCard class="mb-6">
+        <!-- 1. 图表 (手机 row1 / 桌面 col1 row1) -->
+        <NCard class="xl:col-start-1 xl:row-start-1">
           <template #header>
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -372,78 +403,89 @@ const executeTrade = async () => {
           </div>
         </NCard>
 
-        <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,0.95fr)_minmax(320px,0.75fr)]">
-          <NCard>
-            <template #header>
-              <div class="flex items-center justify-between gap-4">
-                <span class="font-bold text-black">市场选项</span>
-                <MarketStatus :status="marketStore.currentMarket.status" />
-              </div>
-            </template>
+        <!-- 2. 市场选项 (手机 row2 / 桌面 col1 row2) -->
+        <NCard class="xl:col-start-1 xl:row-start-2">
+          <template #header>
+            <div class="flex items-center justify-between gap-4">
+              <span class="font-bold text-black">市场选项</span>
+              <MarketStatus :status="marketStore.currentMarket.status" />
+            </div>
+          </template>
 
-            <div class="space-y-4">
+          <div class="space-y-3">
+            <OutcomeCard
+              v-for="outcome in marketStore.currentMarket.outcomes"
+              :key="outcome.id"
+              :outcome="outcome"
+              :is-selected="selectedOutcomeId === outcome.id"
+              @click="selectedOutcomeId = outcome.id"
+            />
+          </div>
+        </NCard>
 
+        <!-- 3. 交易面板 (手机 row3，紧跟选项；桌面 col2 row1 sticky 跨3行) -->
+        <div
+          ref="tradePanelRef"
+          class="space-y-4 self-start xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-6"
+        >
+          <TradePanel
+            :market="marketStore.currentMarket"
+            :selected-outcome-id="selectedOutcomeId"
+            :trade-type="tradeType"
+            :shares="shares"
+            :max-shares="maxShares"
+            :quote-result="quoteResult"
+            :estimated-new-cash="estimatedNewCash"
+            :user-holding="userHolding"
+            :quote-exceeds-cash="quoteExceedsCash"
+            @update:selected-outcome-id="selectedOutcomeId = $event"
+            @update:trade-type="tradeType = $event"
+            @update:shares="shares = $event"
+            @execute-trade="executeTrade"
+          />
+        </div>
+
+        <!-- 4. 最近成交 (手机 row4 / 桌面 col1 row3) -->
+        <NCard
+          v-if="marketStore.marketTrades.length"
+          title="最近成交"
+          class="xl:col-start-1 xl:row-start-3"
+        >
+          <div class="max-h-[320px] space-y-2 overflow-auto pr-1">
+            <div
+              v-for="trade in marketStore.marketTrades.slice(0, 10)"
+              :key="trade.id"
+              class="flex justify-between items-center p-2"
+              style="border-bottom: 1px solid #e0e0e0;"
+            >
               <div>
-                <h4 class="font-semibold mb-3">市场选项</h4>
-                <div class="space-y-3">
-                  <OutcomeCard
-                    v-for="outcome in marketStore.currentMarket.outcomes"
-                    :key="outcome.id"
-                    :outcome="outcome"
-                    :is-selected="selectedOutcomeId === outcome.id"
-                    @click="selectedOutcomeId = outcome.id"
-                  />
-                </div>
+                <span class="font-medium text-black">
+                  {{ marketStore.currentMarket?.outcomes?.find((o: any) => o.id === trade.outcome_id)?.label || '未知选项' }}
+                </span>
+                <span class="text-sm ml-2" style="color:#666;">{{ trade.side === 'buy' ? '买入' : '卖出' }}</span>
+              </div>
+              <div class="text-right">
+                <div class="font-medium text-black">{{ trade.shares }} 份</div>
+                <div class="text-sm" style="color:#666;">¥{{ trade.gross.toFixed(2) }}</div>
               </div>
             </div>
-          </NCard>
-
-          <div class="space-y-6">
-            <NCard title="最近成交" v-if="marketStore.marketTrades.length">
-              <div class="max-h-[320px] space-y-2 overflow-auto pr-1">
-                <div
-                  v-for="trade in marketStore.marketTrades.slice(0, 10)"
-                  :key="trade.id"
-                  class="flex justify-between items-center p-2"
-                  style="border-bottom: 1px solid #e0e0e0;"
-                >
-                  <div>
-                    <span class="font-medium text-black">
-                      {{ marketStore.currentMarket?.outcomes?.find((o: any) => o.id === trade.outcome_id)?.label || '未知选项' }}
-                    </span>
-                    <span class="text-sm ml-2" style="color:#666;">{{ trade.side === 'buy' ? '买入' : '卖出' }}</span>
-                  </div>
-                  <div class="text-right">
-                    <div class="font-medium text-black">{{ trade.shares }} 份</div>
-                    <div class="text-sm" style="color:#666;">¥{{ trade.gross.toFixed(2) }}</div>
-                  </div>
-                </div>
-              </div>
-            </NCard>
           </div>
-        </div>
-      </div>
-
-      <!-- 右侧：交易面板 -->
-      <div class="space-y-4 xl:sticky xl:top-6 self-start">
-        <TradePanel
-          :market="marketStore.currentMarket"
-          :selected-outcome-id="selectedOutcomeId"
-          :trade-type="tradeType"
-          :shares="shares"
-          :max-shares="maxShares"
-          :quote-result="quoteResult"
-          :estimated-new-cash="estimatedNewCash"
-          :user-holding="userHolding"
-          :quote-exceeds-cash="quoteExceedsCash"
-          @update:selected-outcome-id="selectedOutcomeId = $event"
-          @update:trade-type="tradeType = $event"
-          @update:shares="shares = $event"
-          @execute-trade="executeTrade"
-        />
-      </div>
+        </NCard>
       </div>
     </div>
+
+    <!-- 手机端悬浮交易按钮（xl 以下显示，面板可见时自动隐藏） -->
+    <button
+      v-if="marketStore.currentMarket && !tradePanelVisible"
+      type="button"
+      class="mobile-trade-fab xl:hidden"
+      :class="tradeType === 'buy' ? 'fab-buy' : 'fab-sell'"
+      aria-label="滚动到交易面板"
+      @click="scrollToTradePanel"
+    >
+      <span class="fab-label">{{ tradeType === 'buy' ? '买入' : '卖出' }}</span>
+      <span class="fab-arrow" aria-hidden="true">↓</span>
+    </button>
 
     <!-- 市场不存在 -->
     <div v-else class="text-center py-12">
@@ -570,4 +612,89 @@ const executeTrade = async () => {
   50% { opacity: 0.4; }
 }
 
+/* 移动端响应式 */
+@media (max-width: 640px) {
+  .trading-view-page {
+    padding: 0 4px;
+  }
+
+  .market-summary-bar {
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .summary-title {
+    font-size: 15px;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .summary-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 16px;
+    width: 100%;
+  }
+
+  .summary-value {
+    font-size: 13px;
+  }
+
+  /* K 线间隔/图表切换按钮在手机上变大，方便点击 */
+  :deep(.n-button--tiny-type) {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  :deep(.n-button--small-type) {
+    min-height: 36px;
+  }
+}
+
+/* 手机端悬浮交易按钮 */
+.mobile-trade-fab {
+  position: fixed;
+  right: 16px;
+  /* 底部导航 h-12=48px + 16px 呼吸 + iOS 安全区 */
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border: 2px solid #000;
+  background: #000;
+  color: #fff;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.25);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  animation: fab-in 0.2s ease-out;
+}
+
+.mobile-trade-fab:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.mobile-trade-fab.fab-sell {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+.fab-arrow {
+  font-size: 16px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+@keyframes fab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 </style>

@@ -58,6 +58,60 @@ const executeTrade = async () => {
     setTimeout(() => { isSubmitting.value = false }, 500)
   }
 }
+
+// ── 持仓与盈亏 ──
+const hasHolding = computed(() =>
+  !!props.userHolding && props.userHolding.amount > 0
+)
+
+const pnlDirection = computed<'up' | 'down' | 'flat'>(() => {
+  const v = props.userHolding?.unrealized_pnl ?? 0
+  if (v > 0) return 'up'
+  if (v < 0) return 'down'
+  return 'flat'
+})
+
+const pnlSign = computed(() => {
+  const v = props.userHolding?.unrealized_pnl ?? 0
+  return v > 0 ? '+' : v < 0 ? '−' : ''
+})
+
+const pnlPercent = computed(() => {
+  const h = props.userHolding
+  if (!h || h.cost_basis <= 0) return null
+  return (h.unrealized_pnl / h.cost_basis) * 100
+})
+
+// 整体浮盈方向（用于资产栏第 4 格着色）
+const summaryPnlDirection = computed<'up' | 'down' | 'flat'>(() => {
+  const v = userStore.summary?.unrealized_pnl ?? 0
+  if (v > 0) return 'up'
+  if (v < 0) return 'down'
+  return 'flat'
+})
+
+const summaryPnlSign = computed(() => {
+  const v = userStore.summary?.unrealized_pnl ?? 0
+  return v > 0 ? '+' : v < 0 ? '−' : ''
+})
+
+// 一键平仓：切到 sell 并把份额填满
+const closePosition = () => {
+  if (!props.userHolding || props.userHolding.amount <= 0) return
+  emit('update:tradeType', 'sell')
+  emit('update:shares', props.userHolding.amount)
+}
+
+// 操作类型提示
+const actionHint = computed<string>(() => {
+  if (!props.selectedOutcomeId || props.shares <= 0) return ''
+  if (props.tradeType === 'buy') {
+    return hasHolding.value ? '加仓' : '建仓'
+  }
+  if (!props.userHolding) return ''
+  if (props.shares >= props.userHolding.amount) return '平仓'
+  return '减仓'
+})
 </script>
 
 <template>
@@ -71,6 +125,12 @@ const executeTrade = async () => {
       <div class="asset-item">
         <span class="asset-label">持仓</span>
         <span class="asset-value">¥{{ userStore.summary.holdings_value.toFixed(2) }}</span>
+      </div>
+      <div class="asset-item">
+        <span class="asset-label">浮盈</span>
+        <span class="asset-value" :class="`asset-pnl-${summaryPnlDirection}`">
+          {{ summaryPnlSign }}¥{{ Math.abs(userStore.summary.unrealized_pnl).toFixed(2) }}
+        </span>
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
@@ -100,6 +160,43 @@ const executeTrade = async () => {
       size="small"
     />
 
+    <!-- 当前选项的持仓 + 浮盈（仅持有时显示） -->
+    <div v-if="hasHolding && props.userHolding" class="holding-box" :class="`holding-box--${pnlDirection}`">
+      <div class="holding-meta">
+        <div class="holding-cell">
+          <span class="holding-label">持仓</span>
+          <span class="holding-value">{{ props.userHolding.amount.toLocaleString() }} 份</span>
+        </div>
+        <div class="holding-cell">
+          <span class="holding-label">均价</span>
+          <span class="holding-value">¥{{ props.userHolding.avg_price.toFixed(4) }}</span>
+        </div>
+        <div class="holding-cell">
+          <span class="holding-label">现价</span>
+          <span class="holding-value">¥{{ props.userHolding.current_price.toFixed(4) }}</span>
+        </div>
+      </div>
+      <div class="holding-pnl-row">
+        <div class="holding-pnl">
+          <span class="holding-pnl-label">浮盈</span>
+          <span class="holding-pnl-value" :class="`pnl-${pnlDirection}`">
+            {{ pnlSign }}¥{{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}
+            <span v-if="pnlPercent !== null" class="holding-pnl-pct">
+              ({{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%)
+            </span>
+          </span>
+        </div>
+        <button
+          type="button"
+          class="close-position-btn"
+          @click="closePosition"
+          :disabled="props.userHolding.amount <= 0"
+        >
+          一键平仓
+        </button>
+      </div>
+    </div>
+
     <!-- 份额 -->
     <div class="shares-row">
       <NInputNumber
@@ -111,6 +208,7 @@ const executeTrade = async () => {
         placeholder="份额"
         size="small"
         class="shares-input"
+        :input-props="{ inputmode: 'numeric', pattern: '[0-9]*' }"
       />
       <NButton size="small" @click="emit('update:shares', props.maxShares)" :disabled="props.maxShares <= 0">MAX</NButton>
     </div>
@@ -165,9 +263,12 @@ const executeTrade = async () => {
       {{ props.tradeType === 'buy' ? '买入' : '卖出' }} {{ props.shares }} 份
     </NButton>
 
-    <!-- 当前持仓（卖出模式时显示） -->
-    <div v-if="props.userHolding && props.tradeType === 'sell'" class="holding-hint">
-      持仓 {{ props.userHolding.amount }} 份
+    <!-- 操作类型提示（建仓 / 加仓 / 减仓 / 平仓） -->
+    <div v-if="actionHint" class="action-hint">
+      本次操作
+      <span :class="['action-hint-tag', `action-hint-tag--${actionHint === '平仓' || actionHint === '减仓' ? 'sell' : 'buy'}`]">
+        {{ actionHint }}
+      </span>
     </div>
   </div>
 </template>
@@ -184,9 +285,10 @@ const executeTrade = async () => {
 
 /* 资产概览 */
 .asset-bar {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 8px 8px;
   background: #000;
   color: #fff;
   margin: -14px -14px 0 -14px;
@@ -197,6 +299,7 @@ const executeTrade = async () => {
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  min-width: 0;
 }
 
 .asset-label {
@@ -207,13 +310,167 @@ const executeTrade = async () => {
 }
 
 .asset-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-value--highlight {
   color: #aaffaa;
+}
+
+.asset-pnl-up    { color: #4ade80; }
+.asset-pnl-down  { color: #ff6b6b; }
+.asset-pnl-flat  { color: rgba(255, 255, 255, 0.75); }
+
+/* 当前选项持仓块 */
+.holding-box {
+  border: 1.5px solid #000;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fafafa;
+}
+
+.holding-box--up   { background: var(--color-up-bg); border-color: #000; }
+.holding-box--down { background: var(--color-down-bg); border-color: #000; }
+
+.holding-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.holding-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.holding-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.holding-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #000;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.holding-pnl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px dashed #999;
+  padding-top: 8px;
+}
+
+.holding-pnl {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.holding-pnl-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.holding-pnl-value {
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.holding-pnl-pct {
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
+.pnl-up   { color: var(--color-up); }
+.pnl-down { color: var(--color-down); }
+.pnl-flat { color: #555; }
+
+/* 一键平仓按钮 */
+.close-position-btn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.close-position-btn:hover:not(:disabled) {
+  background: #000;
+  color: #fff;
+}
+
+.close-position-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+}
+
+.close-position-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 操作类型提示 */
+.action-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.action-hint-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid #000;
+  letter-spacing: 0.04em;
+}
+
+.action-hint-tag--buy {
+  background: #000;
+  color: #fff;
+}
+
+.action-hint-tag--sell {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
 }
 
 /* 买/卖切换 */
@@ -312,9 +569,41 @@ const executeTrade = async () => {
   font-weight: 700;
 }
 
-.holding-hint {
-  font-size: 11px;
-  color: #666;
-  text-align: center;
+/* 移动端：防 iOS 聚焦放大 + 更大的触控目标 */
+@media (max-width: 640px) {
+  .trade-panel :deep(.n-input-number .n-input__input-el),
+  .trade-panel :deep(.n-base-selection-label) {
+    font-size: 16px;
+  }
+
+  .type-btn {
+    padding: 10px 6px;
+    font-size: 14px;
+  }
+
+  .quick-row :deep(.n-button--tiny-type) {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .shares-row :deep(.n-button) {
+    min-height: 36px;
+  }
+
+  .exec-btn {
+    min-height: 44px;
+    font-size: 15px;
+  }
+
+  /* 极窄屏：一键平仓按钮换行避免挤压浮盈数字 */
+  .holding-pnl-row {
+    flex-wrap: wrap;
+  }
+
+  .close-position-btn {
+    min-height: 36px;
+    padding: 8px 14px;
+  }
 }
 </style>
