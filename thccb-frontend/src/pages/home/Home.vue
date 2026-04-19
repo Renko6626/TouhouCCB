@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
 import { NButton } from 'naive-ui'
 import MarketCard from '@/components/market/MarketCard.vue'
+import Movers from '@/components/home/Movers.vue'
+import RecentTrades from '@/components/home/RecentTrades.vue'
 
 const router = useRouter()
 const marketStore = useMarketStore()
@@ -174,8 +176,18 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
       </div>
     </section>
 
-    <!-- ── 平台特色 ── -->
+    <!-- ── 涨跌榜（带时间窗口） ── -->
     <section class="section">
+      <Movers />
+    </section>
+
+    <!-- ── 实时成交（轮询 5s） ── -->
+    <section class="section">
+      <RecentTrades />
+    </section>
+
+    <!-- ── 平台特色（仅未登录用户展示，避免对老用户重复说明） ── -->
+    <section v-if="!authStore.isAuthenticated" class="section">
       <div class="section-header">
         <h2 class="section-title">平台特色</h2>
       </div>

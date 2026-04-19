@@ -12,6 +12,9 @@ import type {
   MarketStatusResponse,
   SettleResult,
   MarketCreate,
+  RecentTrade,
+  Mover,
+  MoverWindow,
 } from '@/types/api'
 
 export const marketApi = {
@@ -76,6 +79,20 @@ export const marketApi = {
   async getLeaderboard(limit: number = 20): Promise<LeaderboardItem[]> {
     return api.get<LeaderboardItem[]>('/api/v1/market/leaderboard', {
       params: { limit }
+    })
+  },
+
+  // 跨市场最近成交（实时成交流，前端轮询）
+  async getRecentTrades(limit: number = 30): Promise<RecentTrade[]> {
+    return api.get<RecentTrade[]>('/api/v1/market/recent-trades', {
+      params: { limit }
+    })
+  },
+
+  // 涨跌榜（按时间窗口）
+  async getMovers(window: MoverWindow = '24h', limit: number = 10): Promise<Mover[]> {
+    return api.get<Mover[]>('/api/v1/market/movers', {
+      params: { window, limit }
     })
   },
 }

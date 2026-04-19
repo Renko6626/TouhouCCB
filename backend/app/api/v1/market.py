@@ -23,6 +23,8 @@ from app.schemas.market import (
     QuoteResponse,
     LeaderboardItem,
     MarketTradeRead,
+    RecentTradeRead,
+    MoverItem,
 )
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 
@@ -809,14 +811,15 @@ async def get_market_trades(
     db: AsyncSession = Depends(get_async_session),
 ):
     stmt = (
-        select(Transaction)
+        select(Transaction, User)
         .join(Outcome, Transaction.outcome_id == Outcome.id)
+        .join(User, Transaction.user_id == User.id)
         .where(Outcome.market_id == market_id)
         .order_by(Transaction.timestamp.desc())
         .limit(limit)
     )
     res = await db.execute(stmt)
-    txs = res.scalars().all()
+    rows = res.all()
 
     return [
         MarketTradeRead(
@@ -827,9 +830,10 @@ async def get_market_trades(
             price=tx.price,
             gross=tx.gross,
             fee=tx.fee,
-            timestamp=tx.timestamp,
+            timestamp=tx.timestamp.replace(tzinfo=timezone.utc) if tx.timestamp.tzinfo is None else tx.timestamp,
+            username=u.username,
         )
-        for tx in txs
+        for tx, u in rows
     ]
 
 
@@ -882,3 +886,131 @@ async def leaderboard(
         ))
 
     return items
+
+
+# ==========================================
+# 首页：实时成交流 + 涨跌榜
+# ==========================================
+
+@router.get("/recent-trades", response_model=List[RecentTradeRead], summary="跨市场最近成交")
+async def recent_trades(
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """返回最近 N 笔买/卖成交（不含结算系统单），跨所有市场，倒序按时间。"""
+    stmt = (
+        select(Transaction, Outcome, Market, User)
+        .join(Outcome, Transaction.outcome_id == Outcome.id)
+        .join(Market, Outcome.market_id == Market.id)
+        .join(User, Transaction.user_id == User.id)
+        .where(Transaction.type.in_([TransactionType.BUY, TransactionType.SELL]))
+        .order_by(Transaction.timestamp.desc())
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+    return [
+        RecentTradeRead(
+            id=tx.id,
+            timestamp=tx.timestamp.replace(tzinfo=timezone.utc) if tx.timestamp.tzinfo is None else tx.timestamp,
+            market_id=mk.id,
+            market_title=mk.title,
+            outcome_id=oc.id,
+            outcome_label=oc.label,
+            type=tx.type,
+            shares=tx.shares,
+            price=tx.price,
+            username=u.username,
+        )
+        for tx, oc, mk, u in rows
+    ]
+
+
+_MOVER_WINDOW_SECONDS: Dict[str, int] = {
+    "10min": 600,
+    "1h": 3600,
+    "24h": 86400,
+}
+
+
+@router.get("/movers", response_model=List[MoverItem], summary="涨跌榜（按时间窗口）")
+async def movers(
+    window: str = Query("24h", pattern="^(10min|1h|24h)$", description="时间窗口"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    返回所有 trading 市场所有 outcome 的价格变动榜，按 |change_pct| 倒序。
+    基准价：每个 outcome 在 cutoff 之前最后一笔交易的 post_market_price；
+    若该 outcome 无 cutoff 之前的交易记录，则回退到初始等概率 1/N（仅当
+    整个市场也无 cutoff 之前交易时严格正确，否则为近似）。
+    """
+    seconds = _MOVER_WINDOW_SECONDS[window]
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+    # 1) 取所有 trading 市场
+    m_res = await db.execute(
+        select(Market)
+        .where(Market.status == MarketStatus.TRADING)
+        .options(selectinload(Market.outcomes))
+    )
+    markets = m_res.scalars().all()
+    if not markets:
+        return []
+
+    # 2) 批量查每个 outcome 在 cutoff 前的最后一笔成交价（窗口函数）
+    all_outcome_ids = [o.id for m in markets for o in m.outcomes]
+    if not all_outcome_ids:
+        return []
+
+    sub = (
+        select(
+            Transaction.outcome_id,
+            Transaction.post_market_price.label("price"),
+            func.row_number().over(
+                partition_by=Transaction.outcome_id,
+                order_by=Transaction.timestamp.desc(),
+            ).label("rn"),
+        )
+        .where(
+            and_(
+                Transaction.outcome_id.in_(all_outcome_ids),
+                Transaction.timestamp <= cutoff,
+            )
+        )
+        .subquery()
+    )
+    p_stmt = select(sub.c.outcome_id, sub.c.price).where(sub.c.rn == 1)
+    p_res = await db.execute(p_stmt)
+    prices_then: Dict[int, float] = {
+        row[0]: float(row[1]) for row in p_res.all() if row[1] and float(row[1]) > 0
+    }
+
+    # 3) 计算每个 outcome 的当前价 + 变化
+    results: List[MoverItem] = []
+    for m in markets:
+        outcomes = list(m.outcomes)
+        n = len(outcomes)
+        if n < 2:
+            continue
+        shares_list = _shares_to_floats(outcomes)
+        b = float(m.liquidity_b)
+        for i, o in enumerate(outcomes):
+            cur = float(quantize_price(get_current_price(shares_list, i, b)))
+            then = prices_then.get(o.id, 1.0 / n)  # 无历史则用初始等概率
+            if then <= 0:
+                continue
+            change_pct = round((cur - then) / then * 100, 2)
+            results.append(MoverItem(
+                market_id=int(m.id),
+                market_title=str(m.title),
+                outcome_id=int(o.id),
+                outcome_label=str(o.label),
+                price_now=quantize_price(cur),
+                price_then=quantize_price(then),
+                change_pct=change_pct,
+            ))
+
+    # 4) 按 |change_pct| 倒序，取 top N（前端再切分涨/跌）
+    results.sort(key=lambda x: abs(x.change_pct), reverse=True)
+    return results[:limit]

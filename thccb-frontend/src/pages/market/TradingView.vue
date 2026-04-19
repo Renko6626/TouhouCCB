@@ -294,6 +294,25 @@ const executeTrade = async () => {
   }
 }
 
+// ── 最近成交辅助 ──
+const truncate = (s: string, n: number) => s && s.length > n ? s.slice(0, n - 1) + '…' : (s || '')
+
+const outcomeLabel = (oid: number): string => {
+  return marketStore.currentMarket?.outcomes?.find((o: any) => o.id === oid)?.label || '未知选项'
+}
+
+const relTime = (iso: string): string => {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const diff = Math.max(0, Math.floor((Date.now() - t) / 1000))
+  if (diff < 60) return `${diff}秒前`
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 </script>
 
 <template>
@@ -451,25 +470,30 @@ const executeTrade = async () => {
           title="最近成交"
           class="xl:col-start-1 xl:row-start-3"
         >
-          <div class="max-h-[320px] space-y-2 overflow-auto pr-1">
-            <div
-              v-for="trade in marketStore.marketTrades.slice(0, 10)"
-              :key="trade.id"
-              class="flex justify-between items-center p-2"
-              style="border-bottom: 1px solid #e0e0e0;"
-            >
-              <div>
-                <span class="font-medium text-black">
-                  {{ marketStore.currentMarket?.outcomes?.find((o: any) => o.id === trade.outcome_id)?.label || '未知选项' }}
+          <ul class="trades-list">
+            <TransitionGroup name="trade-flip">
+              <li
+                v-for="trade in marketStore.marketTrades.slice(0, 30)"
+                :key="trade.id"
+                class="trade-row"
+                :class="trade.side === 'buy' ? 'trade-row-buy' : 'trade-row-sell'"
+              >
+                <span class="trade-time">{{ relTime(trade.timestamp) }}</span>
+                <span class="trade-user" :title="trade.username">{{ truncate(trade.username, 12) }}</span>
+                <span class="trade-action">
+                  <span :class="['trade-tag', trade.side === 'buy' ? 'trade-tag-buy' : 'trade-tag-sell']">
+                    {{ trade.side === 'buy' ? '买入' : '卖出' }}
+                  </span>
                 </span>
-                <span class="text-sm ml-2" style="color:#666;">{{ trade.side === 'buy' ? '买入' : '卖出' }}</span>
-              </div>
-              <div class="text-right">
-                <div class="font-medium text-black">{{ trade.shares }} 份</div>
-                <div class="text-sm" style="color:#666;">¥{{ trade.gross.toFixed(2) }}</div>
-              </div>
-            </div>
-          </div>
+                <span class="trade-outcome" :title="outcomeLabel(trade.outcome_id)">
+                  {{ truncate(outcomeLabel(trade.outcome_id), 10) }}
+                </span>
+                <span class="trade-shares">{{ Number(trade.shares).toLocaleString() }} 份</span>
+                <span class="trade-price">@ ¥{{ Number(trade.price).toFixed(4) }}</span>
+                <span class="trade-gross">¥{{ Number(trade.gross).toFixed(2) }}</span>
+              </li>
+            </TransitionGroup>
+          </ul>
         </NCard>
       </div>
     </div>
@@ -504,6 +528,125 @@ const executeTrade = async () => {
 .trading-view-page {
   max-width: 1400px;
   margin: 0 auto;
+}
+
+/* ── 最近成交列表 ── */
+.trades-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.trade-row {
+  display: grid;
+  grid-template-columns: 64px 84px 52px 88px 76px 90px auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-row:last-child { border-bottom: none; }
+.trade-row-buy { border-left: 3px solid var(--color-up); }
+.trade-row-sell { border-left: 3px solid var(--color-down); }
+
+.trade-time { font-size: 11px; color: #888; white-space: nowrap; }
+
+.trade-user {
+  font-weight: 600;
+  color: #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-action { display: flex; align-items: center; }
+
+.trade-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid #000;
+}
+
+.trade-tag-buy {
+  background: var(--color-up);
+  color: #fff;
+  border-color: var(--color-up);
+}
+
+.trade-tag-sell {
+  background: var(--color-down);
+  color: #fff;
+  border-color: var(--color-down);
+}
+
+.trade-outcome {
+  color: #333;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-shares {
+  font-weight: 600;
+  color: #000;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.trade-price {
+  color: #555;
+  white-space: nowrap;
+}
+
+.trade-gross {
+  font-weight: 700;
+  color: #000;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 滚入动画 */
+.trade-flip-enter-active {
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.trade-flip-leave-active {
+  transition: opacity 0.14s ease;
+  position: absolute;
+}
+.trade-flip-enter-from {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.trade-flip-leave-to { opacity: 0; }
+.trade-flip-move { transition: transform 0.22s ease; }
+
+/* 窄屏：降到单列列信息，隐藏价格/总额之一 */
+@media (max-width: 1024px) {
+  .trade-row {
+    grid-template-columns: 60px 72px 48px 76px 64px auto;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .trade-gross { display: none; }
+}
+
+@media (max-width: 640px) {
+  .trade-row {
+    grid-template-columns: 56px 64px 44px 1fr auto;
+  }
+  .trade-outcome { display: none; }
+  .trade-price { display: none; }
+  .trade-gross { display: inline; text-align: right; }
 }
 
 /* 市场概要栏 */
