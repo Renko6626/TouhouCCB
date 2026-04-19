@@ -95,8 +95,7 @@ const totalPages = computed(() => Math.ceil(filteredMarkets.value.length / pageS
 
 watch(sortBy, () => { currentPage.value = 1 })
 
-const handleView = (id: number) => router.push(`/market/${id}/trade`)
-const handleTrade = (id: number) => router.push(`/market/${id}/trade`)
+const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
 </script>
 
 <template>
@@ -155,8 +154,7 @@ const handleTrade = (id: number) => router.push(`/market/${id}/trade`)
           v-for="market in paginatedMarkets"
           :key="market.id"
           :market="market"
-          @view="handleView"
-          @trade="handleTrade"
+          @open="handleOpen"
         />
       </div>
 

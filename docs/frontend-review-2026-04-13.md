@@ -79,8 +79,9 @@
     - `(current_price - 0.5) / 0.5 * 100` 硬编码基准
     - 应使用实际的历史价格或 previous_price
 
-11. **OrderBook 不跟随 SSE 实时更新（OrderBook.vue:25-42）**
-    - 只在挂载时加载一次
+11. **OrderBook 不跟随 SSE 实时更新（OrderBook.vue:25-42）** — ⚠️ **作废（2026-04-19）**
+    - 原审阅项：组件只在挂载时加载一次
+    - **后续判定**：项目使用 LMSR 自动做市商架构，没有"挂单簿"概念，后端从未实现 `/orderbook` 接口；该组件从未被任何页面引用，本次代码清理已删除 `OrderBook.vue` 与 `OrderBookEntry` 类型
 
 12. **CandleChart 的 autoRefreshMs prop 变化时旧 timer 不清除**
 
@@ -253,7 +254,7 @@
 | 交易按钮无防双击 | TradePanel.vue | isSubmitting 锁 + 500ms 延迟解锁 |
 | 快捷份额按钮硬编码 | TradePanel.vue | 根据 maxShares 动态生成有意义的档位 |
 | OutcomeCard 价格变动假设基准 0.5 | OutcomeCard.vue | 改为显示 LMSR 隐含概率百分比 |
-| OrderBook 不跟随 SSE 刷新 | OrderBook.vue + TradingView.vue | 添加 refreshToken prop，SSE 事件后立即刷新 |
+| ~~OrderBook 不跟随 SSE 刷新~~ | ~~OrderBook.vue + TradingView.vue~~ | ⚠️ 作废 (2026-04-19)：LMSR 架构无订单簿，组件已删除 |
 | user.ts fetchAllUserData loading 混乱 | user.ts | 添加 manageLoading 参数，并发调用时传 false |
 | Home 统计数据重复 | Home.vue | 去掉重复的「活跃市场」，改为「已暂停」 |
 | 特色区域不可交互 | Home.vue | feature-card 添加 click 跳转 + hover 样式 |

@@ -124,7 +124,7 @@ watch(tradePanelRef, (el) => {
   }
   if (el && typeof IntersectionObserver !== 'undefined') {
     tradePanelObserver = new IntersectionObserver(
-      ([entry]) => { tradePanelVisible.value = entry.isIntersecting },
+      ([entry]) => { tradePanelVisible.value = entry!.isIntersecting },
       { threshold: 0.15 }
     )
     tradePanelObserver.observe(el)
@@ -199,7 +199,7 @@ const selectedOutcome = computed(() => {
 // 获取用户在该选项的持仓
 const userHolding = computed(() => {
   if (!selectedOutcomeId.value || !authStore.isAuthenticated) return null
-  return userStore.getHoldingByOutcome(selectedOutcomeId.value)
+  return userStore.getHoldingByOutcome(selectedOutcomeId.value) ?? null
 })
 
 // 计算最大可交易份额
@@ -487,8 +487,8 @@ const executeTrade = async () => {
       <span class="fab-arrow" aria-hidden="true">↓</span>
     </button>
 
-    <!-- 市场不存在 -->
-    <div v-else class="text-center py-12">
+    <!-- 市场不存在（显式条件：避免 v-else 错配到上方 FAB 的 v-if 链） -->
+    <div v-if="!loading && !marketStore.currentMarket" class="text-center py-12">
       <NEmpty description="市场不存在或已被删除">
         <template #extra>
           <NButton type="primary" @click="router.push('/market/list')">

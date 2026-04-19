@@ -23,12 +23,6 @@ export interface Outcome {
   price_change_pct_24h?: number | null
 }
 
-export interface OrderBookEntry {
-  price: number
-  shares: number
-  total_shares?: number
-}
-
 export interface OutcomeQuote {
   id: number
   label: string

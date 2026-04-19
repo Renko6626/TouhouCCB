@@ -7,8 +7,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  view: [id: number]
-  trade: [id: number]
+  open: [id: number]
 }>()
 
 const statusText: Record<string, string> = {
@@ -16,6 +15,19 @@ const statusText: Record<string, string> = {
   halt: '已暂停',
   settled: '已结算',
 }
+
+// 单一操作按钮的文案：状态决定语义
+const actionLabel = computed(() => {
+  switch (props.market.status) {
+    case 'trading': return '进入交易'
+    case 'halt': return '查看详情'
+    case 'settled': return '查看结算'
+    default: return '查看详情'
+  }
+})
+
+// 仅 trading 用主按钮（黑底），其余用次按钮
+const isPrimary = computed(() => props.market.status === 'trading')
 
 const statusClass: Record<string, string> = {
   trading: 'status-trading',
@@ -98,13 +110,11 @@ const closesAtLabel = computed(() => {
         </span>
       </div>
       <div class="card-actions">
-        <button class="btn-detail" @click="emit('view', props.market.id)">详情</button>
         <button
-          v-if="props.market.status === 'trading'"
-          class="btn-trade"
-          @click="emit('trade', props.market.id)"
+          :class="['btn-action', isPrimary ? 'btn-action-primary' : 'btn-action-default']"
+          @click="emit('open', props.market.id)"
         >
-          交易
+          {{ actionLabel }}
         </button>
       </div>
     </div>
@@ -340,9 +350,8 @@ const closesAtLabel = computed(() => {
   gap: 6px;
 }
 
-.btn-detail,
-.btn-trade {
-  padding: 5px 12px;
+.btn-action {
+  padding: 5px 14px;
   font-size: 12px;
   font-weight: 600;
   border: 1.5px solid #000000;
@@ -351,23 +360,23 @@ const closesAtLabel = computed(() => {
   letter-spacing: 0.02em;
 }
 
-.btn-detail {
+.btn-action-default {
   background: #ffffff;
   color: #000000;
   box-shadow: 2px 2px 0 #000000;
 }
 
-.btn-detail:hover {
+.btn-action-default:hover {
   background: #f0f0f0;
 }
 
-.btn-trade {
+.btn-action-primary {
   background: #000000;
   color: #ffffff;
   box-shadow: 2px 2px 0 #444444;
 }
 
-.btn-trade:hover {
+.btn-action-primary:hover {
   background: #222222;
 }
 </style>

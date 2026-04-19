@@ -34,7 +34,7 @@ let resizeObserver: ResizeObserver | null = null
 const priceDirection = computed(() => {
   const pts = chartData.priceData.value
   if (pts.length < 2) return 'neutral'
-  return pts[pts.length - 1].price >= pts[0].price ? 'up' : 'down'
+  return pts[pts.length - 1]!.price >= pts[0]!.price ? 'up' : 'down'
 })
 
 // 从 :root 的 CSS 变量读取，保持与全局色板一致

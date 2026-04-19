@@ -82,6 +82,14 @@ const pnlPercent = computed(() => {
   return (h.unrealized_pnl / h.cost_basis) * 100
 })
 
+// 卖出均价：amount × 卖出均价 = market_value（含 LMSR 滑点的真实可得每份均价）
+// 与"均价 (cost_basis/amount)"配合使用，使 amount × (卖出均价 - 均价) ≡ 浮盈
+const sellAvgPrice = computed(() => {
+  const h = props.userHolding
+  if (!h || h.amount <= 0) return null
+  return h.market_value / h.amount
+})
+
 // 整体浮盈方向（用于资产栏第 4 格着色）
 const summaryPnlDirection = computed<'up' | 'down' | 'flat'>(() => {
   const v = userStore.summary?.unrealized_pnl ?? 0
@@ -172,8 +180,8 @@ const actionHint = computed<string>(() => {
           <span class="holding-value">¥{{ props.userHolding.avg_price.toFixed(4) }}</span>
         </div>
         <div class="holding-cell">
-          <span class="holding-label">现价</span>
-          <span class="holding-value">¥{{ props.userHolding.current_price.toFixed(4) }}</span>
+          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点）">卖出均价</span>
+          <span class="holding-value">¥{{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
         </div>
       </div>
       <div class="holding-pnl-row">

@@ -84,8 +84,8 @@ export function useChartData() {
   // 计算价格变化率
   const calculatePriceChangeRate = (points: PricePoint[]): number => {
     if (points.length < 2) return 0
-    const first = points[0].price
-    const last = points[points.length - 1].price
+    const first = points[0]!.price
+    const last = points[points.length - 1]!.price
     return ((last - first) / first * 100)
   }
 
@@ -100,19 +100,19 @@ export function useChartData() {
       return { volume: 0, high: 0, low: 0, change: 0 }
     }
     
-    const first = candles[0]
-    const last = candles[candles.length - 1]
-    
+    const first = candles[0]!
+    const last = candles[candles.length - 1]!
+
     let totalVolume = 0
-    let highestHigh = candles[0].h
-    let lowestLow = candles[0].l
-    
+    let highestHigh = first.h
+    let lowestLow = first.l
+
     candles.forEach(candle => {
       totalVolume += candle.v
       if (candle.h > highestHigh) highestHigh = candle.h
       if (candle.l < lowestLow) lowestLow = candle.l
     })
-    
+
     const change = ((last.c - first.o) / first.o * 100)
     
     return {

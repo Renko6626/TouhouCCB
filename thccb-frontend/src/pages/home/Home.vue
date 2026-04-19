@@ -162,8 +162,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
           v-for="market in featuredMarkets"
           :key="market.id"
           :market="market"
-          @view="id => router.push(`/market/${id}/trade`)"
-          @trade="id => router.push(`/market/${id}/trade`)"
+          @open="id => router.push(`/market/${id}/trade`)"
         />
       </div>
 

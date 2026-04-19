@@ -71,10 +71,14 @@ const holdingsColumns: DataTableColumns<Holding> = [
     render: (row) => `¥${row.avg_price.toFixed(4)}`,
   },
   {
-    title: '现价',
-    key: 'current_price',
-    width: 100,
-    render: (row) => `¥${row.current_price.toFixed(4)}`,
+    // 卖出均价 = market_value / amount，与"均价"对照可直观看出每份盈亏（含 LMSR 滑点）
+    title: '卖出均价',
+    key: 'sell_avg_price',
+    width: 110,
+    render: (row) => {
+      const v = row.amount > 0 ? row.market_value / row.amount : 0
+      return `¥${v.toFixed(4)}`
+    },
   },
   {
     title: '成本',
@@ -146,9 +150,9 @@ const holdingsByMarketArray = computed(() => {
     <!-- 错误状态 -->
     <div v-else-if="loadError && !userStore.summary" class="py-8">
       <NAlert type="error" :title="loadError">
-        <template #footer>
+        <div class="mt-2">
           <NButton size="small" @click="loadData">重新加载</NButton>
-        </template>
+        </div>
       </NAlert>
     </div>
 
