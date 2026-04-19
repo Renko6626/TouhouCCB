@@ -154,10 +154,10 @@ const calculateMA = (sorted: [number, import('@/types/api').Candle][]): LineData
   for (let i = MA_PERIOD - 1; i < sorted.length; i++) {
     let sum = 0
     for (let j = i - MA_PERIOD + 1; j <= i; j++) {
-      sum += sorted[j][1].c
+      sum += sorted[j]![1].c
     }
     result.push({
-      time: sorted[i][0] as UTCTimestamp,
+      time: sorted[i]![0] as UTCTimestamp,
       value: sum / MA_PERIOD,
     })
   }

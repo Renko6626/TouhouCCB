@@ -1,30 +1,125 @@
 import type { RouteRecordRaw } from 'vue-router'
+import DefaultLayout from '@/layouts/DefaultLayout.vue'
+import AuthLayout from '@/layouts/AuthLayout.vue'
 import NotFound from '@/pages/NotFound.vue'
 
 /**
- * 简化的路由定义 - 只包含实际存在的核心页面
+ * 路由定义
+ * 顶层用 layout 组件作为 component，子路由通过 layout 内部的 <router-view /> 渲染。
  */
 export const routes: RouteRecordRaw[] = [
-  // 公共路由
+  // 主布局：Header + Sidebar + Footer
   {
     path: '/',
-    name: 'home',
-    component: () => import('@/pages/home/Home.vue'),
-    meta: {
-      title: '首页',
-      requiresAuth: false
-    }
+    component: DefaultLayout,
+    children: [
+      {
+        path: '',
+        name: 'home',
+        component: () => import('@/pages/home/Home.vue'),
+        meta: {
+          title: '首页',
+          requiresAuth: false
+        }
+      },
+
+      // 用户路由
+      {
+        path: 'user',
+        redirect: '/user/portfolio',
+      },
+      {
+        path: 'user/portfolio',
+        name: 'portfolio',
+        component: () => import('@/pages/user/Portfolio.vue'),
+        meta: {
+          title: '我的资产',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+      {
+        path: 'user/transactions',
+        name: 'transactions',
+        component: () => import('@/pages/user/Transactions.vue'),
+        meta: {
+          title: '交易记录',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+
+      // 市场路由
+      {
+        path: 'market',
+        redirect: '/market/list',
+      },
+      {
+        path: 'market/list',
+        name: 'market-list',
+        component: () => import('@/pages/market/MarketList.vue'),
+        meta: {
+          title: '市场列表',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+      {
+        path: 'market/:id/trade',
+        name: 'trading-view',
+        component: () => import('@/pages/market/TradingView.vue'),
+        meta: {
+          title: '交易视图',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+      {
+        path: 'market/leaderboard',
+        name: 'leaderboard',
+        component: () => import('@/pages/market/Leaderboard.vue'),
+        meta: {
+          title: '财富排行榜',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+
+      // 管理员路由
+      {
+        path: 'admin',
+        redirect: '/admin/market-manage',
+      },
+      {
+        path: 'admin/market-manage',
+        name: 'market-manage',
+        component: () => import('@/pages/admin/MarketManage.vue'),
+        meta: {
+          title: '管理后台',
+          requiresAuth: true,
+          requiresAdmin: true
+        }
+      },
+
+      // 404 也走主布局，方便用户从导航返回
+      {
+        path: ':pathMatch(.*)*',
+        name: 'not-found',
+        component: NotFound,
+        meta: { title: '页面未找到', requiresAuth: false }
+      }
+    ]
   },
 
-  // 认证路由
+  // 认证布局：独立居中卡片，无 Header
   {
     path: '/auth',
-    name: 'auth',
-    redirect: '/auth/login',
-    meta: {
-      hideIfLoggedIn: true
-    },
+    component: AuthLayout,
     children: [
+      {
+        path: '',
+        redirect: '/auth/login',
+      },
       {
         path: 'login',
         name: 'login',
@@ -42,123 +137,15 @@ export const routes: RouteRecordRaw[] = [
           title: '注册',
           hideIfLoggedIn: true
         }
-      }
-    ]
-  },
-
-  // Casdoor OAuth2 回调（不挂在 /auth 父路由，避免 hideIfLoggedIn 误拦截）
-  {
-    path: '/auth/callback',
-    name: 'auth-callback',
-    component: () => import('@/pages/auth/Callback.vue'),
-    meta: { title: '登录中', requiresAuth: false },
-  },
-
-  // 用户路由
-  {
-    path: '/user',
-    name: 'user',
-    redirect: '/user/portfolio',
-    meta: {
-      requiresAuth: true,
-      requiresVerified: true
-    },
-    children: [
-      {
-        path: 'portfolio',
-        name: 'portfolio',
-        component: () => import('@/pages/user/Portfolio.vue'),
-        meta: {
-          title: '我的资产',
-          requiresAuth: true,
-          requiresVerified: true
-        }
       },
       {
-        path: 'transactions',
-        name: 'transactions',
-        component: () => import('@/pages/user/Transactions.vue'),
-        meta: {
-          title: '交易记录',
-          requiresAuth: true,
-          requiresVerified: true
-        }
-      }
-    ]
-  },
-
-  // 市场路由
-  {
-    path: '/market',
-    name: 'market',
-    redirect: '/market/list',
-    meta: {
-      requiresAuth: true,
-      requiresVerified: true
-    },
-    children: [
-      {
-        path: 'list',
-        name: 'market-list',
-        component: () => import('@/pages/market/MarketList.vue'),
-        meta: {
-          title: '市场列表',
-          requiresAuth: true,
-          requiresVerified: true
-        }
+        path: 'callback',
+        name: 'auth-callback',
+        component: () => import('@/pages/auth/Callback.vue'),
+        meta: { title: '登录中', requiresAuth: false },
       },
-      {
-        path: ':id/trade',
-        name: 'trading-view',
-        component: () => import('@/pages/market/TradingView.vue'),
-        meta: {
-          title: '交易视图',
-          requiresAuth: true,
-          requiresVerified: true
-        }
-      },
-      {
-        path: 'leaderboard',
-        name: 'leaderboard',
-        component: () => import('@/pages/market/Leaderboard.vue'),
-        meta: {
-          title: '财富排行榜',
-          requiresAuth: true,
-          requiresVerified: true
-        }
-      }
     ]
   },
-
-  // 管理员路由（新增）
-  {
-    path: '/admin',
-    name: 'admin',
-    redirect: '/admin/market-manage',
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: true
-    },
-    children: [
-      {
-        path: 'market-manage',
-        name: 'market-manage',
-        component: () => import('@/pages/admin/MarketManage.vue'),
-        meta: {
-          title: '管理后台',
-          requiresAuth: true,
-          requiresAdmin: true
-        }
-      }
-    ]
-  },
-
-  {
-    path: '/:pathMatch(.*)*',
-    name: 'not-found',
-    component: NotFound,
-    meta: { title: '页面未找到', requiresAuth: false }
-  }
 ]
 
 /**
@@ -167,10 +154,10 @@ export const routes: RouteRecordRaw[] = [
 export const getRouteTitle = (route: any): string => {
   const title = route.meta?.title || ''
   const appName = '东方炒炒币'
-  
+
   if (title) {
     return `${title} - ${appName}`
   }
-  
+
   return appName
 }

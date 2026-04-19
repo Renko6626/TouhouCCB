@@ -155,9 +155,9 @@ onMounted(async () => {
     <!-- 错误状态 -->
     <div v-else-if="loadError && !userStore.transactions.length" class="py-8">
       <NAlert type="error" :title="loadError">
-        <template #footer>
+        <div class="mt-2">
           <NButton size="small" @click="loadTransactions">重新加载</NButton>
-        </template>
+        </div>
       </NAlert>
     </div>
 
