@@ -43,4 +43,5 @@ export interface MarketTrade {
   gross: number
   fee: number
   timestamp: string
+  username: string
 }

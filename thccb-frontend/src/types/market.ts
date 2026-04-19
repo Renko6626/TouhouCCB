@@ -97,3 +97,30 @@ export interface SettleResult {
   total_payout: number
   settled_positions: number
 }
+
+// 首页：跨市场最近成交（实时成交流）
+export interface RecentTrade {
+  id: number
+  timestamp: string
+  market_id: number
+  market_title: string
+  outcome_id: number
+  outcome_label: string
+  type: 'buy' | 'sell'
+  shares: number
+  price: number
+  username: string
+}
+
+// 首页：涨跌榜单项
+export interface Mover {
+  market_id: number
+  market_title: string
+  outcome_id: number
+  outcome_label: string
+  price_now: number
+  price_then: number
+  change_pct: number
+}
+
+export type MoverWindow = '10min' | '1h' | '24h'

@@ -115,6 +115,7 @@ class MarketTradeRead(BaseModel):
     gross: Money
     fee: Money
     timestamp: datetime
+    username: str
 
 
 class LeaderboardItem(BaseModel):
@@ -122,3 +123,28 @@ class LeaderboardItem(BaseModel):
     username: str
     net_worth: Money
     rank: str
+
+
+class RecentTradeRead(BaseModel):
+    """跨市场最近成交（用于首页实时成交流）"""
+    id: int
+    timestamp: datetime
+    market_id: int
+    market_title: str
+    outcome_id: int
+    outcome_label: str
+    type: str            # 'buy' | 'sell'
+    shares: Money
+    price: Price
+    username: str
+
+
+class MoverItem(BaseModel):
+    """涨跌榜单项（用于首页价格变动榜）"""
+    market_id: int
+    market_title: str
+    outcome_id: int
+    outcome_label: str
+    price_now: Price
+    price_then: Price
+    change_pct: float    # (price_now - price_then) / price_then * 100，可正可负
