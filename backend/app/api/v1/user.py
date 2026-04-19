@@ -17,12 +17,14 @@ from app.core.users import current_active_user, current_superuser
 from app.models.base import User, Position, Transaction, Outcome, Market
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
+from app.api.v1.market import SELL_FEE_RATE
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 
 def _rank_title(net_worth: Decimal) -> str:
@@ -76,13 +78,14 @@ async def get_user_summary(
         if idx is None:
             continue
 
-        # 用 LMSR 成本差计算真实清算价值（考虑滑点），而非 瞬时价格 × 数量
+        # 用 LMSR 成本差计算真实清算价值（含滑点），并扣除卖出手续费，与实际可得现金口径一致
         b = float(market.liquidity_b)
         old_cost = calculate_lmsr_cost(shares_list, b)
         after_sell = list(shares_list)
         after_sell[idx] -= float(pos.amount)
         new_cost = calculate_lmsr_cost(after_sell, b)
-        liquidation_value = quantize_cost(old_cost - new_cost)
+        gross = quantize_cost(old_cost - new_cost)
+        liquidation_value = quantize_cost(gross * (ONE - SELL_FEE_RATE))
 
         holdings_value += liquidation_value
         total_cost_basis += pos.cost_basis
@@ -140,12 +143,13 @@ async def get_my_holdings(
         if idx is not None:
             b = float(market.liquidity_b)
             price_d = quantize_price(get_current_price(shares_list, idx, b))
-            # 真实清算价值 = 卖掉全部持仓 LMSR 实际返还金额（含滑点）
+            # 真实清算价值 = 卖掉全部持仓 LMSR 实际返还金额（含滑点），并扣除卖出手续费
             old_cost = calculate_lmsr_cost(shares_list, b)
             after_sell = list(shares_list)
             after_sell[idx] -= float(pos.amount)
             new_cost = calculate_lmsr_cost(after_sell, b)
-            market_value = quantize_cost(old_cost - new_cost)
+            gross = quantize_cost(old_cost - new_cost)
+            market_value = quantize_cost(gross * (ONE - SELL_FEE_RATE))
         else:
             price_d = ZERO
             market_value = ZERO

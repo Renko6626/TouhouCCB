@@ -13,10 +13,10 @@ class HoldingRead(BaseModel):
     outcome_label: str
     amount: Money
     cost_basis: Money
-    avg_price: Price          # cost_basis / amount
-    current_price: Price      # LMSR 当前价
-    market_value: Money       # amount * current_price
-    unrealized_pnl: Money     # market_value - cost_basis
+    avg_price: Price          # cost_basis / amount，真实买入加权均价
+    current_price: Price      # LMSR 边际价（再买/再卖第 1 份的瞬时价）
+    market_value: Money       # 全部卖出可获得的 LMSR 清算价值（含滑点，已扣卖出手续费）
+    unrealized_pnl: Money     # market_value - cost_basis（口径自洽，可与"卖出均价"配合）
 
 
 class UserSummary(BaseModel):
