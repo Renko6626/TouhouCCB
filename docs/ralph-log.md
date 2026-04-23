@@ -664,3 +664,109 @@
 - 写 ralph 小结到本文件末尾，列本次全部 14+ 个 commit、回归测试清单、用户 review 建议
 - 不再做代码改动（达到 max-iterations 自然结束循环）
 - **不输出 `<promise>CODE_IMPROVED</promise>`**——总目标"更美观、操作更方便"天然无法声明"完全且无疑义为真"，按 ralph 契约让 max-iterations 结束循环
+
+---
+
+## 15. 2026-04-23 iteration 15（最后一轮）— 本次 ralph 小结
+
+本轮不做代码改动，只交付总结。循环将在达到 `--max-iterations 15` 后自然结束。
+
+### 基本数据
+
+- **分支**：`ralph/0423`（从 `main` 拉，未 push）
+- **上限**：15 轮，全部用完
+- **总 commit 数**：18（含 1 个 `cb0e510` 护栏文档 + 17 个功能/重构）
+- **改动规模**：+1123 / -95，涉及 19 个文件（后端 5，前端 11，docs 3）
+- **零回滚**：本次 ralph 全程无需 `git revert`，每轮验证通过后才提交
+- **零触红线**：没有 push、没有动 `.env` / `docker-compose.yml` / `deploy/` / `.github/workflows/` / `backend/data/`；动高敏感区 `market.py` 一次（iteration 2，仅 `/list` 端点，不碰 buy/sell/quote/settle 核心路径）
+
+### commit 清单（时间正序）
+
+| # | Commit | 主题 |
+|---|---|---|
+| 1 | `cb0e510` | docs: CLAUDE.md 护栏 + ralph-log 起点规划 |
+| 2 | `495401a` | 交易记录响应/列表带市场名、选项名 |
+| 3 | `027f03a` | 市场列表响应带成交笔数与最后成交时间，MarketCard 展示活跃度 |
+| 4 | `dc3d70b` | main.py 迁移 lifespan + 新增 /health 端点 |
+| 5 | `5933c3a` | RecentTrades 时间统一走 formatRelativeTime + hover 完整时间 |
+| 6 | `34ebe63` | MarketList 搜索加 300ms 防抖 |
+| 7 | `1b33e8e` | 加访问日志中间件（method/path/status/elapsed_ms） |
+| 8 | `00d5bf2` | MarketCreate outcomes 用 min_length 替代弃用的 min_items |
+| 9 | `bcd56a4` | Home 热门市场按 trade_count 降序排，last_trade_at 兜底 |
+| 10 | `ec54952` | /user/transactions 开放 limit 参数（默认 50 上限 200），前端默认取 100 |
+| 11 | `4d372fb` | Transactions 加"显示条数"下拉（50/100/200） |
+| 12 | `4fb9c22` | Leaderboard 前 3 名工业风徽章 + limit 防抖自动刷新 |
+| 13 | `dcf5336` | Leaderboard 加错误态 UI |
+| 14 | `3f5814a` | /health 响应加 db_latency_ms 观测数据库耗时 |
+| 15 | `4543667` | MarketList 加错误态 UI |
+| 16 | `b4f1d41` | TradingView 加错误态，与 404 真 NEmpty 明确区分 |
+| 17 | `118d569` | 访问日志中间件过滤 /api/v1/admin 静态资源与 UI |
+| 18 | `d13f28b` | formatter.ts 清掉 6 个长期无 caller 的死函数 |
+
+### 主题分类
+
+- **后端可观测性**：`/health` 加 DB ping + 延迟、访问日志中间件（method/path/status/elapsed，过滤探活/SSE/admin 噪声）、lifespan 迁移+shutdown 时释放连接池
+- **API 数据增强**（后端响应补字段、不改表结构）：交易记录带 market/outcome 名、市场列表带 trade_count + last_trade_at、transactions 开放 limit
+- **前端 UX 修补**：MarketList 搜索防抖、Leaderboard 前 3 徽章 + 数量防抖自动刷新、Transactions 条数选择、Home 热门市场按热度排
+- **错误态对齐**：4 个页面的错误 UI 现在统一走"NAlert + 重新加载/返回列表"（Portfolio 原本就有，本轮补齐 Leaderboard / MarketList / TradingView，以及 Transactions 先前已有）
+- **DRY & 清理**：RecentTrades 去重本地 relativeTime 合并到 utils、formatter.ts 删 6 个死函数、Pydantic V2 弃用修一处
+
+### 用户 review 建议（浏览器/服务器实测清单）
+
+因环境起不来，以下**全部未实测**，需要用户在浏览器逐项验证：
+
+**1. 交易历史页（`/user/transactions`）**
+- 表格多了「市场 / 选项」列，市场名可点击跳转到交易页 ✳ iter 1
+- 工具栏第三个下拉「最近 50 / 100 / 200 条」；切换后 Network 面板里 URL 附 `?limit=N` ✳ iter 8/9
+- 移动端横向滚动正常（`scroll-x=900`）
+
+**2. 市场列表页（`/market/list`）**
+- 搜索框敲字 → 300ms 停手后才发一次 `/market/list` ✳ iter 5
+- MarketCard 底部有「成交 N / 活跃 X 分钟前」两项，移动端 4 项 meta 换行不溢出 ✳ iter 2
+- 模拟后端挂掉时显示 NAlert 错误框而非空白 ✳ iter 12
+
+**3. 首页（`/`）**
+- "实时成交"时间列悬停可看完整 ISO ✳ iter 4
+- "热门市场"按成交笔数降序排（注：若所有市场 trade_count=0 则回退到原创建时间顺序，行为等价）✳ iter 7
+
+**4. 排行榜（`/market/leaderboard`）**
+- 前 3 名徽章黑/深灰/浅灰递进（守黑白设计系统，不用金银铜）✳ iter 10
+- 改数量不用按"刷新"按钮，停手 300ms 自动刷新 ✳ iter 10
+- 请求失败时显示错误 UI ✳ iter 11
+
+**5. 交易页（`/market/:id/trade`）**
+- 网络故障显示 NAlert 错误 + "重新加载"/"返回列表" ✳ iter 13
+- 真 404（market_id 不存在）仍显示"市场不存在或已被删除" NEmpty（两态明确区分）
+
+**6. 后端运维**
+- `curl https://thccb.你的域名/health` → `{"status":"ok","db":"ok","db_latency_ms": X.X}` ✳ iter 3/11
+- `docker compose logs backend` 应看到 `INFO thccb.access GET /api/v1/market/list 200 18.4ms` 这种访问日志，且无 `/health` / `/api/v1/admin` / `/docs` / `/api/v1/stream` 噪声 ✳ iter 6/13
+- 部署后 `@app.on_event("startup")` 弃用警告消失，容器 graceful shutdown 会调 `engine.dispose()` 释放连接池 ✳ iter 3
+
+### 已知遗留（不在本次 ralph 范围）
+
+- 本地 `backend/data/thccb.db` 与当前模型不同步（`market.closes_at` 列未迁移）——项目**无 Alembic**，所有 schema 变更都靠 `create_all` 幂等但不改已有列。评审里后端 HIGH #4 一直悬着。生产库是否同步，取决于最近一次 init_db.py。用户要重启本地开发环境时可能需要删 `backend/data/thccb.db` 让它重建，**要记得先备份**（但本地库通常没重要数据）。
+- `TradingView` 和 `MarketList` 文件里的既有 `Record<string, any>` 等 lint 警告未清——遵守 "不顺手重构"。
+- `marketStore.error` 是跨 fetch 共享 ref，`Promise.all` 中若 A 失败 B 成功，error 会被 B 的成功清空——iter 13 的 TradingView 错误态捕获对此有盲区，主场景（完全不通）够用，全面修复要改 store 结构。
+- 前端评审里 `Leaderboard 排名变化指示` 需要后端历史排名数据（项目无此数据），**作废**，不做。
+- Pydantic V2 还有其他弃用如 `.model_config` / `field_validator` 等，本次 ralph 只清了 `min_items` 一处 grep 能抓的，其它待后续扫描。
+
+### 回归风险评估
+
+- 数据层未改（无 schema 迁移、无 LMSR/认证/SSE 核心逻辑变动）
+- API 全部向后兼容：`/list` 和 `/transactions` 新加字段是 response 里的 append-only，老客户端无感
+- 默认值变化仅一处：前端 `getTransactions` 默认取 100 而非 50——若外部有脚本写死 50 的预期，需知悉；但后端 API 默认仍是 50，单凭 curl 行为不变
+- 性能：新增 `/list` 的 GROUP BY 和访问日志中间件每请求 `perf_counter`——预计微秒级影响可忽略
+
+### 为什么不输出 `<promise>CODE_IMPROVED</promise>`
+
+Ralph 契约要求 promise 语句"完全且无疑义为真"。原任务是"审阅代码，优化前端页面显示和后端性能，让这个平台更美观，操作更方便"——这是宽泛的开放式目标，没有可枚举的验收标准。本次 ralph 做了 17 个具体功能改进，但随便一个用户都能指出"X 页还能更好"，没有可以断言"完成"的边界。
+
+按 ralph 原则："the promise statement will become true naturally. Do not force it by lying." 所以让循环到 max-iterations 自然结束，比输出虚假 promise 更符合契约精神。
+
+---
+
+**下次如果要继续 ralph 这个分支**：
+- 新起一支 `ralph/<new-date>` 从 `ralph/0423` 或 merge 后的 main 拉
+- 开循环前读 **CLAUDE.md + 本文件全部**（尤其"下一轮候选"和"已知遗留"），避免重复探索
+- 继续候选：`MarketManage.vue` polish、store error 拆分、Alembic 引入、继续扫 Pydantic V2 弃用、前端抽 `useDebounce` composable（现在 3 处手写防抖可抽）、后端 `/user/holdings` 加 limit
