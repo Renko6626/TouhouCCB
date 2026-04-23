@@ -125,3 +125,44 @@
 - 新增 `/health` 端点（LOW，利于运维，新增不动老路径）
 - 添加请求日志中间件（method / path / status / elapsed）
 - 首页改用 `formatRelativeTime` 统一「实时成交流」的时间展示（顺手扩展上轮 helper）
+
+---
+
+## 3. 2026-04-23 iteration 3 — main.py 迁移 lifespan + 新增 /health
+
+**目标**：消除 `@app.on_event("startup")` 弃用警告；提供标准 `/health` 端点（含 DB ping）便于容器/nginx/外部监控探活。
+
+**动机**：
+- 上轮 `pytest` 日志出现两条 `DeprecationWarning: on_event is deprecated, use lifespan event handlers instead`，FastAPI 0.93+ 推荐用 `lifespan` context manager。
+- 部署架构图里已有"nginx 反代 → backend"链路，但后端没有独立 `/health` 端点，根路径 `/` 返回欢迎信息不适合当 healthcheck（任何错误下也能返 200，没有 DB 维度的健康信号）。
+- `docs/backend-review-2026-04-13.md` LOW #15 明确点名"缺少 /health"。
+
+**范围**：仅 `backend/app/main.py`，安全区。
+
+**改动**：
+- 引入 `asynccontextmanager` + `lifespan(app)`：startup 段内部调用 `await init_db()` 与 `setup_admin(app, engine)`；yield 之后 shutdown 段调用 `await engine.dispose()`（顺手修的小风险点——原代码从无 shutdown 钩子，优雅停机时连接池未显式释放，Docker `stop_grace_period: 8s` 下有可能留连接）。
+- `FastAPI(title=..., lifespan=lifespan)` 替换原 `FastAPI(title=...)` + `@app.on_event("startup")`。
+- 新增 `GET /health`：用 `engine.connect()` 执行 `SELECT 1`；成功返回 `{"status": "ok", "db": "ok"}`；失败抛 503 + 异常类型名（不泄露栈/SQL）。
+- `tags=["Meta"]` 让 `/health` 在 `/docs` 里单独分组，不与业务接口混在一起。
+
+**不改什么**：
+- 不碰 `docker-compose.yml` 的 `backend` service 配置（红线），因此 compose 层 healthcheck 仍缺失——后续由用户按需启用（`test: curl -f http://localhost:8004/health`）。
+- 不动 `deploy/nginx.conf` —— 红线；用户若想让 nginx upstream 探活，可加 `location = /health`。
+- 不一并修 `backend/app/schemas/market.py:14` 的 `min_items` 弃用警告（另一类 Pydantic V2 迁移），非本轮范围。
+
+**风险 & 回滚**：
+- 风险：`engine.dispose()` 在 lifespan shutdown 里调用，若 uvicorn 被 SIGKILL 前没走到 shutdown 段，仍然是残留连接——没比以前更差，只是更好。
+- 风险：`/health` 会为每次调用开一条新连接（`engine.connect()`），高频调用时可能对连接池压力略增；但 healthcheck 的典型频率（10s/次）完全可吞。
+- 回滚：`git revert HEAD` 即可，单文件改动。
+
+**验证**：
+- `python -m py_compile app/main.py` ✅
+- `python -c` 导入 `app.main`，`warnings.catch_warnings` 过滤 `"on_event is deprecated"`：**结果为 0 条** ✅（迁移成功）
+- 路由登记确认：`'/health' in routes == True` ✅、`'/' in routes == True` ✅、`app.router.lifespan_context is not None == True` ✅
+- 前端 `npm run type-check` ✅（不受影响）
+- **端到端未实测**：需要跑起 backend + DB，`curl http://127.0.0.1:8004/health` 应返回 `200 {"status":"ok","db":"ok"}`；DB 故障时应返回 503。
+
+**下一轮候选**：
+- 请求日志中间件：method / path / status / elapsed_ms 写到 logger（同 `main.py`，纯增量 middleware）
+- 首页 `Home.vue` 接通 `formatRelativeTime` 统一"实时成交流"的时间展示
+- 可选：修 `backend/app/schemas/market.py:14` 的 `min_items → min_length` 等 Pydantic V2 弃用警告（一组小改，纯前向兼容）

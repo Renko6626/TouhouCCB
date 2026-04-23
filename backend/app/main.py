@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
@@ -10,7 +14,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-app = FastAPI(title="东方炒炒币 (Touhou Exchange)")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup: 建表 + 挂载 admin
+    await init_db()
+    setup_admin(app, engine)
+    yield
+    # shutdown: 释放连接池，避免优雅停机时残留连接
+    await engine.dispose()
+
+
+app = FastAPI(title="东方炒炒币 (Touhou Exchange)", lifespan=lifespan)
 
 # CORS — 从配置读取允许的源
 app.add_middleware(
@@ -20,13 +34,6 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-# 启动时初始化数据库
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
-    # 初始化管理后台
-    setup_admin(app, engine)
 
 # 注册认证模块
 # 最终路径示例：
@@ -43,3 +50,17 @@ app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 @app.get("/")
 async def root():
     return {"message": "欢迎来到大天狗交易所", "docs": "/docs"}
+
+
+@app.get("/health", tags=["Meta"], summary="健康检查（含 DB ping）")
+async def health():
+    """返回 200 + db ok 表示进程与数据库都正常；DB 不通时返回 503。
+
+    可用于容器 healthcheck、nginx upstream 探活、外部监控。
+    """
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"db unavailable: {type(exc).__name__}")
+    return {"status": "ok", "db": "ok"}
