@@ -28,6 +28,10 @@ _LOG_SKIP_PREFIXES = (
     "/redoc",
     "/openapi.json",
     "/favicon.ico",
+    # SQLAdmin 自身的静态资源（/api/v1/admin/statics/*）和 UI 渲染请求噪声大，
+    # 业务性动作（创建/结算/调整现金等）都走 /api/v1/market/* 和 /api/v1/user/*/adjust-cash
+    # 等业务端点，会被正常记录，不依赖 admin 路径。
+    "/api/v1/admin",
 )
 
 
