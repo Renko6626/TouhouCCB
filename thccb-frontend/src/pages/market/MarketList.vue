@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
 import { NInput, NSelect, NPagination, NSpin, NEmpty, NButton } from 'naive-ui'
@@ -60,10 +60,24 @@ const loadMarkets = async () => {
 
 onMounted(() => { loadMarkets() })
 
-// 筛选条件变化时重新从后端拉取
-watch([searchQuery, statusFilter], () => {
+// 搜索输入用 300ms 防抖，避免每敲一个字都触发一次后端请求
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadMarkets()
+  }, 300)
+})
+
+// 下拉选项切换立即生效，不需要防抖
+watch(statusFilter, () => {
   currentPage.value = 1
   loadMarkets()
+})
+
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 })
 
 // 对于只筛选单个状态的情况，后端可能返回多个状态，前端再做一次精确过滤
