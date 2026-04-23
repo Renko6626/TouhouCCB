@@ -482,3 +482,57 @@
 - `MarketManage.vue` polish（先 Read 再定点）
 - 统一页面错误态（Leaderboard/TradingView 等缺 loadError UI 的）
 - 后端观测性：`/health` 加 `db_latency_ms` 字段，便于运维看瓶颈
+
+---
+
+## 11. 2026-04-23 iteration 11 — Leaderboard 错误态 + /health 加 db_latency_ms
+
+**前置 grep**：
+- Leaderboard.vue 原代码确认只有 loading / empty / table 三态，**无 loadError UI**（候选属实）
+- `/health` 当前只返 `status/db` 两字段
+
+本轮两件独立小事，分别 commit。
+
+---
+
+### A. Leaderboard 加错误态
+
+**动机**：`fetchLeaderboard` 在 store 层 `try/catch` 吞掉异常只 `console.error` 并设置 `store.error`——组件对此**无感**，遇到 API 502/超时用户看到的是"暂无排行榜数据"（`NEmpty`），误导。
+
+**改动**（仅 `thccb-frontend/src/pages/market/Leaderboard.vue`）：
+- 引入 `NAlert`。
+- 加 `loadError = ref('')`。
+- `loadLeaderboard` 做 try/catch + 读 `marketStore.error`，失败写入 `loadError`。
+- 模板加 `v-else-if="loadError && !leaderboardRows.length"` 分支：`NAlert type="error"` + "重新加载" 按钮。
+- 复用与 `Portfolio.vue` / `Transactions.vue` 的错误态 pattern，保持站内一致。
+
+**验证**：`npm run type-check` ✅ 无错。
+
+**Commit**：`dcf5336 feat(frontend): Leaderboard 加错误态 UI（NAlert + 重新加载）`
+
+---
+
+### B. /health 加 db_latency_ms
+
+**动机**：iteration 3 加的 `/health` 只返 `{status, db}` 二态，运维看不到 DB 慢化趋势。加一个 `db_latency_ms`（SELECT 1 往返耗时）零成本提供观测信号。
+
+**改动**（仅 `backend/app/main.py`）：
+- 在 `engine.connect()` / `SELECT 1` 外包 `time.perf_counter()`，`round((end-start)*1000, 2)` 得 `db_latency_ms`。
+- 响应：`{"status": "ok", "db": "ok", "db_latency_ms": 3.42}`。
+- 503 分支不变（DB 不通时连 latency 都没意义）。
+- docstring 更新说明新字段用途。
+
+**验证**：
+- `python -m py_compile app/main.py` ✅
+- `TestClient('/health')` → 200、body 含 `db_latency_ms`、类型 `float`、实测值 `~3.42ms` ✅
+- 不破坏 iteration 3 的契约：仍是 `"status": "ok"` + `"db": "ok"`，外部监控检测这两字段的继续工作。
+
+**Commit**（即将提交）：`feat(backend): /health 响应加 db_latency_ms 观测数据库耗时`
+
+---
+
+**下一轮候选**（还剩 3 轮）：
+- `MarketManage.vue` polish — 557 行，**先 Read 全文定位再决定 scope**（上轮提醒了）
+- 统一其余页面错误态：`TradingView.vue` / `MarketList.vue`
+- 后端：`/user/holdings` 加 `limit` Query，类比 iteration 8 的 transactions
+- 后端：日志中间件过滤 `/api/v1/admin/*` 若发现太吵
