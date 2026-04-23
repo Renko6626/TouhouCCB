@@ -1,5 +1,11 @@
-from fastapi import FastAPI
+import logging
+import time
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
@@ -9,8 +15,37 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+access_logger = logging.getLogger("thccb.access")
 
-app = FastAPI(title="东方炒炒币 (Touhou Exchange)")
+# 跳过高频或长连接路径，避免淹没日志：
+# - /health 容器探活 10s/次
+# - /api/v1/stream/* SSE，单连接可能持续一小时
+# - /docs /redoc /openapi.json 仅开发调试用
+_LOG_SKIP_PREFIXES = (
+    "/health",
+    "/api/v1/stream",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/favicon.ico",
+    # SQLAdmin 自身的静态资源（/api/v1/admin/statics/*）和 UI 渲染请求噪声大，
+    # 业务性动作（创建/结算/调整现金等）都走 /api/v1/market/* 和 /api/v1/user/*/adjust-cash
+    # 等业务端点，会被正常记录，不依赖 admin 路径。
+    "/api/v1/admin",
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup: 建表 + 挂载 admin
+    await init_db()
+    setup_admin(app, engine)
+    yield
+    # shutdown: 释放连接池，避免优雅停机时残留连接
+    await engine.dispose()
+
+
+app = FastAPI(title="东方炒炒币 (Touhou Exchange)", lifespan=lifespan)
 
 # CORS — 从配置读取允许的源
 app.add_middleware(
@@ -21,12 +56,39 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization"],
 )
 
-# 启动时初始化数据库
-@app.on_event("startup")
-async def on_startup():
-    await init_db()
-    # 初始化管理后台
-    setup_admin(app, engine)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """简单请求日志：method / path / status / elapsed_ms。
+
+    跳过高频探活（/health）与长连接（SSE），避免淹没日志；
+    5xx 用 warning 级别提升告警敏感度。
+    """
+    path = request.url.path
+    if any(path.startswith(p) for p in _LOG_SKIP_PREFIXES):
+        return await call_next(request)
+
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        access_logger.exception(
+            "%s %s EXC %.1fms", request.method, path, elapsed_ms,
+        )
+        raise
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    level = logging.WARNING if response.status_code >= 500 else logging.INFO
+    access_logger.log(
+        level,
+        "%s %s %d %.1fms",
+        request.method,
+        path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
 
 # 注册认证模块
 # 最终路径示例：
@@ -43,3 +105,21 @@ app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 @app.get("/")
 async def root():
     return {"message": "欢迎来到大天狗交易所", "docs": "/docs"}
+
+
+@app.get("/health", tags=["Meta"], summary="健康检查（含 DB ping）")
+async def health():
+    """返回 200 + db ok 表示进程与数据库都正常；DB 不通时返回 503。
+
+    响应带 db_latency_ms（SELECT 1 往返耗时，含建连+查询）便于运维
+    观测数据库趋势慢化。可用于容器 healthcheck、nginx upstream 探活、
+    外部监控。
+    """
+    start = time.perf_counter()
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"db unavailable: {type(exc).__name__}")
+    db_latency_ms = round((time.perf_counter() - start) * 1000, 2)
+    return {"status": "ok", "db": "ok", "db_latency_ms": db_latency_ms}

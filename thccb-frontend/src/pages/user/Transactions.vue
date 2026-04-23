@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NCard, NDataTable, NEmpty, NSelect, NSpin, NTag, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { NButton, NDataTable, NEmpty, NSelect, NSpin, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
 import type { Transaction } from '@/types/api'
 import { useUserStore } from '@/stores/user'
 
@@ -12,6 +12,7 @@ const loading = ref(false)
 const loadError = ref('')
 const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle'>('all')
 const timeRangeFilter = ref<'all' | '7d' | '30d' | '90d'>('all')
+const pageSize = ref<50 | 100 | 200>(100)
 
 const tradeTypeOptions: SelectOption[] = [
   { label: '全部类型', value: 'all' },
@@ -27,12 +28,18 @@ const timeRangeOptions: SelectOption[] = [
   { label: '最近90天', value: '90d' },
 ]
 
+const pageSizeOptions: SelectOption[] = [
+  { label: '最近 50 条', value: 50 },
+  { label: '最近 100 条', value: 100 },
+  { label: '最近 200 条', value: 200 },
+]
+
 const loadTransactions = async () => {
   loading.value = true
   loadError.value = ''
   userStore.clearError()
   try {
-    await userStore.fetchTransactions()
+    await userStore.fetchTransactions(pageSize.value)
     if (userStore.error) {
       loadError.value = userStore.error
     }
@@ -93,6 +100,39 @@ const columns: DataTableColumns<Transaction> = [
     },
   },
   {
+    title: '市场 / 选项',
+    key: 'market',
+    minWidth: 220,
+    render: (row) => {
+      const title = row.market_title ?? '—'
+      const label = row.outcome_label ?? ''
+      const marketEl = row.market_id
+        ? h(
+            'a',
+            {
+              href: `#/market/${row.market_id}/trade`,
+              style: { color: '#000', textDecoration: 'underline', fontWeight: 600 },
+              onClick: (e: MouseEvent) => {
+                e.preventDefault()
+                router.push(`/market/${row.market_id}/trade`)
+              },
+            },
+            title,
+          )
+        : h('span', { style: { fontWeight: 600 } }, title)
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+        marketEl,
+        label
+          ? h(
+              'span',
+              { style: { fontSize: '11px', color: '#555', letterSpacing: '0.04em' } },
+              label,
+            )
+          : null,
+      ])
+    },
+  },
+  {
     title: '份额',
     key: 'shares',
     render: (row) => row.shares.toLocaleString(),
@@ -122,6 +162,11 @@ const columns: DataTableColumns<Transaction> = [
   },
 ]
 
+// 切换条数时重新拉取（类型/时间筛选是纯前端过滤，不触发 refetch）
+watch(pageSize, () => {
+  loadTransactions()
+})
+
 onMounted(async () => {
   await loadTransactions()
 })
@@ -134,6 +179,7 @@ onMounted(async () => {
       <div class="toolbar-filters">
         <NSelect v-model:value="tradeTypeFilter" :options="tradeTypeOptions" style="width: 140px" />
         <NSelect v-model:value="timeRangeFilter" :options="timeRangeOptions" style="width: 140px" />
+        <NSelect v-model:value="pageSize" :options="pageSizeOptions" style="width: 140px" />
       </div>
       <div class="toolbar-actions">
         <NButton @click="router.push('/user/portfolio')">← 我的资产</NButton>
@@ -163,7 +209,7 @@ onMounted(async () => {
 
     <!-- 表格 -->
     <div v-else-if="filteredTransactions.length > 0">
-      <NDataTable :columns="columns" :data="filteredTransactions" :loading="loading" :bordered="true" size="small" />
+      <NDataTable :columns="columns" :data="filteredTransactions" :loading="loading" :bordered="true" size="small" :scroll-x="900" />
     </div>
 
     <!-- 空状态 -->
