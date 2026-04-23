@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { NButton, NDataTable, NInputNumber, NSpin, NTag, NEmpty, type DataTableColumns } from 'naive-ui'
+import { NAlert, NButton, NDataTable, NInputNumber, NSpin, NTag, NEmpty, type DataTableColumns } from 'naive-ui'
 import type { LeaderboardItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 
 const marketStore = useMarketStore()
 const limit = ref(20)
 const loading = ref(false)
+const loadError = ref('')
 const leaderboardRows = computed(() => marketStore.leaderboard)
 
 // 前 3 名徽章样式（工业风黑白递进；不用金银铜彩色，守 docs/style.md）
@@ -41,8 +42,14 @@ const columns: DataTableColumns<LeaderboardItem> = [
 
 const loadLeaderboard = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     await marketStore.fetchLeaderboard(limit.value)
+    if (marketStore.error) {
+      loadError.value = marketStore.error
+    }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载排行榜失败'
   } finally {
     loading.value = false
   }
@@ -79,6 +86,13 @@ onMounted(() => loadLeaderboard())
       <div v-if="loading && !leaderboardRows.length" class="lb-loading">
         <NSpin size="large" />
         <p>加载排行榜中...</p>
+      </div>
+      <div v-else-if="loadError && !leaderboardRows.length" class="lb-error">
+        <NAlert type="error" :title="loadError">
+          <div style="margin-top:8px">
+            <NButton size="small" @click="loadLeaderboard">重新加载</NButton>
+          </div>
+        </NAlert>
       </div>
       <div v-else-if="!leaderboardRows.length" class="empty-state">
         <NEmpty description="暂无排行榜数据" />
