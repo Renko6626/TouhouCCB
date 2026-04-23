@@ -624,3 +624,43 @@
 - `MarketManage.vue` polish（557 行，需先 Read 全文定位痛点再决定 scope；如嫌大可换个小目标）
 - 把 CLAUDE.md 补上一小节指向 `docs/ralph-log.md`，方便下次开新 ralph 的人快速摸到历史
 - 总结式 commit：`docs/ralph-log.md` 的最后一条"本次 ralph 小结"，罗列所有改动清单，方便用户 review
+
+---
+
+## 14. 2026-04-23 iteration 14 — formatter.ts 清掉 5 个死代码函数
+
+**前置 grep（按 rule）**：`grep -rl "\\b<fn>\\b"` 全仓 `.ts|.vue`（除 formatter.ts 自身）：
+
+| 函数 | 外部 caller 数 |
+|---|---|
+| `formatCurrency` | 0 |
+| `formatPercentage` | 0 |
+| `formatDate` | 0（但被 `formatRelativeTime` 内部依赖） |
+| `formatNumber` | 0 |
+| `formatMarketStatus` | 0 |
+| `formatStockCode` | 0 |
+| `roundToPrecision` | 0 |
+| `formatRelativeTime` | 2（iteration 2/4 加的 MarketCard + RecentTrades） |
+
+6 个函数长期无调用者，尤其是 `formatStockCode`（"股票代码格式化（模拟）"——项目是预测市场概念都不对，明显脚手架残留）。
+
+**范围**：仅 `thccb-frontend/src/utils/formatter.ts`。
+
+**改动**：删除 `formatCurrency` / `formatPercentage` / `formatNumber` / `formatMarketStatus` / `formatStockCode` / `roundToPrecision` 共 6 个无用 export；保留 `formatDate`（内部依赖）+ `formatRelativeTime`（实际使用）。文件从 88 行减到 43 行（-49 / +3）。
+
+**不删什么**：
+- `formatDate`：`formatRelativeTime` 的 >=30d fallback 分支用它 (`return formatDate(new Date(ts), 'short')`)。留 export 也无妨——是合理的"时间格式化"公用工具。
+- `formatRelativeTime`：MarketCard / RecentTrades 实际在用。
+
+**风险 & 回滚**：
+- 风险：0。这些函数从未在代码里被 `import` 过（`grep -r "from.*@/utils/formatter"` 外部调用者只取 `formatRelativeTime`）。
+- 回滚：`git revert HEAD` 即可。
+
+**验证**：
+- `npm run type-check` ✅ 无错（确认删除的 export 无人依赖）
+- `npx eslint src/utils/formatter.ts`：无输出 = 无错 ✅
+
+**下一轮（iteration 15，最后）计划**：
+- 写 ralph 小结到本文件末尾，列本次全部 14+ 个 commit、回归测试清单、用户 review 建议
+- 不再做代码改动（达到 max-iterations 自然结束循环）
+- **不输出 `<promise>CODE_IMPROVED</promise>`**——总目标"更美观、操作更方便"天然无法声明"完全且无疑义为真"，按 ralph 契约让 max-iterations 结束循环
