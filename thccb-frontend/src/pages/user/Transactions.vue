@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { NButton, NDataTable, NEmpty, NSelect, NSpin, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
 import type { Transaction } from '@/types/api'
@@ -12,6 +12,7 @@ const loading = ref(false)
 const loadError = ref('')
 const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle'>('all')
 const timeRangeFilter = ref<'all' | '7d' | '30d' | '90d'>('all')
+const pageSize = ref<50 | 100 | 200>(100)
 
 const tradeTypeOptions: SelectOption[] = [
   { label: '全部类型', value: 'all' },
@@ -27,12 +28,18 @@ const timeRangeOptions: SelectOption[] = [
   { label: '最近90天', value: '90d' },
 ]
 
+const pageSizeOptions: SelectOption[] = [
+  { label: '最近 50 条', value: 50 },
+  { label: '最近 100 条', value: 100 },
+  { label: '最近 200 条', value: 200 },
+]
+
 const loadTransactions = async () => {
   loading.value = true
   loadError.value = ''
   userStore.clearError()
   try {
-    await userStore.fetchTransactions()
+    await userStore.fetchTransactions(pageSize.value)
     if (userStore.error) {
       loadError.value = userStore.error
     }
@@ -155,6 +162,11 @@ const columns: DataTableColumns<Transaction> = [
   },
 ]
 
+// 切换条数时重新拉取（类型/时间筛选是纯前端过滤，不触发 refetch）
+watch(pageSize, () => {
+  loadTransactions()
+})
+
 onMounted(async () => {
   await loadTransactions()
 })
@@ -167,6 +179,7 @@ onMounted(async () => {
       <div class="toolbar-filters">
         <NSelect v-model:value="tradeTypeFilter" :options="tradeTypeOptions" style="width: 140px" />
         <NSelect v-model:value="timeRangeFilter" :options="timeRangeOptions" style="width: 140px" />
+        <NSelect v-model:value="pageSize" :options="pageSizeOptions" style="width: 140px" />
       </div>
       <div class="toolbar-actions">
         <NButton @click="router.push('/user/portfolio')">← 我的资产</NButton>

@@ -66,13 +66,13 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
-  const fetchTransactions = async (manageLoading = true) => {
+  const fetchTransactions = async (limit = 100, manageLoading = true) => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return []
 
     if (manageLoading) { loading.value = true; error.value = null }
     try {
-      transactions.value = await userApi.getTransactions()
+      transactions.value = await userApi.getTransactions(limit)
       return transactions.value
     } catch (err: any) {
       error.value = err.message || '获取交易历史失败'
@@ -95,7 +95,7 @@ export const useUserStore = defineStore('user', () => {
       await Promise.all([
         fetchSummary(false),
         fetchHoldings(false),
-        fetchTransactions(false)
+        fetchTransactions(100, false)
       ])
       return { success: true }
     } catch (err: any) {
