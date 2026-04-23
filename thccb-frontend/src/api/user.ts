@@ -17,9 +17,9 @@ export const userApi = {
     return api.get<Holding[]>('/api/v1/user/holdings')
   },
 
-  // 获取交易历史
-  async getTransactions(): Promise<Transaction[]> {
-    return api.get<Transaction[]>('/api/v1/user/transactions')
+  // 获取交易历史；默认最近 100 条，后端上限 200
+  async getTransactions(limit = 100): Promise<Transaction[]> {
+    return api.get<Transaction[]>('/api/v1/user/transactions', { params: { limit } })
   }
 }
 

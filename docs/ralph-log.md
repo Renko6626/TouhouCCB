@@ -353,3 +353,44 @@
 - Admin `MarketManage` 的创建/结算表单 polish
 - 后端：Transaction 接口加分页（现在硬编码 `limit 50`，评审 LOW #13）
 - 抽通用 `useDebounce(callback, ms)` composable（如本轮/下轮再出现一次防抖需求才做）
+
+---
+
+## 8. 2026-04-23 iteration 8 — 交易历史接口开放 limit 参数，前端默认取 100 条
+
+**本轮一次误判**：先去看了 `Movers.vue` 想加点击跳转，结果**已经实现**了（`@click="goToMarket"` + `tabindex` + `@keyup.enter` + `.movers-row:hover` 全套）。说明上轮写候选时没来得及验证，是"规划记忆"过时。下一轮写候选清单前**要先 grep 验证**再写进日志。
+
+**改做**：评审 LOW #13 「交易历史缺少分页」。
+
+**动机**：`/api/v1/user/transactions` 硬编码 `.limit(50)`。活跃用户两三天就看不到最初的成交了，既没 UI 翻页也没 API 参数。最小改动让客户端能拿到更多。
+
+**范围**：2 个文件。
+- `backend/app/api/v1/user.py`（非红线）
+- `thccb-frontend/src/api/user.ts`（store 和 UI 不动）
+
+**改动**：
+- **后端** `get_my_transactions` 加 `limit: int = Query(50, ge=1, le=200, ...)`；响应 schema 不变；默认 50 → 现有外部调用者无感。
+- **前端** `userApi.getTransactions(limit = 100)` 默认值从无参改为 **100**，通过 `{ params: { limit } }` 透传。
+  - 选 100 是因为：1) 比原 50 多一倍，活跃用户体感显著；2) 远低于后端上限 200，前端分页 UI 出来之前留有扩展空间；3) 前端只渲染表格，一次渲染 100 条对 NDataTable + 浏览器无压力。
+- **Store / UI 不动**：`stores/user.ts::fetchTransactions` 调 `userApi.getTransactions()` 无参，会自动走新的默认 100；`Transactions.vue` 不用改一行。
+
+**不改什么**：
+- 不做游标/偏移分页（`before_id`/`offset`），那是完整特性，留给后续迭代（前端要加"加载更多"按钮 + 边界态）。
+- 不改 `.limit` 以外的 schema/响应字段。
+- 后端默认值保持 50，**避免**改成 100 同时修改响应语义——现有从 API 直调的脚本/curl 行为不变。
+
+**风险 & 回滚**：
+- 风险：50 → 100 条，前端初次加载多拖 50 条 Transaction 记录 + JOIN（上轮 iteration 1 的 `selectinload(outcome→market)`），对 SQL 压力微增但可忽略（`ix_transaction_user_timestamp` 索引覆盖）。
+- 回滚：`git revert HEAD` 2 文件。
+
+**验证**：
+- 后端 `python -m py_compile app/api/v1/user.py` ✅
+- 后端 `inspect.signature` 确认新参数：`limit default=50, metadata=[Ge(ge=1), Le(le=200)]` ✅
+- 前端 `npm run type-check` ✅ 无错
+- 前端 `eslint src/api/user.ts` 无输出 ✅
+- **UI 未实测**；用户验证：`/user/transactions` 刷新后如果该用户历史 > 50 条，应看到最多 100 条；网络面板里 `/api/v1/user/transactions?limit=100`。
+
+**下一轮候选**（先 grep 验证再写）：
+- Transactions.vue 加"加载更多"按钮（已铺好后端，UI 层面真正的分页）
+- Admin `MarketManage` 表单 polish（先读再决定做什么）
+- 抽 `useDebounce` composable（只此一处暂不抽）

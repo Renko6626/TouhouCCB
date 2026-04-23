@@ -6,7 +6,7 @@ import logging
 from decimal import Decimal
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -177,14 +177,15 @@ async def get_my_holdings(
 async def get_my_transactions(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
+    limit: int = Query(50, ge=1, le=200, description="最多返回多少条（按时间倒序）"),
 ):
-    """返回最近 50 条交易记录，附带市场/选项名便于前端展示。"""
+    """返回最近 N 条交易记录，附带市场/选项名便于前端展示。"""
     stmt = (
         select(Transaction)
         .where(Transaction.user_id == user.id)
         .options(selectinload(Transaction.outcome).selectinload(Outcome.market))
         .order_by(Transaction.timestamp.desc())
-        .limit(50)
+        .limit(limit)
     )
     res = await db.execute(stmt)
     txs: List[Transaction] = res.scalars().all()
