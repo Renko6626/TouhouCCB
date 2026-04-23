@@ -11,7 +11,7 @@ class MarketCreate(BaseModel):
     title: str
     description: Optional[str] = ""
     liquidity_b: float = Field(default=100.0, gt=0)
-    outcomes: List[str] = Field(..., min_items=2, description="至少提供两个选项名称")
+    outcomes: List[str] = Field(..., min_length=2, description="至少提供两个选项名称")
     closes_at: Optional[datetime] = Field(default=None, description="交易截止时间（UTC），到期后自动禁止交易")
     tags: Optional[List[str]] = Field(default=None, description="分类标签列表")
 
