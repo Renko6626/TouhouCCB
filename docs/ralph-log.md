@@ -73,3 +73,55 @@
 **下一轮候选**：
 - MarketListItem 补 `trade_count` / `last_trade_at` 给首页 MarketCard（同类"后端补字段→前端展示"模式，相对安全）
 - 或：`main.py` 的 `on_event("startup")` → `lifespan`（基础设施小改进）
+
+---
+
+## 2. 2026-04-23 iteration 2 — 市场卡片加成交笔数与最后成交时间
+
+**目标**：MarketCard 卡片底部信息栏加「成交」笔数和「活跃」相对时间两项，用户在首页/市场列表一眼能看出市场活跃度。
+
+**动机**：`docs/frontend-review-2026-04-13.md` 末尾「仍需后端配合」表明确列出「MarketCard 缺少成交笔数/最后成交时间」，后端 `MarketListItem` 无对应字段。延续上轮"后端补响应字段→前端展示"模式，同样不改表结构。
+
+**范围**（5 个文件）：
+- `backend/app/api/v1/market.py`（`/list` 端点；`market.py` 虽在高敏感清单，但本轮**仅**改 list 的响应组装，不动 buy/sell/quote/settle/resolve 交易核心路径）
+- `backend/app/schemas/market.py`（`MarketListItem` 加字段；注意该 schema 目前定义但 list 端点未用 `response_model=` 绑定，改动是前瞻性的）
+- `thccb-frontend/src/types/market.ts`
+- `thccb-frontend/src/components/market/MarketCard.vue`
+- `thccb-frontend/src/utils/formatter.ts`（新增 `formatRelativeTime` helper）
+
+**改动**：
+- **后端 `/list`**：批量聚合查询，用一次 `SELECT Outcome.market_id, COUNT(Transaction.id), MAX(Transaction.timestamp) FROM outcome LEFT OUTER JOIN transaction ... GROUP BY Outcome.market_id` 拿到每个市场的总成交数和最后成交时间。
+  - 只统计 `buy/sell` 交易（`Transaction.type.in_([BUY, SELL])`），结算产生的 `settle/settle_lose` 视为系统流水不计入"活跃度"。
+  - 用 OUTER JOIN 保证无交易的市场也返回 `trade_count=0`、`last_trade_at=None`。
+- **响应 dict** 新增 `trade_count` 和 `last_trade_at` 两字段（`None` → 前端显示"—"）。
+- **Schema** `MarketListItem` 加对应 Optional 字段（默认 0 / None）。
+- **前端 `utils/formatter.ts`**：新增 `formatRelativeTime(input)`，规则：<30s → "刚刚"、<60s → "X秒前"、<60min → "X分钟前"、<24h → "X小时前"、<30d → "X天前"、其余走 `formatDate('short')`。支持 `null/undefined` 返回空串。
+- **前端 `MarketCard.vue`**：`card-meta` 区域新增"成交"和"活跃"两项；`card-meta` CSS 改为 `flex-wrap: wrap` + 双轴 gap，避免移动端 4 项水平溢出；"活跃"值用 `meta-value--sm` 较小字号，并给 `title` 属性显示完整 ISO 时间便于 hover 查看精确时刻。
+
+**不改什么 / 为什么**：
+- 不 JOIN 把 `/list` 端点完整换成 `response_model=List[MarketListItem]` — 该端点响应 dict 形态与 schema 不一致（有 `closes_at/tags` 等字段 schema 里没有），重绑定属于无关重构，违反 CLAUDE.md "不顺手重构"。
+- 不在 Transaction 表加 `market_id` 列 — 无迁移机制，维持现状通过 Outcome→Market JOIN。
+- dayjs 有 `relativeTime` 插件但没装配，手写简单 helper 更轻量，也更可控。
+
+**风险 & 回滚**：
+- 风险：`/list` 增加一次 GROUP BY 聚合查询，全表 Transaction 扫描在数据量大时有成本——但有 `ix_transaction_outcome_timestamp` 索引（见 `models/base.py`），覆盖 outcome_id + timestamp 列，`WHERE market_id IN (...)` 通过 Outcome 表 JOIN，实际扫描仅限涉及市场对应的 outcomes。可接受。
+- 另一风险：若 Transaction.type 未来新增值，`IN ([BUY, SELL])` 白名单语义仍正确（"活跃度"排除结算），不会误伤。
+- 回滚：`git revert HEAD`，5 文件集中。
+
+**验证**：
+- 后端 `python -m py_compile app/api/v1/market.py app/schemas/market.py` ✅
+- 后端 `python -c "from app.api.v1 import market; from app.schemas.market import MarketListItem"` ✅；`MarketListItem.model_fields` 包含新 `trade_count` / `last_trade_at` ✅
+- 前端 `npm run type-check` ✅ 无错
+- 前端 `npx eslint ...`（改动文件）无新增问题（原有 lint 问题不动）
+- 后端 `pytest tests/` **未能执行**：`tests/test_auth.py` 的 `setup_db` fixture 触发 app 启动 → 尝试连接数据库（本地 `.env` 未为本 ralph 环境配置 Postgres），进程 hang。这是既有测试环境问题，非本轮引入；需要用户在本地有 DB 的环境下自行确认。
+- **UI 未实测**（同上轮原因）。需要用户本地验证：
+  1. 市场列表 / 首页 MarketCard 底部显示"成交"笔数与"活跃"相对时间
+  2. 无交易的市场显示"0"和"—"
+  3. 小屏幕下 4 项 meta 正常换行不溢出
+  4. 首页接通 `/api/v1/market/list` 后 `trade_count` / `last_trade_at` 字段被正确消费
+
+**下一轮候选**：
+- `main.py` 的 `@app.on_event("startup")` → `lifespan`（pytest 告警里看到弃用警告，迁移后能消掉项目里的一类 DeprecationWarning 噪音）
+- 新增 `/health` 端点（LOW，利于运维，新增不动老路径）
+- 添加请求日志中间件（method / path / status / elapsed）
+- 首页改用 `formatRelativeTime` 统一「实时成交流」的时间展示（顺手扩展上轮 helper）

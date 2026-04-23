@@ -67,3 +67,22 @@ export function roundToPrecision(value: number, precision: number = 2): number {
   const factor = Math.pow(10, precision)
   return Math.round(value * factor) / factor
 }
+
+// 相对时间（"刚刚 / X分钟前 / X小时前 / X天前 / YYYY-MM-DD"）
+export function formatRelativeTime(input: string | Date | null | undefined): string {
+  if (!input) return ''
+  const ts = typeof input === 'string' ? new Date(input).getTime() : input.getTime()
+  if (!Number.isFinite(ts)) return ''
+  const diff = Date.now() - ts
+  if (diff < 0) return '刚刚'
+  const sec = Math.floor(diff / 1000)
+  if (sec < 30) return '刚刚'
+  if (sec < 60) return `${sec}秒前`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}分钟前`
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return `${hr}小时前`
+  const day = Math.floor(hr / 24)
+  if (day < 30) return `${day}天前`
+  return formatDate(new Date(ts), 'short')
+}

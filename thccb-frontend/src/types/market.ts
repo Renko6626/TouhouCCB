@@ -43,6 +43,8 @@ export interface MarketListItem {
   closes_at?: string | null
   tags?: string[]
   outcomes: Outcome[]
+  trade_count?: number
+  last_trade_at?: string | null
 }
 
 export interface MarketDetail {
