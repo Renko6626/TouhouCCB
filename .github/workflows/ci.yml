@@ -166,6 +166,9 @@ jobs:
           script_stop: true
           script: |
             cd /home/deploy/TouhouCCB
+            # 先同步仓库代码，让服务器拿到最新 deploy.sh / docker-compose.yml
+            git fetch origin main
+            git pull --ff-only origin main
             bash deploy/deploy.sh
 
       # 远程健康检查

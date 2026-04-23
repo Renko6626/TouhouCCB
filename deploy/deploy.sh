@@ -86,8 +86,10 @@ else
 fi
 
 # ── 2. 拉取新镜像 ──
-log "[2/4] Pulling latest images..."
-docker compose pull || rollback
+# 只拉 backend：postgres 使用本地已有的镜像，避免 Docker Hub 抽风时卡死整个部署。
+# 如需升级 postgres，手动 `docker compose pull postgres && docker compose up -d postgres`。
+log "[2/4] Pulling latest backend image..."
+docker compose pull backend || rollback
 
 # ── 3. 重启容器 ──
 log "[3/4] Starting containers..."
