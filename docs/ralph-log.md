@@ -394,3 +394,51 @@
 - Transactions.vue 加"加载更多"按钮（已铺好后端，UI 层面真正的分页）
 - Admin `MarketManage` 表单 polish（先读再决定做什么）
 - 抽 `useDebounce` composable（只此一处暂不抽）
+
+---
+
+## 9. 2026-04-23 iteration 9 — Transactions 加"显示条数"下拉（50/100/200）
+
+**前置自省**（照上轮提醒）：grep 验证候选现状——
+- `loadMore / 加载更多 / append` 在 Transactions.vue / stores/user.ts **确无实现**（候选仍有效）
+- `MarketManage.vue` 557 行，面大；Leaderboard 78 行；NotFound 86 行
+
+**目标**：收割 iteration 8 的 `limit` 后端能力，让用户在 Transactions 页可按需切换"显示条数"（50 / 100 / 200），无需游标分页的复杂度。
+
+**范围**（2 文件）：
+- `thccb-frontend/src/stores/user.ts`（`fetchTransactions` 签名加 `limit`）
+- `thccb-frontend/src/pages/user/Transactions.vue`（新增 `pageSize` + 下拉 + watch）
+
+**改动**：
+- **Store** `fetchTransactions(manageLoading = true)` → `fetchTransactions(limit = 100, manageLoading = true)`，内部透传给 `userApi.getTransactions(limit)`。
+  - 唯一带 `false` 的调用点（`fetchAllUserData` 内 `Promise.all`）同步改为 `fetchTransactions(100, false)`，保持原 `manageLoading=false` 语义。
+  - 默认值 100 与 iteration 8 的 api 层默认一致，向后兼容：页面原 `userStore.fetchTransactions()` 无参调用 → 仍取 100 条。
+- **Transactions.vue**：
+  - `pageSize = ref<50|100|200>(100)` 状态；`pageSizeOptions` 三档。
+  - 工具栏加第三个 NSelect（宽 140px，与已有两个筛选视觉对齐）。
+  - `loadTransactions()` 内 `userStore.fetchTransactions(pageSize.value)` 带上条数。
+  - `watch(pageSize)` 切换即 refetch。
+  - 不加 watch 给 `tradeTypeFilter` / `timeRangeFilter`——它们是纯前端过滤，不触发后端请求，保持原行为。
+
+**不改什么**：
+- 不做游标分页（需要 `before_id` 或 `offset`、"加载更多"按钮维护列表 append 逻辑、边界态处理等），是完整特性，留给后续迭代。
+- 不修 store 里的 `catch (err: any)` 原有 lint 报错，也不顺手修 render 里的 style any——非本轮范围（CLAUDE.md "不顺手重构"）。
+
+**风险 & 回滚**：
+- 风险：切 200 后端需要拉 200 条 + 附带 outcome+market JOIN。单用户 200 条交易是 `ix_transaction_user_timestamp` 索引命中 + 200 次 selectinload 批量 JOIN，实测压力可接受。
+- 向后兼容：所有没升级到传 `limit` 的调用者（外部脚本、可能遗漏的 page 组件）走 store 默认 100。
+- 回滚：`git revert HEAD` 2 文件。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/pages/user/Transactions.vue src/stores/user.ts`：6 个 `any` 报错全部是**原有** `catch (err: any)` / render style any，非本轮引入
+- **UI 未实测**；用户验证：
+  1. Transactions 页工具栏有第三个下拉「最近 50 / 100 / 200 条」
+  2. 切换 50 → 200 后 Network 面板里 `/api/v1/user/transactions?limit=200`，表格数据刷新
+  3. 首次进页默认 100
+  4. 类型/时间筛选切换不触发后端请求（保持原来的纯前端过滤）
+
+**下一轮候选**（先 grep）：
+- `MarketManage.vue` polish — 557 行，先 `Read` 全文再定 scope
+- 后端 `/user/holdings` 也硬编码无分页，但持仓一般不多，不紧迫
+- 其他：Leaderboard、NotFound 页面 polish
