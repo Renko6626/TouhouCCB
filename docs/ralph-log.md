@@ -207,3 +207,43 @@
 - 请求日志中间件（`main.py`，纯增量）
 - Pydantic V2 弃用清理：`schemas/market.py:14` `min_items → min_length` 等
 - 首页 Movers / Transactions 继续寻找可以统一格式化的点
+
+---
+
+## 5. 2026-04-23 iteration 5 — MarketList 搜索加 300ms 防抖
+
+**目标**：消除市场列表搜索框每敲一键就触发一次 `/api/v1/market/list` 的问题。
+
+**动机**：`docs/frontend-review-2026-04-13.md` MEDIUM #8 "搜索无防抖（MarketList.vue:36-48）" 明确列出，但既有"已修复"表里没有这条。亲自 grep 代码确认：`watch([searchQuery, statusFilter], () => loadMarkets())` 同步触发，输入"东方"4 字符 → 4 次请求。既无谓占用 nginx 20r/s 通用限速桶，也让后端每次都 GROUP BY 聚合 `trade_count/last_trade_at`（iteration 2 新增的 JOIN）。
+
+**范围**：仅 `thccb-frontend/src/pages/market/MarketList.vue` 一个文件。
+
+**改动**：
+- 拆 `watch([searchQuery, statusFilter], …)` 为两个独立 watch：
+  - `watch(searchQuery)`：300ms 防抖触发 `loadMarkets`；每次 reset `currentPage` 到 1。
+  - `watch(statusFilter)`：下拉框切换立即生效（无防抖）。
+- 新增 `onBeforeUnmount` 清理防抖 timer 避免内存泄漏。
+- 防抖模式参考 `TradingView.vue:259-263` 的 `debouncedGetQuote`（400ms）—— 项目里已有范式，保持一致。搜索取稍短的 300ms，输入更敏感。
+
+**不改什么**：
+- 不修 `buildParams()` 里的 `Record<string, any>`（eslint 提示的是**原有**代码，非本轮引入；不顺手重构）。
+- 不抽通用 `useDebouncedWatch` composable——单处使用，抽出属于过度设计。
+- `sortBy` 变化已在第 96 行单独处理（只重置页码，不重拉后端），逻辑正确，不动。
+
+**风险 & 回滚**：
+- 风险：用户 300ms 内快速敲入多字符时，会经历"等待→一次请求"而非"每字符一次"，体感上可能感觉"搜索不即时"。300ms 是业内常见值，实测应无感。
+- 回滚：`git revert HEAD` 即可。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/pages/market/MarketList.vue`：1 个 `any` 报错为**原有问题**（行 35 `Record<string, any>`），非本轮引入
+- **UI 未实测**；用户验证路径：
+  1. `/market/list` 页面敲"东方炒炒币"5 个字符，应只触发 1 次后端请求（快速敲字时）
+  2. 敲完停 300ms 后列表刷新
+  3. 切换"交易中/已暂停/已结算"下拉应即时响应
+  4. 切换到其它路由再回来，无 console 报"leaked timer"之类
+
+**下一轮候选**：
+- 请求日志中间件 `main.py`（观测性）
+- Pydantic V2 弃用清理：`schemas/market.py:14` `min_items` + 可能其他文件同类
+- 抽 `useDebouncedRef` 或 `useDebouncedCallback` composable 复用（如后续还需要多处防抖再做，现在是一处，不做）
