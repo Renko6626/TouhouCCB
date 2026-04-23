@@ -1,6 +1,8 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -12,6 +14,21 @@ from app.api.v1 import auth, user, market, chart, stream
 from dotenv import load_dotenv
 
 load_dotenv()
+
+access_logger = logging.getLogger("thccb.access")
+
+# 跳过高频或长连接路径，避免淹没日志：
+# - /health 容器探活 10s/次
+# - /api/v1/stream/* SSE，单连接可能持续一小时
+# - /docs /redoc /openapi.json 仅开发调试用
+_LOG_SKIP_PREFIXES = (
+    "/health",
+    "/api/v1/stream",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/favicon.ico",
+)
 
 
 @asynccontextmanager
@@ -34,6 +51,40 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """简单请求日志：method / path / status / elapsed_ms。
+
+    跳过高频探活（/health）与长连接（SSE），避免淹没日志；
+    5xx 用 warning 级别提升告警敏感度。
+    """
+    path = request.url.path
+    if any(path.startswith(p) for p in _LOG_SKIP_PREFIXES):
+        return await call_next(request)
+
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        access_logger.exception(
+            "%s %s EXC %.1fms", request.method, path, elapsed_ms,
+        )
+        raise
+
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    level = logging.WARNING if response.status_code >= 500 else logging.INFO
+    access_logger.log(
+        level,
+        "%s %s %d %.1fms",
+        request.method,
+        path,
+        response.status_code,
+        elapsed_ms,
+    )
+    return response
 
 # 注册认证模块
 # 最终路径示例：

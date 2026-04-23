@@ -247,3 +247,50 @@
 - 请求日志中间件 `main.py`（观测性）
 - Pydantic V2 弃用清理：`schemas/market.py:14` `min_items` + 可能其他文件同类
 - 抽 `useDebouncedRef` 或 `useDebouncedCallback` composable 复用（如后续还需要多处防抖再做，现在是一处，不做）
+
+---
+
+## 6. 2026-04-23 iteration 6 — 请求日志中间件（method/path/status/elapsed）
+
+**目标**：给后端加一个极简的访问日志中间件，方便排查慢请求、错误突增、异常路径探测。
+
+**动机**：`docs/backend-review-2026-04-13.md` MEDIUM #10 "缺少请求日志中间件" 未修；部署到生产后如果遇到 "用户说卡"，没有逐请求的 path+耗时数据会很被动。同时 iteration 2 新增的 GROUP BY 聚合和本轮会继续叠加的改动都需要观测性兜底。
+
+**范围**：仅 `backend/app/main.py`，非红线/非高敏感。
+
+**改动**：
+- 新增 `access_logger = logging.getLogger("thccb.access")`，独立 logger 名便于 uvicorn/nginx 组合部署时单独设等级或输出到独立 handler。
+- `@app.middleware("http")` 注册 `log_requests`：
+  - `time.perf_counter()` 计时（比 `time.time()` 更稳）。
+  - `INFO` 级常规记录；`status >= 500` 升到 `WARNING`，exception 走 `access_logger.exception` 且 re-raise 不吞。
+  - 日志格式：`METHOD PATH STATUS ELAPSED_ms`（例：`GET /api/v1/market/list 200 18.4ms`）。
+- 跳过清单 `_LOG_SKIP_PREFIXES`：
+  - `/health`（10s 探活会淹没日志）
+  - `/api/v1/stream`（SSE 长连接，结束时的一条记录毫无用处且时长失真）
+  - `/docs`、`/redoc`、`/openapi.json`（开发态用）
+  - `/favicon.ico`（浏览器自动请求）
+
+**不改什么**：
+- 不改 `settings` 的 `DB_ECHO` / logging 根配置——保持 uvicorn 默认 handler，格式与已有警告（SECRET_KEY 未配置等）一致。
+- 不加 `client_ip`——项目前有 nginx 反代，`request.client.host` 会恒为 127.0.0.1，未处理 `X-Forwarded-For` 时加 ip 会误导；后续如需可按任务独立做。
+- 不记录请求体/响应体——涉及敏感数据（密码、token）且 body 可能是 SSE 流，风险大收益小。
+- Admin 面板请求暂不 skip：sqladmin 静态资源访问量有限，先留着观测。
+
+**风险 & 回滚**：
+- 风险：中间件对每个请求加一次 `perf_counter()` + 一次 log 写入，成本 ~1μs 级，影响可忽略。
+- 风险：中间件异常会影响所有请求——已用 try/except 捕获下游异常并 re-raise，中间件自身逻辑极简。
+- 回滚：`git revert HEAD` 单文件。
+
+**验证**：
+- `python -m py_compile app/main.py` ✅
+- **端到端测试**（用 `fastapi.testclient.TestClient` + 捕获 logger handler）：
+  - `GET /` 200 → 记录 `INFO thccb.access GET / 200 1.2ms` ✅
+  - `GET /health` 200 → **跳过**（无输出）✅
+  - `GET /docs` 200 → **跳过** ✅
+  - `GET /api/v1/nonexistent-xyz` 404 → 记录 `INFO thccb.access GET /api/v1/nonexistent-xyz 404 0.3ms` ✅
+- 无需前端检查；`npm run type-check` 可略。
+
+**下一轮候选**：
+- Pydantic V2 弃用清理：扫一遍 `schemas/*.py` 中所有 `min_items` / `max_items` / `regex`
+- 请求日志升级（可选、看反馈）：加 user_id（若已认证）、加 trace id
+- 其他 UI 改进：首页 Movers 点击跳转、Transactions 空状态 polish
