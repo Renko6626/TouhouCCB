@@ -107,11 +107,15 @@ async def root():
 async def health():
     """返回 200 + db ok 表示进程与数据库都正常；DB 不通时返回 503。
 
-    可用于容器 healthcheck、nginx upstream 探活、外部监控。
+    响应带 db_latency_ms（SELECT 1 往返耗时，含建连+查询）便于运维
+    观测数据库趋势慢化。可用于容器 healthcheck、nginx upstream 探活、
+    外部监控。
     """
+    start = time.perf_counter()
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"db unavailable: {type(exc).__name__}")
-    return {"status": "ok", "db": "ok"}
+    db_latency_ms = round((time.perf_counter() - start) * 1000, 2)
+    return {"status": "ok", "db": "ok", "db_latency_ms": db_latency_ms}
