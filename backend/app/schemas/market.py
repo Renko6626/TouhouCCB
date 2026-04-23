@@ -32,6 +32,8 @@ class MarketListItem(BaseModel):
     liquidity_b: float
     status: str
     outcomes: List[OutcomePriceRead]
+    trade_count: Optional[int] = 0
+    last_trade_at: Optional[datetime] = None
 
 
 class TradeRequest(BaseModel):

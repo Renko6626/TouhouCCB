@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { MarketListItem } from '@/types/api'
+import { formatRelativeTime } from '@/utils/formatter'
 
 const props = defineProps<{
   market: MarketListItem
@@ -52,6 +53,11 @@ const closesAtLabel = computed(() => {
   if (hours > 0) return `${hours}时${Math.floor((diff % 3600000) / 60000)}分后截止`
   return `${Math.floor(diff / 60000)}分后截止`
 })
+
+const tradeCount = computed(() => props.market.trade_count ?? 0)
+const lastTradeLabel = computed(() =>
+  props.market.last_trade_at ? formatRelativeTime(props.market.last_trade_at) : '—'
+)
 </script>
 
 <template>
@@ -107,6 +113,14 @@ const closesAtLabel = computed(() => {
         <span class="meta-item">
           <span class="meta-label">选项</span>
           <span class="meta-value">{{ props.market.outcomes?.length ?? 0 }}</span>
+        </span>
+        <span class="meta-item">
+          <span class="meta-label">成交</span>
+          <span class="meta-value">{{ tradeCount.toLocaleString() }}</span>
+        </span>
+        <span class="meta-item">
+          <span class="meta-label">活跃</span>
+          <span class="meta-value meta-value--sm" :title="props.market.last_trade_at ?? ''">{{ lastTradeLabel }}</span>
         </span>
       </div>
       <div class="card-actions">
@@ -321,7 +335,10 @@ const closesAtLabel = computed(() => {
 
 .card-meta {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-width: 0;
+  flex: 1;
 }
 
 .meta-item {
@@ -342,6 +359,12 @@ const closesAtLabel = computed(() => {
   font-weight: 700;
   color: #000000;
   font-variant-numeric: tabular-nums;
+}
+
+.meta-value--sm {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
 }
 
 /* 按钮 */
