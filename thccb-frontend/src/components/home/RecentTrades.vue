@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { marketApi } from '@/api/market'
 import type { RecentTrade } from '@/types/api'
+import { formatRelativeTime } from '@/utils/formatter'
 
 const router = useRouter()
 
@@ -36,19 +37,6 @@ onBeforeUnmount(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
-// 相对时间："3秒前" / "2分钟前" / "1小时前" / 否则绝对时间 HH:MM:SS
-const relativeTime = (iso: string) => {
-  const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return ''
-  const diffSec = Math.max(0, Math.floor((Date.now() - t) / 1000))
-  if (diffSec < 60) return `${diffSec}秒前`
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}分钟前`
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}小时前`
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 const truncate = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '…' : s
 
 const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
@@ -73,7 +61,7 @@ const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
           class="rt-row"
           :class="t.type === 'buy' ? 'rt-row-buy' : 'rt-row-sell'"
         >
-          <span class="rt-time">{{ relativeTime(t.timestamp) }}</span>
+          <span class="rt-time" :title="t.timestamp">{{ formatRelativeTime(t.timestamp) }}</span>
           <span class="rt-user" :title="t.username">{{ truncate(t.username, 12) }}</span>
           <span class="rt-action">
             <span :class="['rt-tag', t.type === 'buy' ? 'rt-tag-buy' : 'rt-tag-sell']">
