@@ -252,11 +252,41 @@ async def list_markets(
     all_outcome_ids = [o.id for m in markets for o in m.outcomes]
     prices_24h = await _get_prices_24h_ago(db, all_outcome_ids)
 
+    # 批量聚合：每个 market 的成交笔数 + 最后成交时间。
+    # 只统计真实用户交易（buy/sell），结算产生的 settle/settle_lose 不算活跃度。
+    market_ids = [m.id for m in markets]
+    activity: Dict[int, Dict[str, Any]] = {}
+    if market_ids:
+        agg_stmt = (
+            select(
+                Outcome.market_id.label("market_id"),
+                func.count(Transaction.id).label("trade_count"),
+                func.max(Transaction.timestamp).label("last_trade_at"),
+            )
+            .select_from(Outcome)
+            .outerjoin(
+                Transaction,
+                and_(
+                    Transaction.outcome_id == Outcome.id,
+                    Transaction.type.in_([TransactionType.BUY, TransactionType.SELL]),
+                ),
+            )
+            .where(Outcome.market_id.in_(market_ids))
+            .group_by(Outcome.market_id)
+        )
+        for row in (await db.execute(agg_stmt)).all():
+            activity[row.market_id] = {
+                "trade_count": int(row.trade_count or 0),
+                "last_trade_at": row.last_trade_at,
+            }
+
     output = []
     for m in markets:
         outcomes = list(m.outcomes)
         shares_list = _shares_to_floats(outcomes)
         tags_list = [t.strip() for t in m.tags.split(",") if t.strip()] if m.tags else []
+        act = activity.get(m.id, {})
+        last_ts = act.get("last_trade_at")
         output.append({
             "id": m.id,
             "title": m.title,
@@ -266,6 +296,8 @@ async def list_markets(
             "closes_at": m.closes_at.isoformat() if m.closes_at else None,
             "tags": tags_list,
             "outcomes": _build_prices_from_shares(outcomes, shares_list, float(m.liquidity_b), prices_24h),
+            "trade_count": act.get("trade_count", 0),
+            "last_trade_at": last_ts.isoformat() if last_ts else None,
         })
     return output
 

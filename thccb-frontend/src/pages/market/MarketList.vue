@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
-import { NInput, NSelect, NPagination, NSpin, NEmpty, NButton } from 'naive-ui'
+import { NAlert, NInput, NSelect, NPagination, NSpin, NEmpty, NButton } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
 import MarketCard from '@/components/market/MarketCard.vue'
 
@@ -10,6 +10,7 @@ const router = useRouter()
 const marketStore = useMarketStore()
 
 const loading = ref(false)
+const loadError = ref('')
 const searchQuery = ref('')
 const statusFilter = ref<string>('trading')
 const sortBy = ref<string>('default')
@@ -51,8 +52,14 @@ const buildParams = () => {
 
 const loadMarkets = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     await marketStore.fetchMarkets(buildParams())
+    if (marketStore.error) {
+      loadError.value = marketStore.error
+    }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载市场失败'
   } finally {
     loading.value = false
   }
@@ -60,10 +67,24 @@ const loadMarkets = async () => {
 
 onMounted(() => { loadMarkets() })
 
-// 筛选条件变化时重新从后端拉取
-watch([searchQuery, statusFilter], () => {
+// 搜索输入用 300ms 防抖，避免每敲一个字都触发一次后端请求
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    currentPage.value = 1
+    loadMarkets()
+  }, 300)
+})
+
+// 下拉选项切换立即生效，不需要防抖
+watch(statusFilter, () => {
   currentPage.value = 1
   loadMarkets()
+})
+
+onBeforeUnmount(() => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 })
 
 // 对于只筛选单个状态的情况，后端可能返回多个状态，前端再做一次精确过滤
@@ -145,6 +166,15 @@ const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
     <div v-if="loading && !marketStore.markets.length" class="loading-state">
       <NSpin size="large" />
       <p>加载市场中...</p>
+    </div>
+
+    <!-- 错误态 -->
+    <div v-else-if="loadError && !marketStore.markets.length" class="error-state">
+      <NAlert type="error" :title="loadError">
+        <div style="margin-top:8px">
+          <NButton size="small" @click="loadMarkets">重新加载</NButton>
+        </div>
+      </NAlert>
     </div>
 
     <!-- 市场列表 -->

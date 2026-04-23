@@ -1,18 +1,39 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
-import { NButton, NDataTable, NInputNumber, NSpin, NTag, NEmpty, type DataTableColumns } from 'naive-ui'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { NAlert, NButton, NDataTable, NInputNumber, NSpin, NTag, NEmpty, type DataTableColumns } from 'naive-ui'
 import type { LeaderboardItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 
 const marketStore = useMarketStore()
 const limit = ref(20)
 const loading = ref(false)
+const loadError = ref('')
 const leaderboardRows = computed(() => marketStore.leaderboard)
+
+// 前 3 名徽章样式（工业风黑白递进；不用金银铜彩色，守 docs/style.md）
+const rankBadgeStyle = (rank: number): Record<string, string> => {
+  const base = {
+    display: 'inline-block',
+    minWidth: '34px',
+    padding: '1px 8px',
+    fontSize: '12px',
+    fontWeight: '800',
+    letterSpacing: '0.04em',
+    textAlign: 'center',
+    border: '1.5px solid #000',
+    fontVariantNumeric: 'tabular-nums',
+  }
+  if (rank === 1) return { ...base, background: '#000', color: '#fff' }
+  if (rank === 2) return { ...base, background: '#444', color: '#fff' }
+  if (rank === 3) return { ...base, background: '#888', color: '#fff' }
+  return { ...base, background: '#fff', color: '#000', fontWeight: '600' }
+}
 
 const columns: DataTableColumns<LeaderboardItem> = [
   {
     title: '排名', key: 'rankIndex', width: 90,
-    render: (_row, index) => `#${index + 1}`,
+    render: (_row, index) =>
+      h('span', { style: rankBadgeStyle(index + 1) }, `#${index + 1}`),
   },
   { title: '用户', key: 'username' },
   { title: '净值', key: 'net_worth', render: (row) => `¥${row.net_worth.toLocaleString()}` },
@@ -21,12 +42,29 @@ const columns: DataTableColumns<LeaderboardItem> = [
 
 const loadLeaderboard = async () => {
   loading.value = true
+  loadError.value = ''
   try {
     await marketStore.fetchLeaderboard(limit.value)
+    if (marketStore.error) {
+      loadError.value = marketStore.error
+    }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载排行榜失败'
   } finally {
     loading.value = false
   }
 }
+
+// limit 变化 300ms 防抖自动刷新（避免 NInputNumber 按 step 连打时每步一发）
+let limitDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(limit, () => {
+  if (limitDebounceTimer) clearTimeout(limitDebounceTimer)
+  limitDebounceTimer = setTimeout(loadLeaderboard, 300)
+})
+
+onBeforeUnmount(() => {
+  if (limitDebounceTimer) clearTimeout(limitDebounceTimer)
+})
 
 onMounted(() => loadLeaderboard())
 </script>
@@ -48,6 +86,13 @@ onMounted(() => loadLeaderboard())
       <div v-if="loading && !leaderboardRows.length" class="lb-loading">
         <NSpin size="large" />
         <p>加载排行榜中...</p>
+      </div>
+      <div v-else-if="loadError && !leaderboardRows.length" class="lb-error">
+        <NAlert type="error" :title="loadError">
+          <div style="margin-top:8px">
+            <NButton size="small" @click="loadLeaderboard">重新加载</NButton>
+          </div>
+        </NAlert>
       </div>
       <div v-else-if="!leaderboardRows.length" class="empty-state">
         <NEmpty description="暂无排行榜数据" />

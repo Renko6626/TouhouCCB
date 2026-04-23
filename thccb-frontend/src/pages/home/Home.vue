@@ -30,7 +30,19 @@ onMounted(async () => {
   await Promise.all(tasks)
 })
 
-const featuredMarkets = computed(() => marketStore.activeMarkets.slice(0, 4))
+// 热门市场：按成交笔数降序取前 4，并列时按最后成交时间更近者优先。
+// 依赖后端 /api/v1/market/list 的 trade_count / last_trade_at（iteration 2 新增）。
+const featuredMarkets = computed(() =>
+  [...marketStore.activeMarkets]
+    .sort((a, b) => {
+      const countDiff = (b.trade_count ?? 0) - (a.trade_count ?? 0)
+      if (countDiff !== 0) return countDiff
+      const aTs = a.last_trade_at ? new Date(a.last_trade_at).getTime() : 0
+      const bTs = b.last_trade_at ? new Date(b.last_trade_at).getTime() : 0
+      return bTs - aTs
+    })
+    .slice(0, 4)
+)
 
 const stats = computed(() => [
   { label: '全部市场', value: marketStore.markets.length },
