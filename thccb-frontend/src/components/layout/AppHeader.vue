@@ -7,9 +7,9 @@ import type { DropdownOption } from 'naive-ui'
 
 interface Props {
   collapsed: boolean
+  showToggle?: boolean
 }
-
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), { showToggle: true })
 const emit = defineEmits<{ toggleCollapse: [] }>()
 
 const router = useRouter()
@@ -44,10 +44,10 @@ const handleUserMenuClick = (key: string) => {
 
 <template>
   <div class="app-header">
-    <!-- 左：菜单切换 + Logo -->
+    <!-- 左：切换 + Logo -->
     <div class="header-left">
       <button
-        v-if="authStore.isAuthenticated"
+        v-if="props.showToggle && authStore.isAuthenticated"
         class="sidebar-toggle"
         @click="emit('toggleCollapse')"
         :title="props.collapsed ? '展开侧边栏' : '收起侧边栏'"
@@ -61,21 +61,14 @@ const handleUserMenuClick = (key: string) => {
       </router-link>
     </div>
 
-    <!-- 右：导航 + 用户 -->
+    <!-- 右：登录/注册 或 用户 chip。主导航挪到 sidebar 了，不在 header 再出现 -->
     <div class="header-right">
-      <!-- 未登录 -->
       <template v-if="!authStore.isAuthenticated">
         <button class="nav-btn" @click="router.push('/auth/login')">登录</button>
         <button class="nav-btn nav-btn-primary" @click="router.push('/auth/register')">注册</button>
       </template>
 
-      <!-- 已登录 -->
       <template v-else>
-        <nav class="nav-links">
-          <router-link to="/market/list" class="nav-link">市场</router-link>
-          <router-link to="/market/leaderboard" class="nav-link">排行榜</router-link>
-        </nav>
-
         <NDropdown :options="userOptions" @select="handleUserMenuClick" placement="bottom-end">
           <div class="user-chip">
             <div class="user-avatar">
@@ -101,7 +94,7 @@ const handleUserMenuClick = (key: string) => {
   color: #ffffff;
 }
 
-/* 左侧 */
+/* 左 */
 .header-left {
   display: flex;
   align-items: center;
@@ -109,8 +102,8 @@ const handleUserMenuClick = (key: string) => {
 }
 
 .sidebar-toggle {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   background: none;
   border: 1px solid rgba(255,255,255,0.3);
   color: #ffffff;
@@ -121,9 +114,9 @@ const handleUserMenuClick = (key: string) => {
   transition: background 0.15s;
   flex-shrink: 0;
 }
-
 .sidebar-toggle:hover {
   background: rgba(255,255,255,0.1);
+  border-color: rgba(255,255,255,0.55);
 }
 
 .brand {
@@ -132,10 +125,9 @@ const handleUserMenuClick = (key: string) => {
   gap: 8px;
   text-decoration: none;
 }
-
 .brand-logo {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   background: #ffffff;
   color: #000000;
   font-weight: 900;
@@ -145,26 +137,25 @@ const handleUserMenuClick = (key: string) => {
   justify-content: center;
   flex-shrink: 0;
 }
-
 .brand-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: #ffffff;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-/* 右侧 */
+/* 右 */
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
 }
 
 /* 未登录按钮 */
 .nav-btn {
-  padding: 6px 14px;
-  font-size: 13px;
+  padding: 5px 12px;
+  font-size: 12px;
   font-weight: 600;
   border: 1.5px solid rgba(255,255,255,0.5);
   background: none;
@@ -173,42 +164,17 @@ const handleUserMenuClick = (key: string) => {
   transition: background 0.15s, border-color 0.15s;
   letter-spacing: 0.02em;
 }
-
 .nav-btn:hover {
   border-color: #ffffff;
   background: rgba(255,255,255,0.08);
 }
-
 .nav-btn-primary {
   background: #ffffff;
   color: #000000;
   border-color: #ffffff;
 }
-
 .nav-btn-primary:hover {
   background: #e8e8e8;
-}
-
-/* 导航链接 */
-.nav-links {
-  display: flex;
-  gap: 4px;
-}
-
-.nav-link {
-  padding: 5px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.75);
-  text-decoration: none;
-  border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.nav-link:hover,
-.nav-link.router-link-active {
-  color: #ffffff;
-  border-bottom-color: #ffffff;
 }
 
 /* 用户菜单 */
@@ -216,21 +182,19 @@ const handleUserMenuClick = (key: string) => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
+  padding: 4px 10px;
   border: 1.5px solid rgba(255,255,255,0.3);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   background: rgba(255,255,255,0.06);
 }
-
 .user-chip:hover {
   background: rgba(255,255,255,0.12);
   border-color: rgba(255,255,255,0.6);
 }
-
 .user-avatar {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   background: #ffffff;
   color: #000000;
   font-size: 11px;
@@ -240,14 +204,19 @@ const handleUserMenuClick = (key: string) => {
   justify-content: center;
   flex-shrink: 0;
 }
-
 .user-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #ffffff;
-  max-width: 80px;
+  max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .app-header { padding: 0 12px; }
+  .brand-name { display: none; }
+  .user-name { display: none; }
 }
 </style>
