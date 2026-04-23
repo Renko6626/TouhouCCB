@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NCard, NDataTable, NEmpty, NSelect, NSpin, NTag, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
+import { NButton, NDataTable, NEmpty, NSelect, NSpin, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
 import type { Transaction } from '@/types/api'
 import { useUserStore } from '@/stores/user'
 
@@ -93,6 +93,39 @@ const columns: DataTableColumns<Transaction> = [
     },
   },
   {
+    title: '市场 / 选项',
+    key: 'market',
+    minWidth: 220,
+    render: (row) => {
+      const title = row.market_title ?? '—'
+      const label = row.outcome_label ?? ''
+      const marketEl = row.market_id
+        ? h(
+            'a',
+            {
+              href: `#/market/${row.market_id}/trade`,
+              style: { color: '#000', textDecoration: 'underline', fontWeight: 600 },
+              onClick: (e: MouseEvent) => {
+                e.preventDefault()
+                router.push(`/market/${row.market_id}/trade`)
+              },
+            },
+            title,
+          )
+        : h('span', { style: { fontWeight: 600 } }, title)
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px' } }, [
+        marketEl,
+        label
+          ? h(
+              'span',
+              { style: { fontSize: '11px', color: '#555', letterSpacing: '0.04em' } },
+              label,
+            )
+          : null,
+      ])
+    },
+  },
+  {
     title: '份额',
     key: 'shares',
     render: (row) => row.shares.toLocaleString(),
@@ -163,7 +196,7 @@ onMounted(async () => {
 
     <!-- 表格 -->
     <div v-else-if="filteredTransactions.length > 0">
-      <NDataTable :columns="columns" :data="filteredTransactions" :loading="loading" :bordered="true" size="small" />
+      <NDataTable :columns="columns" :data="filteredTransactions" :loading="loading" :bordered="true" size="small" :scroll-x="900" />
     </div>
 
     <!-- 空状态 -->

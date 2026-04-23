@@ -32,6 +32,9 @@ class UserSummary(BaseModel):
 class TransactionRead(BaseModel):
     id: int
     outcome_id: int
+    market_id: Optional[int] = None
+    market_title: Optional[str] = None
+    outcome_label: Optional[str] = None
     type: str  # buy, sell, settle, settle_lose
     shares: Money
     price: Price
