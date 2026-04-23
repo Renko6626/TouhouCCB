@@ -573,3 +573,54 @@
 - 后端：日志中间件过滤 `/api/v1/admin/*`，现在每个 admin 页刷新会产生多条访问日志
 - `MarketManage.vue` polish（时间不够则弃）
 - 后端：`/user/holdings` 加 limit（低优先级）
+
+---
+
+## 13. 2026-04-23 iteration 13 — TradingView 错误态补齐 + 日志中间件过滤 admin
+
+**前置 grep**：
+- `TradingView.vue` 确认已导入 `NAlert` 但模板**从未用**；`loadMarketData` 无 try/catch，任何网络故障都会走到"市场不存在"的 `NEmpty`，误导用户以为市场真的 404。
+- `main.py _LOG_SKIP_PREFIXES` 没有 admin — sqladmin 的 statics/CSS/JS + 业务页每次刷新会写一堆日志，稀释重要记录。
+
+两件独立小事，分开 commit。
+
+---
+
+### A. TradingView 错误态
+
+**范围**：仅 `thccb-frontend/src/pages/market/TradingView.vue`。
+
+**改动**：
+- `loadError = ref('')`。
+- `loadMarketData`：`try { await Promise.all([fetchMarketDetail, fetchMarketTrades]); if (!currentMarket && error) → loadError } catch → loadError`。
+- 模板 `v-if !loading && !currentMarket && loadError` → NAlert + "重新加载"/"返回列表"；否则 `v-else-if !loading && !currentMarket` → 原有 NEmpty（真 404 路径）。两态明确区分。
+
+**已知缺陷（不修，记录）**：
+- `marketStore.error` 是跨 fetch 共享 ref。若 `fetchMarketDetail` 先失败再 `fetchMarketTrades` 成功，`error` 会被后者清空，本轮的检测漏掉这类情况。修复需要改 store 拆分 error 或 loadMarketData 改串行——超出本轮范围。典型网络完全不通时两者会同时失败，最后一个失败的 error 仍可读，主场景够用。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint`：6 个报错全部是**原有** `any` / 未用变量（`NTag`、`realtimeStatusType`、catch `error`），非本轮引入
+
+---
+
+### B. 日志中间件过滤 `/api/v1/admin`
+
+**范围**：仅 `backend/app/main.py`。
+
+**改动**：`_LOG_SKIP_PREFIXES` 元组追加 `"/api/v1/admin"`。注释说明业务动作（adjust-cash、创建/结算）走 `/api/v1/market/*` 和 `/api/v1/user/*` 本来就被记录，admin 路径几乎只产生 sqladmin UI 噪声。
+
+**验证**（`TestClient` + 捕获 `thccb.access` logger handler）：
+- `GET /` 200 → 记录 ✅
+- `GET /api/v1/admin/statics/xxx.css` → **跳过** ✅
+- `GET /api/v1/admin/user/list` → **跳过** ✅
+- `GET /api/v1/nonexistent` 404 → 记录 ✅
+
+**注意事项（环境）**：本地 `backend/data/thccb.db` 和当前模型不同步（`market.closes_at` 列未迁移），所以 `fetchMarkets` 在 TestClient 里 500——**与本轮无关**，项目无 Alembic 的既有问题。CLAUDE.md 里已标注。
+
+---
+
+**下一轮候选**（还剩 1 轮，**最后一轮**）：
+- `MarketManage.vue` polish（557 行，需先 Read 全文定位痛点再决定 scope；如嫌大可换个小目标）
+- 把 CLAUDE.md 补上一小节指向 `docs/ralph-log.md`，方便下次开新 ralph 的人快速摸到历史
+- 总结式 commit：`docs/ralph-log.md` 的最后一条"本次 ralph 小结"，罗列所有改动清单，方便用户 review
