@@ -536,3 +536,40 @@
 - 统一其余页面错误态：`TradingView.vue` / `MarketList.vue`
 - 后端：`/user/holdings` 加 `limit` Query，类比 iteration 8 的 transactions
 - 后端：日志中间件过滤 `/api/v1/admin/*` 若发现太吵
+
+---
+
+## 12. 2026-04-23 iteration 12 — MarketList 加错误态
+
+**前置 grep**：`MarketList.vue` 确认**无 loadError / NAlert**，加载失败时用户只看到空白，比 Leaderboard 还严重（至少 Leaderboard 有 NEmpty 兜底）。本轮照上轮的 Leaderboard pattern 复制到 MarketList。
+
+**范围**：仅 `thccb-frontend/src/pages/market/MarketList.vue`。
+
+**改动**：
+- 导入 `NAlert`。
+- `loadError = ref('')`。
+- `loadMarkets` 增加 try/catch + 读 `marketStore.error`。
+- 模板在"加载中"分支后、"市场列表"分支前插入 `v-else-if="loadError && !marketStore.markets.length"` 的 `NAlert` + "重新加载" 按钮。
+- 与 iteration 11 的 Leaderboard、既有 Portfolio / Transactions 保持同一 UX pattern。
+
+**不改什么**：
+- 不改 `filteredMarkets` / `paginatedMarkets` / 分页逻辑。
+- 不顺手修 `buildParams()` 的 `Record<string, any>` lint（原有、非本轮）。
+
+**风险 & 回滚**：
+- 风险：`marketStore.error` 是多个 fetch 共享的 ref（store 各 fetch 都会清空它）——同一页只有 MarketList 在调 `fetchMarkets`，不冲突。
+- 回滚：`git revert HEAD` 单文件。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/pages/market/MarketList.vue`：1 个原有 `any` 报错（line 36 `Record<string, any>`），非本轮引入
+- **UI 未实测**；用户验证：
+  1. 模拟后端挂掉（docker stop 或 ad-hoc 把 `/market/list` 返回 500）时，`/market/list` 页面显示 NAlert 错误框而非空白
+  2. 点"重新加载"按钮触发 refetch
+  3. 正常情况不显示错误态
+
+**下一轮候选**（还剩 2 轮）：
+- `TradingView.vue` 错误态对齐（它已引 NAlert 但可能覆盖不全，要 grep）
+- 后端：日志中间件过滤 `/api/v1/admin/*`，现在每个 admin 页刷新会产生多条访问日志
+- `MarketManage.vue` polish（时间不够则弃）
+- 后端：`/user/holdings` 加 limit（低优先级）
