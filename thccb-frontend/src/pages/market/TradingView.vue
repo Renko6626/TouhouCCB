@@ -76,10 +76,12 @@ const scrollToTradePanel = () => {
 }
 
 // 加载市场数据
+const loadError = ref('')
 const loadMarketData = async () => {
   if (!marketId.value) return
-  
+
   loading.value = true
+  loadError.value = ''
   try {
     await Promise.all([
       marketStore.fetchMarketDetail(marketId.value),
@@ -89,6 +91,12 @@ const loadMarketData = async () => {
     if (marketStore.currentMarket?.outcomes?.length) {
       selectedOutcomeId.value = marketStore.currentMarket.outcomes[0]?.id ?? null
     }
+    // 两项都完成但 currentMarket 仍缺失 → 网络/接口故障
+    if (!marketStore.currentMarket && marketStore.error) {
+      loadError.value = marketStore.error
+    }
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : '加载市场数据失败'
   } finally {
     loading.value = false
   }
@@ -511,8 +519,18 @@ const relTime = (iso: string): string => {
       <span class="fab-arrow" aria-hidden="true">↓</span>
     </button>
 
+    <!-- 加载失败（网络/接口故障，和真 404 区分）-->
+    <div v-if="!loading && !marketStore.currentMarket && loadError" class="text-center py-12">
+      <NAlert type="error" :title="loadError">
+        <div style="margin-top:8px; display:flex; gap:8px; justify-content:center">
+          <NButton size="small" @click="loadMarketData">重新加载</NButton>
+          <NButton size="small" @click="router.push('/market/list')">返回列表</NButton>
+        </div>
+      </NAlert>
+    </div>
+
     <!-- 市场不存在（显式条件：避免 v-else 错配到上方 FAB 的 v-if 链） -->
-    <div v-if="!loading && !marketStore.currentMarket" class="text-center py-12">
+    <div v-else-if="!loading && !marketStore.currentMarket" class="text-center py-12">
       <NEmpty description="市场不存在或已被删除">
         <template #extra>
           <NButton type="primary" @click="router.push('/market/list')">
