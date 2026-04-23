@@ -166,3 +166,44 @@
 - 请求日志中间件：method / path / status / elapsed_ms 写到 logger（同 `main.py`，纯增量 middleware）
 - 首页 `Home.vue` 接通 `formatRelativeTime` 统一"实时成交流"的时间展示
 - 可选：修 `backend/app/schemas/market.py:14` 的 `min_items → min_length` 等 Pydantic V2 弃用警告（一组小改，纯前向兼容）
+
+---
+
+## 4. 2026-04-23 iteration 4 — RecentTrades 接通 formatRelativeTime（DRY + hover 完整时间）
+
+**目标**：首页「实时成交」组件的时间展示统一走 `utils/formatRelativeTime`，删除组件内本地重复实现；鼠标悬停可看完整 ISO timestamp。
+
+**动机**：iteration 2 新增了 `formatRelativeTime` helper 放进 `src/utils/formatter.ts`，当时只接到 `MarketCard`。本轮摸到 `RecentTrades.vue` 里发现它**自己写了一份** `relativeTime(iso)`（行 40-50），逻辑几乎等价、但档位不同（无"刚刚"、无"X天前"），既是重复代码，也导致全站相对时间口径不一致。合并既减行数也统一体验。
+
+**范围**：仅 `thccb-frontend/src/components/home/RecentTrades.vue` 一个文件。
+
+**改动**：
+- 导入 `formatRelativeTime from '@/utils/formatter'`。
+- 删除本地 `relativeTime(iso)` 函数（-14 行）。
+- 模板 `{{ relativeTime(t.timestamp) }}` → `{{ formatRelativeTime(t.timestamp) }}`；同时给 `.rt-time` 加 `:title="t.timestamp"`，悬停显示完整 ISO 时间戳（与 MarketCard 的"活跃"列统一做法）。
+- 净差：+2 insert / −14 delete，代码减少。
+
+**顺手没做什么**：
+- 不改 `.rt-time` 的 CSS/布局/阈值。
+- 不抽 `truncate(s, n)` helper — 它也是小工具，但只此组件用，抽离属于无关重构。
+- Movers.vue 已确认**不涉及**时间展示，跳过。
+
+**行为差异**（用户需留意）：
+- 本地旧版：30 秒内显示 "X秒前"；新版：<30s 显示 "刚刚"、30-59s 显示 "X秒前"。体验改善。
+- 本地旧版：>24h 显示 "MM-DD HH:MM"（含时分）；新版：<30d 显示 "X天前"、>=30d 显示 "YYYY-MM-DD"。对"实时成交"这类"最近几分钟/小时"为主的场景，日期精确到分钟没必要；实在需要精确时间，hover title 可见完整 ISO。
+
+**风险 & 回滚**：
+- 风险：仅 UI 展示层语义变化，无逻辑/数据影响。
+- 回滚：`git revert HEAD` 即可；或直接把 utils helper 也回退。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/components/home/RecentTrades.vue` ✅ 无输出（无错无警告）
+- **UI 未实测**；需要用户验证：
+  1. 首页"实时成交"列表第一列相对时间正确（刚成交显示"刚刚"、一小时前显示"1小时前"）
+  2. 鼠标悬停时间格子能显示完整 ISO timestamp
+
+**下一轮候选**：
+- 请求日志中间件（`main.py`，纯增量）
+- Pydantic V2 弃用清理：`schemas/market.py:14` `min_items → min_length` 等
+- 首页 Movers / Transactions 继续寻找可以统一格式化的点
