@@ -164,6 +164,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script_stop: true
+          # 默认 10 分钟；网络抽风时镜像拉取可能更慢，给到 30 分钟兜底
+          command_timeout: 30m
           script: |
             cd /home/deploy/TouhouCCB
             # 先同步仓库代码，让服务器拿到最新 deploy.sh / docker-compose.yml
