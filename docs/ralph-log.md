@@ -442,3 +442,43 @@
 - `MarketManage.vue` polish — 557 行，先 `Read` 全文再定 scope
 - 后端 `/user/holdings` 也硬编码无分页，但持仓一般不多，不紧迫
 - 其他：Leaderboard、NotFound 页面 polish
+
+---
+
+## 10. 2026-04-23 iteration 10 — Leaderboard 前 3 名徽章 + limit 自动刷新
+
+**前置 grep**：`leaderboardRows` / `watch(limit` 确认没做过本轮的改动。
+
+**观察到的两个问题**：
+1. `NInputNumber` 的 limit 改了要**手动点刷新**——用户一般希望改完数字直接出结果。
+2. 排名列只是 `#1 #2 #3 ...` 纯文本，前三名完全没视觉强调。
+
+**范围**：仅 `thccb-frontend/src/pages/market/Leaderboard.vue`。
+
+**改动**：
+- **`rankBadgeStyle(rank)`**：render 前 3 名用"黑 / 深灰 / 浅灰"三级工业风徽章（`#000 / #444 / #888` 背景 + 白字 + 1.5px 黑边）；4 名及以后用白底黑字小号。**不用金银铜彩色**——`docs/style.md` 要求纯黑白+涨绿跌红。
+- **`watch(limit)`**：300ms 防抖（参考 iteration 5 `MarketList` 和 TradingView 的 400ms debounce）自动触发 `loadLeaderboard`；`onBeforeUnmount` 清 timer。"刷新"按钮保留，明确操作仍有出口。
+
+**不改什么**：
+- 不加 error 态 UI（当前无，页面其他部分错误处理交给 `marketStore.leaderboardError` 之类——未启用；属于独立 UX 改进，独立 commit 做。实际上本轮未引入新错误路径，保持现状）。
+- 不改 `<NInputNumber>` 的 min/max/step，现有 `5-100 step 5` 合理。
+- 不联动路由 query 记忆 limit（nice to have 但超出本轮）。
+
+**风险 & 回滚**：
+- 风险：`watch(limit)` 初始化时会触发一次 callback 吗？默认 `immediate` 不开，不会；`onMounted` 单独调一次 → 初始加载只发一次。✅
+- 风险：`rankBadgeStyle` 返回新对象每渲染一次都重建，对 20-100 行表格无影响。
+- 回滚：`git revert HEAD`。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/pages/market/Leaderboard.vue`：1 个 `vue/multi-word-component-names`，**原有**问题（与 Home / Transactions 同类），非本轮引入
+- **UI 未实测**；验证：
+  1. `/market/leaderboard` 前 3 名排名列黑/深灰/浅灰递进徽章，其余白底
+  2. 把 NInputNumber 从 20 改到 50，不用点刷新 ~300ms 后自动刷新数据
+  3. 快速按上箭头按钮（step 5 → 连打到 100）只在停手 300ms 后发一次请求，不是每步一发
+  4. 样式符合 `docs/style.md`（黑白、无圆角、粗边框）
+
+**下一轮候选**：
+- `MarketManage.vue` polish（先 Read 再定点）
+- 统一页面错误态（Leaderboard/TradingView 等缺 loadError UI 的）
+- 后端观测性：`/health` 加 `db_latency_ms` 字段，便于运维看瓶颈
