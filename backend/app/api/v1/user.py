@@ -178,16 +178,38 @@ async def get_my_transactions(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """返回最近 50 条交易记录"""
+    """返回最近 50 条交易记录，附带市场/选项名便于前端展示。"""
     stmt = (
         select(Transaction)
         .where(Transaction.user_id == user.id)
+        .options(selectinload(Transaction.outcome).selectinload(Outcome.market))
         .order_by(Transaction.timestamp.desc())
         .limit(50)
     )
     res = await db.execute(stmt)
     txs: List[Transaction] = res.scalars().all()
-    return txs
+
+    results: List[TransactionRead] = []
+    for tx in txs:
+        outcome = tx.outcome
+        market = outcome.market if outcome else None
+        results.append(
+            TransactionRead(
+                id=tx.id,
+                outcome_id=tx.outcome_id,
+                market_id=market.id if market else None,
+                market_title=market.title if market else None,
+                outcome_label=outcome.label if outcome else None,
+                type=tx.type,
+                shares=tx.shares,
+                price=tx.price,
+                gross=tx.gross,
+                fee=tx.fee,
+                cost=tx.cost,
+                timestamp=tx.timestamp,
+            )
+        )
+    return results
 
 
 # ==========================================

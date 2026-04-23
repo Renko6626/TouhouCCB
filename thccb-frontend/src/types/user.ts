@@ -36,6 +36,9 @@ export interface Holding {
 export interface Transaction {
   id: number
   outcome_id: number
+  market_id?: number | null
+  market_title?: string | null
+  outcome_label?: string | null
   type: 'buy' | 'sell' | 'settle' | 'settle_lose'
   shares: number
   price: number
