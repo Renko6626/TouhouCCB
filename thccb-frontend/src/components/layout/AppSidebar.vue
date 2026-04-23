@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -68,10 +67,11 @@ const navigate = (path: string) => router.push(path)
 .sidebar {
   height: 100%;
   background: #ffffff;
-  border-right: 2px solid #000000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* border-right 由 DefaultLayout 的外层 .app-sidebar-wrap 统一提供，
+     避免 2px 边框在侧栏组件和外层 aside 上叠 4px。 */
 }
 
 /* 导航区 */
