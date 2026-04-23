@@ -294,3 +294,62 @@
 - Pydantic V2 弃用清理：扫一遍 `schemas/*.py` 中所有 `min_items` / `max_items` / `regex`
 - 请求日志升级（可选、看反馈）：加 user_id（若已认证）、加 trace id
 - 其他 UI 改进：首页 Movers 点击跳转、Transactions 空状态 polish
+
+---
+
+## 7. 2026-04-23 iteration 7 — Pydantic V2 弃用清理 + Home 热门市场按成交排序
+
+**目标 A**：清 Pydantic V1 残余 `min_items` 弃用（V3 会移除）。
+**目标 B**：收割 iteration 2 铺好的 `trade_count`/`last_trade_at` 基建，让首页"热门市场"真的按活跃度排而不是时间倒序前 4 个。
+
+---
+
+### A. `min_items → min_length`（1 行改动）
+
+**扫描结果**（`grep -rE "min_items|max_items|\bregex\s*=|allow_mutation|const\s*=\s*True"`）：全仓仅 `backend/app/schemas/market.py:14` 一处，其它 schema 干净。一击即中。
+
+**改动**：`MarketCreate.outcomes: List[str] = Field(..., min_items=2, ...)` → `min_length=2`。
+
+**验证**：
+- `python -m py_compile` ✅
+- Python 运行时捕 DeprecationWarning：`min_items DeprecationWarnings: 0` ✅
+- 行为等价性：`MarketCreate(outcomes=["only_one"])` 仍抛 `List should have at least 2` ValidationError ✅
+
+**独立 commit**：`00d5bf2 fix(backend): MarketCreate outcomes 用 min_length 替代弃用的 min_items`
+
+---
+
+### B. Home 热门市场按成交笔数排序（UX）
+
+**动机**：`docs/frontend-review-2026-04-13.md` "仍需后端配合" 表里最后一条 "热门市场按热度排序"。iteration 2 已把 `trade_count`/`last_trade_at` 塞进 `/market/list` 响应，但前端 `Home.vue:33` 还在用 `marketStore.activeMarkets.slice(0, 4)`——`activeMarkets` 的源 `markets` 后端返回是按 `created_at desc` 排的，即"热门市场"其实是"最新 4 个"。
+
+**范围**：仅 `thccb-frontend/src/pages/home/Home.vue`，1 个 computed。
+
+**改动**：
+- `featuredMarkets`：先 `[...activeMarkets]` 拷贝避免原地排序污染 store，然后 `sort` 规则：
+  1. 主键：`trade_count` 降序
+  2. tie-breaker：`last_trade_at` 时间戳降序（更近的成交在前）
+  3. 两者都缺的市场自动沉底
+- `slice(0, 4)` 取前 4。
+
+**顺带不改什么**：
+- 不改 MarketList 的排序下拉，那里用户可显式控制，不强加"热度"默认。
+- 不加"活跃度"专用 UI 标识——留给用户自己看 MarketCard 的"成交"列。
+
+**风险 & 回滚**：
+- 风险：早期市场全无成交时，`trade_count=0` 全部相等，此时 tie-breaker 让 `last_trade_at=null` 的也全相等 → 回退到原数组顺序（`created_at desc`），与旧行为一致，无回归。
+- 回滚：`git revert HEAD`。
+
+**验证**：
+- `npm run type-check` ✅ 无错
+- `npx eslint src/pages/home/Home.vue`：1 个既有 `vue/multi-word-component-names` 问题（`Home` 单词），非本轮引入
+- **UI 未实测**；验证路径：
+  1. 首页"热门市场"区 4 张卡按 `成交` 字段从大到小排列
+  2. 打开两个市场各做一笔 buy，刷新首页后"热门市场"会把这两个顶到前面
+  3. 并列时最近成交的市场排前
+
+**下一轮候选**：
+- 首页 `Movers` 单项加点击跳转到该市场交易页
+- Admin `MarketManage` 的创建/结算表单 polish
+- 后端：Transaction 接口加分页（现在硬编码 `limit 50`，评审 LOW #13）
+- 抽通用 `useDebounce(callback, ms)` composable（如本轮/下轮再出现一次防抖需求才做）
