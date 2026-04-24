@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useUserStore } from '@/stores/user'
 import { NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 
@@ -14,6 +15,9 @@ const emit = defineEmits<{ toggleCollapse: [] }>()
 
 const router = useRouter()
 const authStore = useAuthStore()
+const userStore = useUserStore()
+
+const debtAmount = computed(() => Number(userStore.summary?.debt ?? 0))
 
 const userOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
@@ -69,6 +73,14 @@ const handleUserMenuClick = (key: string) => {
       </template>
 
       <template v-else>
+        <router-link
+          v-if="debtAmount > 0"
+          to="/loan"
+          class="debt-badge"
+          :title="`当前负债 ${userStore.summary?.debt}`"
+        >
+          负债 {{ userStore.summary?.debt }}
+        </router-link>
         <NDropdown :options="userOptions" @select="handleUserMenuClick" placement="bottom-end">
           <div class="user-chip">
             <div class="user-avatar">
@@ -214,9 +226,28 @@ const handleUserMenuClick = (key: string) => {
   white-space: nowrap;
 }
 
+/* 负债徽章 */
+.debt-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 2px solid #d14;
+  color: #d14;
+  background: #000;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+  transition: background 0.15s, color 0.15s;
+}
+.debt-badge:hover {
+  background: #d14;
+  color: #fff;
+}
+
 @media (max-width: 480px) {
   .app-header { padding: 0 12px; }
   .brand-name { display: none; }
   .user-name { display: none; }
+  .debt-badge { font-size: 11px; padding: 2px 6px; }
 }
 </style>

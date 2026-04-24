@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest
 import uuid
 from decimal import Decimal
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.core.database import engine, async_session_maker
 from app.core.users import create_access_token, create_refresh_token
@@ -28,7 +28,7 @@ async def setup_db():
 async def client():
     from asgi_lifespan import LifespanManager
     async with LifespanManager(app):
-        async with AsyncClient(base_url="http://localhost:8004", app=app) as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8004") as ac:
             yield ac
 
 
