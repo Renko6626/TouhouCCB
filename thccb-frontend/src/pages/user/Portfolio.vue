@@ -177,6 +177,16 @@ const holdingsByMarketArray = computed(() => {
             {{ pnlSign(userStore.summary.unrealized_pnl) }}¥{{ userStore.summary.unrealized_pnl.toFixed(2) }}
           </span>
         </div>
+        <div
+          v-if="Number(userStore.summary.debt) > 0"
+          class="asset-card asset-card-debt"
+          @click="router.push('/loan')"
+          role="link"
+          title="点击跳转借款页"
+        >
+          <span class="asset-label">负债</span>
+          <span class="asset-value asset-value-debt">¥{{ Number(userStore.summary.debt).toFixed(2) }}</span>
+        </div>
         <div class="asset-card asset-card-highlight asset-card-wide">
           <span class="asset-label">净资产</span>
           <span class="asset-value asset-value-net">¥{{ userStore.summary.net_worth.toFixed(2) }}</span>
@@ -313,6 +323,17 @@ const holdingsByMarketArray = computed(() => {
 
 .asset-value-net {
   color: #fff;
+}
+
+.asset-card-debt {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.asset-card-debt:hover {
+  background: #fff0f0;
+}
+.asset-value-debt {
+  color: #d14;
 }
 
 /* 称号栏 */

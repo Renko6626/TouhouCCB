@@ -140,6 +140,10 @@ const actionHint = computed<string>(() => {
           {{ summaryPnlSign }}¥{{ Math.abs(userStore.summary.unrealized_pnl).toFixed(2) }}
         </span>
       </div>
+      <div v-if="Number(userStore.summary.debt) > 0" class="asset-item">
+        <span class="asset-label">负债</span>
+        <span class="asset-value asset-value--debt">¥{{ Number(userStore.summary.debt).toFixed(2) }}</span>
+      </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
         <span class="asset-value asset-value--highlight">¥{{ userStore.summary.net_worth.toFixed(2) }}</span>
@@ -329,6 +333,10 @@ const actionHint = computed<string>(() => {
 
 .asset-value--highlight {
   color: #aaffaa;
+}
+
+.asset-value--debt {
+  color: #ff7a7a;
 }
 
 .asset-pnl-up    { color: var(--color-up-strong); }

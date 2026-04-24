@@ -104,6 +104,10 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
               <span class="pnl-stat-label">持仓市值</span>
               <span class="pnl-stat-value">¥{{ userStore.summary!.holdings_value.toFixed(2) }}</span>
             </div>
+            <div v-if="Number(userStore.summary!.debt) > 0" class="pnl-stat pnl-stat-debt">
+              <span class="pnl-stat-label">负债</span>
+              <span class="pnl-stat-value pnl-stat-debt-value">¥{{ Number(userStore.summary!.debt).toFixed(2) }}</span>
+            </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">净资产</span>
               <span class="pnl-stat-value">¥{{ userStore.summary!.net_worth.toFixed(2) }}</span>
@@ -429,6 +433,10 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: #000;
+}
+
+.pnl-stat-debt-value {
+  color: #d14;
 }
 
 .pnl-note {
