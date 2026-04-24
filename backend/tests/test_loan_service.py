@@ -137,11 +137,13 @@ async def test_decrease_debt_overpay_clamps_and_clears_timestamp():
     async with async_session_maker() as s:
         u, eff = await decrease_debt(s, uid, Decimal("9999"), consume_cash=True, daily_rate=Decimal("0.01"))
         await s.commit()
-    assert eff == Decimal("100.000000") or eff == Decimal("100")
+    # effective 约等于 debt（微秒级 accrue 可能让它略大于 100）
+    assert abs(eff - Decimal("100")) < Decimal("0.001")
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
     assert u2.debt == Decimal("0.000000") or u2.debt == Decimal("0")
-    assert u2.cash == Decimal("900.000000")
+    # cash = 1000 - effective
+    assert abs(u2.cash - Decimal("900")) < Decimal("0.001")
     assert u2.debt_last_accrued_at is None
 
 
