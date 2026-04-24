@@ -110,6 +110,16 @@ export const routes: RouteRecordRaw[] = [
           requiresAdmin: true
         }
       },
+      {
+        path: 'admin/site-config',
+        name: 'admin-site-config',
+        component: () => import('@/pages/admin/SiteConfig.vue'),
+        meta: {
+          title: '站点配置',
+          requiresAuth: true,
+          requiresAdmin: true,
+        },
+      },
 
       // 404 也走主布局，方便用户从导航返回
       {
