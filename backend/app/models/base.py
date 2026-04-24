@@ -45,6 +45,12 @@ class User(SQLModel, table=True):
     cash: Decimal = Field(default=Decimal("100"), sa_type=Numeric(16, 6))
     debt: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
 
+    # LoanV1 — 上次利息结算时间；debt=0 时为 None
+    debt_last_accrued_at: Optional[datetime] = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+    )
+
     # 关系映射
     positions: List["Position"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
     transactions: List["Transaction"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
@@ -162,3 +168,20 @@ class Transaction(SQLModel, table=True):
 
     user: Optional["User"] = Relationship(back_populates="transactions")
     outcome: Optional["Outcome"] = Relationship(back_populates="transactions")
+
+
+class SiteConfig(SQLModel, table=True):
+    """站点 key-value 配置表，超管可运行时修改。"""
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_siteconfig_key"),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(index=True, nullable=False)
+    value: str = Field(nullable=False)
+    value_type: str = Field(nullable=False)  # "decimal" | "int" | "bool"
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+    )
+    updated_by: Optional[int] = Field(default=None, foreign_key="user.id")
