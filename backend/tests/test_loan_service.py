@@ -156,7 +156,8 @@ async def test_decrease_debt_forgive_no_cash_change():
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
     assert u2.cash == Decimal("200.000000")
-    assert u2.debt == Decimal("60.000000")
+    # 微秒级 accrue 可能让 debt 略大于 60
+    assert abs(u2.debt - Decimal("60")) < Decimal("0.001")
 
 
 def test_compute_max_borrow_basic():

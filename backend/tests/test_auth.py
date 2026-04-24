@@ -65,7 +65,9 @@ async def test_get_me_with_valid_token(client, test_user):
 @pytest.mark.asyncio
 async def test_get_me_without_token(client):
     res = await client.get("/api/v1/auth/me")
-    assert res.status_code == 403  # HTTPBearer returns 403 when no token
+    # HTTPBearer 在缺 token 时返回的状态码随 FastAPI 版本微调（可能 401 或 403），
+    # 只要是 4xx 且 >= 401（未授权系）即可
+    assert res.status_code in (401, 403)
 
 
 @pytest.mark.asyncio

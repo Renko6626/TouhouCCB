@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制应用代码
 COPY app/ app/
+COPY scripts/ scripts/
 COPY run.py init_db.py ./
 
 # data/ 目录由 volume 挂载，这里只建骨架
