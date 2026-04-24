@@ -9,7 +9,7 @@ from sqlmodel import select
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, Position, Outcome, Market, MarketStatus
-from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse
+from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.lmsr import get_current_price
 
@@ -102,4 +102,35 @@ async def borrow(
         cash=u.cash,
         debt=u.debt,
         max_borrow=loan_service.compute_max_borrow(u, hv2, k),
+    )
+
+
+@router.post("/repay", response_model=LoanActionResponse)
+async def repay(
+    req: RepayRequest,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    rate = await site_config.get_decimal(db, "loan_daily_rate")
+    k = await site_config.get_decimal(db, "loan_leverage_k")
+    amount = Decimal(req.amount)
+    # effective 最多等于 debt，pre-check 用保守估算：min(amount, debt) <= cash
+    estimated_effective = min(amount, user.debt)
+    if estimated_effective > user.cash:
+        raise HTTPException(status_code=400, detail="还款额超过现金余额")
+
+    u, effective = await loan_service.decrease_debt(
+        db, user.id, amount, consume_cash=True, daily_rate=rate,
+    )
+    await db.commit()
+    await db.refresh(u)
+    logger.info(
+        "LOAN_REPAY user_id=%s requested=%s effective=%s new_cash=%s new_debt=%s",
+        user.id, amount, effective, u.cash, u.debt,
+    )
+    hv = await _holdings_value(db, u.id)
+    return LoanActionResponse(
+        cash=u.cash,
+        debt=u.debt,
+        max_borrow=loan_service.compute_max_borrow(u, hv, k),
     )
