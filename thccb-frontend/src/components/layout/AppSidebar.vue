@@ -17,10 +17,12 @@ const navItems = [
   { label: '排行榜', path: '/market/leaderboard', icon: 'i-mdi-trophy-outline', activeIcon: 'i-mdi-trophy' },
   { label: '我的资产', path: '/user/portfolio', icon: 'i-mdi-wallet-outline', activeIcon: 'i-mdi-wallet' },
   { label: '交易记录', path: '/user/transactions', icon: 'i-mdi-history', activeIcon: 'i-mdi-history' },
+  { label: '借款', path: '/loan', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
 ]
 
 const adminItems = [
   { label: '管理后台', path: '/admin/market-manage', icon: 'i-mdi-cog-outline' },
+  { label: '站点配置', path: '/admin/site-config', icon: 'i-mdi-tune' },
 ]
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
