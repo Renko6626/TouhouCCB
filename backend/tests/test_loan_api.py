@@ -5,7 +5,7 @@ import pytest, pytest_asyncio, uuid
 from decimal import Decimal
 from httpx import AsyncClient, ASGITransport
 from asgi_lifespan import LifespanManager
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, select
 from app.main import app
 from app.core.database import engine, async_session_maker
 from app.core.users import create_access_token
@@ -62,3 +62,43 @@ async def test_quota_returns_fields(client):
     assert Decimal(body["debt"]) == Decimal("0")
     assert Decimal(body["max_borrow"]) >= Decimal("500")
     assert Decimal(body["daily_rate"]) == Decimal("0.01")
+
+
+@pytest.mark.asyncio
+async def test_borrow_success_updates_cash_and_debt(client):
+    uid, h = await _make_user(cash=Decimal("1000"))
+    r = await client.post("/api/v1/loan/borrow", json={"amount": "500"}, headers=h)
+    assert r.status_code == 200, r.text
+    async with async_session_maker() as s:
+        u = await s.get(User, uid)
+    assert u.cash == Decimal("1500.000000")
+    assert u.debt == Decimal("500.000000")
+    assert u.debt_last_accrued_at is not None
+
+
+@pytest.mark.asyncio
+async def test_borrow_exceeds_quota_400(client):
+    _, h = await _make_user(cash=Decimal("100"))
+    # k=1, net_worth=100, max_borrow=100；借 200 应拒
+    r = await client.post("/api/v1/loan/borrow", json={"amount": "200"}, headers=h)
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_borrow_when_disabled_403(client):
+    async with async_session_maker() as s:
+        async with s.begin():
+            result = await s.execute(select(SiteConfig).where(SiteConfig.key == "loan_enabled"))
+            row = result.scalar_one()
+            row.value = "false"
+            s.add(row)
+    _, h = await _make_user(cash=Decimal("1000"))
+    r = await client.post("/api/v1/loan/borrow", json={"amount": "100"}, headers=h)
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_borrow_nonpositive_422(client):
+    _, h = await _make_user(cash=Decimal("1000"))
+    r = await client.post("/api/v1/loan/borrow", json={"amount": "0"}, headers=h)
+    assert r.status_code == 422  # pydantic gt=0
