@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream
+from app.services.loan_sweep import start_scheduler, stop_scheduler
 
 from dotenv import load_dotenv
 
@@ -37,11 +38,13 @@ _LOG_SKIP_PREFIXES = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 建表 + 挂载 admin
+    # startup: 建表 + 挂载 admin + 启动 loan sweep
     await init_db()
     setup_admin(app, engine)
+    await start_scheduler()
     yield
-    # shutdown: 释放连接池，避免优雅停机时残留连接
+    # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
+    await stop_scheduler()
     await engine.dispose()
 
 
