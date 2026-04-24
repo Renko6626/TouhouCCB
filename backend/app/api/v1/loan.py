@@ -9,7 +9,7 @@ from sqlmodel import select
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, Position, Outcome, Market, MarketStatus
-from app.schemas.loan import LoanQuotaResponse
+from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse
 from app.services import site_config, loan_service
 from app.services.lmsr import get_current_price
 
@@ -62,4 +62,44 @@ async def get_quota(
         daily_rate=rate,
         max_borrow=max_borrow,
         last_accrued_at=user.debt_last_accrued_at,
+    )
+
+
+@router.post("/borrow", response_model=LoanActionResponse)
+async def borrow(
+    req: BorrowRequest,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    enabled = await site_config.get_bool(db, "loan_enabled")
+    if not enabled:
+        raise HTTPException(status_code=403, detail="借款功能已关闭")
+
+    k = await site_config.get_decimal(db, "loan_leverage_k")
+    rate = await site_config.get_decimal(db, "loan_daily_rate")
+    amount = Decimal(req.amount)
+
+    # 预检查 quota（锁内 increase_debt 会重算 debt，边界仍由 amount + 已有 debt 控制）
+    hv = await _holdings_value(db, user.id)
+    max_borrow = loan_service.compute_max_borrow(user, hv, k)
+    if amount > max_borrow:
+        raise HTTPException(
+            status_code=400,
+            detail=f"借款额超出额度（可借 {max_borrow}，申请 {amount}）",
+        )
+
+    u = await loan_service.increase_debt(
+        db, user.id, amount, grant_cash=True, daily_rate=rate,
+    )
+    await db.commit()
+    await db.refresh(u)
+    logger.info(
+        "LOAN_BORROW user_id=%s amount=%s new_cash=%s new_debt=%s",
+        user.id, amount, u.cash, u.debt,
+    )
+    hv2 = await _holdings_value(db, u.id)
+    return LoanActionResponse(
+        cash=u.cash,
+        debt=u.debt,
+        max_borrow=loan_service.compute_max_borrow(u, hv2, k),
     )
