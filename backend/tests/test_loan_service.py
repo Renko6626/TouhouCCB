@@ -125,8 +125,9 @@ async def test_decrease_debt_consume_cash_true_partial():
     assert eff == Decimal("30") or eff == Decimal("30.000000")
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
+    # cash 不受 accrue 影响，严格等；debt 可能因微秒级 accrue 略大于 70
     assert u2.cash == Decimal("170.000000")
-    assert u2.debt == Decimal("70.000000")
+    assert abs(u2.debt - Decimal("70")) < Decimal("0.001")
     assert u2.debt_last_accrued_at is not None  # 仍有 debt
 
 
