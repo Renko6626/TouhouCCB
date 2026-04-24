@@ -18,6 +18,10 @@ from app.models.base import User, Position, Transaction, Outcome, Market
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
+from app.services import site_config as _site_config, loan_service as _loan_service
+from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
+
+_loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
 logger = logging.getLogger(__name__)
 
@@ -277,3 +281,61 @@ async def list_users(
         }
         for u in users
     ]
+
+
+@router.post("/{user_id}/force-loan", summary="管理员强制放贷")
+async def force_loan(
+    user_id: int,
+    req: ForceLoanRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    enabled = await _site_config.get_bool(db, "loan_enabled")
+    if not enabled:
+        raise HTTPException(status_code=403, detail="借款功能已关闭")
+    rate = await _site_config.get_decimal(db, "loan_daily_rate")
+    target = await db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    u = await _loan_service.increase_debt(
+        db, user_id, Decimal(req.amount), grant_cash=True, daily_rate=rate,
+    )
+    await db.commit()
+    await db.refresh(u)
+    _loan_admin_logger.info(
+        "FORCE_LOAN admin_id=%s user_id=%s amount=%s reason=%s new_cash=%s new_debt=%s",
+        admin.id, user_id, req.amount, req.reason, u.cash, u.debt,
+    )
+    return {
+        "user_id": user_id,
+        "cash": float(u.cash.quantize(Decimal("0.01"))),
+        "debt": float(u.debt.quantize(Decimal("0.01"))),
+    }
+
+
+@router.post("/{user_id}/forgive-debt", summary="管理员免除债务")
+async def forgive_debt(
+    user_id: int,
+    req: ForgiveDebtRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    rate = await _site_config.get_decimal(db, "loan_daily_rate")
+    target = await db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    u, effective = await _loan_service.decrease_debt(
+        db, user_id, Decimal(req.amount), consume_cash=False, daily_rate=rate,
+    )
+    await db.commit()
+    await db.refresh(u)
+    _loan_admin_logger.info(
+        "FORGIVE_DEBT admin_id=%s user_id=%s requested=%s effective=%s reason=%s new_debt=%s",
+        admin.id, user_id, req.amount, effective, req.reason, u.debt,
+    )
+    return {
+        "user_id": user_id,
+        "cash": float(u.cash.quantize(Decimal("0.01"))),
+        "debt": float(u.debt.quantize(Decimal("0.01"))),
+        "effective": float(effective.quantize(Decimal("0.01"))),
+    }
