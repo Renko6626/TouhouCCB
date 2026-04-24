@@ -70,3 +70,105 @@ def test_accrue_negative_elapsed_noop():
     before = u.debt
     accrue_interest(u, Decimal("0.01"), now)
     assert u.debt == before
+
+
+from app.services.loan_service import increase_debt, decrease_debt, compute_max_borrow
+
+
+async def _create_user_in_db(**kwargs) -> int:
+    async with async_session_maker() as s:
+        async with s.begin():
+            u = _new_user_sync(**kwargs)
+            s.add(u)
+            await s.flush()
+            return u.id
+
+
+@pytest.mark.asyncio
+async def test_increase_debt_grant_cash_true():
+    uid = await _create_user_in_db(cash=Decimal("100"), debt=Decimal("0"))
+    async with async_session_maker() as s:
+        u = await increase_debt(s, uid, Decimal("50"), grant_cash=True, daily_rate=Decimal("0.01"))
+        await s.commit()
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.cash == Decimal("150.000000")
+    assert u2.debt == Decimal("50.000000")
+    assert u2.debt_last_accrued_at is not None
+
+
+@pytest.mark.asyncio
+async def test_increase_debt_accrues_existing_debt():
+    """已有债务时先 accrue 再加 amount。"""
+    now = datetime.now(timezone.utc)
+    uid = await _create_user_in_db(
+        cash=Decimal("0"),
+        debt=Decimal("1000"),
+        last_accrued=now - timedelta(days=1),
+    )
+    async with async_session_maker() as s:
+        await increase_debt(s, uid, Decimal("100"), grant_cash=True, daily_rate=Decimal("0.01"))
+        await s.commit()
+    async with async_session_maker() as s:
+        u = await s.get(User, uid)
+    # 1000 * 1.01 + 100 ≈ 1110
+    assert abs(u.debt - Decimal("1110")) < Decimal("0.1")
+    assert u.cash == Decimal("100.000000")
+
+
+@pytest.mark.asyncio
+async def test_decrease_debt_consume_cash_true_partial():
+    uid = await _create_user_in_db(cash=Decimal("200"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
+    async with async_session_maker() as s:
+        u, eff = await decrease_debt(s, uid, Decimal("30"), consume_cash=True, daily_rate=Decimal("0.01"))
+        await s.commit()
+    assert eff == Decimal("30") or eff == Decimal("30.000000")
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.cash == Decimal("170.000000")
+    assert u2.debt == Decimal("70.000000")
+    assert u2.debt_last_accrued_at is not None  # 仍有 debt
+
+
+@pytest.mark.asyncio
+async def test_decrease_debt_overpay_clamps_and_clears_timestamp():
+    uid = await _create_user_in_db(cash=Decimal("1000"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
+    async with async_session_maker() as s:
+        u, eff = await decrease_debt(s, uid, Decimal("9999"), consume_cash=True, daily_rate=Decimal("0.01"))
+        await s.commit()
+    assert eff == Decimal("100.000000") or eff == Decimal("100")
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.debt == Decimal("0.000000") or u2.debt == Decimal("0")
+    assert u2.cash == Decimal("900.000000")
+    assert u2.debt_last_accrued_at is None
+
+
+@pytest.mark.asyncio
+async def test_decrease_debt_forgive_no_cash_change():
+    uid = await _create_user_in_db(cash=Decimal("200"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
+    async with async_session_maker() as s:
+        u, eff = await decrease_debt(s, uid, Decimal("40"), consume_cash=False, daily_rate=Decimal("0.01"))
+        await s.commit()
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.cash == Decimal("200.000000")
+    assert u2.debt == Decimal("60.000000")
+
+
+def test_compute_max_borrow_basic():
+    u = _new_user_sync(cash=Decimal("100"), debt=Decimal("0"))
+    # net_worth = 100 + 50 = 150, k=1 → max=150
+    assert compute_max_borrow(u, holdings_value=Decimal("50"), k=Decimal("1")) == Decimal("150")
+
+
+def test_compute_max_borrow_with_existing_debt_returns_zero():
+    u = _new_user_sync(cash=Decimal("100"), debt=Decimal("80"))
+    # net_worth = 100 - 80 + 0 = 20, k=2 → k*nw=40, max=40-80=<0→0
+    assert compute_max_borrow(u, holdings_value=Decimal("0"), k=Decimal("2")) == Decimal("0")
+
+
+def test_compute_max_borrow_positive_headroom():
+    u = _new_user_sync(cash=Decimal("500"), debt=Decimal("100"))
+    # net_worth = 500-100+200 = 600, k=1 → 600-100=500
+    assert compute_max_borrow(u, holdings_value=Decimal("200"), k=Decimal("1")) == Decimal("500")
