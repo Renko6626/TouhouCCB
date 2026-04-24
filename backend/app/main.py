@@ -9,7 +9,7 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
-from app.api.v1 import auth, user, market, chart, stream
+from app.api.v1 import auth, user, market, chart, stream, loan
 from app.services.loan_sweep import start_scheduler, stop_scheduler
 
 from dotenv import load_dotenv
@@ -103,6 +103,7 @@ app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
+app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 
 
 @app.get("/")
