@@ -43,9 +43,11 @@ async def run():
         ))
 
         # 3. 默认配置
+        # updated_at 显式给 NOW()：SQLModel.create_all 建表时 NOT NULL 但没设 DB 默认，
+        # raw INSERT 必须自己提供 updated_at。
         for k, v, t in DEFAULT_CONFIGS:
             await conn.execute(
-                text("INSERT INTO siteconfig (key, value, value_type) VALUES (:k, :v, :t) ON CONFLICT (key) DO NOTHING"),
+                text("INSERT INTO siteconfig (key, value, value_type, updated_at) VALUES (:k, :v, :t, NOW()) ON CONFLICT (key) DO NOTHING"),
                 {"k": k, "v": v, "t": t},
             )
 

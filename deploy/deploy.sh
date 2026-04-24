@@ -12,7 +12,8 @@ PROJECT_ROOT="$(pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backups"
 HEALTH_URL="http://127.0.0.1:8004/api/v1/market/list"
 HEALTH_TIMEOUT=10
-HEALTH_RETRIES=6
+# 20×3s=60s 窗口：给冷启动期（init_db + auto_migrate + admin setup + APS）留余地
+HEALTH_RETRIES=20
 
 # ── 工具函数 ──
 

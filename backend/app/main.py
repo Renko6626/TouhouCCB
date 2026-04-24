@@ -11,6 +11,7 @@ from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
 from app.services.loan_sweep import start_scheduler, stop_scheduler
+from app.services.loan_migrate import auto_migrate
 
 from dotenv import load_dotenv
 
@@ -38,8 +39,9 @@ _LOG_SKIP_PREFIXES = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 建表 + 挂载 admin + 启动 loan sweep
+    # startup: 建表 → LoanV1 幂等补列/种默认配置 → 挂载 admin → 启动 loan sweep
     await init_db()
+    await auto_migrate()
     setup_admin(app, engine)
     await start_scheduler()
     yield
