@@ -48,6 +48,16 @@ export const routes: RouteRecordRaw[] = [
           requiresVerified: true
         }
       },
+      {
+        path: 'loan',
+        name: 'loan',
+        component: () => import('@/pages/loan/Loan.vue'),
+        meta: {
+          title: '借款',
+          requiresAuth: true,
+          requiresVerified: true,
+        },
+      },
 
       // 市场路由
       {
