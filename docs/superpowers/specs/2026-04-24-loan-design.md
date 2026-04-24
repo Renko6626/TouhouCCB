@@ -126,9 +126,58 @@ def _accrue(u: User, daily_rate: Decimal, now: datetime) -> None:
 
 所有会改 `cash` / `debt` 的路径（`buy` / `sell` / `borrow` / `repay` / 管理员 `adjust-cash` / 管理员 `force-loan`），在 `SELECT ... FOR UPDATE` 之后、业务逻辑之前先调一次 `_accrue(u, rate, now_utc())`。保证时点偏差 ≤ 一次交易的延迟。
 
+### 3.5 服务层抽象 `backend/app/services/loan_service.py`
+
+因玩家借款和管理员强制放贷共用同一套"锁行 → 结息 → 改字段"原子操作（repay 与 forgive-debt 同理），把业务核心抽成独立服务模块，API handler 退化为薄封装（鉴权 / 限速 / 参数校验 / `loan_enabled` 门禁 / quota 校验 / 日志 / 调用 service）。
+
+暴露的函数：
+
+```python
+def accrue_interest(user: User, rate: Decimal, now: datetime) -> None:
+    """就地把未结利息折进 user.debt，推进 user.debt_last_accrued_at。
+    debt==0 或 last_accrued_at is None 时是 no-op。
+    调用方负责持有该 user 行的 FOR UPDATE 锁。"""
+
+async def increase_debt(
+    session: AsyncSession,
+    user_id: int,
+    amount: Decimal,
+    *,
+    grant_cash: bool,
+) -> User:
+    """SELECT FOR UPDATE user -> accrue -> debt += amount
+    grant_cash=True 时同时 cash += amount（玩家 borrow、管理员 force-loan）。
+    调用方负责 commit。"""
+
+async def decrease_debt(
+    session: AsyncSession,
+    user_id: int,
+    amount: Decimal,
+    *,
+    consume_cash: bool,
+) -> tuple[User, Decimal]:
+    """SELECT FOR UPDATE user -> accrue -> effective = min(amount, debt)
+    -> debt -= effective；consume_cash=True 时 cash -= effective（玩家 repay）；
+    consume_cash=False 时 cash 不变（管理员 forgive-debt）。
+    debt 归零时清空 last_accrued_at。返回 (user, effective_amount)。"""
+
+def compute_max_borrow(user: User, holdings_value: Decimal, k: Decimal) -> Decimal:
+    """max(0, k × (cash - debt + holdings_value) - debt)"""
+```
+
+**依赖方向**：
+- `loan_sweep.py` → `loan_service.accrue_interest`
+- `market.py` 的 `buy` / `sell`（交易兜底）→ `loan_service.accrue_interest`
+- `api/v1/loan.py` / `admin.py` 的所有 loan handler → `loan_service.*`
+- `loan_service` 不依赖任何 API 或 sweep 模块（单向依赖）
+
+**测试好处**：service 函数可直接用 AsyncSession 做单测，不用拉 TestClient；API 层只需测"是否正确调用了 service"。
+
 ---
 
 ## 4. API
+
+> 所有 API handler 均为 `loan_service.*` 的薄封装，仅承担鉴权 / 限速 / 参数校验 / `loan_enabled` 门禁 / quota 校验 / 日志输出。业务核心在服务层。
 
 ### 4.1 玩家接口（限速 5r/s，沿用 `/market/*` 中间件）
 
