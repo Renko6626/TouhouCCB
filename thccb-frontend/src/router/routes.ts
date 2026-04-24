@@ -48,6 +48,16 @@ export const routes: RouteRecordRaw[] = [
           requiresVerified: true
         }
       },
+      {
+        path: 'loan',
+        name: 'loan',
+        component: () => import('@/pages/loan/Loan.vue'),
+        meta: {
+          title: '借款',
+          requiresAuth: true,
+          requiresVerified: true,
+        },
+      },
 
       // 市场路由
       {
@@ -99,6 +109,16 @@ export const routes: RouteRecordRaw[] = [
           requiresAuth: true,
           requiresAdmin: true
         }
+      },
+      {
+        path: 'admin/site-config',
+        name: 'admin-site-config',
+        component: () => import('@/pages/admin/SiteConfig.vue'),
+        meta: {
+          title: '站点配置',
+          requiresAuth: true,
+          requiresAdmin: true,
+        },
       },
 
       // 404 也走主布局，方便用户从导航返回

@@ -9,7 +9,8 @@ from sqlalchemy import text
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
-from app.api.v1 import auth, user, market, chart, stream
+from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
+from app.services.loan_sweep import start_scheduler, stop_scheduler
 
 from dotenv import load_dotenv
 
@@ -37,11 +38,13 @@ _LOG_SKIP_PREFIXES = (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 建表 + 挂载 admin
+    # startup: 建表 + 挂载 admin + 启动 loan sweep
     await init_db()
     setup_admin(app, engine)
+    await start_scheduler()
     yield
-    # shutdown: 释放连接池，避免优雅停机时残留连接
+    # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
+    await stop_scheduler()
     await engine.dispose()
 
 
@@ -100,6 +103,8 @@ app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
+app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
+app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
 
 
 @app.get("/")

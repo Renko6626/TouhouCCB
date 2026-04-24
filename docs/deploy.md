@@ -682,3 +682,51 @@ TouhouCCB/
 └── docs/
     └── deploy.md                # 本文档
 ```
+
+---
+
+## 十、LoanV1 上线步骤（2026-04-24）
+
+**前提**：已合并分支 `ralph/2026-04-24-loan-spec`（或其后续 impl 分支）到 main。
+
+### 1. 停服或低流量窗口，运行幂等迁移脚本
+
+脚本会：
+- 给 `"user"` 表加 `debt_last_accrued_at` 列（nullable）
+- 创建 `siteconfig` 表 + 唯一索引
+- 插入 4 条默认配置（`loan_enabled=true` / `loan_leverage_k=1.0` / `loan_daily_rate=0.01` / `loan_sweep_interval_sec=60`）
+- 兜底把现有 `debt > 0` 但 `last_accrued_at` 为空的用户标为 `NOW()`
+
+全部操作幂等，可安全重跑。
+
+```bash
+# 在服务器上，进入 backend 容器（或本地 venv）
+docker compose exec backend python -m scripts.migrate_loan_v1
+# 期望输出：migrate_loan_v1: done
+```
+
+### 2. 重启后端容器以注册 APS sweep
+
+```bash
+docker compose restart backend
+```
+
+启动日志应出现 `loan sweep started interval=60s`（或当前配置值）。
+
+### 3. 校验
+
+```bash
+# 普通用户
+curl -H "Authorization: Bearer <token>" https://.../api/v1/loan/quota
+# 应返回 {"enabled": true, "cash": ..., "debt": ..., "max_borrow": ..., ...}
+
+# 超管
+curl -H "Authorization: Bearer <admin_token>" https://.../api/v1/admin/site-config
+# 应返回 4 条 loan_* 配置
+```
+
+### 4. 回滚
+
+- **代码层**：`git revert` 对应 merge commit；重部署
+- **数据层**：迁移脚本加的列/表**无需回滚**——空 `debt_last_accrued_at` 列无害；`siteconfig` 表闲置；现存 `debt` 字段读写路径在旧代码里已存在（`cash - debt`）
+- **风险**：若上线后发现利率误配，`PUT /admin/site-config/loan_daily_rate` 即可热修；不用重启
