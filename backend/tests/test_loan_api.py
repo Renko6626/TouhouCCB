@@ -102,3 +102,48 @@ async def test_borrow_nonpositive_422(client):
     _, h = await _make_user(cash=Decimal("1000"))
     r = await client.post("/api/v1/loan/borrow", json={"amount": "0"}, headers=h)
     assert r.status_code == 422  # pydantic gt=0
+
+
+from datetime import datetime, timezone
+
+
+@pytest.mark.asyncio
+async def test_repay_partial(client):
+    uid, h = await _make_user(cash=Decimal("1000"), debt=Decimal("200"))
+    async with async_session_maker() as s:
+        async with s.begin():
+            u = await s.get(User, uid)
+            u.debt_last_accrued_at = datetime.now(timezone.utc)
+            s.add(u)
+    r = await client.post("/api/v1/loan/repay", json={"amount": "50"}, headers=h)
+    assert r.status_code == 200, r.text
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.cash == Decimal("950.000000")
+    # 允许微秒级 accrue 微增
+    assert abs(u2.debt - Decimal("150")) < Decimal("0.01")
+
+
+@pytest.mark.asyncio
+async def test_repay_overpay_clamps_to_debt(client):
+    uid, h = await _make_user(cash=Decimal("1000"), debt=Decimal("50"))
+    async with async_session_maker() as s:
+        async with s.begin():
+            u = await s.get(User, uid)
+            u.debt_last_accrued_at = datetime.now(timezone.utc)
+            s.add(u)
+    r = await client.post("/api/v1/loan/repay", json={"amount": "9999"}, headers=h)
+    assert r.status_code == 200
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    assert u2.debt == Decimal("0") or u2.debt == Decimal("0.000000")
+    # cash = 1000 - effective（effective 约等于 50，允许微增）
+    assert abs(u2.cash - Decimal("950")) < Decimal("0.01")
+    assert u2.debt_last_accrued_at is None
+
+
+@pytest.mark.asyncio
+async def test_repay_exceeds_cash_400(client):
+    _, h = await _make_user(cash=Decimal("30"), debt=Decimal("200"))
+    r = await client.post("/api/v1/loan/repay", json={"amount": "100"}, headers=h)
+    assert r.status_code == 400
