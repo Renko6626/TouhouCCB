@@ -142,15 +142,5 @@ textarea {
   background: #fff; padding: 8px; max-height: 240px; overflow: auto; font-size: 12px;
   word-break: break-all; white-space: pre-wrap;
 }
-.btn-primary, .btn-secondary {
-  border: 2px solid #000; padding: 8px 20px; cursor: pointer;
-  font-weight: 600; font-family: inherit;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-.btn-primary { background: #000; color: #fff; box-shadow: 4px 4px 0 #444; }
-.btn-primary:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #444; }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-.btn-secondary { background: #fff; color: #000; box-shadow: 2px 2px 0 #000; }
-.btn-secondary:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000; }
 .error { color: #dc2626; margin-top: 12px; }
 </style>

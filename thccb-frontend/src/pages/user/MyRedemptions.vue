@@ -69,7 +69,7 @@ onMounted(load)
 
         <div v-if="expanded.get(item.code_id)" class="row-detail">
           <div class="code-box">{{ expanded.get(item.code_id)!.code_string }}</div>
-          <button class="btn" @click="copyCode(expanded.get(item.code_id)!.code_string)">
+          <button class="btn-secondary text-[13px] px-4 py-1 mr-2 mb-2" @click="copyCode(expanded.get(item.code_id)!.code_string)">
             复制码
           </button>
           <a
@@ -77,11 +77,11 @@ onMounted(load)
             :href="item.partner_website_url"
             target="_blank"
             rel="noopener"
-            class="btn"
+            class="btn-secondary text-[13px] px-4 py-1 mr-2 mb-2"
           >
             前往 {{ item.partner_name }} →
           </a>
-          <button class="btn" @click="toggleUsed(item)">
+          <button class="btn-secondary text-[13px] px-4 py-1 mr-2 mb-2" @click="toggleUsed(item)">
             {{ item.marked_used_by_user_at ? '取消已用标记' : '标记为已使用' }}
           </button>
           <pre class="description">{{ expanded.get(item.code_id)!.description }}</pre>
@@ -118,17 +118,6 @@ onMounted(load)
 .code-box {
   font-family: monospace; font-size: 16px; padding: 12px; border: 2px dashed #000;
   margin-bottom: 12px; word-break: break-all; background: #fff;
-}
-.btn {
-  background: #fff; color: #000; border: 2px solid #000; padding: 6px 16px;
-  cursor: pointer; font-size: 13px; margin-right: 8px; text-decoration: none;
-  display: inline-block; font-family: inherit;
-  box-shadow: 2px 2px 0 #000;
-  transition: transform 0.1s, box-shadow 0.1s, background 0.1s, color 0.1s;
-}
-.btn:hover {
-  background: #000; color: #fff;
-  transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000;
 }
 .description {
   white-space: pre-wrap; font-family: inherit;
