@@ -109,8 +109,9 @@ app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
 
-from app.api.v1 import redemption as redemption_api
+from app.api.v1 import redemption as redemption_api, admin_redemption as admin_redemption_api
 app.include_router(redemption_api.router, prefix="/api/v1/redemption", tags=["Redemption"])
+app.include_router(admin_redemption_api.router, prefix="/api/v1/admin/redemption", tags=["AdminRedemption"])
 
 
 @app.get("/")
