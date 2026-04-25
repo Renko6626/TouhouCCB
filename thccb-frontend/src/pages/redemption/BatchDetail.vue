@@ -61,11 +61,13 @@ onMounted(load)
       <h2>购买成功</h2>
       <p class="hint">请复制下面的码，前往合作方站点核销。本码在「我的兑换」中可随时查看。</p>
       <div class="code-box">{{ result.code_string }}</div>
-      <button class="btn-primary" @click="copyCode">复制</button>
-      <a v-if="result.partner_website_url" :href="result.partner_website_url" target="_blank" rel="noopener" class="btn-secondary">
-        前往 {{ result.partner_name }} →
-      </a>
-      <button class="btn-secondary" @click="router.push('/my/redemptions')">我的兑换</button>
+      <div class="action-row">
+        <button class="btn-primary" @click="copyCode">复制</button>
+        <a v-if="result.partner_website_url" :href="result.partner_website_url" target="_blank" rel="noopener" class="btn-secondary">
+          前往 {{ result.partner_name }} →
+        </a>
+        <button class="btn-secondary" @click="router.push('/my/redemptions')">我的兑换</button>
+      </div>
     </section>
 
     <!-- 详情 -->
@@ -84,7 +86,7 @@ onMounted(load)
 
     <!-- 二次确认弹窗 -->
     <div v-if="showConfirm" class="modal-bg" @click.self="showConfirm = false">
-      <div class="modal">
+      <div class="modal-panel max-w-[480px]">
         <h3>确认购买</h3>
         <p>将扣除 <b>{{ batch?.unit_price }}</b> 资金购买「{{ batch?.name }}」。</p>
         <p class="warning">⚠ 码一旦显示视同交付，<b>不可退款</b>。请确认。</p>
@@ -119,41 +121,13 @@ onMounted(load)
   padding: 12px; background: #f5f5f5; border: 1px solid #ddd;
   margin: 12px 0;
 }
-.btn-primary {
-  background: #000; color: #fff; border: 2px solid #000; padding: 10px 24px;
-  cursor: pointer; font-weight: 600; margin-right: 8px; font-family: inherit;
-  box-shadow: 4px 4px 0 #444;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-.btn-primary:hover:not(:disabled) {
-  transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #444;
-}
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-.btn-secondary {
-  background: #fff; color: #000; border: 2px solid #000; padding: 10px 24px;
-  cursor: pointer; font-weight: 600; margin-right: 8px; text-decoration: none;
-  display: inline-block; font-family: inherit;
-  box-shadow: 2px 2px 0 #000;
-  transition: transform 0.1s, box-shadow 0.1s;
-}
-.btn-secondary:hover {
-  transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000;
-}
 .code-box {
   font-family: monospace; font-size: 18px; padding: 16px; border: 2px dashed #000;
   margin: 16px 0; background: #fafafa; word-break: break-all;
 }
 .hint { color: #666; font-size: 13px; margin: 8px 0; }
 .warning { color: #dc2626; font-size: 13px; margin: 8px 0; }
-.modal-bg {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center; z-index: 1000;
-  padding: 16px;
-}
-.modal {
-  background: #fff; border: 3px solid #000; padding: 24px;
-  max-width: 480px; width: 100%; box-shadow: 6px 6px 0 #000;
-}
-.modal h3 { font-size: 18px; margin-bottom: 12px; font-weight: 700; }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
+.modal-panel h3 { font-size: 18px; margin-bottom: 12px; font-weight: 700; }
+.action-row { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>
