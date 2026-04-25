@@ -165,3 +165,67 @@ async def test_purchase_concurrent_only_one_wins(setup_db):
     assert len(oks) == 1
     assert len(errs) == 1
     assert errs[0][1] == "SOLD_OUT"
+
+
+from app.services.redemption import (
+    count_available_for_batch,
+    list_active_batches_with_stock,
+    import_codes_dry_run,
+    import_codes_commit,
+)
+
+
+@pytest.mark.asyncio
+async def test_count_available(setup_db):
+    bid = await _seed_batch(Decimal("10"), ["A", "B", "C"])
+    async with async_session_maker() as s:
+        assert await count_available_for_batch(s, bid) == 3
+
+
+@pytest.mark.asyncio
+async def test_list_active_batches_filters_inactive_partner(setup_db):
+    async with async_session_maker() as s:
+        p = RedemptionPartner(name="P", is_active=False)
+        s.add(p); await s.commit(); await s.refresh(p)
+        b = RedemptionBatch(
+            partner_id=p.id, name="B", unit_price=Decimal("10"),
+            status=BatchStatus.ACTIVE,
+        )
+        s.add(b); await s.commit(); await s.refresh(b)
+        s.add(RedemptionCode(batch_id=b.id, code_string="X"))
+        await s.commit()
+
+    async with async_session_maker() as s:
+        rows = await list_active_batches_with_stock(s)
+        assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_list_active_batches_filters_zero_stock(setup_db):
+    """库存为 0 的 active 批次也被过滤掉。"""
+    bid = await _seed_batch(Decimal("10"), [])
+    async with async_session_maker() as s:
+        rows = await list_active_batches_with_stock(s)
+        assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_import_dry_run_dedupes_against_existing(setup_db):
+    bid = await _seed_batch(Decimal("10"), ["EXISTING"])
+    async with async_session_maker() as s:
+        new, dup, invalid = await import_codes_dry_run(
+            s, bid, "EXISTING\nNEW1\nNEW2\n",
+        )
+        assert new == ["NEW1", "NEW2"]
+        assert dup == ["EXISTING"]
+        assert invalid == []
+
+
+@pytest.mark.asyncio
+async def test_import_commit_writes_only_new(setup_db):
+    bid = await _seed_batch(Decimal("10"), [])
+    async with async_session_maker() as s:
+        result = await import_codes_commit(s, bid, "A\nB\nA\n")
+        await s.commit()
+        assert result["inserted"] == 2
+        assert await count_available_for_batch(s, bid) == 2
