@@ -109,6 +109,9 @@ app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
 
+from app.api.v1 import redemption as redemption_api
+app.include_router(redemption_api.router, prefix="/api/v1/redemption", tags=["Redemption"])
+
 
 @app.get("/")
 async def root():
