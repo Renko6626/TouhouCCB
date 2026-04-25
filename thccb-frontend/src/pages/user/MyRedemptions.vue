@@ -96,7 +96,10 @@ onMounted(load)
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
 .loading, .empty { color: #999; padding: 32px; text-align: center; }
 .list { list-style: none; padding: 0; }
-.row { border: 2px solid #000; margin-bottom: 8px; background: #fff; }
+.row {
+  border: 2px solid #000; margin-bottom: 12px; background: #fff;
+  box-shadow: 4px 4px 0 #000;
+}
 .row.used { opacity: 0.6; }
 .row-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -108,6 +111,7 @@ onMounted(load)
 .col-meta {
   display: flex; gap: 12px; font-size: 12px; color: #555;
   flex-wrap: wrap; justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
 }
 .status { font-weight: 700; color: #000; }
 .row-detail { padding: 16px; border-top: 1px dashed #ccc; background: #fafafa; }
@@ -119,8 +123,13 @@ onMounted(load)
   background: #fff; color: #000; border: 2px solid #000; padding: 6px 16px;
   cursor: pointer; font-size: 13px; margin-right: 8px; text-decoration: none;
   display: inline-block; font-family: inherit;
+  box-shadow: 2px 2px 0 #000;
+  transition: transform 0.1s, box-shadow 0.1s, background 0.1s, color 0.1s;
 }
-.btn:hover { background: #000; color: #fff; }
+.btn:hover {
+  background: #000; color: #fff;
+  transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000;
+}
 .description {
   white-space: pre-wrap; font-family: inherit;
   margin-top: 12px; font-size: 13px; color: #555;

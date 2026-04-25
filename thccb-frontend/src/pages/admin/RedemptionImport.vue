@@ -123,10 +123,13 @@ async function doCommit() {
 .page { padding: 16px; max-width: 900px; margin: 0 auto; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
 .back { background: none; border: none; cursor: pointer; padding: 8px 0; font-family: inherit; }
-.card { border: 2px solid #000; padding: 16px; margin-bottom: 16px; background: #fff; }
-.card h2 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.card {
+  border: 2px solid #000; padding: 16px; margin-bottom: 16px; background: #fff;
+  box-shadow: 4px 4px 0 #000;
+}
+.card h2 { font-size: 16px; font-weight: 700; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
 .hint { color: #666; font-size: 12px; margin: 8px 0; }
-.success { border-color: #060; background: #efffef; }
+.success { border-color: #16a34a; background: #f0fdf4; box-shadow: 4px 4px 0 #16a34a; }
 textarea {
   width: 100%; padding: 8px; border: 1px solid #000;
   font-family: monospace;
@@ -134,16 +137,20 @@ textarea {
 .preview {
   margin-top: 16px; padding: 12px; background: #f5f5f5; border: 1px dashed #999;
 }
-.preview ul { margin: 8px 0 12px 20px; }
+.preview ul { margin: 8px 0 12px 20px; font-variant-numeric: tabular-nums; }
 .preview pre {
   background: #fff; padding: 8px; max-height: 240px; overflow: auto; font-size: 12px;
+  word-break: break-all; white-space: pre-wrap;
 }
 .btn-primary, .btn-secondary {
   border: 2px solid #000; padding: 8px 20px; cursor: pointer;
   font-weight: 600; font-family: inherit;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
-.btn-primary { background: #000; color: #fff; }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-secondary { background: #fff; color: #000; }
-.error { color: #c00; margin-top: 12px; }
+.btn-primary { background: #000; color: #fff; box-shadow: 4px 4px 0 #444; }
+.btn-primary:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #444; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.btn-secondary { background: #fff; color: #000; box-shadow: 2px 2px 0 #000; }
+.btn-secondary:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000; }
+.error { color: #dc2626; margin-top: 12px; }
 </style>
