@@ -69,7 +69,8 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
 .page-hint { color: #666; font-size: 13px; margin-bottom: 24px; }
 .loading, .empty { color: #999; padding: 32px; text-align: center; }
 .partner-section {
-  border: 2px solid #000; padding: 16px; margin-bottom: 16px; background: #fff;
+  border: 2px solid #000; padding: 16px; margin-bottom: 24px; background: #fff;
+  box-shadow: 6px 6px 0 #000;
 }
 .partner-header { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
 .partner-logo {
@@ -85,11 +86,16 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
 }
 .batch-card {
   border: 2px solid #000; background: #fff; padding: 12px;
-  text-align: left; cursor: pointer; transition: background 0.1s, color 0.1s;
-  font-family: inherit;
+  text-align: left; cursor: pointer; font-family: inherit;
+  box-shadow: 2px 2px 0 #000;
+  transition: background 0.1s, color 0.1s, transform 0.1s, box-shadow 0.1s;
 }
-.batch-card:hover { background: #000; color: #fff; }
+.batch-card:hover {
+  background: #000; color: #fff;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #000;
+}
 .batch-name { font-weight: 600; margin-bottom: 6px; }
-.batch-price { font-size: 18px; font-weight: 700; }
-.batch-stock { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+.batch-price { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.batch-stock { font-size: 12px; opacity: 0.7; margin-top: 4px; font-variant-numeric: tabular-nums; }
 </style>

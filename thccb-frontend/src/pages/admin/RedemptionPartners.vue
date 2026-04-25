@@ -65,6 +65,7 @@ onMounted(load)
     <h1 class="page-title">合作方管理</h1>
     <button class="btn-primary" @click="startCreate">+ 新增合作方</button>
 
+    <div class="table-wrap">
     <table class="table">
       <thead>
         <tr><th>ID</th><th>名称</th><th>网站</th><th>启用</th><th>操作</th></tr>
@@ -88,6 +89,7 @@ onMounted(load)
         </tr>
       </tbody>
     </table>
+    </div>
 
     <div v-if="editing" class="modal-bg" @click.self="editing = null">
       <div class="modal">
@@ -111,18 +113,19 @@ onMounted(load)
 <style scoped>
 .page { padding: 16px; max-width: 1100px; margin: 0 auto; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 16px; }
-.table {
-  width: 100%; border-collapse: collapse; margin-top: 16px;
-  background: #fff; border: 2px solid #000;
-}
-.table th, .table td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
-.table th { background: #000; color: #fff; }
+.table-wrap { margin-top: 16px; overflow-x: auto; border: 2px solid #000; box-shadow: 4px 4px 0 #000; background: #fff; }
+.table { width: 100%; border-collapse: collapse; background: #fff; }
+.table th, .table td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; white-space: nowrap; }
+.table th { background: #000; color: #fff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .btn-primary, .btn-secondary {
   border: 2px solid #000; padding: 8px 20px; cursor: pointer;
   font-weight: 600; font-family: inherit;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
-.btn-primary { background: #000; color: #fff; }
-.btn-secondary { background: #fff; color: #000; }
+.btn-primary { background: #000; color: #fff; box-shadow: 4px 4px 0 #444; }
+.btn-primary:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #444; }
+.btn-secondary { background: #fff; color: #000; box-shadow: 2px 2px 0 #000; }
+.btn-secondary:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000; }
 .btn-sm {
   background: #fff; border: 1px solid #000; padding: 4px 12px;
   margin-right: 4px; cursor: pointer; font-family: inherit;
@@ -131,8 +134,12 @@ onMounted(load)
 .modal-bg {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
   display: flex; align-items: center; justify-content: center; z-index: 1000;
+  padding: 16px;
 }
-.modal { background: #fff; border: 3px solid #000; padding: 24px; min-width: 480px; }
+.modal {
+  background: #fff; border: 3px solid #000; padding: 24px;
+  width: 100%; max-width: 520px; box-shadow: 6px 6px 0 #000;
+}
 .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
 .modal label { display: block; margin: 12px 0; font-size: 13px; }
 .modal input, .modal textarea {

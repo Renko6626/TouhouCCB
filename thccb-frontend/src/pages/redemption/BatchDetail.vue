@@ -104,10 +104,16 @@ onMounted(load)
 .page { padding: 16px; max-width: 720px; margin: 0 auto; }
 .back { background: none; border: none; cursor: pointer; padding: 8px 0; font-size: 13px; }
 .loading, .error { padding: 32px; text-align: center; }
-.error { color: #c00; }
-.detail-card, .result-card { border: 2px solid #000; padding: 24px; background: #fff; }
+.error { color: #dc2626; }
+.detail-card, .result-card {
+  border: 2px solid #000; padding: 24px; background: #fff;
+  box-shadow: 6px 6px 0 #000;
+}
 .detail-card h1, .result-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
-.meta { display: flex; gap: 16px; margin-bottom: 16px; font-size: 14px; flex-wrap: wrap; }
+.meta {
+  display: flex; gap: 16px; margin-bottom: 16px; font-size: 14px; flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
 .description {
   white-space: pre-wrap; font-family: inherit;
   padding: 12px; background: #f5f5f5; border: 1px solid #ddd;
@@ -116,24 +122,38 @@ onMounted(load)
 .btn-primary {
   background: #000; color: #fff; border: 2px solid #000; padding: 10px 24px;
   cursor: pointer; font-weight: 600; margin-right: 8px; font-family: inherit;
+  box-shadow: 4px 4px 0 #444;
+  transition: transform 0.1s, box-shadow 0.1s;
 }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) {
+  transform: translate(-1px, -1px); box-shadow: 5px 5px 0 #444;
+}
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 .btn-secondary {
   background: #fff; color: #000; border: 2px solid #000; padding: 10px 24px;
   cursor: pointer; font-weight: 600; margin-right: 8px; text-decoration: none;
   display: inline-block; font-family: inherit;
+  box-shadow: 2px 2px 0 #000;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.btn-secondary:hover {
+  transform: translate(-1px, -1px); box-shadow: 3px 3px 0 #000;
 }
 .code-box {
   font-family: monospace; font-size: 18px; padding: 16px; border: 2px dashed #000;
   margin: 16px 0; background: #fafafa; word-break: break-all;
 }
 .hint { color: #666; font-size: 13px; margin: 8px 0; }
-.warning { color: #c00; font-size: 13px; margin: 8px 0; }
+.warning { color: #dc2626; font-size: 13px; margin: 8px 0; }
 .modal-bg {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
   display: flex; align-items: center; justify-content: center; z-index: 1000;
+  padding: 16px;
 }
-.modal { background: #fff; border: 3px solid #000; padding: 24px; max-width: 480px; }
+.modal {
+  background: #fff; border: 3px solid #000; padding: 24px;
+  max-width: 480px; width: 100%; box-shadow: 6px 6px 0 #000;
+}
 .modal h3 { font-size: 18px; margin-bottom: 12px; font-weight: 700; }
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
 </style>
