@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
+from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
 from app.services.loan_sweep import start_scheduler, stop_scheduler
 from app.services.loan_migrate import auto_migrate
 
@@ -107,6 +108,10 @@ app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
+
+from app.api.v1 import redemption as redemption_api, admin_redemption as admin_redemption_api
+app.include_router(redemption_api.router, prefix="/api/v1/redemption", tags=["Redemption"])
+app.include_router(admin_redemption_api.router, prefix="/api/v1/admin/redemption", tags=["AdminRedemption"])
 
 
 @app.get("/")
