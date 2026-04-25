@@ -127,3 +127,70 @@ async def purchase_code(
         paid_amount=batch.unit_price,
         cash_after=user.cash,
     )
+
+
+# ========== 库存查询 / 列表 / CSV 导入 ==========
+from sqlalchemy import func
+
+
+async def count_available_for_batch(session: AsyncSession, batch_id: int) -> int:
+    stmt = select(func.count()).select_from(RedemptionCode).where(
+        RedemptionCode.batch_id == batch_id,
+        RedemptionCode.status == CodeStatus.AVAILABLE,
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def count_total_for_batch(session: AsyncSession, batch_id: int) -> int:
+    stmt = select(func.count()).select_from(RedemptionCode).where(
+        RedemptionCode.batch_id == batch_id,
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def list_active_batches_with_stock(session: AsyncSession):
+    """返回 [(batch, partner, available_count)]，仅 active 批次 + active 合作方 + 库存 > 0。"""
+    batches_stmt = select(RedemptionBatch).where(
+        RedemptionBatch.status == BatchStatus.ACTIVE,
+    )
+    batches = list((await session.execute(batches_stmt)).scalars().all())
+    result = []
+    for b in batches:
+        partner = await session.get(RedemptionPartner, b.partner_id)
+        if partner is None or not partner.is_active:
+            continue
+        avail = await count_available_for_batch(session, b.id)
+        if avail <= 0:
+            continue
+        result.append((b, partner, avail))
+    return result
+
+
+async def import_codes_dry_run(
+    session: AsyncSession, batch_id: int, csv_text: str,
+):
+    """预检：解析 + 与已有码比对。返回 (new, duplicate, invalid)。"""
+    valid, invalid = parse_csv_codes(csv_text)
+    if not valid:
+        return [], [], invalid
+    stmt = select(RedemptionCode.code_string).where(
+        RedemptionCode.code_string.in_(valid),
+    )
+    existing = set((await session.execute(stmt)).scalars().all())
+    new = [c for c in valid if c not in existing]
+    dup = [c for c in valid if c in existing]
+    return new, dup, invalid
+
+
+async def import_codes_commit(
+    session: AsyncSession, batch_id: int, csv_text: str,
+) -> dict:
+    """真正写入。重复/非法跳过。调用方负责 commit。"""
+    new, dup, invalid = await import_codes_dry_run(session, batch_id, csv_text)
+    for cs in new:
+        session.add(RedemptionCode(batch_id=batch_id, code_string=cs))
+    return {
+        "inserted": len(new),
+        "skipped_duplicate": len(dup),
+        "skipped_invalid": len(invalid),
+    }
