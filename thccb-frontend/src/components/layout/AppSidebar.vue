@@ -18,11 +18,15 @@ const navItems = [
   { label: '我的资产', path: '/user/portfolio', icon: 'i-mdi-wallet-outline', activeIcon: 'i-mdi-wallet' },
   { label: '交易记录', path: '/user/transactions', icon: 'i-mdi-history', activeIcon: 'i-mdi-history' },
   { label: '借款', path: '/loan', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
+  { label: '兑换中心', path: '/redemption', icon: 'i-mdi-gift-outline', activeIcon: 'i-mdi-gift' },
+  { label: '我的兑换', path: '/my/redemptions', icon: 'i-mdi-ticket-confirmation-outline', activeIcon: 'i-mdi-ticket-confirmation' },
 ]
 
 const adminItems = [
   { label: '管理后台', path: '/admin/market-manage', icon: 'i-mdi-cog-outline' },
   { label: '站点配置', path: '/admin/site-config', icon: 'i-mdi-tune' },
+  { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline' },
+  { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant' },
 ]
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')

@@ -59,6 +59,26 @@ export const routes: RouteRecordRaw[] = [
         },
       },
 
+      // 兑换中心
+      {
+        path: 'redemption',
+        name: 'redemption-list',
+        component: () => import('@/pages/redemption/RedemptionList.vue'),
+        meta: { title: '兑换中心', requiresAuth: true, requiresVerified: true },
+      },
+      {
+        path: 'redemption/batches/:id',
+        name: 'redemption-batch-detail',
+        component: () => import('@/pages/redemption/BatchDetail.vue'),
+        meta: { title: '批次详情', requiresAuth: true, requiresVerified: true },
+      },
+      {
+        path: 'my/redemptions',
+        name: 'my-redemptions',
+        component: () => import('@/pages/user/MyRedemptions.vue'),
+        meta: { title: '我的兑换', requiresAuth: true, requiresVerified: true },
+      },
+
       // 市场路由
       {
         path: 'market',
@@ -119,6 +139,24 @@ export const routes: RouteRecordRaw[] = [
           requiresAuth: true,
           requiresAdmin: true,
         },
+      },
+      {
+        path: 'admin/redemption/partners',
+        name: 'admin-redemption-partners',
+        component: () => import('@/pages/admin/RedemptionPartners.vue'),
+        meta: { title: '合作方管理', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/redemption/batches',
+        name: 'admin-redemption-batches',
+        component: () => import('@/pages/admin/RedemptionBatches.vue'),
+        meta: { title: '兑换批次', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/redemption/batches/:id/import',
+        name: 'admin-redemption-import',
+        component: () => import('@/pages/admin/RedemptionImport.vue'),
+        meta: { title: '导入兑换码', requiresAuth: true, requiresAdmin: true },
       },
 
       // 404 也走主布局，方便用户从导航返回
