@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
+from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
 from app.services.loan_sweep import start_scheduler, stop_scheduler
 from app.services.loan_migrate import auto_migrate
 
