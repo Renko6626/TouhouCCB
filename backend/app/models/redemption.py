@@ -55,7 +55,44 @@ class RedemptionBatch(SQLModel, table=True):
     created_by_admin_id: Optional[int] = Field(default=None, foreign_key="user.id")
 
 
+class RedemptionTransaction(SQLModel, table=True):
+    """购买兑换码的资金流水审计行。
+
+    每次成功购买写一行（在 purchase_code 同事务内），用于：
+    1. 用户「交易记录」页的对账（与 base.py 的 Transaction 互补——后者只
+       记录市场买卖；本表只记录兑换购买）
+    2. 历史审计：即使将来 code/batch/partner 被 archive 或删除，这一行
+       仍保留快照（partner_name_snapshot / batch_name_snapshot）
+
+    设计上不依赖 RedemptionCode 仍存在——FK 是 nullable 兜底。
+    """
+    __tablename__ = "redemption_transaction"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    code_id: Optional[int] = Field(default=None, foreign_key="redemption_code.id", index=True)
+    batch_id: Optional[int] = Field(default=None, foreign_key="redemption_batch.id", index=True)
+    partner_id: Optional[int] = Field(default=None, foreign_key="redemption_partner.id", index=True)
+    # 快照：即使后台删除了 batch/partner，这里仍能展示给用户
+    batch_name_snapshot: str = Field(default="")
+    partner_name_snapshot: str = Field(default="")
+    amount: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+        sa_type=DateTime(timezone=True),
+    )
+
+
 class RedemptionCode(SQLModel, table=True):
+    """用户购买后的兑换码记录。
+
+    安全约束：`code_string` 仅对 `bought_by_user_id == 当前用户` 可见。
+    api/v1/redemption.py 已强制；如未来在 core/admin.py 给本表挂 sqladmin
+    `ModelView`，必须在 `column_list`/`column_details_list` 中**排除
+    code_string** 字段，否则超管会在 sqladmin 后台看到所有用户的码字符串，
+    违背 spec 第 6 节"已售码的 code_string 不在管理员后台显示"。
+    """
     __tablename__ = "redemption_code"
     __table_args__ = (
         UniqueConstraint("code_string", name="uq_redemption_code_string"),

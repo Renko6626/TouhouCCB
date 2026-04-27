@@ -24,6 +24,11 @@ from app.services import redemption as svc
 router = APIRouter()
 logger = logging.getLogger("thccb.redemption_admin")
 
+# CSV 导入安全上限：防止恶意/误操作 POST 巨大 payload 撑爆请求体
+# 平均一行码 ~32B，5000 行 ~160KB，远低于 FastAPI 默认上限，但已远超合理批次规模
+_MAX_CSV_BYTES = 256 * 1024
+_MAX_CSV_LINES = 5000
+
 
 # ===== 合作方 =====
 
@@ -144,6 +149,13 @@ async def update_batch(
 
 # ===== CSV 导入 =====
 
+def _enforce_csv_limits(csv_text: str) -> None:
+    if len(csv_text.encode("utf-8")) > _MAX_CSV_BYTES:
+        raise HTTPException(status_code=413, detail=f"CSV 超过 {_MAX_CSV_BYTES // 1024} KB 上限")
+    if csv_text.count("\n") > _MAX_CSV_LINES:
+        raise HTTPException(status_code=413, detail=f"CSV 超过 {_MAX_CSV_LINES} 行上限")
+
+
 @router.post("/batches/{batch_id}/import/preview", response_model=CsvImportPreview)
 async def import_preview(
     batch_id: int,
@@ -151,6 +163,7 @@ async def import_preview(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    _enforce_csv_limits(req.csv_text)
     b = await db.get(RedemptionBatch, batch_id)
     if b is None:
         raise HTTPException(status_code=404, detail="批次不存在")
@@ -168,6 +181,7 @@ async def import_commit(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    _enforce_csv_limits(req.csv_text)
     if not req.confirm:
         raise HTTPException(status_code=400, detail="必须确认")
     b = await db.get(RedemptionBatch, batch_id)
