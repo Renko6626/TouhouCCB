@@ -90,6 +90,8 @@ async def purchase(
             raise HTTPException(status_code=409, detail="批次不可购买")
         if e.code == "BATCH_NOT_FOUND":
             raise HTTPException(status_code=404, detail="批次不存在")
+        if e.code == "PER_USER_LIMIT_REACHED":
+            raise HTTPException(status_code=429, detail="已达单用户单批次购买上限")
         raise
     await db.commit()
     logger.info(
