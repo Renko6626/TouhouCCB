@@ -176,3 +176,44 @@ def test_compute_max_borrow_positive_headroom():
     u = _new_user_sync(cash=Decimal("500"), debt=Decimal("100"))
     # net_worth = 500-100+200 = 600, k=1 → 600-100=500
     assert compute_max_borrow(u, holdings_value=Decimal("200"), k=Decimal("1")) == Decimal("500")
+
+
+# ===== 复利场景下 cash 不跑负的回归测试（2026-04-27 用户报告） =====
+
+@pytest.mark.asyncio
+async def test_decrease_debt_consume_cash_capped_by_cash_under_compounding():
+    """场景：cash 刚好等于 pre-accrual debt，但累计利息让 post-accrual debt > cash。
+    服务层应取 min(amount, post-accrual debt, cash) 防止 cash 跑负。"""
+    one_day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+    # cash=1000 = pre-accrual debt；24h @ 1%/day → post-accrual debt ≈ 1010
+    uid = await _create_user_in_db(
+        cash=Decimal("1000"), debt=Decimal("1000"), last_accrued=one_day_ago,
+    )
+    async with async_session_maker() as s:
+        u, eff = await decrease_debt(
+            s, uid, Decimal("3000"), consume_cash=True, daily_rate=Decimal("0.01"),
+        )
+        await s.commit()
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    # cash 必须 >= 0
+    assert u2.cash >= Decimal("0"), f"cash 跑负了: {u2.cash}"
+    # effective 不应超过初始 cash
+    assert eff <= Decimal("1000.000001"), f"effective 超过 cash: {eff}"
+    # 剩余 debt 是真实利息部分（post-accrual debt - effective）
+    assert u2.debt >= Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_decrease_debt_amount_exceeds_debt_caps_at_debt():
+    """用户输入 3000 还款，但只欠 1000：cash 只扣 1000，不会扣 3000。"""
+    uid = await _create_user_in_db(cash=Decimal("5000"), debt=Decimal("1000"), last_accrued=datetime.now(timezone.utc))
+    async with async_session_maker() as s:
+        u, eff = await decrease_debt(s, uid, Decimal("3000"), consume_cash=True, daily_rate=Decimal("0.01"))
+        await s.commit()
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    # cash 只扣了 ~1000（不是 3000）
+    assert abs(u2.cash - Decimal("4000")) < Decimal("0.01"), f"cash 应约 4000, 实为 {u2.cash}"
+    assert u2.debt == Decimal("0")
+    assert abs(eff - Decimal("1000")) < Decimal("0.01")
