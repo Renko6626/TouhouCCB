@@ -80,6 +80,10 @@ onMounted(load)
         <span>剩余：{{ batch.available_count }}</span>
       </div>
       <pre class="description">{{ batch.description }}</pre>
+      <p class="disclaimer">
+        ⚠ 兑换由 <b>{{ batch.partner.name }}</b> 独立履约。TouhouCCB 不参与核销，
+        对合作方失约/商品争议不承担责任。
+      </p>
       <button class="btn-primary" :disabled="batch.available_count <= 0" @click="showConfirm = true">
         {{ batch.available_count <= 0 ? '已售罄' : '购买' }}
       </button>
@@ -128,6 +132,10 @@ onMounted(load)
 }
 .hint { color: #666; font-size: 13px; margin: 8px 0; }
 .warning { color: #dc2626; font-size: 13px; margin: 8px 0; }
+.disclaimer {
+  border: 2px solid #000; padding: 10px 14px; margin: 12px 0;
+  background: #fef2f2; font-size: 13px; color: #000;
+}
 .modal-actions { display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end; }
 .modal-panel h3 { font-size: 18px; margin-bottom: 12px; font-weight: 700; }
 .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
