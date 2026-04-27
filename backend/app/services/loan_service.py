@@ -84,7 +84,10 @@ async def decrease_debt(
     consume_cash: bool,
     daily_rate: Decimal,
 ) -> tuple[User, Decimal]:
-    """SELECT FOR UPDATE user → accrue → effective = min(amount, debt) → debt -= effective。
+    """SELECT FOR UPDATE user → accrue → effective 取「真实负债（含利息）」与（如扣现金）「真实现金」三方最小值 → 扣减。
+
+    edge case 关键：accrue_interest 后的真实 debt 可能因复利大于调用方传入的快照
+    估算；直接拿快照预检会让现金被扣到负值。所以这里 effective = min(amount, post-accrual debt[, cash])。
     consume_cash=True 时 cash -= effective；False 时 cash 不变。
     debt 归零时清 last_accrued_at。调用方负责 commit。
     返回 (user, effective_amount)。amount 必须 > 0。
@@ -97,6 +100,9 @@ async def decrease_debt(
     now = _compat_now(u)
     accrue_interest(u, daily_rate, now)
     effective = min(amount, u.debt).quantize(_QUANT)
+    if consume_cash:
+        # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
+        effective = min(effective, u.cash).quantize(_QUANT)
     if effective <= 0:
         return u, Decimal("0")
     u.debt = (u.debt - effective).quantize(_QUANT)
