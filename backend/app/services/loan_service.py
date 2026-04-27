@@ -69,6 +69,9 @@ async def increase_debt(
         u.debt_last_accrued_at = now
     if grant_cash:
         u.cash = (u.cash + amount).quantize(_QUANT)
+    # 防御性兜底：debt/cash 不应出现负值
+    if u.debt < 0 or u.cash < 0:
+        raise LoanServiceError(f"invariant violated post-increase: debt={u.debt} cash={u.cash}")
     session.add(u)
     return u
 
@@ -102,6 +105,9 @@ async def decrease_debt(
     if u.debt <= 0:
         u.debt = Decimal("0")
         u.debt_last_accrued_at = None
+    # 防御性兜底：debt/cash 不应出现负值
+    if u.debt < 0 or u.cash < 0:
+        raise LoanServiceError(f"invariant violated post-decrease: debt={u.debt} cash={u.cash}")
     session.add(u)
     return u, effective
 
