@@ -17,6 +17,8 @@ export interface LoanActionResult {
   cash: string
   debt: string
   max_borrow: string
+  /** 实际生效金额（仅 repay 有意义；用户输 3000 但只欠 1000，effective 会是 ~1000） */
+  effective?: string | null
 }
 
 export interface SiteConfigItem {
