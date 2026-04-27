@@ -11,13 +11,16 @@ from sqlalchemy.future import select
 
 from app.models.base import User
 from app.models.redemption import (
-    RedemptionPartner, RedemptionBatch, RedemptionCode,
+    RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction,
     BatchStatus, CodeStatus,
 )
 
 
 _MAX_CODE_LEN = 128
 _QUANT = Decimal("0.000001")
+# 单用户在单个批次的累计购买上限，防 1 个用户秒杀整批
+# 不走 site_config 是有意为之：YAGNI，若实际产生分歧再做成可配置
+_PER_USER_PER_BATCH_LIMIT = 5
 
 
 def parse_csv_codes(text: str) -> Tuple[List[str], List[str]]:
@@ -53,7 +56,7 @@ def parse_csv_codes(text: str) -> Tuple[List[str], List[str]]:
 
 
 class PurchaseError(Exception):
-    """购买失败，code ∈ {INSUFFICIENT_CASH, SOLD_OUT, BATCH_NOT_ACTIVE, BATCH_NOT_FOUND}"""
+    """购买失败 code ∈ {INSUFFICIENT_CASH, SOLD_OUT, BATCH_NOT_ACTIVE, BATCH_NOT_FOUND, PER_USER_LIMIT_REACHED}"""
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
@@ -93,6 +96,16 @@ async def purchase_code(
     if user.cash < batch.unit_price:
         raise PurchaseError("INSUFFICIENT_CASH")
 
+    # 单用户单批次累计上限校验
+    from sqlalchemy import func as _func
+    owned_stmt = select(_func.count()).select_from(RedemptionCode).where(
+        RedemptionCode.batch_id == batch_id,
+        RedemptionCode.bought_by_user_id == user_id,
+    )
+    owned = int((await session.execute(owned_stmt)).scalar_one())
+    if owned >= _PER_USER_PER_BATCH_LIMIT:
+        raise PurchaseError("PER_USER_LIMIT_REACHED")
+
     code_stmt = (
         select(RedemptionCode)
         .where(
@@ -106,15 +119,28 @@ async def purchase_code(
     if code is None:
         raise PurchaseError("SOLD_OUT")
 
+    now = datetime.now(timezone.utc)
     user.cash = (user.cash - batch.unit_price).quantize(_QUANT)
     code.status = CodeStatus.SOLD
     code.bought_by_user_id = user_id
-    code.bought_at = datetime.now(timezone.utc)
+    code.bought_at = now
 
     session.add(user)
     session.add(code)
 
     partner = await session.get(RedemptionPartner, batch.partner_id)
+
+    # 写资金流水审计行（同事务）
+    session.add(RedemptionTransaction(
+        user_id=user_id,
+        code_id=code.id,
+        batch_id=batch.id,
+        partner_id=partner.id if partner else None,
+        batch_name_snapshot=batch.name,
+        partner_name_snapshot=partner.name if partner else "",
+        amount=batch.unit_price,
+        timestamp=now,
+    ))
 
     return PurchaseResult(
         code_id=code.id,

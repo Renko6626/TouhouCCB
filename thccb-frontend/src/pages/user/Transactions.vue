@@ -4,12 +4,15 @@ import { useRouter } from 'vue-router'
 import { NButton, NDataTable, NEmpty, NSelect, NSpin, NAlert, type DataTableColumns, type SelectOption } from 'naive-ui'
 import type { Transaction } from '@/types/api'
 import { useUserStore } from '@/stores/user'
+import { redemptionApi } from '@/api/redemption'
+import type { MyRedemptionItem } from '@/types/redemption'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const loading = ref(false)
 const loadError = ref('')
+const redemptionItems = ref<MyRedemptionItem[]>([])
 const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle'>('all')
 const timeRangeFilter = ref<'all' | '7d' | '30d' | '90d'>('all')
 const pageSize = ref<50 | 100 | 200>(100)
@@ -47,6 +50,14 @@ const loadTransactions = async () => {
     loadError.value = err instanceof Error ? err.message : '加载失败，请重试'
   } finally {
     loading.value = false
+  }
+}
+
+const loadRedemptions = async () => {
+  try {
+    redemptionItems.value = await redemptionApi.myRedemptions()
+  } catch {
+    // 兑换记录加载失败不阻塞主流程，悄悄略过
   }
 }
 
@@ -169,11 +180,26 @@ watch(pageSize, () => {
 
 onMounted(async () => {
   await loadTransactions()
+  await loadRedemptions()
 })
+
+const redemptionTotal = computed(() =>
+  redemptionItems.value.reduce((s, r) => s + Number(r.paid_amount), 0),
+)
 </script>
 
 <template>
   <div class="transactions-page">
+    <!-- 兑换购买摘要：跳转到「我的兑换」 -->
+    <div v-if="redemptionItems.length > 0" class="redemption-summary">
+      <div>
+        <span class="summary-label">兑换购买</span>
+        <strong class="summary-count">{{ redemptionItems.length }}</strong> 笔，
+        累计支出 <strong>{{ redemptionTotal.toFixed(2) }}</strong>
+      </div>
+      <NButton size="small" @click="router.push('/my/redemptions')">查看详情 →</NButton>
+    </div>
+
     <!-- 工具栏 -->
     <div class="filter-bar">
       <div class="toolbar-filters">
@@ -227,4 +253,15 @@ onMounted(async () => {
 
 .toolbar-filters { display: flex; gap: 8px; flex-wrap: wrap; }
 .toolbar-actions { display: flex; gap: 8px; }
+.redemption-summary {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 14px; margin-bottom: 12px;
+  border: 2px solid #000; background: #fff; box-shadow: 4px 4px 0 #000;
+  font-size: 13px; flex-wrap: wrap;
+}
+.summary-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-right: 8px;
+}
+.summary-count { font-size: 16px; }
 </style>

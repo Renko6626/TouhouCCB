@@ -32,6 +32,9 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
   <div class="page">
     <h1 class="page-title">兑换中心</h1>
     <p class="page-hint">用 TouhouCCB 资金兑换合作方网站的码。码可在「我的兑换」中永久查看。</p>
+    <div class="disclaimer">
+      ⚠ 兑换由合作方独立履约，TouhouCCB 不参与核销，对合作方失约/商品争议不承担责任。请谨慎选择。
+    </div>
 
     <div v-if="store.loading" class="loading">加载中…</div>
     <div v-else-if="grouped.length === 0" class="empty">暂无可兑换批次</div>
@@ -66,7 +69,11 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
 <style scoped>
 .page { padding: 16px; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
-.page-hint { color: #666; font-size: 13px; margin-bottom: 24px; }
+.page-hint { color: #666; font-size: 13px; margin-bottom: 12px; }
+.disclaimer {
+  border: 2px solid #000; padding: 10px 14px; margin-bottom: 24px;
+  background: #fef2f2; font-size: 13px; color: #000;
+}
 .loading, .empty { color: #999; padding: 32px; text-align: center; }
 .partner-section {
   border: 2px solid #000; padding: 16px; margin-bottom: 24px; background: #fff;

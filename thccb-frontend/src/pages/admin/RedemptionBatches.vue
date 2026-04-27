@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { redemptionAdminApi } from '@/api/redemption'
 import type { BatchAdminItem, PartnerAdminItem, BatchStatus } from '@/types/redemption'
@@ -17,6 +17,20 @@ const router = useRouter()
 const items = ref<BatchAdminItem[]>([])
 const partners = ref<PartnerAdminItem[]>([])
 const editing = ref<BatchForm | null>(null)
+
+// 上架批次库存低于此值时告警；不走 site_config，YAGNI
+const LOW_STOCK_THRESHOLD = 5
+
+const lowStockBatches = computed(() =>
+  items.value.filter(b => b.status === 'active' && b.available_count > 0 && b.available_count <= LOW_STOCK_THRESHOLD),
+)
+const soldOutBatches = computed(() =>
+  items.value.filter(b => b.status === 'active' && b.available_count === 0),
+)
+const isLowStock = (b: BatchAdminItem) =>
+  b.status === 'active' && b.available_count > 0 && b.available_count <= LOW_STOCK_THRESHOLD
+const isSoldOut = (b: BatchAdminItem) =>
+  b.status === 'active' && b.available_count === 0
 
 async function load() {
   items.value = await redemptionAdminApi.listBatches()
@@ -83,6 +97,19 @@ onMounted(load)
     </button>
     <p v-if="partners.length === 0" class="hint">先去「合作方管理」创建至少一个合作方。</p>
 
+    <!-- 库存告警 -->
+    <div v-if="soldOutBatches.length > 0 || lowStockBatches.length > 0" class="stock-alerts">
+      <div v-if="soldOutBatches.length > 0" class="alert alert-soldout">
+        ⛔ <strong>{{ soldOutBatches.length }}</strong> 个上架批次已售罄：
+        {{ soldOutBatches.map(b => b.name).join('、') }}
+        — 用户列表已自动隐藏，请补货或归档。
+      </div>
+      <div v-if="lowStockBatches.length > 0" class="alert alert-low">
+        ⚠️ <strong>{{ lowStockBatches.length }}</strong> 个上架批次库存 ≤ {{ LOW_STOCK_THRESHOLD }}：
+        {{ lowStockBatches.map(b => `${b.name} (${b.available_count})`).join('、') }}
+      </div>
+    </div>
+
     <div class="table-wrap">
     <table class="table">
       <thead>
@@ -92,7 +119,7 @@ onMounted(load)
         </tr>
       </thead>
       <tbody>
-        <tr v-for="b in items" :key="b.id">
+        <tr v-for="b in items" :key="b.id" :class="{ 'row-soldout': isSoldOut(b), 'row-low': isLowStock(b) }">
           <td>{{ b.id }}</td>
           <td>{{ b.partner_name }}</td>
           <td>{{ b.name }}</td>
@@ -107,7 +134,11 @@ onMounted(load)
               <option value="archived">下架</option>
             </select>
           </td>
-          <td>{{ b.available_count }} / {{ b.total_count }}</td>
+          <td>
+            <span :class="{ 'stock-low': isLowStock(b), 'stock-out': isSoldOut(b) }">
+              {{ b.available_count }} / {{ b.total_count }}
+            </span>
+          </td>
           <td>
             <button class="btn-sm" @click="startEdit(b)">编辑</button>
             <button class="btn-sm" @click="goImport(b)">导入码</button>
@@ -155,6 +186,17 @@ onMounted(load)
 .table th, .table td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; white-space: nowrap; }
 .table th { background: #000; color: #fff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .table td:nth-child(4), .table td:nth-child(6) { font-variant-numeric: tabular-nums; }
+.stock-alerts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.alert {
+  border: 2px solid #000; padding: 8px 14px; font-size: 13px;
+  box-shadow: 4px 4px 0 #000;
+}
+.alert-soldout { background: #fef2f2; }
+.alert-low { background: #fef9c3; }
+.row-soldout { background: #fef2f2; }
+.row-low { background: #fef9c3; }
+.stock-low { color: #b45309; font-weight: 700; }
+.stock-out { color: #dc2626; font-weight: 700; }
 .modal-panel h3 { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
 .modal-panel label { display: block; margin: 12px 0; font-size: 13px; }
 .modal-panel input, .modal-panel textarea, .modal-panel select {
