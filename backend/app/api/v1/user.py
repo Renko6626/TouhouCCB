@@ -297,9 +297,13 @@ async def force_loan(
     target = await db.get(User, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
-    u = await _loan_service.increase_debt(
-        db, user_id, Decimal(req.amount), grant_cash=True, daily_rate=rate,
-    )
+    try:
+        u = await _loan_service.increase_debt(
+            db, user_id, Decimal(req.amount), grant_cash=True, daily_rate=rate,
+        )
+    except (ValueError, _loan_service.LoanServiceError) as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     await db.refresh(u)
     _loan_admin_logger.info(
@@ -324,9 +328,13 @@ async def forgive_debt(
     target = await db.get(User, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
-    u, effective = await _loan_service.decrease_debt(
-        db, user_id, Decimal(req.amount), consume_cash=False, daily_rate=rate,
-    )
+    try:
+        u, effective = await _loan_service.decrease_debt(
+            db, user_id, Decimal(req.amount), consume_cash=False, daily_rate=rate,
+        )
+    except (ValueError, _loan_service.LoanServiceError) as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     await db.refresh(u)
     _loan_admin_logger.info(
