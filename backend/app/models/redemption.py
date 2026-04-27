@@ -56,6 +56,14 @@ class RedemptionBatch(SQLModel, table=True):
 
 
 class RedemptionCode(SQLModel, table=True):
+    """用户购买后的兑换码记录。
+
+    安全约束：`code_string` 仅对 `bought_by_user_id == 当前用户` 可见。
+    api/v1/redemption.py 已强制；如未来在 core/admin.py 给本表挂 sqladmin
+    `ModelView`，必须在 `column_list`/`column_details_list` 中**排除
+    code_string** 字段，否则超管会在 sqladmin 后台看到所有用户的码字符串，
+    违背 spec 第 6 节"已售码的 code_string 不在管理员后台显示"。
+    """
     __tablename__ = "redemption_code"
     __table_args__ = (
         UniqueConstraint("code_string", name="uq_redemption_code_string"),

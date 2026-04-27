@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { redemptionApi } from '@/api/redemption'
 import { useUserStore } from '@/stores/user'
+import { extractErrorMessage } from '@/utils/errors'
 import type { BatchDetail, PurchaseResponse } from '@/types/redemption'
 
 const route = useRoute()
@@ -20,8 +21,8 @@ const batchId = Number(route.params.id)
 async function load() {
   try {
     batch.value = await redemptionApi.batchDetail(batchId)
-  } catch (e: any) {
-    error.value = e?.message || '加载失败'
+  } catch (e) {
+    error.value = extractErrorMessage(e, '加载失败')
   }
 }
 
@@ -33,8 +34,8 @@ async function confirmPurchase() {
     showConfirm.value = false
     // 刷新用户余额
     await userStore.fetchSummary()
-  } catch (e: any) {
-    error.value = e?.data?.detail || e?.message || '购买失败'
+  } catch (e) {
+    error.value = extractErrorMessage(e, '购买失败')
   } finally {
     loading.value = false
   }
