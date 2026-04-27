@@ -11,7 +11,7 @@ from sqlalchemy.future import select
 
 from app.models.base import User
 from app.models.redemption import (
-    RedemptionPartner, RedemptionBatch, RedemptionCode,
+    RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction,
     BatchStatus, CodeStatus,
 )
 
@@ -119,15 +119,28 @@ async def purchase_code(
     if code is None:
         raise PurchaseError("SOLD_OUT")
 
+    now = datetime.now(timezone.utc)
     user.cash = (user.cash - batch.unit_price).quantize(_QUANT)
     code.status = CodeStatus.SOLD
     code.bought_by_user_id = user_id
-    code.bought_at = datetime.now(timezone.utc)
+    code.bought_at = now
 
     session.add(user)
     session.add(code)
 
     partner = await session.get(RedemptionPartner, batch.partner_id)
+
+    # 写资金流水审计行（同事务）
+    session.add(RedemptionTransaction(
+        user_id=user_id,
+        code_id=code.id,
+        batch_id=batch.id,
+        partner_id=partner.id if partner else None,
+        batch_name_snapshot=batch.name,
+        partner_name_snapshot=partner.name if partner else "",
+        amount=batch.unit_price,
+        timestamp=now,
+    ))
 
     return PurchaseResult(
         code_id=code.id,
