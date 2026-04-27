@@ -9,11 +9,13 @@ import {
   NInput,
   NInputNumber,
   NModal,
+  NSelect,
   NSpace,
   NTag,
   useDialog,
   useMessage,
   type DataTableColumns,
+  type SelectOption,
 } from 'naive-ui'
 import type { MarketDetail, MarketListItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
@@ -123,6 +125,55 @@ const directOps = ref({
   winningOutcomeId: null as number | null,
 })
 const directRunning = ref(false)
+const directOutcomes = ref<Array<{ id: number; label: string }>>([])
+
+// 「按ID操作」面板：marketStore 只列 trading 状态市场，所以这里独立维护一份
+// 全状态列表（含 halt）方便管理员选已熔断市场
+const allMarkets = ref<Array<{ id: number; title: string; status: string }>>([])
+
+const allMarketOptions = computed<SelectOption[]>(() =>
+  allMarkets.value.map(m => ({
+    label: `#${m.id}  ${m.title}  [${m.status}]`,
+    value: m.id,
+  })),
+)
+
+const directOutcomeOptions = computed<SelectOption[]>(() =>
+  directOutcomes.value.map(o => ({ label: `#${o.id}  ${o.label}`, value: o.id })),
+)
+
+const userOptions = computed<SelectOption[]>(() =>
+  userList.value.map(u => ({
+    label: `#${u.id}  ${u.username}  (现金 ¥${u.cash.toFixed(2)})`,
+    value: u.id,
+  })),
+)
+
+const settleOutcomeOptions = computed<SelectOption[]>(() =>
+  settleOutcomes.value.map(o => ({ label: `#${o.id}  ${o.label}`, value: o.id })),
+)
+
+// marketId 变化时拉对应市场的 outcomes 给「按ID结算」用
+const onDirectMarketChange = async (mid: number | null) => {
+  directOps.value.winningOutcomeId = null
+  directOutcomes.value = []
+  if (!mid) return
+  try {
+    const detail: MarketDetail = await marketApi.getMarketDetail(mid)
+    directOutcomes.value = detail.outcomes.map(o => ({ id: o.id, label: o.label }))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载选项失败')
+  }
+}
+
+const loadAllMarkets = async () => {
+  try {
+    const list = await marketApi.getMarkets({ include_halt: true, include_settled: true })
+    allMarkets.value = list.map(m => ({ id: m.id, title: m.title, status: m.status }))
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '加载市场列表失败')
+  }
+}
 
 const filteredMarkets = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
@@ -333,6 +384,7 @@ const columns: DataTableColumns<MarketListItem> = [
 onMounted(() => {
   loadMarkets()
   loadUsers()
+  loadAllMarkets()
 })
 </script>
 
@@ -375,23 +427,47 @@ onMounted(() => {
 
     <!-- 按ID操作 -->
     <div class="content-panel">
-      <div class="panel-heading">按市场ID操作（适用于已熔断市场）</div>
+      <div class="panel-heading">按市场操作（含已熔断/已结算）</div>
       <div class="row-gap">
-        <NInputNumber v-model:value="directOps.marketId" :min="1" placeholder="市场ID" style="width:160px" />
-        <NInputNumber v-model:value="directOps.winningOutcomeId" :min="1" placeholder="赢家选项ID（结算用）" style="width:220px" />
-        <NButton :loading="directRunning" @click="directResume">按ID恢复</NButton>
-        <NButton :loading="directRunning" @click="directSettle">按ID结算</NButton>
+        <NSelect
+          :value="directOps.marketId"
+          :options="allMarketOptions"
+          placeholder="选择市场"
+          filterable
+          clearable
+          style="min-width:280px;flex:1;max-width:480px"
+          @update:value="(v: number | null) => { directOps.marketId = v; onDirectMarketChange(v) }"
+        />
+        <NSelect
+          v-model:value="directOps.winningOutcomeId"
+          :options="directOutcomeOptions"
+          placeholder="赢家选项（结算用）"
+          :disabled="!directOps.marketId || directOutcomes.length === 0"
+          clearable
+          style="min-width:240px"
+        />
+        <NButton :loading="directRunning" :disabled="!directOps.marketId" @click="directResume">恢复交易</NButton>
+        <NButton :loading="directRunning" :disabled="!directOps.marketId || !directOps.winningOutcomeId" @click="directSettle">结算</NButton>
+        <NButton size="small" @click="loadAllMarkets">刷新</NButton>
       </div>
     </div>
 
     <!-- 用户管理 -->
     <div class="content-panel">
-      <div class="panel-heading">用户管理</div>
+      <div class="panel-heading">用户管理 — 调整现金（点表格行的「调整现金」按钮预填）</div>
       <div class="row-gap" style="margin-bottom:12px;">
-        <NInputNumber v-model:value="cashForm.userId" :min="1" placeholder="用户ID" style="width:120px" size="small" />
+        <NSelect
+          v-model:value="cashForm.userId"
+          :options="userOptions"
+          placeholder="选择用户"
+          filterable
+          clearable
+          size="small"
+          style="min-width:280px;flex:1;max-width:420px"
+        />
         <NInputNumber v-model:value="cashForm.amount" placeholder="金额（正=加，负=扣）" style="width:200px" size="small" />
         <NInput v-model:value="cashForm.reason" placeholder="原因（可选）" style="width:160px" size="small" />
-        <NButton size="small" :loading="cashRunning" @click="submitAdjustCash">执行</NButton>
+        <NButton size="small" :loading="cashRunning" :disabled="!cashForm.userId" @click="submitAdjustCash">执行</NButton>
         <NButton size="small" :loading="userLoading" @click="loadUsers">刷新</NButton>
       </div>
       <NDataTable :columns="userColumns" :data="userList" :loading="userLoading" :bordered="false" size="small" :max-height="300" />
@@ -446,13 +522,14 @@ onMounted(() => {
       <p class="settle-label">市场：{{ settleMarketTitle }}（ID: {{ settleMarketId }}）</p>
       <NForm>
         <NFormItem label="赢家选项" required>
-          <NInputNumber v-model:value="settleWinningOutcomeId" :min="1" style="width:100%" placeholder="请输入赢家选项ID" />
+          <NSelect
+            v-model:value="settleWinningOutcomeId"
+            :options="settleOutcomeOptions"
+            placeholder="请选择赢家选项"
+            style="width:100%"
+          />
         </NFormItem>
       </NForm>
-      <div class="outcomes-ref">
-        <div class="outcomes-ref-title">可选 outcome：</div>
-        <div v-for="item in settleOutcomes" :key="item.id" class="outcomes-ref-item">#{{ item.id }} — {{ item.label }}</div>
-      </div>
       <template #footer>
         <div class="modal-footer">
           <NButton @click="showSettleModal = false">取消</NButton>
