@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { redemptionAdminApi } from '@/api/redemption'
 import type { CsvImportPreview, CsvImportResult } from '@/types/redemption'
+import { extractErrorMessage } from '@/utils/errors'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,8 +28,8 @@ async function doPreview() {
   result.value = null
   try {
     preview.value = await redemptionAdminApi.importPreview(batchId, csvText.value)
-  } catch (e: any) {
-    error.value = e?.data?.detail || e?.message || '预检失败'
+  } catch (e) {
+    error.value = extractErrorMessage(e, '预检失败')
   } finally {
     loading.value = false
   }
@@ -46,8 +47,8 @@ async function doCommit() {
   try {
     result.value = await redemptionAdminApi.importCommit(batchId, csvText.value)
     preview.value = null
-  } catch (e: any) {
-    error.value = e?.data?.detail || e?.message || '导入失败'
+  } catch (e) {
+    error.value = extractErrorMessage(e, '导入失败')
   } finally {
     loading.value = false
   }
