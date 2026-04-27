@@ -114,14 +114,20 @@ async def repay(
     rate = await site_config.get_decimal(db, "loan_daily_rate")
     k = await site_config.get_decimal(db, "loan_leverage_k")
     amount = Decimal(req.amount)
-    # effective 最多等于 debt，pre-check 用保守估算：min(amount, debt) <= cash
-    estimated_effective = min(amount, user.debt)
-    if estimated_effective > user.cash:
-        raise HTTPException(status_code=400, detail="还款额超过现金余额")
 
-    u, effective = await loan_service.decrease_debt(
-        db, user.id, amount, consume_cash=True, daily_rate=rate,
-    )
+    # 不做 pre-check：服务层会在锁内 accrue 后用 min(amount, 真实 debt, 真实 cash) 封顶。
+    # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
+    # 实际扣减由 effective 字段返回，前端可展示"实际还款 ¥N"。
+    if user.cash <= 0 and user.debt > 0:
+        raise HTTPException(status_code=400, detail="现金为 0，无法还款；请先卖出持仓变现")
+
+    try:
+        u, effective = await loan_service.decrease_debt(
+            db, user.id, amount, consume_cash=True, daily_rate=rate,
+        )
+    except (ValueError, loan_service.LoanServiceError) as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     await db.refresh(u)
     logger.info(
@@ -133,4 +139,5 @@ async def repay(
         cash=u.cash,
         debt=u.debt,
         max_borrow=loan_service.compute_max_borrow(u, hv, k),
+        effective=effective,
     )
