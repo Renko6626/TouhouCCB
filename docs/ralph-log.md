@@ -1483,3 +1483,19 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档；回滚 `git revert`。
 **验证**：只读，无代码改动，type-check/lint N/A；git log -p 逐 commit 确认变更内容；grep 确认 auto_migrate 覆盖范围；读 init_db.py 全文确认 DROP 逻辑。
 **下一轮**：Task 11 bandit + semgrep 静态扫 triage。
+
+## 2026-05-09 — P1 Task 11 bandit + semgrep 静态扫 triage
+**目标**：在隔离 venv 中安装并运行 bandit 1.9.4 + semgrep 1.162.0，对全部告警逐条 triage，区分真发现 / 重复 / 误报，结果写入报告。
+**动机**：静态工具可能捕获人工审计遗漏的模式（硬编码密钥、SQL 注入、credential leak 等），尤其对 OWASP Top-10 类问题有专项规则。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py/.ts/.vue` 严格只读；工具安装至 `/tmp/secaudit-venv`，不污染 `requirements.txt`。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 11 填写）」为完整 triage 表（6 条告警）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- bandit 2 条 LOW 均为 `B105 hardcoded_password_string`：`"bearer"` 是 OAuth2 标准 token_type 字面量 → **误报 × 2**。
+- semgrep 4 条告警：`python-logger-credential-disclosure` × 3（`auth.py:79`、`oidc.py:117`、`users.py:77`）均归属于 Task 6 已记录的 P3-AUTH-12（日志脱敏）→ **重复 × 3**。`avoid-sqlalchemy-text`（`init_db.py:39`）中 `table.name` 来自 SQLAlchemy ORM 元数据，非用户输入 → **误报 × 1**；init_db.py 真实风险（数据销毁）已由 Task 10 P3-M10-5 记录。
+- **净新增 Finding：0 条**。两种工具的告警全覆盖于已有发现或无实际安全风险。
+- 原始 JSON 输出（`/tmp/bandit.json`、`/tmp/bandit_all.json`、`/tmp/semgrep.json`）不入库，triage 完成后删除。
+**风险 & 回滚**：仅文档；回滚 `git revert`；venv 留存 `/tmp/secaudit-venv` 供后续 phase 复用。
+**验证**：只读，无产品代码改动；`git status` 确认仅 docs/ 变动；bandit/semgrep 实际运行并确认版本号与告警数。
+**下一轮**：Task 12 阶段总结 + 报告收口。
