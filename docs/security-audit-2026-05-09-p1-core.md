@@ -677,7 +677,179 @@
 
 
 ### 兑换码资金流
-（Task 5 填写）
+
+**审计日期**：2026-05-09
+**审计文件**：`backend/app/services/redemption.py` + `backend/app/api/v1/{redemption,admin_redemption}.py` + `backend/app/models/redemption.py` + `backend/app/schemas/redemption.py` + `backend/tests/test_redemption_{service,api}.py` + `deploy/nginx.conf`
+**前置 fix 复盘**：
+- `697730d` 技术债收尾 merge（14 commits）：涵盖 RedemptionTransaction 审计表、CSV 导入上限、单用户单批次购买 5 次上限
+- `bed3553` feat(redemption): RedemptionTransaction 同事务写入，含 batch/partner 快照
+- `11f5b1e` feat(redemption): 库存低位 / 售罄告警（纯前端 banner，无码库操作）
+
+---
+
+#### 码生成
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 字符集与长度 / 熵 | N/A — 码由外部合作方提供，通过 CSV 导入；系统不自动生成码 | `services/redemption.py:26-55` parse_csv_codes；`models/redemption.py:104` max_length=128 |
+| 使用 secrets 模块 | N/A — 无系统内生成路径 | 全文无 `secrets.` / `random.` 调用 |
+| DB UNIQUE 约束 | **存在** `uq_redemption_code_string` 全局唯一约束 | `models/redemption.py:98` UniqueConstraint("code_string") |
+| 重试逻辑 | N/A — 码由外部提供，导入时 duplicate 直接 skip | `services/redemption.py:211-217` import_codes_commit |
+| 码长度下限 | **无**：parse_csv_codes 仅验证上限（128），未验证下限；1-char 码合法 | `services/redemption.py:48` len(ln) > _MAX_CODE_LEN |
+
+**说明**：系统采用"合作方提供 CSV，管理员导入"模型，不自动生成码。熵完全取决于合作方的码质量，系统层面无法保证。这是架构决策，**不属于系统安全缺陷**，但合作方应使用高熵码。
+
+---
+
+#### 兑换路径
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 单次兑换 state 原子性 | **安全**：user 行 FOR UPDATE 锁 + code 行 SKIP LOCKED 锁，两者在同一事务 | `services/redemption.py:87,115` |
+| 同码并发双重兑换 | **不能**：SKIP LOCKED 语义保证同一 code 行只有一个事务能持有锁；第二个事务锁不到 code 则返回 SOLD_OUT | `services/redemption.py:109-120` |
+| RedemptionTransaction 同事务写入 | **是**：session.add(RedemptionTransaction(...)) 在同一 session 内，调用方 await db.commit() 统一提交 | `services/redemption.py:134-143`；`api/v1/redemption.py:96` |
+| 金额来源 | **安全**：amount = batch.unit_price（服务层读 DB，非客户端输入）| `services/redemption.py:141`；PurchaseRequest 仅含 batch_id |
+| 批次状态校验 | **存在**：status != ACTIVE 时 raise PurchaseError | `services/redemption.py:93-94` |
+| 批次状态锁 | **缺失（P3）**：batch 以 session.get 读取（无 FOR UPDATE）；admin 在极短窗口 archive 批次不会阻止正在执行的购买事务 | `services/redemption.py:90`（无 with_for_update） |
+| 单用户单批次上限 | **存在**，应用层计数 _PER_USER_PER_BATCH_LIMIT=5；user FOR UPDATE 锁序列化同用户请求，计数安全 | `services/redemption.py:99-107`；user 锁见 line 87 |
+| DB 层单用户上限约束 | **缺失（P2）**：仅应用层 count 校验，DB 无 (batch_id, bought_by_user_id) 计数约束；若绕过 API 层直接写 DB 可突破上限 | `models/redemption.py`：无该 CheckConstraint |
+| 限速（/redemption/purchase）| **偏宽松（P2）**：命中 nginx `api_general` 区（20 r/s burst=40），无专属 purchase 限速；market buy/sell 有独立 `api_trade` 区 | `deploy/nginx.conf:23,99-101` |
+| Replay（同 batch_id 重复提交）| **安全**：每次购买返回不同 code_string（从可用池取一个）；第 6 次请求触发 PER_USER_LIMIT_REACHED | `services/redemption.py:106-107` |
+| import 可写入 active 批次 | **允许**：import_commit 无批次状态前置校验；admin 可向 active 批次追加新码 | `services/redemption.py:212-222`（仅查重，不检 status） |
+
+**并发竞态详细分析**
+
+场景：用户 A 同时发出 N 次 POST /redemption/purchase
+
+```
+Txn-1: SELECT user FOR UPDATE  → 拿锁
+Txn-2: SELECT user FOR UPDATE  → 阻塞，等待
+Txn-1: count owned = 4 (< 5)  → 通过
+Txn-1: SELECT code SKIP LOCKED → 拿到 code-X
+Txn-1: update cash, code, insert audit → commit
+Txn-2: 继续  count owned = 5 (>= 5)  → PER_USER_LIMIT_REACHED
+```
+
+结论：同用户并发购买 **不能** 绕过 per-user 限制（user FOR UPDATE 序列化）。
+
+场景：不同用户 A、B 并发购买同批次最后一个码
+
+```
+Txn-A: lock user-A → count owned-A = 0
+Txn-B: lock user-B → count owned-B = 0
+Txn-A: SKIP LOCKED → 拿到 code-X
+Txn-B: SKIP LOCKED → 无可用码 (code-X 被锁) → SOLD_OUT
+```
+
+结论：不同用户并发 **不会双重兑换**（SKIP LOCKED 语义）。测试见 `tests/test_redemption_service.py:147-167`（注：SQLite skip，PG 验证）。
+
+---
+
+#### admin 批次管理
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 所有 admin endpoint 都有 auth gate | **是**：每个 handler 签名都含 `admin: User = Depends(current_superuser)` | `api/v1/admin_redemption.py:37,47,62,94,104,126,163,181` |
+| 批次创建 unit_price 下限 | **存在**：Field(gt=Decimal("0")) | `schemas/redemption.py:97` |
+| 批次创建 unit_price 上限 | **缺失（P3）**：无 lt/le 约束；管理员可设置任意大金额（如 1e15）批次；无总资金注入上限 | `schemas/redemption.py:97` |
+| 批次撤销（archive）| **存在**：status 可设为 archived，阻止新购买；已购码保持 SOLD 状态不变 | `api/v1/admin_redemption.py:137-146` |
+| ARCHIVED → ACTIVE 回滚 | **允许**：状态机无单向限制；ARCHIVED 可重新设为 ACTIVE；已有码重新可购 | `api/v1/admin_redemption.py:138-140` |
+| ACTIVE 价格修改防护 | **存在**：unit_price 修改在 active 批次被 400 拒绝 | `api/v1/admin_redemption.py:134-135` |
+| CSV 导入上限 | **存在**：256 KB / 5000 行双重硬上限 | `api/v1/admin_redemption.py:29,152-156` |
+| 库存低位告警 | **仅前端 banner**：threshold=5，纯 UI 提醒，不阻止 archived 操作或新购买 | `11f5b1e` 仅改前端 `RedemptionBatches.vue` |
+| sqladmin 中 RedemptionCode 是否注册 | **未注册**：admin.py 仅注册 User/Market/Outcome/Position/Transaction，RedemptionCode 未挂 ModelView | `app/core/admin.py:107-111` |
+
+**注**：sqladmin 中虽未挂 RedemptionCode（code_string 不暴露），但 `models/redemption.py:91-94` 的注释明确警告了未来若注册必须排除 code_string 字段。
+
+---
+
+#### 枚举攻击面
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 有无"查询码状态"接口 | **无**：用户端无 "check code_string validity" endpoint | 全端点列表见 `api/v1/redemption.py` @router.* |
+| 购买错误区分码状态 | **购买端无码级别枚举**：错误区分的是 batch 状态（SOLD_OUT/BATCH_NOT_ACTIVE），不区分具体某个码已用/未用/不存在 | `api/v1/redemption.py:85-95` |
+| batch_detail 侧信道 | **轻微（P3）**：`GET /batches/{batch_id}` 返回 404 "批次不存在" vs 404 "批次不可用"；后者表明该 batch_id 存在但状态非 ACTIVE 或 partner inactive，可被已登录用户用于枚举 batch_id 合法性 | `api/v1/redemption.py:57,60` |
+| 需要认证 | **是**：所有 user 端点均 Depends(current_active_user)，匿名请求被拒绝 | `api/v1/redemption.py` 全 handler |
+
+---
+
+#### RedemptionTransaction 审计完整性
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 每次成功购买都写入 | **是**：session.add(RedemptionTransaction(...)) 在 purchase_code 返回前执行，与 cash 扣款同事务 | `services/redemption.py:134-143` |
+| 与 cash 更新同一事务 | **是**：user.cash 修改、code.status 修改、RedemptionTransaction.add 均在同一 AsyncSession，统一由 `await db.commit()` 提交 | `services/redemption.py:123-143`；`api/v1/redemption.py:96` |
+| audit 表 immutable | **是（应用层）**：代码库中无 RedemptionTransaction 的 UPDATE/DELETE 路径；无 admin endpoint 修改或删除审计行 | 全 grep 仅 services/redemption.py:134 有 add 操作 |
+| 有无 DELETE 路径 | **无**：RedemptionTransaction 仅被 session.add，未见 delete 调用 | `grep -rn "RedemptionTransaction" backend/app/` |
+| 索引覆盖 | **是**：user_id(index)、code_id(index)、batch_id(index)、partner_id(index)、timestamp(index) 均建索引 | `models/redemption.py:71-81` |
+| 审计覆盖范围 | **仅购买**：覆盖 purchase_code 成功路径；mark-used 操作不涉及资金，未记录（合理） | `api/v1/redemption.py:164-177` |
+| 失败事务审计行 | **不写入**（正确）：PurchaseError 触发 rollback，RedemptionTransaction 随之回滚 | `api/v1/redemption.py:84` await db.rollback() |
+
+---
+
+**发现**：
+
+#### [P2-REDC-01] 兑换购买接口无专属限速，落入 api_general（20 r/s burst=40）
+
+- **位置**：`deploy/nginx.conf:99-101`；`api/v1/redemption.py:75-110`
+- **类别**：限速 / 资金消耗
+- **复现**：POST /api/v1/redemption/purchase burst 40 次，均不被 429；相比之下 market buy/sell 有专属 api_trade（10 r/s burst=20）
+- **影响**：高并发下同一用户可快速消耗现金（受 per-user 上限 5 缓解），但跨批次购买不受 5 次限制；攻击者账号可在 2 秒内完成所有批次购买
+- **修复建议**：在 nginx.conf 添加 `location /api/v1/redemption/purchase` 专属限速区，建议 3-5 r/s burst=10
+- **状态**：未修复
+
+#### [P2-REDC-02] per-user 上限仅应用层校验，无 DB 级别守护
+
+- **位置**：`services/redemption.py:99-107`；`models/redemption.py`（无 CheckConstraint）
+- **类别**：上限绕过（需 DB 直接写权限或服务层 bug）
+- **复现**：若攻击者获得 DB 写权限，或未来新增不经 purchase_code 的代码路径（如 admin 礼包功能），可突破每批次 5 次限制
+- **影响**：资金异常注入；规则绕过
+- **修复建议**：在 RedemptionCode 上添加 DB 层 partial unique index 或 check constraint 作为守护层；或添加 DB 触发器（当前无迁移机制，实施需谨慎）
+- **状态**：未修复；当前 user FOR UPDATE 序列化保证应用层安全，但无 DB 层硬约束
+
+#### [P3-REDC-03] batch_detail 侧信道：404 消息区分 "不存在" vs "不可用"
+
+- **位置**：`api/v1/redemption.py:57,60`
+- **类别**：信息泄露 / 枚举辅助
+- **复现**：已登录用户 GET /api/v1/redemption/batches/999 → "批次不存在"；GET .../batches/1（archived 批次）→ "批次不可用"；后者泄露 batch_id=1 存在
+- **影响**：低危；需已登录；可帮助攻击者枚举有效 batch_id 范围，但现有架构中批次 ID 无保密性要求
+- **修复建议**：统一返回 404 "批次不存在"，不区分存在性
+- **状态**：未修复
+
+#### [P3-REDC-04] BatchCreate 无 unit_price 上限约束
+
+- **位置**：`schemas/redemption.py:97`（仅 gt=Decimal("0")）
+- **类别**：管理员操作加固
+- **复现**：superuser POST /api/v1/admin/redemption/batches {"unit_price": "9999999999"} → 合法创建
+- **影响**：误操作 admin 可创建极高面值批次；无总资金注入上限。当前 admin 为可信角色，影响有限
+- **修复建议**：添加 Field(le=Decimal("10000")) 或类似业务合理上限；或在 admin 日志中记录
+- **状态**：未修复
+
+#### [P3-REDC-05] 批次状态机无单向约束，ARCHIVED 可重新 ACTIVE
+
+- **位置**：`api/v1/admin_redemption.py:138-140`
+- **类别**：管理员操作加固 / 审计一致性
+- **复现**：PATCH /api/v1/admin/redemption/batches/{id} {"status": "archived"} 后再 {"status": "active"} → 均成功；已购 SOLD 码不变，剩余 AVAILABLE 码重新可购
+- **影响**：intentional 撤销后被意外/恶意复活；历史 RedemptionTransaction 与再次激活的批次上下文割裂
+- **修复建议**：若业务无复活需求，添加状态转换白名单（draft→active，active→archived 为合法方向，archived→* 禁止）
+- **状态**：未修复
+
+#### [P3-REDC-06] CSV 导入不校验码长度下限，1-char 码合法
+
+- **位置**：`services/redemption.py:48`（仅 len(ln) > 128 判 invalid）
+- **类别**：输入验证加固
+- **影响**：admin 可导入极短码（如 "A"）；配合合作方网站可能导致暴力猜测该码；系统层面低危（合作方责任）
+- **修复建议**：parse_csv_codes 增加 `len(ln) < MIN_CODE_LEN`（建议 8）归入 invalid
+- **状态**：未修复
+
+---
+
+**留给后续阶段的线索**：
+- `[P2-REDC-01]` 兑换购买限速是 Task 8（admin gate 覆盖矩阵）中 nginx 限速矩阵的一部分，建议统一在 Task 8 中做全端点限速复核
+- `[P3-REDC-05]` 批次状态机约束与业务需求相关，建议在 phase-2 「合作方合规」专题中作为功能需求确认后再实施
+- RedemptionTransaction 目前仅覆盖购买，若 phase-2 引入「管理员礼包（admin grant）」功能，必须同样写入审计行
+- sqladmin 未注册 RedemptionCode 是当前的保护，但注释已提醒未来若注册必须排除 code_string 字段——建议在 `core/admin.py` 添加显式注释或文档，防止后续维护者忽视
 
 ### SSO / Casdoor / Token
 （Task 6 填写）
