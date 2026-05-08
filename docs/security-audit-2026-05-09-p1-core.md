@@ -386,7 +386,295 @@
 - 持仓估值代码在 `user.py:get_user_summary` 与 `user.py:get_my_holdings` 有两处几乎相同的 7 行 LMSR 清算逻辑，未提取为公用函数；一旦手续费逻辑变更（SELL_FEE_RATE 非 0）只改一处漏改另一处，会导致 summary 与 holdings 明细的 market_value 不一致——属代码卫生问题，建议重构为单一 `_position_liquidation_value(pos, market, all_outcomes)` 辅助函数。
 
 ### 贷款 / 复利 / 还款
-（Task 4 填写）
+
+**审计日期**：2026-05-09
+**审计文件**（只读）：
+- `backend/app/services/loan_service.py`（125 行，全文）
+- `backend/app/services/loan_sweep.py`（98 行，全文）
+- `backend/app/services/loan_migrate.py`（74 行，全文，迁移脚本本任务范围外但 skim）
+- `backend/app/api/v1/loan.py`（143 行，全文）
+- `backend/app/api/v1/user.py:286-349`（force_loan / forgive_debt）
+- `backend/app/api/v1/site_config.py`（86 行，全文）
+- `backend/app/api/v1/market.py:425-427, 541-543`（buy/sell 的 accrue 钩点）
+- `backend/app/models/base.py:23-56`（User cash/debt/last_accrued_at + CHECK 约束）
+- `backend/app/schemas/loan.py`（56 行，全文）
+- `backend/tests/test_loan_service.py` / `test_loan_api.py` / `test_loan_admin.py` / `test_loan_sweep.py`（558 行）
+
+**前置 fix 复盘**：
+- `60847ad`（2026-04-27）：repay 双封顶——`decrease_debt(consume_cash=True)` 内 `effective = min(amount, post-accrual debt, cash)`。修前用户在「cash 刚好等于 pre-accrual debt + 距上次结息有较长时间」的场景下，复利让 post-accrual debt 超过 cash，effective 用 `min(amount, debt)` 取到 post-accrual debt，但 cash 只够支付到 pre-accrual debt → cash 跑负。同时移除了 api 层基于 PRE-accrual snapshot 的 cash 预检（必然有偏差），改为 service 层在锁内统一处理。
+- `5771b45`（2026-04-27）：`increase_debt` / `decrease_debt` 末尾加 `if u.debt < 0 or u.cash < 0: raise LoanServiceError(...)` 后置不变量，并在 `force_loan`/`forgive_debt`/`repay` 入口把 `ValueError` + `LoanServiceError` 映射为 HTTP 400（之前裸抛 500）。提交说明已声明「未发现实际能让 debt 跑负的代码路径」，是防御性兜底。
+
+#### 数据模型概览
+
+| 字段 | 类型 / 约束 | 说明 |
+|---|---|---|
+| `User.cash` | `Numeric(16, 6)`，CHECK `cash >= 0` | 现金 |
+| `User.debt` | `Numeric(16, 6)`，CHECK `debt >= 0` | 债务 |
+| `User.debt_last_accrued_at` | `DateTime(timezone=True)`，nullable | 上次结息时间；debt=0 时为 None |
+
+**没有独立 Loan / LoanRecord 表**。债务是 User 的两列，全程没有借/还/结息流水（只有 `logger.info` 文本日志）——审计/对账只能靠应用日志，不能靠 DB。**这是 P2 级别的可观测性缺口**（见下文 [P4-04]）。
+
+#### BORROW 路径 (`api/v1/loan.py:68-105`)
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 额度上限 (max_borrow) | ✅ 有 | `compute_max_borrow = max(0, k×(cash-debt+hv) - debt)`；amount > max_borrow 返回 400 |
+| 原子性（cash + debt + 锁） | ✅ | `increase_debt` 用 `select(User).with_for_update()`；`db.commit()` 在 handler |
+| 负本金 / 0 本金 | ✅ | pydantic `condecimal(gt=0)` (422) + service `if amount <= 0: ValueError` 双层 |
+| 启用开关 | ✅ | `loan_enabled=false` → 403 |
+| **持仓估值口径**（影响 max_borrow） | ❌ **buggy（Task 3 P2 straggler）** | `_holdings_value` 用 LMSR 瞬时价 × 数量，未扣卖出滑点+手续费；持仓大或 b 小时高估 → 借超 |
+| **TOCTOU**（额度预检 vs 实际写入） | ❌ **未锁内重检** | 详见 [P2-LOAN-01] |
+| 免费现金路径（cash 加但 debt 不加） | ✅ 不存在 | `increase_debt(grant_cash=True)` 是唯一路径，cash 与 debt 同增同量 |
+| 限速 / 重放保护 | ⚠️ 限速由 nginx 层兜底 | 见 CLAUDE.md「限速」段；service / api 层无幂等 token |
+| ZeroDivisionError 兜底（b=0 → 500） | ❌ | `_holdings_value` 调 `get_current_price`，未 try-except；P1 Task 1 已记录 b=0 → 500，此处会跟着 500（不是 P0，但不友好） |
+
+#### REPAY 路径 (`api/v1/loan.py:108-143`)（含 60847ad 修正验证）
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 双封顶（amount, post-accrual debt, cash） | ✅ | `loan_service.py:102-105`，`effective = min(amount, u.debt).quantize(_QUANT); if consume_cash: effective = min(effective, u.cash).quantize(_QUANT)` |
+| 先 accrue 再封顶 | ✅ | `loan_service.py:101` `accrue_interest(u, daily_rate, now)` 在 `effective` 计算之前 |
+| 0 / 负还款 | ✅ | pydantic `gt=0` (422) + `if amount <= 0: ValueError` (400) |
+| 并发 repay + sweep | ✅ | 两端都 `with_for_update`；先到的拿锁，后到的在 lock 释放后再 accrue（无重复结息） |
+| 不变量（debt/cash >= 0） | ✅ | `loan_service.py:114-116` 兜底；DB CHECK 约束作为最终防线 |
+| ValueError → 400 | ✅ | `api/v1/loan.py:128-130` 显式 catch + rollback |
+| effective 字段返回 | ✅ | `LoanActionResponse.effective: Optional[Decimal]`；前端可展示「实际还款 ¥N」 |
+| **跨时区一致性** | ✅ | accrue 用 `_compat_now` 处理 SQLite naive；生产 Postgres 全 UTC，无 DST 问题 |
+| **stale test**（已发现） | ❌ | 见 [P3-LOAN-02] |
+
+**60847ad fix 场景 walk-through**（按要求带数字）：
+
+初始：`cash=1000, debt=1000, last_accrued_at=now-24h, daily_rate=0.01`，用户 POST `/loan/repay {"amount": "3000"}`：
+
+1. handler 入口（`api/v1/loan.py:121`）：`user.cash=1000 > 0`，不早 reject。
+2. 进入 `decrease_debt`（`loan_service.py:79`）：
+   - `select(User).with_for_update()` 拿锁，`u.debt=1000, u.cash=1000`。
+   - `accrue_interest(u, 0.01, now)`：`factor = 1 + 0.01 * 86400/86400 = 1.01`，`u.debt = 1000 * 1.01 = 1010.000000`，`u.debt_last_accrued_at = now`。
+   - `effective = min(amount=3000, u.debt=1010) = 1010`（第一道封顶：debt）。
+   - `consume_cash=True` → `effective = min(1010, u.cash=1000) = 1000`（第二道封顶：cash）。这一步是 60847ad 加上的关键。
+   - `u.debt = 1010 - 1000 = 10.000000`，`u.cash = 1000 - 1000 = 0.000000`。
+   - 不变量检查：`u.debt=10 >= 0`、`u.cash=0 >= 0`，通过。
+3. handler `db.commit()`，返回 `effective=1000`。
+4. 终态：`cash=0, debt=10`。**没跑负，符合预期。**
+
+如果没有第二道封顶（fix 前）：`u.debt = 1010 - 1010 = 0`，`u.cash = 1000 - 1010 = -10` → 触发 DB CHECK `ck_user_cash_non_negative`，整个事务回滚 → 500。修前因为既无封顶又无后置不变量，直接持久化 `cash=-10`（这与 5771b45 commit 描述「未发现实际能让 debt 跑负的代码路径」吻合——是 cash 跑负，不是 debt）。
+
+**仍然可疑的场景**（未发现 P0/P1，但记录）：
+- **场景 A：rate 超大 + 长间隔**。若 daily_rate=0.999、距上次结息 30 天，`factor = 1 + 0.999*30 = 30.97`（不是 `1.01^30`，因为公式是线性 elapsed 不是真复利——见下文 ACCRUE 分析）。debt=1000 → 30970。post-accrual debt 远超 cash 不要紧（被封顶），但**accrue 出现单次巨大跳变**，触发链可能引发数值溢出（Decimal 16,6 上限 ~9.9e9）。site_config 已限制 `0 < daily_rate < 1`，attack surface 很窄。
+- **场景 B：amount 极大（接近 Decimal 16,6 上限）**。pydantic `condecimal(max_digits=16, decimal_places=6)` 限制 amount ≤ 9_999_999_999.999999；service 层取 min 后不会写入超大值。但 `user.cash = u.cash - effective` 中间值若负数会触发 5771b45 不变量（防御 OK）。
+- **场景 C：后置不变量绕过**。理论上 `decrease_debt` 后置 `if u.debt < 0 or u.cash < 0` 不可能为真（前面有 min 封顶）；但 `5771b45` 注释明确这是「为未来重构留兜底」，当前路径下不可达——这是合理的纵深防御。
+
+#### ACCRUE 路径 (`loan_service.py:15-27`)
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| Decimal 量化 | ✅ | `(user.debt * factor).quantize(_QUANT)`，`_QUANT = 0.000001` |
+| debt=0 / last_accrued=None / elapsed<=0 早返 | ✅ | `loan_service.py:20-24` |
+| 时钟倒退兜底 | ✅ | `if elapsed_sec <= 0: return`（test_accrue_negative_elapsed_noop 覆盖） |
+| **复利公式严谨度** | ⚠️ **线性 elapsed，不是真连续复利** | 见 [P3-LOAN-03] |
+| 长闲置账户上限 | ❌ **无 cap** | 见 [P2-LOAN-04] |
+| **rate 运行时变更追溯**（admin 改 daily_rate） | ❌ **会回溯影响整个 elapsed 区间** | 见 [P2-LOAN-05] |
+| 已禁用 / 已 ban 用户继续累息 | ⚠️ | sweep 与 buy/sell accrue 都不看 `is_active`；ban 用户欠债仍持续涨 |
+| 锁保护 | ✅ | sweep 内 `with_for_update`；market.py buy/sell 内 `_lock_user` |
+
+#### SWEEP 路径 (`services/loan_sweep.py`)
+
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 触发方式 | **APScheduler in-process job**，APP lifespan 启停 | `main.py:14, 47` 调 `start_scheduler`；间隔由 `loan_sweep_interval_sec` 配置（默认 60s，clamp 到 [10, 3600]） |
+| 鉴权 | ✅ 不暴露 HTTP；只能从 in-process 触发 | grep 全 codebase，无 endpoint 直接调用 `run_sweep_once` |
+| 间隔修改入口 | ✅ `PUT /api/v1/site-config/loan_sweep_interval_sec`，superuser only | `site_config.py:39, 44, 76-80` |
+| max_instances=1 | ✅ APScheduler 配置；上一轮没跑完不会触发新轮 | `loan_sweep.py:80` |
+| 单用户独立事务 | ✅ 每个 uid 独立 `async_session_maker()` + `session.begin()` | `loan_sweep.py:46-56`；用户 N 失败不回滚 N-1 |
+| 全局回滚（rate 查询失败） | ✅ skip 整轮 | `loan_sweep.py:33-35` |
+| 幂等（重复触发） | ✅ 实质幂等 | accrue 把 `last_accrued_at` 推到 now；后续短时间内再 tick，elapsed≈0 → no-op；不会双扣。但**不是显式幂等键**（无 sweep_id / batch_id），见 [P3-LOAN-06] |
+| 用户 repay 与 sweep 同时 | ✅ | 两端都 `with_for_update`；先到拿锁，后到看到的是已结息后的状态 |
+| 多实例部署冲突 | ❌ **没有分布式锁** | 见 [P2-LOAN-07] |
+| 调度器进程崩溃 / 漏跑 | ✅ accrue 用 elapsed 自动补齐；下次触发时 `elapsed_sec` 是真实间隔 | `accrue_interest` 公式按时间累计而非按 tick 数 |
+| 异常吞噬 | ✅（_tick_safe）然 ❌ 缺告警 | `loan_sweep.py:62-66` 只 `logger.exception`；连续失败无告警机制 |
+
+**强平 / 风控**：
+
+**审计结论：当前系统没有任何形式的强平（force-liquidate / margin call）。**
+
+证据：
+- `grep -rn "强平\|liquidate\|liquidation\|force.sell\|margin" backend/app/` 仅命中 Task 3 已审计的 `user.py:get_user_summary` 内的 LMSR 清算价值估算（用于「净资产」展示），**那是只读计算，不会触发卖出**。
+- `loan_sweep.run_sweep_once` 只调 `accrue_interest`，没有任何卖持仓 / 扣 cash / 标记违约的代码路径。
+- `compute_max_borrow` 只控**新增**借款上限，对已有 debt 因复利涨过净资产线（margin call 触发线）无任何反应——账户可以一直在水下（cash + holdings_value < debt），系统不会自动减仓。
+- 唯一让 debt 减少的入口是用户主动 repay（消耗 cash）或管理员 forgive_debt。
+
+**这意味着**：账户进入水下（net worth 为负）后，债务在 daily_rate=1% 下每天涨 1%，永远涨下去，直到 Decimal(16, 6) 溢出（理论上 ~10^10，按 1%/d 复利从 1000 起步约 1900 天 ≈ 5 年才会溢出）。**这是设计选择还是疏漏？需要产品确认**——但从安全审计角度看，这不是 P0/P1 资金漏洞（没有钱被无中生有），是产品功能缺口（坏账无清理机制）。Task 3 已标 `_holdings_value` buggy 让 max_borrow 偏高，加剧了这个缺口的暴露面。**整体评定 P2**（[P2-LOAN-08]）。
+
+**60847ad fix 复核结论**：fix 实现正确，min 三方封顶逻辑严密。所有写入路径（borrow / repay / force_loan / forgive_debt / market.py buy/sell 的 accrue 钩点）都通过 `loan_service` 或 `_lock_user`，没有绕过封顶的旁路。
+
+**5771b45 invariant 复核结论**：
+- 不变量是 `u.debt >= 0 AND u.cash >= 0`，断言点在 `increase_debt` 末尾（`loan_service.py:72-74`）和 `decrease_debt` 末尾（`loan_service.py:114-116`）。
+- 绕过路径分析：
+  - market.py buy/sell 直接 `locked_user.cash -= pay`（行 448、`+= net` 行 566）——**不经 loan_service 的不变量检查**。但有 `if locked_user.cash < pay: HTTPException("现金不足")`（行 444）作为本地防御。卖出加 cash 不可能让 cash 变负。
+  - market.py settle 路径（`u.cash += pay` 行 734）只增加 cash，不会让 cash 变负。
+  - `force_loan` / `forgive_debt` 走 `loan_service`，受不变量保护。
+  - 所有 debt 写入仅经 `loan_service` 两个函数 + `accrue_interest`（accrue 按 factor 乘正数 → 不可能为负）。
+- **不变量在 loan 写入路径上无可绕过的旁路**；market.py 的 cash 写入有自己的 `cash < pay` 检查。整体防御层次完整，是合理的纵深防御。
+- **DB CHECK 约束**（`ck_user_cash_non_negative` / `ck_user_debt_non_negative`）作为最终防线，即使应用层都漏，DB 也会 raise（事务回滚 + 500）。这是一道好底线。
+
+#### 发现
+
+##### [P2-LOAN-01] BORROW 额度预检 TOCTOU（concurrent borrow 可越线）
+- **位置**：`backend/app/api/v1/loan.py:82-93`
+- **类别**：并发安全 / 业务逻辑
+- **复现**：
+  1. `user` 从 `Depends(current_active_user)` 取（无锁）；`hv = await _holdings_value(...)` 也无锁；`max_borrow = compute_max_borrow(user, hv, k)` 用 PRE-lock snapshot。
+  2. `if amount > max_borrow: 400` 通过。
+  3. `await loan_service.increase_debt(...)` 在锁内 accrue 后只检查 `amount > 0` 和不变量 `debt >= 0 / cash >= 0`，**不重新校验 amount 是否在新 max_borrow 内**。
+  4. 两个并发 borrow 请求都看到同一份 PRE-lock max_borrow=500，各自 amount=400 → 两个都通过预检 → 都进入 service → 两个都成功，最终 debt=800 实际超过 max_borrow=500。
+- **影响**：
+  - 用户能在并发请求下借超 max_borrow（违反杠杆 k 限制）。
+  - 配合 Task 3 已发现的 `_holdings_value` 高估问题，可被攻击者用浏览器多 tab 同时点「借款」放大效果。
+  - 不是 P0（钱不被无中生有，debt 同步增加，cash 守恒）；但是是 P1 资金风控偏差（可绕过最大杠杆）。
+- **下调到 P2 的理由**：实际复现需要并发 + 用户主动操作；攻击收益是「多借一些钱」而不是「免费拿钱」（仍要付利息）；nginx 限速 `/loan` 一定程度收敛并发面（虽然 CLAUDE.md 限速段没列 loan，需要确认）。
+- **修复建议**：
+  ```python
+  # 锁内重新校验
+  async def increase_debt(..., max_borrow_check: Optional[Decimal] = None):
+      ...
+      if max_borrow_check is not None:
+          # 锁内重算 max_borrow，amount > max_borrow 时 raise LoanServiceError
+          ...
+  ```
+  或在 service 层增加 `max_active_debt_check` 参数，由 handler 传 `compute_max_borrow(user_locked, hv_locked, k)` 锁内重算。
+- **状态**：未修，留 P1 阶段总结与 phase-2 实施
+
+##### [P2-LOAN-04] ACCRUE 长闲置账户无利息上限
+- **位置**：`backend/app/services/loan_service.py:15-27`
+- **类别**：业务边界 / DoS / 经济安全
+- **复现**：
+  1. 用户借款 1000，立即停用账户（is_active=false 或长时间不登录、sweep 又因故停跑）。
+  2. `last_accrued_at` 是借款那天；6 个月后某次 buy/sell/repay/force_loan 触发 accrue。
+  3. `elapsed_sec = 86400 * 180`，`factor = 1 + 0.01 * 180 = 19`（按线性 elapsed 公式），`debt = 1000 * 19 = 19000`。
+  4. 单次跳变 18000；用户没有任何提前预警机制。
+- **影响**：
+  - 单纯审计上不算「跑负」（debt 涨是合理逻辑），但产品体验灾难——用户回来发现欠 19 倍。
+  - 配合 [P2-LOAN-08]（无强平）形成「越欠越多 + 不会强平」的债务永续循环。
+  - 审计角度：debt 数值若涨过 `Decimal(16, 6)` 上限 ~9.9e9，会在 quantize 时溢出，触发 `decimal.InvalidOperation` → 500，导致后续 buy/sell/repay 全死。理论攻击面：恶意用户借大额后离线 → 制造系统级 500。
+- **修复建议**：
+  - accrue 内对 `elapsed_sec` 设上限（如 7 天，超出按 7 天累计），`max_elapsed_sec = 7 * 86400` 之类。
+  - 或借款时强制定期归还机制 / 到期日。
+  - 或 sweep 主动告警「单用户 debt > 阈值」。
+- **状态**：未修，建议 phase-2 实施
+
+##### [P2-LOAN-05] daily_rate 运行时调整会回溯计算整个 elapsed 区间
+- **位置**：`backend/app/services/loan_service.py:25` + `api/v1/site_config.py:62-85`
+- **类别**：业务逻辑 / 时序一致性
+- **复现**：
+  1. 用户欠 1000，`last_accrued_at = T0`，daily_rate=0.01。
+  2. 一周后（T0+7d）admin 通过 `PUT /site-config/loan_daily_rate` 改成 0.001。
+  3. 改完立即触发 sweep（或用户买/卖/还款触发 accrue）：`elapsed_sec = 86400*7`，但 `daily_rate` 取的是新值 0.001，`factor = 1 + 0.001*7 = 1.007`，应有 7% 利息只算到 0.7%。
+  4. 反之亦然——admin 调高利率会让用户「补缴」过去 elapsed 的差额。
+- **影响**：
+  - 不会让 cash/debt 跑负（数学上 factor > 0）。
+  - 但破坏「按当时利率结息」语义；用户体验上是「我借的时候说好 1%，怎么突然变 0.5%」（往下还好）或「突然变 5%」（投诉）。
+  - 实操上 admin 几乎不会高频改 daily_rate，攻击面很窄。
+- **修复建议**：
+  - 调整 daily_rate 之前先全量 sweep（把 last_accrued_at 推到「当前 rate 已生效之前」的 now）。
+  - 或在 site_config handler 改 daily_rate 时主动调用 `await loan_sweep.run_sweep_once()`。
+- **状态**：未修，建议 phase-2 实施
+
+##### [P2-LOAN-07] sweep 没有分布式锁，多实例会重复结息
+- **位置**：`backend/app/services/loan_sweep.py:69-82`
+- **类别**：分布式 / 部署
+- **复现**：
+  1. 部署改成多实例（k8s replica > 1）。
+  2. 每个实例都启动自己的 APScheduler，每个间隔都跑一次 `run_sweep_once()`。
+  3. 两个实例同时进入循环 → 同一用户被两次 `with_for_update`（其中一个等锁）→ 第一个把 last_accrued_at 推到 now → 第二个 accrue 时 elapsed≈0 → 实质 no-op。**所以幸运地不会双扣。**
+- **影响**：
+  - 当前实质幂等（依赖 with_for_update + last_accrued_at 推进语义），但是**隐式**幂等。
+  - 任何对 accrue 公式的改动（比如改成「按 tick 数累计」而非「按 elapsed 累计」）都会把这个隐式属性破坏，造成多实例下双扣。
+  - 当前部署是单实例（docker-compose），所以本期不影响。
+- **修复建议**：
+  - 显式分布式锁（Redis SETNX 或 PG advisory lock）保护 sweep 入口。
+  - 或转移到外部 cron（k8s CronJob / systemd timer）+ 单实例确保。
+- **状态**：未修，phase-2 多实例部署前必修
+
+##### [P2-LOAN-08] 无强平 / 无坏账清理机制（产品缺口）
+- **位置**：（缺失）`loan_sweep.py` 没有 force-liquidate 路径
+- **类别**：业务功能 / 经济安全
+- **复现**：
+  1. 用户借满杠杆 → 行情走反 → `cash + holdings_value < debt`（净值为负）。
+  2. 用户不主动 repay，sweep 持续累息 → debt 永远涨。
+  3. 系统永不强平、不通知、不冻结。
+- **影响**：
+  - 不是 P0（没有钱凭空生成）。
+  - 是产品缺口：坏账永久存在；max_borrow 公式靠 `cash + holdings_value` 算的「净资产」，不影响坏账存量。
+  - 配合 [P2-LOAN-04] 长闲置 + 配合 Task 3 `_holdings_value` 高估，是债务永续 + 借款额度被高估的组合。
+- **修复建议**：
+  - 设计 phase-2 强平模块：净资产线触发自动卖出持仓还债，清盘后还不够则记坏账（DB 流水）。
+  - **必须**先把 `_holdings_value` 修正为清算口径（带卖出滑点+手续费），否则强平依据是错的。
+- **状态**：产品决策待定，建议 phase-2 立项
+
+##### [P3-LOAN-02] `test_repay_exceeds_cash_400` 是 stale test（60847ad 后已不再 400）
+- **位置**：`backend/tests/test_loan_api.py:145-149`
+- **类别**：测试覆盖 / 回归保护
+- **复现**：
+  - 该测试 setup `cash=30, debt=200, last_accrued=None`，POST `/loan/repay {"amount": "100"}`，期望 `r.status_code == 400`。
+  - 当前 handler 代码（60847ad 后）：`if user.cash <= 0 and user.debt > 0: 400` —— `user.cash=30 > 0` → 不早 reject。`decrease_debt` 内 accrue（last_accrued=None → no-op），`effective = min(100, 200, 30) = 30`，正常返回 200。
+  - **该测试现在应该 fail**（除非 pytest 实际跑过未发现，需要本地复现）。
+- **影响**：
+  - 测试名暗示业务规则「repay 超出 cash 应 400」已不再适用——业务规则现在是「静默封顶到 cash，返回 200 + effective 字段」，这是 60847ad 主动改变的。
+  - 旧测试还在断言旧行为，要么未实际运行，要么修复时漏更新。
+  - 不影响生产代码。
+- **修复建议**：
+  - 验证测试是否在 CI 跑过（建议 `pytest backend/tests/test_loan_api.py::test_repay_exceeds_cash_400 -v`）。
+  - 改为：断言 `r.status_code == 200 and r.json()["effective"] <= "30" and Decimal(r.json()["cash"]) == 0`。
+  - 同时补一条新测试：`test_repay_caps_to_cash_when_amount_exceeds`（场景同 walk-through）。
+- **状态**：本任务只读，记录待 phase-2 修
+
+##### [P3-LOAN-03] accrue 用线性 elapsed 而非真复利公式
+- **位置**：`backend/app/services/loan_service.py:25`
+- **类别**：业务公式 / 长期偏差
+- **复现**：
+  - 公式：`factor = 1 + daily_rate * elapsed_sec / 86400`（线性 elapsed）。
+  - 真复利：`factor = (1 + daily_rate)^(elapsed_sec/86400)` 或连续复利 `exp(daily_rate * elapsed_sec/86400)`。
+  - 当 sweep 间隔短（60s）时，每次 elapsed_sec=60，单次 factor≈1.0000069；按 sweep 复利 1440 次/天，等效日利率 = `1.0000069^1440 ≈ 1.01005`，与目标 0.01 几乎一致——**因为 sweep 高频 + 线性单步近似**。
+  - 当 sweep 跑不动（例如间隔变 1h 或漏跑 6h），单次 elapsed_sec=21600，单次 factor=1.0025，按 4 次/d 复利 → 等效日利率 1.01 (没变)。所以**线性 elapsed 公式在 sweep 频次任意时都给出近似日利率 = 设定值**——这是一个数学巧合（小数项展开）。
+- **影响**：
+  - 短间隔下精度足够；长间隔（如 [P2-LOAN-04] 6 个月没 accrue 一次）下 `factor = 1 + 0.01*180 = 19`，远高于真复利 `1.01^180 ≈ 6.0`——**会让长闲置账户被多收数倍利息**。
+  - 这同时是用户层面的不一致（有的用户被 sweep 每 60s accrue 一次走低偏差路径，长期闲置用户走高偏差路径）。
+- **修复建议**：
+  - 改用 `Decimal((1 + daily_rate) ** Decimal(elapsed_sec/86400))`（需要 mpmath / decimal pow）。
+  - 或在 [P2-LOAN-04] 修复时顺便用 elapsed_sec 上限 7d 隐式约束最大单次偏差。
+- **状态**：未修，与 [P2-LOAN-04] 联动
+
+##### [P4-LOAN-04] 缺乏 LoanRecord / 资金流水审计表
+- **位置**：`backend/app/models/base.py`（缺失 LoanRecord 模型）
+- **类别**：可观测性 / 合规
+- **复现**：
+  - 当前 borrow / repay / accrue / sweep / force_loan / forgive_debt 都只在 `logger.info` 输出文本日志（结构化字段在前缀）。
+  - 没有任何持久化的 loan_record 表：用户视角无法看历史借还（前端 Loan.vue 只展示当前 quota）；admin 视角排查纠纷只能 grep 应用日志。
+- **影响**：
+  - 真发生纠纷（用户说「我没借 100」），admin 只能看应用日志（默认 7d 留存），无法做对账。
+  - 不是安全洞，是合规 / 可观测性缺口。
+- **修复建议**：
+  - phase-2 加 `LoanRecord(id, user_id, type[borrow/repay/accrue/forgive/force], amount, debt_after, cash_after, daily_rate, reason, created_at)` 表；6 个写入入口都补流水。
+  - 配合 admin 后台查询页。
+- **状态**：未修，phase-2 立项
+
+##### [P4-LOAN-09] sweep 无连续失败告警
+- **位置**：`backend/app/services/loan_sweep.py:62-66`
+- **类别**：可观测性
+- **复现**：sweep tick 抛异常时只 `logger.exception`；连续多次失败（DB 故障、site_config 表丢失、code bug）无任何主动告警。
+- **影响**：sweep 长期不跑 → 累积漏跑利息 → 长闲置账户突发跳变（[P2-LOAN-04] 触发条件之一）。
+- **修复建议**：连续 N 次失败时主动 push 告警（webhook / 邮件）；或 admin 后台展示 sweep 健康状态卡片（last_success_at, last_failure_count）。
+- **状态**：未修，phase-2 立项
+
+#### 留给后续阶段的线索
+
+- **强平 / 坏账模块**（[P2-LOAN-08]）属于产品 + 安全双重缺口，phase-2 必须立项；先决条件是修 `_holdings_value`（Task 3 P2）使其用清算口径估值。
+- **borrow TOCTOU**（[P2-LOAN-01]）是本次 Task 4 找到的最有意义的并发安全问题，phase-2 修服务层「锁内重算 max_borrow」即可。
+- **rate 调整回溯**（[P2-LOAN-05]）和 **sweep 多实例**（[P2-LOAN-07]）都是部署/运维层的隐患；当前单实例部署 + admin 不会频繁改 rate，本期不影响生产，但要写进运维 runbook。
+- **LoanRecord 审计表**（[P4-LOAN-04]）建议合并到 phase-2 「资金流水」专题，与已有的 Position transactions 一起做一致性。
+- **stale test**（[P3-LOAN-02]）属技术债，下次有人改 loan API 时一并清理。
+- 长闲置 + 线性 elapsed 复利公式（[P2-LOAN-04] + [P3-LOAN-03]）联动：单次 fix（elapsed_sec 上限）能同时缓解两个问题。
+
 
 ### 兑换码资金流
 （Task 5 填写）
