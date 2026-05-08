@@ -912,7 +912,7 @@ Txn-B: SKIP LOCKED → 无可用码 (code-X 被锁) → SOLD_OUT
   1. 攻击者在**任意一个使用相同 Casdoor 实例的其他应用**（或其名下另一组织/应用）登录拿到 `id_token`/`access_token`（其 `sub` 是攻击者自己）。
   2. 攻击者已在本站完成首次登录（`User.casdoor_id = X`）。
   3. 由于 `verify_token` 不校验 `iss`（不限定签发方）、不校验 `aud`（不限定本站 client_id）、不要求 `nonce`，**任意被同一 JWKS 信任的 RS256/ES256 JWT 都能通过签名校验**。
-  4. 配合 [P1-AUTH-02] / [P0-AUTH-03] 的 code 注入路径，攻击者把自己在他应用拿到的 token 走任意能注入 token 的入口（参见 [P0-AUTH-03]）即可被本站接受为 `sub=X` 的用户。
+  4. 配合 [P0-AUTH-02] / [P0-AUTH-03] 的 code 注入路径，攻击者把自己在他应用拿到的 token 走任意能注入 token 的入口（参见 [P0-AUTH-03]）即可被本站接受为 `sub=X` 的用户。
 - **影响**：
   - 多租户 Casdoor 部署下，**别的应用拿到的 id_token 可被本站接受**（只校验签名）→ 取决于 sub 唯一性能否避免。Casdoor 默认 `sub` 是用户全局 ID，跨应用同一用户 sub 相同——所以**不直接给账户接管**，但任何 sub 与已注册 casdoor_id 重合的 token 都可能被吃掉。
   - 真正的爆点是 **`exchange_code` 拿到的 token 是 access_token 还是 id_token 时，缺乏 audience 锁定** → Casdoor 只要把 access_token 颁发给任一别的应用（`aud=other_app`），同一用户的 access_token 也会被本站 `verify_token` 接受。
