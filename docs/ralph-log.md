@@ -1283,3 +1283,35 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - 前端展示 effective + 输入超额预览
 - 加 2 条回归测试
 **验证** type-check ✅ / build ✅ / py_compile ✅；pytest 此环境仍 hang 跑不了，回归测试代码 by inspection
+
+## 2026-05-08 — 上线前压测套件（loadtest/）
+**触发** 用户问 200 并发会不会崩；prod 是 2C/4G/3MB·s⁻¹ 弱机，开放用户前要先打一遍。
+**目标** 写好「全套压测 + 观测 + 清理」脚本，**只准备不执行**——执行交给用户在 prod 机本地手动跑。
+**范围** 仅新增 `loadtest/`，加上 `deploy/nginx.conf` 一处压测白名单。
+
+**改动**
+- `loadtest/seed/`：seed_users.sh（200 个 `casdoor_id='loadtest:NNN'` 用户）+ seed_markets.sh（5 个 `[LT]` 市场覆盖热/冷/高 b/低 b/多选）+ mint_tokens.{py,sh}（容器内复用 `create_access_token` 离线签 JWT，不动 Casdoor）+ backup_before.sh（pg_dump 全库 → backups/loadtest_pre_*.sql.gz）
+- `loadtest/scenarios/`：smoke.js（端点验证）+ trade_ramp.js（1→200 VU 阶梯，集中打 HOT_2OPT 看锁竞争）+ sse_fanout.js（200 SSE 订阅 + 50 trader 触发广播）+ lib/auth.js（SharedArray 加载 tokens.txt + VU→token 映射）
+- `loadtest/record/`：host.sh（CPU/mem/iowait/load + docker stats 1Hz CSV）+ pg.sh（pg_stat_activity / pg_locks 周期 + pg_stat_statements top-50）+ app_tail.sh（>500ms 和 5xx 过滤）
+- `loadtest/cleanup/`：cleanup.sql（按 FK 顺序 DELETE，事务包裹 + 残留校验）+ cleanup.sh + restore.sh（从 *.sql.gz 完整恢复）
+- `loadtest/README.md`：k6 安装 + 跑序 + abort 阈值 + 收尾清单
+- `deploy/nginx.conf`（**红线，已得用户授权**）：加 `geo $is_loadtest` + `map $limit_key`，白名单（127.0.0.1）的 limit_key 为空字符串绕过 limit_req_zone；正式上线前需 revert（README 已记）
+
+**风险 & 回滚**
+- nginx.conf 改动：用户上线前忘了删 127.0.0.1 那行 → 同机访问全部不限速。README 显眼提示 + 注释里也写了。
+- 离线签的 JWT 含 SECRET_KEY 签名，tokens.txt 泄露 = 任意账户接管。README 强制收尾删除。
+- cleanup.sql 用 `LIKE 'loadtest:%'` / `LIKE '[LT]%'` 严格隔离，最末加 `DO $$ ... RAISE EXCEPTION` 校验残留=0，事务包裹失败回滚。
+
+**验证**
+- `bash -n` 所有 .sh：待执行
+- `python -m py_compile mint_tokens.py`：待执行
+- `nginx -t` on patched config：待执行（用 docker run nginx-alpine 临时验语法）
+- 实际压测：**未执行**——用户在 prod 机本地跑
+
+**未做 / 留给用户**
+- 在 prod 机器上 `apt-get install -y k6`（README 给了 deb repo 命令）
+- 在 prod 机器上跑 README 里的 10 步流程
+- 跑完后 revert nginx 白名单 + revert 后 reload
+- pg_stat_statements 扩展启用（README 里说了，没启用不影响 active/locks 采样）
+
+**分支** `ralph/2026-05-08-loadtest-prep`，未 push。
