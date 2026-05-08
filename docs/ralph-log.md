@@ -1428,3 +1428,20 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档，回滚 = git revert。
 **验证**：只读；无代码改动；通过 grep + 阅读双重确认 `auth.py:108-131` 无锁状态。type-check/lint N/A。
 **下一轮**：Task 8 admin gate 覆盖矩阵。
+
+## 2026-05-09 — P1 Task 8 admin gate 覆盖矩阵
+**目标**：完整审计 api/v1/ 下所有路由的 admin guard 覆盖情况，构建覆盖矩阵，确认无 P0 未保护路由。
+**动机**：Task 5 已确认 admin_redemption.py 8 条路由，本任务推广至全部文件。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 8 填写）」为完整矩阵（18 条 admin-class + 27 条 user-class + guard 自身审计 + P3-ADMIN-03）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- 全量审计 43 条路由，识别出 18 条 admin-class 路由。
+- 所有 18 条均有 `Depends(current_superuser)` 保护 → **无 P0/P1 级未保护路由**。
+- guard 本身双层校验顺序正确（先 401 再 403），无旁路路径。
+- sqladmin 面板通过独立 `AdminAuth` 保护（每请求重查 DB），比 JWT 路由撤销更及时。
+- 发现 P3-ADMIN-03：4 条 admin 端点散落在 `user.py`（`/api/v1/user/` 前缀），不在 nginx `/admin` 2r/s 限速范围，可维护性低。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；grep 逐文件确认 guard 参数。
+**下一轮**：Task 9 IDOR / 横向越权矩阵。
