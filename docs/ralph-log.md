@@ -1315,3 +1315,15 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - pg_stat_statements 扩展启用（README 里说了，没启用不影响 active/locks 采样）
 
 **分支** `ralph/2026-05-08-loadtest-prep`，未 push。
+
+---
+
+## 2026-05-09 15:59 — 安全审计阶段 1 启动
+**目标**：业务核心 + 认证授权审计（spec §4.1）
+**动机**：上线前最后一道安全线，参考 docs/superpowers/specs/2026-05-08-security-audit-design.md
+**范围**：仅限 backend，仅读不改
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：建报告骨架
+**风险 & 回滚**：仅文档，回滚 = 删文件
+**验证**：N/A（仅文档）
+**下一轮**：Task 1 LMSR 数值安全
