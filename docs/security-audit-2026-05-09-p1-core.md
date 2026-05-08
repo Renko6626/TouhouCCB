@@ -412,7 +412,7 @@
 | `User.debt` | `Numeric(16, 6)`，CHECK `debt >= 0` | 债务 |
 | `User.debt_last_accrued_at` | `DateTime(timezone=True)`，nullable | 上次结息时间；debt=0 时为 None |
 
-**没有独立 Loan / LoanRecord 表**。债务是 User 的两列，全程没有借/还/结息流水（只有 `logger.info` 文本日志）——审计/对账只能靠应用日志，不能靠 DB。**这是 P2 级别的可观测性缺口**（见下文 [P4-04]）。
+**没有独立 Loan / LoanRecord 表**。债务是 User 的两列，全程没有借/还/结息流水（只有 `logger.info` 文本日志）——审计/对账只能靠应用日志，不能靠 DB。**这是 P2 级别的可观测性缺口**（见下文 [P3-LOAN-04]）。
 
 #### BORROW 路径 (`api/v1/loan.py:68-105`)
 
@@ -644,7 +644,7 @@
   - 或在 [P2-LOAN-04] 修复时顺便用 elapsed_sec 上限 7d 隐式约束最大单次偏差。
 - **状态**：未修，与 [P2-LOAN-04] 联动
 
-##### [P4-LOAN-04] 缺乏 LoanRecord / 资金流水审计表
+##### [P3-LOAN-04] 缺乏 LoanRecord / 资金流水审计表
 - **位置**：`backend/app/models/base.py`（缺失 LoanRecord 模型）
 - **类别**：可观测性 / 合规
 - **复现**：
@@ -658,7 +658,7 @@
   - 配合 admin 后台查询页。
 - **状态**：未修，phase-2 立项
 
-##### [P4-LOAN-09] sweep 无连续失败告警
+##### [P3-LOAN-09] sweep 无连续失败告警
 - **位置**：`backend/app/services/loan_sweep.py:62-66`
 - **类别**：可观测性
 - **复现**：sweep tick 抛异常时只 `logger.exception`；连续多次失败（DB 故障、site_config 表丢失、code bug）无任何主动告警。
@@ -671,7 +671,7 @@
 - **强平 / 坏账模块**（[P2-LOAN-08]）属于产品 + 安全双重缺口，phase-2 必须立项；先决条件是修 `_holdings_value`（Task 3 P2）使其用清算口径估值。
 - **borrow TOCTOU**（[P2-LOAN-01]）是本次 Task 4 找到的最有意义的并发安全问题，phase-2 修服务层「锁内重算 max_borrow」即可。
 - **rate 调整回溯**（[P2-LOAN-05]）和 **sweep 多实例**（[P2-LOAN-07]）都是部署/运维层的隐患；当前单实例部署 + admin 不会频繁改 rate，本期不影响生产，但要写进运维 runbook。
-- **LoanRecord 审计表**（[P4-LOAN-04]）建议合并到 phase-2 「资金流水」专题，与已有的 Position transactions 一起做一致性。
+- **LoanRecord 审计表**（[P3-LOAN-04]）建议合并到 phase-2 「资金流水」专题，与已有的 Position transactions 一起做一致性。
 - **stale test**（[P3-LOAN-02]）属技术债，下次有人改 loan API 时一并清理。
 - 长闲置 + 线性 elapsed 复利公式（[P2-LOAN-04] + [P3-LOAN-03]）联动：单次 fix（elapsed_sec 上限）能同时缓解两个问题。
 
