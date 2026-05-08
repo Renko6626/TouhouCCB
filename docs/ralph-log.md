@@ -1394,3 +1394,20 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档，回滚 = git revert
 **验证**：只读；无代码改动，type-check/lint N/A
 **下一轮**：Task 6 SSO / Casdoor / Token
+
+## 2026-05-09 — P1 Task 6 SSO / Casdoor / Token 安全审计
+**目标**：完成阶段 1 Task 6，对 Casdoor SSO 接入 + 本站 JWT 颁发链做只读审计；产出 P0–P3 issue 清单留给后续修复轮次。
+**动机**：CLAUDE.md 红线列出 `api/v1/auth.py` + `core/{oidc,users,config,admin}.py` 改错全员无法登录；必须先有审计基线再动逻辑。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「### SSO / Casdoor / Token (Task 6 填写)」为完整审计内容（OAuth/OIDC 必查 14 项表 + 12 条发现 + 后续阶段线索）
+**关键判断**：
+- JWT 签名校验本体到位（RS256/ES256 白名单 + JWKS 公钥 + 非 verify=False），但 **`iss` 未校验、`aud` 显式禁用、`nonce` 完全缺失** → P0
+- 后端 `/auth/callback` **完全不校验 OAuth state**（state 仅前端 sessionStorage 比对），CSRF / 账号固定攻击面成立 → P0
+- `redirect_uri` 客户端可控、无服务端白名单 → P0（被 Casdoor 注册回调列表兜底，但仍需修）
+- 无 `/logout` 端点、refresh token 不可撤销、不轮换 → P1×2
+- sqladmin SessionMiddleware 默认 cookie 偏弱、前端 token 存 localStorage → P2×2
+- 共 3×P0 + 3×P1 + 2×P2 + 4×P3
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint/pytest N/A。`grep` + 阅读双重确认 `auth.py` 中不存在 logout / state 校验代码路径。
+**下一轮**：Task 7 首位 admin 自动晋升竞态（已在本轮 Task 6 中先行点出 `auth.py:107-134` 是病灶位置，Task 7 深入复现路径）。
