@@ -1,0 +1,4 @@
+# 压测产生的文件不入库
+tokens.txt
+results/
+scenarios/.env
