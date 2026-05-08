@@ -1445,3 +1445,21 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档；回滚 `git revert`。
 **验证**：只读，无代码改动，type-check/lint N/A；grep 逐文件确认 guard 参数。
 **下一轮**：Task 9 IDOR / 横向越权矩阵。
+
+## 2026-05-09 — P1 Task 9 IDOR / 横向越权矩阵
+**目标**：审计 `api/v1/` 所有路由的横向越权风险，区分 system-shared / user-owned / admin-only，检查 ownership 校验是否完整；同时检查 SSE 用户隔离和列表类隐式 IDOR。
+**动机**：IDOR 是预测市场高频 bug——用户可能用他人 loan_id/redemption_id/position_id 读取或修改数据；需逐路由逐文件确认 ownership 校验位置。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 9 填写）」为完整 IDOR 矩阵（15 条 ID-参数化路由 + SSE 用户隔离分析 + 13 条列表接口隐式 IDOR + P3-IDOR-01）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- **无 P0/P1 IDOR**：所有用户私有资源（持仓 `Position`、交易历史 `Transaction`、贷款 `loan`、兑换码 `RedemptionCode`）均通过 `current_active_user` 自动绑定，无任意 ID 参数可被替换发起横向越权。
+- `GET /redemption/my/{code_id}` 和 `POST /redemption/my/{code_id}/mark-used`：均检查 `c.bought_by_user_id != user.id → 404`，正确。
+- 借款/还款接口不接受 `user_id` 参数，直接用 `current_active_user.id` 操作，无越权路径。
+- SSE（`stream.py`）按 `market_id` 广播，不含用户私密数据，无用户隔离需求。
+- 发现 P3-IDOR-01：3 个公开端点（`/market/{id}/trades`、`/recent-trades`、`/leaderboard`）无 auth，暴露 `username+shares+price+net_worth`，可供追踪用户交易行为；属设计权衡，非漏洞，但有隐私加固空间。
+- `leaderboard` 中 `net_worth = cash - debt`（不含持仓），口径与 `/user/summary` 不同——标记为信息但非安全问题。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；逐文件阅读 + grep 双重确认 ownership 校验位置。
+**下一轮**：Task 10 models/base.py 无迁移机制风险。
