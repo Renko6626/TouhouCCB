@@ -100,7 +100,177 @@
 - 持仓估值用 LMSR 清算价值（`user.py:87-95, 149-156` 已与 `services/realtime.py` 推送口径对齐），与 Task 3「持仓估值与精度」交叉。
 
 ### 资金一致性 / 事务原子性
-（Task 2 填写）
+
+**审计文件**：`backend/app/api/v1/market.py`（1058 行，全文阅读）+ `backend/app/core/database.py`（61 行，全文）+ `backend/app/services/lmsr.py` 调用点（重读 buy/sell/quote/resolve）+ `backend/app/models/base.py`（187 行，全文，DB 约束）+ `backend/app/services/loan_service.py:15-27`（accrue_interest）+ `backend/app/services/site_config.py:17-42`（get_decimal 只读）+ `backend/app/schemas/market.py`（TradeRequest / QuoteRequest）+ `backend/tests/`（仅 `test_redemption_api.py` 命中关键字，无 buy/sell 并发测试）
+**审计日期**：2026-05-09
+
+**Session/事务模型**：
+
+- 每请求一会话，由 `database.py:44-46 get_async_session` 通过 `async_session_maker()` 注入；`expire_on_commit=False`（`database.py:34`），commit 后仍能读列。
+- 写边界统一用 `database.py:49-61 managed_transaction(db)` 包：若 session 已在 tx 内则 commit，否则 `async with session.begin()` 显式开 tx 并由 contextmanager 在退出时 commit / 异常时 rollback。`market.py` 所有写路径（`buy_shares` 413、`sell_shares` 520、`resolve_market` 640、`close_market` 207、`resume_market` 888）都包了 `managed_transaction`。**例外**：`create_market` 直接 `await db.commit()`（`market.py:191`），但写的是新建 Market + Outcomes，无并发资金风险，可接受。
+- 行级锁辅助函数全部通过 `with_for_update()`：`_lock_market` (48)、`_lock_user` (59)、`_lock_outcomes_for_market` (73)、`_lock_outcome` (84) 与 `resolve_market` 内联的 `Market` (642)、`Outcome` (664)、`Position` (685)、`User` (728) FOR UPDATE。`buy/sell` 还对 Position 走 `select(...).with_for_update()`（455 / 524）。
+- 连接池：`pool_pre_ping=True`、`pool_recycle=settings.DB_POOL_RECYCLE`、`pool_size`、`max_overflow` 全部走配置（`database.py:21-26`），SQLite 走 `check_same_thread=False`。
+- DB 层防线：`User.cash >= 0` / `User.debt >= 0` / `Position.amount >= 0` 三条 `CheckConstraint`（`models/base.py:25-27, 124`）。即便应用层漏判，PG 会抛 `IntegrityError` 让 `managed_transaction` 回滚。
+
+**审计要点 vs 发现**（按 buy / sell / quote / resolve 列出）：
+
+#### BUY 路径（market.py:403-507）
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 单事务 | OK | `market.py:413 async with managed_transaction(db)` 包裹 414-481 全部读写，单 commit |
+| User 行级锁 | OK | `_lock_user` 用 `with_for_update()`（`market.py:59`），`buy_shares` 在 423 调用，先于 444 现金校验 |
+| Outcome / LMSR 状态锁 | OK | 414 `_lock_outcome` + 418 `_lock_outcomes_for_market` 全部 `with_for_update()`；写入在 449 |
+| Market 锁 | OK | 415 `_lock_market` `with_for_update()`，保证状态机不被并发改 |
+| Position 锁 | OK | 452-456 `select(Position).with_for_update()`；不存在时 460 `db.add` 新建 |
+| 滑点保护 | **缺失** | `schemas/market.py:39-42 TradeRequest` 仅 `outcome_id + shares: Decimal(gt=0)`，**无 max_price / max_cost / slippage_bps**；`market.py:444 if locked_user.cash < pay` 仅校验现金够用，不校验客户端预期价 |
+| 资金下界 | OK（多层） | 444 应用层 `cash < pay → 400`；DB 层 `ck_user_cash_non_negative`（`base.py:25`）兜底 |
+| 负 cash 可能性 | 未发现 | 锁顺序 + 应用判断 + DB CHECK 三层；下方并发场景已逐步推演 |
+| 异常回滚 | OK | `managed_transaction` 在异常时 `await session.rollback()` 后 raise（`database.py:56-58`）；handler 内**无** `try/except` 吞异常 |
+| 幂等性 | **缺失** | 无 `Idempotency-Key` / `client_request_id` 表；客户端重试或代理重发会重复成交，每次都扣钱、加仓、推送 SSE |
+| Fee 精度 | N/A | BUY 无手续费；`Transaction.fee = ZERO`（475-481），`gross = pay`，`avg_price = quantize_price(pay/shares_d)`（465）走 lmsr `quantize_price` 显式 HALF_UP |
+| Decimal/float 精度 | 已知设计 | 434/467/468 `float(shares_d)` 喂 LMSR；边界用 `quantize_cost/price` 转回 Decimal（已在 Task 1 [P3] 备案） |
+
+#### SELL 路径（market.py:510-621）
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 单事务 | OK | 520 `managed_transaction` 包 521-595 |
+| Position 锁（卖出关键） | OK | 521-525 `select(Position).with_for_update()`，527 `position.amount < shares_d → 400` |
+| Outcome / LMSR 状态锁 | OK | 530 `_lock_outcome` + 534 `_lock_outcomes_for_market`，写入在 567 |
+| Market 锁 | OK | 531 `_lock_market` |
+| User 行级锁 | OK | 539 `_lock_user`；net 在 566 加到 `locked_user.cash` |
+| 锁顺序 | **风险** | BUY 顺序 = Outcome → Market → Outcomes → User → Position；SELL 顺序 = Position → Outcome → Market → Outcomes → User。**不同顺序 → 同选项的并发 buy + sell 可能互相等锁死锁**（PG 自动检测并 abort 一方为 deadlock 40P01；无吞死锁的代码，FastAPI 会返回 500） |
+| 滑点保护 | **缺失** | 同上，`TradeRequest` 无 min_proceeds 字段 |
+| 负 shares / 持仓不足 | OK（多层） | 527 应用层判断；548 `old_q[target_idx] < float(shares_d)` 二次校验；DB `ck_position_amount_non_negative`（`base.py:124`）兜底 |
+| Outcome.total_shares 下界 | **无 DB 约束** | `models/base.py:97-104` Outcome 无 CHECK；应用层 548 用 float 比较，转 Decimal 后做 `outcomes[idx].total_shares -= shares_d` 在 567。理论上若 Position.amount 与 Outcome.total_shares 失同步（例如旧数据），可能让 total_shares 微负；DB 不拒 |
+| 异常回滚 | OK | 同 BUY |
+| 幂等性 | **缺失** | 同 BUY，重复 sell 会反复变现并放大 LMSR 价格冲击 |
+| Fee 精度 | OK（当前 fee=0） | `SELL_FEE_RATE = Decimal("0")`（37）；562 `(proceeds * 0).quantize(Decimal("0.000001"))` 不指定 rounding，默认 HALF_EVEN；**与 lmsr 的 HALF_UP 不一致**（已在 Task 1 [P3] 记录） |
+| cost_basis 比例减仓 | 风险（精度） | 569-572 `sold_ratio = shares_d / position.amount` 在 Decimal 里做除法，`position.cost_basis * sold_ratio` 再 quantize HALF_EVEN；累计多次小额卖出后 cost_basis 可能漂移（→ 持仓估值 Task 3） |
+
+#### QUOTE 路径（market.py:782-842）
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 纯读 | OK | 全程 `db.get` / `db.execute(select(...))`，无 `db.add` / `db.delete`，无 commit；`@router.post` 但仍是 read-only |
+| 副作用 | 无 | 不写 DB，不发布 BROKER 事件 |
+| 一致性快照 | **风险（弱）** | `db.get(Outcome)` 788、`db.get(Market)` 792、`select(Outcome)` 799 三段查询不在显式事务内，**未加 FOR UPDATE / FOR SHARE**；中间若有并发 buy 提交，`outcomes` 可能读到三段不一致的版本（READ COMMITTED 默认）。买家依据该 quote 立刻下 buy，落地价格可能不同；这是 LMSR + 显式风险，无法完全消除，但应在 UI 提示「报价仅供参考」 |
+| Spam / DB 写 | 无 | 无任何写入；唯一读成本是 1× User get（依赖注入） + 3 次 outcome/market query。CLAUDE.md 限速 10r/s |
+
+#### RESOLVE 路径（market.py:624-779，超管）
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| 单事务 | OK | 640 `managed_transaction` 包 641-755 |
+| Market 锁 | OK | 641-644 `with_for_update()` |
+| Outcome 全锁 | OK | 660-666 |
+| Position 全锁 | OK | 676-687 join 加 FOR UPDATE |
+| 重复结算 | OK（幂等） | 648 `if market.status == SETTLED → 直接返回当前状态`，不再重发兑付 |
+| User cash 加锁 | OK | 727-729 每个受益用户 FOR UPDATE 后 `u.cash += pay` |
+| Position 删除时机 | OK | 718 `await db.delete(pos)` 在事务内，与 cash 更新原子 |
+| 兑付精度 | OK | `payout_unit = quantize_cost(req.payout)`（636）；`payout_amt = pos.amount * payout_unit`（700）保持 Decimal，无 float 中转 |
+| 异常回滚 | OK | 732 用户消失时 raise → managed_transaction rollback |
+| 锁顺序 | OK（一致） | 单一处理器内固定 Market → Outcome → Position → User，与 buy/sell 不冲突（resolve 是超管路径，不与买卖并发预期重叠） |
+
+#### 其他写路径
+- `close_market` (201-217)、`resume_market` (882-901)：仅改 Market.status，单 `_lock_market` + managed_transaction，无资金风险。
+- `create_market` (171-198)：直接 `db.commit()`（191），新建市场无并发资金问题；但**与项目其他写路径模式不一致**（其它都用 managed_transaction），属代码异味。
+
+**并发竞态分析**（Step 4：同用户、同 outcome、两次并发 buy，每次 50% 现金）：
+
+设 user.cash=100，outcome.total_shares=0，b=100，市场处于 TRADING。
+
+请求 A 与请求 B 同时到达 `/market/buy`，shares 都让 LMSR 成本恰好 = 50。
+
+时序（PG，READ COMMITTED + FOR UPDATE）：
+
+1. `市场.py:413 A` 进入 `managed_transaction` → `_lock_outcome(market.py:84)` 在该 outcome 上拿到行写锁；`B` 在 84 行阻塞。
+2. `A` 接着 `_lock_market` 415、`_lock_outcomes_for_market` 418、`_lock_user` 423，全部成功（B 仍卡在第 1 步）。
+3. `A` 在 444 校验 cash=100 ≥ pay=50，扣 cash 至 50，`outcomes[idx].total_shares += shares_d`，写 Position，写 Transaction，managed_transaction 退出 → commit → 释放所有锁。
+4. `B` 此时拿到 outcome 锁，往下走；其后 `_lock_user` 423 拿到 user 锁，**重新读到 user.cash=50**（FOR UPDATE 强制读最新版本）；新一轮 LMSR 计算 pay≈50（因为 total_shares 已变，价格已上移，pay 实际略 > 50），444 判 50 < 50.x → 400「现金不足」回滚。
+5. **结论：单用户 + 两次并发 buy 不会让 cash 下穿 0**。锁顺序保证 A 持有 outcome 锁直到 commit，B 即便先到 444 也读到 A 写后的 cash。即便顺序倒换（B 先到 user 锁），由于 outcome 锁仍由 A 持有，B 同样阻塞在 outcomes_for_market 步。
+
+**LMSR 状态一致性**：`_lock_outcome` + `_lock_outcomes_for_market` 在 A commit 前持有所有 outcome 行锁，B 读到的 `total_shares` 必然是 A commit 之后的值，不会出现「两个并发 buy 读到同一旧 LMSR 状态、各自计算成本」的 TOCTOU。
+
+**潜在死锁**（Step 4 副产物）：BUY 路径锁顺序 = `Outcome → Market → Outcomes → User → Position`；SELL 路径锁顺序 = `Position → Outcome → Market → Outcomes → User`。同一用户先 buy 再 sell 不会冲突（串行）；但 **用户 X buy outcome O 与用户 Y sell outcome O 并发** 时：X 持 Outcome O 锁等 Position(X,O) 锁；Y 持 Position(Y,O) 锁等 Outcome O 锁——锁的 row id 不同（不同 Position 行），实际不会死锁。但若 X 与 Y 是**同一用户**同时 buy + sell 同一 outcome（极端：客户端 BUG / 重放）：X 等 Position(X,O)，Y 已持 Position(X,O) 等 Outcome O，X 已持 Outcome O——**死锁成立**。PG 会自动 abort 一方（40P01），FastAPI 返回 500。同账号同时 buy + sell 同选项的业务场景虽罕见，但 SSE 重连/前端按错按钮可触发。
+
+**发现**：
+
+#### [P1] 缺少滑点保护（max_price / max_cost），LMSR 价格被并发 / 大额单方向交易拉走时用户资金被静默消耗
+- **位置**：`backend/app/schemas/market.py:39-42`（`TradeRequest`），`backend/app/api/v1/market.py:436-445`（buy 计算 pay 后只校验 `cash < pay`），`market.py:554-566`（sell 计算 proceeds 后无下界校验）
+- **类别**：业务核心 / 资金安全
+- **复现**：
+  1. 用户 U 在 t0 调 `/market/quote`，得到 avg_price=0.40，shares=100，gross=40。
+  2. t1（数十毫秒后）在被另外用户 V 大额 buy 拉价后，U 提交 `/market/buy {outcome_id, shares=100}`。
+  3. 此时 LMSR 实际成本 = 60（价格 0.60），`market.py:444 cash(100) >= pay(60)` 通过 → 用户实际花 60 拿到与 quote 时同等数量的 shares，多付 50%。Sell 同理可能少收。
+  4. 没有 `max_price` / `max_cost` / `min_proceeds` 字段供客户端发出价格容忍区间，服务端也没有「与最近 quote 的偏差超过 X% 即拒绝」的兜底。
+- **影响**：单笔最多可让对手方 / 套利者吃掉用户预期的差价；与拉抬-诱单（price-pump-then-fill）组合时构成可重复的资金转移路径。LMSR 是 AMM，价格冲击与 b 成反比（b=100 默认），小市场（`liquidity_b` 小）冲击放大。属典型 DeFi/AMM「无 slippage cap」类问题。**实际可能的最大单笔损失**受 `cash` 上界限制（不会负），但相对损失可能 ≥ 50%。**P1**（单用户严重资金损失，可被市场操纵触发；非 P0 因为不能伪造负 cash）。
+- **修复建议**：
+  1. `TradeRequest` 增加可选 `max_cost: Optional[Decimal]`（buy）/ `min_proceeds: Optional[Decimal]`（sell），后端在 444 / 559 之后比对，超限直接 400。
+  2. 服务端默认 slippage cap：若客户端不传，按 `pay > expected_cost * 1.05` 拒绝（expected 基于交易前 LMSR 现价 × shares 估算）。
+  3. 文档明确 quote 与 buy/sell 之间不保证一致，前端 UI 显示价格冲击。
+- **状态**：未修复
+
+#### [P1] BUY 与 SELL 锁顺序不一致，同账号 buy+sell 同 outcome 并发触发死锁 → 500（DoS / 一致性）
+- **位置**：`backend/app/api/v1/market.py:414-456`（buy：先 `_lock_outcome` 414 / `_lock_outcomes_for_market` 418 / `_lock_user` 423 / Position FOR UPDATE 452-456）vs `market.py:521-539`（sell：先 Position FOR UPDATE 521-525 / `_lock_outcome` 530 / `_lock_outcomes_for_market` 534 / `_lock_user` 539）
+- **类别**：业务核心 / 并发一致性
+- **复现**：
+  1. 同账号在前端按错按钮或 SSE 重连后重发请求，导致同一 user × 同一 outcome 同时发出 buy + sell。
+  2. 请求 A（buy）拿到 Outcome O 行锁（414）后等 Position(U,O) FOR UPDATE（452-456）。
+  3. 请求 B（sell）拿到 Position(U,O) 行锁（521-525）后等 Outcome O 行锁（530）。
+  4. PG 检测到环 → 选 victim abort，返回 `40P01 deadlock detected`，SQLAlchemy 抛 `DBAPIError`，FastAPI 默认 500。Handler 无 retry。
+- **影响**：可被恶意客户端用来周期性产生 500，污染日志、消耗连接池槽位（pool_size 配置型）；并非资金被偷，但属可重复触发的可观测错误，且违反「同账号操作可串行化」的直觉。**P1**（DoS + 数据完整性轻度风险）。
+- **修复建议**：
+  1. 把 SELL 的锁顺序改为与 BUY 一致：先 `_lock_outcome` → `_lock_market` → `_lock_outcomes_for_market` → `_lock_user` → Position FOR UPDATE（且 Position 不存在则直接 400 「持仓不足」，因为 buy 路径才会创建 Position）。
+  2. 对 `OperationalError` (deadlock) 在 handler 外层加 1 次自动重试，间隔 50ms。
+- **状态**：未修复
+
+#### [P2] 无幂等键，重复请求 / 客户端重试会被多次成交
+- **位置**：`backend/app/schemas/market.py:39-42`（无 `client_request_id` / `Idempotency-Key`），`backend/app/api/v1/market.py:403-507`（buy）、`510-621`（sell）；模型层 `models/base.py:137-170 Transaction` 也无 client-side 唯一约束
+- **类别**：业务核心 / 资金安全
+- **复现**：
+  1. 客户端因网络抖动 / 504 / SSE 重连发出两次 `/market/buy {outcome_id, shares: 50}`；
+  2. 两次请求都成功，扣两次现金，建两次 Transaction，触发两次 SSE「trade」事件；
+  3. 没有任何键能让服务端识别「这是同一意图的重试」并幂等返回。
+- **影响**：网络不稳定时用户实际成交量翻倍。攻击面有限（限速 10r/s），但属典型金融接口必备特性缺失。P2。
+- **修复建议**：
+  1. `TradeRequest` 增 `client_request_id: UUID`；新建 `idempotency_key` 表 `(user_id, key) UNIQUE` + 缓存响应；同一键二次到达直接返回首次结果。
+  2. 短期：依赖 Web 客户端去重（不可靠）。
+- **状态**：未修复
+
+#### [P2] QUOTE 路径不在事务内、无锁，与 BUY 之间存在 TOCTOU（用户层）
+- **位置**：`backend/app/api/v1/market.py:782-842`（quote 全程 `db.get` / `db.execute(select)` 不加锁、不显式开 tx）
+- **类别**：业务核心 / 一致性
+- **复现**：
+  1. quote 在 t0 读到 outcome 状态 S0，返回 avg_price = P0。
+  2. 期间另一笔 buy 在 t0+ε 提交，total_shares 变。
+  3. 用户拿 P0 调 `/market/buy`，实际 LMSR 成本与 P0 不一致；如未来加滑点保护可缓解，否则参见 [P1 滑点]。
+- **影响**：单看 quote 这是 LMSR + 多用户系统的固有现象，但当前 schema 也未让客户端表达「我能接受的价差」，两者叠加放大可利用面。已在 [P1] 同步覆盖修复路径，这里仅记录现状。P2 加固性。
+- **修复建议**：与 [P1] 一并：客户端附带 max_cost / min_proceeds；可选项是 quote 返回 `quote_token` + 短 TTL（5 秒）服务端缓存的不可重放 token，buy 时携带回来比对。
+- **状态**：未修复
+
+#### [P3] BUY 路径调用 `_lock_outcomes_for_market` 重复锁了 `_lock_outcome` 已锁的行（无害但冗余）
+- **位置**：`backend/app/api/v1/market.py:414`（先锁单 outcome）+ 418（再锁该 market 全部 outcomes，包括第 414 行已锁的那个）
+- **类别**：代码加固
+- **复现**：PG `SELECT ... FOR UPDATE` 在同事务内对同一行可重入；不会死锁也不会 double-lock，但产生额外一次 SQL roundtrip。
+- **影响**：性能微影响，无安全问题。
+- **修复建议**：移除 414 `_lock_outcome` 调用，直接用 418 的 `_lock_outcomes_for_market` 结果中的 `outcomes[target_idx]`。SELL 同理。
+- **状态**：未修复
+
+#### [P3] `Outcome.total_shares` 缺 DB-level `CHECK >= 0`
+- **位置**：`backend/app/models/base.py:97-104`（Outcome 没有 `__table_args__` CheckConstraint）
+- **类别**：加固 / 模型层防线
+- **复现**：当前应用层（`market.py:548`）已用 float 校验 `old_q[target_idx] < float(shares_d) → 400`；但若数据迁移 / 修复脚本 / 未来直 SQL 写入未守此线，DB 不拒。
+- **影响**：与 User.cash / Position.amount 的 CHECK 保护一致性不齐；目前不构成可利用 bug，是加固类。P3。
+- **修复建议**：与 Task 10「无迁移机制风险」合并：起草迁移加 `CheckConstraint("total_shares >= 0")`。
+- **状态**：未修复
+
+**留给后续阶段的线索**：
+
+- 限速绕过 / 单 IP 击穿（buy 10r/s, quote 10r/s 但无滑点 → 拉抬攻击成本低）→ **阶段 3 / Task 11**。
+- 长事务 + 连接池：`buy_shares` 在事务内还要 `_loan_site_config.get_decimal` 与 `_loan_accrue`（buy 426-427），未来若增高复杂度可能导致事务持锁时间过长 → **阶段 3 性能 / DoS**。
+- `cost_basis` 按比例减仓的精度漂移（sell 569-572 HALF_EVEN）→ **Task 3 持仓估值与精度**。
+- `liquidity_b` 在 `Market` 模型层无 `>0` 约束 + 无迁移机制 → **Task 10**。
+- BROKER.publish 在 commit 后 await（buy 488 / sell 602）：若 BROKER 阻塞会让该 handler 长持响应，但事务已提交，资金一致性不受影响——**阶段 3 实时层**。
+- BUY/SELL 锁顺序问题修复后还应增加 `pytest.mark.asyncio` 并发测试覆盖。
+
 
 ### 持仓估值与精度
 （Task 3 填写）
