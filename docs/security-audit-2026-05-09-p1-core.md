@@ -1537,7 +1537,38 @@ T3: 系统中有两个 is_superuser=True 用户
 - `Outcome.total_shares` 无 DB 层 CHECK(>=0) 约束（Task 2 / Task 1 已记录）。
 
 ### 静态工具 triage 结果
-（Task 11 填写）
+
+**审计日期**：2026-05-09
+**工具**：bandit 1.9.4 + semgrep 1.162.0（venv `/tmp/secaudit-venv`，不污染项目依赖）
+
+**bandit 总览**：0 high / 0 medium / 2 low alerts（`-ll` 过滤后 0 条进入 results；全量模式可见 2 条 LOW/MEDIUM-confidence）
+
+**semgrep 总览**：4 alerts（rule packs：`p/python` / `p/owasp-top-ten` / `p/security-audit`）
+
+#### Triage 详情
+
+| 工具 | 规则 | 文件:行 | 判定 | 备注 |
+|---|---|---|---|---|
+| bandit | B105 hardcoded_password_string | `api/v1/auth.py:141` | 误报 | `"bearer"` 是标准 OAuth2 `token_type` 字面量，非密码 |
+| bandit | B105 hardcoded_password_string | `api/v1/auth.py:160` | 误报 | 同上，第二处 `"token_type": "bearer"` 响应字段 |
+| semgrep | python-logger-credential-disclosure | `api/v1/auth.py:79` | 重复（P3-AUTH-12） | `logger.error("OIDC token exchange failed: %s: %s", type(e).__name__, e)`；Task 6 P3-AUTH-12 已覆盖（明确引用 auth.py:79） |
+| semgrep | python-logger-credential-disclosure | `core/oidc.py:117` | 重复（P3-AUTH-12） | `logger.error("Token exchange failed: %s %s", resp.status_code, resp.text[:500])`；Task 6 P3-AUTH-12 已覆盖（明确引用 oidc.py:117） |
+| semgrep | python-logger-credential-disclosure | `core/users.py:77` | 重复（P3-AUTH-12 扩展） | `logger.warning("Invalid token: %s", e)` — `e` 是 `jwt.InvalidTokenError`，消息通常为 "Signature verification failed" 等 PyJWT 内部文本，不含 token 原文；同属 P3-AUTH-12 日志脱敏问题类别，无需新增 Finding |
+| semgrep | avoid-sqlalchemy-text | `init_db.py:39` | 误报（低风险） | `text(f'DROP TABLE IF EXISTS "{table.name}" CASCADE')`——`table.name` 来自 SQLAlchemy `metadata.sorted_tables`（ORM 内部对象，非用户输入），无 SQL 注入路径；init_db.py 的真实风险是数据销毁（P3-M10-5），已由 Task 10 记录 |
+
+#### 新发现（仅未被前面 task 覆盖的）
+
+本轮 6 条告警经 triage 后**零新增 Finding**：全部为误报（4 条）或已被 Task 6 / Task 10 覆盖的重复（2 条）。
+
+#### 误报小节
+
+1. **bandit B105 × 2**（`auth.py:141`、`auth.py:160`）：`"bearer"` 是 RFC 6750 定义的 token type 标识符，bandit 的硬编码密码检测对小写字符串 `bearer` 产生误报，无需处理。
+2. **semgrep avoid-sqlalchemy-text**（`init_db.py:39`）：`sqlalchemy.text()` 接收的 f-string 中的动态部分 `table.name` 来自 SQLAlchemy ORM 元数据而非外部输入，不存在注入面；规则设计为"任何 f-string 传入 text()" 即告警，属过宽匹配。
+
+**留给后续阶段的线索**：
+- `logger-credential-disclosure` 规则（semgrep）在 P3-AUTH-12 修复时可作为验证手段——修复后重跑应消除 3 条 warning。
+- bandit B105 的 `nosec` 注释可在修复期加入，消除噪音（`auth.py:141`、`auth.py:160`）。
+- semgrep `avoid-sqlalchemy-text` 对 `init_db.py` 告警：若后续 phase-2 重构中引入真正的动态表名（用户可控），该规则会升为真发现——现阶段保持记录。
 
 ## 不在范围（已识别但本阶段不审）
 
