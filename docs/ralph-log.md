@@ -1411,3 +1411,20 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档；回滚 `git revert`。
 **验证**：只读，无代码改动，type-check/lint/pytest N/A。`grep` + 阅读双重确认 `auth.py` 中不存在 logout / state 校验代码路径。
 **下一轮**：Task 7 首位 admin 自动晋升竞态（已在本轮 Task 6 中先行点出 `auth.py:107-134` 是病灶位置，Task 7 深入复现路径）。
+
+## 2026-05-09 — P1 Task 7 首位 admin 自动晋升竞态审计
+**目标**：完成阶段 1 Task 7，对 `auth.py` 首登晋升逻辑做并发竞态只读审计；确认是否存在两个并发请求都拿到超管的 check-then-act 漏洞。
+**动机**：Task 6 已发现 `auth.py:108-131` 是竞态候选点（SELECT COUNT + INSERT 无锁）；本任务专项确认事务序列化方式与 DB 层防护。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「### 首位 admin 自动晋升竞态（Task 7 填写）」为完整审计内容。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- `managed_transaction` 内的 `SELECT COUNT(*) == 0` 是**裸快照读，无 FOR UPDATE、无 advisory lock**；Postgres 默认 `READ COMMITTED` 下两个同时到达的请求都可读到 count=0，各自插入并 commit，结果两用户均 `is_superuser=True` → **P1 竞态真实存在**。
+- `User` 表无 partial unique index `WHERE is_superuser=TRUE`，DB 层无法阻止多超管共存。
+- 唯一入口是 `/callback`（首登自动提升），无其他 API 级提权接口（符合 CLAUDE.md 要求）。
+- sqladmin `UserAdmin` **未配置 `form_excluded_columns`**，已登录超管可通过面板 Edit 提升任意用户为超管 → P2 加固缺失。
+- 发现：P1-ADMIN-01（竞态）+ P2-ADMIN-02（面板级提权缺限制）。
+**风险 & 回滚**：仅文档，回滚 = git revert。
+**验证**：只读；无代码改动；通过 grep + 阅读双重确认 `auth.py:108-131` 无锁状态。type-check/lint N/A。
+**下一轮**：Task 8 admin gate 覆盖矩阵。
