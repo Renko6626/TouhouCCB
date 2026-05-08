@@ -1326,4 +1326,26 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - `docs/security-audit-2026-05-09-p1-core.md`：建报告骨架
 **风险 & 回滚**：仅文档，回滚 = 删文件
 **验证**：N/A（仅文档）
+
+---
+
+## 2026-05-09 — 安全审计 P1 Task 3：持仓估值与精度审计
+
+**目标**：验证 commit 4a49d2e 修正是否完整，确认无老 `price × quantity` 遗漏路径；审计前端精度处理
+**动机**：CLAUDE.md 强调 LMSR 清算口径，持仓估值是财务核心
+**范围**：只读 `user.py` / `loan.py` / `market.py` / `realtime.py` / `stream.py` / 前端 `stores/user.ts` / `api/user.ts` / `pages/Portfolio.vue` / `Home.vue` / `Loan.vue` / `types/user.ts`
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：Task 3 段落填写，含估值入口清单、SSE 一致性分析、前端精度审计、发现 P2×2 + P3×1 + INFO×1
+**发现摘要**：
+- **[P2]** `loan.py:_holdings_value` 用瞬时价 × 数量，与 `/user/summary` LMSR 清算口径不一致，贷款额度被系统性高估
+- **[P2]** `market.py:leaderboard` 的 `net_worth = cash - debt`，不含持仓市值，与 `/user/summary.net_worth` 口径不一致
+- **[P3]** `Portfolio.vue:79` sell_avg_price 客户端除法，仅展示无逻辑影响
+- **[INFO]** TypeScript 所有金融字段声明为 `number`，当前规模无精度问题
+- commit 4a49d2e 的修正完整：`user.py` summary 与 holdings 两个路径都已更新，无遗漏 straggler
+- SSE/realtime 不推送持仓估值，与清算函数无耦合，架构正确
+- 前端无 Number() 后做持仓估值算术的高危模式（Number() 仅用于 debt 展示，均为 2 位小数无精度损失）
+- 存在代码卫生问题：user.py 两处清算逻辑重复，未提取公用函数
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读，N/A
+**未决风险**：loan.py 瞬时价高估待 Task 4 深入审计；清算逻辑重复代码建议 Task 4 后一并重构
 **下一轮**：Task 1 LMSR 数值安全
