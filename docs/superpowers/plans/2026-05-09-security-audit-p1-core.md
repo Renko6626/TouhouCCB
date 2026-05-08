@@ -26,20 +26,23 @@
 - Create: `docs/security-audit-2026-05-09-p1-core.md`
 - Modify: `docs/ralph-log.md`（追加一条）
 
-- [ ] **Step 1：确认在 main 分支且无未提交变更**
+- [ ] **Step 1：确认当前分支与工作区**
 
 ```bash
 git status
 git branch --show-current
 ```
 
-Expected：`main`、工作区干净。如不干净，**停下问用户**。
+Expected：当前在 `ralph/2026-05-08-security-audit-spec`（spec/plan 都提交在这个分支上）、工作区干净。
+如不在该分支或不干净，**停下问用户**。
 
-- [ ] **Step 2：开 ralph 分支**
+- [ ] **Step 2：从 spec 分支切出阶段 1 执行分支**
 
 ```bash
 git checkout -b ralph/2026-05-09-secaudit-p1-core
 ```
+
+这样 spec/plan 文档随分支带过来，审计 commit 落在新分支，不污染 spec 分支。
 
 - [ ] **Step 3：创建阶段报告骨架**
 
