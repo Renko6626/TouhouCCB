@@ -1030,7 +1030,116 @@ Txn-B: SKIP LOCKED → 无可用码 (code-X 被锁) → SOLD_OUT
 - **Casdoor 多应用 / 多租户拓扑确认**：本审计假设 Casdoor 自有部署。如果共用 Casdoor SaaS，[P0-AUTH-01] 升至更危险等级——需要运维侧确认 Casdoor 部署模式。
 
 ### 首位 admin 自动晋升竞态
-（Task 7 填写）
+
+**审计日期**：2026-05-09
+**审计文件**：`backend/app/api/v1/auth.py` (主逻辑), `backend/app/core/admin.py`, `backend/app/core/users.py`, `backend/app/core/oidc.py`, `backend/app/models/base.py`
+
+#### 晋升判定逻辑
+
+`api/v1/auth.py:106-134`，函数 `oauth_callback`：
+
+```python
+if not user:
+    async with managed_transaction(db):
+        user_count = await db.execute(select(func.count()).select_from(User))
+        is_first_user = user_count.scalar_one() == 0          # 行 108-109
+
+        user = User(
+            ...
+            is_superuser=is_first_user,                        # 行 128
+        )
+        db.add(user)
+        await db.flush()
+```
+
+- **条件**：`SELECT COUNT(*) FROM user == 0` → 新建用户时设 `is_superuser=True`。
+- **事务上下文**：`managed_transaction` 将 count 查询和 INSERT 包在同一事务中（`session.begin()` 或已有事务的 commit 保护）。
+- **锁状态**：无 `SELECT ... FOR UPDATE`、无 advisory lock、无表级锁——`SELECT COUNT(*)` 是纯快照读，INSERT 前**不持有任何行锁**。
+- **DB 约束**：`User` 表无 partial unique index（如 `WHERE is_superuser=TRUE`）限制超管数量为 1；`is_superuser` 列上无任何约束，可存在多个 `is_superuser=True` 行。
+
+#### 并发竞态分析
+
+| 步骤 | 文件:行 | 是否被序列化 |
+|---|---|---|
+| count 检查 `SELECT COUNT(*) == 0` | `auth.py:108-109` | 否——无锁快照读 |
+| `is_first_user = True` 赋值 | `auth.py:109` | 否——纯 Python |
+| `is_superuser=True` 写入对象 | `auth.py:128` | 否——内存操作 |
+| `db.add(user); db.flush()` | `auth.py:130-131` | 否——各自事务内 flush，Postgres 默认 READ COMMITTED |
+| `await session.commit()` | `database.py:55/61` | 各自独立 commit，无相互序列化 |
+
+**结论**：两个并发首登**能**同时拿到 `is_superuser=True`。
+
+**具体竞态时序**：
+```
+T0: 系统 0 用户
+T1: 请求 A 进入 managed_transaction → SELECT COUNT(*) → 0
+T1: 请求 B 进入 managed_transaction → SELECT COUNT(*) → 0  （A 尚未 commit）
+T2: 请求 A INSERT user_A(is_superuser=True) → FLUSH → COMMIT 成功
+T2: 请求 B INSERT user_B(is_superuser=True) → FLUSH → COMMIT 成功
+     （casdoor_id 不同，unique 约束不触发）
+T3: 系统中有两个 is_superuser=True 用户
+```
+
+在 Postgres 默认 `READ COMMITTED` 隔离级别下，B 的 COUNT 读取在 A commit 之前执行，B 看到的仍然是 0——这是经典 check-then-act 竞态。
+
+**是否可利用**：
+- 时间窗口极窄（毫秒级），需要两个真实 SSO 回调同时到达。
+- 正常运维场景（管理员单独部署并首登）概率接近零。
+- 但若 URL 提前泄露或多人同时被告知"系统上线了"，窗口可被踩到。
+- 结果：两个普通用户都拥有超管权限，可互相操作对方账户、解决市场、强制放贷等。
+
+#### 其他 admin 变更入口
+
+通过 `grep -rn "is_superuser.*=.*True\|set.*admin\|grant.*admin\|promote"` 全库搜索，仅找到一处 `is_superuser=True` 赋值：`auth.py:128`（首登逻辑）。
+
+除此之外：
+
+| 路径 | 说明 | 是否有 require_admin 门控 |
+|---|---|---|
+| `core/admin.py`（sqladmin `UserAdmin`） | 列出 `is_superuser` 字段但**未配置 `form_excluded_columns`**，sqladmin 默认**允许 edit 所有字段** | 是——`AdminAuth.authenticate` 要求 `is_superuser=True` 才能访问后台面板 |
+| `api/v1/user.py` `/list`, `/{id}/force-loan`, `/{id}/toggle-active`, `/{id}/force-repay` | 均依赖 `current_superuser` | 是 |
+| `api/v1/auth.py` `/callback` | 首登晋升入口 | 无（设计如此） |
+
+**重要发现**：sqladmin `UserAdmin`（`core/admin.py:66-68`）未设置 `form_excluded_columns`，意味着已登录的超管**可通过后台面板的 Edit 界面将其他任意用户的 `is_superuser` 设为 True**（或将自己设为 False）。这属于设计内的超管功能，但：
+1. 它绕过了 CLAUDE.md「别加管理员创建接口」的精神意图（虽然是通过面板，不是 API）；
+2. 如果窗口期竞态产生了两个超管，其中一个恶意超管可以持续提权更多用户。
+
+#### 降权 / 删除 admin 路径
+
+1. **sqladmin 面板**：超管登录 `/api/v1/admin` 后可 Edit 任意用户的 `is_superuser` 字段（设为 True 或 False）——未被 `form_excluded_columns` 限制。
+2. **无 API 端点**：`api/v1/user.py` 无任何 `PATCH /users/{id}/superuser` 接口——正确。
+3. **降权机制存在但无保护**：面板可以将最后一个超管的 `is_superuser` 设为 False，导致系统无超管——孤立状态下无法恢复（需要直接操作 DB）。
+
+---
+
+**发现**：
+
+#### [P1-ADMIN-01] 首位 admin 自动晋升存在并发竞态（check-then-act 无锁）
+
+- **位置**：`backend/app/api/v1/auth.py:108-131`
+- **类别**：竞态条件 / 权限晋升
+- **复现**：两个持有不同 Casdoor 账户的用户在系统零用户时几乎同时完成 SSO 回调；各自的 `SELECT COUNT(*) == 0` 都在对方 commit 前执行，两者均设 `is_superuser=True` 并各自成功 commit。
+- **影响**：两个（或更多）用户同时获得超管权限；后续任一超管可通过 sqladmin 面板再次提权更多用户，权限扩散失控。
+- **可利用性**：时间窗口极窄（~毫秒），正常运维极小概率；但提前公开 URL 或多人同时受邀时可踩到。
+- **修复建议**：
+  1. **Postgres 方案**（推荐）：添加 partial unique index `CREATE UNIQUE INDEX uq_one_superuser ON user (is_superuser) WHERE is_superuser = TRUE`——可从 DB 层保证最多一个超管。注意此方案会影响多超管场景，需先确认业务是否允许唯一超管。
+  2. **应用层方案**：在 `managed_transaction` 内改用 `SELECT COUNT(*) FROM user FOR UPDATE`（需锁整张表，或改用 advisory lock `pg_try_advisory_xact_lock`）——在 INSERT 前序列化 count 检查。
+  3. **最简方案（不破坏多超管语义）**：将晋升逻辑移出 `/callback`，改为部署文档说明"通过 CLI/DB 初始化首个超管"——与 CLAUDE.md「别加管理员创建接口」的精神一致，彻底消除运行时竞态。
+- **状态**：未修（需讨论修复方案）
+
+#### [P2-ADMIN-02] sqladmin `UserAdmin` 未限制 `is_superuser` 字段编辑（面板级权限升降）
+
+- **位置**：`backend/app/core/admin.py:66-68`（`UserAdmin` 类定义，无 `form_excluded_columns`）
+- **类别**：权限管理 / 加固缺失
+- **复现**：持有超管权限的用户登录后台面板 `/api/v1/admin`，编辑任意用户记录，将 `is_superuser` 设为 True。
+- **影响**：超管可提权任意用户，且无审计日志。与 CLAUDE.md「别加管理员创建接口」的精神有冲突（面板 edit = 隐式提权接口）。本身符合 sqladmin 设计，但缺少限制是安全加固盲区。
+- **修复建议**：在 `UserAdmin` 中添加 `form_excluded_columns = [User.is_superuser]`（或改为只读展示），超管变更只允许通过 DB 直接操作，保持最小权限原则。
+- **状态**：未修（建议加固）
+
+**留给后续阶段的线索**：
+- sqladmin `UserAdmin.form_excluded_columns` 缺失不仅影响 `is_superuser`，也可能允许面板直接修改 `cash`/`debt`（无事务约束、无审计）——Task 8 admin gate 矩阵应补充面板级操作的审计。
+- 若业务未来允许多超管，partial unique index 方案不适用；需考虑 advisory lock 或 `SERIALIZABLE` 事务。
+- `is_superuser` vs `is_admin`：代码库中两个字段都出现在 CLAUDE.md 中，但 `User` 模型只有 `is_superuser`，无 `is_admin`——已确认只有一个字段，CLAUDE.md 描述略有歧义，无实质影响。
 
 ### admin gate 覆盖矩阵
 （Task 8 填写）
