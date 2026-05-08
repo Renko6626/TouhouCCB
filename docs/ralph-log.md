@@ -1349,3 +1349,31 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **验证**：只读，N/A
 **未决风险**：loan.py 瞬时价高估待 Task 4 深入审计；清算逻辑重复代码建议 Task 4 后一并重构
 **下一轮**：Task 1 LMSR 数值安全
+
+---
+
+## 2026-05-09 — 安全审计 P1 Task 4：贷款 / 复利 / 还款审计
+
+**目标**：复盘 60847ad（repay 双封顶）+ 5771b45（不变量兜底）两个 fix；审计 borrow / repay / accrue / sweep 完整写入路径与并发安全
+**动机**：贷款 + 复利 + sweep 是上线前最后一块高敏感资金路径
+**范围**：只读 `loan_service.py` / `loan_sweep.py` / `loan_migrate.py` / `api/v1/loan.py` / `api/v1/user.py:286-349` / `api/v1/site_config.py` / `api/v1/market.py:425-543` / `models/base.py:23-56` / `schemas/loan.py` / 4 个 test_loan_*.py
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：Task 4 段落填写，含两个 fix 复核 walk-through、强平缺失结论、并发 TOCTOU、长闲置无上限、rate 回溯、sweep 多实例风险等
+**发现摘要**：
+- **[P2-LOAN-01]** borrow 额度预检 TOCTOU：max_borrow 在 PRE-lock 算，service 锁内不重检 → 并发借款可绕过杠杆 k 限制
+- **[P2-LOAN-04]** 长闲置账户 accrue 无 elapsed_sec 上限 → 6 月闲置突发跳变 + Decimal 溢出风险
+- **[P2-LOAN-05]** admin 改 loan_daily_rate 会回溯计算整个 elapsed 区间（应先 sweep 再改 rate）
+- **[P2-LOAN-07]** sweep 没分布式锁，多实例部署会重叠 tick（当前单实例 docker-compose 不影响，但 phase-2 必修）
+- **[P2-LOAN-08]** **当前系统完全没有强平 / 坏账清理机制**——账户进入水下后 debt 永远涨，max_borrow 不影响存量
+- **[P3-LOAN-02]** `test_repay_exceeds_cash_400` 是 stale test，60847ad 后业务规则改成静默封顶（200 + effective）而非 400
+- **[P3-LOAN-03]** accrue 用线性 elapsed 公式 `1 + r*dt/86400`，sweep 高频时近似真复利，但长闲置场景误差被放大数倍
+- **[P4-LOAN-04]** 缺 LoanRecord 资金流水审计表（borrow/repay/accrue/sweep 只 logger.info，纠纷无对账依据）
+- **[P4-LOAN-09]** sweep 连续失败无告警机制
+- **60847ad fix 复核**：min(amount, post-accrual debt, cash) 三方封顶严密；按 cash=1000 / debt=1000 / 24h elapsed / amount=3000 的 walk-through，终态 cash=0 / debt=10，符合预期；fix 前 cash 会跑负 -10 并触发 DB CHECK 回滚
+- **5771b45 invariant 复核**：不变量 `debt>=0 & cash>=0` 在 increase/decrease_debt 末尾断言；market.py buy/sell 直接改 cash 不经此检查但有自己的 `cash<pay` 防御；DB CHECK 约束作为最终防线；无可绕过旁路
+- **强平估值用什么**：根本不存在强平。（即便存在，也会用 buggy `_holdings_value` 瞬时价 × 数量——Task 3 已标 P2 straggler）
+- **sweep 触发方式**：APScheduler in-process job，main.py lifespan 启停，间隔由 `loan_sweep_interval_sec` 配置（10-3600s clamp），不暴露 HTTP，max_instances=1，每用户独立 session
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读，N/A；test_repay_exceeds_cash_400 stale 状态未实际跑 pytest 验证（怀疑测试在 CI 中已 fail 或未被执行），建议下一轮验证
+**未决风险**：[P2-LOAN-08] 强平缺失需产品决策；borrow TOCTOU 可在 phase-2 修服务层重检
+**下一轮**：Task 5 兑换码资金流
