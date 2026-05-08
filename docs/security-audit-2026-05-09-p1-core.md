@@ -273,7 +273,117 @@
 
 
 ### 持仓估值与精度
-（Task 3 填写）
+
+**审计日期**：2026-05-09
+
+**审计文件**：
+- `backend/app/api/v1/user.py`（178 行，全文）
+- `backend/app/api/v1/loan.py`（144 行，全文）
+- `backend/app/api/v1/market.py`（leaderboard 904-930，重读）
+- `backend/app/services/realtime.py`（90 行，全文）
+- `backend/app/api/v1/stream.py`（138 行，全文）
+- `backend/app/schemas/user.py`（HoldingRead / UserSummary）
+- `thccb-frontend/src/types/user.ts`（Holding / UserSummary 类型定义）
+- `thccb-frontend/src/stores/user.ts`（全文）
+- `thccb-frontend/src/api/user.ts`（全文）
+- `thccb-frontend/src/pages/user/Portfolio.vue`（全文）
+- `thccb-frontend/src/pages/home/Home.vue`（全文）
+- `thccb-frontend/src/pages/loan/Loan.vue`（全文）
+
+---
+
+**Commit 4a49d2e 修正概要**：
+
+`user.py` 的 `get_user_summary`（行 78-92）与 `get_my_holdings`（行 143-156）中，`market_value`（即 `liquidation_value`）的计算从 LMSR 成本差额追加乘 `(1 - SELL_FEE_RATE)`，使估值口径与用户实际平仓可得现金完全一致；同时修正了 `schemas/user.py` 中 `HoldingRead.market_value` 的注释（原为 `amount * current_price`，改为 LMSR 清算价值描述）。
+
+---
+
+**估值入口清单**：
+
+| 文件:行 | 入口 | 是否走新清算函数 | 备注 |
+|---|---|---|---|
+| `user.py:47-109` | `GET /user/summary`（holdings_value / net_worth / unrealized_pnl） | **是** | `calculate_lmsr_cost(old) - calculate_lmsr_cost(after_sell)` × `(1 - SELL_FEE_RATE)`；`quantize_cost` 统一 |
+| `user.py:112-177` | `GET /user/holdings`（每条 HoldingRead.market_value） | **是** | 同上；两处路径代码一致，无遗漏 |
+| `loan.py:20-42` | `_holdings_value()`（贷款额度/净值） | **否（旧路径）** | 使用 `p.amount * price`（瞬时价 × 数量）；`price = get_current_price(...)` 未考虑卖出滑点与手续费；函数注释已承认「瞬时价估算」 |
+| `market.py:904-930` | `GET /market/leaderboard`（net_worth） | **不含持仓** | `net = user.cash - user.debt`；排行榜只计算现金净值，**不含持仓市值**，属设计选择，有注释歧义风险 |
+| `stream.py:25-71` | SSE 首包 snapshot（各 outcome 现价） | 不涉及 | 仅发 LMSR 边际价格 `get_current_price`，不发用户持仓估值；持仓估值不由 SSE 推送 |
+
+---
+
+**SSE / realtime 推送一致性**：
+
+`realtime.py` 是内存 pubsub broker，仅在 `market.py` 中的 `buy_shares` / `sell_shares` / `resolve_market` / `close_market` / `resume_market` 完成 commit 后异步 `BROKER.publish`（推送 trade 事件或 market_status 变更）。SSE 推送内容是**市场级行情**（成交价、outcome 当前边际价格），**不包含任何用户持仓估值字段**。前端在收到 SSE trade 事件后，需用户主动调用 `/user/summary` 或 `/user/holdings` 才能刷新持仓估值。因此 SSE 路径与持仓估值函数没有直接耦合关系：SSE 不复用也不需要复用清算估值函数，架构上正确隔离。
+
+**潜在问题**：SSE trade 事件到达后，前端并不会自动触发重新拉取 `/user/summary`（`useSSE.ts` 无此逻辑，`TradingView.vue` 仅在用户本人提交成功后 `loadUserData()`）。其他人成交导致价格漂移时，当前页面展示的持仓估值会滞后，直到用户手动刷新或重新访问 Portfolio。这不是安全漏洞，但属 UX 潜在混淆。
+
+---
+
+**前端精度审计**：
+
+| 文件:行 | 来源字段 | 是否 Number() 后做算术 | 风险 |
+|---|---|---|---|
+| `Portfolio.vue:128-129` | `h.market_value` / `h.unrealized_pnl`（reduce 求和） | 用 JS number 算术 `sum + h.market_value` | 低：服务端已 `.quantize(Decimal("0.01"))` 返回字符串/float，值最多 6 位有效小数，JS number 精度足够（无超 15 位场景） |
+| `Portfolio.vue:79` | `row.market_value / row.amount`（卖出均价列） | 是，JS number 除法 | 低：纯显示用，`toFixed(4)` 截断；除法不写回存储，不影响逻辑 |
+| `Portfolio.vue:181,188` | `Number(userStore.summary.debt)` | 是，用于条件判断 + toFixed(2) | 低：debt 是货币值（后端 `.quantize("0.01")`），不超过 2 位小数，Number() 无精度损失 |
+| `Home.vue:107,109` | `Number(userStore.summary!.debt)` | 是，条件判断 + toFixed(2) | 同上，低 |
+| `Loan.vue:21-23` | `Number(store.quota?.debt/cash/max_borrow)` | 是，用于 UI 控件 max 绑定与还款上限计算 `Math.min(debt, cash)` | **中低**：max_borrow / debt / cash 均为 2 位小数 Decimal 字符串，Number() 无精度损失；但若将来后端精度升到 8 位小数，Number() 在 >1e15 的金额上才会出问题，当前规模安全 |
+| `stores/user.ts:16` | `summary.value?.holdings_value ?? 0` | 直接返回 number 类型（TS 接口定义为 `number`） | 低：后端返回 `.quantize(Decimal("0.01"))`，2 位小数；实际通过 JSON 反序列化为 JS number 时已是 float；精度差异只有在极端大额（>2^53）时才显现 |
+
+**TypeScript 接口精度声明问题**：`types/user.ts` 中 `UserSummary` 和 `Holding` 的所有金融字段（`cash`、`debt`、`holdings_value`、`market_value` 等）均声明为 `number`（JS float）。后端实际以 `float` 形式通过 JSON 返回这些字段（FastAPI Pydantic 序列化 Decimal 时走 JSON float），因此当前不存在「字符串被 Number() 转精度丢失」的问题。**真正的精度边界**是后端返回的 float 本身在 >2^53 时已丢精度，但现实货币量级（< 10^10）不会触发。
+
+---
+
+**发现**：
+
+#### [P2] `loan.py:_holdings_value` 使用瞬时价 × 数量，与 `/user/summary` 的 LMSR 清算估值口径不一致
+
+- **位置**：`backend/app/api/v1/loan.py:20-42`，调用点 `loan.py:53, 83, 100, 137`（GET /quota、POST /borrow、POST /repay）
+- **类别**：估值口径不一致 / 贷款额度计算
+- **复现**：
+  1. `_holdings_value` 第 40-41 行：`price = Decimal(str(get_current_price(shares, idx, m.liquidity_b)))` + `total += (p.amount * price).quantize("0.000001")`——这是瞬时边际价格 × 持仓数量，不扣卖出滑点，不考虑 LMSR 价格冲击。
+  2. `user.py:get_user_summary` 用的是 `calculate_lmsr_cost(shares_before) - calculate_lmsr_cost(shares_after)` × `(1 - SELL_FEE_RATE)`——这是 LMSR 清算价值（全部卖出时实际拿到的现金）。
+  3. 对于大量持仓，清算价值会因卖出冲击而低于「瞬时价 × 数量」；LMSR 的 `b` 越小，差距越大。
+  4. 贷款额度 `max_borrow = k × (cash - debt + holdings_value) - debt`（`loan_service.py:122-124`）；若 `holdings_value` 被高估，用户可借到超过安全线的金额，造成坏账风险。
+- **影响**：持仓量大或流动性参数 `b` 小的市场中，贷款额度（loan quota 与 max_borrow）被系统性高估，用户能借到多于实际可平仓价值对应的金额，增加坏账暴露。函数注释虽注明「瞬时价估算」，但这属于贷款系统与估值系统口径不一致，属 P2（金融功能一致性缺陷，不是 P1 因为当前 `SELL_FEE_RATE=0` 且实际差距取决于持仓规模与市场 b）。
+- **修复建议**：将 `_holdings_value` 改为与 `user.py:get_user_summary` 相同的 LMSR 清算价值计算（`calculate_lmsr_cost(old) - calculate_lmsr_cost(after_sell)` × `(1 - SELL_FEE_RATE)`），或提取为公用函数 `_lmsr_liquidation_value(db, user_id)` 在 `user.py` 和 `loan.py` 共享。
+- **状态**：未修复
+
+#### [P2] 排行榜 `net_worth` 不含持仓市值，与 `/user/summary` 的 `net_worth` 口径不一致
+
+- **位置**：`backend/app/api/v1/market.py:904-930`（leaderboard endpoint）
+- **类别**：估值口径不一致 / UX 混淆
+- **复现**：
+  1. `leaderboard`：`net = user.cash - user.debt`（仅现金 - 负债，无持仓）。
+  2. `/user/summary`：`net_worth = user.cash - user.debt + holdings_value`（含 LMSR 清算价值）。
+  3. 两个接口都叫"净资产 / net_worth"，但计算口径完全不同；用户对比自己的 `/user/summary` 与排行榜时会看到两个不同的净值数字。
+- **影响**：UX 混淆；重仓用户在排行榜上净值被大幅低估（只显示现金部分），轻仓现金用户则准确；会误导用户对相对资产规模的判断。属 P2（无资金安全风险，但口径不一致可能导致用户错误决策）。
+- **修复建议**：
+  1. 修复排行榜：为每个用户在 SQL 层无法高效计算 LMSR 清算价值，可改为「定期任务缓存 holdings_value」或改为「排行榜只排 cash - debt，注明『不含持仓』」并在 UI 明确说明。
+  2. 至少在 API 响应中加说明字段或重命名为 `cash_net_worth`，避免与 `/user/summary.net_worth` 混淆。
+- **状态**：未修复
+
+#### [P3] `sell_avg_price` 列在前端用 JS number 除法计算，未对 `amount=0` 做完整防护（minor）
+
+- **位置**：`thccb-frontend/src/pages/user/Portfolio.vue:79`
+- **类别**：前端健壮性
+- **复现**：`row.amount > 0 ? row.market_value / row.amount : 0`——有守 0 值，但当 `market_value` 来自历史快照而 `amount` 极小（如 0.000001）时，除法结果 > 1（违反概率 < 1 的直觉）不会被拦截；仅用于展示，无逻辑影响。
+- **影响**：纯显示问题，不影响任何后端逻辑或资金计算，P3。
+- **状态**：未修复
+
+#### [INFO] TypeScript 接口将所有金融字段声明为 `number`（JS float），精度依赖后端输出范围
+
+- **位置**：`thccb-frontend/src/types/user.ts`（`UserSummary`、`Holding`）
+- **类别**：精度声明 / 技术债
+- **说明**：当前后端以 JSON float 序列化 Decimal（FastAPI 默认行为），前端接收到的已是 float，所以 `number` 声明不引入额外精度损失。但若后端某天将精度升到 8 位以上、或金额超过 10^15，JS float 会截断。建议在接口注释中注明「后端保证输出值不超过 float64 安全精度范围」，明确风险边界。
+- **状态**：记录，不修复（当前无影响）
+
+---
+
+**留给后续阶段的线索**：
+
+- `loan.py:_holdings_value` 瞬时价高估问题与 Task 4「贷款 / 复利 / 还款」直接相关，建议在 Task 4 一并审计 max_borrow 计算的完整安全性。
+- `cost_basis` 按比例减仓的舍入漂移（Task 2 已记录）会影响 `holdings/unrealized_pnl` 的长期准确性，但属精度累积类 P3，不影响单笔清算。
+- 持仓估值代码在 `user.py:get_user_summary` 与 `user.py:get_my_holdings` 有两处几乎相同的 7 行 LMSR 清算逻辑，未提取为公用函数；一旦手续费逻辑变更（SELL_FEE_RATE 非 0）只改一处漏改另一处，会导致 summary 与 holdings 明细的 market_value 不一致——属代码卫生问题，建议重构为单一 `_position_liquidation_value(pos, market, all_outcomes)` 辅助函数。
 
 ### 贷款 / 复利 / 还款
 （Task 4 填写）
