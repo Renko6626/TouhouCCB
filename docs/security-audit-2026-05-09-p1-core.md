@@ -4,11 +4,30 @@
 **分支**：ralph/2026-05-09-secaudit-p1-core
 **审计员**：Claude（代码 + 静态工具，只读）
 **评级体系**：P0–P3（详见 docs/superpowers/specs/2026-05-08-security-audit-design.md §3）
-**状态**：进行中
+**状态**：阶段 1 已完成（待用户 review）
 
 ## 执行摘要
 
-（最后填写）
+本阶段（业务核心 + 认证授权）共审 11 个领域 + 1 次静态扫，发现 **52 条问题**：P0 3 / P1 8 / P2 18 / P3 21 / INFO 2。
+
+**最严重的 3 条 P0** 集中在 SSO/Casdoor 链路（[P0-AUTH-01/02/03]），三条合起来构成完整的账户接管攻击面：`id_token` 未校验 `iss`/`aud`/`nonce` → 任意被同一 JWKS 信任的 token 可被接受；后端不校验 OAuth `state` → 登录 CSRF；`redirect_uri` 完全由客户端控制 → code 注入主路径。目前唯一兜底是 Casdoor 自身的回调列表配置。**建议立即立项 SSO 修复轮次。**
+
+**关键 P1**（按子系统）：
+- [P1-AUTH-04] 无 `/logout` 端点 + refresh token 不可撤销 → 账号被盗后 7 天内无法止血
+- [P1-AUTH-05/06] `id_token` fallback 到 `access_token` 扩大可接受 token 集合 / CASDOOR_ENDPOINT 未强制 HTTPS → JWKS 签名链可被 MITM 瓦解
+- [P1-ADMIN-01] 首位 admin 自动晋升竞态：零用户时两个并发 SSO 回调均可拿到 `is_superuser=True`
+- [P1-BUY/SELL 死锁] BUY 与 SELL 锁顺序不一致，同账号 buy+sell 同 outcome 并发触发死锁 → 500
+- [P1-滑点缺失] 无 `max_cost` / `min_proceeds`，LMSR 价格被拉走后用户资金被静默消耗
+- [P1-M10-2/3] `Transaction.pre_market_price`/`post_market_price` 与 `Position.cost_basis` 均无迁移脚本，prod DB 若未手工执行 DDL 则买卖与持仓端点全量 500（运维紧急确认项）
+
+**正面发现**：
+- admin 路由 18/18 全部通过 `Depends(current_superuser)` guard ✅
+- IDOR 防护良好：所有用户私有资源均通过 `current_active_user` 自动绑定，无 ID 参数可替换 ✅
+- 兑换码 FOR_UPDATE + SKIP LOCKED 防双花 + RedemptionTransaction 审计表同事务写入 ✅
+- 持仓估值修正（4a49d2e）在 `user.py` 已覆盖 LMSR 清算价值口径 ✅
+- 贷款 60847ad/5771b45 fix 逻辑严密：双封顶 + 后置不变量 + DB CHECK 三层防线 ✅
+
+**留给后续阶段**：见报告末尾"不在范围（已识别但本阶段不审）"小节。
 
 ## 发现明细
 
@@ -1187,7 +1206,7 @@ T3: 系统中有两个 is_superuser=True 用户
 - `login()`：验证 JWT + 查库确认 `is_superuser`，写入 session。
 - `authenticate()`：每次请求重查库，`is_superuser` 撤销后立即失效（比 JWT 路由更严格）。
 - 5 个 ModelView（User / Market / Outcome / Position / Transaction）均通过 sqladmin `authentication_backend` 统一保护，无单独路由旁路。
-- 已知弱点：见 `[P2-ADMIN-02]`（`is_superuser` 字段可在面板直接编辑）；见 Task 6 `[P1-ADMIN-01]`（session 使用 HS256 签名 cookie，ADMIN_SECRET_KEY 为 8 字节时可爆破）。
+- 已知弱点：见 `[P2-ADMIN-02]`（`is_superuser` 字段可在面板直接编辑）；见 Task 6 `[P2-AUTH-07]`（sqladmin SessionMiddleware 挂载时未显式传 `https_only=True`/`same_site="strict"`，Secure 标志默认不设置）。
 
 #### 全路由清单（user-class，供边界参照）
 
@@ -1572,8 +1591,70 @@ T3: 系统中有两个 is_superuser=True 用户
 
 ## 不在范围（已识别但本阶段不审）
 
-- （边审边记录）
+以下线索在各 Task 审计过程中识别，已在各小节"留给后续阶段的线索"中备案，本阶段不展开审计：
+
+**→ 阶段 2（前端安全）**
+- [Task 6] 本站 JWT 存 `localStorage`（`[P2-AUTH-08]`）→ XSS 即等于全权 token 泄漏；切换 HttpOnly cookie 是产品级前端架构变动，阶段 2 前端专题处理
+- [Task 6] `CASDOOR_CLIENT_SECRET` 未用 `SecretStr`，`repr(settings)` 会泄漏配置敏感值 → 阶段 2 加固
+- [Task 9] 公开端点（leaderboard / recent-trades）通过 username 关联用户身份与交易行为（`[P3-IDOR-01]`）→ 产品决策后阶段 2 处理
+
+**→ 阶段 3（DoS / 速率 / 实时层）**
+- [Task 1] 单笔 shares 无上界（`[P2]`）→ `TradeRequest` 无 `le=` 上限，触发 OverflowError 500；根因在「全局 DoS 防护策略」，阶段 3 统一规划
+- [Task 2] 限速绕过 / 单 IP 击穿（buy 10r/s，无滑点 → 拉抬攻击成本低）→ 阶段 3
+- [Task 2] 长事务 + 连接池：`buy_shares` 在事务内调 `_loan_accrue`，未来复杂化可能致连接池耗尽 → 阶段 3 性能/DoS
+- [Task 2] `BROKER.publish` 在 commit 后 await，若 SSE broker 阻塞会长持 handler 响应（但事务已提交，资金安全）→ 阶段 3 实时层
+- [Task 5] 兑换购买接口限速偏宽（`[P2-REDC-01]`）→ nginx 专属 location 配置；与阶段 3 限速矩阵统一
+- [Task 4] sweep 无连续失败告警（`[P3-LOAN-09]`）→ 可观测性/告警体系，阶段 3
+
+**→ 阶段 2 / 产品功能立项**
+- [Task 4] 无强平 / 无坏账清理机制（`[P2-LOAN-08]`）→ 产品 + 安全双重缺口；先决条件：修 `_holdings_value` 为清算口径；阶段 2 立项
+- [Task 4] 缺乏 LoanRecord 资金流水审计表（`[P3-LOAN-04]`）→ 合规/可观测性，阶段 2 与 Position Transaction 流水一起做
+- [Task 4] borrow TOCTOU 锁内重算 max_borrow（`[P2-LOAN-01]`）→ 服务层修复，阶段 2 实施
+- [Task 4] daily_rate 调整回溯（`[P2-LOAN-05]`）+ sweep 多实例分布式锁（`[P2-LOAN-07]`）→ 单实例部署当前不影响生产，运维 runbook 记录，阶段 2/3 多实例部署前修
+- [Task 5] 批次状态机约束（`[P3-REDC-05]`）→ 业务需求确认后 phase-2「合作方合规」专题实施
+- [Task 5] sqladmin 未注册 RedemptionCode 是当前保护，若 phase-2 注册必须排除 `code_string` 字段 → admin.py 显式注释
+
+**→ 运维流程改进（跨阶段）**
+- [Task 10] 无 Alembic 迁移框架（`[P2-M10-1]`）→ 长期技术债，单独立项
+- [Task 10] `auto_migrate()` 覆盖范围太窄（`[P3-M10-6]`）→ 短期可扩展 IF NOT EXISTS 语句，与 P2-M10-1 联动
+- [Task 10] `init_db.py` 无 prod 环境检测 + 命名混淆（`[P3-M10-5]`）→ 部署文档加注，低优先级
+- [Task 1] `liquidity_b` 在 ORM 层无 `>0` 约束 + 无迁移加固路径 → Task 10 已确认，与 Alembic 立项联动
+- [Task 2] `Outcome.total_shares` 无 DB-level `CHECK >= 0`（`[P3]`）→ 同上，与迁移框架联动
+
+**→ 需要运维手动核查的 prod DB 检查清单**（来自 Task 10）：
+1. `SELECT column_name FROM information_schema.columns WHERE table_name='transaction' AND column_name IN ('pre_market_price','post_market_price');`（期望 2 行；缺则立即 ALTER）
+2. `SELECT column_name FROM information_schema.columns WHERE table_name='position' AND column_name='cost_basis';`（期望 1 行）
+3. `SELECT column_name, data_type FROM information_schema.columns WHERE table_name IN ('market','transaction') AND column_name IN ('created_at','closes_at','settled_at','timestamp');`（期望 `timestamp with time zone`；若为 `timestamp without time zone` 需 ALTER TYPE）
+4. `SELECT column_name FROM information_schema.columns WHERE table_name='user' AND column_name='debt_last_accrued_at';`（已有 auto_migrate 覆盖，验证即可）
 
 ## 阶段统计
 
-（最后填写：P0/P1/P2/P3 各几条）
+按等级聚合（不含 INFO）：
+- **P0**: 3
+- **P1**: 8
+- **P2**: 18
+- **P3**: 21
+- **INFO**: 2
+- **合计**: 52
+
+按子系统聚合：
+
+| 子系统 | P0 | P1 | P2 | P3 | INFO |
+|---|---|---|---|---|---|
+| LMSR / 数值（Task 1） | 0 | 0 | 2 | 2 | 1 |
+| 资金一致性 / 事务（Task 2） | 0 | 2 | 2 | 2 | 0 |
+| 持仓估值与精度（Task 3） | 0 | 0 | 2 | 1 | 1 |
+| 贷款 / 复利 / 还款（Task 4） | 0 | 0 | 5 | 4 | 0 |
+| 兑换码资金流（Task 5） | 0 | 0 | 2 | 4 | 0 |
+| SSO / Casdoor / Token（Task 6） | 3 | 3 | 2 | 4 | 0 |
+| 首位 admin 晋升竞态（Task 7） | 0 | 1 | 1 | 0 | 0 |
+| admin gate 覆盖矩阵（Task 8） | 0 | 0 | 0 | 1 | 0 |
+| IDOR / 横向越权（Task 9） | 0 | 0 | 0 | 1 | 0 |
+| models/base.py 迁移风险（Task 10） | 0 | 2 | 2 | 2 | 0 |
+| 静态工具 triage（Task 11） | 0 | 0 | 0 | 0 | 0 |
+| **合计** | **3** | **8** | **18** | **21** | **2** |
+
+**重大组合风险**：
+- [P0-AUTH-01 + P0-AUTH-02 + P0-AUTH-03] 三条链 = SSO 账户接管攻击面（iss/aud/nonce 缺失 + CSRF + redirect_uri 可控）
+- [P2-LOAN-08] 无强平 + [P2-LOAN-04] 长闲置利息跳变 + [Task 3 P2] `_holdings_value` 高估 = 债务永续 + 额度高估复合风险
+- [P1-M10-2 + P1-M10-3] prod DB 若未手工 DDL → 买卖与持仓端点全量 500（上线前必须运维核查）
