@@ -1377,3 +1377,20 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **验证**：只读，N/A；test_repay_exceeds_cash_400 stale 状态未实际跑 pytest 验证（怀疑测试在 CI 中已 fail 或未被执行），建议下一轮验证
 **未决风险**：[P2-LOAN-08] 强平缺失需产品决策；borrow TOCTOU 可在 phase-2 修服务层重检
 **下一轮**：Task 5 兑换码资金流
+
+---
+
+## 2026-05-09 — 阶段 1 / Task 5：兑换码资金流审计（只读）
+**目标**：审计兑换码模块资金流安全性（购买原子性、并发竞态、审计完整性、admin gate、枚举攻击面）
+**动机**：兑换码是资金注入入口；近期 bed3553 加了 RedemptionTransaction、697730d 收尾技术债，需独立审计
+**范围**：仅读 `services/redemption.py`、`api/v1/{redemption,admin_redemption}.py`、`models/redemption.py`、`schemas/redemption.py`、tests、`deploy/nginx.conf`；零产品代码修改
+**改动**：`docs/security-audit-2026-05-09-p1-core.md` Task 5 节（6 个发现）；本日志条目
+**核心结论**：
+- 双重兑换（单码并发）：不能（SKIP LOCKED 序列化，services/redemption.py:109-120）
+- RedemptionTransaction 与 cash 更新：同一事务（services/redemption.py:123-143 + api/v1/redemption.py:96）
+- 码熵：N/A（无系统内生成，外部 CSV，熵由合作方保证）
+- admin 端点 auth：全部 Depends(current_superuser)，8 个 handler 全覆盖
+- 发现：1×P2 限速缺口、1×P2 DB 层约束缺失、4×P3 加固性
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读；无代码改动，type-check/lint N/A
+**下一轮**：Task 6 SSO / Casdoor / Token
