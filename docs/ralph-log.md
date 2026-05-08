@@ -1463,3 +1463,23 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档；回滚 `git revert`。
 **验证**：只读，无代码改动，type-check/lint N/A；逐文件阅读 + grep 双重确认 ownership 校验位置。
 **下一轮**：Task 10 models/base.py 无迁移机制风险。
+
+## 2026-05-09 — P1 Task 10 models/base.py 无迁移机制风险审计
+**目标**：审计 models/base.py + redemption.py 的全部字段清单；梳理最近 ~3 个月 git log 中所有 schema 变更；评估每个变更"不迁移的实际后果"；审计 init_db.py 安全性和现有迁移机制覆盖度。
+**动机**：CLAUDE.md 明确标注"没有迁移机制，create_all 不改已有列"——若 prod DB schema 落后于代码，新列 INSERT 失败 → 交易全量 500；需要量化风险范围并给出运维核查清单。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读；`init_db.py` 只读不执行。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 10 填写）」为完整迁移风险审计（字段总览 5 张表、8 条 commit 变更分析表、迁移机制现状、init_db.py 风险、6 条 Finding P1-P3）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- **无 Alembic，无通用迁移框架**（P2-M10-1）：除 `debt_last_accrued_at` 外所有字段变更均无自动迁移脚本。
+- **P1-M10-2**：`Transaction.pre_market_price` / `post_market_price`（commit `211b552`，2026-04-16）无迁移脚本。若 prod DB 缺这两列，`buy_shares()` / `sell_shares()` 每次 INSERT 报 `UndefinedColumnError` → 交易全量 500。修复：`ALTER TABLE transaction ADD COLUMN IF NOT EXISTS pre_market_price NUMERIC(16,8) NOT NULL DEFAULT 0;` + 同理 `post_market_price`；加入 `auto_migrate()`。
+- **P1-M10-3**：`Position.cost_basis`（`d8c3119`，v1.0.0 大重构）无迁移脚本。若 prod 有旧 position 表，buy/sell 操作 + `/user/summary` 全量 500；需运维确认列存在。
+- **P2-M10-4**：datetime 列 TIMESTAMP→TIMESTAMPTZ（`b9f27e9`）若 prod 列类型未更新，asyncpg 读取时 DatetimeTzError → 市场/交易 API 500。
+- **P3-M10-5**：`init_db.py` 无环境检测（不区分 dev/prod），与 `database.py:init_db()` 同名但行为完全不同（一个清空，一个只 create_all）——命名混淆 + 误操作风险。
+- **P3-M10-6**：`auto_migrate()` 模式有效但覆盖太窄；建议扩展或迁移到 Alembic。
+- **`debt_last_accrued_at` 是唯一正确处理的例外**：`auto_migrate()` 在 lifespan 自动 `ADD COLUMN IF NOT EXISTS`，已覆盖。
+- **备份机制存在**：`deploy/deploy.sh` 每次 deploy 前执行 `pg_dump`，有备份窗口但不执行 DDL。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；git log -p 逐 commit 确认变更内容；grep 确认 auto_migrate 覆盖范围；读 init_db.py 全文确认 DROP 逻辑。
+**下一轮**：Task 11 bandit + semgrep 静态扫 triage。

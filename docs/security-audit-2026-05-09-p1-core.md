@@ -1331,7 +1331,210 @@ T3: 系统中有两个 is_superuser=True 用户
 - leaderboard 的 `net_worth` 计算仅用 `cash - debt`，不含持仓价值（这与 `/user/summary` 返回的 `net_worth` 口径不同），显示可能误导用户，但不构成安全问题。
 
 ### models/base.py 无迁移机制风险
-（Task 10 填写）
+
+**审计日期**：2026-05-09
+**审计文件**：`backend/app/models/base.py` + `backend/app/models/redemption.py` + `backend/init_db.py` + `backend/app/core/database.py` + `backend/app/services/loan_migrate.py` + `backend/scripts/migrate_loan_v1.py`
+
+---
+
+#### 模型字段总览
+
+**User**（表名 `user`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| casdoor_id | VARCHAR | YES | NULL | UNIQUE, INDEX |
+| username | VARCHAR | NO | — | UNIQUE, INDEX |
+| email | VARCHAR | YES | NULL | UNIQUE, INDEX |
+| is_active | BOOLEAN | NO | true | — |
+| is_superuser | BOOLEAN | NO | false | — |
+| cash | NUMERIC(16,6) | NO | 100 | CHECK cash>=0 |
+| debt | NUMERIC(16,6) | NO | 0 | CHECK debt>=0 |
+| debt_last_accrued_at | TIMESTAMPTZ | YES | NULL | — |
+
+**Market**（表名 `market`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| title | VARCHAR | NO | — | INDEX |
+| description | TEXT | NO | "" | — |
+| liquidity_b | FLOAT | NO | 100.0 | 无 DB CHECK |
+| status | VARCHAR | NO | "trading" | — |
+| created_at | TIMESTAMPTZ | NO | now() | — |
+| closes_at | TIMESTAMPTZ | YES | NULL | INDEX |
+| tags | VARCHAR | NO | "" | — |
+| winning_outcome_id | INTEGER FK→outcome.id | YES | NULL | INDEX, use_alter |
+| settled_at | TIMESTAMPTZ | YES | NULL | INDEX |
+| settled_by_user_id | INTEGER FK→user.id | YES | NULL | INDEX |
+
+**Outcome**（表名 `outcome`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| market_id | INTEGER FK→market.id | NO | — | INDEX |
+| label | VARCHAR | NO | — | — |
+| total_shares | NUMERIC(16,6) | NO | 0 | — |
+| payout | NUMERIC(16,8) | YES | NULL | — |
+
+**Position**（表名 `position`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| user_id | INTEGER FK→user.id | NO | — | INDEX |
+| outcome_id | INTEGER FK→outcome.id | NO | — | INDEX |
+| amount | NUMERIC(16,6) | NO | 0 | CHECK amount>=0 |
+| cost_basis | NUMERIC(16,6) | NO | 0 | — |
+| — | — | — | — | UNIQUE(user_id, outcome_id) |
+
+**Transaction**（表名 `transaction`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| user_id | INTEGER FK→user.id | NO | — | INDEX |
+| outcome_id | INTEGER FK→outcome.id | NO | — | INDEX |
+| type | VARCHAR | NO | — | — |
+| shares | NUMERIC(16,6) | NO | — | — |
+| cost | NUMERIC(16,6) | NO | — | — |
+| fee | NUMERIC(16,6) | NO | 0 | — |
+| gross | NUMERIC(16,6) | NO | 0 | — |
+| price | NUMERIC(16,8) | NO | 0 | — |
+| pre_market_price | NUMERIC(16,8) | NO | 0 | — |
+| post_market_price | NUMERIC(16,8) | NO | 0 | — |
+| timestamp | TIMESTAMPTZ | NO | now() | INDEX |
+| — | — | — | — | INDEX(outcome_id, timestamp) |
+| — | — | — | — | INDEX(user_id, timestamp) |
+
+**SiteConfig**（表名 `siteconfig`）
+| 字段 | 类型 | nullable | 默认 | 约束 |
+|---|---|---|---|---|
+| id | INTEGER PK | NO | auto | — |
+| key | VARCHAR | NO | — | INDEX, UNIQUE |
+| value | TEXT | NO | — | — |
+| value_type | VARCHAR | NO | — | — |
+| updated_at | TIMESTAMPTZ | NO | now() (Python) | — |
+| updated_by | INTEGER FK→user.id | YES | NULL | — |
+
+**RedemptionPartner / RedemptionBatch / RedemptionCode / RedemptionTransaction**（`redemption.py`，独立文件，均为全新表，2026-04-25 起新增，create_all 可直接建）
+
+---
+
+#### 最近 ~3 个月的字段变更（git log 覆盖 2026-03-09 至今）
+
+以 **prod DB 是否已有此列/约束** 为评估视角（create_all 不会 ALTER 已存在表）：
+
+| commit | 日期 | 文件:变更 | 类别 | 不迁移的实际影响 |
+|---|---|---|---|---|
+| `4cc8af8` | 2026-04-15 | `Transaction`: 新增复合索引 `ix_transaction_user_timestamp` | 加 INDEX | **仅性能退化**，无正确性影响。查询 `user_id+timestamp` 退回全表扫/单列索引。 |
+| `b9f27e9` | 2026-04-16 | `Market.created_at/closes_at/settled_at` 改 TIMESTAMPTZ；`Transaction.timestamp` 同 | 类型变更 | asyncpg 在 prod PG 上实际影响视已有列类型：若列已是 TIMESTAMP（无 tz），asyncpg 读取 timezone-aware datetime 时会报 `DatetimeTzError`（已知 asyncpg 严格校验）→ **读任何市场/交易都会 500**。若 prod 是 SQLite，无影响（SQLite 不区分 tz）。**高风险**。 |
+| `5a495a4` | 2026-04-16 | `Transaction`: 新增 `market_price NUMERIC(16,8) DEFAULT 0` | 加列，有默认值 | prod 没有此列。INSERT 时 ORM 携带 market_price 字段 → PG 报 `column "market_price" of relation "transaction" does not exist` → **买卖操作全部失败 500**（当时版本，已被下一 commit 覆盖）。 |
+| `211b552` | 2026-04-16 | `Transaction`: `market_price` → 拆为 `pre_market_price + post_market_price`，均 NUMERIC(16,8) DEFAULT 0 | 重命名/拆列 | prod 如停在此 commit 之前：INSERT 携带 `pre_market_price`/`post_market_price`，列不存在 → **买卖失败**。如停在 `5a495a4`（有 market_price 但无 pre/post）：INSERT 同样失败，且老列 market_price 没清理 → **P0：买卖全量 500** |
+| `d8c3119` | 2026-04-15 | v1.0.0 大重构：`User` 删 `email NOT NULL`/`hashed_password`/`is_verified`；新增 `casdoor_id`/`username`/`cash:Numeric`/`debt:Numeric`/`debt CHECK`；`Position` 新增 `cost_basis`；`Transaction` 全字段从 float→Decimal+Numeric；`Outcome` payout/total_shares float→Decimal | 大规模类型变更+加列+删列 | 这是整个认证模型替换（FastAPI-Users→Casdoor SSO），必须 DROP+重建，不存在增量迁移场景。上线时应重建 DB（init_db.py）。初始部署后不再是问题，但体现了"no migration"的历史特征。 |
+| `17df68a` | 2026-04-24 | `User`: 新增 `debt_last_accrued_at TIMESTAMPTZ NULL`；新增 `SiteConfig` 整张表 | 加列(nullable)+新建表 | **已有 `auto_migrate()` 补救**：`loan_migrate.py` 在 lifespan 自动执行 `ADD COLUMN IF NOT EXISTS`；`SiteConfig` 为新表，`create_all` 可建。**此变更已被正确处理**，低风险。 |
+| `d3b76e9` | 2026-04-25 | 新增 `redemption.py`：4 张全新表 | 新建表 | 全新表，`create_all` 直接建，无迁移问题。 |
+| `bed3553` | 2026-04-27 | `redemption.py` 新增 `RedemptionTransaction` 表 | 新建表 | 全新表，`create_all` 直接建，无问题。 |
+
+**重点汇总**：当前代码中存在以下三组字段，**没有自动迁移脚本**：
+
+1. **`Transaction.pre_market_price` / `post_market_price`**（`211b552`，2026-04-16）：如果 prod DB 在此 commit 之前部署后未手动执行 DDL，buy/sell 端点每次 INSERT 都会因列不存在而 500。`chart.py` 的 K 线聚合不受影响（已改为 LMSR 重放，不直接读这两列），但 `market.py:1011` 的 `Transaction.post_market_price.label("price")` 在结算参考价查询中会 500。
+2. **`Position.cost_basis`**（`d8c3119`，2026-04-15 v1.0.0 大重构）：如 prod DB 停在旧 schema（amount:float 无 cost_basis），所有涉及 Position 的 INSERT/UPDATE 都会失败；`user.py` 读 `pos.cost_basis` → AttributeError → 用户摘要 500。
+3. **`Transaction` 复合索引 `ix_transaction_user_timestamp`**（`4cc8af8`）：仅性能，无正确性影响。
+
+---
+
+#### 迁移机制现状
+
+**无 Alembic**，无任何通用迁移框架。搜索 `backend/` 下 `.py/.txt/.cfg` 均无 alembic 引用。
+
+当前唯一的结构化迁移路径：
+
+1. **`auto_migrate()` 函数**（`backend/app/services/loan_migrate.py`）：在 FastAPI lifespan 每次启动自动执行，仅处理 `User.debt_last_accrued_at` 列补充和 `SiteConfig` 默认行插入。覆盖范围非常有限。
+2. **`backend/scripts/migrate_loan_v1.py`**：手动脚本，与 `auto_migrate()` 等价，可用于独立运行。
+3. **`deploy/deploy.sh`**：在每次 deploy 前执行 `pg_dump` 备份（Postgres）或直接拷贝 SQLite 文件，提供备份窗口，但不执行任何 DDL 迁移。
+
+**结论**：除 `debt_last_accrued_at` 外，所有其他字段变更均无自动迁移保障，需要运维人员手动执行 DDL。当前无任何流程文档要求在 deploy 时检查 schema diff。
+
+---
+
+#### init_db.py 风险
+
+`backend/init_db.py` **会清空所有数据**，具体步骤：
+
+1. 打印"会清空所有数据"
+2. 要求用户输入 `YES` 确认
+3. 执行 `DROP TABLE IF EXISTS ... CASCADE`（Postgres）或逐表 `DropTable`（SQLite）
+4. 重建全部表
+5. 插入示例数据
+
+**风险评估**：
+
+- 有确认提示（`input("确认清空数据库？输入 YES: ")`），防止意外触发
+- 但确认提示**不区分 dev/prod 环境**，无二次校验（如要求输入数据库名称）
+- 若在自动化脚本中调用并管道输入 `YES`，prod 数据会被全量删除
+- `backend/app/core/database.py:init_db()` 函数（被 lifespan 调用）**只做 `create_all`，不 DROP**，与 `backend/init_db.py` 同名但行为完全不同，存在名称混淆风险
+
+---
+
+**发现**：
+
+#### [P2-M10-1] 无 Alembic / 无通用迁移框架，字段变更依赖人工 DDL
+
+- **位置**：整个 `backend/` 目录，无 alembic.ini / migrations/ 目录
+- **类别**：流程风险 / 运维风险
+- **影响**：任何 `models/base.py` 字段变更（加列、改类型、加约束）在 deploy 后不会自动应用。若运维忘记手动 DDL，新代码读写旧 schema → INSERT 失败（列不存在）或静默读 NULL（旧行缺列）。
+- **现状举例**：`Transaction.pre_market_price` / `post_market_price`（commit `211b552`）、`Position.cost_basis`（commit `d8c3119`）均无迁移脚本；`debt_last_accrued_at` 是唯一有迁移脚本的例外。
+- **修复建议**：引入 Alembic（`alembic init`），将所有历史 DDL 归档为迁移文件，设置 CI 校验 `alembic check`（or `alembic heads`）在 PR 合并时验证迁移完整性。
+- **状态**：未修，流程风险
+
+#### [P1-M10-2] Transaction.pre_market_price / post_market_price 无迁移脚本，prod 滞后会导致买卖全量 500
+
+- **位置**：`backend/app/models/base.py:163-165`；`backend/app/api/v1/market.py:477-478, 591-592, 713-714, 1011`
+- **类别**：加列无迁移 → INSERT 失败
+- **复现**：如果 prod DB 的 `transaction` 表缺少 `pre_market_price` / `post_market_price` 列（即 prod 部署时间在 `211b552` 之前，且事后未手动 DDL），则：`buy_shares()` / `sell_shares()` 中所有 `db.add(Transaction(..., pre_market_price=..., post_market_price=...))` 会触发 `asyncpg.exceptions.UndefinedColumnError` → HTTP 500 → 交易全部失败。
+- **影响**：市场买卖完全不可用（P1 级）；结算时 `post_market_price` 查询（`market.py:1011`）也 500。
+- **缓解**：chart.py 已改为 LMSR 重放，不直接依赖这两列，K 线不受影响。
+- **修复建议**：立即核查 prod DB 是否存在这两列；若不存在，执行：`ALTER TABLE transaction ADD COLUMN IF NOT EXISTS pre_market_price NUMERIC(16,8) NOT NULL DEFAULT 0; ALTER TABLE transaction ADD COLUMN IF NOT EXISTS post_market_price NUMERIC(16,8) NOT NULL DEFAULT 0;` 并加入 `auto_migrate()` 幂等迁移。
+- **状态**：未验证（无法访问 prod DB），需运维确认
+
+#### [P1-M10-3] Position.cost_basis 无迁移脚本，滞后 prod 会导致持仓读写 500 + 用户摘要页全量 500
+
+- **位置**：`backend/app/models/base.py:131`；`backend/app/api/v1/user.py:95, 161, 170, 174`；`backend/app/api/v1/market.py:459, 462, 569, 572, 576`
+- **类别**：加列无迁移 → INSERT / SELECT 失败
+- **复现**：`cost_basis` 在 v1.0.0（`d8c3119`）大重构中随 Position 整体重建，若 prod 有旧 position 表（无 cost_basis 列），所有 buy 时 `Position(..., cost_basis=ZERO)` 会 `UndefinedColumnError`，所有 sell 时 `position.cost_basis -= ...` 会 `AttributeError`，`/user/summary` 读取 `pos.cost_basis` 500。
+- **影响**：买卖 500，用户摘要页 500；未实现盈亏（unrealized_pnl）统计。
+- **备注**：`d8c3119` 是整个认证模型替换（FastAPI-Users→Casdoor），上线时理应重建 DB。但若 prod 有老数据未重建，风险依然存在。
+- **修复建议**：确认 prod DB 是否已包含 `cost_basis` 列；若不存在，执行 `ALTER TABLE position ADD COLUMN IF NOT EXISTS cost_basis NUMERIC(16,6) NOT NULL DEFAULT 0;` 并更新历史持仓的 cost_basis 为近似值（或 0，接受估值误差）。加入 `auto_migrate()`。
+- **状态**：未验证，需运维确认
+
+#### [P2-M10-4] datetime 列类型（TIMESTAMP vs TIMESTAMPTZ）历史 DDL 未核查
+
+- **位置**：`backend/app/models/base.py:65-66, 93, 167`（commit `b9f27e9`，2026-04-16）
+- **类别**：类型变更
+- **复现**：若 prod DB 的 `market.created_at`、`market.closes_at`、`market.settled_at`、`transaction.timestamp` 列类型是 `TIMESTAMP WITHOUT TIME ZONE`（create_all 旧行为），asyncpg 读取时会报 `DatetimeTzError` 或静默丢失时区 → 任何返回市场/交易数据的 API 都可能 500。
+- **影响**：若 prod 在 `b9f27e9` 之前初始化且列为 TIMESTAMP，则所有市场列表、交易历史 API 失效（P1 级影响，但此变更已有一个月，若 prod 无此问题说明列类型已正确）。
+- **备注**：如 prod 从 `b9f27e9` 之后的版本初始化，此列类型正确，无问题。
+- **修复建议**：核查 prod DB：`SELECT column_name, data_type FROM information_schema.columns WHERE table_name IN ('market','transaction') AND column_name IN ('created_at','closes_at','settled_at','timestamp');` 若为 `timestamp without time zone`，执行 `ALTER TABLE ... ALTER COLUMN ... TYPE TIMESTAMPTZ USING ... AT TIME ZONE 'UTC';`。
+- **状态**：未验证，需运维确认
+
+#### [P3-M10-5] init_db.py 无环境检测，名称与 database.py:init_db() 混淆
+
+- **位置**：`backend/init_db.py`；`backend/app/core/database.py:39`
+- **类别**：运维流程风险
+- **影响**：两个函数均名为 `init_db`，但行为完全相反（一个 DROP+重建，一个只 create_all）。有确认提示但无 prod 环境检测（如检查 `APP_ENV != production`）。脚本误在 prod 运行 = 全量数据丢失。
+- **修复建议**：在 `init_db.py` 开头添加 `APP_ENV` 检测，`production` 环境直接拒绝执行；或将文件重命名为 `reset_db.py` 以消除歧义；在 README/部署文档中标注"禁止在 prod 执行"。
+- **状态**：未修，低优先级
+
+#### [P3-M10-6] auto_migrate() 仅覆盖一个字段，无法扩展，建议统一化
+
+- **位置**：`backend/app/services/loan_migrate.py:31`
+- **类别**：流程改进
+- **影响**：`debt_last_accrued_at` 是目前唯一通过 `auto_migrate()` 处理的新增列，`pre_market_price`/`post_market_price`/`cost_basis` 均未纳入。若未来继续使用"lifespan 跑幂等 ALTER"的模式，需要每次手工在此函数中追加新列。
+- **修复建议**：要么迁移到 Alembic（P2-M10-1 的修复），要么在 `auto_migrate()` 中追加对 `pre_market_price`、`post_market_price`、`cost_basis` 的 `ADD COLUMN IF NOT EXISTS` 语句，让启动时自动补全这三列。
+- **状态**：未修
+
+**留给后续阶段的线索**：
+- 结合 P2-M10-4，建议在 Task 12 总结中列出"需要运维手动核查的 prod DB 检查清单"（3-4 条 SQL 查询命令）。
+- `liquidity_b: float = Field(default=100.0)` 在 DB 层无 CHECK(>0) 约束（Task 1 已记录，Task 10 确认无迁移加固路径）。
+- `Outcome.total_shares` 无 DB 层 CHECK(>=0) 约束（Task 2 / Task 1 已记录）。
 
 ### 静态工具 triage 结果
 （Task 11 填写）
