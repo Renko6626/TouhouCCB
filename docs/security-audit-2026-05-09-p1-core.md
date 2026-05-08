@@ -852,7 +852,182 @@ Txn-B: SKIP LOCKED → 无可用码 (code-X 被锁) → SOLD_OUT
 - sqladmin 未注册 RedemptionCode 是当前的保护，但注释已提醒未来若注册必须排除 code_string 字段——建议在 `core/admin.py` 添加显式注释或文档，防止后续维护者忽视
 
 ### SSO / Casdoor / Token
-（Task 6 填写）
+
+**审计日期**：2026-05-09
+**审计文件**：`backend/app/api/v1/auth.py` + `backend/app/core/{oidc,users,config,admin}.py` + `backend/app/main.py`（CORS）+ `backend/tests/test_auth.py`（覆盖盘点）+ 前端 `thccb-frontend/src/api/casdoor.ts` / `pages/auth/Callback.vue` / `stores/auth.ts`（佐证 state 校验位置）
+**架构概要**：
+- 前端拼 Casdoor `/login/oauth/authorize` → 用户登录 → Casdoor 302 回 `/auth/callback?code&state`
+- 前端校验 state 后 POST `/api/v1/auth/callback {code, state, redirect_uri}` 给后端
+- 后端用 code 换 `id_token` / `access_token`，JWKS 验签后取 `sub` 做用户匹配，颁发本站 HS256 JWT（access 1h / refresh 7d）
+- 路由：`POST /callback` / `POST /refresh` / `GET /me`（**无 `/logout`，无任何 token 撤销端点**）
+- 本站 JWT 存 `localStorage`（前端），后端不持久化 Casdoor 的 access/refresh token，也不写入 DB
+
+#### OAuth/OIDC 必查项
+| 检查项 | 结果 | 证据 |
+|---|---|---|
+| state 参数生成 | 仅前端生成（`crypto.randomUUID()`） | `thccb-frontend/src/api/casdoor.ts:23-27` |
+| state 校验 | **仅前端 sessionStorage 比对**；后端 `/callback` 接收 `state` 但**完全不校验** | `pages/auth/Callback.vue:32-38`；`api/v1/auth.py:51-54, 57-77`（`body.state` 仅出现在 schema，函数体未引用） |
+| nonce 生成 | **缺失** — authorize URL 未带 `nonce` | `thccb-frontend/src/api/casdoor.ts:32-38`（仅 client_id/response_type/redirect_uri/scope/state） |
+| nonce 校验 | **缺失** — `verify_token` 未校验 `nonce` claim | `oidc.py:126-146` |
+| redirect_uri 硬编码 | **客户端传入、无服务端白名单** — `body.redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"` | `auth.py:73` |
+| JWT 签名校验 | **到位** — `jwt.decode(token, signing_key.key, algorithms=[...])` 强制公钥验签，没有 `verify=False` 旁路 | `oidc.py:134-145` |
+| iss 校验 | **缺失** — `jwt.decode` 未传 `issuer=` 参数 | `oidc.py:136-145` |
+| aud 校验 | **显式禁用** — `options={"verify_aud": False}`，注释说"Casdoor 的 access_token 可能不含 aud" | `oidc.py:140-144` |
+| exp / nbf / iat 校验 | exp 默认开启（PyJWT 2.x 默认），nbf/iat 未显式 require | `oidc.py:136-145`（无 `options.require=["exp","iat","nbf"]`） |
+| algorithms 白名单 | **到位** — `algorithms=["RS256", "ES256"]`，拒绝 `alg=none` | `oidc.py:139` |
+| JWKS HTTPS + 缓存 | **缓存到位**（`PyJWKClient(..., cache_keys=True, lifespan=3600)` + 外层 `_JWKS_REFRESH_INTERVAL=3600` 守卫）；**HTTPS 不强制** — `issuer_url` 来自 `settings.CASDOOR_ENDPOINT`，从未校验 scheme | `oidc.py:23, 38, 56, 70-76, 62-67`；`config.py:62` |
+| 本站 JWT 算法 | HS256 + `SECRET_KEY`（生产 ≥32 字符强校验，开发环境 token_urlsafe(48)） | `users.py:34, 47, 53, 69`；`config.py:50, 77-89` |
+| Cookie HttpOnly+Secure+SameSite | **不适用前台** — 本站 access/refresh JWT 走 `Authorization: Bearer`，前端存 `localStorage`（`auth.ts:8-9, 47-48`）；**适用 sqladmin** — SQLAdmin 通过 `AuthenticationBackend.__init__` 隐式挂载 `SessionMiddleware(secret_key=ADMIN_SECRET_KEY)`（`sqladmin/authentication.py:18-23`），未显式传 `https_only=True` / `same_site="lax"`（默认 lax，未强制 Secure） | `admin.py:22-46, 100`；`main.py:46`（`setup_admin(app, engine)`） |
+| 登出 + 上游同步 | **本站完全没有 `/logout` 端点**；前端 `logout()` 只清 `localStorage` 后跳 `/auth/login`，**不调用 Casdoor `end_session_endpoint`，不撤销 refresh token** | `auth.py` 全文搜 `logout` 无；`stores/auth.ts:54-64` |
+| `next` / 开放重定向 | 前端 `Callback.vue` 对 `?redirect=` 做了 `sanitizeRedirect`（要求 `/` 开头且非 `//`、非 `/\`）；后端 `redirect_uri` 仍是客户端可控（见上） | `pages/auth/Callback.vue:13-20, 42-43`；`api/v1/auth.py:73` |
+| token 服务端存储 / 加密 | **不存储** — Casdoor 返回的 `access_token` / `id_token` 仅用于解 claims 后丢弃，`User` 表没有保存它们 | `auth.py:75-99`；`models/base.py:34`（仅存 `casdoor_id` 字符串） |
+| 账号禁用即时生效 | access_token 解码后会查 DB 校验 `is_active`，禁用立即生效；refresh 也校验 | `users.py:83-87`；`auth.py:135-136, 156-157` |
+| 错误信息泄漏 | 统一为「认证失败，请重试」/「令牌验证失败，请重试」，未区分用户存在/code 失效 | `auth.py:80, 86, 92, 96` |
+
+#### 发现
+
+##### [P0-AUTH-01] OIDC `id_token` 未校验 `iss`，`aud` 显式禁用，`nonce` 完全缺失 → 跨租户 / 跨应用 token 替换的账户接管面
+- **位置**：`backend/app/core/oidc.py:126-146`
+- **类别**：身份联合（OIDC token validation）
+- **复现**：
+  1. 攻击者在**任意一个使用相同 Casdoor 实例的其他应用**（或其名下另一组织/应用）登录拿到 `id_token`/`access_token`（其 `sub` 是攻击者自己）。
+  2. 攻击者已在本站完成首次登录（`User.casdoor_id = X`）。
+  3. 由于 `verify_token` 不校验 `iss`（不限定签发方）、不校验 `aud`（不限定本站 client_id）、不要求 `nonce`，**任意被同一 JWKS 信任的 RS256/ES256 JWT 都能通过签名校验**。
+  4. 配合 [P1-AUTH-02] / [P0-AUTH-03] 的 code 注入路径，攻击者把自己在他应用拿到的 token 走任意能注入 token 的入口（参见 [P0-AUTH-03]）即可被本站接受为 `sub=X` 的用户。
+- **影响**：
+  - 多租户 Casdoor 部署下，**别的应用拿到的 id_token 可被本站接受**（只校验签名）→ 取决于 sub 唯一性能否避免。Casdoor 默认 `sub` 是用户全局 ID，跨应用同一用户 sub 相同——所以**不直接给账户接管**，但任何 sub 与已注册 casdoor_id 重合的 token 都可能被吃掉。
+  - 真正的爆点是 **`exchange_code` 拿到的 token 是 access_token 还是 id_token 时，缺乏 audience 锁定** → Casdoor 只要把 access_token 颁发给任一别的应用（`aud=other_app`），同一用户的 access_token 也会被本站 `verify_token` 接受。
+  - 没有 nonce → 即使加上 `aud` / `iss` 校验，重放攻击仍可能成立（虽 `exp` 默认校验有效期内）。
+- **修复建议**：
+  - `jwt.decode` 加 `issuer=settings.CASDOOR_ENDPOINT`（与 well-known 的 `issuer` 字段比对）
+  - **强制校验 `aud`**：移除 `verify_aud: False`；如 access_token 真没 `aud`，**只信 `id_token`，不要 fallback 到 access_token**（`auth.py:83` 的 `or token_resp.get("access_token")` 是病灶）
+  - 前端发起 authorize 请求时生成 `nonce` 一并存 sessionStorage，后端在 `verify_token` 中校验 `id_token.nonce == 提交的 nonce`
+  - `options={"require": ["exp", "iat", "iss", "aud", "sub"]}`
+- **状态**：未修（保留供 SSO 修复轮次实施；高敏感文件，本轮只读）
+
+##### [P0-AUTH-02] `/auth/callback` 后端不校验 OAuth `state` → 登录 CSRF / 账户固定（login fixation）
+- **位置**：`backend/app/api/v1/auth.py:51-54, 57-77`
+- **类别**：CSRF on auth flow
+- **复现**：
+  1. 攻击者用浏览器在 Casdoor 登录到自己的账号 A，拿到 callback 携带的 `code_a`，**但不让浏览器走完前端校验**。
+  2. 攻击者构造 `POST /api/v1/auth/callback {"code": "<code_a>", "state": "any", "redirect_uri": "<受害人原 redirect>"}` 直接发给后端 API。
+  3. 受害者已登录的页面如果发起此请求（CSRF + 攻击者 code）—— 由于后端**完全不校验 state**，本站会把受害者的本地会话替换为「绑定攻击者 casdoor_id A」的 JWT。
+  4. 受害者随后的所有交易都打在攻击者账号上（攻击者继承钱）；**或反向**：攻击者把受害者 code 灌进自己浏览器，让自己以受害者身份登录 → 资产盗取。
+- **影响**：
+  - 前端 state 校验只是 *客户端* 的拦截，**任何绕过前端的客户端**（curl / Postman / 受害浏览器被钓到的恶意页面跨站发请求）都可以无 state 提交 code。
+  - 后端是信任边界，CSRF 防御必须落在后端。
+- **结合 CORS**：`main.py:57-63` `allow_origins=settings.cors_origins_list`、`allow_credentials=True`、`allow_methods` 含 POST。`CORS_ORIGINS` 默认仅 dev origin，但生产环境若把任意 `*.example.com` 加白名单，跨域 POST 也开通了。即使没有 CORS，**直接构造请求**仍可成立（CORS 不阻止服务端到服务端、不阻止 curl）。
+- **修复建议**：
+  - 后端在 authorize URL 生成阶段把 state 同时记入服务端（Redis / DB / signed cookie），callback 时与 `body.state` 比对并立刻消费
+  - 或采用「state = HMAC(secret, sub) + 时间戳」自校验方案
+  - 同时强校验 `redirect_uri`（必须等于服务端配置的固定 URL）
+- **状态**：未修
+
+##### [P0-AUTH-03] `redirect_uri` 完全由客户端控制 → 配合 [P0-AUTH-02] 形成 code 注入主路径
+- **位置**：`backend/app/api/v1/auth.py:51-54, 73`、`api/v1/auth.py:77`（直接传给 token endpoint）
+- **类别**：OAuth redirect_uri 验证缺失
+- **复现 / 影响**：
+  - `body.redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"`，攻击者可指定任意值。Casdoor 的 token endpoint 会校验 `redirect_uri` 是否在应用注册的回调列表中——**这是唯一的兜底**，所以单独看危险性受 Casdoor 注册回调列表收紧。
+  - 但若 Casdoor 应用注册了多个 callback（开发/预发/生产共用），攻击者可用其他环境的 callback URL 完成 code 兑换 + sub 替换攻击（与 [P0-AUTH-02] 链）。
+  - 后端把 `redirect_uri` 透传给前端构建的 client，**没有任何"必须等于本站 FRONTEND_URL"的服务端校验**。
+- **修复建议**：
+  - 服务端硬编码 `redirect_uri = f"{settings.FRONTEND_URL}/auth/callback"`，**完全忽略 `body.redirect_uri`**（或校验等值后再用）
+  - 配合 Casdoor 应用回调列表收紧到一个 URL
+- **状态**：未修
+
+##### [P1-AUTH-04] 无 `/logout` 端点 + refresh token 不可撤销 → 用户主动登出 / 账号被盗后无任何止血手段
+- **位置**：`backend/app/api/v1/auth.py` 全文（无 logout 路由）；`backend/app/core/users.py:37-47`（refresh token 无 jti / 无黑名单存储）
+- **类别**：会话管理
+- **复现**：
+  1. 用户点击「登出」→ 前端 `stores/auth.ts:54-64` 仅 `localStorage.removeItem`，跳 `/auth/login`。
+  2. 攻击者若在登出前已盗取 refresh_token（XSS、备份导出、设备共享），**接下来 7 天**都能在 `/api/v1/auth/refresh` 持续刷新出新 access_token。
+  3. 即使用户改密码 / 在 Casdoor 注销账号，本站 JWT 与 Casdoor 解耦，本站继续放行（直到 refresh exp）。
+- **影响**：
+  - 没有「主动失效」概念。`User.is_active=False` 是仅有的 kill switch，但需要 admin 介入。
+  - 与 Casdoor `end_session_endpoint` 完全不同步。
+- **修复建议**：
+  - 加 `POST /auth/logout`：清前端 token + 调 Casdoor 注销
+  - refresh token 加 `jti` claim + DB 撤销表（或用短 TTL access + 切到 opaque refresh + DB 验证）
+- **状态**：未修
+
+##### [P1-AUTH-05] `verify_token` 接受 `id_token` 缺失时 fallback 到 `access_token` → 二者语义混淆
+- **位置**：`backend/app/api/v1/auth.py:82-89`
+- **类别**：OIDC vs OAuth2 语义
+- **复现 / 影响**：
+  - `raw_token = token_resp.get("id_token") or token_resp.get("access_token")`
+  - access_token **不是**为身份断言设计的；其 claim 集合 / aud / 是否含 `sub` 取决于 IdP 实现，Casdoor 给的 access_token 历史上是 JWT 但语义不保证。
+  - 与 [P0-AUTH-01] 联动：access_token 通常 `aud != client_id`（aud 是 resource server），代码靠 `verify_aud: False` 才让它过——这一旦把"可接受的 token 集合"扩大，就给 [P0-AUTH-01] 的攻击多开一扇门。
+- **修复建议**：
+  - 强制要求 `id_token`，`access_token` 不参与身份解析
+  - 同步开启 `verify_aud=True`（强校验 `aud == client_id`）
+- **状态**：未修
+
+##### [P1-AUTH-06] OIDCClient 单例不区分 issuer 变更，未防御 well-known / JWKS 的 HTTPS scheme
+- **位置**：`backend/app/api/v1/auth.py:34-48`、`backend/app/core/oidc.py:38, 62-67`
+- **类别**：传输安全 / 配置健壮性
+- **复现 / 影响**：
+  - 全局 `_oidc` 单例首次初始化后不再重建（即使 `settings.CASDOOR_ENDPOINT` 改了也要重启）；非安全问题，但加了运维盲点。
+  - 真正风险：`settings.CASDOOR_ENDPOINT` 没有 HTTPS 强校验，若运维误填 `http://`，**well-known 与 JWKS 都走明文**，MITM 可注入伪造 JWKS → 整个签名校验链崩溃 → 等价于 P0。
+- **修复建议**：
+  - `config.py` 在 `_fill_secrets` 校验生产环境 `CASDOOR_ENDPOINT.startswith("https://")`
+  - `oidc.py` 在 `_fetch_well_known` 中拒绝 `http://` 起的 issuer（除非 APP_ENV=development）
+- **状态**：未修
+
+##### [P2-AUTH-07] sqladmin SessionMiddleware 默认 cookie 属性偏弱
+- **位置**：`backend/app/core/admin.py:22-46, 100`、`sqladmin/authentication.py:18-23`
+- **类别**：会话 cookie 加固
+- **复现 / 影响**：
+  - SQLAdmin 自动挂 `SessionMiddleware(secret_key=ADMIN_SECRET_KEY)`，未传 `https_only=True`、`same_site="strict"`、`max_age` 显式值。Starlette 默认：`session` cookie name、`HttpOnly=True`（默认）、`SameSite=lax`、**`Secure` 取决于 `https_only`，默认 False**。
+  - 生产 nginx 是 HTTPS，但若 cookie 没 Secure 标志，旁路 HTTP 接入点会泄漏。
+  - admin 登录页用 `username` 字段传 JWT（`admin.py:24`），JWT 进入 sqladmin form → 浏览器 referrer / log 风险（虽 form POST 不进 URL，但前端如果误用 GET 就泄漏）。
+- **修复建议**：
+  - 改为显式 `app.add_middleware(SessionMiddleware, secret_key=..., https_only=True, same_site="strict")` 在生产环境
+  - 或在 `setup_admin` 后用 `app.user_middleware` 检查 / 重新挂载
+- **状态**：未修
+
+##### [P2-AUTH-08] 本站 JWT 存 `localStorage` → XSS 即等于全权 token 泄漏
+- **位置**：`thccb-frontend/src/stores/auth.ts:8-9, 47-48`
+- **类别**：前端会话存储
+- **复现 / 影响**：
+  - access_token + refresh_token 都在 `localStorage`，**任意 XSS 直接拿走 7 天有效的 refresh_token**。
+  - 没有 HttpOnly cookie 屏障；即便 CSP 严格，前端依赖众多（Naive UI、Vue、SSE EventSource）一旦某依赖 0day → 即时全员资产风险。
+- **修复建议**：
+  - 切换到 HttpOnly + Secure + SameSite=Strict 的 refresh cookie（access 仍可在内存）
+  - 这是产品级改造，记入 phase-2
+- **状态**：未修（已记入「留给后续阶段」）
+
+##### [P3-AUTH-09] `/refresh` 不轮换 refresh token，长期会话只刷 access
+- **位置**：`backend/app/api/v1/auth.py:149-161`
+- **类别**：刷新策略
+- **影响**：refresh 一次只换 access，**不返回新 refresh**。被盗 refresh 在 7 天内一直可用；rotate 策略 + 重用检测可以快速发现盗用。
+- **修复建议**：每次 `/refresh` 同时颁发新 refresh，旧 refresh 进黑名单（带 jti），命中"已废弃 jti 重用" → 立即 invalidate 整个家族
+- **状态**：未修
+
+##### [P3-AUTH-10] 用户名碰撞时附 `_1`/`_2` 后缀循环未限上界
+- **位置**：`backend/app/api/v1/auth.py:113-119`
+- **类别**：可用性 / DoS（极小）
+- **影响**：极端构造下若有用户故意填同名 → 循环开销随冲突数线性增长，每次循环一次 SELECT，最多走完所有冲突；非安全风险，但留个 `for i in range(1000)` 上限更稳。
+- **状态**：未修（minor）
+
+##### [P3-AUTH-11] `nbf` / `iat` claim 不在 require 列表中
+- **位置**：`backend/app/core/oidc.py:136-145`
+- **类别**：JWT 加固
+- **影响**：PyJWT 默认会校验存在的 nbf/iat（不会通过未来时间），但**不要求其必须存在**。配合算法白名单已基本无可乘之机，仅记最佳实践。
+- **状态**：未修
+
+##### [P3-AUTH-12] `/auth/callback` 错误日志可能写入用户可控 `code` / `redirect_uri` 而无脱敏
+- **位置**：`backend/app/api/v1/auth.py:79`、`backend/app/core/oidc.py:117`
+- **类别**：日志
+- **影响**：`logger.error("Token exchange failed: %s %s", resp.status_code, resp.text[:500])` —— Casdoor 错误响应可能包含 code 片段、grant 状态。攻击者构造畸形 code 灌爆日志体积。但 `code` 已经被 IdP 消费，单次性，影响有限。
+- **状态**：未修（次要）
+
+#### 留给后续阶段的线索
+- **首位 admin 自动晋升竞态** ([Task 7])：`auth.py:107-134` 的 "user_count == 0 → is_superuser=True" 在 `managed_transaction` 内做 SELECT count + INSERT，但 SQLAlchemy 默认隔离级别 + SQLite/Postgres 写写并发下，两个同时初始化的请求**都读到 count=0，都把自己设为超管**。Postgres 的 `User.casdoor_id` unique 约束保证两人不会同 sub，但**两个不同 sub** 都 `is_superuser=True` 是真实可行的。Task 7 详审。
+- **CASDOOR_CLIENT_SECRET 输入安全**：`config.py:64` Pydantic 普通 str，没有加 `SecretStr`。日志里 `repr(settings)` 会泄漏。phase-2 加固。
+- **管理员后门可能性**：`api/v1/auth.py` 没有 `/auth/admin-login` 等可疑端点；`current_superuser` 只能由首位用户拿到（Task 7 关注）。
+- **token 服务端撤销 / SSO logout 同步**（[P1-AUTH-04]）：phase-2 会话生命周期改造的核心。
+- **前端 localStorage 替换 HttpOnly cookie**（[P2-AUTH-08]）：phase-2 前端架构变动。
+- **Casdoor 多应用 / 多租户拓扑确认**：本审计假设 Casdoor 自有部署。如果共用 Casdoor SaaS，[P0-AUTH-01] 升至更危险等级——需要运维侧确认 Casdoor 部署模式。
 
 ### 首位 admin 自动晋升竞态
 （Task 7 填写）
