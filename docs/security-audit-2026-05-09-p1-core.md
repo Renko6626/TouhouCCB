@@ -1251,7 +1251,84 @@ T3: 系统中有两个 is_superuser=True 用户
 - 公开路由（leaderboard、recent-trades、movers、chart）返回用户 `username`；如果 username 为邮件地址或包含个人信息，需评估隐私风险。
 
 ### IDOR / 横向越权矩阵
-（Task 9 填写）
+
+**审计日期**：2026-05-09
+**审计范围**：`backend/app/api/v1/` 中所有按 ID 取资源或隐式按 user 返回资源的路由
+
+#### ID-参数化路由清单
+
+| 文件:行 | HTTP + 路径 | 资源类型 | 资源所属 | ownership 校验 | 等级 |
+|---|---|---|---|---|---|
+| redemption.py:49 | `GET /api/v1/redemption/batches/{batch_id}` | RedemptionBatch | system-shared（公开批次） | N/A — 仅检查 `status==ACTIVE` 且 `partner.is_active` | OK |
+| redemption.py:140 | `GET /api/v1/redemption/my/{code_id}` | RedemptionCode | user-owned | `c.bought_by_user_id != user.id → 404` | OK ✅ |
+| redemption.py:164 | `POST /api/v1/redemption/my/{code_id}/mark-used` | RedemptionCode | user-owned | `c.bought_by_user_id != user.id → 404` | OK ✅ |
+| admin_redemption.py:58 | `PATCH /api/v1/admin/redemption/partners/{partner_id}` | RedemptionPartner | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| admin_redemption.py:122 | `PATCH /api/v1/admin/redemption/batches/{batch_id}` | RedemptionBatch | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| admin_redemption.py:159 | `POST /api/v1/admin/redemption/batches/{batch_id}/import/preview` | RedemptionBatch | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| admin_redemption.py:177 | `POST /api/v1/admin/redemption/batches/{batch_id}/import/commit` | RedemptionBatch | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| stream.py:74 | `GET /api/v1/stream/market/{market_id}` | Market（公开价格流） | system-shared（市场行情） | N/A — 无 auth，任意人可订阅；内容为市场价格，无用户私密数据 | OK |
+| market.py:201 | `POST /api/v1/market/{market_id}/close` | Market | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| market.py:307 | `GET /api/v1/market/{market_id}` | Market | system-shared | N/A — 公开市场详情 | OK |
+| market.py:625 | `POST /api/v1/market/{market_id}/resolve` | Market | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| market.py:846 | `GET /api/v1/market/{market_id}/trades` | Transaction（全市场逐笔） | system-shared（公开成交） | N/A — 无 auth，仅返回 `username`+`shares`+`price`，无用户私密字段 | OK（见 P3-IDOR-01 信息披露讨论）|
+| market.py:882 | `POST /api/v1/market/{market_id}/resume` | Market | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| user.py:229 | `POST /api/v1/user/{user_id}/adjust-cash` | User.cash | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| user.py:286 | `POST /api/v1/user/{user_id}/force-loan` | User.debt | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+| user.py:320 | `POST /api/v1/user/{user_id}/forgive-debt` | User.debt | admin-only | `current_superuser` | OK（Task 8 已覆盖）|
+
+#### SSE / Stream 用户隔离
+
+`stream.py` 的 `GET /api/v1/stream/market/{market_id}` 是市场行情流，**不含任何用户私密数据**：
+
+- 快照（snapshot）包含 `market.id/title/description/status/liquidity_b/outcomes/prices`，均为系统级公开数据。
+- trade 事件包含 `outcome_id/shares/price/type`，同样为公开市价信息，不含 `user_id` 或 `username`。
+- 市场状态事件（market_status）仅含 `status/winning_outcome_id/settled_at`。
+- 心跳（ping）无 payload。
+
+`realtime.py` 中 `MarketEventBroker` 按 `market_id` 分发，不按 `user_id` 过滤，这是正确的——因为行情本身就是公共信息，不存在需要隔离的用户私密数据。
+
+结论：**SSE 无用户隔离需求，现状安全。**
+
+#### 列表类接口（隐式 IDOR）
+
+| 文件:行 | 路由 | 是否 user-scoped | 备注 |
+|---|---|---|---|
+| user.py:47 | `GET /api/v1/user/summary` | ✅ 是 | `Position.user_id == user.id`，返回自身资产快照 |
+| user.py:112 | `GET /api/v1/user/holdings` | ✅ 是 | `Position.user_id == user.id`，返回自身持仓 |
+| user.py:180 | `GET /api/v1/user/transactions` | ✅ 是 | `Transaction.user_id == user.id`，返回自身交易历史 |
+| user.py:264 | `GET /api/v1/user/list` | N/A（admin-only） | `current_superuser`，返回所有用户的 `id/username/cash/debt/is_active/is_superuser`，仅管理员可见 |
+| redemption.py:113 | `GET /api/v1/redemption/my` | ✅ 是 | `RedemptionCode.bought_by_user_id == user.id` |
+| loan.py:45 | `GET /api/v1/loan/quota` | ✅ 是 | 直接使用 `user.id`（`current_active_user`），无 ID 参数 |
+| loan.py:68 | `POST /api/v1/loan/borrow` | ✅ 是 | 直接使用 `user.id`，不允许传 target `user_id` |
+| loan.py:108 | `POST /api/v1/loan/repay` | ✅ 是 | 直接使用 `user.id`，不允许传 target `user_id` |
+| market.py:904 | `GET /api/v1/market/leaderboard` | 特殊（公开榜单） | 无 auth，公开 `user_id+username+net_worth`；见 P3-IDOR-01 |
+| market.py:937 | `GET /api/v1/market/recent-trades` | 公开（跨市场） | 无 auth，公开 `username+shares+price`；见 P3-IDOR-01 |
+| market.py:978 | `GET /api/v1/market/movers` | 公开（价格变动榜） | 无 auth，纯市场数据，无用户信息 |
+| chart.py:200 | `GET /api/v1/chart/price` | 公开（按 outcome_id） | 无 auth，返回市场价格曲线，无用户私密数据 |
+| chart.py:238 | `GET /api/v1/chart/candles` | 公开（按 outcome_id） | 无 auth，返回 K 线，无用户私密数据 |
+
+**发现**：
+
+#### [P3-IDOR-01] 公开端点通过 username 间接关联用户身份与交易行为
+
+- **位置**：`market.py:846`（`GET /api/v1/market/{market_id}/trades`）、`market.py:937`（`GET /api/v1/market/recent-trades`）、`market.py:904`（`GET /api/v1/market/leaderboard`）
+- **类别**：信息披露 / 隐私
+- **详情**：
+  1. `/market/{id}/trades` 和 `/recent-trades` 返回 `username`（而非匿名化 ID），并附带 `shares`、`price`、`gross`、`timestamp`。任何未登录访问者可通过 username 追踪特定用户的完整公开交易流水（如连续调用判断某用户的仓位方向）。
+  2. `/leaderboard` 公开返回 `user_id + username + net_worth`（净资产 = cash − debt，**不含持仓价值**），意味着任意访问者可查询指定 username 对应的用户真实 `user_id` 以及现金净值。`net_worth` 此处是 `cash−debt` 而非含持仓的完整净资产，但仍属敏感财务数据。
+  3. 以上三个接口**均无身份验证要求**（只依赖 `get_async_session`，不依赖 `current_active_user`）。
+- **影响**：中等隐私风险。username 暴露使用户公开交易行为（出入方向、规模）可被关联和追踪；net_worth 字段让任意访客可查用户财务状况；user_id 泄露可供构造其他 API 调用尝试（如社工）。这是预测市场的常见设计权衡（公开成交有助于价格发现），但在资金场景下需更审慎。
+- **修复建议**（加固）：
+  1. 考虑将 `username` 替换为匿名化昵称或截断哈希，或仅对已登录用户返回 `username`，对匿名请求返回 `user_id_hash`。
+  2. 排行榜可考虑仅在已登录状态下可见，或去除 `net_worth` 精确数值改为段位/排名。
+  3. 短期可在 nginx 对这些端点添加速率限制防止自动化采集。
+- **状态**：已识别，未修（设计权衡，需产品决策；技术上可缓解）
+
+**无 P0/P1 IDOR 发现**：所有用户私有资源（持仓、交易历史、贷款、兑换码）均通过 `current_active_user` 自动绑定当前用户身份，无 ID 参数可被替换用于横向越权。
+
+**留给后续阶段的线索**：
+- 如后续新增 `GET /api/v1/user/{user_id}/holdings` 类型的「查他人持仓」端点，务必加 `current_superuser` 或严格的 ownership 校验。
+- leaderboard 的 `net_worth` 计算仅用 `cash - debt`，不含持仓价值（这与 `/user/summary` 返回的 `net_worth` 口径不同），显示可能误导用户，但不构成安全问题。
 
 ### models/base.py 无迁移机制风险
 （Task 10 填写）
