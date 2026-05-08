@@ -1142,7 +1142,113 @@ T3: 系统中有两个 is_superuser=True 用户
 - `is_superuser` vs `is_admin`：代码库中两个字段都出现在 CLAUDE.md 中，但 `User` 模型只有 `is_superuser`，无 `is_admin`——已确认只有一个字段，CLAUDE.md 描述略有歧义，无实质影响。
 
 ### admin gate 覆盖矩阵
-（Task 8 填写）
+
+**审计日期**：2026-05-09
+**审计范围**：`backend/app/api/v1/*.py` 所有路由（共 43 条） + sqladmin 挂载点
+**guard 实现**：`backend/app/core/users.py`
+
+#### guard 实现说明
+
+`current_superuser`（即 `_require_superuser`，line 90-93）是对 `get_current_user`（`current_active_user`）的链式依赖：
+1. `get_current_user`：解码 JWT（HS256），验证 `type != "refresh"`，查库并检查 `user.is_active`。未通过 → 401。
+2. `_require_superuser`：在 step 1 通过后检查 `user.is_superuser`。未通过 → 403 `"Admin only"`。
+
+两级检查顺序正确：先认证（401），再鉴权（403）。
+
+- 无法绕过：`_bearer = HTTPBearer(auto_error=True)`，Bearer 缺失直接 422；JWT 验证失败直接 401；无从 header 信任跳过。
+- 错误消息：401 返回 `"Token expired"` / `"Invalid token"` / `"User not found or inactive"`；403 返回 `"Admin only"`。无敏感信息泄漏（不含堆栈或内部细节）。
+- 潜在注意点：guard 本身无 `is_superuser` 撤销后的实时 session 失效（JWT 型无法即时撤销）；sqladmin 另有独立的 `AdminAuth.authenticate` 每请求重查 DB（比 JWT 更及时，但通过 cookie session 而非 Bearer）。
+
+#### 全路由清单（admin-class）
+
+| 文件:行 | HTTP + 完整路径 | guard | 备注 |
+|---|---|---|---|
+| `market.py:171` | POST `/api/v1/market/create` | `Depends(current_superuser)` | 创建市场 |
+| `market.py:201` | POST `/api/v1/market/{market_id}/close` | `Depends(current_superuser)` | 熔断市场 |
+| `market.py:624` | POST `/api/v1/market/{market_id}/resolve` | `Depends(current_superuser)` | 结算市场 |
+| `market.py:882` | POST `/api/v1/market/{market_id}/resume` | `Depends(current_superuser)` | 恢复交易 |
+| `user.py:229` | POST `/api/v1/user/{user_id}/adjust-cash` | `Depends(current_superuser)` | 调整用户现金 |
+| `user.py:264` | GET `/api/v1/user/list` | `Depends(current_superuser)` | 用户列表 |
+| `user.py:286` | POST `/api/v1/user/{user_id}/force-loan` | `Depends(current_superuser)` | 管理员强制放贷 |
+| `user.py:320` | POST `/api/v1/user/{user_id}/forgive-debt` | `Depends(current_superuser)` | 管理员免除债务 |
+| `site_config.py:50` | GET `/api/v1/admin/site-config` | `Depends(current_superuser)` | 读取站点配置 |
+| `site_config.py:62` | PUT `/api/v1/admin/site-config/{key}` | `Depends(current_superuser)` | 修改站点配置 |
+| `admin_redemption.py:35` | GET `/api/v1/admin/redemption/partners` | `Depends(current_superuser)` | 合作方列表 |
+| `admin_redemption.py:44` | POST `/api/v1/admin/redemption/partners` | `Depends(current_superuser)` | 创建合作方 |
+| `admin_redemption.py:58` | PATCH `/api/v1/admin/redemption/partners/{partner_id}` | `Depends(current_superuser)` | 更新合作方 |
+| `admin_redemption.py:92` | GET `/api/v1/admin/redemption/batches` | `Depends(current_superuser)` | 兑换批次列表 |
+| `admin_redemption.py:101` | POST `/api/v1/admin/redemption/batches` | `Depends(current_superuser)` | 创建批次 |
+| `admin_redemption.py:122` | PATCH `/api/v1/admin/redemption/batches/{batch_id}` | `Depends(current_superuser)` | 更新批次 |
+| `admin_redemption.py:159` | POST `/api/v1/admin/redemption/batches/{batch_id}/import/preview` | `Depends(current_superuser)` | CSV 预览 |
+| `admin_redemption.py:177` | POST `/api/v1/admin/redemption/batches/{batch_id}/import/commit` | `Depends(current_superuser)` | CSV 提交 |
+
+**sqladmin 面板**（`core/admin.py:99-111`，挂载于 `/api/v1/admin`）：
+- 认证后端：`AdminAuth`（`core/admin.py:15-63`），session cookie（非 Bearer JWT）
+- `login()`：验证 JWT + 查库确认 `is_superuser`，写入 session。
+- `authenticate()`：每次请求重查库，`is_superuser` 撤销后立即失效（比 JWT 路由更严格）。
+- 5 个 ModelView（User / Market / Outcome / Position / Transaction）均通过 sqladmin `authentication_backend` 统一保护，无单独路由旁路。
+- 已知弱点：见 `[P2-ADMIN-02]`（`is_superuser` 字段可在面板直接编辑）；见 Task 6 `[P1-ADMIN-01]`（session 使用 HS256 签名 cookie，ADMIN_SECRET_KEY 为 8 字节时可爆破）。
+
+#### 全路由清单（user-class，供边界参照）
+
+| 文件:行 | HTTP + 完整路径 | guard | 资源类型 |
+|---|---|---|---|
+| `auth.py:57` | POST `/api/v1/auth/callback` | 无（公开） | OAuth2 回调 |
+| `auth.py:149` | POST `/api/v1/auth/refresh` | 无（公开） | Token 刷新 |
+| `auth.py:164` | GET `/api/v1/auth/me` | `current_active_user` | 当前用户信息 |
+| `user.py:47` | GET `/api/v1/user/summary` | `current_active_user` | 自身资产概览 |
+| `user.py:112` | GET `/api/v1/user/holdings` | `current_active_user` | 自身持仓 |
+| `user.py:180` | GET `/api/v1/user/transactions` | `current_active_user` | 自身交易历史 |
+| `market.py:224` | GET `/api/v1/market/list` | 无（公开） | 市场列表 |
+| `market.py:307` | GET `/api/v1/market/{market_id}` | 无（公开） | 市场详情 |
+| `market.py:403` | POST `/api/v1/market/buy` | `current_active_user` | 买入 |
+| `market.py:510` | POST `/api/v1/market/sell` | `current_active_user` | 卖出 |
+| `market.py:782` | POST `/api/v1/market/quote` | `current_active_user` | 报价预估 |
+| `market.py:845` | GET `/api/v1/market/{market_id}/trades` | 无（公开） | 市场成交流水 |
+| `market.py:904` | GET `/api/v1/market/leaderboard` | 无（公开） | 财富排行榜 |
+| `market.py:937` | GET `/api/v1/market/recent-trades` | 无（公开） | 跨市场成交 |
+| `market.py:978` | GET `/api/v1/market/movers` | 无（公开） | 涨跌榜 |
+| `loan.py:45` | GET `/api/v1/loan/quota` | `current_active_user` | 借款额度 |
+| `loan.py:68` | POST `/api/v1/loan/borrow` | `current_active_user` | 借款 |
+| `loan.py:108` | POST `/api/v1/loan/repay` | `current_active_user` | 还款 |
+| `redemption.py:28` | GET `/api/v1/redemption/batches` | `current_active_user` | 兑换批次（用户侧） |
+| `redemption.py:49` | GET `/api/v1/redemption/batches/{batch_id}` | `current_active_user` | 批次详情 |
+| `redemption.py:75` | POST `/api/v1/redemption/purchase` | `current_active_user` | 购买兑换码 |
+| `redemption.py:113` | GET `/api/v1/redemption/my` | `current_active_user` | 我的兑换码 |
+| `redemption.py:140` | GET `/api/v1/redemption/my/{code_id}` | `current_active_user` | 兑换码详情 |
+| `redemption.py:164` | POST `/api/v1/redemption/my/{code_id}/mark-used` | `current_active_user` | 标记已用 |
+| `chart.py:200` | GET `/api/v1/chart/price` | 无（公开） | 价格曲线 |
+| `chart.py:238` | GET `/api/v1/chart/candles` | 无（公开） | K 线 |
+| `stream.py:74` | GET `/api/v1/stream/market/{market_id}` | 无（公开） | SSE 实时流 |
+
+#### admin guard 自身审计
+
+**guard 链**：`current_superuser` → `get_current_user` → `HTTPBearer(auto_error=True)`
+
+- **401 路径正确**：JWT 缺失 → HTTPBearer 直接返回 401；JWT 解码失败 / 过期 / 类型错误 → 401；用户不存在或 inactive → 401。
+- **403 路径正确**：认证通过但 `is_superuser=False` → 403 `"Admin only"`。
+- **无旁路路径**：
+  - 无自定义 header（如 `X-Admin: true`）可绕过；
+  - JWT `sub` 必须为有效 DB user_id；
+  - 无 `is_superuser` 的提升路径（仅 auth.py 首位注册用户自动晋升，见 Task 7）。
+- **信息泄漏**：403 仅返回 `"Admin only"`，不暴露 `is_superuser` 字段名；401 返回通用消息。
+
+**发现**：所有 18 条 admin-class 路由均通过 `Depends(current_superuser)` 保护，无 P0/P1 级 unprotected 路由。
+
+#### [P3-ADMIN-03] admin-class 路由混散在多个 router 文件中，audit 可见性低
+
+- **位置**：`user.py:229-349`（4 条 admin 端点混在用户资产 router 中）
+- **类别**：安全架构 / 可维护性
+- **详情**：`GET /api/v1/user/list`、`POST /api/v1/user/{id}/adjust-cash`、`force-loan`、`forgive-debt` 这 4 条管理端点与用户自身端点共用同一 router，路径前缀为 `/api/v1/user/` 而非 `/api/v1/admin/`，不在 nginx `limit_req zone=admin` 的 2r/s 保护范围内（CLAUDE.md 提到 `/admin` 2r/s）；依赖函数签名中的 `admin:` 参数名和注释标识管理员身份，容易在后续开发中误改为 `user:`。
+- **影响**：无直接漏洞，但降低 audit trail 可见性，且可能被 nginx 以 user-class 速率策略对待（10r/s 而非 2r/s）；新开发者容易遗漏 guard。
+- **修复建议**：将 4 条 admin 端点迁移到独立的 `admin_user.py` router 并挂载于 `/api/v1/admin/user/` 前缀，同时更新 nginx 限速配置。
+- **状态**：未修（建议加固，非紧急）
+
+**留给后续阶段的线索**：
+
+- `GET /api/v1/user/list` 路径顺序与 `GET /api/v1/user/{user_id}/...` 存在潜在 path 参数解析竞争（FastAPI 按注册顺序匹配，`/list` 先于 `/{user_id}` 注册，当前安全；但若顺序被调整则 `/list` 会被当做 `user_id="list"` 处理）——Task 9 IDOR 矩阵应关注路径参数解析。
+- sqladmin 面板允许直接编辑 `cash`/`debt`/`is_superuser` 字段，无事务约束、无审计日志——`[P2-ADMIN-02]` 中已记录 `is_superuser` 问题，`cash/debt` 同样需要关注。
+- 公开路由（leaderboard、recent-trades、movers、chart）返回用户 `username`；如果 username 为邮件地址或包含个人信息，需评估隐私风险。
 
 ### IDOR / 横向越权矩阵
 （Task 9 填写）
