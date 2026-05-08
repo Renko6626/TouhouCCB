@@ -1499,3 +1499,19 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：仅文档；回滚 `git revert`；venv 留存 `/tmp/secaudit-venv` 供后续 phase 复用。
 **验证**：只读，无产品代码改动；`git status` 确认仅 docs/ 变动；bandit/semgrep 实际运行并确认版本号与告警数。
 **下一轮**：Task 12 阶段总结 + 报告收口。
+
+## 2026-05-09 — 安全审计阶段 1 完成（业务核心 + 认证授权）
+**目标**：执行摘要 + 阶段统计 + 不在范围聚合 + 报告状态收口（spec §4.1 完成）
+**动机**：参考 `docs/superpowers/specs/2026-05-08-security-audit-design.md`；Tasks 1-11 全部完成后需收尾汇总
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；后端代码全只读，零 .py 改动
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：
+  - `**状态**` 从「进行中」→「阶段 1 已完成（待用户 review）」
+  - `## 执行摘要`：填写完整摘要（52 条发现，P0×3/P1×8/P2×18/P3×21/INFO×2；三大关注方向）
+  - `## 阶段统计`：填写按等级+按子系统的聚合表 + 重大组合风险
+  - `## 不在范围`：聚合所有 Task 1-11 "留给后续阶段的线索"，按阶段分组 + prod DB 核查清单
+  - **cross-reference 修正**（Task 8 admin gate 小节 line 1190）：`Task 6 [P1-ADMIN-01]`（描述错误，P1-ADMIN-01 是 Task 7 的竞态发现）→ 改为 `Task 6 [P2-AUTH-07]`（描述匹配：sqladmin SessionMiddleware cookie 属性偏弱）
+- `docs/ralph-log.md`：追加本条日志
+**风险 & 回滚**：仅文档；回滚 `git revert`；红线文件未改
+**验证**：报告口径自洽（数字 = 实际计数）；cross-reference 修正查 grep 确认；git status 仅 docs/ 两文件变动
+**下一轮**：用户 review → 决定（a）就 P0/P1 起 SSO + 锁序 + 迁移补丁轮次；或（b）继续阶段 2 前端安全
