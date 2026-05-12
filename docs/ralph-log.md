@@ -1543,3 +1543,59 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **分支** `ralph/2026-05-12-alembic-intro`，未 push。
 
 **下一轮**：等用户决定（合并 / 跟 market 修复束一起合 / 单独验证）
+## 2026-05-12 15:43 — SSO P0 修复轮次启动
+**目标**：关闭 Phase 1 安全审计 3 个 P0（[P0-AUTH-01/02/03]）
+**动机**：账户接管攻击面，登录固定可让受害者用攻击者身份登录站点
+**范围**：仅 SSO 三件套——state 服务端校验 + redirect_uri 硬编码 + OIDC iss/aud/nonce 严校
+**前置确认**：前后端同源（thccb.secret-sealing.club via nginx），SameSite=Lax 可行
+**改动**：本条：仅起分支 + commit plan
+**风险 & 回滚**：本条 N/A；后续每个 task 单独标注
+**验证**：分支正确（ralph/2026-05-12-sso-fix-p0）
+**下一轮**：Task 2 oidc.py verify_token 收紧
+
+## 2026-05-12 15:59 — SSO P0 修复验证
+**目标**：跑完整验证套：py_compile / pytest / type-check / lint
+**改动**：本条仅文档
+**验证**：
+- 后端 py_compile：✅ 全过（exit 0）
+- 后端 import app.main：✅ OK（dev warnings 是 SECRET_KEY 自动生成 + Casdoor 未配置，环境性质，非本轮引入）
+- 后端 pytest（venv Python）：71 pass / 1 skip / 3 fail
+  - `market_test.py::test_flow` — async def 缺 pytest-asyncio，pre-existing 根目录遗留文件
+  - `tests/test_loan_api.py::test_repay_exceeds_cash_400` — Phase 1 审计 P3-LOAN-02 已知 stale 测试，与本轮无关
+  - `user_test.py::test_suite` — async def 缺 pytest-asyncio，pre-existing 根目录遗留文件
+  - 本轮新增 `tests/test_auth_state_nonce.py`：**5 pass**，全部通过
+- 前端 npm run type-check：✅ 全过（exit 0）
+- 前端 npm run lint：✅ 本轮改动 0 错
+  - `casdoor.ts`：无 lint 问题
+  - `guards.ts`：无 lint 问题
+  - `Callback.vue / Login.vue / Register.vue`：仅 vue/multi-word-component-names 警告，pre-existing（非本轮引入）
+  - 其余 71 个 error 全部来自 `stores/` `types/` 等已有文件的 `any` 类型，pre-existing
+- 文件变更范围（`git diff --stat main..HEAD`）：共 10 个文件，与预期完全一致，无意外文件
+- **未实测 UI**：本会话无浏览器，前后端起服务需用户在自己环境跑
+**风险 & 回滚**：分支独立 + 未 push；回滚 = `git branch -D ralph/2026-05-12-sso-fix-p0`
+**下一轮**：Task 8 收尾汇报
+
+## 2026-05-12 16:01 — SSO P0 修复完成
+**目标**：P0-AUTH-01/02/03 修复全部就位
+**范围**：跨前后端共 7 个 commit
+**改动汇总**：
+- `backend/app/core/oidc.py` — verify_token 强校验 iss/aud/require + 支持 nonce 参数
+- `backend/app/api/v1/auth.py` — 新增 /login-start；重写 /callback（state cookie 校验 + nonce 校验 + 硬编码 redirect_uri + 仅取 id_token）
+- `thccb-frontend/src/api/casdoor.ts` — getLoginUrl/getRegisterUrl 改 async，先调 /login-start
+- `thccb-frontend/src/router/guards.ts` + `pages/auth/Login.vue` + `pages/auth/Register.vue` — 调用方加 await
+- `thccb-frontend/src/pages/auth/Callback.vue` — 删冗余 sessionStorage state 校验
+- `backend/tests/test_auth_state_nonce.py` — 5 个新测试 5/5 过
+**验证**：
+- 后端 py_compile ✅ / import app.main ✅ / pytest 新测试 5/5 过 ✅
+- 前端 type-check ✅ / lint ✅（本轮改动 0 错）
+- 文件变更 10 个，完全符合预期
+- 未实测 UI（Ralph 远程无浏览器）
+**风险 & 回滚**：分支 `ralph/2026-05-12-sso-fix-p0` 独立未 push；回滚 = `git checkout main && git branch -D ralph/2026-05-12-sso-fix-p0`
+**待用户操作**：
+1. Casdoor 应用配置侧确认 redirect_uri 白名单只有 `https://thccb.secret-sealing.club/auth/callback`
+2. 部署到 staging 或本机 dev 跑一遍完整 SSO 登录流程，确认：
+   - `/auth/login-start` 返回 state+nonce 且 Set-Cookie 两个 HttpOnly cookie
+   - 完整登录跳转 → Casdoor → 回跳 → 拿到本站 JWT
+   - 浏览器 DevTools 看 cookie 在 callback 成功后被清除
+3. 若 staging 验证通过，决定何时合并 main（push = 自动部署上线）
+**下一轮**：等用户决定（合并 main / 起 P1 修复轮次 / 进 Phase 2 审计）
