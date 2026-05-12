@@ -8,7 +8,7 @@
 import { SharedArray } from 'k6/data';
 
 export const TOKENS = new SharedArray('loadtest_tokens', function () {
-  const path = __ENV.TOKENS_FILE || './loadtest/tokens.txt';
+  const path = __ENV.TOKENS_FILE || '../../tokens.txt';
   const raw = open(path);
   const out = [];
   raw.split('\n').forEach((line) => {

@@ -18,7 +18,7 @@ DELETE FROM redemption_transaction
 WHERE user_id IN (SELECT id FROM "user" WHERE casdoor_id LIKE 'loadtest:%');
 
 UPDATE redemption_code
-SET bought_by_user_id = NULL, bought_at = NULL, status = 'available'
+SET bought_by_user_id = NULL, bought_at = NULL, marked_used_by_user_at = NULL, status = 'available'
 WHERE bought_by_user_id IN (SELECT id FROM "user" WHERE casdoor_id LIKE 'loadtest:%');
 
 -- 2) loadtest 用户的全部交易记录
