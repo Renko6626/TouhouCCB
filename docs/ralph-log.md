@@ -1599,3 +1599,60 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
    - 浏览器 DevTools 看 cookie 在 callback 成功后被清除
 3. 若 staging 验证通过，决定何时合并 main（push = 自动部署上线）
 **下一轮**：等用户决定（合并 main / 起 P1 修复轮次 / 进 Phase 2 审计）
+## 2026-05-12 18:00 — 市场滑点保护 + SELL 锁顺序对齐 BUY（P1×2 修复）
+
+**目标** 闭合 Phase 1 审计两条 P1：
+1. BUY/SELL 锁顺序不一致 → 同账户并发 buy+sell 触发 PG 40P01 死锁（`market.py:413` 与 `market.py:521` 顺序相反）
+2. `TradeRequest` 无滑点保护字段，服务端不校验 → 用户可能被以远高于报价的价格成交
+
+**动机**（证据）
+- `docs/secaudit/p1-task6-market-locking-and-trade-flow.md`：BUY 顺序 `outcome→market→outcomes→user→position`；SELL 顺序 `position→outcome→market→outcomes→user`
+- `backend/app/schemas/market.py:39-42` 仅 `outcome_id + shares`，`market.py:444` 只查 `cash >= pay`
+
+**范围**（仅限）
+- 后端：`backend/app/schemas/market.py` + `backend/app/api/v1/market.py` + 新增 `backend/tests/test_market_slippage_lock.py`
+- 前端：`src/types/trade.ts` + `src/api/market.ts` + `src/stores/market.ts` + `src/components/market/TradePanel.vue` + `src/pages/market/TradingView.vue`
+- 未动 lmsr / core / models / auth / realtime / .env / deploy
+
+**改动**（按 commit 顺序）
+- `schemas/market.py`：`TradeRequest` 加 3 个 Optional 字段
+  - `max_cost`（买入绝对成本上限，优先）
+  - `min_proceeds`（卖出绝对到手下限，优先）
+  - `max_slippage_bps`（百分比兜底，0~10000 万分之一）
+- `api/v1/market.py`：常量 `DEFAULT_SLIPPAGE_BPS=500`（5%）+ `HARDCAP_SLIPPAGE_BPS=1000`（10%）
+- `api/v1/market.py` BUY：在 `pay` 算完、cash 校验前，与 `marginal_price_before × shares × (1 + bps/10000)` 比较，超 limit 即 400
+- `api/v1/market.py` SELL：在 `net` 算完后，与 `marginal_price_before × shares × (1 - bps/10000)` 比较，低于 floor 即 400
+- `api/v1/market.py` SELL 锁顺序：`Position-first` 改为 `outcome→market→outcomes→user→Position`，与 BUY 完全一致
+- `tests/test_market_slippage_lock.py`：11 个测试覆盖
+  - schema 接受/拒绝（新字段、非法 bps、非正 max_cost）
+  - BUY：max_cost 拒绝、hardcap 截断、默认 bps 拒绝、正路径通过
+  - SELL：min_proceeds 拒绝、默认 bps 拒绝、正路径通过
+  - 锁顺序源码级 assert（防止未来 PR 静默回退）
+- 前端：
+  - `types/trade.ts`：`TradeRequest` 加 3 可选字段
+  - `api/market.ts`：`buy`/`sell` 接受 `maxSlippageBps`
+  - `stores/market.ts`：`buyShares`/`sellShares` 透传，新增 `friendlySlippageMsg` 把后端「滑点」错误映射为「市场波动较大，请刷新行情后重试」
+  - `TradePanel.vue`：新增 props `maxSlippageBps` + emit `update:maxSlippageBps` + 工业风黑白 select（0.5% / 1% / 2% / 5%）
+  - `TradingView.vue`：state `maxSlippageBps`（默认 100 bps=1%），传给 panel，传给 store call；旧 try/catch 改为查 `result.success` 以正确展示友好错误
+
+**风险 & 回滚**
+- 4 commits 可独立 revert：schema / BUY 滑点 / SELL 滑点 / SELL 锁顺序 / 测试 / 前端 UI（共 6 commits）
+- 服务端 hardcap=1000bps（10%）是真兜底——客户端缺省或乱填都不会绕过
+- LMSR 没动；价格公式没动；resolve / quote 接口没动
+- 已确认 lint 不引入新报错（pre-existing 71 个 any errors 都来自旧 store/types，本轮不修）
+- 已确认 `test_repay_exceeds_cash_400` 在 main 上就 fail，与本次无关
+
+**验证**
+- `py_compile $(find backend/app -name '*.py')` 通过
+- `python -c "import app.main"` 通过
+- `pytest tests/ --deselect tests/test_loan_api.py::test_repay_exceeds_cash_400`：77 passed / 1 skipped / 1 deselected
+  - 其中本轮新加 11 个全通过
+- `npm run type-check`：通过（vue-tsc 无 error）
+- `npm run lint`：71 errors（pre-existing，main 上同样数，与本次无关）
+- **未实测 UI**：本轮仅在 worktree，未起本地后端 + 真账户登录走 buy/sell；前端是逻辑直通改动 + 选择器加在面板里，但建议合并前用 staging 跑一次。
+
+**下一轮**
+- 等用户合并/部署决定；若部署前要做并发死锁压测，参考 `docs/loadtest-readme.md`，定向构造 same-account buy+sell-on-same-outcome 并发即可复现旧版 40P01
+- Phase 1 审计还剩哪些 P1/P2 待修，独立另开 ralph 轮
+
+**分支** `ralph/2026-05-12-market-fix`（worktree `/tmp/thccb-wt-market`），未 push。

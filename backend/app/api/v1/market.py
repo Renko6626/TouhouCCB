@@ -37,6 +37,11 @@ router = APIRouter()
 SELL_FEE_RATE = Decimal("0")
 ZERO = Decimal("0")
 
+# ── 滑点保护（P1）──
+# 客户端未给 max_cost/min_proceeds 时用百分比兜底；服务端用 hardcap 截断不信任客户端。
+DEFAULT_SLIPPAGE_BPS = 500   # 5%
+HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
+
 
 # -----------------------------
 # Helpers
@@ -441,6 +446,27 @@ async def buy_shares(
         if pay <= ZERO:
             raise HTTPException(status_code=400, detail="订单异常：成本不应为非正")
 
+        # ── 滑点保护（P1）──
+        # 以"成交前边际价 × 份额"为期望成本（不含费），对比实际 pay。
+        # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
+        marginal_price_before_buy = Decimal(str(get_current_price(old_q, target_idx, b)))
+        expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
+        if req.max_cost is not None and pay > req.max_cost:
+            raise HTTPException(
+                status_code=400,
+                detail=f"成交成本 {pay} 超过 max_cost 限制 {req.max_cost}，滑点过大请刷新报价",
+            )
+        client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+        effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
+        slippage_limit_buy = (
+            expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
+        ).quantize(Decimal("0.000001"))
+        if pay > slippage_limit_buy:
+            raise HTTPException(
+                status_code=400,
+                detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
+            )
+
         if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
 
@@ -518,15 +544,10 @@ async def sell_shares(
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
     async with managed_transaction(db):
-        pos_res = await db.execute(
-            select(Position)
-            .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
-            .with_for_update()
-        )
-        position = pos_res.scalars().first()
-        if not position or position.amount < shares_d:
-            raise HTTPException(status_code=400, detail="持仓不足")
-
+        # ── 锁顺序对齐 BUY（P1）──
+        # 旧顺序：Position → outcome → market → outcomes → user
+        # 新顺序：outcome → market → outcomes → user → Position
+        # 与 BUY 完全一致，同账户同 outcome 并发 buy+sell 不再触发 PG 40P01 死锁。
         outcome = await _lock_outcome(db, int(req.outcome_id))
         market = await _lock_market(db, int(outcome.market_id))
         _require_trading(market)
@@ -537,6 +558,16 @@ async def sell_shares(
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
 
         locked_user = await _lock_user(db, int(user.id))
+
+        # Position 行锁放在最后（与 BUY 路径一致）
+        pos_res = await db.execute(
+            select(Position)
+            .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
+            .with_for_update()
+        )
+        position = pos_res.scalars().first()
+        if not position or position.amount < shares_d:
+            raise HTTPException(status_code=400, detail="持仓不足")
 
         # LoanV1: 先把未结利息折进 debt，避免时点偏差
         _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
@@ -561,6 +592,27 @@ async def sell_shares(
 
         fee = (proceeds * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = proceeds - fee
+
+        # ── 滑点保护（P1）──
+        # 以"成交前边际价 × 份额"为期望收入（不含费），对比实际到手 net。
+        # 客户端 min_proceeds 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
+        marginal_price_before_sell = Decimal(str(get_current_price(old_q, target_idx, b)))
+        expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
+        if req.min_proceeds is not None and net < req.min_proceeds:
+            raise HTTPException(
+                status_code=400,
+                detail=f"成交收入 {net} 低于 min_proceeds 限制 {req.min_proceeds}，滑点过大请刷新报价",
+            )
+        client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+        effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
+        slippage_floor_sell = (
+            expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
+        ).quantize(Decimal("0.000001"))
+        if net < slippage_floor_sell:
+            raise HTTPException(
+                status_code=400,
+                detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
+            )
 
         # Decimal 精确运算
         locked_user.cash += net
