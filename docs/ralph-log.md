@@ -1315,3 +1315,13 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - pg_stat_statements 扩展启用（README 里说了，没启用不影响 active/locks 采样）
 
 **分支** `ralph/2026-05-08-loadtest-prep`，未 push。
+
+## 2026-05-12 15:43 — SSO P0 修复轮次启动
+**目标**：关闭 Phase 1 安全审计 3 个 P0（[P0-AUTH-01/02/03]）
+**动机**：账户接管攻击面，登录固定可让受害者用攻击者身份登录站点
+**范围**：仅 SSO 三件套——state 服务端校验 + redirect_uri 硬编码 + OIDC iss/aud/nonce 严校
+**前置确认**：前后端同源（thccb.secret-sealing.club via nginx），SameSite=Lax 可行
+**改动**：本条：仅起分支 + commit plan
+**风险 & 回滚**：本条 N/A；后续每个 task 单独标注
+**验证**：分支正确（ralph/2026-05-12-sso-fix-p0）
+**下一轮**：Task 2 oidc.py verify_token 收紧
