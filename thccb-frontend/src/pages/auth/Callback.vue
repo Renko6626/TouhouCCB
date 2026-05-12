@@ -29,14 +29,6 @@ onMounted(async () => {
     return
   }
 
-  // 校验 OAuth2 state 参数，防止 CSRF
-  const savedState = sessionStorage.getItem('oauth_state')
-  sessionStorage.removeItem('oauth_state')
-  if (!savedState || !state || state !== savedState) {
-    error.value = '安全校验失败（state 不匹配），请重新登录。'
-    return
-  }
-
   try {
     await authStore.loginWithCallback(code, state)
     const redirect = sanitizeRedirect(params.get('redirect'))
