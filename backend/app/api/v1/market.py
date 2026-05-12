@@ -37,6 +37,11 @@ router = APIRouter()
 SELL_FEE_RATE = Decimal("0")
 ZERO = Decimal("0")
 
+# ── 滑点保护（P1）──
+# 客户端未给 max_cost/min_proceeds 时用百分比兜底；服务端用 hardcap 截断不信任客户端。
+DEFAULT_SLIPPAGE_BPS = 500   # 5%
+HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
+
 
 # -----------------------------
 # Helpers
@@ -440,6 +445,27 @@ async def buy_shares(
         pay = quantize_cost(new_cost_f - old_cost_f)
         if pay <= ZERO:
             raise HTTPException(status_code=400, detail="订单异常：成本不应为非正")
+
+        # ── 滑点保护（P1）──
+        # 以"成交前边际价 × 份额"为期望成本（不含费），对比实际 pay。
+        # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
+        marginal_price_before_buy = Decimal(str(get_current_price(old_q, target_idx, b)))
+        expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
+        if req.max_cost is not None and pay > req.max_cost:
+            raise HTTPException(
+                status_code=400,
+                detail=f"成交成本 {pay} 超过 max_cost 限制 {req.max_cost}，滑点过大请刷新报价",
+            )
+        client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+        effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
+        slippage_limit_buy = (
+            expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
+        ).quantize(Decimal("0.000001"))
+        if pay > slippage_limit_buy:
+            raise HTTPException(
+                status_code=400,
+                detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
+            )
 
         if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
