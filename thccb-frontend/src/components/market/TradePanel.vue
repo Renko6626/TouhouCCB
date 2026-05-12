@@ -17,14 +17,25 @@ const props = defineProps<{
   estimatedNewCash: number
   userHolding: Holding | null
   quoteExceedsCash: boolean
+  // 最大滑点（万分之一），undefined 时由父组件默认值兜底（默认 100=1%）
+  maxSlippageBps: number
 }>()
 
 const emit = defineEmits<{
   'update:selectedOutcomeId': [value: number | null]
   'update:tradeType': [value: 'buy' | 'sell']
   'update:shares': [value: number]
+  'update:maxSlippageBps': [value: number]
   'executeTrade': []
 }>()
+
+// 滑点档位（万分之一）：0.5% / 1% / 2% / 5%
+const slippageOptions: SelectOption[] = [
+  { label: '0.5%', value: 50 },
+  { label: '1%', value: 100 },
+  { label: '2%', value: 200 },
+  { label: '5%', value: 500 },
+]
 
 const userStore = useUserStore()
 const authStore = useAuthStore()
@@ -262,6 +273,18 @@ const actionHint = computed<string>(() => {
       <div v-if="props.quoteExceedsCash" class="quote-warn">
         余额不足，请减少份额
       </div>
+    </div>
+
+    <!-- 滑点保护：最大可接受的偏离边际价百分比；服务端 hardcap=10% -->
+    <div class="slippage-row">
+      <span class="slippage-label" title="若实际成交价偏离边际价超过此值，订单将被拒绝">最大滑点</span>
+      <NSelect
+        :value="props.maxSlippageBps"
+        @update:value="(v: number) => emit('update:maxSlippageBps', v)"
+        :options="slippageOptions"
+        size="small"
+        class="slippage-select"
+      />
     </div>
 
     <!-- 执行按钮 -->
@@ -577,6 +600,29 @@ const actionHint = computed<string>(() => {
   font-weight: 600;
   color: var(--color-down);
   margin-top: 2px;
+}
+
+/* 滑点行 */
+.slippage-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid #000;
+  padding: 6px 10px;
+  background: #fff;
+}
+
+.slippage-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #000;
+  flex-shrink: 0;
+}
+
+.slippage-select {
+  flex: 1;
 }
 
 /* 执行按钮 */
