@@ -416,14 +416,21 @@ async def buy_shares(
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
     async with managed_transaction(db):
-        outcome = await _lock_outcome(db, int(req.outcome_id))
-        market = await _lock_market(db, int(outcome.market_id))
+        # ── 锁顺序（P1 follow-up）──
+        # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
+        # 再按 market → all_outcomes → user 统一顺序加锁，消除跨 outcome 环形等待。
+        mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+        market_id_val = mid_row.scalars().first()
+        if market_id_val is None:
+            raise HTTPException(status_code=404, detail="选项不存在")
+        market = await _lock_market(db, market_id_val)
         _require_trading(market)
 
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
-        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
+        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
+        outcome = all_outcomes[target_idx]
 
         locked_user = await _lock_user(db, int(user.id))
 
@@ -544,18 +551,21 @@ async def sell_shares(
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
     async with managed_transaction(db):
-        # ── 锁顺序对齐 BUY（P1）──
-        # 旧顺序：Position → outcome → market → outcomes → user
-        # 新顺序：outcome → market → outcomes → user → Position
-        # 与 BUY 完全一致，同账户同 outcome 并发 buy+sell 不再触发 PG 40P01 死锁。
-        outcome = await _lock_outcome(db, int(req.outcome_id))
-        market = await _lock_market(db, int(outcome.market_id))
+        # ── 锁顺序（P1 follow-up）──
+        # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
+        # 再按 market → all_outcomes → user → position 统一顺序加锁，消除跨 outcome 环形等待。
+        mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+        market_id_val = mid_row.scalars().first()
+        if market_id_val is None:
+            raise HTTPException(status_code=404, detail="选项不存在")
+        market = await _lock_market(db, market_id_val)
         _require_trading(market)
 
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
-        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
+        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
+        outcome = all_outcomes[target_idx]
 
         locked_user = await _lock_user(db, int(user.id))
 
