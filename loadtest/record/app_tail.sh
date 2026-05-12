@@ -17,12 +17,9 @@ echo "[app_tail] writing to $OUT (Ctrl-C to stop)..."
 docker logs -f --since 1s thccb-backend 2>&1 | awk '
   /thccb\.access/ {
     # 形如: 2026-04-... INFO thccb.access POST /api/v1/market/buy 200 12.3ms
-    for (i=1;i<=NF;i++) {
-      if ($i ~ /^[0-9]+$/ && length($i)==3) status=$i
-      if ($i ~ /ms$/) {
-        ms=$i; sub(/ms/,"",ms); ms=ms+0
-      }
-    }
+    # 倒数第二字段是 status，最后字段是 XXXms
+    status = $(NF-1)
+    ms_str = $(NF); sub(/ms$/, "", ms_str); ms = ms_str + 0
     if (ms > 500 || (status+0) >= 500) print
   }
   /ERROR|Traceback|invariant violated/ { print }

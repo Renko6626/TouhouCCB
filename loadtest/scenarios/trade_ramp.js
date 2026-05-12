@@ -41,7 +41,7 @@ export const options = {
     ramp: {
       executor: 'ramping-vus',
       startVUs: 1,
-      // 共 ~13 分钟：阶梯 + 平台期，给观测脚本足够采样
+      // 共 ~9 分钟：阶梯 + 平台期，给观测脚本足够采样
       stages: [
         { duration: '30s',  target: 10 },
         { duration: '1m',   target: 50 },

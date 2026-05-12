@@ -3,8 +3,7 @@
 #
 # 在 prod 机器上**和 k6 同时启动**，Ctrl-C 停止。
 # 字段：timestamp, cpu_pct(总), mem_used_mb, load1, iowait_pct,
-#       backend_cpu_pct, backend_mem_mb, postgres_cpu_pct, postgres_mem_mb,
-#       net_rx_kbps, net_tx_kbps
+#       backend_cpu_pct, backend_mem_mb, postgres_cpu_pct, postgres_mem_mb
 #
 # 注意：2C 机器 CPU% 上限是 200%（k6 + uvicorn + postgres 抢核），
 # load1 比 CPU% 更能说明排队，重点看 load1 和 iowait。
