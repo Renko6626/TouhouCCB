@@ -32,13 +32,13 @@ BEGIN;
 
 -- 一次性建市场，拿到 id 立刻插对应 outcomes
 WITH new_markets AS (
-  INSERT INTO market (title, description, liquidity_b, status, tags)
+  INSERT INTO market (title, description, liquidity_b, status, tags, created_at)
   VALUES
-    ('[LT] HOT_2OPT',    'loadtest hot market — concentrate fire here', 200, 'trading', 'loadtest,hot'),
-    ('[LT] COLD_2OPT',   'loadtest cold market',                        100, 'trading', 'loadtest'),
-    ('[LT] HIB_4OPT',    'loadtest high-b market',                      500, 'trading', 'loadtest'),
-    ('[LT] LOWB_2OPT',   'loadtest low-b market — wide slippage',        50, 'trading', 'loadtest'),
-    ('[LT] MULTI_8OPT',  'loadtest 8-way market',                       200, 'trading', 'loadtest')
+    ('[LT] HOT_2OPT',    'loadtest hot market — concentrate fire here', 200, 'trading', 'loadtest,hot', NOW()),
+    ('[LT] COLD_2OPT',   'loadtest cold market',                        100, 'trading', 'loadtest',     NOW()),
+    ('[LT] HIB_4OPT',    'loadtest high-b market',                      500, 'trading', 'loadtest',     NOW()),
+    ('[LT] LOWB_2OPT',   'loadtest low-b market — wide slippage',        50, 'trading', 'loadtest',     NOW()),
+    ('[LT] MULTI_8OPT',  'loadtest 8-way market',                       200, 'trading', 'loadtest',     NOW())
   RETURNING id, title
 ),
 labels_per_market AS (
