@@ -588,6 +588,27 @@ async def sell_shares(
         fee = (proceeds * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = proceeds - fee
 
+        # ── 滑点保护（P1）──
+        # 以"成交前边际价 × 份额"为期望收入（不含费），对比实际到手 net。
+        # 客户端 min_proceeds 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
+        marginal_price_before_sell = Decimal(str(get_current_price(old_q, target_idx, b)))
+        expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
+        if req.min_proceeds is not None and net < req.min_proceeds:
+            raise HTTPException(
+                status_code=400,
+                detail=f"成交收入 {net} 低于 min_proceeds 限制 {req.min_proceeds}，滑点过大请刷新报价",
+            )
+        client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+        effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
+        slippage_floor_sell = (
+            expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
+        ).quantize(Decimal("0.000001"))
+        if net < slippage_floor_sell:
+            raise HTTPException(
+                status_code=400,
+                detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
+            )
+
         # Decimal 精确运算
         locked_user.cash += net
         all_outcomes[target_idx].total_shares -= shares_d
