@@ -1,11 +1,16 @@
 /**
- * Casdoor OAuth2 登录 — 纯 URL 拼接，不依赖 casdoor-js-sdk。
+ * Casdoor OAuth2 登录 — 服务端生成 state/nonce，前端只负责跳转。
  *
  * 标准 OAuth2 Authorization Code 流程：
- *   1. 前端拼 authorize URL → 跳转到 Casdoor 登录页
- *   2. 用户登录后 Casdoor 重定向回 /auth/callback?code=xxx&state=yyy
- *   3. 前端把 code 发给后端换本站 JWT
+ *   1. 前端调 POST /api/v1/auth/login-start
+ *      → 后端生成 state+nonce，写 HttpOnly cookie，body 同值返回
+ *   2. 前端拼 authorize URL（带 state + nonce）→ 跳转到 Casdoor 登录页
+ *   3. 用户登录后 Casdoor 重定向回 /auth/callback?code=xxx&state=yyy
+ *   4. 前端把 code+state 发给后端换本站 JWT
+ *      → 后端从 cookie 校验 state + id_token.nonce
  */
+
+import http from './index'
 
 const CASDOOR_URL = import.meta.env.VITE_CASDOOR_URL as string
 const CLIENT_ID = import.meta.env.VITE_CASDOOR_CLIENT_ID as string
@@ -19,22 +24,25 @@ for (const [key, val] of Object.entries(REQUIRED)) {
 
 const REDIRECT_URI = `${window.location.origin}/auth/callback`
 
-/** 生成随机 state 存入 sessionStorage，用于 CSRF 防护 */
-function generateState(): string {
-  const state = crypto.randomUUID()
-  sessionStorage.setItem('oauth_state', state)
-  return state
+interface LoginStartResponse {
+  state: string
+  nonce: string
 }
 
-/** 拼接 Casdoor OAuth2 authorize URL */
-function buildAuthorizeUrl(type: 'login' | 'signup'): string {
-  const state = generateState()
+/** 调后端 /auth/login-start 拿 state+nonce（后端同时写 HttpOnly cookie） */
+async function fetchStateAndNonce(): Promise<LoginStartResponse> {
+  return http.post<LoginStartResponse>('/api/v1/auth/login-start')
+}
+
+async function buildAuthorizeUrl(type: 'login' | 'signup'): Promise<string> {
+  const { state, nonce } = await fetchStateAndNonce()
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     response_type: 'code',
     redirect_uri: REDIRECT_URI,
     scope: 'openid profile email',
     state,
+    nonce,
   })
   const path = type === 'signup'
     ? `/signup/${APP_NAME}`

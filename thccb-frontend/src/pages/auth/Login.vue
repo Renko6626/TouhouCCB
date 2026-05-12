@@ -3,8 +3,8 @@ import { onMounted } from 'vue'
 import { getLoginUrl } from '@/api/casdoor'
 
 // 直接跳转到 Casdoor 登录页，不渲染本地页面
-onMounted(() => {
-  window.location.href = getLoginUrl()
+onMounted(async () => {
+  window.location.href = await getLoginUrl()
 })
 </script>
 
