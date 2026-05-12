@@ -29,6 +29,8 @@ const marketId = computed(() => parseInt(route.params.id as string))
 const tradeType = ref<'buy' | 'sell'>('buy')
 const selectedOutcomeId = ref<number | null>(null)
 const shares = ref(1)
+// 最大滑点：默认 1%（100 bps）；服务端 hardcap=1000 bps
+const maxSlippageBps = ref(100)
 import type { QuoteResponse } from '@/types/api'
 const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
@@ -280,10 +282,13 @@ const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
 
   try {
-    if (tradeType.value === 'buy') {
-      await marketStore.buyShares(selectedOutcomeId.value, shares.value)
-    } else {
-      await marketStore.sellShares(selectedOutcomeId.value, shares.value)
+    const result = tradeType.value === 'buy'
+      ? await marketStore.buyShares(selectedOutcomeId.value, shares.value, maxSlippageBps.value)
+      : await marketStore.sellShares(selectedOutcomeId.value, shares.value, maxSlippageBps.value)
+
+    if (!result.success) {
+      message.error(result.error || '交易失败，请重试')
+      return
     }
 
     message.success(`${tradeType.value === 'buy' ? '买入' : '卖出'}成功`)
@@ -465,9 +470,11 @@ const relTime = (iso: string): string => {
             :estimated-new-cash="estimatedNewCash"
             :user-holding="userHolding"
             :quote-exceeds-cash="quoteExceedsCash"
+            :max-slippage-bps="maxSlippageBps"
             @update:selected-outcome-id="selectedOutcomeId = $event"
             @update:trade-type="tradeType = $event"
             @update:shares="shares = $event"
+            @update:max-slippage-bps="maxSlippageBps = $event"
             @execute-trade="executeTrade"
           />
         </div>

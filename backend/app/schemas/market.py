@@ -39,6 +39,25 @@ class MarketListItem(BaseModel):
 class TradeRequest(BaseModel):
     outcome_id: int
     shares: Decimal = Field(..., gt=0)
+    # ── 滑点保护（P1）──
+    # 客户端可以传绝对上下限（优先），或百分比（万分之一，bps）。
+    # 都不传时服务端用 DEFAULT_SLIPPAGE_BPS=500（5%）兜底，且 HARDCAP_SLIPPAGE_BPS=1000（10%）截断。
+    max_cost: Optional[Decimal] = Field(
+        default=None,
+        gt=0,
+        description="买入最高可接受成本（含费）；为空则用 max_slippage_bps",
+    )
+    min_proceeds: Optional[Decimal] = Field(
+        default=None,
+        gt=0,
+        description="卖出最低可接受收入（净）；为空则用 max_slippage_bps",
+    )
+    max_slippage_bps: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=10000,
+        description="最大滑点（万分之一），默认 500=5%；服务端 hardcap=1000=10%",
+    )
 
 
 class TradeResponse(BaseModel):
