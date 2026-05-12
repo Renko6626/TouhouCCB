@@ -1325,3 +1325,25 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **风险 & 回滚**：本条 N/A；后续每个 task 单独标注
 **验证**：分支正确（ralph/2026-05-12-sso-fix-p0）
 **下一轮**：Task 2 oidc.py verify_token 收紧
+
+## 2026-05-12 15:59 — SSO P0 修复验证
+**目标**：跑完整验证套：py_compile / pytest / type-check / lint
+**改动**：本条仅文档
+**验证**：
+- 后端 py_compile：✅ 全过（exit 0）
+- 后端 import app.main：✅ OK（dev warnings 是 SECRET_KEY 自动生成 + Casdoor 未配置，环境性质，非本轮引入）
+- 后端 pytest（venv Python）：71 pass / 1 skip / 3 fail
+  - `market_test.py::test_flow` — async def 缺 pytest-asyncio，pre-existing 根目录遗留文件
+  - `tests/test_loan_api.py::test_repay_exceeds_cash_400` — Phase 1 审计 P3-LOAN-02 已知 stale 测试，与本轮无关
+  - `user_test.py::test_suite` — async def 缺 pytest-asyncio，pre-existing 根目录遗留文件
+  - 本轮新增 `tests/test_auth_state_nonce.py`：**5 pass**，全部通过
+- 前端 npm run type-check：✅ 全过（exit 0）
+- 前端 npm run lint：✅ 本轮改动 0 错
+  - `casdoor.ts`：无 lint 问题
+  - `guards.ts`：无 lint 问题
+  - `Callback.vue / Login.vue / Register.vue`：仅 vue/multi-word-component-names 警告，pre-existing（非本轮引入）
+  - 其余 71 个 error 全部来自 `stores/` `types/` 等已有文件的 `any` 类型，pre-existing
+- 文件变更范围（`git diff --stat main..HEAD`）：共 10 个文件，与预期完全一致，无意外文件
+- **未实测 UI**：本会话无浏览器，前后端起服务需用户在自己环境跑
+**风险 & 回滚**：分支独立 + 未 push；回滚 = `git branch -D ralph/2026-05-12-sso-fix-p0`
+**下一轮**：Task 8 收尾汇报
