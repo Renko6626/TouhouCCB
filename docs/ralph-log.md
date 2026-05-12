@@ -1315,3 +1315,203 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - pg_stat_statements 扩展启用（README 里说了，没启用不影响 active/locks 采样）
 
 **分支** `ralph/2026-05-08-loadtest-prep`，未 push。
+
+---
+
+## 2026-05-09 15:59 — 安全审计阶段 1 启动
+**目标**：业务核心 + 认证授权审计（spec §4.1）
+**动机**：上线前最后一道安全线，参考 docs/superpowers/specs/2026-05-08-security-audit-design.md
+**范围**：仅限 backend，仅读不改
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：建报告骨架
+**风险 & 回滚**：仅文档，回滚 = 删文件
+**验证**：N/A（仅文档）
+
+---
+
+## 2026-05-09 — 安全审计 P1 Task 3：持仓估值与精度审计
+
+**目标**：验证 commit 4a49d2e 修正是否完整，确认无老 `price × quantity` 遗漏路径；审计前端精度处理
+**动机**：CLAUDE.md 强调 LMSR 清算口径，持仓估值是财务核心
+**范围**：只读 `user.py` / `loan.py` / `market.py` / `realtime.py` / `stream.py` / 前端 `stores/user.ts` / `api/user.ts` / `pages/Portfolio.vue` / `Home.vue` / `Loan.vue` / `types/user.ts`
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：Task 3 段落填写，含估值入口清单、SSE 一致性分析、前端精度审计、发现 P2×2 + P3×1 + INFO×1
+**发现摘要**：
+- **[P2]** `loan.py:_holdings_value` 用瞬时价 × 数量，与 `/user/summary` LMSR 清算口径不一致，贷款额度被系统性高估
+- **[P2]** `market.py:leaderboard` 的 `net_worth = cash - debt`，不含持仓市值，与 `/user/summary.net_worth` 口径不一致
+- **[P3]** `Portfolio.vue:79` sell_avg_price 客户端除法，仅展示无逻辑影响
+- **[INFO]** TypeScript 所有金融字段声明为 `number`，当前规模无精度问题
+- commit 4a49d2e 的修正完整：`user.py` summary 与 holdings 两个路径都已更新，无遗漏 straggler
+- SSE/realtime 不推送持仓估值，与清算函数无耦合，架构正确
+- 前端无 Number() 后做持仓估值算术的高危模式（Number() 仅用于 debt 展示，均为 2 位小数无精度损失）
+- 存在代码卫生问题：user.py 两处清算逻辑重复，未提取公用函数
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读，N/A
+**未决风险**：loan.py 瞬时价高估待 Task 4 深入审计；清算逻辑重复代码建议 Task 4 后一并重构
+**下一轮**：Task 1 LMSR 数值安全
+
+---
+
+## 2026-05-09 — 安全审计 P1 Task 4：贷款 / 复利 / 还款审计
+
+**目标**：复盘 60847ad（repay 双封顶）+ 5771b45（不变量兜底）两个 fix；审计 borrow / repay / accrue / sweep 完整写入路径与并发安全
+**动机**：贷款 + 复利 + sweep 是上线前最后一块高敏感资金路径
+**范围**：只读 `loan_service.py` / `loan_sweep.py` / `loan_migrate.py` / `api/v1/loan.py` / `api/v1/user.py:286-349` / `api/v1/site_config.py` / `api/v1/market.py:425-543` / `models/base.py:23-56` / `schemas/loan.py` / 4 个 test_loan_*.py
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：Task 4 段落填写，含两个 fix 复核 walk-through、强平缺失结论、并发 TOCTOU、长闲置无上限、rate 回溯、sweep 多实例风险等
+**发现摘要**：
+- **[P2-LOAN-01]** borrow 额度预检 TOCTOU：max_borrow 在 PRE-lock 算，service 锁内不重检 → 并发借款可绕过杠杆 k 限制
+- **[P2-LOAN-04]** 长闲置账户 accrue 无 elapsed_sec 上限 → 6 月闲置突发跳变 + Decimal 溢出风险
+- **[P2-LOAN-05]** admin 改 loan_daily_rate 会回溯计算整个 elapsed 区间（应先 sweep 再改 rate）
+- **[P2-LOAN-07]** sweep 没分布式锁，多实例部署会重叠 tick（当前单实例 docker-compose 不影响，但 phase-2 必修）
+- **[P2-LOAN-08]** **当前系统完全没有强平 / 坏账清理机制**——账户进入水下后 debt 永远涨，max_borrow 不影响存量
+- **[P3-LOAN-02]** `test_repay_exceeds_cash_400` 是 stale test，60847ad 后业务规则改成静默封顶（200 + effective）而非 400
+- **[P3-LOAN-03]** accrue 用线性 elapsed 公式 `1 + r*dt/86400`，sweep 高频时近似真复利，但长闲置场景误差被放大数倍
+- **[P4-LOAN-04]** 缺 LoanRecord 资金流水审计表（borrow/repay/accrue/sweep 只 logger.info，纠纷无对账依据）
+- **[P4-LOAN-09]** sweep 连续失败无告警机制
+- **60847ad fix 复核**：min(amount, post-accrual debt, cash) 三方封顶严密；按 cash=1000 / debt=1000 / 24h elapsed / amount=3000 的 walk-through，终态 cash=0 / debt=10，符合预期；fix 前 cash 会跑负 -10 并触发 DB CHECK 回滚
+- **5771b45 invariant 复核**：不变量 `debt>=0 & cash>=0` 在 increase/decrease_debt 末尾断言；market.py buy/sell 直接改 cash 不经此检查但有自己的 `cash<pay` 防御；DB CHECK 约束作为最终防线；无可绕过旁路
+- **强平估值用什么**：根本不存在强平。（即便存在，也会用 buggy `_holdings_value` 瞬时价 × 数量——Task 3 已标 P2 straggler）
+- **sweep 触发方式**：APScheduler in-process job，main.py lifespan 启停，间隔由 `loan_sweep_interval_sec` 配置（10-3600s clamp），不暴露 HTTP，max_instances=1，每用户独立 session
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读，N/A；test_repay_exceeds_cash_400 stale 状态未实际跑 pytest 验证（怀疑测试在 CI 中已 fail 或未被执行），建议下一轮验证
+**未决风险**：[P2-LOAN-08] 强平缺失需产品决策；borrow TOCTOU 可在 phase-2 修服务层重检
+**下一轮**：Task 5 兑换码资金流
+
+---
+
+## 2026-05-09 — 阶段 1 / Task 5：兑换码资金流审计（只读）
+**目标**：审计兑换码模块资金流安全性（购买原子性、并发竞态、审计完整性、admin gate、枚举攻击面）
+**动机**：兑换码是资金注入入口；近期 bed3553 加了 RedemptionTransaction、697730d 收尾技术债，需独立审计
+**范围**：仅读 `services/redemption.py`、`api/v1/{redemption,admin_redemption}.py`、`models/redemption.py`、`schemas/redemption.py`、tests、`deploy/nginx.conf`；零产品代码修改
+**改动**：`docs/security-audit-2026-05-09-p1-core.md` Task 5 节（6 个发现）；本日志条目
+**核心结论**：
+- 双重兑换（单码并发）：不能（SKIP LOCKED 序列化，services/redemption.py:109-120）
+- RedemptionTransaction 与 cash 更新：同一事务（services/redemption.py:123-143 + api/v1/redemption.py:96）
+- 码熵：N/A（无系统内生成，外部 CSV，熵由合作方保证）
+- admin 端点 auth：全部 Depends(current_superuser)，8 个 handler 全覆盖
+- 发现：1×P2 限速缺口、1×P2 DB 层约束缺失、4×P3 加固性
+**风险 & 回滚**：仅文档，回滚 = git revert
+**验证**：只读；无代码改动，type-check/lint N/A
+**下一轮**：Task 6 SSO / Casdoor / Token
+
+## 2026-05-09 — P1 Task 6 SSO / Casdoor / Token 安全审计
+**目标**：完成阶段 1 Task 6，对 Casdoor SSO 接入 + 本站 JWT 颁发链做只读审计；产出 P0–P3 issue 清单留给后续修复轮次。
+**动机**：CLAUDE.md 红线列出 `api/v1/auth.py` + `core/{oidc,users,config,admin}.py` 改错全员无法登录；必须先有审计基线再动逻辑。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「### SSO / Casdoor / Token (Task 6 填写)」为完整审计内容（OAuth/OIDC 必查 14 项表 + 12 条发现 + 后续阶段线索）
+**关键判断**：
+- JWT 签名校验本体到位（RS256/ES256 白名单 + JWKS 公钥 + 非 verify=False），但 **`iss` 未校验、`aud` 显式禁用、`nonce` 完全缺失** → P0
+- 后端 `/auth/callback` **完全不校验 OAuth state**（state 仅前端 sessionStorage 比对），CSRF / 账号固定攻击面成立 → P0
+- `redirect_uri` 客户端可控、无服务端白名单 → P0（被 Casdoor 注册回调列表兜底，但仍需修）
+- 无 `/logout` 端点、refresh token 不可撤销、不轮换 → P1×2
+- sqladmin SessionMiddleware 默认 cookie 偏弱、前端 token 存 localStorage → P2×2
+- 共 3×P0 + 3×P1 + 2×P2 + 4×P3
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint/pytest N/A。`grep` + 阅读双重确认 `auth.py` 中不存在 logout / state 校验代码路径。
+**下一轮**：Task 7 首位 admin 自动晋升竞态（已在本轮 Task 6 中先行点出 `auth.py:107-134` 是病灶位置，Task 7 深入复现路径）。
+
+## 2026-05-09 — P1 Task 7 首位 admin 自动晋升竞态审计
+**目标**：完成阶段 1 Task 7，对 `auth.py` 首登晋升逻辑做并发竞态只读审计；确认是否存在两个并发请求都拿到超管的 check-then-act 漏洞。
+**动机**：Task 6 已发现 `auth.py:108-131` 是竞态候选点（SELECT COUNT + INSERT 无锁）；本任务专项确认事务序列化方式与 DB 层防护。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「### 首位 admin 自动晋升竞态（Task 7 填写）」为完整审计内容。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- `managed_transaction` 内的 `SELECT COUNT(*) == 0` 是**裸快照读，无 FOR UPDATE、无 advisory lock**；Postgres 默认 `READ COMMITTED` 下两个同时到达的请求都可读到 count=0，各自插入并 commit，结果两用户均 `is_superuser=True` → **P1 竞态真实存在**。
+- `User` 表无 partial unique index `WHERE is_superuser=TRUE`，DB 层无法阻止多超管共存。
+- 唯一入口是 `/callback`（首登自动提升），无其他 API 级提权接口（符合 CLAUDE.md 要求）。
+- sqladmin `UserAdmin` **未配置 `form_excluded_columns`**，已登录超管可通过面板 Edit 提升任意用户为超管 → P2 加固缺失。
+- 发现：P1-ADMIN-01（竞态）+ P2-ADMIN-02（面板级提权缺限制）。
+**风险 & 回滚**：仅文档，回滚 = git revert。
+**验证**：只读；无代码改动；通过 grep + 阅读双重确认 `auth.py:108-131` 无锁状态。type-check/lint N/A。
+**下一轮**：Task 8 admin gate 覆盖矩阵。
+
+## 2026-05-09 — P1 Task 8 admin gate 覆盖矩阵
+**目标**：完整审计 api/v1/ 下所有路由的 admin guard 覆盖情况，构建覆盖矩阵，确认无 P0 未保护路由。
+**动机**：Task 5 已确认 admin_redemption.py 8 条路由，本任务推广至全部文件。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 8 填写）」为完整矩阵（18 条 admin-class + 27 条 user-class + guard 自身审计 + P3-ADMIN-03）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- 全量审计 43 条路由，识别出 18 条 admin-class 路由。
+- 所有 18 条均有 `Depends(current_superuser)` 保护 → **无 P0/P1 级未保护路由**。
+- guard 本身双层校验顺序正确（先 401 再 403），无旁路路径。
+- sqladmin 面板通过独立 `AdminAuth` 保护（每请求重查 DB），比 JWT 路由撤销更及时。
+- 发现 P3-ADMIN-03：4 条 admin 端点散落在 `user.py`（`/api/v1/user/` 前缀），不在 nginx `/admin` 2r/s 限速范围，可维护性低。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；grep 逐文件确认 guard 参数。
+**下一轮**：Task 9 IDOR / 横向越权矩阵。
+
+## 2026-05-09 — P1 Task 9 IDOR / 横向越权矩阵
+**目标**：审计 `api/v1/` 所有路由的横向越权风险，区分 system-shared / user-owned / admin-only，检查 ownership 校验是否完整；同时检查 SSE 用户隔离和列表类隐式 IDOR。
+**动机**：IDOR 是预测市场高频 bug——用户可能用他人 loan_id/redemption_id/position_id 读取或修改数据；需逐路由逐文件确认 ownership 校验位置。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 9 填写）」为完整 IDOR 矩阵（15 条 ID-参数化路由 + SSE 用户隔离分析 + 13 条列表接口隐式 IDOR + P3-IDOR-01）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- **无 P0/P1 IDOR**：所有用户私有资源（持仓 `Position`、交易历史 `Transaction`、贷款 `loan`、兑换码 `RedemptionCode`）均通过 `current_active_user` 自动绑定，无任意 ID 参数可被替换发起横向越权。
+- `GET /redemption/my/{code_id}` 和 `POST /redemption/my/{code_id}/mark-used`：均检查 `c.bought_by_user_id != user.id → 404`，正确。
+- 借款/还款接口不接受 `user_id` 参数，直接用 `current_active_user.id` 操作，无越权路径。
+- SSE（`stream.py`）按 `market_id` 广播，不含用户私密数据，无用户隔离需求。
+- 发现 P3-IDOR-01：3 个公开端点（`/market/{id}/trades`、`/recent-trades`、`/leaderboard`）无 auth，暴露 `username+shares+price+net_worth`，可供追踪用户交易行为；属设计权衡，非漏洞，但有隐私加固空间。
+- `leaderboard` 中 `net_worth = cash - debt`（不含持仓），口径与 `/user/summary` 不同——标记为信息但非安全问题。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；逐文件阅读 + grep 双重确认 ownership 校验位置。
+**下一轮**：Task 10 models/base.py 无迁移机制风险。
+
+## 2026-05-09 — P1 Task 10 models/base.py 无迁移机制风险审计
+**目标**：审计 models/base.py + redemption.py 的全部字段清单；梳理最近 ~3 个月 git log 中所有 schema 变更；评估每个变更"不迁移的实际后果"；审计 init_db.py 安全性和现有迁移机制覆盖度。
+**动机**：CLAUDE.md 明确标注"没有迁移机制，create_all 不改已有列"——若 prod DB schema 落后于代码，新列 INSERT 失败 → 交易全量 500；需要量化风险范围并给出运维核查清单。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py` 严格只读；`init_db.py` 只读不执行。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 10 填写）」为完整迁移风险审计（字段总览 5 张表、8 条 commit 变更分析表、迁移机制现状、init_db.py 风险、6 条 Finding P1-P3）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- **无 Alembic，无通用迁移框架**（P2-M10-1）：除 `debt_last_accrued_at` 外所有字段变更均无自动迁移脚本。
+- **P1-M10-2**：`Transaction.pre_market_price` / `post_market_price`（commit `211b552`，2026-04-16）无迁移脚本。若 prod DB 缺这两列，`buy_shares()` / `sell_shares()` 每次 INSERT 报 `UndefinedColumnError` → 交易全量 500。修复：`ALTER TABLE transaction ADD COLUMN IF NOT EXISTS pre_market_price NUMERIC(16,8) NOT NULL DEFAULT 0;` + 同理 `post_market_price`；加入 `auto_migrate()`。
+- **P1-M10-3**：`Position.cost_basis`（`d8c3119`，v1.0.0 大重构）无迁移脚本。若 prod 有旧 position 表，buy/sell 操作 + `/user/summary` 全量 500；需运维确认列存在。
+- **P2-M10-4**：datetime 列 TIMESTAMP→TIMESTAMPTZ（`b9f27e9`）若 prod 列类型未更新，asyncpg 读取时 DatetimeTzError → 市场/交易 API 500。
+- **P3-M10-5**：`init_db.py` 无环境检测（不区分 dev/prod），与 `database.py:init_db()` 同名但行为完全不同（一个清空，一个只 create_all）——命名混淆 + 误操作风险。
+- **P3-M10-6**：`auto_migrate()` 模式有效但覆盖太窄；建议扩展或迁移到 Alembic。
+- **`debt_last_accrued_at` 是唯一正确处理的例外**：`auto_migrate()` 在 lifespan 自动 `ADD COLUMN IF NOT EXISTS`，已覆盖。
+- **备份机制存在**：`deploy/deploy.sh` 每次 deploy 前执行 `pg_dump`，有备份窗口但不执行 DDL。
+**风险 & 回滚**：仅文档；回滚 `git revert`。
+**验证**：只读，无代码改动，type-check/lint N/A；git log -p 逐 commit 确认变更内容；grep 确认 auto_migrate 覆盖范围；读 init_db.py 全文确认 DROP 逻辑。
+**下一轮**：Task 11 bandit + semgrep 静态扫 triage。
+
+## 2026-05-09 — P1 Task 11 bandit + semgrep 静态扫 triage
+**目标**：在隔离 venv 中安装并运行 bandit 1.9.4 + semgrep 1.162.0，对全部告警逐条 triage，区分真发现 / 重复 / 误报，结果写入报告。
+**动机**：静态工具可能捕获人工审计遗漏的模式（硬编码密钥、SQL 注入、credential leak 等），尤其对 OWASP Top-10 类问题有专项规则。
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；所有 `.py/.ts/.vue` 严格只读；工具安装至 `/tmp/secaudit-venv`，不污染 `requirements.txt`。
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：替换「（Task 11 填写）」为完整 triage 表（6 条告警）。
+- `docs/ralph-log.md`：追加本条日志。
+**关键判断**：
+- bandit 2 条 LOW 均为 `B105 hardcoded_password_string`：`"bearer"` 是 OAuth2 标准 token_type 字面量 → **误报 × 2**。
+- semgrep 4 条告警：`python-logger-credential-disclosure` × 3（`auth.py:79`、`oidc.py:117`、`users.py:77`）均归属于 Task 6 已记录的 P3-AUTH-12（日志脱敏）→ **重复 × 3**。`avoid-sqlalchemy-text`（`init_db.py:39`）中 `table.name` 来自 SQLAlchemy ORM 元数据，非用户输入 → **误报 × 1**；init_db.py 真实风险（数据销毁）已由 Task 10 P3-M10-5 记录。
+- **净新增 Finding：0 条**。两种工具的告警全覆盖于已有发现或无实际安全风险。
+- 原始 JSON 输出（`/tmp/bandit.json`、`/tmp/bandit_all.json`、`/tmp/semgrep.json`）不入库，triage 完成后删除。
+**风险 & 回滚**：仅文档；回滚 `git revert`；venv 留存 `/tmp/secaudit-venv` 供后续 phase 复用。
+**验证**：只读，无产品代码改动；`git status` 确认仅 docs/ 变动；bandit/semgrep 实际运行并确认版本号与告警数。
+**下一轮**：Task 12 阶段总结 + 报告收口。
+
+## 2026-05-09 — 安全审计阶段 1 完成（业务核心 + 认证授权）
+**目标**：执行摘要 + 阶段统计 + 不在范围聚合 + 报告状态收口（spec §4.1 完成）
+**动机**：参考 `docs/superpowers/specs/2026-05-08-security-audit-design.md`；Tasks 1-11 全部完成后需收尾汇总
+**范围**：仅 `docs/security-audit-2026-05-09-p1-core.md` + `docs/ralph-log.md`；后端代码全只读，零 .py 改动
+**改动**：
+- `docs/security-audit-2026-05-09-p1-core.md`：
+  - `**状态**` 从「进行中」→「阶段 1 已完成（待用户 review）」
+  - `## 执行摘要`：填写完整摘要（52 条发现，P0×3/P1×8/P2×18/P3×21/INFO×2；三大关注方向）
+  - `## 阶段统计`：填写按等级+按子系统的聚合表 + 重大组合风险
+  - `## 不在范围`：聚合所有 Task 1-11 "留给后续阶段的线索"，按阶段分组 + prod DB 核查清单
+  - **cross-reference 修正**（Task 8 admin gate 小节 line 1190）：`Task 6 [P1-ADMIN-01]`（描述错误，P1-ADMIN-01 是 Task 7 的竞态发现）→ 改为 `Task 6 [P2-AUTH-07]`（描述匹配：sqladmin SessionMiddleware cookie 属性偏弱）
+- `docs/ralph-log.md`：追加本条日志
+**风险 & 回滚**：仅文档；回滚 `git revert`；红线文件未改
+**验证**：报告口径自洽（数字 = 实际计数）；cross-reference 修正查 grep 确认；git status 仅 docs/ 两文件变动
+**下一轮**：用户 review → 决定（a）就 P0/P1 起 SSO + 锁序 + 迁移补丁轮次；或（b）继续阶段 2 前端安全
