@@ -281,27 +281,26 @@ async def test_sell_accepts_when_within_slippage(client):
 
 def test_lock_order_smoke():
     """
-    读源码确认 SELL handler 中 _lock_outcome 出现在 select(Position 之前。
-    防止未来 PR 在不重新审计的情况下静默回退到 Position-first 顺序而触发死锁。
+    读源码确认 SELL handler 中 _lock_market 出现在 select(Position) 之前。
+    防止未来 PR 静默回退锁顺序触发死锁。
+
+    P1 follow-up 后：_lock_outcome 从 buy/sell 热路径移除，
+    改为先无锁读 market_id，再按 market → all_outcomes → user → position 统一加锁。
     """
     src = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "market.py"
     text = src.read_text(encoding="utf-8")
 
-    # 找到 sell_shares 函数体（多行签名，可能 -> 也可能直接 :）
     m = re.search(r"async def sell_shares\b", text)
     assert m, "找不到 sell_shares 函数定义"
     sell_start = m.start()
-
-    # 截到下一个顶层 async def 或文件末尾
     next_fn = re.search(r"\n(@router|async def )", text[sell_start + 1:])
     sell_end = sell_start + 1 + next_fn.start() if next_fn else len(text)
     sell_body = text[sell_start:sell_end]
 
-    lock_outcome_pos = sell_body.find("_lock_outcome(")
+    lock_market_pos = sell_body.find("_lock_market(")
     select_position_pos = sell_body.find("select(Position)")
-    assert lock_outcome_pos != -1, "sell 函数中缺失 _lock_outcome 调用"
+    assert lock_market_pos != -1, "sell 函数中缺失 _lock_market 调用"
     assert select_position_pos != -1, "sell 函数中缺失 select(Position) 调用"
-    assert lock_outcome_pos < select_position_pos, (
-        "SELL 锁顺序回退：_lock_outcome 必须在 select(Position) 之前出现，"
-        "否则同账户同 outcome 并发 buy+sell 会触发 PG 40P01 死锁。"
+    assert lock_market_pos < select_position_pos, (
+        "SELL 锁顺序回退：_lock_market 必须在 select(Position) 之前出现"
     )
