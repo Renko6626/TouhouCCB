@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ app/
 COPY scripts/ scripts/
 COPY run.py init_db.py ./
+# Alembic 迁移基础设施（容器内跑 `alembic stamp head` / `alembic upgrade head` 需要）
+COPY alembic/ alembic/
+COPY alembic.ini ./
 
 # data/ 目录由 volume 挂载，这里只建骨架
 RUN mkdir -p data && chown appuser:appuser data
