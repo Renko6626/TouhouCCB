@@ -2,8 +2,8 @@
 import { onMounted } from 'vue'
 import { getRegisterUrl } from '@/api/casdoor'
 
-onMounted(() => {
-  window.location.href = getRegisterUrl()
+onMounted(async () => {
+  window.location.href = await getRegisterUrl()
 })
 </script>
 

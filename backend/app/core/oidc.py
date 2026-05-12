@@ -123,10 +123,10 @@ class OIDCClient:
     # 核心：JWT 验证
     # ----------------------------------------------------------
 
-    def verify_token(self, token: str) -> Dict[str, Any]:
+    def verify_token(self, token: str, *, nonce: Optional[str] = None) -> Dict[str, Any]:
         """
         用 JWKS 公钥验证并解码 JWT，返回 claims dict。
-        支持 RS256 / ES256 等非对称算法。
+        强校验 issuer / audience / 必需 claims；可选校验 nonce（id_token 时传入）。
         """
         if not self._jwk_client:
             raise RuntimeError("OIDC 客户端未初始化，请先调用 ensure_ready()")
@@ -138,9 +138,15 @@ class OIDCClient:
             signing_key.key,
             algorithms=["RS256", "ES256"],
             audience=self.audience,
+            issuer=self.issuer_url,
             options={
-                # Casdoor 的 access_token 可能不含 aud，放宽验证
-                "verify_aud": False,
+                "require": ["exp", "iat", "iss", "aud", "sub"],
             },
         )
+
+        if nonce is not None:
+            token_nonce = claims.get("nonce")
+            if not token_nonce or token_nonce != nonce:
+                raise jwt.InvalidTokenError("nonce 不匹配")
+
         return claims
