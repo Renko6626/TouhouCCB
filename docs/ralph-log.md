@@ -1347,3 +1347,28 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - **未实测 UI**：本会话无浏览器，前后端起服务需用户在自己环境跑
 **风险 & 回滚**：分支独立 + 未 push；回滚 = `git branch -D ralph/2026-05-12-sso-fix-p0`
 **下一轮**：Task 8 收尾汇报
+
+## 2026-05-12 16:01 — SSO P0 修复完成
+**目标**：P0-AUTH-01/02/03 修复全部就位
+**范围**：跨前后端共 7 个 commit
+**改动汇总**：
+- `backend/app/core/oidc.py` — verify_token 强校验 iss/aud/require + 支持 nonce 参数
+- `backend/app/api/v1/auth.py` — 新增 /login-start；重写 /callback（state cookie 校验 + nonce 校验 + 硬编码 redirect_uri + 仅取 id_token）
+- `thccb-frontend/src/api/casdoor.ts` — getLoginUrl/getRegisterUrl 改 async，先调 /login-start
+- `thccb-frontend/src/router/guards.ts` + `pages/auth/Login.vue` + `pages/auth/Register.vue` — 调用方加 await
+- `thccb-frontend/src/pages/auth/Callback.vue` — 删冗余 sessionStorage state 校验
+- `backend/tests/test_auth_state_nonce.py` — 5 个新测试 5/5 过
+**验证**：
+- 后端 py_compile ✅ / import app.main ✅ / pytest 新测试 5/5 过 ✅
+- 前端 type-check ✅ / lint ✅（本轮改动 0 错）
+- 文件变更 10 个，完全符合预期
+- 未实测 UI（Ralph 远程无浏览器）
+**风险 & 回滚**：分支 `ralph/2026-05-12-sso-fix-p0` 独立未 push；回滚 = `git checkout main && git branch -D ralph/2026-05-12-sso-fix-p0`
+**待用户操作**：
+1. Casdoor 应用配置侧确认 redirect_uri 白名单只有 `https://thccb.secret-sealing.club/auth/callback`
+2. 部署到 staging 或本机 dev 跑一遍完整 SSO 登录流程，确认：
+   - `/auth/login-start` 返回 state+nonce 且 Set-Cookie 两个 HttpOnly cookie
+   - 完整登录跳转 → Casdoor → 回跳 → 拿到本站 JWT
+   - 浏览器 DevTools 看 cookie 在 callback 成功后被清除
+3. 若 staging 验证通过，决定何时合并 main（push = 自动部署上线）
+**下一轮**：等用户决定（合并 main / 起 P1 修复轮次 / 进 Phase 2 审计）
