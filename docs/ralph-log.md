@@ -1656,3 +1656,28 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - Phase 1 审计还剩哪些 P1/P2 待修，独立另开 ralph 轮
 
 **分支** `ralph/2026-05-12-market-fix`（worktree `/tmp/thccb-wt-market`），未 push。
+
+---
+
+## 2026-05-12 — fix(market): 消除跨 outcome 并发死锁（PG 40P01）
+
+**目标** 压测 200 VU 集中打 HOT_2OPT 时 buy/sell 5xx 率 62-64%，后端日志满屏 `DeadlockDetectedError`，需修复。
+
+**动机（证据）** 压测结果：`lt_buy_5xx rate=64.36%`、`lt_sell_5xx rate=61.97%`、buy p(90)=56s；后端 `asyncpg.exceptions.DeadlockDetectedError` 环形等待日志：Process A(YES) ↔ Process B(NO) ↔ Process C 三方死锁。
+
+**根本原因** buy/sell 都先 `_lock_outcome(outcome_id)` 锁单个 outcome，再 `_lock_market`，再 `_lock_outcomes_for_market` 锁全部 outcome。两个事务分别持有不同 outcome 行锁 → 都想拿 market 行锁 → 环形等待。P1 修复只对齐了 buy+sell 同 outcome 的顺序，未修跨 outcome 场景。
+
+**范围** 仅 `backend/app/api/v1/market.py` buy_shares / sell_shares 两个函数的锁获取顺序；新增测试文件；更新 test_lock_order_smoke。
+
+**改动**
+- `backend/app/api/v1/market.py`：buy_shares / sell_shares 移除 `await _lock_outcome` 提前调用，改为无锁 `SELECT Outcome.market_id WHERE id=req.outcome_id`，再按 market → all_outcomes → user 统一顺序加锁；target outcome 从 all_outcomes 中取
+- `backend/tests/test_market_deadlock_fix.py`：新增源码级锁顺序断言 + buy/sell 功能回归
+- `backend/tests/test_market_slippage_lock.py`：更新 test_lock_order_smoke（_lock_outcome 已移除，改为断言 _lock_market < select(Position)）
+
+**风险 & 回滚** 低。无锁读取 market_id 在极端情况下（outcome 在无锁读和 _lock_market 之间被删除）会由 `_lock_outcomes_for_market` 返回空列表并 404，行为比之前更安全。回滚：`git revert bd963f2`。
+
+**验证** compile ✅ / import ✅ / 79 passed 1 skipped（loan_api pre-existing failure，与本次无关）✅
+
+**下一轮** 用户合并此分支到 main 后重新跑压测，观测 5xx 率是否降至 <5%；同时调查 `test_repay_exceeds_cash_400` 预存在失败（loan 还款超额逻辑 bug）。
+
+**分支** `ralph/2026-05-12-market-deadlock-fix`，已 push，等待合并。
