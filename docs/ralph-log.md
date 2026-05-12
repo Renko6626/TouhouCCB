@@ -1315,3 +1315,32 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 - pg_stat_statements 扩展启用（README 里说了，没启用不影响 active/locks 采样）
 
 **分支** `ralph/2026-05-08-loadtest-prep`，未 push。
+
+## 2026-05-12 17:37 — Alembic 引入（P2-M10-1 修复）
+**目标**：引入 Alembic 让 schema 变更有迁移路径，闭合 Phase 1 审计 P2-M10-1
+**动机**：现在加列只靠手工 DDL；未来漏跑就是买卖 500（P1-M10-2/3 的同类）
+**范围**：仅 alembic 基础设施 + 文档；不动 model 定义、不动 init_db.py、不动 product 代码
+
+**改动**：
+- `backend/requirements.txt`：加 `alembic>=1.13,<2`
+- `backend/alembic.ini` + `backend/alembic/env.py` + `script.py.mako` + `README`：alembic 标准结构，env.py 接 `SQLModel.metadata` 并从 `settings.build_db_url()` 读 URL，自动把 asyncpg/aiosqlite/asyncmy 替成 sync 对应（psycopg2/sqlite/pymysql）
+- `backend/alembic.ini`：注释掉硬编码 `sqlalchemy.url`，启用日期前缀的 `file_template`
+- `backend/alembic/versions/2026_05_12_1736-6ea6f84ae44e_baseline_empty_stamp_existing_dbs.py`：空 baseline（stamp 模式），upgrade/downgrade 都是 `pass`
+- `docs/migrations.md`：工作流文档（一次性 stamp / 加新 revision / 部署 / 回滚 / 与 init_db.py 关系）
+
+**设计**：empty baseline + stamp 模式。已有 DB 跑一次 `alembic stamp head` 标定到 baseline，之后 schema 变更走 `alembic revision --autogenerate` → 人工 review → `alembic upgrade head`。`init_db.py` 不动，dev 起空库继续 create_all。
+
+**风险 & 回滚**：分支独立未 push；回滚 = 删分支；不影响现有 DB；alembic 装进 venv 是新增依赖，不影响运行
+**验证**：
+- alembic.ini 解析 OK
+- env.py `py_compile` OK + 在 dev sqlite 环境 import OK（拿到 10+ 张表 metadata）
+- `python -m py_compile $(find app -name '*.py')` OK
+- `import app.main` OK
+- pytest 跑完无新回归（详见 commit 验证）
+- 未动 product 代码（git diff --stat 确认）
+
+**待用户操作**：合并前**先**在每个已有环境（dev/staging/prod）跑 `cd backend && alembic stamp head` 标定 baseline；新装 prod 环境还需 `pip install psycopg2-binary` 让 sync 驱动可用
+
+**分支** `ralph/2026-05-12-alembic-intro`，未 push。
+
+**下一轮**：等用户决定（合并 / 跟 market 修复束一起合 / 单独验证）
