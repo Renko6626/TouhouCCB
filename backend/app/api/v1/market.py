@@ -544,15 +544,10 @@ async def sell_shares(
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
     async with managed_transaction(db):
-        pos_res = await db.execute(
-            select(Position)
-            .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
-            .with_for_update()
-        )
-        position = pos_res.scalars().first()
-        if not position or position.amount < shares_d:
-            raise HTTPException(status_code=400, detail="持仓不足")
-
+        # ── 锁顺序对齐 BUY（P1）──
+        # 旧顺序：Position → outcome → market → outcomes → user
+        # 新顺序：outcome → market → outcomes → user → Position
+        # 与 BUY 完全一致，同账户同 outcome 并发 buy+sell 不再触发 PG 40P01 死锁。
         outcome = await _lock_outcome(db, int(req.outcome_id))
         market = await _lock_market(db, int(outcome.market_id))
         _require_trading(market)
@@ -563,6 +558,16 @@ async def sell_shares(
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
 
         locked_user = await _lock_user(db, int(user.id))
+
+        # Position 行锁放在最后（与 BUY 路径一致）
+        pos_res = await db.execute(
+            select(Position)
+            .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
+            .with_for_update()
+        )
+        position = pos_res.scalars().first()
+        if not position or position.amount < shares_d:
+            raise HTTPException(status_code=400, detail="持仓不足")
 
         # LoanV1: 先把未结利息折进 debt，避免时点偏差
         _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
