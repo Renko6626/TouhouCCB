@@ -84,20 +84,29 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const buyShares = async (outcomeId: number, shares: number) => {
+  // 把后端滑点拒绝映射为用户友好提示
+  const friendlySlippageMsg = (raw: string): string => {
+    if (!raw) return raw
+    if (raw.includes('滑点') || raw.includes('max_cost') || raw.includes('min_proceeds')) {
+      return '市场波动较大，超过最大滑点，请刷新行情后重试'
+    }
+    return raw
+  }
+
+  const buyShares = async (outcomeId: number, shares: number, maxSlippageBps?: number) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.buy(outcomeId, shares)
-      
+      const result = await marketApi.buy(outcomeId, shares, maxSlippageBps)
+
       // 如果当前有市场详情，重新获取以更新价格
       if (currentMarket.value) {
         await fetchMarketDetail(currentMarket.value.id)
       }
-      
+
       return { success: true, data: result }
     } catch (err: any) {
-      tradeError.value = err.message || '买入失败'
+      tradeError.value = friendlySlippageMsg(err.message || '买入失败')
       console.error('买入失败:', err)
       return { success: false, error: tradeError.value }
     } finally {
@@ -105,20 +114,20 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const sellShares = async (outcomeId: number, shares: number) => {
+  const sellShares = async (outcomeId: number, shares: number, maxSlippageBps?: number) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.sell(outcomeId, shares)
-      
+      const result = await marketApi.sell(outcomeId, shares, maxSlippageBps)
+
       // 如果当前有市场详情，重新获取以更新价格
       if (currentMarket.value) {
         await fetchMarketDetail(currentMarket.value.id)
       }
-      
+
       return { success: true, data: result }
     } catch (err: any) {
-      tradeError.value = err.message || '卖出失败'
+      tradeError.value = friendlySlippageMsg(err.message || '卖出失败')
       console.error('卖出失败:', err)
       return { success: false, error: tradeError.value }
     } finally {
