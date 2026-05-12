@@ -2,7 +2,7 @@ import type { RouteLocationNormalized, NavigationGuardNext } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getLoginUrl } from '@/api/casdoor'
 
-export const globalBeforeEach = (
+export const globalBeforeEach = async (
   to: RouteLocationNormalized,
   _from: RouteLocationNormalized,
   next: NavigationGuardNext,
@@ -16,7 +16,7 @@ export const globalBeforeEach = (
 
   // 需要登录的页面 → 直接跳转 Casdoor
   if (to.matched.some((r) => r.meta.requiresAuth) && !authStore.isAuthenticated) {
-    window.location.href = getLoginUrl()
+    window.location.href = await getLoginUrl()
     return  // 中断导航，等待浏览器跳转
   }
 
