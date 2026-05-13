@@ -1,6 +1,6 @@
 import math
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List, Union
+from typing import List, Tuple, Union
 
 # ── 量化精度 ──
 COST_QUANT  = Decimal("0.000001")    # 6 位小数：资金 / 份额
@@ -39,3 +39,21 @@ def get_current_price(shares_list: List[float], target_index: int, b: float) -> 
     max_q = max(shares_list)
     exponents = [math.exp((q - max_q) / b) for q in shares_list]
     return exponents[target_index] / sum(exponents)
+
+
+def calculate_lmsr_with_prices(
+    shares_list: List[float], b: float
+) -> Tuple[float, List[float]]:
+    """同时返回 (cost, [price_0, price_1, ..., price_{N-1}])。
+
+    数学上 cost = b·ln(Σexp(qi/b))，price_i = exp(qi/b) / Σexp(qj/b)。
+    两者共享同一组 exp 计算，合并一次完成可省 N 次 exp。
+    """
+    if not shares_list:
+        return 0.0, []
+    max_q = max(shares_list)
+    exponents = [math.exp((q - max_q) / b) for q in shares_list]
+    sum_exp = sum(exponents)
+    cost = b * (math.log(sum_exp) + (max_q / b))
+    prices = [e / sum_exp for e in exponents]
+    return cost, prices
