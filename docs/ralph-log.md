@@ -1705,3 +1705,23 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **验证** `pytest tests/test_market_optimistic_concurrency.py` 14/14 ✅ / `pytest tests/ -k "not test_repay_exceeds_cash_400"` 93 passed 1 skipped ✅ / `python -m py_compile $(find app -name '*.py')` ✅
 
 **下一轮** 用此版本跑 50 VU 压测，比对 avg latency 与 5xx 率；预期 buy avg 从 20s → <2s，5xx ≈ 0。
+
+---
+
+## 2026-05-13 — 回退乐观并发优化（诊断错误）
+
+**目标** 回退 `ralph/2026-05-13-market-optimistic-concurrency` 的改动，恢复原始 pessimistic locking。
+
+**原因** 压测结果 avg buy 从 20s 恶化到 41s（8% 超时）。根因：LMSR calc 只需 1ms，不是瓶颈；真正瓶颈是锁内 DB round trip（~300ms）。乐观并发把 1ms 移到锁外，持锁时间几乎不变，但引入了高争用场景下的 thundering herd（49 VU stale 重试 → Phase 1 额外读 × N → DB 负载翻倍）。
+
+**范围** `backend/app/api/v1/market.py` 恢复，删除 `backend/tests/test_market_optimistic_concurrency.py`。
+
+**改动**
+- `backend/app/api/v1/market.py`：`git show 57e8b59:...` 还原原始 pessimistic 实现，移除 `MAX_RETRIES` / `_snapshot_still_valid`
+- `backend/tests/test_market_optimistic_concurrency.py`：删除（测试乐观并发结构，已无意义）
+
+**风险 & 回滚** 恢复至已验证的稳定版本，无新风险。
+
+**验证** compile ✅ / pytest tests/ -k "not test_repay_exceeds_cash_400" 结果待确认
+
+**下一轮** 如需真正提速，优先考虑把 `site_config.get_decimal(loan_daily_rate)` 做内存缓存（锁内节省 1 次 round trip）；或接受现有吞吐（~2 buy/s per market），因真实用户行为与 50 VU 零 think time 差异极大。
