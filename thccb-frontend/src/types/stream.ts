@@ -9,10 +9,15 @@ export interface MarketEvent {
 
 export interface TradeEventData {
   trade: {
+    id: number
     type: 'buy' | 'sell'
     outcome_id: number
+    username: string
     shares: number
     price: number
+    gross: number
+    fee: number
+    post_market_price: number
     timestamp: string
   }
 }
