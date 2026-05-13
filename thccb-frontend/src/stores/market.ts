@@ -1,7 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { MarketListItem, MarketDetail, MarketCreate, TradeResponse, QuoteResponse, MarketTrade, LeaderboardItem } from '@/types/api'
+import type { TradeEventData } from '@/types/stream'
 import { marketApi } from '@/api/market'
+
+// SSE 增量更新时 marketTrades 列表的最大长度，超过则尾部截断防内存爆涨
+const MAX_MARKET_TRADES = 100
 
 export const useMarketStore = defineStore('market', () => {
   // 状态
@@ -68,6 +72,40 @@ export const useMarketStore = defineStore('market', () => {
       console.error('获取市场成交记录失败:', err)
     } finally {
       loading.value = false
+    }
+  }
+
+  // ── SSE 增量更新（perf）──
+  // 收到 trade 事件时，直接用 payload 更新本地状态，避免触发 fetchMarketDetail
+  // + fetchMarketTrades 两次全量 refetch（热门市场每笔成交会被放大 N×2 倍）。
+  // 兜底机制由调用方（TradingView.vue）的低频 sanity refresh 提供，防 SSE 丢包 drift。
+  const appendTradeFromSSE = (payload: TradeEventData['trade']) => {
+    // 用 id 去重（SSE 重连或重发场景）
+    if (marketTrades.value.some(t => t.id === payload.id)) return
+    const trade: MarketTrade = {
+      id: payload.id,
+      outcome_id: payload.outcome_id,
+      side: payload.type,
+      shares: payload.shares,
+      price: payload.price,
+      gross: payload.gross,
+      fee: payload.fee,
+      timestamp: payload.timestamp,
+      username: payload.username,
+    }
+    marketTrades.value.unshift(trade)
+    if (marketTrades.value.length > MAX_MARKET_TRADES) {
+      marketTrades.value = marketTrades.value.slice(0, MAX_MARKET_TRADES)
+    }
+  }
+
+  // 用 trade.post_market_price 直接 patch 对应 outcome 的当前价。
+  // 跳过 fetchMarketDetail 全量拉取。
+  const patchOutcomePriceFromTrade = (outcomeId: number, newPrice: number) => {
+    if (!currentMarket.value) return
+    const outcome = currentMarket.value.outcomes.find(o => o.id === outcomeId)
+    if (outcome) {
+      outcome.current_price = newPrice
     }
   }
 
@@ -261,6 +299,8 @@ export const useMarketStore = defineStore('market', () => {
     fetchMarketDetail,
     fetchMarketTrades,
     fetchLeaderboard,
+    appendTradeFromSSE,
+    patchOutcomePriceFromTrade,
     buyShares,
     sellShares,
     getQuote,
