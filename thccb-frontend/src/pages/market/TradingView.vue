@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, useMessage } from 'naive-ui'
 import { useSSE } from '@/composables/useSSE'
 import type { MarketEvent } from '@/types/api'
+import type { TradeEventData } from '@/types/stream'
 import TradePanel from '@/components/market/TradePanel.vue'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import OutcomeCard from '@/components/market/OutcomeCard.vue'
@@ -181,12 +182,37 @@ const scheduleRealtimeRefresh = () => {
   }, 300)
 }
 
-// 统一 SSE 事件处理（snapshot/trade/market_status 逻辑相同）
+// ── SSE 丢包兜底（perf）──
+// trade 事件走增量更新（不 refetch）后，理论上 marketTrades / 价格永远跟服务端一致。
+// 但 SSE 队列满被踢、网络断线重连前的间隙可能丢消息。每 60s 至多触发一次静默
+// fetchMarketTrades 做 sanity 校准。不重要的失败不打扰用户。
+const SANITY_REFRESH_INTERVAL_MS = 60_000
+let lastSanityRefreshAt = 0
+const maybeSanityRefresh = () => {
+  if (!marketId.value) return
+  if (Date.now() - lastSanityRefreshAt < SANITY_REFRESH_INTERVAL_MS) return
+  lastSanityRefreshAt = Date.now()
+  marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
+}
+
+// SSE 事件处理：
+//   trade            → 用 payload 增量更新本地状态，不再 refetch（核心优化点）
+//   snapshot         → 初始/重连快照，全量 refetch 重建状态
+//   market_status    → 状态机变化（halt/settled），全量 refetch
 const handleRealtimeEvent = (event: MarketEvent) => {
   if (event.market_id !== marketId.value) return
   // 交易执行期间暂停自动刷新，避免数据不一致
   if (marketStore.tradeLoading) return
   candleRefreshToken.value += 1
+
+  if (event.type === 'trade') {
+    const tradePayload = (event.data as TradeEventData).trade
+    marketStore.appendTradeFromSSE(tradePayload)
+    marketStore.patchOutcomePriceFromTrade(tradePayload.outcome_id, tradePayload.post_market_price)
+    maybeSanityRefresh()
+    return
+  }
+
   scheduleRealtimeRefresh()
 }
 
