@@ -26,7 +26,13 @@ from app.schemas.market import (
     RecentTradeRead,
     MoverItem,
 )
-from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
+from app.services.lmsr import (
+    calculate_lmsr_cost,
+    calculate_lmsr_with_prices,
+    get_current_price,
+    quantize_cost,
+    quantize_price,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +143,11 @@ def _build_prices_from_shares(
     shares_list: List[float],
     b: float,
     prices_24h_ago: Optional[Dict[int, float]] = None,
+    prices: Optional[List[float]] = None,
 ) -> List[Dict[str, Any]]:
     out = []
     for i, o in enumerate(outcomes):
-        p = get_current_price(shares_list, i, b)
+        p = prices[i] if prices is not None else get_current_price(shares_list, i, b)
         cur = float(quantize_price(p))
         entry: Dict[str, Any] = {
             "id": o.id,
@@ -439,8 +446,8 @@ async def buy_shares(
         new_q = list(old_q)
         new_q[target_idx] += float(shares_d)
 
-        old_cost_f = calculate_lmsr_cost(old_q, b)
-        new_cost_f = calculate_lmsr_cost(new_q, b)
+        old_cost_f, old_prices = calculate_lmsr_with_prices(old_q, b)
+        new_cost_f, new_prices = calculate_lmsr_with_prices(new_q, b)
 
         # 边界：float → Decimal
         pay = quantize_cost(new_cost_f - old_cost_f)
@@ -450,7 +457,7 @@ async def buy_shares(
         # ── 滑点保护（P1）──
         # 以"成交前边际价 × 份额"为期望成本（不含费），对比实际 pay。
         # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
-        marginal_price_before_buy = Decimal(str(get_current_price(old_q, target_idx, b)))
+        marginal_price_before_buy = Decimal(str(old_prices[target_idx]))
         expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
         if req.max_cost is not None and pay > req.max_cost:
             raise HTTPException(
@@ -491,8 +498,8 @@ async def buy_shares(
         # 交易记录（Decimal 直除，避免 float 往返）
         avg_price = quantize_price(pay / shares_d)
         # 交易前后瞬时市场价（K线用：open=pre, close=post）
-        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
-        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+        pre_mp = quantize_price(old_prices[target_idx])
+        post_mp = quantize_price(new_prices[target_idx])
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -582,8 +589,8 @@ async def sell_shares(
         new_q = list(old_q)
         new_q[target_idx] -= float(shares_d)
 
-        old_cost_f = calculate_lmsr_cost(old_q, b)
-        new_cost_f = calculate_lmsr_cost(new_q, b)
+        old_cost_f, old_prices = calculate_lmsr_with_prices(old_q, b)
+        new_cost_f, new_prices = calculate_lmsr_with_prices(new_q, b)
 
         # 边界：float → Decimal
         proceeds = quantize_cost(old_cost_f - new_cost_f)
@@ -596,7 +603,7 @@ async def sell_shares(
         # ── 滑点保护（P1）──
         # 以"成交前边际价 × 份额"为期望收入（不含费），对比实际到手 net。
         # 客户端 min_proceeds 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
-        marginal_price_before_sell = Decimal(str(get_current_price(old_q, target_idx, b)))
+        marginal_price_before_sell = Decimal(str(old_prices[target_idx]))
         expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
         if req.min_proceeds is not None and net < req.min_proceeds:
             raise HTTPException(
@@ -630,8 +637,8 @@ async def sell_shares(
         # 交易记录（Decimal 直除，避免 float 往返）
         avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
         # 交易前后瞬时市场价（K线用）
-        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
-        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+        pre_mp = quantize_price(old_prices[target_idx])
+        post_mp = quantize_price(new_prices[target_idx])
 
         db.add(Transaction(
             user_id=locked_user.id,
@@ -861,12 +868,12 @@ async def quote_trade(
     shares_f = float(req.shares)            # float，喂给 LMSR
 
     old_q = _shares_to_floats(outcomes)
-    old_cost = calculate_lmsr_cost(old_q, b)
+    old_cost, _old_prices = calculate_lmsr_with_prices(old_q, b)
 
     new_q = list(old_q)
     if req.side == "buy":
         new_q[idx] += shares_f
-        new_cost = calculate_lmsr_cost(new_q, b)
+        new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
         gross = quantize_cost(new_cost - old_cost)
         fee = ZERO
         net = gross
@@ -874,13 +881,13 @@ async def quote_trade(
         if new_q[idx] < shares_f:
             raise HTTPException(status_code=400, detail="卖出数量超过市场总份额")
         new_q[idx] -= shares_f
-        new_cost = calculate_lmsr_cost(new_q, b)
+        new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
         gross = quantize_cost(old_cost - new_cost)
         fee = (gross * SELL_FEE_RATE).quantize(Decimal("0.000001"))
         net = gross - fee
 
     avg_price = quantize_price(gross / shares_d) if shares_d > ZERO else ZERO
-    after_prices = _build_prices_from_shares(outcomes, new_q, b)
+    after_prices = _build_prices_from_shares(outcomes, new_q, b, prices=new_prices)
 
     return QuoteResponse(
         outcome_id=req.outcome_id,
