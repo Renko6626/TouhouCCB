@@ -1,7 +1,8 @@
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import select, and_, func, literal_column
@@ -39,6 +40,40 @@ ZERO = Decimal("0")
 # 客户端未给 max_cost/min_proceeds 时用百分比兜底；服务端用 hardcap 截断不信任客户端。
 DEFAULT_SLIPPAGE_BPS = 500   # 5%
 HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
+
+# ── Quote 进程内 TTL 缓存（perf）──
+# quote 是无锁纯读 + LMSR 纯计算，前端用户每改一次数量就调一次，QPS 极高。
+# 1s 内同 (outcome_id, quantized_shares, side) 的请求直接返回缓存，
+# 省 3 次 DB 查询 + 2 次 LMSR cost + N+1 次 get_current_price。
+#
+# TTL 选 1s 的理由：
+#   * 用户改数字典型 debounce 200-500ms，1s 窗口能 dedupe 一波 burst
+#   * 灾难抛售场景下 stale 上限 1s，配合滑点保护（默认 5% / hardcap 10%）足够安全
+#   * 再长（如 5s）灾难场景下 cache 可能持续返回严重过期的报价，导致用户成交被反复滑点拦截
+#
+# 不做主动失效（成交后清缓存），原因：
+#   1. BROKER 是进程内 pubsub，跨 worker 通知要靠 Redis，引入复杂度
+#   2. 1s TTL 已经够短——quote 本就是估算，不承诺成交价
+#   3. 真正成交时 buy/sell 走真实 LMSR + 滑点保护，1s stale 不会让用户成交跑偏
+# 多 worker 部署下每 worker 独立 cache，TTL 期内同请求最多算 N 次（worker 数），可接受。
+_QUOTE_CACHE_TTL = 1.0
+_QUOTE_CACHE_MAX = 5000  # dict 涨到这个阈值时触发一次性 GC 过期项
+_QUOTE_CACHE: Dict[Tuple[int, str, str], Tuple[Any, float]] = {}
+
+
+def _quote_cache_key(outcome_id: int, shares: Decimal, side: str) -> Tuple[int, str, str]:
+    """quantize_cost 后转 str，规避 Decimal('1') vs Decimal('1.0') 差异。"""
+    return (outcome_id, str(quantize_cost(shares)), side)
+
+
+def _quote_cache_gc_if_full() -> None:
+    """dict 涨到 _QUOTE_CACHE_MAX 时一次性清掉所有已过期项。"""
+    if len(_QUOTE_CACHE) <= _QUOTE_CACHE_MAX:
+        return
+    now = time.monotonic()
+    expired = [k for k, (_, exp) in _QUOTE_CACHE.items() if exp < now]
+    for k in expired:
+        _QUOTE_CACHE.pop(k, None)
 
 
 # -----------------------------
@@ -837,6 +872,17 @@ async def quote_trade(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    # ── 缓存命中 fast path ──
+    # 注意：cache 命中跳过 market_status check。admin 关市场是极少操作，
+    # 1s 内仍返回旧 quote 可接受；用户真的下单时 buy/sell 会自己拦截关市场后的请求。
+    cache_key = _quote_cache_key(req.outcome_id, req.shares, req.side)
+    cached = _QUOTE_CACHE.get(cache_key)
+    if cached is not None:
+        cached_resp, expires = cached
+        if time.monotonic() < expires:
+            return cached_resp
+        _QUOTE_CACHE.pop(cache_key, None)
+
     outcome = await db.get(Outcome, req.outcome_id)
     if not outcome:
         raise HTTPException(status_code=404, detail="选项不存在")
@@ -882,7 +928,7 @@ async def quote_trade(
     avg_price = quantize_price(gross / shares_d) if shares_d > ZERO else ZERO
     after_prices = _build_prices_from_shares(outcomes, new_q, b)
 
-    return QuoteResponse(
+    response = QuoteResponse(
         outcome_id=req.outcome_id,
         side=req.side,
         shares=shares_d,
@@ -892,6 +938,12 @@ async def quote_trade(
         net=net,
         after_prices=after_prices,
     )
+
+    # ── 写入缓存 ──
+    _QUOTE_CACHE[cache_key] = (response, time.monotonic() + _QUOTE_CACHE_TTL)
+    _quote_cache_gc_if_full()
+
+    return response
 
 
 @router.get(
