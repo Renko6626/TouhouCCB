@@ -29,7 +29,13 @@ macOS：`brew install k6`
 
 ## 远程 k6 方案（推荐）
 
-**前置条件**：本机或另一台 VPS 能 SSH 到 prod + 能访问 `https://thccb.secret-sealing.club`。
+**前置条件**：k6 运行机能 SSH 到 prod + 能访问 `https://thccb.secret-sealing.club`。
+
+> **开发服务器即是 k6 runner**：如果你从开发机打流量到生产，codebase 已经在
+> `/data/sunyunbo/www/TouhouCCB`，`scenarios/` 不用传。只需：
+> 1. prod 上跑 seed + mint → 开发机上 `PROD=deploy@<prod-ip> ./loadtest/seed/pull_tokens.sh`
+> 2. prod nginx geo 白名单加 `162.105.151.134/32`（开发机公网 IPv4）
+> 3. 开发机上 `export BASE_URL=https://thccb.secret-sealing.club` 再跑 k6
 
 ### Step 1 — prod 上：备份 + seed
 
@@ -47,11 +53,19 @@ cd /home/deploy/TouhouCCB
 # -> loadtest/tokens.txt（含敏感 JWT，全程保密）
 ```
 
-### Step 2 — prod 上：把 k6 文件传到远程机
+### Step 2 — 把 tokens.txt 取到 k6 机器
 
+**如果 k6 运行在开发机**（codebase 已在本地，scenarios/ 不用传）：
 ```bash
-# 在 prod 上执行（需要对远程机有 SSH 权限）
-REMOTE=<user@你的本机或VPS> ./loadtest/seed/transfer_tokens.sh
+# 在开发机上执行
+PROD=deploy@<prod-ip> ./loadtest/seed/pull_tokens.sh
+# -> loadtest/tokens.txt
+```
+
+**如果 k6 运行在其他机器**（先在 prod 上推过去）：
+```bash
+# 在 prod 上执行
+REMOTE=<user@目标机> ./loadtest/seed/transfer_tokens.sh
 # 传 tokens.txt + scenarios/ 到远端 ~/thccb-loadtest/
 ```
 
@@ -222,7 +236,8 @@ loadtest/
 │   ├── seed_markets.sh        # 5 个 [LT] 市场覆盖热/冷/高 b/低 b/多选
 │   ├── mint_tokens.py         # 容器内执行体：复用 create_access_token 离线签 JWT
 │   ├── mint_tokens.sh         # docker cp + exec wrapper
-│   ├── transfer_tokens.sh     # scp tokens.txt + scenarios/ 到远程压测机
+│   ├── transfer_tokens.sh     # 从 prod 推 tokens.txt + scenarios/ 到远程机
+│   ├── pull_tokens.sh         # 从 prod 拉 tokens.txt 到本机（开发机作为 k6 runner）
 │   └── backup_before.sh       # pg_dump 全库 → backups/loadtest_pre_*.sql.gz
 ├── scenarios/
 │   ├── lib/auth.js            # SharedArray 加载 tokens.txt + VU→token 分发
