@@ -42,6 +42,10 @@ ZERO = Decimal("0")
 DEFAULT_SLIPPAGE_BPS = 500   # 5%
 HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
 
+# ── 乐观并发（P2）──
+# 无锁快照读 + 计算，锁内只写；快照失效自动重试。
+MAX_RETRIES = 5
+
 
 # -----------------------------
 # Helpers
@@ -160,6 +164,11 @@ def _build_prices_from_shares(
                 entry["price_change_pct_24h"] = None
         out.append(entry)
     return out
+
+
+def _snapshot_still_valid(snapshot_shares: list, locked_outcomes: list) -> bool:
+    """快照 shares 与锁定后 outcome.total_shares 逐元素比较。有差异说明并发写入，需重试。"""
+    return [o.total_shares for o in locked_outcomes] == list(snapshot_shares)
 
 
 def _require_trading(market: Market):
@@ -415,47 +424,50 @@ async def buy_shares(
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
-    async with managed_transaction(db):
-        # ── 锁顺序（P1 follow-up）──
-        # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
-        # 再按 market → all_outcomes → user 统一顺序加锁，消除跨 outcome 环形等待。
-        mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
-        market_id_val = mid_row.scalars().first()
-        if market_id_val is None:
-            raise HTTPException(status_code=404, detail="选项不存在")
-        market = await _lock_market(db, market_id_val)
-        _require_trading(market)
+    # 无锁读取 market_id，仅此一次（outcome 归属不会变）
+    mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+    market_id_val = mid_row.scalars().first()
+    if market_id_val is None:
+        raise HTTPException(status_code=404, detail="选项不存在")
 
-        all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
-        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
+    outcome = market = locked_user = None
+    avg_price = pre_mp = post_mp = pay = None
+
+    for attempt in range(MAX_RETRIES):
+        # ── Phase 1: 无锁快照读 + LMSR 计算（不持锁）──
+        snap_mkt_res = await db.execute(select(Market).where(Market.id == market_id_val))
+        snap_market = snap_mkt_res.scalars().first()
+        if not snap_market:
+            raise HTTPException(status_code=404, detail="市场不存在")
+        _require_trading(snap_market)
+
+        snap_out_res = await db.execute(
+            select(Outcome).where(Outcome.market_id == market_id_val).order_by(Outcome.id)
+        )
+        snap_outcomes = snap_out_res.scalars().all()
+        if not snap_outcomes:
+            raise HTTPException(status_code=404, detail="市场选项不存在（数据异常）")
+
+        target_idx = next((i for i, o in enumerate(snap_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
-        outcome = all_outcomes[target_idx]
 
-        locked_user = await _lock_user(db, int(user.id))
-
-        # LoanV1: 先把未结利息折进 debt，避免时点偏差
-        _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
-        _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
-
-        # LMSR 用 float 计算
-        b = float(market.liquidity_b)
-        old_q = _shares_to_floats(all_outcomes)
+        b = float(snap_market.liquidity_b)
+        old_q = _shares_to_floats(snap_outcomes)
+        shares_snapshot = [o.total_shares for o in snap_outcomes]
 
         new_q = list(old_q)
         new_q[target_idx] += float(shares_d)
 
+        # LMSR 计算在持锁之前完成，缩短临界区
         old_cost_f = calculate_lmsr_cost(old_q, b)
         new_cost_f = calculate_lmsr_cost(new_q, b)
 
-        # 边界：float → Decimal
         pay = quantize_cost(new_cost_f - old_cost_f)
         if pay <= ZERO:
             raise HTTPException(status_code=400, detail="订单异常：成本不应为非正")
 
         # ── 滑点保护（P1）──
-        # 以"成交前边际价 × 份额"为期望成本（不含费），对比实际 pay。
-        # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
         marginal_price_before_buy = Decimal(str(get_current_price(old_q, target_idx, b)))
         expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
         if req.max_cost is not None and pay > req.max_cost:
@@ -474,44 +486,70 @@ async def buy_shares(
                 detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
             )
 
-        if locked_user.cash < pay:
-            raise HTTPException(status_code=400, detail="现金不足")
+        # ── Phase 2: 短暂持锁写入；快照失效则 continue 重试 ──
+        stale = False
+        async with managed_transaction(db):
+            market = await _lock_market(db, market_id_val)
+            _require_trading(market)
 
-        # Decimal 精确运算
-        locked_user.cash -= pay
-        all_outcomes[target_idx].total_shares += shares_d
+            all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
 
-        # 持仓
-        pos_res = await db.execute(
-            select(Position)
-            .where(Position.user_id == locked_user.id, Position.outcome_id == outcome.id)
-            .with_for_update()
-        )
-        position = pos_res.scalars().first()
-        if not position:
-            position = Position(user_id=locked_user.id, outcome_id=outcome.id, amount=ZERO, cost_basis=ZERO)
-            db.add(position)
-        position.amount += shares_d
-        position.cost_basis += pay
+            if not _snapshot_still_valid(shares_snapshot, all_outcomes):
+                stale = True
+            else:
+                target_idx2 = next(
+                    (i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None
+                )
+                if target_idx2 is None:
+                    raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
+                outcome = all_outcomes[target_idx2]
 
-        # 交易记录（Decimal 直除，避免 float 往返）
-        avg_price = quantize_price(pay / shares_d)
-        # 交易前后瞬时市场价（K线用：open=pre, close=post）
-        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
-        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+                locked_user = await _lock_user(db, int(user.id))
 
-        db.add(Transaction(
-            user_id=locked_user.id,
-            outcome_id=outcome.id,
-            type=TransactionType.BUY,
-            shares=shares_d,
-            cost=pay,
-            price=avg_price,
-            pre_market_price=pre_mp,
-            post_market_price=post_mp,
-            gross=pay,
-            fee=ZERO,
-        ))
+                # LoanV1: 先把未结利息折进 debt，避免时点偏差
+                _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
+                _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
+
+                if locked_user.cash < pay:
+                    raise HTTPException(status_code=400, detail="现金不足")
+
+                locked_user.cash -= pay
+                all_outcomes[target_idx2].total_shares += shares_d
+
+                pos_res = await db.execute(
+                    select(Position)
+                    .where(Position.user_id == locked_user.id, Position.outcome_id == outcome.id)
+                    .with_for_update()
+                )
+                position = pos_res.scalars().first()
+                if not position:
+                    position = Position(user_id=locked_user.id, outcome_id=outcome.id, amount=ZERO, cost_basis=ZERO)
+                    db.add(position)
+                position.amount += shares_d
+                position.cost_basis += pay
+
+                avg_price = quantize_price(pay / shares_d)
+                pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
+                post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+
+                db.add(Transaction(
+                    user_id=locked_user.id,
+                    outcome_id=outcome.id,
+                    type=TransactionType.BUY,
+                    shares=shares_d,
+                    cost=pay,
+                    price=avg_price,
+                    pre_market_price=pre_mp,
+                    post_market_price=post_mp,
+                    gross=pay,
+                    fee=ZERO,
+                ))
+
+        if stale:
+            continue
+        break
+    else:
+        raise HTTPException(status_code=503, detail="交易冲突频繁，请稍后重试")
 
     logger.info(
         "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
@@ -550,52 +588,45 @@ async def sell_shares(
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
-    async with managed_transaction(db):
-        # ── 锁顺序（P1 follow-up）──
-        # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
-        # 再按 market → all_outcomes → user → position 统一顺序加锁，消除跨 outcome 环形等待。
-        mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
-        market_id_val = mid_row.scalars().first()
-        if market_id_val is None:
-            raise HTTPException(status_code=404, detail="选项不存在")
-        market = await _lock_market(db, market_id_val)
-        _require_trading(market)
+    # 无锁读取 market_id，仅此一次
+    mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+    market_id_val = mid_row.scalars().first()
+    if market_id_val is None:
+        raise HTTPException(status_code=404, detail="选项不存在")
 
-        all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
-        target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
+    outcome = market = locked_user = None
+    avg_price = pre_mp = post_mp = net = proceeds = fee = None
+
+    for attempt in range(MAX_RETRIES):
+        # ── Phase 1: 无锁快照读 + LMSR 计算（不持锁）──
+        snap_mkt_res = await db.execute(select(Market).where(Market.id == market_id_val))
+        snap_market = snap_mkt_res.scalars().first()
+        if not snap_market:
+            raise HTTPException(status_code=404, detail="市场不存在")
+        _require_trading(snap_market)
+
+        snap_out_res = await db.execute(
+            select(Outcome).where(Outcome.market_id == market_id_val).order_by(Outcome.id)
+        )
+        snap_outcomes = snap_out_res.scalars().all()
+        if not snap_outcomes:
+            raise HTTPException(status_code=404, detail="市场选项不存在（数据异常）")
+
+        target_idx = next((i for i, o in enumerate(snap_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
-        outcome = all_outcomes[target_idx]
 
-        locked_user = await _lock_user(db, int(user.id))
-
-        # Position 行锁放在最后（与 BUY 路径一致）
-        pos_res = await db.execute(
-            select(Position)
-            .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
-            .with_for_update()
-        )
-        position = pos_res.scalars().first()
-        if not position or position.amount < shares_d:
-            raise HTTPException(status_code=400, detail="持仓不足")
-
-        # LoanV1: 先把未结利息折进 debt，避免时点偏差
-        _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
-        _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
-
-        # LMSR 用 float 计算
-        b = float(market.liquidity_b)
-        old_q = _shares_to_floats(all_outcomes)
-        if old_q[target_idx] < float(shares_d):
-            raise HTTPException(status_code=400, detail="市场总份额不足（异常状态）")
+        b = float(snap_market.liquidity_b)
+        old_q = _shares_to_floats(snap_outcomes)
+        shares_snapshot = [o.total_shares for o in snap_outcomes]
 
         new_q = list(old_q)
         new_q[target_idx] -= float(shares_d)
 
+        # LMSR 计算在持锁之前完成，缩短临界区
         old_cost_f = calculate_lmsr_cost(old_q, b)
         new_cost_f = calculate_lmsr_cost(new_q, b)
 
-        # 边界：float → Decimal
         proceeds = quantize_cost(old_cost_f - new_cost_f)
         if proceeds < ZERO:
             proceeds = ZERO
@@ -604,8 +635,6 @@ async def sell_shares(
         net = proceeds - fee
 
         # ── 滑点保护（P1）──
-        # 以"成交前边际价 × 份额"为期望收入（不含费），对比实际到手 net。
-        # 客户端 min_proceeds 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
         marginal_price_before_sell = Decimal(str(get_current_price(old_q, target_idx, b)))
         expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
         if req.min_proceeds is not None and net < req.min_proceeds:
@@ -624,37 +653,75 @@ async def sell_shares(
                 detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
             )
 
-        # Decimal 精确运算
-        locked_user.cash += net
-        all_outcomes[target_idx].total_shares -= shares_d
+        # ── Phase 2: 短暂持锁写入；快照失效则 continue 重试 ──
+        stale = False
+        async with managed_transaction(db):
+            market = await _lock_market(db, market_id_val)
+            _require_trading(market)
 
-        # cost_basis 按卖出比例减少：卖掉 shares_d / amount 比例的成本
-        if position.amount > ZERO:
-            sold_ratio = shares_d / position.amount
-            position.cost_basis -= (position.cost_basis * sold_ratio).quantize(Decimal("0.000001"))
-        position.amount -= shares_d
-        # 清仓时确保 cost_basis 归零
-        if position.amount <= ZERO:
-            position.cost_basis = ZERO
+            all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
 
-        # 交易记录（Decimal 直除，避免 float 往返）
-        avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
-        # 交易前后瞬时市场价（K线用）
-        pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
-        post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+            if not _snapshot_still_valid(shares_snapshot, all_outcomes):
+                stale = True
+            else:
+                target_idx2 = next(
+                    (i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None
+                )
+                if target_idx2 is None:
+                    raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
+                outcome = all_outcomes[target_idx2]
 
-        db.add(Transaction(
-            user_id=locked_user.id,
-            outcome_id=outcome.id,
-            type=TransactionType.SELL,
-            shares=shares_d,
-            cost=-net,
-            price=avg_price,
-            pre_market_price=pre_mp,
-            post_market_price=post_mp,
-            gross=proceeds,
-            fee=fee,
-        ))
+                if float(all_outcomes[target_idx2].total_shares) < float(shares_d):
+                    raise HTTPException(status_code=400, detail="市场总份额不足（异常状态）")
+
+                locked_user = await _lock_user(db, int(user.id))
+
+                # Position 行锁（与 BUY 路径一致，放在 user 锁之后）
+                pos_res = await db.execute(
+                    select(Position)
+                    .where(Position.user_id == locked_user.id, Position.outcome_id == outcome.id)
+                    .with_for_update()
+                )
+                position = pos_res.scalars().first()
+                if not position or position.amount < shares_d:
+                    raise HTTPException(status_code=400, detail="持仓不足")
+
+                # LoanV1: 先把未结利息折进 debt，避免时点偏差
+                _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
+                _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
+
+                locked_user.cash += net
+                all_outcomes[target_idx2].total_shares -= shares_d
+
+                if position.amount > ZERO:
+                    sold_ratio = shares_d / position.amount
+                    position.cost_basis -= (position.cost_basis * sold_ratio).quantize(Decimal("0.000001"))
+                position.amount -= shares_d
+                if position.amount <= ZERO:
+                    position.cost_basis = ZERO
+
+                avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
+                pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
+                post_mp = quantize_price(get_current_price(new_q, target_idx, b))
+
+                db.add(Transaction(
+                    user_id=locked_user.id,
+                    outcome_id=outcome.id,
+                    type=TransactionType.SELL,
+                    shares=shares_d,
+                    cost=-net,
+                    price=avg_price,
+                    pre_market_price=pre_mp,
+                    post_market_price=post_mp,
+                    gross=proceeds,
+                    fee=fee,
+                ))
+
+        if stale:
+            continue
+        break
+    else:
+        raise HTTPException(status_code=503, detail="交易冲突频繁，请稍后重试")
 
     logger.info(
         "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
