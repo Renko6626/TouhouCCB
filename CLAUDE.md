@@ -1,4 +1,4 @@
-# TouhouCCB — Ralph 模式护栏
+# TouhouCCB — 开发护栏
 
 **生产站正在跑**：FastAPI + Postgres + Vue 3 + Casdoor SSO，push `main` 会自动部署上线。
 
@@ -23,7 +23,7 @@
 
 ---
 
-## ⚠️ 高敏感（动前在 ralph 日志说明为什么）
+## ⚠️ 高敏感（动前说明理由）
 
 - `backend/app/services/lmsr.py` — 定价核心，`Decimal` 精度 6/8 位，改错全站估值错乱
 - `backend/app/services/realtime.py` — SSE 广播
@@ -40,22 +40,6 @@
 
 ---
 
-## 📝 每轮写 `docs/ralph-log.md`（追加）
-
-```markdown
-## YYYY-MM-DD HH:MM — 一句话标题
-**目标** / **动机**（证据）/ **范围**（仅限 xxx）
-**改动**：- `path`：做了 X，因为 Y
-**风险 & 回滚**
-**验证**：type-check ✅ / lint ✅ / 手测路径
-**下一轮**
-```
-
-动了产品代码 / schema / 部署配置 / 业务策略 → **必写一条**。
-单纯探查源码、改 typo、调注释、加 import 之类的 trivial 改动可省略，但每轮结束的一句话总结仍要给。
-动手前先翻 `docs/` 有没有相关历史（`README.md` / `api.md` / `development.md` / `style.md` / `*-review-*.md` / `migrations.md` / `security-audit-*.md`）。
-
----
 
 ## 🔍 声称完成前必跑
 
@@ -78,11 +62,40 @@ UI 改动：**浏览器实测**主路径+边界态（空/加载/错/未登录/�
 
 ---
 
+## 🛠️ ORM 与查询守则（高频踩坑）
+
+**`backend/app/models/base.py` 里的反向集合关系都配置 `lazy="raise_on_sql"`**：
+- `User.positions` / `User.transactions`
+- `Outcome.positions` / `Outcome.transactions`
+
+**这意味着**：在 ORM 对象上直接访问 `user.positions` / `outcome.transactions` 等，**会抛异常**（除非该次查询里用 `selectinload()` 显式预加载过）。
+
+### 为什么这么配
+buy/sell 的 hot path 每秒会执行 `SELECT user FOR UPDATE` 和 `SELECT outcome FOR UPDATE` 各一次。如果反向关系是默认的 `lazy="selectin"`，每次都会自动追加 SELECT 把该 user 的全部 positions/transactions（活跃用户上千行）、该市场每个 outcome 的全部 positions/transactions（热门市场上万行）拖出来——而 hot path 一个字段都不用。在高并发下这就是真正的瓶颈。
+
+### 守则
+1. **取一条/取过滤集合** → 永远用显式 `select(Model).where(...)`，例：
+   ```python
+   pos = (await db.execute(
+       select(Position).where(Position.user_id == uid, Position.outcome_id == oid)
+       .with_for_update()
+   )).scalars().first()
+   ```
+2. **取一个父对象的整个集合**（列表接口/批量场景）→ 在 query 上挂 `selectinload(...)` 显式预加载：
+   ```python
+   stmt = select(Market).options(selectinload(Market.outcomes))
+   ```
+3. **绝不**写 `for p in user.positions:` / `len(user.transactions)` / response model 里返回 `positions=[...] ` 这种隐式访问——遇到会直接报错（fail-fast）
+4. 新增关系时默认 `lazy="raise_on_sql"`；只有"该模型几乎总是要跟集合一起用"的场景才考虑 `selectin`，且要在 PR 描述里说明
+5. **不要为了"方便"把它改回 `selectin`**——那会让 hot path 性能问题悄悄回归，且 grep 不到
+
+---
+
 ## Git 与沟通
 
 - commit 粒度：一个可独立回滚的改动 = 一条 commit；消息风格参考 `git log`（`feat:/fix:/refactor:/style:/docs:` + 中文）
 - 按文件 `git add <path>`，不用 `-A` / `.`（避免误入 `.env` `dist/` `backups/` `*.db`）
-- 每轮结束一句话：改了什么 / 在哪个分支 / 验证结果 / 未决风险，细节进日志
+- 每次结束前说一句话：改了什么 / 在哪个分支 / 验证结果 / 未决风险
 - 遇到改 .env / 改 deploy 或 CI / 动 schema（含加列）/ 升级主版本 / 删数据 / **风险改动直接 push 到 main** → **停下问**
   （小修补 push 不再必停；动业务逻辑/高敏感文件/跨前后端的改动直接 push 上 prod 仍然要停下问）
 - 方向错了立即停，不要硬撑；拿不准默认行为是停下问，不是先干再说

@@ -52,8 +52,13 @@ class User(SQLModel, table=True):
     )
 
     # 关系映射
-    positions: List["Position"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
-    transactions: List["Transaction"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
+    # ── lazy="raise_on_sql"（perf）──
+    # 这两个反向集合在 hot path（buy/sell 的 _lock_user）里从不被使用，
+    # 但配 "selectin" 会让每次 SELECT user FOR UPDATE 自动追加两条 SELECT
+    # 把该用户的全部 positions/transactions 拖出来（活跃用户可能上千行）。
+    # 改为 "raise_on_sql" 后：未显式预加载就访问会抛错，强制走显式 select(...).where(...)。
+    positions: List["Position"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "raise_on_sql"})
+    transactions: List["Transaction"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "raise_on_sql"})
 
 
 class Market(SQLModel, table=True):
@@ -110,11 +115,15 @@ class Outcome(SQLModel, table=True):
             "foreign_keys": "Outcome.market_id"
         }
     )
-    positions: List["Position"] = Relationship(back_populates="outcome", sa_relationship_kwargs={"lazy": "selectin"})
+    # ── lazy="raise_on_sql"（perf）──
+    # 同 User：buy/sell 的 _lock_outcomes_for_market 每次会锁住该市场所有 outcome，
+    # "selectin" 会让 ORM 自动追加 SELECT 把每个 outcome 的全部 positions/transactions
+    # 拖出来（热门市场可能上万行）。hot path 不需要这些数据。
+    positions: List["Position"] = Relationship(back_populates="outcome", sa_relationship_kwargs={"lazy": "raise_on_sql"})
 
     transactions: List["Transaction"] = Relationship(
         back_populates="outcome",
-        sa_relationship_kwargs={"lazy": "selectin"}
+        sa_relationship_kwargs={"lazy": "raise_on_sql"}
     )
 
 
