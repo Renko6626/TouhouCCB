@@ -1681,3 +1681,27 @@ post-accrual debt 可能超过 pre-check 估算，cash 会被扣到负值。
 **下一轮** 用户合并此分支到 main 后重新跑压测，观测 5xx 率是否降至 <5%；同时调查 `test_repay_exceeds_cash_400` 预存在失败（loan 还款超额逻辑 bug）。
 
 **分支** `ralph/2026-05-12-market-deadlock-fix`，已 push，等待合并。
+
+---
+
+## 2026-05-13 — market buy/sell 乐观并发优化（P2 锁外计算 + 快照重试）
+
+**目标** 把 buy/sell 每事务持锁时间从 ~1s 压到 ~50ms，解决 50 VU 下 avg 20s / p99 31s 的锁排队瓶颈。
+
+**动机** 50 VU 压测结果：buy avg=20.76s，p99=31.86s，50 VU 串行等同一把 market 行锁；每事务 ~8 次 DB round-trip×50ms + WAL fsync ≈ 500ms–1s，50 VU 叠加 → 25s 中位等待。
+
+**范围** 仅 `backend/app/api/v1/market.py`（buy_shares / sell_shares）+ 新增测试文件。
+
+**改动**
+- `backend/app/api/v1/market.py`：
+  - 添加常量 `MAX_RETRIES = 5`
+  - 添加辅助函数 `_snapshot_still_valid(snapshot_shares, locked_outcomes) -> bool`：逐元素比较快照与锁定后 total_shares，有差异则判定并发写入发生
+  - 重写 `buy_shares`：Phase 1 无锁快照读 + LMSR 计算（移到 `_lock_market` 之前），Phase 2 短暂持锁写入 + 快照校验 + stale 则重试，超出 MAX_RETRIES → 503
+  - 重写 `sell_shares`：同样的两阶段结构
+- `backend/tests/test_market_optimistic_concurrency.py`（新增）：14 个测试，覆盖 unit / 源码结构断言 / 功能回归 / mock 重试验证；TDD Red→Green 顺序执行
+
+**风险 & 回滚** 快照比较逻辑有误（如类型不一致 Decimal vs float）会导致所有请求都当 stale、反复重试、最终 503。已用 `Decimal` 全链路避免类型混用。回滚：`git revert` 此 commit。
+
+**验证** `pytest tests/test_market_optimistic_concurrency.py` 14/14 ✅ / `pytest tests/ -k "not test_repay_exceeds_cash_400"` 93 passed 1 skipped ✅ / `python -m py_compile $(find app -name '*.py')` ✅
+
+**下一轮** 用此版本跑 50 VU 压测，比对 avg latency 与 5xx 率；预期 buy avg 从 20s → <2s，5xx ≈ 0。
