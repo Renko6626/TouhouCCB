@@ -1,4 +1,4 @@
-// trade_ramp.js — 主力压测：1 → 200 VU 阶梯，混合交易场景，集中打热门 outcome。
+// trade_ramp.js — 主力压测：1 → 50 VU 阶梯，混合交易场景，集中打热门 outcome。
 //
 // 设计意图：
 //   * 50% quote / 30% buy / 15% sell / 5% /me — 大致还原真实用户行为
@@ -41,13 +41,11 @@ export const options = {
     ramp: {
       executor: 'ramping-vus',
       startVUs: 1,
-      // 共 ~9 分钟：阶梯 + 平台期，给观测脚本足够采样
+      // 共 ~5 分钟：阶梯 + 平台期
       stages: [
         { duration: '30s',  target: 10 },
         { duration: '1m',   target: 50 },
-        { duration: '1m',   target: 100 },
-        { duration: '1m',   target: 200 },
-        { duration: '5m',   target: 200 },  // 200 VU 平台 5min — 主要观测期
+        { duration: '3m',   target: 50 },   // 50 VU 平台 3min — 主要观测期
         { duration: '30s',  target: 0 },
       ],
       gracefulRampDown: '15s',
