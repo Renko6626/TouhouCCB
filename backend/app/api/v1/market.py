@@ -494,7 +494,7 @@ async def buy_shares(
         pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
         post_mp = quantize_price(get_current_price(new_q, target_idx, b))
 
-        db.add(Transaction(
+        tx = Transaction(
             user_id=locked_user.id,
             outcome_id=outcome.id,
             type=TransactionType.BUY,
@@ -505,22 +505,29 @@ async def buy_shares(
             post_market_price=post_mp,
             gross=pay,
             fee=ZERO,
-        ))
+        )
+        db.add(tx)
 
     logger.info(
         "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
         user.id, outcome.id, market.id, shares_d, pay, avg_price, pre_mp, post_mp, locked_user.cash,
     )
 
+    # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
     await BROKER.publish(
         market.id,
         "trade",
         {
             "trade": {
+                "id": int(tx.id),
                 "type": TransactionType.BUY,
                 "outcome_id": int(outcome.id),
+                "username": user.username,
                 "shares": float(shares_d),
                 "price": float(avg_price),
+                "gross": float(pay),
+                "fee": 0.0,
+                "post_market_price": float(post_mp),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
@@ -633,7 +640,7 @@ async def sell_shares(
         pre_mp = quantize_price(get_current_price(old_q, target_idx, b))
         post_mp = quantize_price(get_current_price(new_q, target_idx, b))
 
-        db.add(Transaction(
+        tx = Transaction(
             user_id=locked_user.id,
             outcome_id=outcome.id,
             type=TransactionType.SELL,
@@ -644,22 +651,29 @@ async def sell_shares(
             post_market_price=post_mp,
             gross=proceeds,
             fee=fee,
-        ))
+        )
+        db.add(tx)
 
     logger.info(
         "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
         user.id, outcome.id, market.id, shares_d, proceeds, fee, net, avg_price, pre_mp, post_mp, locked_user.cash,
     )
 
+    # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
     await BROKER.publish(
         market.id,
         "trade",
         {
             "trade": {
+                "id": int(tx.id),
                 "type": TransactionType.SELL,
                 "outcome_id": int(outcome.id),
+                "username": user.username,
                 "shares": float(shares_d),
                 "price": float(avg_price),
+                "gross": float(proceeds),
+                "fee": float(fee),
+                "post_market_price": float(post_mp),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
