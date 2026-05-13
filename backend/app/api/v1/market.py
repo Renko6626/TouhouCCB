@@ -27,8 +27,6 @@ from app.schemas.market import (
     MoverItem,
 )
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
-from app.services.loan_service import accrue_interest as _loan_accrue, _compat_now as _loan_compat_now
-from app.services import site_config as _loan_site_config
 
 logger = logging.getLogger(__name__)
 
@@ -434,10 +432,6 @@ async def buy_shares(
 
         locked_user = await _lock_user(db, int(user.id))
 
-        # LoanV1: 先把未结利息折进 debt，避免时点偏差
-        _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
-        _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
-
         # LMSR 用 float 计算
         b = float(market.liquidity_b)
         old_q = _shares_to_floats(all_outcomes)
@@ -578,10 +572,6 @@ async def sell_shares(
         position = pos_res.scalars().first()
         if not position or position.amount < shares_d:
             raise HTTPException(status_code=400, detail="持仓不足")
-
-        # LoanV1: 先把未结利息折进 debt，避免时点偏差
-        _daily_rate = await _loan_site_config.get_decimal(db, "loan_daily_rate")
-        _loan_accrue(locked_user, _daily_rate, _loan_compat_now(locked_user))
 
         # LMSR 用 float 计算
         b = float(market.liquidity_b)
