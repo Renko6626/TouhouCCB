@@ -453,7 +453,6 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s infinite;
   margin-bottom: 14px;
-  border-radius: 2px;
 }
 
 .pnl-percent-skeleton {
@@ -462,7 +461,6 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s infinite;
-  border-radius: 2px;
 }
 
 /* 装饰角标 */

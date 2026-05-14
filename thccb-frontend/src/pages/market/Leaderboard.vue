@@ -36,7 +36,10 @@ const columns: DataTableColumns<LeaderboardItem> = [
       h('span', { style: rankBadgeStyle(index + 1) }, `#${index + 1}`),
   },
   { title: '用户', key: 'username' },
-  { title: '净值', key: 'net_worth', render: (row) => `¥${row.net_worth.toLocaleString()}` },
+  {
+    title: '净值', key: 'net_worth',
+    render: (row) => h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.net_worth.toLocaleString()}`),
+  },
   { title: '称号', key: 'rank', render: (row) => h(NTag, { type: 'default', size: 'small' }, { default: () => row.rank }) },
 ]
 

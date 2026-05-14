@@ -92,11 +92,13 @@ const heatLabel = computed(() => {
 
 .outcome-value {
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .outcome-value--bold {
   font-size: 16px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 .change-tag {
