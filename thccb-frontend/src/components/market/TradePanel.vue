@@ -415,7 +415,7 @@ const actionHint = computed<string>(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-top: 1px dashed #999;
+  border-top: 1px solid #e0e0e0;
   padding-top: 8px;
 }
 

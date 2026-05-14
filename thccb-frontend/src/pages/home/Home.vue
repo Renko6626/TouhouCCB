@@ -436,7 +436,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 }
 
 .pnl-stat-debt-value {
-  color: #d14;
+  color: var(--color-down);
 }
 
 .pnl-note {
@@ -591,7 +591,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 .empty-markets {
   padding: 48px 0;
   text-align: center;
-  border: 2px dashed #cccccc;
+  border: 2px solid #cccccc;
   color: #888888;
   display: flex;
   flex-direction: column;

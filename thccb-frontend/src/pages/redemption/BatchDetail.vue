@@ -127,7 +127,7 @@ onMounted(load)
   margin: 12px 0;
 }
 .code-box {
-  font-family: monospace; font-size: 18px; padding: 16px; border: 2px dashed #000;
+  font-family: monospace; font-size: 18px; padding: 16px; border: 2px solid #000;
   margin: 16px 0; background: #fafafa; word-break: break-all;
 }
 .hint { color: #666; font-size: 13px; margin: 8px 0; }

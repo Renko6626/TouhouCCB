@@ -333,7 +333,7 @@ const holdingsByMarketArray = computed(() => {
   background: #fff0f0;
 }
 .asset-value-debt {
-  color: #d14;
+  color: var(--color-down);
 }
 
 /* 称号栏 */
