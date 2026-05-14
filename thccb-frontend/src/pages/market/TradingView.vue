@@ -99,7 +99,7 @@ const loadMarketData = async () => {
       loadError.value = marketStore.error
     }
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : '加载市场数据失败'
+    loadError.value = err instanceof Error ? err.message : '情报丢失在结界中，请重试'
   } finally {
     loading.value = false
   }
