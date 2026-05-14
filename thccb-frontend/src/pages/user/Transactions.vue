@@ -146,30 +146,37 @@ const columns: DataTableColumns<Transaction> = [
   {
     title: '份额',
     key: 'shares',
-    render: (row) => row.shares.toLocaleString(),
+    render: (row) =>
+      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, row.shares.toLocaleString()),
   },
   {
     title: '单价',
     key: 'price',
-    render: (row) => `¥${row.price.toFixed(4)}`,
+    render: (row) =>
+      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.price.toFixed(4)}`),
   },
   {
     title: '金额',
     key: 'cost',
-    render: (row) => `¥${row.cost.toFixed(2)}`,
+    render: (row) =>
+      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.cost.toFixed(2)}`),
   },
   {
     title: '时间',
     key: 'timestamp',
     width: 180,
     render: (row) =>
-      new Date(row.timestamp).toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      h(
+        'span',
+        { style: { fontVariantNumeric: 'tabular-nums' } },
+        new Date(row.timestamp).toLocaleString('zh-CN', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      ),
   },
 ]
 
