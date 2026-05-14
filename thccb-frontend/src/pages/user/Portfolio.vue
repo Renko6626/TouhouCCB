@@ -144,7 +144,7 @@ const holdingsByMarketArray = computed(() => {
     <!-- 加载状态 -->
     <div v-if="loading && !userStore.summary" class="loading-state">
       <NSpin size="large" />
-      <p>加载资产数据中...</p>
+      <p>正在加载…</p>
     </div>
 
     <!-- 错误状态 -->
@@ -182,7 +182,7 @@ const holdingsByMarketArray = computed(() => {
           class="asset-card asset-card-debt"
           @click="router.push('/loan')"
           role="link"
-          title="点击跳转借款页"
+          title="点击查看负债详情"
         >
           <span class="asset-label">负债</span>
           <span class="asset-value asset-value-debt">¥{{ Number(userStore.summary.debt).toFixed(2) }}</span>
@@ -247,9 +247,9 @@ const holdingsByMarketArray = computed(() => {
       </div>
 
       <div v-else class="empty-state">
-        <NEmpty description="暂无持仓记录">
+        <NEmpty description="暂无持仓">
           <template #extra>
-            <NButton type="primary" @click="router.push('/market/list')">去市场交易</NButton>
+            <NButton type="primary" @click="router.push('/market/list')">去市场看看</NButton>
           </template>
         </NEmpty>
       </div>

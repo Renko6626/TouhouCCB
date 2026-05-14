@@ -46,7 +46,7 @@ onMounted(load)
     <h1 class="page-title">我的兑换</h1>
 
     <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="items.length === 0" class="empty">尚未兑换任何码</div>
+    <div v-else-if="items.length === 0" class="empty">尚未兑换任何兑换码</div>
 
     <ul v-else class="list">
       <li

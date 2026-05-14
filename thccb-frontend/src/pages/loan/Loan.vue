@@ -80,7 +80,7 @@ function repayAll() {
       <NAlert
         v-else-if="store.quota && !store.quota.enabled"
         type="warning"
-        title="借款功能已关闭"
+        title="借款功能维护中"
       />
 
       <section class="panel">
@@ -149,7 +149,8 @@ function repayAll() {
           >还到上限 ¥{{ maxRepayNumber.toFixed(2) }}</NButton>
         </div>
         <div v-if="repayOverflow > 0" class="meta-small warn">
-          ⚠ 输入 ¥{{ repayAmount }} 超过可还上限 ¥{{ maxRepayNumber.toFixed(2) }}，
+          <span class="warning-tag">注意</span>
+          输入 ¥{{ repayAmount }} 超过可还上限 ¥{{ maxRepayNumber.toFixed(2) }}，
           实际只会扣减 ¥{{ maxRepayNumber.toFixed(2) }}（多出的 ¥{{ repayOverflow.toFixed(2) }} 不收取）
         </div>
         <div v-else-if="debtNumber > 0" class="meta-small">
@@ -198,6 +199,18 @@ function repayAll() {
 .meta-small.warn {
   color: #b45309;
   font-weight: 600;
+}
+.warning-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border: 1.5px solid #b45309;
+  background: #b45309;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
 }
 .meta-small strong {
   color: #000;
