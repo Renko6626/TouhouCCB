@@ -36,7 +36,10 @@ const columns: DataTableColumns<LeaderboardItem> = [
       h('span', { style: rankBadgeStyle(index + 1) }, `#${index + 1}`),
   },
   { title: '用户', key: 'username' },
-  { title: '净值', key: 'net_worth', render: (row) => `¥${row.net_worth.toLocaleString()}` },
+  {
+    title: '净值', key: 'net_worth',
+    render: (row) => h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.net_worth.toLocaleString()}`),
+  },
   { title: '称号', key: 'rank', render: (row) => h(NTag, { type: 'default', size: 'small' }, { default: () => row.rank }) },
 ]
 
@@ -73,8 +76,8 @@ onMounted(() => loadLeaderboard())
   <div class="leaderboard-page">
     <div class="page-bar">
       <div class="page-bar-left">
-        <span class="page-bar-title">财富排行榜</span>
-        <span class="page-bar-sub">平台净值排名</span>
+        <span class="page-bar-title">排行榜</span>
+        <span class="page-bar-sub">按净资产排名</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <NInputNumber v-model:value="limit" :min="5" :max="100" :step="5" size="small" style="width:100px" />
@@ -85,7 +88,7 @@ onMounted(() => loadLeaderboard())
     <div class="content-panel">
       <div v-if="loading && !leaderboardRows.length" class="lb-loading">
         <NSpin size="large" />
-        <p>加载排行榜中...</p>
+        <p>正在加载…</p>
       </div>
       <div v-else-if="loadError && !leaderboardRows.length" class="lb-error">
         <NAlert type="error" :title="loadError">

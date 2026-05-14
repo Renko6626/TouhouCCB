@@ -46,7 +46,7 @@ onMounted(load)
     <h1 class="page-title">我的兑换</h1>
 
     <div v-if="loading" class="loading">加载中…</div>
-    <div v-else-if="items.length === 0" class="empty">尚未兑换任何码</div>
+    <div v-else-if="items.length === 0" class="empty">尚未兑换任何兑换码</div>
 
     <ul v-else class="list">
       <li
@@ -114,9 +114,9 @@ onMounted(load)
   font-variant-numeric: tabular-nums;
 }
 .status { font-weight: 700; color: #000; }
-.row-detail { padding: 16px; border-top: 1px dashed #ccc; background: #fafafa; }
+.row-detail { padding: 16px; border-top: 1px solid #e0e0e0; background: #fafafa; }
 .code-box {
-  font-family: monospace; font-size: 16px; padding: 12px; border: 2px dashed #000;
+  font-family: monospace; font-size: 16px; padding: 12px; border: 2px solid #000;
   margin-bottom: 12px; word-break: break-all; background: #fff;
 }
 .description {

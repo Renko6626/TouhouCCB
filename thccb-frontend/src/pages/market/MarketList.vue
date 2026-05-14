@@ -127,7 +127,7 @@ const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
       <div class="search-input">
         <NInput
           v-model:value="searchQuery"
-          placeholder="搜索市场名称..."
+          placeholder="搜索市场名称…"
           clearable
           style="width: 100%"
         >
@@ -165,7 +165,7 @@ const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
     <!-- 加载中 -->
     <div v-if="loading && !marketStore.markets.length" class="loading-state">
       <NSpin size="large" />
-      <p>加载市场中...</p>
+      <p>正在加载…</p>
     </div>
 
     <!-- 错误态 -->
@@ -189,7 +189,7 @@ const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
       </div>
 
       <div v-else class="empty-state">
-        <NEmpty description="没有找到匹配的市场">
+        <NEmpty description="没有匹配的市场">
           <template #extra>
             <NButton @click="searchQuery = ''; statusFilter = 'trading'; loadMarkets()">清除筛选</NButton>
           </template>

@@ -51,6 +51,12 @@ class User(SQLModel, table=True):
         sa_type=DateTime(timezone=True),
     )
 
+    # 免责声明知情同意时间戳；为 null 表示用户尚未在 TosModal 勾选同意
+    tos_accepted_at: Optional[datetime] = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+    )
+
     # 关系映射
     # ── lazy="raise_on_sql"（perf）──
     # 这两个反向集合在 hot path（buy/sell 的 _lock_user）里从不被使用，

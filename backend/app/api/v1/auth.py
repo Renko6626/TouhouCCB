@@ -10,6 +10,7 @@ GET  /api/v1/auth/me         返回当前登录用户信息
 
 import logging
 import secrets
+from datetime import datetime, timezone
 from typing import Optional
 from decimal import Decimal
 
@@ -231,4 +232,18 @@ async def get_me(user: User = Depends(current_active_user)):
         "is_active": user.is_active,
         "cash": user.cash,
         "debt": user.debt,
+        "tos_accepted_at": user.tos_accepted_at,
     }
+
+
+@router.post("/accept-tos", summary="勾选免责声明同意 — 幂等，已同意者再调返回原时间戳")
+async def accept_tos(
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if user.tos_accepted_at is None:
+        user.tos_accepted_at = datetime.now(timezone.utc)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    return {"tos_accepted_at": user.tos_accepted_at}

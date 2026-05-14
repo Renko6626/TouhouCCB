@@ -81,7 +81,8 @@ onMounted(load)
       </div>
       <pre class="description">{{ batch.description }}</pre>
       <p class="disclaimer">
-        ⚠ 兑换由 <b>{{ batch.partner.name }}</b> 独立履约。TouhouCCB 不参与核销，
+        <span class="warning-tag">注意</span>
+        兑换由 <b>{{ batch.partner.name }}</b> 独立履约。本站不参与核销，
         对合作方失约/商品争议不承担责任。
       </p>
       <button class="btn-primary" :disabled="batch.available_count <= 0" @click="showConfirm = true">
@@ -94,7 +95,7 @@ onMounted(load)
       <div class="modal-panel max-w-[480px]">
         <h3>确认购买</h3>
         <p>将扣除 <b>{{ batch?.unit_price }}</b> 资金购买「{{ batch?.name }}」。</p>
-        <p class="warning">⚠ 码一旦显示视同交付，<b>不可退款</b>。请确认。</p>
+        <p class="warning"><span class="warning-tag">注意</span>码一旦显示视同交付，<b>不可退款</b>。请确认。</p>
         <div class="modal-actions">
           <button class="btn-secondary" @click="showConfirm = false" :disabled="loading">取消</button>
           <button class="btn-primary" @click="confirmPurchase" :disabled="loading">
@@ -127,11 +128,23 @@ onMounted(load)
   margin: 12px 0;
 }
 .code-box {
-  font-family: monospace; font-size: 18px; padding: 16px; border: 2px dashed #000;
+  font-family: monospace; font-size: 18px; padding: 16px; border: 2px solid #000;
   margin: 16px 0; background: #fafafa; word-break: break-all;
 }
 .hint { color: #666; font-size: 13px; margin: 8px 0; }
 .warning { color: #dc2626; font-size: 13px; margin: 8px 0; }
+.warning-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border: 1.5px solid #b45309;
+  background: #b45309;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  vertical-align: 1px;
+}
 .disclaimer {
   border: 2px solid #000; padding: 10px 14px; margin: 12px 0;
   background: #fef2f2; font-size: 13px; color: #000;
