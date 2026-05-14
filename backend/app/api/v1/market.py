@@ -547,6 +547,7 @@ async def buy_shares(
             post_market_price=post_mp,
             gross=pay,
             fee=ZERO,
+            market_prices_post=list(new_prices),
         )
         db.add(tx)
 
@@ -693,6 +694,7 @@ async def sell_shares(
             post_market_price=post_mp,
             gross=proceeds,
             fee=fee,
+            market_prices_post=list(new_prices),
         )
         db.add(tx)
 
