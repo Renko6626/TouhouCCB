@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from pydantic import ConfigDict
-from sqlalchemy import UniqueConstraint, CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric
+from sqlalchemy import UniqueConstraint, CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric, JSON
 
 
 class MarketStatus(str, Enum):
@@ -172,6 +172,14 @@ class Transaction(SQLModel, table=True):
     # 交易前/后该选项的瞬时市场价（K线用）
     pre_market_price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
     post_market_price: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 8))
+
+    # 全市场所有 outcome 的 post 价快照（list[float]，按 outcome.id 升序）。
+    # buy/sell 写入；settle/settle_lose 留 NULL；老历史数据由回填脚本补齐。
+    # chart 接口读取范围内若全部非 NULL 则走 fast path，任一 NULL 则整段退回 NumPy replay。
+    market_prices_post: Optional[List[float]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
 
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True, sa_type=DateTime(timezone=True))
 

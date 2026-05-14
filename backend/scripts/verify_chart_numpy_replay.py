@@ -12,7 +12,7 @@ import math
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -171,6 +171,112 @@ def run_case(n_outcomes: int, n_trades: int, b: float, seed: int) -> None:
         raise SystemExit(f"数值偏差超阈值: {max_err}")
 
 
+# ─── snapshot fast path 对照 ───────────────────────────────────────────────
+
+def simulate_snapshots(
+    rows: List[Tuple[datetime, int, str, float]],
+    oid_to_idx: Dict[int, int],
+    initial_shares: List[float],
+    b: float,
+    n_outcomes: int,
+) -> List[Optional[List[float]]]:
+    """模拟 market.py 写入：对每笔 row 算出该笔之后的全市场 post 价 list。
+    buy/sell → list[float]；settle/settle_lose → None（chart fast path 看到 None 整段 fallback）。
+    """
+    shares = list(initial_shares)
+    snapshots: List[Optional[List[float]]] = []
+    for _ts, tx_oid, tx_type, tx_shares in rows:
+        idx = oid_to_idx.get(tx_oid)
+        if idx is None:
+            snapshots.append(None)
+            continue
+        amount = float(tx_shares)
+        if tx_type in ("buy", "settle"):
+            shares[idx] += amount
+        elif tx_type in ("sell", "settle_lose"):
+            shares[idx] -= amount
+
+        if tx_type in ("buy", "sell"):
+            arr = np.asarray(shares, dtype=np.float64)
+            max_q = arr.max()
+            exps = np.exp((arr - max_q) / b)
+            snapshots.append((exps / exps.sum()).tolist())
+        else:
+            snapshots.append(None)
+    return snapshots
+
+
+def snapshot_fast_replay(
+    rows: List[Tuple[datetime, int, str, float]],
+    snapshots: List[Optional[List[float]]],
+    target_idx: int,
+    initial_shares: List[float],
+    b: float,
+) -> List[Tuple[datetime, float, float]]:
+    """模拟 chart._replay_from_snapshots：从 snapshot 直接读 target 价，pre = 上一笔 post。
+    要求 snapshots 全部非 None；否则 caller 应当走 fallback。
+    """
+    initial_arr = np.asarray(initial_shares, dtype=np.float64)
+    max_q = initial_arr.max()
+    exps = np.exp((initial_arr - max_q) / b)
+    prev_post = float(exps[target_idx] / exps.sum())
+
+    points: List[Tuple[datetime, float, float]] = []
+    for (ts, _oid, _type, _shares), snap in zip(rows, snapshots):
+        if snap is None:
+            raise AssertionError("snapshot 不全，不应走 fast path")
+        post = float(snap[target_idx])
+        points.append((ts, prev_post, post))
+        prev_post = post
+    return points
+
+
+def run_snapshot_case(n_outcomes: int, n_trades: int, b: float, seed: int) -> None:
+    """全 buy/sell 场景：snapshot fast path 数值应与 NumPy replay 完全等价。"""
+    label = f"N={n_outcomes:>2} T={n_trades:>7} b={b:>7.1f} seed={seed}"
+    rng = random.Random(seed)
+    outcome_ids = [1000 + i for i in range(n_outcomes)]
+    oid_to_idx = {oid: i for i, oid in enumerate(outcome_ids)}
+    target_idx = rng.randrange(n_outcomes)
+    initial_shares = [rng.uniform(0.0, b * 0.5) for _ in range(n_outcomes)]
+
+    base_ts = datetime(2026, 5, 1, tzinfo=timezone.utc)
+    rows: List[Tuple[datetime, int, str, float]] = []
+    for k in range(n_trades):
+        oid = rng.choice(outcome_ids)
+        tx_type = rng.choice(["buy", "buy", "sell"])  # 只买卖，全有 snapshot
+        amount = rng.uniform(0.01, b * 0.01)
+        rows.append((base_ts + timedelta(seconds=k), oid, tx_type, amount))
+
+    # snapshot 路径
+    snaps = simulate_snapshots(rows, oid_to_idx, initial_shares, b, n_outcomes)
+    assert all(s is not None for s in snaps), "全 buy/sell 应当 snapshot 全有"
+    t0 = time.perf_counter()
+    snap_points = snapshot_fast_replay(rows, snaps, target_idx, initial_shares, b)
+    t_snap = time.perf_counter() - t0
+
+    # NumPy replay 基线
+    t0 = time.perf_counter()
+    np_points = new_replay(rows, oid_to_idx, target_idx, b, initial_shares, n_outcomes)
+    t_np = time.perf_counter() - t0
+
+    assert len(snap_points) == len(np_points)
+    max_err = 0.0
+    for (ts_s, pre_s, post_s), (ts_n, pre_n, post_n) in zip(snap_points, np_points):
+        assert ts_s == ts_n
+        max_err = max(max_err, abs(pre_s - pre_n), abs(post_s - post_n))
+
+    speedup = t_np / t_snap if t_snap > 0 else float("inf")
+    status = "OK" if max_err < 1e-10 else "FAIL"
+    print(
+        f"[{status}] {label} | n_points={len(snap_points):>7} "
+        f"| max_err={max_err:.3e} | numpy={t_np*1000:>7.1f}ms "
+        f"snapshot={t_snap*1000:>7.1f}ms speedup={speedup:>5.1f}x"
+    )
+    if max_err >= 1e-10:
+        raise SystemExit(f"snapshot fast path 数值偏差超阈值: {max_err}")
+
+
 def main() -> None:
     print("== chart._replay_market_prices: old vs new (NumPy 矢量化) 数值/性能对照 ==\n")
 
@@ -185,6 +291,10 @@ def main() -> None:
     ]
     for n_out, n_tr, b, seed in cases:
         run_case(n_out, n_tr, b, seed)
+
+    print("\n== chart._replay_from_snapshots: fast path vs NumPy 等价 + 加速比 ==\n")
+    for n_out, n_tr, b, seed in cases:
+        run_snapshot_case(n_out, n_tr, b, seed + 100)
 
     print("\n全部通过 ✓")
 
