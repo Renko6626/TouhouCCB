@@ -89,15 +89,35 @@ fi
 # ── 2. 拉取新镜像 ──
 # 只拉 backend：postgres 使用本地已有的镜像，避免 Docker Hub 抽风时卡死整个部署。
 # 如需升级 postgres，手动 `docker compose pull postgres && docker compose up -d postgres`。
-log "[2/4] Pulling latest backend image..."
+log "[2/5] Pulling latest backend image..."
 docker compose pull backend || rollback
 
-# ── 3. 重启容器 ──
-log "[3/4] Starting containers..."
-docker compose up -d || rollback
+# ── 3. 起 postgres + 跑 alembic 迁移 ──
+# 用 `docker compose run --rm --no-deps backend alembic upgrade head` 起一个临时容器跑迁移，
+# 这样不跟主 backend 容器 lifespan（init_db + auto_migrate）并发抢同一张表的 DDL 锁。
+# 时机：在 backend 重启之前，保证 backend 启动时 schema 已就绪、不会因新加列报 5xx。
+# 失败回滚：alembic 失败 = 镜像新版与 prod schema 不兼容，必须停下，rollback 保留旧 backend。
+log "[3/5] Starting postgres and applying alembic migrations..."
+docker compose up -d postgres
+for i in $(seq 1 15); do
+    if docker compose exec -T postgres pg_isready -U thccb >/dev/null 2>&1; then
+        log "  Postgres ready (attempt $i)"
+        break
+    fi
+    sleep 1
+    [ "$i" = "15" ] && rollback
+done
+if ! docker compose run --rm --no-deps backend alembic upgrade head; then
+    log "alembic upgrade head failed"
+    rollback
+fi
 
-# ── 4. 健康检查 ──
-log "[4/4] Waiting for backend to be ready..."
+# ── 4. 重启 backend ──
+log "[4/5] Starting backend..."
+docker compose up -d backend || rollback
+
+# ── 5. 健康检查 ──
+log "[5/5] Waiting for backend to be ready..."
 sleep 3
 if ! health_check; then
     log "Health check failed after deploy"
