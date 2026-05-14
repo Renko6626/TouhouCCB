@@ -131,7 +131,26 @@ async def test_repay_overpay_clamps_to_debt(client):
 
 
 @pytest.mark.asyncio
-async def test_repay_exceeds_cash_400(client):
-    _, h = await _make_user(cash=Decimal("30"), debt=Decimal("200"))
+async def test_repay_clamps_to_cash(client):
+    """cash 不够还款时 clamp 到 cash 上限：不报 400，effective 截断到 cash，debt 扣相应金额。
+
+    设计意图见 app/api/v1/loan.py:118 注释：「用户输入超额（>debt 或 >cash）会被静默封顶，
+    实际扣减由 effective 字段返回」。pre-check 只在 cash<=0 时返回 400。
+    """
+    uid, h = await _make_user(cash=Decimal("30"), debt=Decimal("200"))
+    async with async_session_maker() as s:
+        async with s.begin():
+            u = await s.get(User, uid)
+            u.debt_last_accrued_at = datetime.now(timezone.utc)
+            s.add(u)
     r = await client.post("/api/v1/loan/repay", json={"amount": "100"}, headers=h)
-    assert r.status_code == 400
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # effective ≈ 30（cash 上限；允许微秒级 accrue 让 debt 微增但不影响 cash 这边的截断）
+    assert abs(Decimal(body["effective"]) - Decimal("30")) < Decimal("0.01")
+    async with async_session_maker() as s:
+        u2 = await s.get(User, uid)
+    # cash 清零（被 effective=30 吃完）
+    assert u2.cash == Decimal("0") or u2.cash == Decimal("0.000000")
+    # debt = 200 - 30 = 170（允许复利微增）
+    assert abs(u2.debt - Decimal("170")) < Decimal("0.01")
