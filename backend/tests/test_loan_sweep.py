@@ -4,17 +4,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest, pytest_asyncio, uuid
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from sqlmodel import SQLModel
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.models.base import User, SiteConfig
 from app.services.loan_sweep import run_sweep_once
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
+async def _seed_loan_rate(setup_db):
+    """conftest 的 setup_db 负责清库；此 fixture 仅追加 loan_daily_rate 种子。"""
     async with async_session_maker() as s:
         async with s.begin():
             s.add(SiteConfig(key="loan_daily_rate", value="0.01", value_type="decimal"))

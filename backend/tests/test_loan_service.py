@@ -1,20 +1,12 @@
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import pytest, pytest_asyncio, uuid
+import pytest, uuid
 from decimal import Decimal
 from datetime import datetime, timezone, timedelta
-from sqlmodel import SQLModel
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.models.base import User
 from app.services.loan_service import accrue_interest
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
 
 
 def _new_user_sync(cash=Decimal("100"), debt=Decimal("0"), last_accrued=None):

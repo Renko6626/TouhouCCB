@@ -6,10 +6,8 @@ import uuid
 from decimal import Decimal
 
 import pytest
-import pytest_asyncio
-from sqlmodel import SQLModel
 
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker, engine
 from app.models.base import User
 from app.models.redemption import (
     RedemptionPartner, RedemptionBatch, RedemptionCode,
@@ -22,12 +20,7 @@ from app.services.redemption import (
 )
 
 
-@pytest_asyncio.fixture
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
-    yield
+# conftest.py 已提供 autouse setup_db；测试函数仍可显式声明 setup_db 参数以保留语义。
 
 
 async def _seed_user(cash: Decimal) -> int:
