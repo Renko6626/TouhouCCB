@@ -92,7 +92,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             <span class="pnl-percent-base">基于 ¥{{ userStore.summary!.total_cost_basis.toFixed(2) }} 持仓成本</span>
           </div>
           <div v-else class="pnl-percent pnl-flat">
-            暂无持仓，去市场建立你的第一笔仓位
+            暂无持仓，去市场开启第一笔预测
           </div>
 
           <div class="pnl-stats">
