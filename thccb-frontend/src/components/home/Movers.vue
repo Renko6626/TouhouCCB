@@ -78,10 +78,19 @@ const truncate = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '�
       </div>
     </header>
 
-    <div v-if="loading && !movers.length" class="movers-state">加载中…</div>
+    <div v-if="loading && !movers.length" class="movers-grid movers-skeleton">
+      <div class="movers-col">
+        <div class="col-head col-head-up">涨幅 ——</div>
+        <div v-for="i in 3" :key="`sk-up-${i}`" class="skeleton-row"></div>
+      </div>
+      <div class="movers-col">
+        <div class="col-head col-head-down">跌幅 ——</div>
+        <div v-for="i in 3" :key="`sk-dn-${i}`" class="skeleton-row"></div>
+      </div>
+    </div>
     <div v-else-if="error" class="movers-state movers-error">{{ error }}</div>
     <div v-else-if="!gainers.length && !losers.length" class="movers-state">
-      该时间段内暂无显著价格变动
+      该时段暂无价格变动
     </div>
 
     <div v-else class="movers-grid">
@@ -201,6 +210,20 @@ const truncate = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + '�
 
 .movers-error {
   color: var(--color-down);
+}
+
+/* 骨架行：与下方实际 movers-row 高度匹配 */
+.skeleton-row {
+  height: 36px;
+  margin: 1px 0;
+  background: linear-gradient(90deg, #f5f5f5 25%, #ebebeb 50%, #f5f5f5 75%);
+  background-size: 200% 100%;
+  animation: movers-skeleton-shimmer 1.4s infinite;
+}
+
+@keyframes movers-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .movers-grid {

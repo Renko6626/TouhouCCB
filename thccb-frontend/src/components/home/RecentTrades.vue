@@ -49,7 +49,9 @@ const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
       <span class="rt-tip">每 5 秒刷新</span>
     </header>
 
-    <div v-if="loading && !trades.length" class="rt-state">加载中…</div>
+    <div v-if="loading && !trades.length" class="rt-skeleton">
+      <div v-for="i in 5" :key="`rt-sk-${i}`" class="rt-skeleton-row"></div>
+    </div>
     <div v-else-if="error" class="rt-state rt-error">{{ error }}</div>
     <div v-else-if="!trades.length" class="rt-state">暂无近期成交</div>
 
@@ -126,6 +128,22 @@ const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
 }
 
 .rt-error { color: var(--color-down); }
+
+/* 骨架：占位 5 行，让加载态不空 */
+.rt-skeleton {
+  padding: 4px 0;
+}
+.rt-skeleton-row {
+  height: 32px;
+  margin: 1px 12px;
+  background: linear-gradient(90deg, #f5f5f5 25%, #ebebeb 50%, #f5f5f5 75%);
+  background-size: 200% 100%;
+  animation: rt-skeleton-shimmer 1.4s infinite;
+}
+@keyframes rt-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 
 .rt-list {
   list-style: none;
