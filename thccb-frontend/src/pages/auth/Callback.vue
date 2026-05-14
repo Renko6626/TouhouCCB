@@ -25,7 +25,7 @@ onMounted(async () => {
   const state = params.get('state') ?? ''
 
   if (!code) {
-    error.value = '缺少授权码，请重新登录。'
+    error.value = '登录失败，请重试'
     return
   }
 
@@ -43,7 +43,7 @@ onMounted(async () => {
   <div class="callback-page">
     <div v-if="!error" class="callback-loading">
       <NSpin size="large" />
-      <p class="callback-text">正在完成登录...</p>
+      <p class="callback-text">正在登录…</p>
     </div>
 
     <div v-else class="callback-error">
