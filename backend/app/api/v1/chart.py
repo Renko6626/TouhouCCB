@@ -12,13 +12,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 
+import numpy as np
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.models.base import Outcome, Transaction
-from app.services.lmsr import get_current_price
 from app.schemas.chart import (
     PricePoint,
     Candle,
@@ -128,28 +128,52 @@ async def _replay_market_prices(
             detail=f"该区间交易数超过 {limit}，请缩小时间范围或提高采样周期",
         )
 
-
-    shares = list(initial_shares)
-    points: List[Tuple[datetime, float, float]] = []
-
+    # 预扫一遍：过滤未知 outcome，把 (idx, sign*amount, ts) 抽成数组
+    n_outcomes = len(all_outcome_ids)
+    indices: List[int] = []
+    deltas_list: List[float] = []
+    timestamps: List[datetime] = []
     for ts_raw, tx_outcome_id, tx_type, tx_shares in rows:
         idx = oid_to_idx.get(tx_outcome_id)
         if idx is None:
             continue
-
-        ts = _ensure_utc(ts_raw)
-        pre_price = get_current_price(shares, target_idx, b)
-
         amount = float(tx_shares)
         if tx_type in ("buy", "settle"):
-            shares[idx] += amount
+            delta = amount
         elif tx_type in ("sell", "settle_lose"):
-            shares[idx] -= amount
+            delta = -amount
+        else:
+            continue
+        indices.append(idx)
+        deltas_list.append(delta)
+        timestamps.append(_ensure_utc(ts_raw))
 
-        post_price = get_current_price(shares, target_idx, b)
-        points.append((ts, pre_price, post_price))
+    if not indices:
+        return []
 
-    return points
+    T = len(indices)
+    # 构建 (T, N) 单笔 delta 矩阵：第 k 行只有 indices[k] 处为 deltas_list[k]
+    deltas_matrix = np.zeros((T, n_outcomes), dtype=np.float64)
+    deltas_matrix[np.arange(T), np.asarray(indices, dtype=np.int64)] = deltas_list
+
+    # shares_evolution[k] = 第 k 笔交易后的全局 shares 快照
+    # shares_evolution[0] = initial_shares, shares_evolution[k] = initial + cumsum 到第 k 笔
+    shares_evolution = np.empty((T + 1, n_outcomes), dtype=np.float64)
+    shares_evolution[0] = np.asarray(initial_shares, dtype=np.float64)
+    np.cumsum(deltas_matrix, axis=0, out=shares_evolution[1:])
+    shares_evolution[1:] += shares_evolution[0]
+
+    # 矢量化 LMSR target 价格：(q - max_q)/b 数值稳定化，等价于 lmsr.get_current_price
+    max_q = shares_evolution.max(axis=1, keepdims=True)
+    exponents = np.exp((shares_evolution - max_q) / b)
+    target_prices = exponents[:, target_idx] / exponents.sum(axis=1)
+
+    pre_prices = target_prices[:-1]
+    post_prices = target_prices[1:]
+    return [
+        (timestamps[i], float(pre_prices[i]), float(post_prices[i]))
+        for i in range(T)
+    ]
 
 
 async def _get_initial_shares(
