@@ -9,27 +9,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import pytest
 import uuid
 from decimal import Decimal
-from httpx import AsyncClient, ASGITransport
-from app.main import app
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.core.users import create_access_token, create_refresh_token
 from app.models.base import User
-from sqlmodel import SQLModel
 import pytest_asyncio
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-
-@pytest_asyncio.fixture
-async def client():
-    from asgi_lifespan import LifespanManager
-    async with LifespanManager(app):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8004") as ac:
-            yield ac
 
 
 @pytest_asyncio.fixture
