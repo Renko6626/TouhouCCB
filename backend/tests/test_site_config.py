@@ -3,8 +3,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import pytest, pytest_asyncio
 from decimal import Decimal
-from sqlmodel import SQLModel
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.models.base import SiteConfig
 from app.services.site_config import (
     get_decimal, get_int, get_bool, set_value, SiteConfigError,
@@ -12,11 +11,8 @@ from app.services.site_config import (
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    # 每次重建表保证干净（仅 sqlite 测试库）
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
+async def _seed_x_config(setup_db):
+    """conftest 的 setup_db 负责清库；此 fixture 仅追加 x_* 种子。"""
     async with async_session_maker() as s:
         async with s.begin():
             s.add(SiteConfig(key="x_rate", value="0.05", value_type="decimal"))

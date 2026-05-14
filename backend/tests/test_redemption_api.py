@@ -5,36 +5,14 @@ import uuid
 from decimal import Decimal
 
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from asgi_lifespan import LifespanManager
-from sqlmodel import SQLModel
 
-from app.main import app
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.base import User
 from app.models.redemption import (
     RedemptionPartner, RedemptionBatch, RedemptionCode,
     BatchStatus, CodeStatus,
 )
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
-    yield
-
-
-@pytest_asyncio.fixture
-async def client():
-    async with LifespanManager(app):
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
-            yield ac
 
 
 async def _make_user(superuser=False, cash=Decimal("100")):
