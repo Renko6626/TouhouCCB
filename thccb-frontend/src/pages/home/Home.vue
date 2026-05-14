@@ -185,7 +185,8 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
       </div>
 
       <div v-else class="empty-markets">
-        <p>暂无活跃市场</p>
+        <p class="empty-title">博丽神社香火稀疏</p>
+        <p class="empty-sub">当前没有活跃市场</p>
         <NButton v-if="authStore.isAdmin" type="primary" @click="router.push('/admin/market-manage')">
           创建市场
         </NButton>
@@ -589,14 +590,27 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
 /* 空状态 */
 .empty-markets {
-  padding: 48px 0;
+  padding: 48px 24px;
   text-align: center;
   border: 2px solid #cccccc;
-  color: #888888;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 6px;
+}
+
+.empty-markets .empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.empty-markets .empty-sub {
+  font-size: 12px;
+  color: #888888;
+  margin-bottom: 10px;
 }
 
 /* ── 特色网格 ── */
