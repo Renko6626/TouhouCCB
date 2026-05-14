@@ -230,8 +230,8 @@ const handleUserMenuClick = (key: string) => {
 .debt-badge {
   display: inline-block;
   padding: 3px 10px;
-  border: 2px solid #d14;
-  color: #d14;
+  border: 2px solid var(--color-down);
+  color: var(--color-down);
   background: #000;
   font-size: 12px;
   font-weight: 700;
@@ -240,7 +240,7 @@ const handleUserMenuClick = (key: string) => {
   transition: background 0.15s, color 0.15s;
 }
 .debt-badge:hover {
-  background: #d14;
+  background: var(--color-down);
   color: #fff;
 }
 

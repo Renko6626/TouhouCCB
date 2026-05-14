@@ -177,7 +177,7 @@ function repayAll() {
   font-weight: 700;
 }
 .debt-number.red {
-  color: #d14;
+  color: var(--color-down);
 }
 .meta {
   margin-top: 8px;

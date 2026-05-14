@@ -114,9 +114,9 @@ onMounted(load)
   font-variant-numeric: tabular-nums;
 }
 .status { font-weight: 700; color: #000; }
-.row-detail { padding: 16px; border-top: 1px dashed #ccc; background: #fafafa; }
+.row-detail { padding: 16px; border-top: 1px solid #e0e0e0; background: #fafafa; }
 .code-box {
-  font-family: monospace; font-size: 16px; padding: 12px; border: 2px dashed #000;
+  font-family: monospace; font-size: 16px; padding: 12px; border: 2px solid #000;
   margin-bottom: 12px; word-break: break-all; background: #fff;
 }
 .description {
