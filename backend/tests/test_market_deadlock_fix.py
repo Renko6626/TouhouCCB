@@ -13,32 +13,13 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-from asgi_lifespan import LifespanManager
-from httpx import AsyncClient, ASGITransport
-from sqlmodel import SQLModel
 
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.main import app
-from app.core.database import engine, async_session_maker
+from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.base import Market, MarketStatus, Outcome, User
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def setup_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-
-@pytest_asyncio.fixture
-async def client():
-    async with LifespanManager(app):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost:8005") as ac:
-            yield ac
 
 
 async def _make_user(cash=Decimal("100000")):
