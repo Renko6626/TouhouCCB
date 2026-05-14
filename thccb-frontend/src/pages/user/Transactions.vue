@@ -247,7 +247,7 @@ const redemptionTotal = computed(() =>
 
     <!-- 空状态 -->
     <div v-else class="empty-state">
-      <NEmpty description="暂无符合条件的交易记录" />
+      <NEmpty description="暂无相关交易" />
     </div>
   </div>
 </template>

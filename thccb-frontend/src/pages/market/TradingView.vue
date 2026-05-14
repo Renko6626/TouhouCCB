@@ -359,7 +359,7 @@ const relTime = (iso: string): string => {
     <!-- 加载状态 -->
     <div v-if="loading" class="text-center py-12">
       <NSpin size="large" />
-      <p class="mt-4 text-black">加载市场数据中...</p>
+      <p class="mt-4 text-black">正在加载市场…</p>
     </div>
 
     <!-- 交易界面 -->
