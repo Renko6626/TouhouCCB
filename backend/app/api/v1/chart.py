@@ -104,11 +104,19 @@ async def _replay_market_prices(
     limit: int = 200000,
 ) -> List[Tuple[datetime, float, float]]:
     """
-    查出市场内所有交易，逐笔重放 shares 状态，
-    返回 [(timestamp, pre_price, post_price), ...] 目标 outcome 的价格序列。
+    入口：拉范围内所有 Transaction，分支选 fast path / NumPy 重放。
+
+    - 全部行 market_prices_post 完备 → 走 snapshot fast path，O(T) DB IO，应用层零 exp 调用
+    - 任一行 NULL → 整段退回 NumPy 矢量化重放（兼顾历史数据未回填的场景）
     """
     stmt = (
-        select(Transaction.timestamp, Transaction.outcome_id, Transaction.type, Transaction.shares)
+        select(
+            Transaction.timestamp,
+            Transaction.outcome_id,
+            Transaction.type,
+            Transaction.shares,
+            Transaction.market_prices_post,
+        )
         .where(
             and_(
                 Transaction.outcome_id.in_(all_outcome_ids),
@@ -128,12 +136,57 @@ async def _replay_market_prices(
             detail=f"该区间交易数超过 {limit}，请缩小时间范围或提高采样周期",
         )
 
-    # 预扫一遍：过滤未知 outcome，把 (idx, sign*amount, ts) 抽成数组
+    if not rows:
+        return []
+
+    n_outcomes = len(all_outcome_ids)
+    all_have_snapshot = all(
+        r[4] is not None and len(r[4]) == n_outcomes for r in rows
+    )
+
+    if all_have_snapshot:
+        return _replay_from_snapshots(rows, target_idx, initial_shares, b)
+    return _replay_numpy(rows, all_outcome_ids, oid_to_idx, target_idx, b, initial_shares)
+
+
+def _replay_from_snapshots(
+    rows,
+    target_idx: int,
+    initial_shares: List[float],
+    b: float,
+) -> List[Tuple[datetime, float, float]]:
+    """Fast path：直接读 market_prices_post 列。
+
+    pre[k] = post[k-1]；首笔 pre 由 initial_shares 算一次起手价。
+    """
+    initial_arr = np.asarray(initial_shares, dtype=np.float64)
+    max_q = initial_arr.max()
+    exponents = np.exp((initial_arr - max_q) / b)
+    prev_post = float(exponents[target_idx] / exponents.sum())
+
+    points: List[Tuple[datetime, float, float]] = []
+    for ts_raw, _oid, _type, _shares, snapshot in rows:
+        ts = _ensure_utc(ts_raw)
+        post = float(snapshot[target_idx])
+        points.append((ts, prev_post, post))
+        prev_post = post
+    return points
+
+
+def _replay_numpy(
+    rows,
+    all_outcome_ids: List[int],
+    oid_to_idx: Dict[int, int],
+    target_idx: int,
+    b: float,
+    initial_shares: List[float],
+) -> List[Tuple[datetime, float, float]]:
+    """Fallback：NumPy 矢量化重放（snapshot 任一 NULL 时整段走此路径）。"""
     n_outcomes = len(all_outcome_ids)
     indices: List[int] = []
     deltas_list: List[float] = []
     timestamps: List[datetime] = []
-    for ts_raw, tx_outcome_id, tx_type, tx_shares in rows:
+    for ts_raw, tx_outcome_id, tx_type, tx_shares, _snapshot in rows:
         idx = oid_to_idx.get(tx_outcome_id)
         if idx is None:
             continue
@@ -152,18 +205,14 @@ async def _replay_market_prices(
         return []
 
     T = len(indices)
-    # 构建 (T, N) 单笔 delta 矩阵：第 k 行只有 indices[k] 处为 deltas_list[k]
     deltas_matrix = np.zeros((T, n_outcomes), dtype=np.float64)
     deltas_matrix[np.arange(T), np.asarray(indices, dtype=np.int64)] = deltas_list
 
-    # shares_evolution[k] = 第 k 笔交易后的全局 shares 快照
-    # shares_evolution[0] = initial_shares, shares_evolution[k] = initial + cumsum 到第 k 笔
     shares_evolution = np.empty((T + 1, n_outcomes), dtype=np.float64)
     shares_evolution[0] = np.asarray(initial_shares, dtype=np.float64)
     np.cumsum(deltas_matrix, axis=0, out=shares_evolution[1:])
     shares_evolution[1:] += shares_evolution[0]
 
-    # 矢量化 LMSR target 价格：(q - max_q)/b 数值稳定化，等价于 lmsr.get_current_price
     max_q = shares_evolution.max(axis=1, keepdims=True)
     exponents = np.exp((shares_evolution - max_q) / b)
     target_prices = exponents[:, target_idx] / exponents.sum(axis=1)
