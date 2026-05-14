@@ -92,22 +92,26 @@ async def _get_market_context(outcome_id: int, db: AsyncSession):
     return market, all_outcomes, all_outcome_ids, oid_to_idx, target_idx, float(market.liquidity_b)
 
 
-async def _replay_market_prices(
+async def _fetch_initial_shares_and_replay(
     db: AsyncSession,
+    all_outcomes: list,
     all_outcome_ids: List[int],
     oid_to_idx: Dict[int, int],
     target_idx: int,
     b: float,
-    initial_shares: List[float],
     from_ts: datetime,
     to_ts: datetime,
     limit: int = 200000,
-) -> List[Tuple[datetime, float, float]]:
+) -> Tuple[List[float], List[Tuple[datetime, float, float]]]:
     """
-    入口：拉范围内所有 Transaction，分支选 fast path / NumPy 重放。
+    单次 SELECT 拉 from_ts 之后的所有 Transaction（含 market_prices_post 快照），
+    同时算出：
+      - initial_shares：从当前 Outcome.total_shares 反向回退所有 from_ts 后的交易
+      - price_points：from_ts..to_ts 区间内的逐笔价格曲线（fast path / numpy 兜底）
 
-    - 全部行 market_prices_post 完备 → 走 snapshot fast path，O(T) DB IO，应用层零 exp 调用
-    - 任一行 NULL → 整段退回 NumPy 矢量化重放（兼顾历史数据未回填的场景）
+    合并前是两次 SELECT（_get_initial_shares + _replay_market_prices）覆盖大致重叠
+    的区间，merge 后省一次 DB 往返 + 一次 SQL planning。to_ts < now 的历史窗口下
+    会多拉一些 to_ts 之后的行（无害，仅用于 initial_shares 反向回退），代价 ~80B/row。
     """
     stmt = (
         select(
@@ -121,32 +125,49 @@ async def _replay_market_prices(
             and_(
                 Transaction.outcome_id.in_(all_outcome_ids),
                 Transaction.timestamp >= from_ts,
-                Transaction.timestamp < to_ts,
             )
         )
         .order_by(Transaction.timestamp.asc())
-        .limit(limit + 1)
     )
     res = await db.execute(stmt)
-    rows = res.all()
+    all_rows = res.all()
 
-    if len(rows) > limit:
+    # 1. initial_shares：从 current_shares 反向回退所有 from_ts 后的交易
+    current_shares = [float(o.total_shares) for o in all_outcomes]
+    for _ts, tx_oid, tx_type, tx_shares, _mpost in all_rows:
+        idx = oid_to_idx.get(tx_oid)
+        if idx is None:
+            continue
+        amount = float(tx_shares)
+        if tx_type in ("buy", "settle"):
+            current_shares[idx] -= amount
+        elif tx_type in ("sell", "settle_lose"):
+            current_shares[idx] += amount
+    initial_shares = [max(0.0, s) for s in current_shares]
+
+    # 2. 过滤 replay 子集：from_ts <= ts < to_ts（与原 _replay_market_prices 语义一致）
+    replay_rows = [r for r in all_rows if _ensure_utc(r[0]) < to_ts]
+
+    if len(replay_rows) > limit:
         raise HTTPException(
             status_code=400,
             detail=f"该区间交易数超过 {limit}，请缩小时间范围或提高采样周期",
         )
 
-    if not rows:
-        return []
+    if not replay_rows:
+        return initial_shares, []
 
     n_outcomes = len(all_outcome_ids)
     all_have_snapshot = all(
-        r[4] is not None and len(r[4]) == n_outcomes for r in rows
+        r[4] is not None and len(r[4]) == n_outcomes for r in replay_rows
     )
 
     if all_have_snapshot:
-        return _replay_from_snapshots(rows, target_idx, initial_shares, b)
-    return _replay_numpy(rows, all_outcome_ids, oid_to_idx, target_idx, b, initial_shares)
+        price_points = _replay_from_snapshots(replay_rows, target_idx, initial_shares, b)
+    else:
+        price_points = _replay_numpy(replay_rows, all_outcome_ids, oid_to_idx, target_idx, b, initial_shares)
+
+    return initial_shares, price_points
 
 
 def _replay_from_snapshots(
@@ -225,47 +246,6 @@ def _replay_numpy(
     ]
 
 
-async def _get_initial_shares(
-    db: AsyncSession,
-    all_outcomes: list,
-    all_outcome_ids: List[int],
-    oid_to_idx: Dict[int, int],
-    from_ts: datetime,
-) -> List[float]:
-    """
-    计算 from_ts 之前的 shares 状态：
-    从 Outcome.total_shares（当前值）减去 from_ts 之后的所有交易来反推。
-    """
-    current_shares = [float(o.total_shares) for o in all_outcomes]
-
-    # 查 from_ts 之后的所有交易
-    stmt = (
-        select(Transaction.outcome_id, Transaction.type, Transaction.shares)
-        .where(
-            and_(
-                Transaction.outcome_id.in_(all_outcome_ids),
-                Transaction.timestamp >= from_ts,
-            )
-        )
-        .order_by(Transaction.timestamp.asc())
-    )
-    res = await db.execute(stmt)
-
-    # 逆向回退：当前 shares 减去之后的买入、加回之后的卖出
-    for tx_oid, tx_type, tx_shares in res.all():
-        idx = oid_to_idx.get(tx_oid)
-        if idx is None:
-            continue
-        amount = float(tx_shares)
-        if tx_type in ("buy", "settle"):
-            current_shares[idx] -= amount
-        elif tx_type in ("sell", "settle_lose"):
-            current_shares[idx] += amount
-
-    # 防止数据不一致导致负数（已结算市场的 settle_lose 未记录交易）
-    return [max(0.0, s) for s in current_shares]
-
-
 # ========================================
 # 价格走势
 # ========================================
@@ -284,9 +264,8 @@ async def get_price_series(
     _validate_range(from_ts_u, to_ts_u)
 
     market, all_outcomes, all_oids, oid_to_idx, target_idx, b = await _get_market_context(outcome_id, db)
-    initial_shares = await _get_initial_shares(db, all_outcomes, all_oids, oid_to_idx, from_ts_u)
-    price_points = await _replay_market_prices(
-        db, all_oids, oid_to_idx, target_idx, b, initial_shares, from_ts_u, to_ts_u, limit,
+    _, price_points = await _fetch_initial_shares_and_replay(
+        db, all_outcomes, all_oids, oid_to_idx, target_idx, b, from_ts_u, to_ts_u, limit,
     )
 
     if not bucket:
@@ -339,9 +318,8 @@ async def get_candles(
     )
 
     market, all_outcomes, all_oids, oid_to_idx, target_idx, b = await _get_market_context(outcome_id, db)
-    initial_shares = await _get_initial_shares(db, all_outcomes, all_oids, oid_to_idx, query_from)
-    price_points = await _replay_market_prices(
-        db, all_oids, oid_to_idx, target_idx, b, initial_shares, query_from, aligned_to, max_trades,
+    _, price_points = await _fetch_initial_shares_and_replay(
+        db, all_outcomes, all_oids, oid_to_idx, target_idx, b, query_from, aligned_to, max_trades,
     )
 
     # 聚合成蜡烛
