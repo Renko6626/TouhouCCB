@@ -161,11 +161,13 @@ const pageTitle = route.meta?.title as string | undefined
 }
 
 .auth-link {
-  font-size: 13px;
+  font-size: 11px;
   color: #000000;
   text-decoration: underline;
-  text-underline-offset: 3px;
-  font-weight: 500;
+  text-underline-offset: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .auth-link:hover {
@@ -174,8 +176,8 @@ const pageTitle = route.meta?.title as string | undefined
 
 .auth-link-muted {
   margin-left: auto;
-  color: #666666;
-  font-weight: 400;
+  color: #888888;
+  font-weight: 600;
 }
 
 .auth-footer {
