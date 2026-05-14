@@ -114,6 +114,18 @@ const summaryPnlSign = computed(() => {
   return v > 0 ? '+' : v < 0 ? '−' : ''
 })
 
+// 执行按钮禁用原因 — 给用户具体的"为什么按不下去"
+const disabledReason = computed(() => {
+  if (isSubmitting.value) return '提交中…'
+  if (marketStore.tradeLoading) return '处理中…'
+  if (!props.selectedOutcomeId) return '请先选择预测结果'
+  if (props.shares <= 0) return '请输入份额'
+  if (props.shares > props.maxShares) return '超过份额上限'
+  if (!props.quoteResult) return '等待报价…'
+  if (props.quoteExceedsCash) return '余额不足'
+  return ''
+})
+
 // 一键平仓：切到 sell 并把份额填满
 const closePosition = () => {
   if (!props.userHolding || props.userHolding.amount <= 0) return
@@ -179,7 +191,7 @@ const actionHint = computed<string>(() => {
       :value="props.selectedOutcomeId"
       @update:value="(v: number | null) => emit('update:selectedOutcomeId', v)"
       :options="outcomeOptions"
-      placeholder="选择选项"
+      placeholder="请选择预测结果"
       size="small"
     />
 
@@ -248,7 +260,7 @@ const actionHint = computed<string>(() => {
       >{{ amount }}</NButton>
       <span class="max-hint">
         最大 {{ props.maxShares }}
-        <template v-if="props.tradeType === 'buy'"> (估)</template>
+        <template v-if="props.tradeType === 'buy'">（预估）</template>
       </span>
     </div>
 
@@ -294,6 +306,7 @@ const actionHint = computed<string>(() => {
       :disabled="isSubmitting || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
       @click="executeTrade"
       class="exec-btn"
+      :title="disabledReason"
     >
       {{ props.tradeType === 'buy' ? '买入' : '卖出' }} {{ props.shares }} 份
     </NButton>
@@ -415,7 +428,7 @@ const actionHint = computed<string>(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-top: 1px dashed #999;
+  border-top: 1px solid #e0e0e0;
   padding-top: 8px;
 }
 
@@ -613,6 +626,9 @@ const actionHint = computed<string>(() => {
 }
 
 .slippage-label {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;

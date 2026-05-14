@@ -92,7 +92,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             <span class="pnl-percent-base">基于 ¥{{ userStore.summary!.total_cost_basis.toFixed(2) }} 持仓成本</span>
           </div>
           <div v-else class="pnl-percent pnl-flat">
-            暂无持仓，去市场建立你的第一笔仓位
+            暂无持仓，去市场开启第一笔预测
           </div>
 
           <div class="pnl-stats">
@@ -135,11 +135,11 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
         <!-- 未登录：原品牌介绍 -->
         <template v-else>
-          <div class="hero-eyebrow">预测市场 · 东方 Project</div>
+          <div class="hero-eyebrow">预测市场学习 · 东方 Project</div>
           <h1 class="hero-title">东方炒炒币<br>预测市场</h1>
           <p class="hero-desc">
-            基于 LMSR 算法的模拟预测市场交易平台。<br>
-            交易您对幻想乡事件的判断，让市场发现真实概率。
+            基于 LMSR 的预测市场学习平台。<br>
+            用模拟资金交易对幻想乡事件的判断，理解市场如何发现真实概率。
           </p>
           <div class="hero-actions">
             <button class="hero-btn-primary" @click="router.push('/auth/register')">
@@ -185,7 +185,8 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
       </div>
 
       <div v-else class="empty-markets">
-        <p>暂无活跃市场</p>
+        <p class="empty-title">博丽神社香火稀疏</p>
+        <p class="empty-sub">当前没有活跃市场</p>
         <NButton v-if="authStore.isAdmin" type="primary" @click="router.push('/admin/market-manage')">
           创建市场
         </NButton>
@@ -436,7 +437,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 }
 
 .pnl-stat-debt-value {
-  color: #d14;
+  color: var(--color-down);
 }
 
 .pnl-note {
@@ -453,7 +454,6 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s infinite;
   margin-bottom: 14px;
-  border-radius: 2px;
 }
 
 .pnl-percent-skeleton {
@@ -462,7 +462,6 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s infinite;
-  border-radius: 2px;
 }
 
 /* 装饰角标 */
@@ -591,14 +590,27 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
 /* 空状态 */
 .empty-markets {
-  padding: 48px 0;
+  padding: 48px 24px;
   text-align: center;
-  border: 2px dashed #cccccc;
-  color: #888888;
+  border: 2px solid #cccccc;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
+  gap: 6px;
+}
+
+.empty-markets .empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #000000;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.empty-markets .empty-sub {
+  font-size: 12px;
+  color: #888888;
+  margin-bottom: 10px;
 }
 
 /* ── 特色网格 ── */

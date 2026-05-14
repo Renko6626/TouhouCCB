@@ -82,3 +82,43 @@ async def test_refresh_with_access_token_fails(client, test_user):
 async def test_refresh_with_invalid_token_fails(client):
     res = await client.post("/api/v1/auth/refresh", json={"refresh_token": "garbage"})
     assert res.status_code == 401
+
+
+# --- 3. TOS accept-tos 接口测试 ---
+@pytest.mark.asyncio
+async def test_accept_tos_first_time_writes_timestamp(client, test_user):
+    """新用户 tos_accepted_at 默认 null；调用 accept-tos 后变成非 null"""
+    token = create_access_token(test_user)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    me_before = await client.get("/api/v1/auth/me", headers=headers)
+    assert me_before.json()["tos_accepted_at"] is None
+
+    res = await client.post("/api/v1/auth/accept-tos", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["tos_accepted_at"] is not None
+
+    me_after = await client.get("/api/v1/auth/me", headers=headers)
+    assert me_after.json()["tos_accepted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_accept_tos_idempotent(client, test_user):
+    """连续调两次 accept-tos，第二次不改写时间戳"""
+    token = create_access_token(test_user)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first = await client.post("/api/v1/auth/accept-tos", headers=headers)
+    first_ts = first.json()["tos_accepted_at"]
+    assert first_ts is not None
+
+    second = await client.post("/api/v1/auth/accept-tos", headers=headers)
+    assert second.status_code == 200
+    assert second.json()["tos_accepted_at"] == first_ts
+
+
+@pytest.mark.asyncio
+async def test_accept_tos_requires_auth(client):
+    """未登录调用 accept-tos 返回 4xx 未授权"""
+    res = await client.post("/api/v1/auth/accept-tos")
+    assert res.status_code in (401, 403)

@@ -10,6 +10,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const isAdmin = computed(() => user.value?.is_superuser ?? false)
+  // 已登录但尚未勾选免责声明的用户：前端 TosModal 兜底（后端不卡接口）。
+  // 显式判 === null：localStorage 中的老 user 对象可能没有 tos_accepted_at 字段
+  // （undefined），此时不弹窗，等 /auth/me 刷新后再做判定，避免初始化时一闪而过。
+  const needsTos = computed(
+    () => isAuthenticated.value && user.value !== null && user.value.tos_accepted_at === null,
+  )
 
   // 初始化时从 localStorage 恢复用户信息
   const stored = localStorage.getItem('user')
@@ -69,15 +75,25 @@ export const useAuthStore = defineStore('auth', () => {
     return !!u
   }
 
+  const acceptTos = async () => {
+    const res = await authApi.acceptTos()
+    if (user.value) {
+      user.value = { ...user.value, tos_accepted_at: res.tos_accepted_at }
+      localStorage.setItem('user', JSON.stringify(user.value))
+    }
+  }
+
   return {
     user,
     accessToken,
     refreshToken,
     isAuthenticated,
     isAdmin,
+    needsTos,
     fetchCurrentUser,
     loginWithCallback,
     logout,
     checkAuth,
+    acceptTos,
   }
 })

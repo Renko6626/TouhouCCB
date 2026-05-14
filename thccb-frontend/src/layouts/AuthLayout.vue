@@ -17,7 +17,7 @@ const pageTitle = route.meta?.title as string | undefined
           <div class="brand-logo">T</div>
           <span class="brand-name">东方炒炒币</span>
         </router-link>
-        <p class="brand-tagline">预测市场交易平台</p>
+        <p class="brand-tagline">预测市场学习平台</p>
       </div>
 
       <!-- 认证卡片 -->
@@ -161,11 +161,13 @@ const pageTitle = route.meta?.title as string | undefined
 }
 
 .auth-link {
-  font-size: 13px;
+  font-size: 11px;
   color: #000000;
   text-decoration: underline;
-  text-underline-offset: 3px;
-  font-weight: 500;
+  text-underline-offset: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .auth-link:hover {
@@ -174,8 +176,8 @@ const pageTitle = route.meta?.title as string | undefined
 
 .auth-link-muted {
   margin-left: auto;
-  color: #666666;
-  font-weight: 400;
+  color: #888888;
+  font-weight: 600;
 }
 
 .auth-footer {

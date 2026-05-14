@@ -9,6 +9,7 @@ const router = useRouter()
       <div class="nf-code">404</div>
       <div class="nf-divider"></div>
       <p class="nf-message">页面未找到</p>
+      <p class="nf-flair">— 似乎迷失在了迷途竹林 —</p>
       <button class="nf-btn" @click="router.push('/')">返回首页</button>
     </div>
   </div>
@@ -63,7 +64,14 @@ const router = useRouter()
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: #888888;
-  margin-bottom: 32px;
+  margin-bottom: 8px;
+}
+
+.nf-flair {
+  font-size: 11px;
+  color: #aaaaaa;
+  letter-spacing: 0.08em;
+  margin-bottom: 28px;
 }
 
 .nf-btn {

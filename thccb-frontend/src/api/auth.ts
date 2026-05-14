@@ -17,6 +17,10 @@ export const authApi = {
   async getCurrentUser(): Promise<User> {
     return api.get<User>('/api/v1/auth/me')
   },
+
+  async acceptTos(): Promise<{ tos_accepted_at: string }> {
+    return api.post('/api/v1/auth/accept-tos', {})
+  },
 }
 
 export default authApi

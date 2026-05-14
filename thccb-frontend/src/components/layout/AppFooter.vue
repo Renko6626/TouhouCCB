@@ -7,7 +7,7 @@ const currentYear = new Date().getFullYear()
     <div class="footer-left">
       <span class="footer-copy">© {{ currentYear }} 东方炒炒币</span>
       <span class="footer-sep" aria-hidden="true">/</span>
-      <span class="footer-tagline">预测市场交易平台</span>
+      <span class="footer-tagline">预测市场学习平台</span>
     </div>
     <div class="footer-right">
       <span class="footer-badge">LMSR</span>

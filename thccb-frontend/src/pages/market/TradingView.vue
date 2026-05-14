@@ -99,7 +99,7 @@ const loadMarketData = async () => {
       loadError.value = marketStore.error
     }
   } catch (err) {
-    loadError.value = err instanceof Error ? err.message : '加载市场数据失败'
+    loadError.value = err instanceof Error ? err.message : '情报丢失在结界中，请重试'
   } finally {
     loading.value = false
   }
@@ -359,7 +359,7 @@ const relTime = (iso: string): string => {
     <!-- 加载状态 -->
     <div v-if="loading" class="text-center py-12">
       <NSpin size="large" />
-      <p class="mt-4 text-black">加载市场数据中...</p>
+      <p class="mt-4 text-black">正在加载市场…</p>
     </div>
 
     <!-- 交易界面 -->
