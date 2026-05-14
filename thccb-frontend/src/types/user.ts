@@ -8,6 +8,7 @@ export interface User {
   debt: number
   is_active: boolean
   is_superuser: boolean
+  tos_accepted_at: string | null
 }
 
 export interface UserSummary {

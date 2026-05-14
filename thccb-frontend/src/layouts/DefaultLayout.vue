@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import AppHeader from '@/components/layout/AppHeader.vue'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppFooter from '@/components/layout/AppFooter.vue'
+import TosModal from '@/components/legal/TosModal.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -93,6 +94,9 @@ const sidebarActive = computed(() =>
     <footer class="app-footer-wrap">
       <AppFooter />
     </footer>
+
+    <!-- 免责声明同意弹窗：未同意者不可访问主流程 -->
+    <TosModal v-if="authStore.needsTos" />
   </div>
 </template>
 
