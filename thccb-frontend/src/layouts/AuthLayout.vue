@@ -17,7 +17,7 @@ const pageTitle = route.meta?.title as string | undefined
           <div class="brand-logo">T</div>
           <span class="brand-name">东方炒炒币</span>
         </router-link>
-        <p class="brand-tagline">预测市场交易平台</p>
+        <p class="brand-tagline">预测市场学习平台</p>
       </div>
 
       <!-- 认证卡片 -->
