@@ -79,6 +79,14 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '我的兑换', requiresAuth: true, requiresVerified: true },
       },
 
+      // 弹幕系统兑换
+      {
+        path: 'danmuku/exchange',
+        name: 'danmuku-exchange',
+        component: () => import('@/pages/danmuku/DanmukuExchange.vue'),
+        meta: { title: '弹幕兑换', requiresAuth: true, requiresVerified: true },
+      },
+
       // 市场路由
       {
         path: 'market',
