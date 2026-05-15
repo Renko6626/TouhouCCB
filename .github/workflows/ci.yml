@@ -160,6 +160,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # checkout 让 runner 拿到 docker-compose.yml + deploy/，准备 rsync 推服务器
+      - uses: actions/checkout@v4
+
       # 拿到前端构建产物
       - uses: actions/download-artifact@v4
         with:
@@ -177,7 +180,22 @@ jobs:
           remote_user: ${{ secrets.DEPLOY_USER }}
           remote_key: ${{ secrets.DEPLOY_KEY }}
 
+      # rsync 后端部署配置（compose 文件 + deploy/ 目录）到服务器
+      # 不再让服务器 git pull——国内到 github HTTPS 抖动严重、几乎每次都把重试用满
+      # 才能拿到代码。runner（Azure 美国）→ 服务器 rsync 走我们自己的 ssh 通道稳定。
+      - name: Deploy backend config via rsync
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz
+          path: docker-compose.yml deploy/
+          remote_path: /home/deploy/TouhouCCB/
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_KEY }}
+
       # SSH 执行后端部署脚本（docker compose pull + up）
+      # 之前要先 git fetch/pull，国内 GitHub 网络抖动每次重试用满 50s 才进 deploy.sh。
+      # 现在配置文件已由上一步 rsync 推到位，直接跑 deploy.sh 即可。
       - name: Deploy backend
         uses: appleboy/ssh-action@v1
         with:
@@ -189,19 +207,6 @@ jobs:
           command_timeout: 30m
           script: |
             cd /home/deploy/TouhouCCB
-            # 国内服务器 → github.com HTTPS 偶发 GnuTLS recv error -110（GFW 干扰 /
-            # github IP 段瞬时抖动）。重试 5 次，间隔 10s，覆盖大多数瞬时故障。
-            attempts=0
-            until git fetch origin main; do
-              attempts=$((attempts+1))
-              if [ $attempts -ge 5 ]; then
-                echo "git fetch failed after 5 attempts"
-                exit 1
-              fi
-              echo "git fetch failed (attempt $attempts/5), retry in 10s..."
-              sleep 10
-            done
-            git pull --ff-only origin main
             bash deploy/deploy.sh
 
       # 远程健康检查
