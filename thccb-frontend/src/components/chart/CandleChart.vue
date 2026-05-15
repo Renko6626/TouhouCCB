@@ -46,6 +46,7 @@ let maSeries: ISeriesApi<'Line', Time> | null = null
 const MA_PERIOD = 10
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let resizeObserver: ResizeObserver | null = null
+let resizeRafId: number | null = null
 const isRequesting = ref(false)
 
 // 本地蜡烛缓存：key = UTC timestamp (秒)
@@ -248,9 +249,11 @@ const setupResizeObserver = () => {
   resizeObserver = new ResizeObserver((entries) => {
     const entry = entries[0]
     if (!entry) return
-    chartInstance?.applyOptions({
-      width: entry.contentRect.width,
-      height: entry.contentRect.height,
+    const { width, height } = entry.contentRect
+    if (resizeRafId !== null) cancelAnimationFrame(resizeRafId)
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = null
+      chartInstance?.applyOptions({ width, height })
     })
   })
   resizeObserver.observe(chartRef.value)
@@ -293,6 +296,7 @@ watch(() => props.refreshToken, () => { loadIncremental() })
 
 onUnmounted(() => {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
+  if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
   if (chartInstance) { chartInstance.remove(); chartInstance = null }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
 })

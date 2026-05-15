@@ -6,6 +6,10 @@ export class MarketStream {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  // 重连 generation token —— 每次 connect/disconnect/_openConnection 递增。
+  // setTimeout 重连 fire 时对比 token，如果期间状态变了就放弃这次重连，
+  // 防止"setTimeout 还没 fire，用户已经 disconnect + reconnect"造成的双 EventSource。
+  private reconnectGen = 0
   private listeners: Map<string, Set<(data: any) => void>> = new Map()
 
   constructor() {
@@ -18,28 +22,32 @@ export class MarketStream {
     this.listeners.set('error', new Set())
   }
 
-  // 连接到市场实时数据流
+  // 连接到市场实时数据流（用户初始化）
   connect(marketId: number) {
     if (this.eventSource && this.marketId === marketId) {
       console.log(`Already connected to market ${marketId}`)
       return
     }
-
-    // 关闭现有连接
+    // 切到新市场：重置重连计数
     this.disconnect()
+    this._openConnection(marketId)
+  }
 
+  // 实际打开 EventSource —— 被 connect() 和 onerror 重连用。
+  // 不重置 reconnectAttempts，让重连流程能正确累加。
+  private _openConnection(marketId: number) {
+    this.reconnectGen++  // 任何新连接都让"已调度的重连 setTimeout"失效
     this.marketId = marketId
     const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004'
     const normalizedBaseUrl = baseUrl.replace(/\/$/, '')
     const url = `${normalizedBaseUrl}/api/v1/stream/market/${marketId}`
-    
+
     try {
       this.eventSource = new EventSource(url)
       this.setupEventHandlers()
-      this.reconnectAttempts = 0
-      console.log(`Connected to market stream: ${marketId}`)
+      console.log(`Opening market stream: ${marketId}`)
     } catch (error) {
-      console.error('Failed to connect to market stream:', error)
+      console.error('Failed to open market stream:', error)
       this.handleError(error)
     }
   }
@@ -96,20 +104,34 @@ export class MarketStream {
     this.eventSource.onerror = (error) => {
       console.error('EventSource error:', error)
       this.handleError(error)
-      
-      // 尝试重连
-      if (this.reconnectAttempts < this.maxReconnectAttempts) {
-        setTimeout(() => {
-          this.reconnectAttempts++
-          console.log(`Reconnecting... attempt ${this.reconnectAttempts}`)
-          if (this.marketId) {
-            this.connect(this.marketId)
-          }
-        }, this.reconnectDelay * this.reconnectAttempts)
-      } else {
+
+      // 立即关掉当前 ES — 否则浏览器自带的自动重连和我们下面的 setTimeout 重连会并发，
+      // 导致连接风暴 + reconnectAttempts 误计。
+      // 注意只清 eventSource，不清 marketId / reconnectAttempts（那是 disconnect 的事）。
+      if (this.eventSource) {
+        this.eventSource.close()
+        this.eventSource = null
+      }
+
+      if (this.marketId === null || this.reconnectAttempts >= this.maxReconnectAttempts) {
         console.error('Max reconnection attempts reached')
         this.emit('error', { type: 'max_reconnect_attempts', message: 'Max reconnection attempts reached' })
+        return
       }
+
+      this.reconnectAttempts++
+      const targetMarketId = this.marketId
+      const targetGen = this.reconnectGen
+      // jitter ±30%：防止 N 个客户端同时断开后同步重连打 backend（thundering herd）
+      const base = this.reconnectDelay * this.reconnectAttempts
+      const delay = base * (0.7 + Math.random() * 0.6)
+      setTimeout(() => {
+        // 期间用户 disconnect / 切换市场 / 已重连 → 放弃这次定时重连
+        if (this.reconnectGen !== targetGen) return
+        if (this.marketId !== targetMarketId) return
+        console.log(`Reconnecting... attempt ${this.reconnectAttempts}`)
+        this._openConnection(targetMarketId)
+      }, delay)
     }
 
     // 处理打开事件
@@ -167,14 +189,17 @@ export class MarketStream {
     }
   }
 
-  // 断开连接
+  // 断开连接（用户主动）
   disconnect() {
+    this.reconnectGen++  // 让所有已调度的重连 setTimeout 失效
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
-      this.marketId = null
       console.log('Disconnected from market stream')
     }
+    this.marketId = null
+    // 主动断开 = 干净状态，复位重连计数（防止下次连新市场带着旧计数）
+    this.reconnectAttempts = 0
   }
 
   // 获取当前连接状态

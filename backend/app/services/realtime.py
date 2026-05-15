@@ -41,6 +41,18 @@ class MarketEventBroker:
             subs.add(q)
         return q
 
+    def subscriber_count(self, market_id: int) -> int:
+        """订阅者数（近似值，无锁读取）。
+
+        用于 SSE 接入前的 503 预检：StreamingResponse 一旦开始就无法再发 503。
+        无锁原因：(1) dict.get / set.__len__ 在 CPython 都是 GIL 原子操作，
+        最差读到比真实值少/多 1 的瞬时值；(2) 给 publish() 的 hot path 减少
+        一次潜在的 lock 等待——SSE 接入率远低于交易 publish 频率；
+        (3) subscribe() 自身仍持锁做严格上限检查，预检漏掉的极罕见 race
+        会落到 subscribe() 的 RuntimeError，由上层 generator 处理。
+        """
+        return len(self._topics.get(market_id, ()))
+
     async def unsubscribe(self, market_id: int, q: asyncio.Queue) -> None:
         async with self._lock:
             s = self._topics.get(market_id)
