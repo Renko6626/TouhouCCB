@@ -49,10 +49,10 @@ const formValid = computed(() => {
 const formError = computed(() => {
   if (!qqUserId.value.trim()) return '请填写 QQ 号'
   if (!roomId.value.trim()) return '请填写房间号'
-  if (!Number.isFinite(yuanNum.value)) return 'yuan 不是合法数字'
-  if (!Number.isFinite(huoNum.value)) return 'huo 不是合法数字'
+  if (!Number.isFinite(yuanNum.value)) return '弹货不是合法数字'
+  if (!Number.isFinite(huoNum.value)) return 'P 点不是合法数字'
   if (yuanNum.value < 0 || huoNum.value < 0) return '金额不能为负'
-  if (totalAmount.value <= 0) return 'yuan 与 huo 至少有一项为正'
+  if (totalAmount.value <= 0) return '弹货与 P 点至少有一项为正'
   if (totalAmount.value > cash.value) return `余额不足（需 ${totalAmount.value.toFixed(2)}，仅有 ${cash.value.toFixed(2)}）`
   return ''
 })
@@ -98,7 +98,7 @@ onMounted(() => {
         <h1 class="page-title">弹幕系统兑换</h1>
         <router-link to="/my/redemptions" class="history-link">查看兑换历史 →</router-link>
       </div>
-      <p class="page-sub">用站内现金按 1:1 兑换弹幕系统的 yuan / huo 激活码</p>
+      <p class="page-sub">用站内现金按 1:1 兑换弹幕系统的弹货 / P 点激活码</p>
     </header>
 
     <div class="layout">
@@ -138,7 +138,7 @@ onMounted(() => {
           </label>
 
           <label class="form-field">
-            <span class="form-label">Yuan 数量</span>
+            <span class="form-label">弹货数量</span>
             <input
               v-model="yuan"
               type="text"
@@ -150,7 +150,7 @@ onMounted(() => {
           </label>
 
           <label class="form-field">
-            <span class="form-label">Huo 数量</span>
+            <span class="form-label">P 点数量</span>
             <input
               v-model="huo"
               type="text"

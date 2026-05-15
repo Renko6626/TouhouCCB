@@ -187,7 +187,7 @@ onMounted(load)
               <span class="meta-time">{{ fmtTime(row.payload.timestamp) }}</span>
               <span class="meta-amount tabular-nums">金 {{ Number(row.payload.amount).toFixed(2) }}</span>
               <span class="meta-mini tabular-nums">
-                y {{ Number(row.payload.yuan).toFixed(2) }} · h {{ Number(row.payload.huo).toFixed(2) }}
+                弹货 {{ Number(row.payload.yuan).toFixed(2) }} · P 点 {{ Number(row.payload.huo).toFixed(2) }}
               </span>
             </div>
           </div>
