@@ -50,9 +50,15 @@ export interface Transaction {
 }
 
 // 排行榜相关类型
+export type LeaderboardMode = 'net_worth' | 'spending'
+
 export interface LeaderboardItem {
   user_id: number
   username: string
+  // 排序分值：net_worth 模式 = cash - debt；spending 模式 = 兑换消费总额 - 当前债务
   net_worth: number
   rank: string
+  // spending 模式额外字段
+  spent_total?: number | null
+  debt?: number | null
 }

@@ -1033,33 +1033,109 @@ async def resume_market(
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 
-@router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富排行榜")
+def _net_worth_rank_title(net: Decimal) -> str:
+    rank = "初入幻想乡"
+    if net > 500: rank = "人间之里商人"
+    if net > 2000: rank = "命莲寺赞助者"
+    if net > 10000: rank = "守矢VIP"
+    if net > 50000: rank = "大天狗座上宾"
+    return rank
+
+
+def _spending_rank_title(score: Decimal) -> str:
+    """spending 模式称号（"消费 - 债务"层级与 net_worth 不同：实际消费下限更高）。"""
+    rank = "旅人"
+    if score > 500: rank = "参拜者"
+    if score > 2000: rank = "常驻香客"
+    if score > 10000: rank = "里之贵客"
+    if score > 50000: rank = "山中之主"
+    return rank
+
+
+@router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富/消费排行榜")
 async def leaderboard(
     limit: int = Query(20, ge=1, le=100),
+    mode: str = Query("net_worth", description="net_worth=按 cash-debt；spending=按 兑换消费总额-当前债务"),
     db: AsyncSession = Depends(get_async_session),
 ):
-    res = await db.execute(
-        select(User).order_by((User.cash - User.debt).desc()).limit(limit)
-    )
-    users = res.scalars().all()
+    if mode == "net_worth":
+        res = await db.execute(
+            select(User).order_by((User.cash - User.debt).desc()).limit(limit)
+        )
+        users = res.scalars().all()
+        return [
+            LeaderboardItem(
+                user_id=u.id,
+                username=u.username,
+                net_worth=(u.cash - u.debt).quantize(Decimal("0.01")),
+                rank=_net_worth_rank_title(u.cash - u.debt),
+            )
+            for u in users
+        ]
 
-    items = []
-    for u in users:
-        net = u.cash - u.debt
-        rank = "初入幻想乡"
-        if net > 500: rank = "人间之里商人"
-        if net > 2000: rank = "命莲寺赞助者"
-        if net > 10000: rank = "守矢VIP"
-        if net > 50000: rank = "大天狗座上宾"
+    if mode == "spending":
+        # 子查询聚合两张消费来源表：现有 redemption_transaction（partner 兑换）+
+        # 新增 danmuku_exchange（弹幕系统兑换）。两边各 SUM 后外连接到 user，
+        # COALESCE 把没消费过的用户的 NULL 归零。
+        from app.models.redemption import RedemptionTransaction, DanmukuExchange
 
-        items.append(LeaderboardItem(
-            user_id=u.id,
-            username=u.username,
-            net_worth=net.quantize(Decimal("0.01")),
-            rank=rank
-        ))
+        rt_subq = (
+            select(
+                RedemptionTransaction.user_id.label("user_id"),
+                func.sum(RedemptionTransaction.amount).label("rt_sum"),
+            )
+            .group_by(RedemptionTransaction.user_id)
+            .subquery()
+        )
+        de_subq = (
+            select(
+                DanmukuExchange.user_id.label("user_id"),
+                func.sum(DanmukuExchange.amount).label("de_sum"),
+            )
+            .group_by(DanmukuExchange.user_id)
+            .subquery()
+        )
 
-    return items
+        spent_expr = (
+            func.coalesce(rt_subq.c.rt_sum, 0) + func.coalesce(de_subq.c.de_sum, 0)
+        )
+        score_expr = spent_expr - User.debt
+
+        stmt = (
+            select(
+                User.id,
+                User.username,
+                User.debt,
+                spent_expr.label("spent_total"),
+                score_expr.label("score"),
+            )
+            .outerjoin(rt_subq, rt_subq.c.user_id == User.id)
+            .outerjoin(de_subq, de_subq.c.user_id == User.id)
+            .order_by(score_expr.desc())
+            .limit(limit)
+        )
+        rows = (await db.execute(stmt)).all()
+
+        items: List[LeaderboardItem] = []
+        for r in rows:
+            spent = Decimal(str(r.spent_total or 0))
+            debt = Decimal(str(r.debt or 0))
+            score = Decimal(str(r.score or 0))
+            # 完全没消费过的用户不参与 spending 榜（score = -debt 没意义，会拉一堆 0 消费 +
+            # 负债的用户上来；过滤 spent > 0 让榜单只展示有过实际消费的）
+            if spent <= 0:
+                continue
+            items.append(LeaderboardItem(
+                user_id=r.id,
+                username=r.username,
+                net_worth=score.quantize(Decimal("0.01")),
+                rank=_spending_rank_title(score),
+                spent_total=spent.quantize(Decimal("0.01")),
+                debt=debt.quantize(Decimal("0.01")),
+            ))
+        return items
+
+    raise HTTPException(status_code=400, detail="mode 取值仅支持 net_worth | spending")
 
 
 # ==========================================

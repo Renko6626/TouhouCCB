@@ -81,10 +81,13 @@ export const marketApi = {
     })
   },
 
-  // 财富排行榜
-  async getLeaderboard(limit: number = 20): Promise<LeaderboardItem[]> {
+  // 排行榜（mode: net_worth=按 cash-debt；spending=按 兑换消费总额-当前债务）
+  async getLeaderboard(
+    limit: number = 20,
+    mode: 'net_worth' | 'spending' = 'net_worth',
+  ): Promise<LeaderboardItem[]> {
     return api.get<LeaderboardItem[]>('/api/v1/market/leaderboard', {
-      params: { limit }
+      params: { limit, mode },
     })
   },
 
