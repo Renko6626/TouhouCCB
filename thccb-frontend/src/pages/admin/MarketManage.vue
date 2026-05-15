@@ -21,10 +21,12 @@ import type { MarketDetail, MarketListItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 import { marketApi } from '@/api/market'
 import { adminApi, type UserListItem } from '@/api/admin'
+import { useAuthStore } from '@/stores/auth'
 
 const message = useMessage()
 const dialog = useDialog()
 const marketStore = useMarketStore()
+const authStore = useAuthStore()
 
 const loading = ref(false)
 const searchQuery = ref('')
@@ -105,6 +107,45 @@ const submitAdjustCash = async () => {
   }
 }
 
+const adminToggleRunning = ref(false)
+
+async function toggleAdmin(row: UserListItem) {
+  if (adminToggleRunning.value) return
+  if (row.id === authStore.user?.id) {
+    message.warning('不能修改自己的管理员权限')
+    return
+  }
+  const targetIsAdmin = !row.is_superuser
+  const action = targetIsAdmin ? '提升为管理员' : '取消管理员'
+  const verb = targetIsAdmin ? '提升' : '取消'
+  await new Promise<void>((resolve) => {
+    dialog.warning({
+      title: `${action}`,
+      content: `确定${verb} ${row.username}（#${row.id}）的管理员权限？`,
+      positiveText: `确认${verb}`,
+      negativeText: '取消',
+      onPositiveClick: async () => {
+        adminToggleRunning.value = true
+        try {
+          const res = await adminApi.setUserAdmin(row.id, targetIsAdmin)
+          if (res.changed) {
+            message.success(`已${verb}：${row.username}`)
+          } else {
+            message.info('用户状态未变更')
+          }
+          await loadUsers()
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : `${verb}失败`)
+        } finally {
+          adminToggleRunning.value = false
+          resolve()
+        }
+      },
+      onNegativeClick: () => resolve(),
+    })
+  })
+}
+
 const userColumns: DataTableColumns<UserListItem> = [
   { title: 'ID', key: 'id', width: 60 },
   { title: '用户名', key: 'username' },
@@ -115,8 +156,25 @@ const userColumns: DataTableColumns<UserListItem> = [
     render: (row) => h(NTag, { type: row.is_superuser ? 'warning' : 'default', size: 'small' }, { default: () => row.is_superuser ? '管理员' : '用户' }),
   },
   {
-    title: '操作', key: 'actions', width: 100,
-    render: (row) => h(NButton, { size: 'small', onClick: () => { cashForm.value.userId = row.id } }, { default: () => '调整现金' }),
+    title: '操作', key: 'actions', width: 220,
+    render: (row) => {
+      const isSelf = row.id === authStore.user?.id
+      return h(NSpace, { size: 6 }, {
+        default: () => [
+          h(NButton, {
+            size: 'small',
+            onClick: () => { cashForm.value.userId = row.id },
+          }, { default: () => '调整现金' }),
+          h(NButton, {
+            size: 'small',
+            type: row.is_superuser ? 'default' : 'primary',
+            disabled: isSelf || adminToggleRunning.value,
+            title: isSelf ? '不能修改自己' : undefined,
+            onClick: () => toggleAdmin(row),
+          }, { default: () => row.is_superuser ? '取消管理员' : '提升管理员' }),
+        ],
+      })
+    },
   },
 ]
 
