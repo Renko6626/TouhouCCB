@@ -74,19 +74,19 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
           </div>
           <div class="kv">
             <span class="kv-label">总现金</span>
-            <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.total_cash) }}</span>
+            <span class="kv-value tabular-nums">金 {{ fmtNum(stats.total_cash) }}</span>
           </div>
           <div class="kv">
             <span class="kv-label">总持仓价</span>
-            <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.total_holdings_value) }}</span>
+            <span class="kv-value tabular-nums">金 {{ fmtNum(stats.total_holdings_value) }}</span>
           </div>
           <div class="kv">
             <span class="kv-label">总债务</span>
-            <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.total_debt) }}</span>
+            <span class="kv-value tabular-nums">金 {{ fmtNum(stats.total_debt) }}</span>
           </div>
           <div class="kv kv--accent">
             <span class="kv-label">总净值</span>
-            <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.total_net_worth) }}</span>
+            <span class="kv-value tabular-nums">金 {{ fmtNum(stats.total_net_worth) }}</span>
           </div>
         </div>
       </section>
@@ -98,23 +98,23 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
           <div class="kv-grid">
             <div class="kv">
               <span class="kv-label">均值</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.mean) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.mean) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">中位数</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.median) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.median) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">标准差</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.std) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.std) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">最小</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.min) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.min) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">最大</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.max) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.max) }}</span>
             </div>
             <div class="kv" :class="`kv-gini kv-gini--${giniLevel}`">
               <span class="kv-label">基尼系数</span>
@@ -128,27 +128,27 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
           <div class="kv-grid">
             <div class="kv">
               <span class="kv-label">P10</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p10) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p10) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">P25</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p25) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p25) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">P50</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p50) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p50) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">P75</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p75) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p75) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">P90</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p90) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p90) }}</span>
             </div>
             <div class="kv">
               <span class="kv-label">P99</span>
-              <span class="kv-value tabular-nums">¥ {{ fmtNum(stats.p99) }}</span>
+              <span class="kv-value tabular-nums">金 {{ fmtNum(stats.p99) }}</span>
             </div>
           </div>
         </div>
@@ -176,7 +176,7 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
             <div class="bracket-stats">
               <span class="bracket-count tabular-nums">{{ b.count }} 人</span>
               <span class="bracket-pct tabular-nums">{{ b.pct.toFixed(1) }}%</span>
-              <span class="bracket-sum tabular-nums">¥ {{ fmtNum(b.sum_wealth) }}</span>
+              <span class="bracket-sum tabular-nums">金 {{ fmtNum(b.sum_wealth) }}</span>
             </div>
           </div>
         </div>

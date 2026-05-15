@@ -148,7 +148,7 @@ onMounted(load)
             </div>
             <div class="col-meta">
               <span class="meta-time">{{ fmtTime(row.payload.bought_at) }}</span>
-              <span class="meta-amount tabular-nums">¥ {{ row.payload.paid_amount }}</span>
+              <span class="meta-amount tabular-nums">金 {{ row.payload.paid_amount }}</span>
               <span class="meta-status">
                 {{ row.payload.marked_used_by_user_at ? '已使用' : '未使用' }}
               </span>
@@ -185,7 +185,7 @@ onMounted(load)
             </div>
             <div class="col-meta">
               <span class="meta-time">{{ fmtTime(row.payload.timestamp) }}</span>
-              <span class="meta-amount tabular-nums">¥ {{ Number(row.payload.amount).toFixed(2) }}</span>
+              <span class="meta-amount tabular-nums">金 {{ Number(row.payload.amount).toFixed(2) }}</span>
               <span class="meta-mini tabular-nums">
                 y {{ Number(row.payload.yuan).toFixed(2) }} · h {{ Number(row.payload.huo).toFixed(2) }}
               </span>

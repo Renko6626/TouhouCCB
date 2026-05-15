@@ -82,7 +82,7 @@ async function execute() {
   if (!dryRunResult.value || loading.value) return
   if (!confirm(
     `确认对 ${dryRunResult.value.eligible_count} 个用户执行调整？\n` +
-    `（将操作约 ¥${dryRunResult.value.total_delta.toFixed(2)}）`,
+    `（将操作约 金 ${dryRunResult.value.total_delta.toFixed(2)}）`,
   )) return
   loading.value = true
   error.value = ''
@@ -223,7 +223,7 @@ function resetAll() {
         </div>
         <div class="stat stat--accent">
           <span class="stat-label">合计调整金额</span>
-          <span class="stat-value tabular-nums">¥ {{ dryRunResult.total_delta.toFixed(2) }}</span>
+          <span class="stat-value tabular-nums">金 {{ dryRunResult.total_delta.toFixed(2) }}</span>
         </div>
       </div>
 
@@ -244,9 +244,9 @@ function resetAll() {
             <tr v-for="u in dryRunResult.matched_users" :key="u.id" :class="{ 'row-fail': u.will_fail }">
               <td class="tabular-nums">{{ u.id }}</td>
               <td>{{ u.username }}</td>
-              <td class="text-right tabular-nums">¥ {{ u.cash_before.toFixed(2) }}</td>
-              <td class="text-right tabular-nums">¥ {{ u.debt.toFixed(2) }}</td>
-              <td class="text-right tabular-nums">¥ {{ u.cash_after.toFixed(2) }}</td>
+              <td class="text-right tabular-nums">金 {{ u.cash_before.toFixed(2) }}</td>
+              <td class="text-right tabular-nums">金 {{ u.debt.toFixed(2) }}</td>
+              <td class="text-right tabular-nums">金 {{ u.cash_after.toFixed(2) }}</td>
               <td>
                 <span v-if="u.will_fail" class="status-tag status-tag--fail">将跳过</span>
                 <span v-else class="status-tag status-tag--ok">可执行</span>
@@ -271,7 +271,7 @@ function resetAll() {
         </div>
         <div class="stat">
           <span class="stat-label">实际总额</span>
-          <span class="stat-value tabular-nums">¥ {{ executeResult.total_delta.toFixed(2) }}</span>
+          <span class="stat-value tabular-nums">金 {{ executeResult.total_delta.toFixed(2) }}</span>
         </div>
       </div>
 

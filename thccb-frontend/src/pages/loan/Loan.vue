@@ -53,9 +53,9 @@ async function submitRepay() {
     const r = await store.repay(String(repayAmount.value))
     const eff = r.effective ? Number(r.effective) : Number(repayAmount.value)
     if (Math.abs(eff - Number(repayAmount.value)) > 0.001) {
-      msg.success(`实际还款 ¥${eff.toFixed(2)}（输入 ¥${repayAmount.value} 已自动按真实负债 / 现金封顶）`)
+      msg.success(`实际还款 金 ${eff.toFixed(2)}（输入 金 ${repayAmount.value} 已自动按真实负债 / 现金封顶）`)
     } else {
-      msg.success(`还款 ¥${eff.toFixed(2)}`)
+      msg.success(`还款 金 ${eff.toFixed(2)}`)
     }
     repayAmount.value = null
   } catch (e: any) {
@@ -122,7 +122,7 @@ function repayAll() {
           >借入</NButton>
         </div>
         <div v-if="store.quota?.enabled" class="meta-small">
-          可借额度：<strong>¥{{ maxBorrowNumber.toFixed(2) }}</strong>
+          可借额度：<strong>金 {{ maxBorrowNumber.toFixed(2) }}</strong>
         </div>
       </section>
 
@@ -146,16 +146,16 @@ function repayAll() {
             quaternary
             :disabled="maxRepayNumber <= 0"
             @click="repayAll"
-          >还到上限 ¥{{ maxRepayNumber.toFixed(2) }}</NButton>
+          >还到上限 金 {{ maxRepayNumber.toFixed(2) }}</NButton>
         </div>
         <div v-if="repayOverflow > 0" class="meta-small warn">
           <span class="warning-tag">注意</span>
-          输入 ¥{{ repayAmount }} 超过可还上限 ¥{{ maxRepayNumber.toFixed(2) }}，
-          实际只会扣减 ¥{{ maxRepayNumber.toFixed(2) }}（多出的 ¥{{ repayOverflow.toFixed(2) }} 不收取）
+          输入 金 {{ repayAmount }} 超过可还上限 金 {{ maxRepayNumber.toFixed(2) }}，
+          实际只会扣减 金 {{ maxRepayNumber.toFixed(2) }}（多出的 金 {{ repayOverflow.toFixed(2) }} 不收取）
         </div>
         <div v-else-if="debtNumber > 0" class="meta-small">
-          当前真实负债 <strong>¥{{ debtNumber.toFixed(2) }}</strong>，可用现金 <strong>¥{{ cashNumber.toFixed(2) }}</strong>，
-          可还上限 <strong>¥{{ maxRepayNumber.toFixed(2) }}</strong>
+          当前真实负债 <strong>金 {{ debtNumber.toFixed(2) }}</strong>，可用现金 <strong>金 {{ cashNumber.toFixed(2) }}</strong>，
+          可还上限 <strong>金 {{ maxRepayNumber.toFixed(2) }}</strong>
         </div>
       </section>
     </NSpin>

@@ -153,13 +153,13 @@ const columns: DataTableColumns<Transaction> = [
     title: '单价',
     key: 'price',
     render: (row) =>
-      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.price.toFixed(4)}`),
+      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `金 ${row.price.toFixed(4)}`),
   },
   {
     title: '金额',
     key: 'cost',
     render: (row) =>
-      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `¥${row.cost.toFixed(2)}`),
+      h('span', { style: { fontVariantNumeric: 'tabular-nums' } }, `金 ${row.cost.toFixed(2)}`),
   },
   {
     title: '时间',

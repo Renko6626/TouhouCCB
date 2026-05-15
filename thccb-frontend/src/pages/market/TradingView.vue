@@ -373,7 +373,7 @@ const relTime = (iso: string): string => {
         <div class="summary-meta">
           <div class="summary-item">
             <span class="summary-label">流动性</span>
-            <span class="summary-value">¥{{ marketStore.currentMarket.liquidity_b.toLocaleString() }}</span>
+            <span class="summary-value">金 {{ marketStore.currentMarket.liquidity_b.toLocaleString() }}</span>
           </div>
           <div class="summary-item">
             <span class="summary-label">选中选项</span>
@@ -528,8 +528,8 @@ const relTime = (iso: string): string => {
                   {{ truncate(outcomeLabel(trade.outcome_id), 10) }}
                 </span>
                 <span class="trade-shares">{{ Number(trade.shares).toLocaleString() }} 份</span>
-                <span class="trade-price">@ ¥{{ Number(trade.price).toFixed(4) }}</span>
-                <span class="trade-gross">¥{{ Number(trade.gross).toFixed(2) }}</span>
+                <span class="trade-price">@ 金 {{ Number(trade.price).toFixed(4) }}</span>
+                <span class="trade-gross">金 {{ Number(trade.gross).toFixed(2) }}</span>
               </li>
             </TransitionGroup>
           </ul>
