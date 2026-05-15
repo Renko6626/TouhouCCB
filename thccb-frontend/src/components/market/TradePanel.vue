@@ -44,7 +44,7 @@ const marketStore = useMarketStore()
 const outcomeOptions = computed<SelectOption[]>(() => {
   if (!props.market?.outcomes) return []
   return props.market.outcomes.map((outcome: OutcomeQuote) => ({
-    label: `${outcome.label} (¥${outcome.current_price.toFixed(2)})`,
+    label: `${outcome.label} (金 ${outcome.current_price.toFixed(2)})`,
     value: outcome.id,
   }))
 })
@@ -151,25 +151,25 @@ const actionHint = computed<string>(() => {
     <div v-if="authStore.isAuthenticated && userStore.summary" class="asset-bar">
       <div class="asset-item">
         <span class="asset-label">现金</span>
-        <span class="asset-value">¥{{ userStore.summary.cash.toFixed(2) }}</span>
+        <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
       </div>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
-        <span class="asset-value">¥{{ userStore.summary.holdings_value.toFixed(2) }}</span>
+        <span class="asset-value">金 {{ userStore.summary.holdings_value.toFixed(2) }}</span>
       </div>
       <div class="asset-item">
         <span class="asset-label">浮盈</span>
         <span class="asset-value" :class="`asset-pnl-${summaryPnlDirection}`">
-          {{ summaryPnlSign }}¥{{ Math.abs(userStore.summary.unrealized_pnl).toFixed(2) }}
+          {{ summaryPnlSign }}金 {{ Math.abs(userStore.summary.unrealized_pnl).toFixed(2) }}
         </span>
       </div>
       <div v-if="Number(userStore.summary.debt) > 0" class="asset-item">
         <span class="asset-label">负债</span>
-        <span class="asset-value asset-value--debt">¥{{ Number(userStore.summary.debt).toFixed(2) }}</span>
+        <span class="asset-value asset-value--debt">金 {{ Number(userStore.summary.debt).toFixed(2) }}</span>
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
-        <span class="asset-value asset-value--highlight">¥{{ userStore.summary.net_worth.toFixed(2) }}</span>
+        <span class="asset-value asset-value--highlight">金 {{ userStore.summary.net_worth.toFixed(2) }}</span>
       </div>
     </div>
 
@@ -204,18 +204,18 @@ const actionHint = computed<string>(() => {
         </div>
         <div class="holding-cell">
           <span class="holding-label">均价</span>
-          <span class="holding-value">¥{{ props.userHolding.avg_price.toFixed(4) }}</span>
+          <span class="holding-value">金 {{ props.userHolding.avg_price.toFixed(4) }}</span>
         </div>
         <div class="holding-cell">
           <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点）">卖出均价</span>
-          <span class="holding-value">¥{{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
+          <span class="holding-value">金 {{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
         </div>
       </div>
       <div class="holding-pnl-row">
         <div class="holding-pnl">
           <span class="holding-pnl-label">浮盈</span>
           <span class="holding-pnl-value" :class="`pnl-${pnlDirection}`">
-            {{ pnlSign }}¥{{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}
+            {{ pnlSign }}金 {{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}
             <span v-if="pnlPercent !== null" class="holding-pnl-pct">
               ({{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%)
             </span>
@@ -268,19 +268,19 @@ const actionHint = computed<string>(() => {
     <div v-if="props.quoteResult" class="quote-box">
       <div class="quote-row">
         <span>均价</span>
-        <span>¥{{ props.quoteResult.avg_price?.toFixed(4) }}</span>
+        <span>金 {{ props.quoteResult.avg_price?.toFixed(4) }}</span>
       </div>
       <div class="quote-row">
         <span>总额</span>
-        <span>¥{{ props.quoteResult.gross?.toFixed(2) }}</span>
+        <span>金 {{ props.quoteResult.gross?.toFixed(2) }}</span>
       </div>
       <div class="quote-row quote-row--dim" v-if="props.quoteResult.fee > 0">
         <span>手续费</span>
-        <span>¥{{ props.quoteResult.fee?.toFixed(2) }}</span>
+        <span>金 {{ props.quoteResult.fee?.toFixed(2) }}</span>
       </div>
       <div class="quote-row quote-row--total">
         <span>{{ props.tradeType === 'buy' ? '应付' : '到手' }}</span>
-        <span>¥{{ props.quoteResult.net?.toFixed(2) }}</span>
+        <span>金 {{ props.quoteResult.net?.toFixed(2) }}</span>
       </div>
       <div v-if="props.quoteExceedsCash" class="quote-warn">
         余额不足，请减少份额

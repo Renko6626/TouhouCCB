@@ -85,11 +85,11 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             <span>浮动盈亏 · {{ userStore.summary!.rank }}</span>
           </div>
           <div class="pnl-number" :class="`pnl-${pnlDirection}`">
-            <span class="pnl-sign">{{ pnlSign }}</span>¥{{ pnlAbs.toFixed(2) }}
+            <span class="pnl-sign">{{ pnlSign }}</span>金 {{ pnlAbs.toFixed(2) }}
           </div>
           <div v-if="pnlPercent !== null" class="pnl-percent" :class="`pnl-${pnlDirection}`">
             {{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%
-            <span class="pnl-percent-base">基于 ¥{{ userStore.summary!.total_cost_basis.toFixed(2) }} 持仓成本</span>
+            <span class="pnl-percent-base">基于 金 {{ userStore.summary!.total_cost_basis.toFixed(2) }} 持仓成本</span>
           </div>
           <div v-else class="pnl-percent pnl-flat">
             暂无持仓，去市场开启第一笔预测
@@ -98,19 +98,19 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
           <div class="pnl-stats">
             <div class="pnl-stat">
               <span class="pnl-stat-label">现金</span>
-              <span class="pnl-stat-value">¥{{ userStore.summary!.cash.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.summary!.cash.toFixed(2) }}</span>
             </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">持仓市值</span>
-              <span class="pnl-stat-value">¥{{ userStore.summary!.holdings_value.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.summary!.holdings_value.toFixed(2) }}</span>
             </div>
             <div v-if="Number(userStore.summary!.debt) > 0" class="pnl-stat pnl-stat-debt">
               <span class="pnl-stat-label">负债</span>
-              <span class="pnl-stat-value pnl-stat-debt-value">¥{{ Number(userStore.summary!.debt).toFixed(2) }}</span>
+              <span class="pnl-stat-value pnl-stat-debt-value">金 {{ Number(userStore.summary!.debt).toFixed(2) }}</span>
             </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">净资产</span>
-              <span class="pnl-stat-value">¥{{ userStore.summary!.net_worth.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.summary!.net_worth.toFixed(2) }}</span>
             </div>
           </div>
 

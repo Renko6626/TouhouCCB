@@ -117,7 +117,7 @@ async def repay(
 
     # 不做 pre-check：服务层会在锁内 accrue 后用 min(amount, 真实 debt, 真实 cash) 封顶。
     # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
-    # 实际扣减由 effective 字段返回，前端可展示"实际还款 ¥N"。
+    # 实际扣减由 effective 字段返回，前端可展示"实际还款 金 N"。
     if user.cash <= 0 and user.debt > 0:
         raise HTTPException(status_code=400, detail="现金为 0，无法还款；请先卖出持仓变现")
 
