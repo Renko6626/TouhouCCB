@@ -105,11 +105,14 @@ async def stream_market(market_id: int):
 
         start_time = time.monotonic()
         try:
+            # snapshot 携带当前 broker.current_seq 作为客户端 lastSeq 锚点。
+            # 后续真实事件 seq 单调递增，客户端用它检测 gap。
             first = MarketEvent(
                 type="snapshot",
                 market_id=market_id,
                 ts=datetime.now(timezone.utc).isoformat(),
                 data=snap,
+                seq=BROKER.current_seq(market_id),
             )
             yield sse_pack(first).encode("utf-8")
 

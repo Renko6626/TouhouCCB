@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   CandlestickSeries,
   ColorType,
@@ -14,9 +14,10 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { useChartData } from '@/composables/useChartData'
+import { chartApi } from '@/api/chart'
 import type { Candle } from '@/types/api'
 import { getPalette, withAlpha } from '@/utils/palette'
+import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
 
 type ChartInterval = '10s' | '30s' | '1m' | '5m' | '15m' | '1h' | '1d'
 
@@ -25,173 +26,224 @@ const props = withDefaults(defineProps<{
   interval?: ChartInterval
   width?: string
   height?: string
-  autoRefreshMs?: number
   lookbackMinutes?: number
-  refreshToken?: number
 }>(), {
   interval: '1m',
   width: '100%',
   height: '400px',
-  autoRefreshMs: 10000,
   lookbackMinutes: 60,
-  refreshToken: 0,
 })
 
-const chartData = useChartData()
+const realtime = inject(MarketRealtimeKey, null)
+
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick', Time> | null = null
 let volumeSeries: ISeriesApi<'Histogram', Time> | null = null
 let maSeries: ISeriesApi<'Line', Time> | null = null
 const MA_PERIOD = 10
-let refreshTimer: ReturnType<typeof setInterval> | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeRafId: number | null = null
-const isRequesting = ref(false)
 
-// 本地蜡烛缓存：key = UTC timestamp (秒)
-const localCandles = ref<Map<number, Candle>>(new Map())
-
-const hasData = computed(() => localCandles.value.size > 0)
+const loading = ref(false)
+const error = ref<string | null>(null)
+const candleCount = ref(0)
+const hasData = computed(() => candleCount.value > 0)
 
 const INTERVAL_SECONDS: Record<ChartInterval, number> = {
   '10s': 10, '30s': 30, '1m': 60, '5m': 300,
   '15m': 900, '1h': 3600, '1d': 86400,
 }
 
-const toUtcTimestamp = (iso: string): UTCTimestamp => {
-  return Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp
-}
+// ── 本地增量状态（incremental update 核心） ─────────────
+// 已闭合 candles 的 close 数组（与 publishedTimes 同序），用于 O(MA_PERIOD) 增量算 MA
+let publishedCloses: number[] = []
+// 当前正在形成的 candle（forming）；trade 来时原地更新 h/l/c/v
+let currentCandle: { t: number; o: number; h: number; l: number; c: number; v: number } | null = null
+
+const stepSeconds = computed(() => INTERVAL_SECONDS[props.interval])
+
+const toUtcTimestamp = (iso: string): UTCTimestamp =>
+  Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp
 
 const getLimitByWindow = () => {
-  const step = INTERVAL_SECONDS[props.interval]
+  const step = stepSeconds.value
   return Math.max(50, Math.ceil((props.lookbackMinutes * 60) / step) + 8)
 }
 
-// 全量加载（初始加载或切换 outcome/interval 时）
+// ── 增量 MA 计算：仅用最近 MA_PERIOD-1 个已闭合 close + 当前 forming close
+const computeFormingMa = (): number | null => {
+  if (!currentCandle) return null
+  const total = publishedCloses.length + 1
+  if (total < MA_PERIOD) return null
+  let sum = currentCandle.c
+  for (let i = 0; i < MA_PERIOD - 1; i++) {
+    sum += publishedCloses[publishedCloses.length - 1 - i]!
+  }
+  return sum / MA_PERIOD
+}
+
+const pushFormingToChart = () => {
+  if (!currentCandle || !candleSeries || !volumeSeries) return
+  const t = currentCandle.t as UTCTimestamp
+  candleSeries.update({
+    time: t,
+    open: currentCandle.o,
+    high: currentCandle.h,
+    low: currentCandle.l,
+    close: currentCandle.c,
+  })
+  const p = getPalette()
+  volumeSeries.update({
+    time: t,
+    value: currentCandle.v,
+    color: withAlpha(currentCandle.c >= currentCandle.o ? p.up : p.down, 0x80),
+  })
+  if (maSeries) {
+    const ma = computeFormingMa()
+    if (ma !== null) maSeries.update({ time: t, value: ma })
+  }
+}
+
+// 全量加载（初始 / 切 outcome/interval/lookback / gap reconcile）
 const loadFull = async () => {
-  if (!props.outcomeId || isRequesting.value) return
-
-  const now = new Date()
-  const lookbackMs = Math.max(5, props.lookbackMinutes) * 60 * 1000
-  const fromTs = new Date(now.getTime() - lookbackMs).toISOString()
-  const toTs = now.toISOString()
-
-  isRequesting.value = true
+  if (!props.outcomeId) return
+  loading.value = true
+  error.value = null
   try {
-    const resp = await chartData.getCandles(
+    const now = new Date()
+    const lookbackMs = Math.max(5, props.lookbackMinutes) * 60 * 1000
+    const fromTs = new Date(now.getTime() - lookbackMs).toISOString()
+    const toTs = now.toISOString()
+    const resp = await chartApi.getCandles(
       props.outcomeId, props.interval, fromTs, toTs,
-      true, getLimitByWindow(), 50000, false,
+      true, getLimitByWindow(), 50000,
     )
-    if (resp) {
-      // 重建本地缓存
-      const map = new Map<number, Candle>()
-      for (const c of resp.candles) {
-        map.set(toUtcTimestamp(c.t), c)
-      }
-      localCandles.value = map
-      renderFull()
+    if (!resp || !resp.candles) {
+      candleCount.value = 0
+      return
     }
+    const candles = [...resp.candles].sort((a, b) =>
+      toUtcTimestamp(a.t) - toUtcTimestamp(b.t),
+    )
+    candleCount.value = candles.length
+
+    await nextTick()
+    if (!chartInstance) initChart()
+    if (!candleSeries || !volumeSeries || !maSeries) return
+
+    renderFull(candles)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'K线数据加载失败'
+    console.error('[CandleChart] loadFull failed:', err)
   } finally {
-    isRequesting.value = false
+    loading.value = false
   }
 }
 
-// 增量加载（轮询时）：只请求最后 2 个 bucket 的数据
-const loadIncremental = async () => {
-  if (!props.outcomeId || isRequesting.value) return
-
-  const step = INTERVAL_SECONDS[props.interval]
-  const now = new Date()
-  // 向前取 2 个 bucket，确保能覆盖当前正在形成的蜡烛和刚闭合的蜡烛
-  const fromTs = new Date(now.getTime() - step * 2 * 1000).toISOString()
-  const toTs = now.toISOString()
-
-  isRequesting.value = true
-  try {
-    const resp = await chartData.getCandles(
-      props.outcomeId, props.interval, fromTs, toTs,
-      false, 10, 50000, true,
-    )
-    if (resp && resp.candles.length > 0) {
-      applyIncremental(resp.candles)
-    }
-  } finally {
-    isRequesting.value = false
-  }
-}
-
-// 将增量蜡烛合并到本地缓存 + 用 update() 推送给 lightweight-charts
-const applyIncremental = (newCandles: Candle[]) => {
+// 一次性 setData 所有 candles 并初始化本地增量状态
+const renderFull = (candles: Candle[]) => {
   if (!candleSeries || !volumeSeries || !maSeries) return
 
-  for (const c of newCandles) {
-    const ts = toUtcTimestamp(c.t)
-    localCandles.value.set(ts, c)
+  const candleData: CandlestickData<UTCTimestamp>[] = []
+  const volumeData: HistogramData<UTCTimestamp>[] = []
+  const p = getPalette()
 
-    candleSeries.update({
-      time: ts,
-      open: c.o,
-      high: c.h,
-      low: c.l,
-      close: c.c,
-    })
-    const p = getPalette()
-    volumeSeries.update({
-      time: ts,
+  for (const c of candles) {
+    const t = toUtcTimestamp(c.t)
+    candleData.push({ time: t, open: c.o, high: c.h, low: c.l, close: c.c })
+    volumeData.push({
+      time: t,
       value: c.v,
       color: withAlpha(c.c >= c.o ? p.up : p.down, 0x80),
     })
   }
 
-  // 增量更新后重算均线（用最新的本地缓存）
-  const sorted = [...localCandles.value.entries()].sort(([a], [b]) => a - b)
-  maSeries.setData(calculateMA(sorted))
-}
+  candleSeries.setData(candleData)
+  volumeSeries.setData(volumeData)
 
-// 计算移动平均线
-const calculateMA = (sorted: [number, import('@/types/api').Candle][]): LineData<UTCTimestamp>[] => {
-  const result: LineData<UTCTimestamp>[] = []
-  for (let i = MA_PERIOD - 1; i < sorted.length; i++) {
+  // 计算所有 MA 点（仅在初次渲染 / reconcile 时做一次 O(N×MA_PERIOD)）
+  const maData: LineData<UTCTimestamp>[] = []
+  for (let i = MA_PERIOD - 1; i < candles.length; i++) {
     let sum = 0
-    for (let j = i - MA_PERIOD + 1; j <= i; j++) {
-      sum += sorted[j]![1].c
-    }
-    result.push({
-      time: sorted[i]![0] as UTCTimestamp,
-      value: sum / MA_PERIOD,
-    })
+    for (let j = i - MA_PERIOD + 1; j <= i; j++) sum += candles[j]!.c
+    maData.push({ time: toUtcTimestamp(candles[i]!.t), value: sum / MA_PERIOD })
   }
-  return result
-}
+  maSeries.setData(maData)
 
-// 全量渲染（初始加载 / 切换时）
-const renderFull = () => {
-  if (!candleSeries || !volumeSeries || !maSeries) return
+  // 初始化本地增量状态：永远把最后一根 candle 当 forming。
+  // backend `fill=true` 模式保证返回的最后一根 = "当前 bucket"（用空 candle 填到 now），
+  // 所以不用本地 Date.now() 做判断（用户系统时钟偏差会错位归类）。
+  if (candles.length === 0) {
+    publishedCloses = []
+    currentCandle = null
+  } else {
+    publishedCloses = candles.slice(0, -1).map(c => c.c)
+    const last = candles[candles.length - 1]!
+    currentCandle = {
+      t: toUtcTimestamp(last.t) as number,
+      o: last.o, h: last.h, l: last.l, c: last.c, v: last.v,
+    }
+  }
 
-  const sorted = [...localCandles.value.entries()]
-    .sort(([a], [b]) => a - b)
-
-  const candleSeriesData: CandlestickData<UTCTimestamp>[] = sorted.map(([ts, c]) => ({
-    time: ts as UTCTimestamp,
-    open: c.o, high: c.h, low: c.l, close: c.c,
-  }))
-
-  const p = getPalette()
-  const volumeSeriesData: HistogramData<UTCTimestamp>[] = sorted.map(([ts, c]) => ({
-    time: ts as UTCTimestamp,
-    value: c.v,
-    color: withAlpha(c.c >= c.o ? p.up : p.down, 0x80),
-  }))
-
-  candleSeries.setData(candleSeriesData)
-  volumeSeries.setData(volumeSeriesData)
-  maSeries.setData(calculateMA(sorted))
   chartInstance?.timeScale().fitContent()
 }
 
+// SSE trade 来时，把它合并进本地 currentCandle 并 push 给 lightweight-charts
+const applyTrade = (price: number, shares: number, tsMs: number) => {
+  if (!candleSeries) return
+  const tsSec = Math.floor(tsMs / 1000)
+  const bucketStart = Math.floor(tsSec / stepSeconds.value) * stepSeconds.value
+
+  if (!currentCandle) {
+    // 第一根：用 price 当 open
+    currentCandle = { t: bucketStart, o: price, h: price, l: price, c: price, v: shares }
+    pushFormingToChart()
+    candleCount.value += 1
+    return
+  }
+
+  if (bucketStart === currentCandle.t) {
+    // 同 bucket：原地更新
+    currentCandle.h = Math.max(currentCandle.h, price)
+    currentCandle.l = Math.min(currentCandle.l, price)
+    currentCandle.c = price
+    currentCandle.v += shares
+    pushFormingToChart()
+    return
+  }
+
+  if (bucketStart === currentCandle.t + stepSeconds.value) {
+    // 正常切到下一个 bucket：闭合 currentCandle，开新 candle
+    publishedCloses.push(currentCandle.c)
+    const prevClose = currentCandle.c
+    currentCandle = {
+      t: bucketStart,
+      o: prevClose,
+      h: Math.max(prevClose, price),
+      l: Math.min(prevClose, price),
+      c: price,
+      v: shares,
+    }
+    pushFormingToChart()
+    candleCount.value += 1
+    return
+  }
+
+  if (bucketStart > currentCandle.t + stepSeconds.value) {
+    // 跨过 ≥1 个完整 bucket（用户挂后台 / 间隔时段无 trade / SSE 期间漏消息）
+    // → 中间 bucket 数据本地无法合成，触发 loadFull 让 backend fill=true 补齐
+    console.warn('[CandleChart] multi-bucket gap, triggering reload')
+    loadFull()
+    return
+  }
+
+  // bucketStart < currentCandle.t：时钟漂移 / 乱序事件 → 忽略（极罕见）
+  console.warn('[CandleChart] out-of-order trade ts ignored:', tsMs)
+}
+
 const initChart = () => {
-  if (!chartRef.value) return
+  if (!chartRef.value || chartInstance) return
 
   chartInstance = createChart(chartRef.value, {
     layout: {
@@ -259,46 +311,42 @@ const setupResizeObserver = () => {
   resizeObserver.observe(chartRef.value)
 }
 
-const resetRefreshTimer = () => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-  if (!props.autoRefreshMs) return
-  const ms = Math.max(3000, props.autoRefreshMs)
-  refreshTimer = setInterval(() => loadIncremental(), ms)
-}
-
-onMounted(() => {
-  nextTick(() => {
-    initChart()
-    setupResizeObserver()
-    loadFull()
-    resetRefreshTimer()
-  })
+onMounted(async () => {
+  await loadFull()
+  setupResizeObserver()
 })
 
-// 切换 outcome 或 interval 时全量重载
-watch(() => [props.outcomeId, props.interval], () => {
-  localCandles.value.clear()
+// 切 outcome / interval / lookback → 全量重载
+watch(() => [props.outcomeId, props.interval, props.lookbackMinutes], () => {
   chartInstance?.applyOptions({
     timeScale: {
       secondsVisible: props.interval === '10s' || props.interval === '30s',
     },
   })
   loadFull()
-  resetRefreshTimer()
 })
 
-watch(() => props.lookbackMinutes, () => { loadFull() })
-watch(() => props.autoRefreshMs, () => { resetRefreshTimer() })
-watch(() => props.refreshToken, () => { loadIncremental() })
+// SSE 实时增量
+if (realtime) {
+  watch(realtime.latestTrade, (trade) => {
+    if (!trade) return
+    const price = realtime.pricesByOutcome.value.get(props.outcomeId)
+    if (price === undefined) return
+    const tsMs = new Date(trade.timestamp).getTime()
+    // 只有交易的 outcome 才把 shares 计入 volume；其他 outcome 的图表 v 只随价格动
+    const sharesForThisChart = trade.outcome_id === props.outcomeId ? trade.shares : 0
+    applyTrade(price, sharesForThisChart, tsMs)
+  })
+
+  watch(realtime.gapToken, () => {
+    if (realtime.gapToken.value > 0) loadFull()
+  })
+}
 
 onUnmounted(() => {
-  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null }
   if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
-  if (chartInstance) { chartInstance.remove(); chartInstance = null }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
+  if (chartInstance) { chartInstance.remove(); chartInstance = null }
 })
 </script>
 
@@ -309,16 +357,16 @@ onUnmounted(() => {
   >
     <div ref="chartRef" style="width:100%;height:100%"></div>
 
-    <div v-if="chartData.loading.value && !hasData" class="overlay-state">
+    <div v-if="loading && !hasData" class="overlay-state">
       <p class="overlay-text">加载K线数据中...</p>
     </div>
 
-    <div v-else-if="chartData.error.value && !hasData" class="overlay-state">
-      <p class="overlay-text overlay-text--error">{{ chartData.error.value }}</p>
+    <div v-else-if="error && !hasData" class="overlay-state">
+      <p class="overlay-text overlay-text--error">{{ error }}</p>
       <button @click="loadFull()" class="overlay-btn">重试</button>
     </div>
 
-    <div v-else-if="!chartData.loading.value && !chartData.error.value && !hasData" class="overlay-state">
+    <div v-else-if="!loading && !error && !hasData" class="overlay-state">
       <p class="overlay-text">暂无K线数据</p>
     </div>
   </div>
