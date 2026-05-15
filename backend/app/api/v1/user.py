@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -300,6 +300,63 @@ async def adjust_user_cash(
         "amount": float(req.amount),
         "new_cash": float(new_cash.quantize(Decimal("0.01"))),
         "reason": req.reason,
+    }
+
+
+# ── 管理员之间互相授权 ──────────────────────
+# 第一个注册的用户在 auth.py 中自动 is_superuser=True；之后管理员可以通过本接口
+# 提升/取消他人管理员权限。安全围栏：
+# 1. 不能改自己（避免自我降级锁死）
+# 2. 不能取消"最后一个"管理员（否则全站没人能管）
+# 3. 目标用户必须存在（404）
+
+class SetAdminRequest(BaseModel):
+    is_admin: bool = Field(..., description="True=提升为管理员；False=取消管理员")
+
+
+@router.patch("/{user_id}/admin", summary="设置/取消用户的管理员权限（仅管理员）")
+async def set_user_admin(
+    user_id: int,
+    req: SetAdminRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能修改自己的管理员权限")
+
+    async with managed_transaction(db):
+        target = (await db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        if target.is_superuser == req.is_admin:
+            return {
+                "user_id": user_id,
+                "username": target.username,
+                "is_admin": target.is_superuser,
+                "changed": False,
+            }
+
+        # 取消管理员前先确认不是最后一个
+        if not req.is_admin:
+            count_stmt = select(func.count()).select_from(User).where(User.is_superuser == True)  # noqa: E712
+            admin_count = int((await db.execute(count_stmt)).scalar_one())
+            if admin_count <= 1:
+                raise HTTPException(status_code=400, detail="不能取消最后一个管理员")
+
+        target.is_superuser = req.is_admin
+
+    logger.info(
+        "SET_ADMIN by_admin_id=%s target_user_id=%s target_username=%s new_is_admin=%s",
+        admin.id, user_id, target.username, req.is_admin,
+    )
+    return {
+        "user_id": user_id,
+        "username": target.username,
+        "is_admin": target.is_superuser,
+        "changed": True,
     }
 
 
