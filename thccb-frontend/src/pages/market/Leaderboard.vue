@@ -52,24 +52,24 @@ const columns = computed<DataTableColumns<LeaderboardItem>>(() => {
       {
         title: '消费总额', key: 'spent_total',
         render: (row) => h('span', { style: numStyle },
-          row.spent_total != null ? `¥${Number(row.spent_total).toLocaleString()}` : '—'),
+          row.spent_total != null ? `金 ${Number(row.spent_total).toLocaleString()}` : '—'),
       },
       {
         title: '当前债务', key: 'debt',
         render: (row) => h('span', { style: numStyle },
-          row.debt != null ? `¥${Number(row.debt).toLocaleString()}` : '—'),
+          row.debt != null ? `金 ${Number(row.debt).toLocaleString()}` : '—'),
       },
       {
         title: '净消费', key: 'net_worth',
         render: (row) => h('span',
           { style: { ...numStyle, fontWeight: '700' } },
-          `¥${row.net_worth.toLocaleString()}`),
+          `金 ${row.net_worth.toLocaleString()}`),
       },
     )
   } else {
     base.push({
       title: '净值', key: 'net_worth',
-      render: (row) => h('span', { style: numStyle }, `¥${row.net_worth.toLocaleString()}`),
+      render: (row) => h('span', { style: numStyle }, `金 ${row.net_worth.toLocaleString()}`),
     })
   }
   base.push({

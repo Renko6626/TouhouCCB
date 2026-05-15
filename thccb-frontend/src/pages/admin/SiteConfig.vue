@@ -18,7 +18,7 @@ const userList = ref<UserListItem[]>([])
 
 const userOptions = computed<SelectOption[]>(() =>
   userList.value.map(u => ({
-    label: `#${u.id}  ${u.username}  (现金 ¥${u.cash.toFixed(2)} / 负债 ¥${u.debt.toFixed(2)})`,
+    label: `#${u.id}  ${u.username}  (现金 金 ${u.cash.toFixed(2)} / 负债 金 ${u.debt.toFixed(2)})`,
     value: u.id,
   })),
 )
@@ -148,7 +148,7 @@ onMounted(async () => {
           <NButton size="small" @click="loadUsers">刷新</NButton>
         </div>
         <div v-if="selectedUser" class="user-snapshot">
-          当前：<b>{{ selectedUser.username }}</b>（现金 ¥{{ selectedUser.cash.toFixed(2) }} / 负债 ¥{{ selectedUser.debt.toFixed(2) }}）
+          当前：<b>{{ selectedUser.username }}</b>（现金 金 {{ selectedUser.cash.toFixed(2) }} / 负债 金 {{ selectedUser.debt.toFixed(2) }}）
         </div>
 
         <h3>强制放贷（受 loan_enabled 约束）</h3>

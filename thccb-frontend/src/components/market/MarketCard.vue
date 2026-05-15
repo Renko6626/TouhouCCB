@@ -108,7 +108,7 @@ const lastTradeLabel = computed(() =>
       <div class="card-meta">
         <span class="meta-item">
           <span class="meta-label">流动性</span>
-          <span class="meta-value">¥{{ props.market.liquidity_b.toLocaleString() }}</span>
+          <span class="meta-value">金 {{ props.market.liquidity_b.toLocaleString() }}</span>
         </span>
         <span class="meta-item">
           <span class="meta-label">选项</span>

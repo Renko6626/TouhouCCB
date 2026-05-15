@@ -108,7 +108,7 @@ onMounted(() => {
 
         <div class="balance-row">
           <span class="balance-label">当前现金</span>
-          <span class="balance-value tabular-nums">¥ {{ cash.toFixed(2) }}</span>
+          <span class="balance-value tabular-nums">金 {{ cash.toFixed(2) }}</span>
         </div>
 
         <div class="form-grid">
@@ -165,7 +165,7 @@ onMounted(() => {
         <div class="preview">
           <div class="preview-row">
             <span class="preview-label">合计扣减</span>
-            <span class="preview-value tabular-nums">¥ {{ Number.isFinite(totalAmount) ? totalAmount.toFixed(2) : '—' }}</span>
+            <span class="preview-value tabular-nums">金 {{ Number.isFinite(totalAmount) ? totalAmount.toFixed(2) : '—' }}</span>
           </div>
           <div class="preview-row preview-row--secondary">
             <span class="preview-label">兑换后余额</span>
@@ -173,7 +173,7 @@ onMounted(() => {
               class="preview-value tabular-nums"
               :class="{ 'preview-value--bad': Number.isFinite(cashAfter) && cashAfter < 0 }"
             >
-              ¥ {{ Number.isFinite(cashAfter) ? cashAfter.toFixed(2) : '—' }}
+              金 {{ Number.isFinite(cashAfter) ? cashAfter.toFixed(2) : '—' }}
             </span>
           </div>
         </div>
@@ -197,7 +197,7 @@ onMounted(() => {
       <div class="modal-panel">
         <h3 class="modal-title">确认兑换</h3>
         <p class="modal-text">
-          将扣除现金 <b class="tabular-nums">¥ {{ totalAmount.toFixed(2) }}</b>，生成激活码并发送至
+          将扣除现金 <b class="tabular-nums">金 {{ totalAmount.toFixed(2) }}</b>，生成激活码并发送至
           <b>{{ qqUserId }}</b>（房间 <b>{{ roomId }}</b>）。
         </p>
         <p class="modal-warn">
@@ -218,7 +218,7 @@ onMounted(() => {
       <div class="modal-panel modal-panel--result">
         <h3 class="modal-title">兑换成功</h3>
         <p class="modal-text">
-          已扣 <b class="tabular-nums">¥ {{ Number(result.amount).toFixed(2) }}</b>。
+          已扣 <b class="tabular-nums">金 {{ Number(result.amount).toFixed(2) }}</b>。
           请将激活码复制给弹幕系统侧的兑换流程。
         </p>
         <div class="code-box">{{ result.code_string }}</div>
