@@ -116,6 +116,9 @@ app.include_router(admin_redemption_api.router, prefix="/api/v1/admin/redemption
 from app.api.v1 import danmuku as danmuku_api
 app.include_router(danmuku_api.router, prefix="/api/v1/danmuku", tags=["Danmuku"])
 
+from app.api.v1 import admin_stats as admin_stats_api
+app.include_router(admin_stats_api.router, prefix="/api/v1/admin/stats", tags=["AdminStats"])
+
 
 @app.get("/")
 async def root():
