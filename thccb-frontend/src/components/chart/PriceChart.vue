@@ -144,14 +144,31 @@ const loadFull = async () => {
     if (!chartInstance) initChart()
     if (!areaSeries) return
 
+    const fromTsSec = Math.floor(new Date(fromTs).getTime() / 1000) as UTCTimestamp
+    const toTsSec = Math.floor(now.getTime() / 1000) as UTCTimestamp
+
     const data = points.map((pt: PricePoint) => ({
       time: Math.floor(new Date(pt.ts).getTime() / 1000) as UTCTimestamp,
       value: pt.price,
     }))
+    // 追加一个"现在"的合成端点，价格沿用最后一笔成交（LMSR 无成交期间价格恒定）。
+    // 这样即使最后一笔在 1h 前，曲线也会延伸到当前时刻，配合 setVisibleRange 才能
+    // 让用户看到完整的请求时间窗。SSE 增量更新走 update()，同 ts 会自动 replace。
+    if (data.length > 0) {
+      const last = data[data.length - 1]!
+      if ((last.time as number) < (toTsSec as number)) {
+        data.push({ time: toTsSec, value: last.value })
+      }
+    }
     areaSeries.setData(data)
     lastWrittenTs = data.length > 0 ? (data[data.length - 1]!.time as number) : 0
     applyDirectionColors()
-    chartInstance?.timeScale().fitContent()
+
+    // 不用 fitContent()——它会缩到数据范围，让 1h 和 7d lookback 在稀疏交易时表现一致。
+    // setVisibleRange 强制时间轴跨整个请求窗口，曲线短就让左侧留空，时间尺度诚实。
+    if (data.length > 0) {
+      chartInstance?.timeScale().setVisibleRange({ from: fromTsSec, to: toTsSec })
+    }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '价格数据加载失败'
     console.error('[PriceChart] loadFull failed:', err)
