@@ -48,6 +48,8 @@ let resizeRafId: number | null = null
 // K 线本身不需要"合成 forming candle 推进"——backend fill=true 已用空 candle
 // 填到 to_ts；这里只负责把可视范围跟着挪。
 let tickerId: ReturnType<typeof setInterval> | null = null
+// 用户拖时间轴看历史 → ticker 暂停平移（同 PriceChart）
+let userScrolledBack = false
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -192,11 +194,25 @@ const renderFull = (candles: Candle[]) => {
 
   // 不用 fitContent()：那会让时间轴缩到数据范围，与 ticker 平移视窗冲突。
   // setVisibleRange 显式跨整个请求窗口，ticker 之后会每秒平移这个窗口。
-  const nowSec = Math.floor(Date.now() / 1000)
+  // 用 max(clientNow, currentCandle.t + step) 兜底客户端时钟慢于服务器时钟的情况，
+  // 避免最后一根 forming candle 落到可视窗右侧外。
+  applyVisibleRangeToNow()
+}
+
+// 计算"现在"端点：用 max(客户端时钟, currentCandle 右边界) 兜底时钟漂移。
+const computeEffectiveNow = (): number => {
+  const clientNow = Math.floor(Date.now() / 1000)
+  const minTo = currentCandle ? currentCandle.t + stepSeconds.value : clientNow
+  return Math.max(clientNow, minTo)
+}
+
+const applyVisibleRangeToNow = () => {
+  if (!chartInstance) return
+  const to = computeEffectiveNow()
   const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
-  chartInstance?.timeScale().setVisibleRange({
-    from: (nowSec - lookbackSec) as UTCTimestamp,
-    to: nowSec as UTCTimestamp,
+  chartInstance.timeScale().setVisibleRange({
+    from: (to - lookbackSec) as UTCTimestamp,
+    to: to as UTCTimestamp,
   })
 }
 
@@ -305,6 +321,13 @@ const initChart = () => {
   volumeSeries.priceScale().applyOptions({
     scaleMargins: { top: 0.8, bottom: 0 },
   })
+
+  // 用户拖时间轴看历史 → 暂停 ticker 平移（同 PriceChart）
+  chartInstance.timeScale().subscribeVisibleTimeRangeChange((range) => {
+    if (!range) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    userScrolledBack = (nowSec - (range.to as number)) > 2
+  })
 }
 
 const setupResizeObserver = () => {
@@ -326,12 +349,8 @@ const startTicker = () => {
   if (tickerId !== null) return
   tickerId = setInterval(() => {
     if (!chartInstance) return
-    const nowSec = Math.floor(Date.now() / 1000)
-    const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
-    chartInstance.timeScale().setVisibleRange({
-      from: (nowSec - lookbackSec) as UTCTimestamp,
-      to: nowSec as UTCTimestamp,
-    })
+    if (userScrolledBack) return  // 用户在看历史，不抢视野
+    applyVisibleRangeToNow()
   }, 1000)
 }
 

@@ -47,6 +47,11 @@ let lastWrittenTs: number = 0
 // 1Hz ticker：推进合成"现在"端点 + 平移可视窗，让时间轴跟着 wall clock 走，
 // 即使没新交易曲线也在向右生长（实时感）。纯前端定时器，零服务端负载。
 let tickerId: ReturnType<typeof setInterval> | null = null
+// 用户是否拖动时间轴查看历史 —— 拖到 to < now-2s 视为"在看历史"，
+// ticker 暂停平移；拖回贴右端（to ≈ now）自动恢复。
+// 监测靠 subscribeVisibleTimeRangeChange 回调：包括我们自己的 setVisibleRange
+// 也会触发，但用 (nowSec - to) 阈值判断不需要区分来源。
+let userScrolledBack = false
 
 const hasData = computed(() => pointCount.value > 0)
 
@@ -121,6 +126,14 @@ const initChart = () => {
     crosshairMarkerBorderColor: c.line,
     crosshairMarkerBackgroundColor: '#fff',
     priceFormat: { type: 'price', precision: 4, minMove: 0.0001 },
+  })
+
+  // 监听可视窗变化（包括用户拖动 + 我们自己 setVisibleRange）：
+  // 用 nowSec - to > 2 判断用户是否拖到了"看历史"位置；不需要区分事件来源。
+  chartInstance.timeScale().subscribeVisibleTimeRangeChange((range) => {
+    if (!range) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    userScrolledBack = (nowSec - (range.to as number)) > 2
   })
 }
 
@@ -201,15 +214,19 @@ const appendPoint = (price: number, tsMs: number) => {
 // 1Hz ticker：推进合成"现在"端点（沿用最后一笔价格）+ 平移可视窗。
 // 不调 backend、不发请求；CPU 单浏览器 < 0.1%。
 // 与 appendPoint 共享 lastWrittenTs：同秒成交会 replace ticker 写入的占位。
+// 用户拖动看历史时（userScrolledBack=true）暂停平移，避免被 1Hz 强制拉回右端。
 const startTicker = () => {
   if (tickerId !== null) return
   tickerId = setInterval(() => {
     if (!areaSeries || !chartInstance) return
     if (lastPrice.value === null) return
     const nowSec = Math.floor(Date.now() / 1000)
-    if (nowSec <= lastWrittenTs) return  // 同秒已写过，跳过
-    areaSeries.update({ time: nowSec as UTCTimestamp, value: lastPrice.value })
-    lastWrittenTs = nowSec
+    // 继续推进合成端点（即使用户在看历史，数据还是要更新到现在；只是不平移视窗）
+    if (nowSec > lastWrittenTs) {
+      areaSeries.update({ time: nowSec as UTCTimestamp, value: lastPrice.value })
+      lastWrittenTs = nowSec
+    }
+    if (userScrolledBack) return  // 用户在看历史，不抢他的视野
     const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
     chartInstance.timeScale().setVisibleRange({
       from: (nowSec - lookbackSec) as UTCTimestamp,
