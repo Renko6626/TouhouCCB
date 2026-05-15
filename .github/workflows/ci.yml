@@ -69,6 +69,9 @@ jobs:
           "
 
       # Docker 镜像构建 + 推送（仅 push main）
+      # 双推 GHCR + 阿里云 ACR：GHCR 当备份，ACR 给国内服务器 docker pull 用（GHCR 国内拉
+      # 起来 300MB 镜像要半小时；阿里云 ACR 同区域内网 < 30s）。同一份 build 同时打两组
+      # tags，不增加 build 时长。
       - name: Log in to GHCR
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: docker/login-action@v3
@@ -76,6 +79,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Aliyun ACR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Lowercase owner name
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -90,6 +101,10 @@ jobs:
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/thccb-backend:latest
             ghcr.io/${{ env.OWNER_LC }}/thccb-backend:${{ github.sha }}
+            ${{ secrets.ACR_REGISTRY }}/renko/thccb-backend:latest
+            ${{ secrets.ACR_REGISTRY }}/renko/thccb-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ========================================
   # 前端：检查 + 构建 + 上传产物
