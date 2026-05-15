@@ -557,6 +557,8 @@ async def buy_shares(
     )
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
+    # market_prices_post: 全市场所有 outcome 的 post 价快照（按 outcome.id 升序），
+    # 让前端在 LMSR 跨选项价格联动场景下能 O(1) patch 所有 outcome 当前价 + 推图表。
     await BROKER.publish(
         market.id,
         "trade",
@@ -571,6 +573,7 @@ async def buy_shares(
                 "gross": float(pay),
                 "fee": 0.0,
                 "post_market_price": float(post_mp),
+                "market_prices_post": [float(p) for p in new_prices],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
@@ -704,6 +707,7 @@ async def sell_shares(
     )
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
+    # market_prices_post 见 buy_shares 同位置注释
     await BROKER.publish(
         market.id,
         "trade",
@@ -718,6 +722,7 @@ async def sell_shares(
                 "gross": float(proceeds),
                 "fee": float(fee),
                 "post_market_price": float(post_mp),
+                "market_prices_post": [float(p) for p in new_prices],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         }
