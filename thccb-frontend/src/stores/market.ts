@@ -120,11 +120,14 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const fetchLeaderboard = async (limit: number = 20) => {
+  const fetchLeaderboard = async (
+    limit: number = 20,
+    mode: 'net_worth' | 'spending' = 'net_worth',
+  ) => {
     loading.value = true
     error.value = null
     try {
-      leaderboard.value = await marketApi.getLeaderboard(limit)
+      leaderboard.value = await marketApi.getLeaderboard(limit, mode)
     } catch (err: any) {
       error.value = err.message || '获取排行榜失败'
       console.error('获取排行榜失败:', err)
