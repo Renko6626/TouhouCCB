@@ -189,8 +189,18 @@ jobs:
           command_timeout: 30m
           script: |
             cd /home/deploy/TouhouCCB
-            # 先同步仓库代码，让服务器拿到最新 deploy.sh / docker-compose.yml
-            git fetch origin main
+            # 国内服务器 → github.com HTTPS 偶发 GnuTLS recv error -110（GFW 干扰 /
+            # github IP 段瞬时抖动）。重试 5 次，间隔 10s，覆盖大多数瞬时故障。
+            attempts=0
+            until git fetch origin main; do
+              attempts=$((attempts+1))
+              if [ $attempts -ge 5 ]; then
+                echo "git fetch failed after 5 attempts"
+                exit 1
+              fi
+              echo "git fetch failed (attempt $attempts/5), retry in 10s..."
+              sleep 10
+            done
             git pull --ff-only origin main
             bash deploy/deploy.sh
 
