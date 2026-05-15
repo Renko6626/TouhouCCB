@@ -149,6 +149,12 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'admin/batch-adjust-cash',
+        name: 'admin-batch-adjust-cash',
+        component: () => import('@/pages/admin/BatchAdjustCash.vue'),
+        meta: { title: '批量调整现金', requiresAuth: true, requiresAdmin: true },
+      },
+      {
         path: 'admin/redemption/partners',
         name: 'admin-redemption-partners',
         component: () => import('@/pages/admin/RedemptionPartners.vue'),

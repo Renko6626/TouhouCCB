@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
@@ -258,6 +258,157 @@ async def adjust_user_cash(
         "amount": float(req.amount),
         "new_cash": float(new_cash.quantize(Decimal("0.01"))),
         "reason": req.reason,
+    }
+
+
+# ── 批量调整现金（仅管理员） ─────────────────
+# 安全围栏：
+# 1. dry_run 必须先调一次拿到匹配预览，前端二次确认后再 dry_run=false 执行
+# 2. 一次最多影响 BATCH_HARDCAP 个用户，超过 → 400（防止 filter 不严误伤）
+# 3. 任一用户操作后 cash<0 → 该用户跳过（记 failed），不影响其他用户
+# 4. 单事务 + FOR UPDATE 按 id ASC 锁，防止跨用户死锁
+# 5. amount=0 → 400（无意义；且若允许会把"什么都不做"算成功，混淆审计）
+BATCH_ADJUST_HARDCAP = 500
+
+
+class BatchAdjustCashFilter(BaseModel):
+    user_id_min: Optional[int] = Field(default=None, description="包含")
+    user_id_max: Optional[int] = Field(default=None, description="包含")
+    cash_min: Optional[Decimal] = Field(default=None)
+    cash_max: Optional[Decimal] = Field(default=None)
+    debt_min: Optional[Decimal] = Field(default=None)
+    debt_max: Optional[Decimal] = Field(default=None)
+    is_active: Optional[bool] = Field(default=None, description="None=不过滤")
+    include_superuser: bool = Field(default=False, description="默认排除超管，避免误改自己")
+
+
+class BatchAdjustCashRequest(BaseModel):
+    filter: BatchAdjustCashFilter
+    amount: Decimal = Field(..., description="正数加钱，负数扣钱；不能为 0")
+    reason: str = Field(..., min_length=1, max_length=200, description="审计原因，必填")
+    dry_run: bool = Field(default=True, description="默认 true 只预览不写入；false 才实际执行")
+
+
+def _build_user_filter_stmt(f: BatchAdjustCashFilter):
+    """根据 filter 构建 select(User) 语句，复用给 dry_run 预览和实际执行。"""
+    stmt = select(User)
+    conds = []
+    if f.user_id_min is not None:
+        conds.append(User.id >= f.user_id_min)
+    if f.user_id_max is not None:
+        conds.append(User.id <= f.user_id_max)
+    if f.cash_min is not None:
+        conds.append(User.cash >= f.cash_min)
+    if f.cash_max is not None:
+        conds.append(User.cash <= f.cash_max)
+    if f.debt_min is not None:
+        conds.append(User.debt >= f.debt_min)
+    if f.debt_max is not None:
+        conds.append(User.debt <= f.debt_max)
+    if f.is_active is not None:
+        conds.append(User.is_active == f.is_active)
+    if not f.include_superuser:
+        conds.append(User.is_superuser == False)  # noqa: E712 SQLAlchemy 要用 == 不是 is
+    for c in conds:
+        stmt = stmt.where(c)
+    return stmt.order_by(User.id.asc())  # 升序，事务内锁顺序一致防死锁
+
+
+@router.post("/batch-adjust-cash", summary="批量调整用户现金（仅管理员）")
+async def batch_adjust_user_cash(
+    req: BatchAdjustCashRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if req.amount == 0:
+        raise HTTPException(status_code=400, detail="amount 不能为 0")
+
+    # 先用普通 select 预览匹配范围 + 拿计数做 hardcap 检查
+    preview_stmt = _build_user_filter_stmt(req.filter)
+    preview = (await db.execute(preview_stmt)).scalars().all()
+    matched_count = len(preview)
+    if matched_count > BATCH_ADJUST_HARDCAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"匹配用户数 {matched_count} 超过单批上限 {BATCH_ADJUST_HARDCAP}，请收紧 filter",
+        )
+
+    matched_users = [
+        {
+            "id": u.id,
+            "username": u.username,
+            "cash_before": float(u.cash.quantize(Decimal("0.01"))),
+            "debt": float(u.debt.quantize(Decimal("0.01"))),
+            "cash_after": float((u.cash + req.amount).quantize(Decimal("0.01"))),
+            "will_fail": (u.cash + req.amount) < 0,
+        }
+        for u in preview
+    ]
+    will_fail_count = sum(1 for m in matched_users if m["will_fail"])
+    eligible_count = matched_count - will_fail_count
+    total_delta = float((Decimal(eligible_count) * req.amount).quantize(Decimal("0.01")))
+
+    if req.dry_run:
+        return {
+            "dry_run": True,
+            "matched_count": matched_count,
+            "eligible_count": eligible_count,
+            "will_fail_count": will_fail_count,
+            "total_delta": total_delta,
+            "matched_users": matched_users,
+        }
+
+    # 实际执行：单事务内 FOR UPDATE 重新锁全部匹配的行（按 id ASC 防死锁）
+    updated: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    async with managed_transaction(db):
+        locked_stmt = _build_user_filter_stmt(req.filter).with_for_update()
+        users = (await db.execute(locked_stmt)).scalars().all()
+        # 锁后重新校验数量（极罕见 race：管理员之间并发或用户活动）
+        if len(users) > BATCH_ADJUST_HARDCAP:
+            raise HTTPException(
+                status_code=400,
+                detail=f"加锁后匹配 {len(users)} > 上限，操作中止",
+            )
+        for u in users:
+            new_cash = u.cash + req.amount
+            if new_cash < 0:
+                failed.append({
+                    "user_id": u.id,
+                    "username": u.username,
+                    "reason": "操作后现金为负，已跳过",
+                    "cash_before": float(u.cash.quantize(Decimal("0.01"))),
+                    "would_be": float(new_cash.quantize(Decimal("0.01"))),
+                })
+                continue
+            u.cash = new_cash
+            updated.append({
+                "user_id": u.id,
+                "username": u.username,
+                "cash_before": float((u.cash - req.amount).quantize(Decimal("0.01"))),
+                "cash_after": float(new_cash.quantize(Decimal("0.01"))),
+            })
+
+    # 审计日志：每个受影响用户单独 log 一行，便于事后筛查
+    for row in updated:
+        logger.info(
+            "BATCH_ADJUST_CASH admin_id=%s user_id=%s amount=%s reason=%s new_cash=%s",
+            admin.id, row["user_id"], req.amount, req.reason, row["cash_after"],
+        )
+    if failed:
+        logger.warning(
+            "BATCH_ADJUST_CASH admin_id=%s skipped_count=%s amount=%s reason=%s",
+            admin.id, len(failed), req.amount, req.reason,
+        )
+
+    actual_total_delta = float((Decimal(len(updated)) * req.amount).quantize(Decimal("0.01")))
+    return {
+        "dry_run": False,
+        "updated_count": len(updated),
+        "failed_count": len(failed),
+        "total_delta": actual_total_delta,
+        "updated": updated,
+        "failed": failed,
     }
 
 
