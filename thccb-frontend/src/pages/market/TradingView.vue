@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
 import { useUserStore } from '@/stores/user'
 import { useAuthStore } from '@/stores/auth'
 import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, useMessage } from 'naive-ui'
-import { useSSE } from '@/composables/useSSE'
-import type { MarketEvent } from '@/types/api'
-import type { TradeEventData } from '@/types/stream'
+import { useMarketRealtime, MarketRealtimeKey } from '@/composables/useMarketRealtime'
 import TradePanel from '@/components/market/TradePanel.vue'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import OutcomeCard from '@/components/market/OutcomeCard.vue'
@@ -19,12 +17,20 @@ const router = useRouter()
 const marketStore = useMarketStore()
 const userStore = useUserStore()
 const authStore = useAuthStore()
-const sse = useSSE()
 const message = useMessage()
 
 // 状态
 const loading = ref(false)
 const marketId = computed(() => parseInt(route.params.id as string))
+const marketIdForSSE = computed<number | null>(() =>
+  Number.isFinite(marketId.value) ? marketId.value : null,
+)
+
+// SSE 实时流：useMarketRealtime 内部建立 EventSource、跟踪 seq、暴露 latestTrade /
+// pricesByOutcome / gapToken 等反应式状态。通过 provide 注入给子组件（PriceChart /
+// CandleChart）共享同一实例，避免重复建连接。
+const realtime = useMarketRealtime(marketIdForSSE)
+provide(MarketRealtimeKey, realtime)
 
 // 交易表单
 const tradeType = ref<'buy' | 'sell'>('buy')
@@ -66,7 +72,6 @@ const priceLookbackOptions = [
   { label: '7天', value: 10080 },
 ] as const
 
-const candleRefreshToken = ref(0)
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
 // 手机端悬浮交易按钮：面板可见时自动隐藏
@@ -115,16 +120,10 @@ const loadUserData = async () => {
   }
 }
 
-// 初始化加载
+// 初始化加载（SSE 连接由 useMarketRealtime 内部 watch(marketIdForSSE) 自动建立）
 onMounted(() => {
   loadMarketData()
   loadUserData()
-  if (marketId.value) {
-    sse.connect(marketId.value)
-  }
-  sse.on('snapshot', handleRealtimeEvent)
-  sse.on('trade', handleRealtimeEvent)
-  sse.on('market_status', handleRealtimeEvent)
 })
 
 // 交易面板可见性观察：挂载后按 ref 启用
@@ -143,10 +142,7 @@ watch(tradePanelRef, (el) => {
 })
 
 onBeforeUnmount(() => {
-  sse.off('snapshot', handleRealtimeEvent)
-  sse.off('trade', handleRealtimeEvent)
-  sse.off('market_status', handleRealtimeEvent)
-  sse.disconnect()
+  // useMarketRealtime 自己有 onBeforeUnmount disconnect
   if (realtimeRefreshTimer) {
     clearTimeout(realtimeRefreshTimer)
     realtimeRefreshTimer = null
@@ -161,13 +157,9 @@ onBeforeUnmount(() => {
   }
 })
 
-// 监听市场ID变化：先断开旧连接再连新的
+// 监听市场 ID 变化：SSE 重连由 useMarketRealtime 内部 watch 完成；这里只重拉市场数据
 watch(marketId, () => {
-  sse.disconnect()
   loadMarketData()
-  if (marketId.value) {
-    sse.connect(marketId.value)
-  }
 })
 
 const scheduleRealtimeRefresh = () => {
@@ -195,34 +187,42 @@ const maybeSanityRefresh = () => {
   marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
 }
 
-// SSE 事件处理：
-//   trade            → 用 payload 增量更新本地状态，不再 refetch（核心优化点）
-//   snapshot         → 初始/重连快照，全量 refetch 重建状态
-//   market_status    → 状态机变化（halt/settled），全量 refetch
-const handleRealtimeEvent = (event: MarketEvent) => {
-  if (event.market_id !== marketId.value) return
-  // 交易执行期间暂停自动刷新，避免数据不一致
-  if (marketStore.tradeLoading) return
-  candleRefreshToken.value += 1
-
-  if (event.type === 'trade') {
-    const tradePayload = (event.data as TradeEventData).trade
-    marketStore.appendTradeFromSSE(tradePayload)
-    marketStore.patchOutcomePriceFromTrade(tradePayload.outcome_id, tradePayload.post_market_price)
-    maybeSanityRefresh()
-    return
+// ── SSE 驱动的本地状态更新（不再 refetch）──
+// 每条 trade → 增量 append 到 marketTrades + 用 market_prices_post 全量 patch outcomes 当前价
+watch(realtime.latestTrade, (trade) => {
+  if (!trade) return
+  if (marketStore.tradeLoading) return  // 自己刚下单尚未完成，避免冲突
+  marketStore.appendTradeFromSSE(trade)
+  if (trade.market_prices_post) {
+    marketStore.patchAllPricesFromTrade(trade.market_prices_post)
+  } else {
+    // 老后端没带 market_prices_post → 退化只 patch 被交易那个
+    marketStore.patchOutcomePriceFromTrade(trade.outcome_id, trade.post_market_price)
   }
+  maybeSanityRefresh()
+})
 
+// market_status 变化（halt/settled）→ 重拉 market detail 让 UI 状态机更新
+watch(realtime.latestMarketStatus, (status) => {
+  if (!status) return
+  if (marketStore.tradeLoading) return
   scheduleRealtimeRefresh()
-}
+})
+
+// SSE seq gap 检测触发的 reconcile：拉一次成交列表覆盖断线期间漏的
+watch(realtime.gapToken, () => {
+  if (realtime.gapToken.value > 0 && marketId.value) {
+    marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
+  }
+})
 
 const realtimeStatusType = computed<'success' | 'warning'>(() => {
-  return sse.isConnected.value ? 'success' : 'warning'
+  return realtime.isConnected.value ? 'success' : 'warning'
 })
 
 const realtimeStatusText = computed(() => {
-  if (sse.isConnected.value) return '实时连接中'
-  if (sse.reconnectCount.value > 0) return `重连中 (${sse.reconnectCount.value})`
+  if (realtime.isConnected.value) return '实时连接中'
+  if (realtime.reconnectCount.value > 0) return `重连中 (${realtime.reconnectCount.value})`
   return '未连接'
 })
 
@@ -393,7 +393,7 @@ const relTime = (iso: string): string => {
           </div>
           <div class="summary-item">
             <span class="summary-label">实时推送</span>
-            <span :class="['realtime-dot', sse.isConnected.value ? 'dot-on' : 'dot-off']">
+            <span :class="['realtime-dot', realtime.isConnected.value ? 'dot-on' : 'dot-off']">
               {{ realtimeStatusText }}
             </span>
           </div>
@@ -454,8 +454,6 @@ const relTime = (iso: string): string => {
               :outcome-id="selectedOutcomeId"
               :interval="candleInterval"
               :lookback-minutes="candleLookback"
-              :refresh-token="candleRefreshToken"
-              :auto-refresh-ms="sse.isConnected.value ? 0 : 6000"
               height="100%"
             />
           </div>
