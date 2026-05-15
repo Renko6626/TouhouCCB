@@ -6,14 +6,13 @@ import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from starlette.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.database import get_async_session
+from app.core.database import async_session_maker
 from app.models.base import Market, Outcome
-from app.schemas.market import MarketDetailRead, OutcomeQuoteRead
 from app.services.lmsr import get_current_price, quantize_price
 from app.services.realtime import BROKER, MarketEvent, sse_pack
 
@@ -72,33 +71,40 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
 
 
 @router.get("/market/{market_id}", summary="市场实时流（SSE）")
-async def stream_market(
-    market_id: int,
-    db: AsyncSession = Depends(get_async_session),
-):
+async def stream_market(market_id: int):
     """
     SSE 输出：
     - 首包：snapshot（市场当前状态+outcomes现价）
     - 后续：trade / market_status
     - 心跳：ping
+
+    注意：SSE 连接可持续到 MAX_SSE_DURATION（1h），且 snapshot 之后不再用 DB。
+    所以不走 Depends(get_async_session) — 那会让一个 DB 连接被这次请求独占整段连接
+    时长，500 并发 SSE 就能把 pool 打爆。这里用临时 sessionmaker 取完 snapshot 立刻
+    归还连接，broker 队列纯内存推送不需要 DB。
     """
 
-    # 先确认市场存在（也避免无效订阅占资源）
-    market = await db.get(Market, market_id)
-    if not market:
-        raise HTTPException(status_code=404, detail="市场不存在")
+    # 取 snapshot —— 用临时 session，出了 with 块连接立即归还 pool
+    async with async_session_maker() as db:
+        snap = await _build_snapshot(db, market_id)  # 内部已处理 404 / 400
+
+    # 503 预检：满了直接返回，此时 response 还未发出，HTTPException 可正确转 503。
+    # 不在这里实际 subscribe —— 否则若客户端在 generator 启动前就断开，
+    # 订阅会泄漏（finally 永远不进入）。subscribe 移到 generator 内 try 头部，
+    # finally 必然 cover unsubscribe。
+    if BROKER.subscriber_count(market_id) >= BROKER.MAX_SUBSCRIBERS_PER_MARKET:
+        raise HTTPException(status_code=503, detail="当前市场连接数已满，请稍后重试")
 
     async def gen() -> AsyncGenerator[bytes, None]:
-        # 订阅（连接数超限时抛 RuntimeError）
+        # 预检与实际 subscribe 之间可能被填满（极罕见 race）。此时 response 200 已发
+        # 无法返 503，只能静默关流，前端 onerror 会触发重连。
         try:
             q = await BROKER.subscribe(market_id)
         except RuntimeError:
-            raise HTTPException(status_code=503, detail="当前市场连接数已满，请稍后重试")
+            return
 
         start_time = time.monotonic()
         try:
-            # 先发 snapshot
-            snap = await _build_snapshot(db, market_id)
             first = MarketEvent(
                 type="snapshot",
                 market_id=market_id,

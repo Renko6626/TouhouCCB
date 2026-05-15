@@ -29,6 +29,7 @@ const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: IChartApi | null = null
 let areaSeries: ISeriesApi<'Area', Time> | null = null
 let resizeObserver: ResizeObserver | null = null
+let resizeRafId: number | null = null
 
 // 价格涨跌判断
 const priceDirection = computed(() => {
@@ -140,9 +141,11 @@ const setupResize = () => {
   resizeObserver = new ResizeObserver((entries) => {
     const e = entries[0]
     if (!e) return
-    chartInstance?.applyOptions({
-      width: e.contentRect.width,
-      height: e.contentRect.height,
+    const { width, height } = e.contentRect
+    if (resizeRafId !== null) cancelAnimationFrame(resizeRafId)
+    resizeRafId = requestAnimationFrame(() => {
+      resizeRafId = null
+      chartInstance?.applyOptions({ width, height })
     })
   })
   resizeObserver.observe(chartRef.value)
@@ -169,6 +172,7 @@ watch(() => props.lookbackMinutes, () => {
 })
 
 onUnmounted(() => {
+  if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
   if (chartInstance) { chartInstance.remove(); chartInstance = null }
 })
