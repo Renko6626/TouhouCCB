@@ -44,6 +44,10 @@ const lastPrice = ref<number | null>(null)
 // 的"time < last"错误；同 ts 的后一笔走 replace（update 行为同 ts 即 replace）
 let lastWrittenTs: number = 0
 
+// 1Hz ticker：推进合成"现在"端点 + 平移可视窗，让时间轴跟着 wall clock 走，
+// 即使没新交易曲线也在向右生长（实时感）。纯前端定时器，零服务端负载。
+let tickerId: ReturnType<typeof setInterval> | null = null
+
 const hasData = computed(() => pointCount.value > 0)
 
 const priceDirection = computed<'up' | 'down' | 'neutral'>(() => {
@@ -194,6 +198,33 @@ const appendPoint = (price: number, tsMs: number) => {
   applyDirectionColors()
 }
 
+// 1Hz ticker：推进合成"现在"端点（沿用最后一笔价格）+ 平移可视窗。
+// 不调 backend、不发请求；CPU 单浏览器 < 0.1%。
+// 与 appendPoint 共享 lastWrittenTs：同秒成交会 replace ticker 写入的占位。
+const startTicker = () => {
+  if (tickerId !== null) return
+  tickerId = setInterval(() => {
+    if (!areaSeries || !chartInstance) return
+    if (lastPrice.value === null) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (nowSec <= lastWrittenTs) return  // 同秒已写过，跳过
+    areaSeries.update({ time: nowSec as UTCTimestamp, value: lastPrice.value })
+    lastWrittenTs = nowSec
+    const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
+    chartInstance.timeScale().setVisibleRange({
+      from: (nowSec - lookbackSec) as UTCTimestamp,
+      to: nowSec as UTCTimestamp,
+    })
+  }, 1000)
+}
+
+const stopTicker = () => {
+  if (tickerId !== null) {
+    clearInterval(tickerId)
+    tickerId = null
+  }
+}
+
 // resize
 const setupResize = () => {
   if (!chartRef.value || !chartInstance) return
@@ -213,6 +244,7 @@ const setupResize = () => {
 onMounted(async () => {
   await loadFull()
   setupResize()
+  startTicker()
 })
 
 // 切换 outcome / lookback → 完全重载
@@ -241,6 +273,7 @@ if (realtime) {
 }
 
 onUnmounted(() => {
+  stopTicker()
   if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
   if (chartInstance) { chartInstance.remove(); chartInstance = null }
