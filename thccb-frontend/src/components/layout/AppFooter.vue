@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const currentYear = new Date().getFullYear()
+const emit = defineEmits<{ openTos: [] }>()
 </script>
 
 <template>
@@ -8,6 +9,10 @@ const currentYear = new Date().getFullYear()
       <span class="footer-copy">© {{ currentYear }} 东方炒炒币</span>
       <span class="footer-sep" aria-hidden="true">/</span>
       <span class="footer-tagline">预测市场学习平台</span>
+      <span class="footer-sep" aria-hidden="true">/</span>
+      <button type="button" class="footer-link" @click="emit('openTos')">
+        用户协议
+      </button>
     </div>
     <div class="footer-right">
       <span class="footer-badge">LMSR</span>
@@ -64,6 +69,23 @@ const currentYear = new Date().getFullYear()
 
 .footer-text {
   color: #777777;
+}
+
+.footer-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #000000;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.footer-link:hover {
+  color: #333333;
 }
 
 @media (max-width: 640px) {

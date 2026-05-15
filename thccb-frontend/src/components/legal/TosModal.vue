@@ -1,7 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessage } from 'naive-ui'
+
+// viewOnly=false（默认）：强制同意流程；不响应 ESC/遮罩点击，只能勾选+同意。
+// viewOnly=true：随时查看用，无 checkbox/同意按钮；ESC、遮罩点击、X 都可关闭。
+const props = withDefaults(defineProps<{ viewOnly?: boolean }>(), { viewOnly: false })
+const emit = defineEmits<{ close: [] }>()
 
 const authStore = useAuthStore()
 const message = useMessage()
@@ -22,14 +27,43 @@ const onSubmit = async () => {
   }
   // 成功后由 needsTos 计算属性变 false，组件自然卸载，不需要手动关闭
 }
+
+const onOverlayClick = (e: MouseEvent) => {
+  if (!props.viewOnly) return
+  if (e.target === e.currentTarget) emit('close')
+}
+
+const onEscape = (e: KeyboardEvent) => {
+  if (props.viewOnly && e.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  if (props.viewOnly) document.addEventListener('keydown', onEscape)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onEscape)
+})
 </script>
 
 <template>
-  <!-- 不响应 ESC、不响应遮罩点击；只有勾选 + 同意按钮可放行 -->
-  <div class="tos-overlay" role="dialog" aria-modal="true" aria-labelledby="tos-title">
+  <!-- 强制模式：不响应 ESC/遮罩；查看模式：ESC/遮罩/X 均可关闭 -->
+  <div
+    class="tos-overlay"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="tos-title"
+    @click="onOverlayClick"
+  >
     <div class="tos-card">
       <div class="tos-header">
         <span id="tos-title" class="tos-title">东方炒炒币 — 用户须知</span>
+        <button
+          v-if="viewOnly"
+          type="button"
+          class="tos-close-btn"
+          aria-label="关闭"
+          @click="emit('close')"
+        >×</button>
       </div>
 
       <div class="tos-body">
@@ -77,7 +111,8 @@ const onSubmit = async () => {
         </p>
       </div>
 
-      <div class="tos-footer">
+      <!-- 强制模式：checkbox + 同意；查看模式：仅一个关闭按钮 -->
+      <div v-if="!viewOnly" class="tos-footer">
         <label class="tos-checkbox-row">
           <input
             type="checkbox"
@@ -96,6 +131,9 @@ const onSubmit = async () => {
         >
           {{ submitting ? '提交中…' : '同意并继续' }}
         </button>
+      </div>
+      <div v-else class="tos-footer tos-footer-view">
+        <button class="tos-submit" @click="emit('close')">关闭</button>
       </div>
     </div>
   </div>
@@ -140,6 +178,10 @@ const onSubmit = async () => {
   padding: 14px 24px;
   background: #000;
   border-bottom: 2px solid #000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .tos-title {
@@ -148,6 +190,32 @@ const onSubmit = async () => {
   color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.tos-close-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid #fff;
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tos-close-btn:hover {
+  background: #fff;
+  color: #000;
+}
+
+.tos-footer-view {
+  align-items: flex-end;
 }
 
 .tos-body {

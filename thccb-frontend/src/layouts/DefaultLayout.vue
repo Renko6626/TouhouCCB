@@ -11,6 +11,9 @@ import TosModal from '@/components/legal/TosModal.vue'
 const route = useRoute()
 const authStore = useAuthStore()
 
+// 用户协议查看模式开关（footer 点击触发；与 needsTos 的强制模式互斥）
+const tosViewOpen = ref(false)
+
 // 侧栏折叠
 const collapsed = ref(false)
 
@@ -92,11 +95,12 @@ const sidebarActive = computed(() =>
 
     <!-- 页脚 -->
     <footer class="app-footer-wrap">
-      <AppFooter />
+      <AppFooter @open-tos="tosViewOpen = true" />
     </footer>
 
-    <!-- 免责声明同意弹窗：未同意者不可访问主流程 -->
+    <!-- 免责声明：needsTos 走强制模式（必须同意才能继续）；否则按 footer 点击的查看模式打开 -->
     <TosModal v-if="authStore.needsTos" />
+    <TosModal v-else-if="tosViewOpen" view-only @close="tosViewOpen = false" />
   </div>
 </template>
 
