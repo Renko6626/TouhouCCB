@@ -9,6 +9,7 @@ from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.services.realtime import BROKER
+from app.services.rank import rank_title
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
 from app.models.base import User, Market, Outcome, Position, Transaction, MarketStatus, TransactionType
@@ -1033,25 +1034,6 @@ async def resume_market(
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 
-def _net_worth_rank_title(net: Decimal) -> str:
-    rank = "初入幻想乡"
-    if net > 500: rank = "人间之里商人"
-    if net > 2000: rank = "命莲寺赞助者"
-    if net > 10000: rank = "守矢VIP"
-    if net > 50000: rank = "大天狗座上宾"
-    return rank
-
-
-def _spending_rank_title(score: Decimal) -> str:
-    """spending 模式称号（"消费 - 债务"层级与 net_worth 不同：实际消费下限更高）。"""
-    rank = "旅人"
-    if score > 500: rank = "参拜者"
-    if score > 2000: rank = "常驻香客"
-    if score > 10000: rank = "里之贵客"
-    if score > 50000: rank = "山中之主"
-    return rank
-
-
 @router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富/消费排行榜")
 async def leaderboard(
     limit: int = Query(20, ge=1, le=100),
@@ -1068,7 +1050,7 @@ async def leaderboard(
                 user_id=u.id,
                 username=u.username,
                 net_worth=(u.cash - u.debt).quantize(Decimal("0.01")),
-                rank=_net_worth_rank_title(u.cash - u.debt),
+                rank=rank_title(u.cash - u.debt),
             )
             for u in users
         ]
@@ -1129,7 +1111,7 @@ async def leaderboard(
                 user_id=r.id,
                 username=r.username,
                 net_worth=score.quantize(Decimal("0.01")),
-                rank=_spending_rank_title(score),
+                rank=rank_title(score),
                 spent_total=spent.quantize(Decimal("0.01")),
                 debt=debt.quantize(Decimal("0.01")),
             ))
