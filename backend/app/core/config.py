@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     # 管理后台（登录复用本站 JWT，不需要独立密码）
     ADMIN_SECRET_KEY: str = Field(default="")
 
+    # 弹幕系统兑换 HMAC 签名密钥（与朋友的 danmuku 服务端约定共享）。
+    # 默认值与原 danmuku.py 一致便于 dev；生产请在 .env 覆盖，密钥变更后历史码
+    # 在 danmuku 侧验签失败（用户已收到的旧码会失效，所以避免频繁轮换）。
+    DANMUKU_SECRET_KEY: str = Field(default="114514")
+
     # Casdoor SSO（通过 .well-known/openid-configuration 自动发现）
     CASDOOR_ENDPOINT: str = ""            # e.g. https://auth.example.com
     CASDOOR_CLIENT_ID: str = ""
