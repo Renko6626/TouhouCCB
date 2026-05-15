@@ -133,6 +133,24 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   stream.on('market_status', handleMarketStatus)
   stream.on('error', handleError)
 
+  // 监听 tab visibility：浏览器后台 throttle 会让 SSE 推送堆积或被代理 idle 掐断。
+  // 回到前台超过阈值 → 触发一次 reconcile（通过 gapToken），让图表 silent refetch。
+  // 阈值 3s 是经验值：短切回不必扰动，长挂回来必须重对账。
+  const VISIBILITY_RECONCILE_THRESHOLD_MS = 3000
+  let hiddenAt = 0
+  const handleVisibility = () => {
+    if (document.hidden) {
+      hiddenAt = Date.now()
+      return
+    }
+    if (hiddenAt > 0 && Date.now() - hiddenAt > VISIBILITY_RECONCILE_THRESHOLD_MS) {
+      console.log('[realtime] tab visible after long hidden, triggering reconcile')
+      gapToken.value += 1
+    }
+    hiddenAt = 0
+  }
+  document.addEventListener('visibilitychange', handleVisibility)
+
   watch(
     marketId,
     (id, oldId) => {
@@ -159,6 +177,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     stream.off('market_status', handleMarketStatus)
     stream.off('error', handleError)
     stream.disconnect()
+    document.removeEventListener('visibilitychange', handleVisibility)
   })
 
   return {
