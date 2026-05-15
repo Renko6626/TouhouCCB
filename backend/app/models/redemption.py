@@ -84,6 +84,38 @@ class RedemptionTransaction(SQLModel, table=True):
     )
 
 
+class DanmukuExchange(SQLModel, table=True):
+    """弹幕系统兑换记录：用户用站内 cash 兑换 yuan/huo 激活码。
+
+    与 RedemptionCode 的区别：
+    - RedemptionCode 是 admin CSV 预导入的固定码库存
+    - DanmukuExchange 是按需 HMAC 实时生成的激活码（无库存概念）
+    所以两者数据模型分离，但共享同一 service 目录 + API 风格。
+
+    每条记录就是一次成功的兑换：扣 user.cash = yuan + huo（1:1 汇率）→
+    生成 HMAC 签名的 code_string → 落库。资金审计 + 用户历史查询都看这张表。
+    """
+    __tablename__ = "danmuku_exchange"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True, nullable=False)
+    # 用户填的 QQ 号（弹幕系统侧的 user_id）—— 字符串，前端可能传带前导零
+    qq_user_id: str = Field(nullable=False, max_length=32)
+    # 弹幕房间号；默认"弹幕群"由前端兜底
+    room_id: str = Field(nullable=False, max_length=64)
+    yuan: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    huo: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    # 扣减的站内 cash = yuan + huo（1:1）
+    amount: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    # HMAC 签名的激活码字符串，base64url(payload).hex(sig)
+    code_string: str = Field(nullable=False, max_length=512)
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        index=True,
+        sa_type=DateTime(timezone=True),
+    )
+
+
 class RedemptionCode(SQLModel, table=True):
     """用户购买后的兑换码记录。
 
