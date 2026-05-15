@@ -125,4 +125,11 @@ export const adminApi = {
   async wealthStats(): Promise<WealthStats> {
     return api.get<WealthStats>('/api/v1/admin/stats/wealth')
   },
+
+  async setUserAdmin(userId: number, isAdmin: boolean): Promise<{ user_id: number; username: string; is_admin: boolean; changed: boolean }> {
+    return api.patch<{ user_id: number; username: string; is_admin: boolean; changed: boolean }>(
+      `/api/v1/user/${userId}/admin`,
+      { is_admin: isAdmin },
+    )
+  },
 }
