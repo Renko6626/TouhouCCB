@@ -44,6 +44,10 @@ let maSeries: ISeriesApi<'Line', Time> | null = null
 const MA_PERIOD = 10
 let resizeObserver: ResizeObserver | null = null
 let resizeRafId: number | null = null
+// 1Hz ticker：平移可视窗，让时间轴跟着 wall clock 走（实时感）。
+// K 线本身不需要"合成 forming candle 推进"——backend fill=true 已用空 candle
+// 填到 to_ts；这里只负责把可视范围跟着挪。
+let tickerId: ReturnType<typeof setInterval> | null = null
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -186,7 +190,14 @@ const renderFull = (candles: Candle[]) => {
     }
   }
 
-  chartInstance?.timeScale().fitContent()
+  // 不用 fitContent()：那会让时间轴缩到数据范围，与 ticker 平移视窗冲突。
+  // setVisibleRange 显式跨整个请求窗口，ticker 之后会每秒平移这个窗口。
+  const nowSec = Math.floor(Date.now() / 1000)
+  const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
+  chartInstance?.timeScale().setVisibleRange({
+    from: (nowSec - lookbackSec) as UTCTimestamp,
+    to: nowSec as UTCTimestamp,
+  })
 }
 
 // SSE trade 来时，把它合并进本地 currentCandle 并 push 给 lightweight-charts
@@ -311,9 +322,30 @@ const setupResizeObserver = () => {
   resizeObserver.observe(chartRef.value)
 }
 
+const startTicker = () => {
+  if (tickerId !== null) return
+  tickerId = setInterval(() => {
+    if (!chartInstance) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
+    chartInstance.timeScale().setVisibleRange({
+      from: (nowSec - lookbackSec) as UTCTimestamp,
+      to: nowSec as UTCTimestamp,
+    })
+  }, 1000)
+}
+
+const stopTicker = () => {
+  if (tickerId !== null) {
+    clearInterval(tickerId)
+    tickerId = null
+  }
+}
+
 onMounted(async () => {
   await loadFull()
   setupResizeObserver()
+  startTicker()
 })
 
 // 切 outcome / interval / lookback → 全量重载
@@ -344,6 +376,7 @@ if (realtime) {
 }
 
 onUnmounted(() => {
+  stopTicker()
   if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null }
   if (chartInstance) { chartInstance.remove(); chartInstance = null }
