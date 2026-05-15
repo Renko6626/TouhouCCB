@@ -19,6 +19,7 @@ from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
+from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
@@ -31,17 +32,7 @@ ZERO = Decimal("0")
 ONE = Decimal("1")
 
 
-def _rank_title(net_worth: Decimal) -> str:
-    """幻想乡称号"""
-    if net_worth > 50000:
-        return "大天狗的座上宾"
-    if net_worth > 10000:
-        return "守矢神社的VIP"
-    if net_worth > 2000:
-        return "命莲寺的赞助者"
-    if net_worth > 500:
-        return "人间之里的小商贩"
-    return "初入幻想乡的无名氏"
+# 称号统一走 app.services.rank.rank_title（全站一套阈值/文案）
 
 
 @router.get("/summary", response_model=UserSummary, summary="获取资产概览")
@@ -96,7 +87,7 @@ async def get_user_summary(
 
     net_worth = user.cash - user.debt + holdings_value
     unrealized_pnl = holdings_value - total_cost_basis
-    rank = _rank_title(net_worth)
+    rank = rank_title(net_worth)
 
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
