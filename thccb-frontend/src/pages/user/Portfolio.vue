@@ -109,7 +109,7 @@ const holdingsColumns: DataTableColumns<Holding> = [
     title: '均价',
     key: 'avg_price',
     width: 100,
-    render: (row) => `¥${row.avg_price.toFixed(4)}`,
+    render: (row) => `金 ${row.avg_price.toFixed(4)}`,
   },
   {
     // 卖出均价 = market_value / amount，与"均价"对照可直观看出每份盈亏（含 LMSR 滑点）
@@ -118,20 +118,20 @@ const holdingsColumns: DataTableColumns<Holding> = [
     width: 110,
     render: (row) => {
       const v = row.amount > 0 ? row.market_value / row.amount : 0
-      return `¥${v.toFixed(4)}`
+      return `金 ${v.toFixed(4)}`
     },
   },
   {
     title: '成本',
     key: 'cost_basis',
     width: 100,
-    render: (row) => `¥${row.cost_basis.toFixed(2)}`,
+    render: (row) => `金 ${row.cost_basis.toFixed(2)}`,
   },
   {
     title: '市值',
     key: 'market_value',
     width: 100,
-    render: (row) => `¥${row.market_value.toFixed(2)}`,
+    render: (row) => `金 ${row.market_value.toFixed(2)}`,
   },
   {
     title: '浮盈亏',
@@ -141,7 +141,7 @@ const holdingsColumns: DataTableColumns<Holding> = [
       const val = row.unrealized_pnl
       return h('span', {
         style: { color: pnlColor(val), fontWeight: '700', fontVariantNumeric: 'tabular-nums' },
-      }, `${pnlSign(val)}¥${val.toFixed(2)}`)
+      }, `${pnlSign(val)}金 ${val.toFixed(2)}`)
     },
   },
   {
@@ -202,20 +202,20 @@ const holdingsByMarketArray = computed(() => {
       <div class="asset-grid">
         <div class="asset-card">
           <span class="asset-label">现金余额</span>
-          <span class="asset-value">¥{{ userStore.summary.cash.toFixed(2) }}</span>
+          <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓成本</span>
-          <span class="asset-value">¥{{ userStore.summary.total_cost_basis.toFixed(2) }}</span>
+          <span class="asset-value">金 {{ userStore.summary.total_cost_basis.toFixed(2) }}</span>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓市值</span>
-          <span class="asset-value">¥{{ userStore.summary.holdings_value.toFixed(2) }}</span>
+          <span class="asset-value">金 {{ userStore.summary.holdings_value.toFixed(2) }}</span>
         </div>
         <div class="asset-card">
           <span class="asset-label">浮动盈亏</span>
           <span class="asset-value" :style="{ color: pnlColor(userStore.summary.unrealized_pnl) }">
-            {{ pnlSign(userStore.summary.unrealized_pnl) }}¥{{ userStore.summary.unrealized_pnl.toFixed(2) }}
+            {{ pnlSign(userStore.summary.unrealized_pnl) }}金 {{ userStore.summary.unrealized_pnl.toFixed(2) }}
           </span>
         </div>
         <div
@@ -226,11 +226,11 @@ const holdingsByMarketArray = computed(() => {
           title="点击查看负债详情"
         >
           <span class="asset-label">负债</span>
-          <span class="asset-value asset-value-debt">¥{{ Number(userStore.summary.debt).toFixed(2) }}</span>
+          <span class="asset-value asset-value-debt">金 {{ Number(userStore.summary.debt).toFixed(2) }}</span>
         </div>
         <div class="asset-card asset-card-highlight asset-card-wide">
           <span class="asset-label">净资产</span>
-          <span class="asset-value asset-value-net">¥{{ userStore.summary.net_worth.toFixed(2) }}</span>
+          <span class="asset-value asset-value-net">金 {{ userStore.summary.net_worth.toFixed(2) }}</span>
         </div>
       </div>
 
@@ -279,9 +279,9 @@ const holdingsByMarketArray = computed(() => {
           <template #footer>
             <div class="card-footer-row">
               <div class="card-footer-stats">
-                <span>市值：¥{{ marketHoldings.total_value.toFixed(2) }}</span>
+                <span>市值：金 {{ marketHoldings.total_value.toFixed(2) }}</span>
                 <span :style="{ color: pnlColor(marketHoldings.total_pnl), fontWeight: '700' }">
-                  盈亏：{{ pnlSign(marketHoldings.total_pnl) }}¥{{ marketHoldings.total_pnl.toFixed(2) }}
+                  盈亏：{{ pnlSign(marketHoldings.total_pnl) }}金 {{ marketHoldings.total_pnl.toFixed(2) }}
                 </span>
               </div>
               <NSpace size="small">

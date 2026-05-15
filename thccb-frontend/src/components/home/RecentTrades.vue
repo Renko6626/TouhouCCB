@@ -82,7 +82,7 @@ const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
           >
             {{ truncate(t.market_title, 18) }}
           </span>
-          <span class="rt-price">¥{{ Number(t.price).toFixed(4) }}</span>
+          <span class="rt-price">金 {{ Number(t.price).toFixed(4) }}</span>
         </li>
       </TransitionGroup>
     </ul>

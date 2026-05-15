@@ -32,7 +32,7 @@ const heatLabel = computed(() => {
       <div class="outcome-row">
         <span class="outcome-label">当前价格:</span>
         <span class="outcome-value outcome-value--bold">
-          ¥{{ props.outcome.current_price.toFixed(4) }}
+          金 {{ props.outcome.current_price.toFixed(4) }}
           <span
             v-if="props.outcome.price_change_pct_24h != null"
             :class="['change-tag', props.outcome.price_change_pct_24h > 0 ? 'up' : props.outcome.price_change_pct_24h < 0 ? 'down' : '']"
@@ -49,7 +49,7 @@ const heatLabel = computed(() => {
 
       <div v-if="props.outcome.payout != null" class="outcome-row">
         <span class="outcome-label">赔付:</span>
-        <span class="outcome-value">¥{{ props.outcome.payout.toFixed(2) }}</span>
+        <span class="outcome-value">金 {{ props.outcome.payout.toFixed(2) }}</span>
       </div>
 
       <div class="outcome-row">

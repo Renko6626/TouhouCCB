@@ -85,7 +85,7 @@ const submitAdjustCash = async () => {
   const confirmed = await new Promise<boolean>((resolve) => {
     dialog.warning({
       title: `确认${action}`,
-      content: `确认给用户 #${cashForm.value.userId} ${action} ¥${Math.abs(cashForm.value.amount)}？`,
+      content: `确认给用户 #${cashForm.value.userId} ${action} 金 ${Math.abs(cashForm.value.amount)}？`,
       positiveText: '确认',
       negativeText: '取消',
       onPositiveClick: () => resolve(true),
@@ -97,7 +97,7 @@ const submitAdjustCash = async () => {
   cashRunning.value = true
   try {
     const result = await adminApi.adjustCash(cashForm.value.userId, cashForm.value.amount, cashForm.value.reason)
-    message.success(`${action}成功：${result.username} 当前现金 ¥${result.new_cash}`)
+    message.success(`${action}成功：${result.username} 当前现金 金 ${result.new_cash}`)
     cashForm.value = { userId: null, amount: 0, reason: '' }
     await loadUsers()
   } catch (error: any) {
@@ -149,8 +149,8 @@ async function toggleAdmin(row: UserListItem) {
 const userColumns: DataTableColumns<UserListItem> = [
   { title: 'ID', key: 'id', width: 60 },
   { title: '用户名', key: 'username' },
-  { title: '现金', key: 'cash', width: 120, render: (row) => `¥${row.cash.toFixed(2)}` },
-  { title: '负债', key: 'debt', width: 100, render: (row) => `¥${row.debt.toFixed(2)}` },
+  { title: '现金', key: 'cash', width: 120, render: (row) => `金 ${row.cash.toFixed(2)}` },
+  { title: '负债', key: 'debt', width: 100, render: (row) => `金 ${row.debt.toFixed(2)}` },
   {
     title: '角色', key: 'is_superuser', width: 80,
     render: (row) => h(NTag, { type: row.is_superuser ? 'warning' : 'default', size: 'small' }, { default: () => row.is_superuser ? '管理员' : '用户' }),
@@ -202,7 +202,7 @@ const directOutcomeOptions = computed<SelectOption[]>(() =>
 
 const userOptions = computed<SelectOption[]>(() =>
   userList.value.map(u => ({
-    label: `#${u.id}  ${u.username}  (现金 ¥${u.cash.toFixed(2)})`,
+    label: `#${u.id}  ${u.username}  (现金 金 ${u.cash.toFixed(2)})`,
     value: u.id,
   })),
 )
@@ -418,7 +418,7 @@ const directSettle = async () => {
 const columns: DataTableColumns<MarketListItem> = [
   { title: 'ID', key: 'id', width: 80, render: (row) => `#${row.id}` },
   { title: '市场标题', key: 'title', render: (row) => row.title },
-  { title: '流动性', key: 'liquidity_b', width: 120, render: (row) => `¥${row.liquidity_b.toLocaleString()}` },
+  { title: '流动性', key: 'liquidity_b', width: 120, render: (row) => `金 ${row.liquidity_b.toLocaleString()}` },
   {
     title: '状态', key: 'status', width: 120, render: (row) => {
       const map: Record<string, string> = { trading: '交易中', halt: '已熔断', settled: '已结算' }
