@@ -155,6 +155,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '批量调整现金', requiresAuth: true, requiresAdmin: true },
       },
       {
+        path: 'admin/wealth-stats',
+        name: 'admin-wealth-stats',
+        component: () => import('@/pages/admin/WealthStats.vue'),
+        meta: { title: '资产统计', requiresAuth: true, requiresAdmin: true },
+      },
+      {
         path: 'admin/redemption/partners',
         name: 'admin-redemption-partners',
         component: () => import('@/pages/admin/RedemptionPartners.vue'),
