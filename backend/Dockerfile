@@ -31,4 +31,7 @@ EXPOSE 8004
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
     CMD curl -sf http://127.0.0.1:8004/api/v1/market/list || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "2"]
+# --workers 1：SSE broker 是进程内 pubsub，多 worker 下 trade 事件不会跨 worker 通知，
+# 订阅在 worker A 而交易落在 worker B 的客户端永远收不到事件。修法本应是 Redis pubsub，
+# 但当前规模 + 单核异步性能足够（DB 是瓶颈不是 CPU），所以暂保单 worker 换 SSE 一致性。
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004", "--workers", "1"]
