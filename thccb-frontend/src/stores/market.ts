@@ -109,6 +109,17 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
+  // 用 trade.market_prices_post 全量 patch 所有 outcome 当前价（按 id 升序）。
+  // 修复"LMSR 跨选项联动后其他 outcome 价格 stale"问题——不再只 patch 被交易那个。
+  const patchAllPricesFromTrade = (marketPricesPost: number[]) => {
+    if (!currentMarket.value) return
+    const sorted = [...currentMarket.value.outcomes].sort((a, b) => a.id - b.id)
+    if (sorted.length !== marketPricesPost.length) return  // 长度不匹配，跳过保护
+    for (let i = 0; i < sorted.length; i++) {
+      sorted[i]!.current_price = marketPricesPost[i]!
+    }
+  }
+
   const fetchLeaderboard = async (limit: number = 20) => {
     loading.value = true
     error.value = null
@@ -301,6 +312,7 @@ export const useMarketStore = defineStore('market', () => {
     fetchLeaderboard,
     appendTradeFromSSE,
     patchOutcomePriceFromTrade,
+    patchAllPricesFromTrade,
     buyShares,
     sellShares,
     getQuote,
