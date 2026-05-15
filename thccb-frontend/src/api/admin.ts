@@ -79,6 +79,36 @@ export interface BatchAdjustExecuteResponse {
 
 export type BatchAdjustResponse = BatchAdjustDryRunResponse | BatchAdjustExecuteResponse
 
+export interface WealthBracket {
+  label: string
+  lower: number | null
+  upper: number | null
+  count: number
+  sum_wealth: number
+  pct: number
+}
+
+export interface WealthStats {
+  user_count: number
+  total_cash: number
+  total_debt: number
+  total_holdings_value: number
+  total_net_worth: number
+  mean: number
+  median: number
+  std: number
+  min: number
+  max: number
+  p10: number
+  p25: number
+  p50: number
+  p75: number
+  p90: number
+  p99: number
+  gini: number
+  brackets: WealthBracket[]
+}
+
 export const adminApi = {
   async listUsers(): Promise<UserListItem[]> {
     return api.get<UserListItem[]>('/api/v1/user/list')
@@ -90,5 +120,9 @@ export const adminApi = {
 
   async batchAdjustCash(req: BatchAdjustRequest): Promise<BatchAdjustResponse> {
     return api.post<BatchAdjustResponse>('/api/v1/user/batch-adjust-cash', req)
+  },
+
+  async wealthStats(): Promise<WealthStats> {
+    return api.get<WealthStats>('/api/v1/admin/stats/wealth')
   },
 }
