@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted, nextTick, computed } from 'vue'
+import { ref, onMounted, watch, onUnmounted, nextTick, computed, inject } from 'vue'
 import {
   createChart,
   ColorType,
@@ -9,9 +9,10 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { useChartData } from '@/composables/useChartData'
+import { chartApi } from '@/api/chart'
 import type { PricePoint } from '@/types/api'
 import { getPalette } from '@/utils/palette'
+import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
 
 const props = withDefaults(defineProps<{
   outcomeId: number
@@ -24,21 +25,33 @@ const props = withDefaults(defineProps<{
   height: '400px',
 })
 
-const chartData = useChartData()
+// inject realtime —— 必须在 useMarketRealtime provider 下使用（TradingView 提供）
+const realtime = inject(MarketRealtimeKey, null)
+
 const chartRef = ref<HTMLDivElement | null>(null)
 let chartInstance: IChartApi | null = null
 let areaSeries: ISeriesApi<'Area', Time> | null = null
 let resizeObserver: ResizeObserver | null = null
 let resizeRafId: number | null = null
 
-// 价格涨跌判断
-const priceDirection = computed(() => {
-  const pts = chartData.priceData.value
-  if (pts.length < 2) return 'neutral'
-  return pts[pts.length - 1]!.price >= pts[0]!.price ? 'up' : 'down'
+// 本地状态
+const loading = ref(false)
+const error = ref<string | null>(null)
+const pointCount = ref(0)
+const firstPrice = ref<number | null>(null)
+const lastPrice = ref<number | null>(null)
+// 上一次写入图表的 timestamp（秒）—— 防止两笔同 ts 交易触发 lightweight-charts
+// 的"time < last"错误；同 ts 的后一笔走 replace（update 行为同 ts 即 replace）
+let lastWrittenTs: number = 0
+
+const hasData = computed(() => pointCount.value > 0)
+
+const priceDirection = computed<'up' | 'down' | 'neutral'>(() => {
+  if (firstPrice.value === null || lastPrice.value === null) return 'neutral'
+  if (lastPrice.value === firstPrice.value) return 'neutral'
+  return lastPrice.value > firstPrice.value ? 'up' : 'down'
 })
 
-// 从 :root 的 CSS 变量读取，保持与全局色板一致
 const hexToRgba = (hex: string, alpha: number): string => {
   const h = hex.replace('#', '')
   const r = parseInt(h.slice(0, 2), 16)
@@ -56,26 +69,19 @@ const buildColors = () => {
   }
 }
 
-const loadData = async () => {
-  if (!props.outcomeId) return
-  const now = new Date()
-  const fromTs = new Date(now.getTime() - props.lookbackMinutes * 60 * 1000).toISOString()
-  const toTs = now.toISOString()
-  await chartData.getPriceSeries(props.outcomeId, fromTs, toTs)
-  await nextTick()
-  if (!chartInstance) {
-    initChart()
-    setupResize()
-  }
-  updateChart()
+const applyDirectionColors = () => {
+  if (!areaSeries) return
+  const c = buildColors()[priceDirection.value]
+  areaSeries.applyOptions({
+    lineColor: c.line,
+    topColor: c.topFill,
+    bottomColor: c.bottomFill,
+    crosshairMarkerBorderColor: c.line,
+  })
 }
 
 const initChart = () => {
-  if (!chartRef.value) return
-  if (chartInstance) {
-    chartInstance.remove()
-    chartInstance = null
-  }
+  if (!chartRef.value || chartInstance) return
 
   chartInstance = createChart(chartRef.value, {
     layout: {
@@ -100,7 +106,7 @@ const initChart = () => {
     height: chartRef.value.clientHeight,
   })
 
-  const c = buildColors()[priceDirection.value]
+  const c = buildColors().neutral
   areaSeries = chartInstance.addSeries(AreaSeries, {
     lineColor: c.line,
     lineWidth: 2,
@@ -114,28 +120,64 @@ const initChart = () => {
   })
 }
 
-const updateChart = () => {
-  if (!areaSeries || !chartData.priceData.value.length) return
+// 全量加载（初始 / 切换 outcome+lookback / gap reconcile / 重连）
+const loadFull = async () => {
+  if (!props.outcomeId) return
+  loading.value = true
+  error.value = null
+  try {
+    const now = new Date()
+    const fromTs = new Date(now.getTime() - props.lookbackMinutes * 60 * 1000).toISOString()
+    const toTs = now.toISOString()
+    const resp = await chartApi.getPriceSeries(props.outcomeId, fromTs, toTs, 5000)
+    if (!resp || !resp.points) {
+      pointCount.value = 0
+      return
+    }
 
-  const data = chartData.priceData.value.map((pt: PricePoint) => ({
-    time: Math.floor(new Date(pt.ts).getTime() / 1000) as UTCTimestamp,
-    value: pt.price,
-  }))
+    const points = resp.points
+    pointCount.value = points.length
+    firstPrice.value = points[0]?.price ?? null
+    lastPrice.value = points[points.length - 1]?.price ?? null
 
-  areaSeries.setData(data)
+    await nextTick()
+    if (!chartInstance) initChart()
+    if (!areaSeries) return
 
-  // 更新涨跌颜色
-  const c = buildColors()[priceDirection.value]
-  areaSeries.applyOptions({
-    lineColor: c.line,
-    topColor: c.topFill,
-    bottomColor: c.bottomFill,
-    crosshairMarkerBorderColor: c.line,
-  })
-
-  chartInstance?.timeScale().fitContent()
+    const data = points.map((pt: PricePoint) => ({
+      time: Math.floor(new Date(pt.ts).getTime() / 1000) as UTCTimestamp,
+      value: pt.price,
+    }))
+    areaSeries.setData(data)
+    lastWrittenTs = data.length > 0 ? (data[data.length - 1]!.time as number) : 0
+    applyDirectionColors()
+    chartInstance?.timeScale().fitContent()
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '价格数据加载失败'
+    console.error('[PriceChart] loadFull failed:', err)
+  } finally {
+    loading.value = false
+  }
 }
 
+// 增量 append 一个点（SSE trade 驱动）
+const appendPoint = (price: number, tsMs: number) => {
+  if (!areaSeries) return
+  // 秒级 ts；lightweight-charts 要求 time 严格递增，等 ts 算同点 replace
+  let tsSec = Math.floor(tsMs / 1000) as UTCTimestamp
+  if ((tsSec as number) < lastWrittenTs) {
+    // 时钟漂移或乱序事件 → 强制 +1s 单调（极罕见）
+    tsSec = (lastWrittenTs + 1) as UTCTimestamp
+  }
+  areaSeries.update({ time: tsSec, value: price })
+  lastWrittenTs = tsSec as number
+  pointCount.value += 1
+  if (firstPrice.value === null) firstPrice.value = price
+  lastPrice.value = price
+  applyDirectionColors()
+}
+
+// resize
 const setupResize = () => {
   if (!chartRef.value || !chartInstance) return
   resizeObserver = new ResizeObserver((entries) => {
@@ -151,25 +193,35 @@ const setupResize = () => {
   resizeObserver.observe(chartRef.value)
 }
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadFull()
+  setupResize()
 })
 
-watch(() => props.outcomeId, () => {
-  if (chartInstance) {
-    chartInstance.remove()
-    chartInstance = null
-    areaSeries = null
-  }
-  loadData()
-})
-
-watch(() => props.lookbackMinutes, () => {
+// 切换 outcome / lookback → 完全重载
+watch(() => [props.outcomeId, props.lookbackMinutes], () => {
   chartInstance?.applyOptions({
     timeScale: { secondsVisible: props.lookbackMinutes <= 60 },
   })
-  loadData()
+  loadFull()
 })
+
+// SSE 实时增量：监听 latestTrade
+if (realtime) {
+  watch(realtime.latestTrade, (trade) => {
+    if (!trade) return
+    // 用 pricesByOutcome 取当前 outcome 的最新价（含其他 outcome 联动 patch 后的值）
+    const price = realtime.pricesByOutcome.value.get(props.outcomeId)
+    if (price === undefined) return
+    const tsMs = new Date(trade.timestamp).getTime()
+    appendPoint(price, tsMs)
+  })
+
+  // gap 检测：seq 不连续 → silent reload 当前可见区段
+  watch(realtime.gapToken, () => {
+    if (realtime.gapToken.value > 0) loadFull()
+  })
+}
 
 onUnmounted(() => {
   if (resizeRafId !== null) { cancelAnimationFrame(resizeRafId); resizeRafId = null }
@@ -183,20 +235,20 @@ onUnmounted(() => {
     :style="{ width: props.width || '100%', height: props.height || '400px' }"
     class="price-chart-container"
   >
-    <div v-if="chartData.loading.value" class="chart-state">
+    <div v-if="loading && !hasData" class="chart-state">
       <p class="chart-state-text">加载中...</p>
     </div>
 
-    <div v-else-if="chartData.error.value" class="chart-state">
-      <p class="chart-state-text chart-state-text--error">{{ chartData.error.value }}</p>
-      <button @click="loadData()" class="chart-retry-btn">重试</button>
+    <div v-else-if="error && !hasData" class="chart-state">
+      <p class="chart-state-text chart-state-text--error">{{ error }}</p>
+      <button @click="loadFull()" class="chart-retry-btn">重试</button>
     </div>
 
-    <div v-else-if="chartData.priceData.value.length === 0" class="chart-state">
+    <div v-else-if="!loading && !error && !hasData" class="chart-state">
       <p class="chart-state-text">暂无价格数据</p>
     </div>
 
-    <div v-show="chartData.priceData.value.length > 0" ref="chartRef" style="width:100%;height:100%"></div>
+    <div v-show="hasData" ref="chartRef" style="width:100%;height:100%"></div>
   </div>
 </template>
 
