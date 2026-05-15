@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { danmukuApi, type DanmukuExchangeHistoryItem, type DanmukuExchangeResponse } from '@/api/danmuku'
+import { danmukuApi, type DanmukuExchangeResponse } from '@/api/danmuku'
 import { useUserStore } from '@/stores/user'
 import { extractErrorMessage } from '@/utils/errors'
 import { useMessage } from 'naive-ui'
@@ -17,9 +17,6 @@ const submitting = ref(false)
 const error = ref('')
 const showConfirm = ref(false)
 const result = ref<DanmukuExchangeResponse | null>(null)
-
-const history = ref<DanmukuExchangeHistoryItem[]>([])
-const historyLoading = ref(false)
 
 // 解析数字（空 → 0），失败 → NaN
 const parseNum = (s: string): number => {
@@ -60,17 +57,6 @@ const formError = computed(() => {
   return ''
 })
 
-async function loadHistory() {
-  historyLoading.value = true
-  try {
-    history.value = await danmukuApi.myHistory()
-  } catch (e) {
-    console.error('[Danmuku] history load failed:', e)
-  } finally {
-    historyLoading.value = false
-  }
-}
-
 async function onExchange() {
   if (!formValid.value || submitting.value) return
   submitting.value = true
@@ -84,8 +70,7 @@ async function onExchange() {
     })
     result.value = resp
     showConfirm.value = false
-    // 刷新余额 + 历史
-    await Promise.all([userStore.fetchSummary(), loadHistory()])
+    await userStore.fetchSummary()
     // 兑换成功后清空金额字段（QQ/房间号保留方便连续兑换）
     yuan.value = ''
     huo.value = ''
@@ -103,14 +88,16 @@ async function copyCode(text: string) {
 
 onMounted(() => {
   if (!userStore.summary) userStore.fetchSummary()
-  loadHistory()
 })
 </script>
 
 <template>
   <div class="page">
     <header class="page-header">
-      <h1 class="page-title">弹幕系统兑换</h1>
+      <div class="page-header-row">
+        <h1 class="page-title">弹幕系统兑换</h1>
+        <router-link to="/my/redemptions" class="history-link">查看兑换历史 →</router-link>
+      </div>
       <p class="page-sub">用站内现金按 1:1 兑换弹幕系统的 yuan / huo 激活码</p>
     </header>
 
@@ -203,32 +190,6 @@ onMounted(() => {
           {{ submitting ? '处理中…' : '兑换' }}
         </button>
       </section>
-
-      <!-- 历史记录 -->
-      <section class="history-card">
-        <h2 class="card-title">兑换历史</h2>
-
-        <div v-if="historyLoading" class="history-empty">加载中…</div>
-        <div v-else-if="history.length === 0" class="history-empty">尚无兑换记录</div>
-        <ul v-else class="history-list">
-          <li v-for="item in history" :key="item.id" class="history-item">
-            <div class="history-meta">
-              <span class="history-ts">{{ new Date(item.timestamp).toLocaleString('zh-CN') }}</span>
-              <span class="history-amount tabular-nums">¥ {{ Number(item.amount).toFixed(2) }}</span>
-            </div>
-            <div class="history-detail">
-              <span class="history-tag">QQ {{ item.qq_user_id }}</span>
-              <span class="history-tag">房间 {{ item.room_id }}</span>
-              <span class="history-tag tabular-nums">y {{ Number(item.yuan).toFixed(2) }}</span>
-              <span class="history-tag tabular-nums">h {{ Number(item.huo).toFixed(2) }}</span>
-            </div>
-            <div class="history-code-row">
-              <code class="history-code">{{ item.code_string }}</code>
-              <button class="history-copy" @click="copyCode(item.code_string)" title="复制激活码">复制</button>
-            </div>
-          </li>
-        </ul>
-      </section>
     </div>
 
     <!-- 二次确认弹窗 -->
@@ -280,6 +241,13 @@ onMounted(() => {
 .page-header {
   margin-bottom: 20px;
 }
+.page-header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 .page-title {
   font-size: 22px;
   font-weight: 800;
@@ -291,20 +259,23 @@ onMounted(() => {
   font-size: 13px;
   color: #555;
 }
+.history-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #000;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.history-link:hover {
+  color: #444;
+}
 
 .layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-}
-@media (min-width: 960px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
+  max-width: 640px;
+  margin: 0 auto;
 }
 
-.form-card,
-.history-card {
+.form-card {
   border: 2px solid #000;
   background: #fff;
   padding: 20px;
@@ -464,86 +435,6 @@ onMounted(() => {
   color: #888;
   box-shadow: 4px 4px 0 #eee;
   cursor: not-allowed;
-}
-
-/* 历史列表 */
-.history-empty {
-  padding: 24px;
-  text-align: center;
-  font-size: 13px;
-  color: #888;
-}
-.history-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-height: 560px;
-  overflow-y: auto;
-}
-.history-item {
-  border: 1px solid #000;
-  background: #fff;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.history-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: 12px;
-}
-.history-ts {
-  color: #666;
-}
-.history-amount {
-  font-weight: 700;
-  color: #000;
-}
-.history-detail {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.history-tag {
-  font-size: 11px;
-  padding: 1px 6px;
-  background: #f0f0f0;
-  border: 1px solid #ccc;
-  color: #333;
-}
-.history-code-row {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.history-code {
-  flex: 1 1 auto;
-  display: block;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  padding: 6px 8px;
-  background: #f5f5f5;
-  border: 1px solid #ccc;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.history-copy {
-  flex: 0 0 auto;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  background: #fff;
-  border: 1.5px solid #000;
-  cursor: pointer;
-}
-.history-copy:hover {
-  background: #000;
-  color: #fff;
 }
 
 /* 弹窗 */
