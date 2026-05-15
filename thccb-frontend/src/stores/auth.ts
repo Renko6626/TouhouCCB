@@ -83,6 +83,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // 用户改昵称后同步本地 user.username（避免 AppHeader / Portfolio 等地方还显示旧名）
+  const patchUsername = (newName: string) => {
+    if (user.value) {
+      user.value = { ...user.value, username: newName }
+      localStorage.setItem('user', JSON.stringify(user.value))
+    }
+  }
+
   return {
     user,
     accessToken,
@@ -95,5 +103,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     checkAuth,
     acceptTos,
+    patchUsername,
   }
 })

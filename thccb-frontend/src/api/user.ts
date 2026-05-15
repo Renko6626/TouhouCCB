@@ -20,7 +20,12 @@ export const userApi = {
   // 获取交易历史；默认最近 100 条，后端上限 200
   async getTransactions(limit = 100): Promise<Transaction[]> {
     return api.get<Transaction[]>('/api/v1/user/transactions', { params: { limit } })
-  }
+  },
+
+  // 修改自己的昵称
+  async updateUsername(username: string): Promise<{ username: string; changed: boolean }> {
+    return api.patch<{ username: string; changed: boolean }>('/api/v1/user/me/username', { username })
+  },
 }
 
 export default userApi

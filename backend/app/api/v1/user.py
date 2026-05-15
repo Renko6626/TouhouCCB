@@ -208,6 +208,57 @@ async def get_my_transactions(
     return results
 
 
+# ── 用户自助修改昵称 ─────────────────────────
+# username 在本系统中只是显示名（登录走 Casdoor SSO 关联 casdoor_id），改动不影响
+# 登录。历史成交记录里的 username 是发送时刻的快照，不回填——与 Twitter / Discord
+# 等标准做法一致。
+import re
+
+_USERNAME_RE = re.compile(r"^[\w一-龥\-]{2,32}$")
+
+
+class UpdateUsernameRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=32)
+
+
+@router.patch("/me/username", summary="修改我的昵称")
+async def update_my_username(
+    req: UpdateUsernameRequest,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    new_name = req.username.strip()
+    if not _USERNAME_RE.match(new_name):
+        raise HTTPException(
+            status_code=400,
+            detail="昵称仅支持中文/英文/数字/下划线/连字符，长度 2-32 字符",
+        )
+    if new_name == user.username:
+        return {"username": user.username, "changed": False}
+
+    async with managed_transaction(db):
+        # 行锁自己，避免并发改名导致最终落不到唯一索引（虽然 DB 也会兜底）
+        locked = (await db.execute(
+            select(User).where(User.id == user.id).with_for_update()
+        )).scalar_one()
+
+        # unique 校验：另一行用了这个 username？
+        dup = (await db.execute(
+            select(User.id).where(User.username == new_name).where(User.id != user.id)
+        )).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="该昵称已被占用")
+
+        old_name = locked.username
+        locked.username = new_name
+
+    logger.info(
+        "USERNAME_UPDATE user_id=%s old=%s new=%s",
+        user.id, old_name, new_name,
+    )
+    return {"username": new_name, "changed": True}
+
+
 # ==========================================
 # 管理员接口
 # ==========================================
