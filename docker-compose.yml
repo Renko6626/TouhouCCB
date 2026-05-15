@@ -23,7 +23,9 @@ services:
         max-file: "3"
 
   backend:
-    image: ghcr.io/renko6626/thccb-backend:latest  # GHCR 要求全小写
+    # 走阿里云 ACR（北京区）：国内服务器 docker pull 走内网/CDN 比 ghcr.io 快 10x+。
+    # GHCR 仍由 CI 双推作备份，要切回改这行 image 即可（账号、镜像名相同）。
+    image: crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:latest
     container_name: thccb-backend
     restart: unless-stopped
     depends_on:
