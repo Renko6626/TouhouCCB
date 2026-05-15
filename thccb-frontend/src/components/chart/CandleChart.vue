@@ -171,24 +171,18 @@ const renderFull = (candles: Candle[]) => {
   }
   maSeries.setData(maData)
 
-  // 初始化本地增量状态
+  // 初始化本地增量状态：永远把最后一根 candle 当 forming。
+  // backend `fill=true` 模式保证返回的最后一根 = "当前 bucket"（用空 candle 填到 now），
+  // 所以不用本地 Date.now() 做判断（用户系统时钟偏差会错位归类）。
   if (candles.length === 0) {
     publishedCloses = []
     currentCandle = null
   } else {
-    // backend 已返回的最末根 candle 视为"forming"（如果它是当前 bucket），
-    // 否则视为已闭合。判断：bucket 起点 >= 当前 bucket 起点 → forming
-    const nowBucket = Math.floor(Date.now() / 1000 / stepSeconds.value) * stepSeconds.value
-    const lastT = toUtcTimestamp(candles[candles.length - 1]!.t) as number
-    if (lastT >= nowBucket) {
-      // 最末根是 forming
-      publishedCloses = candles.slice(0, -1).map(c => c.c)
-      const last = candles[candles.length - 1]!
-      currentCandle = { t: lastT, o: last.o, h: last.h, l: last.l, c: last.c, v: last.v }
-    } else {
-      // 全是已闭合
-      publishedCloses = candles.map(c => c.c)
-      currentCandle = null
+    publishedCloses = candles.slice(0, -1).map(c => c.c)
+    const last = candles[candles.length - 1]!
+    currentCandle = {
+      t: toUtcTimestamp(last.t) as number,
+      o: last.o, h: last.h, l: last.l, c: last.c, v: last.v,
     }
   }
 
@@ -219,14 +213,28 @@ const applyTrade = (price: number, shares: number, tsMs: number) => {
     return
   }
 
-  if (bucketStart > currentCandle.t) {
-    // 新 bucket：闭合 currentCandle，开新 candle
+  if (bucketStart === currentCandle.t + stepSeconds.value) {
+    // 正常切到下一个 bucket：闭合 currentCandle，开新 candle
     publishedCloses.push(currentCandle.c)
-    // 新 candle 以前一根 close 当 open 更平滑（也可以用 price 作 open，但跨 bucket 跳价不好看）
     const prevClose = currentCandle.c
-    currentCandle = { t: bucketStart, o: prevClose, h: Math.max(prevClose, price), l: Math.min(prevClose, price), c: price, v: shares }
+    currentCandle = {
+      t: bucketStart,
+      o: prevClose,
+      h: Math.max(prevClose, price),
+      l: Math.min(prevClose, price),
+      c: price,
+      v: shares,
+    }
     pushFormingToChart()
     candleCount.value += 1
+    return
+  }
+
+  if (bucketStart > currentCandle.t + stepSeconds.value) {
+    // 跨过 ≥1 个完整 bucket（用户挂后台 / 间隔时段无 trade / SSE 期间漏消息）
+    // → 中间 bucket 数据本地无法合成，触发 loadFull 让 backend fill=true 补齐
+    console.warn('[CandleChart] multi-bucket gap, triggering reload')
+    loadFull()
     return
   }
 
