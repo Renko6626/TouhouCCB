@@ -20,6 +20,7 @@ const navItems = [
   { label: '借款', path: '/loan', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
   { label: '兑换中心', path: '/redemption', icon: 'i-mdi-gift-outline', activeIcon: 'i-mdi-gift' },
   { label: '我的兑换', path: '/my/redemptions', icon: 'i-mdi-ticket-confirmation-outline', activeIcon: 'i-mdi-ticket-confirmation' },
+  { label: '弹幕兑换', path: '/danmuku/exchange', icon: 'i-mdi-message-text-outline', activeIcon: 'i-mdi-message-text' },
 ]
 
 const adminItems = [
