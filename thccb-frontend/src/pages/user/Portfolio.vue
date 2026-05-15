@@ -3,9 +3,12 @@ import { ref, onMounted, computed, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useMarketStore } from '@/stores/market'
+import { useAuthStore } from '@/stores/auth'
+import { userApi } from '@/api/user'
+import { extractErrorMessage } from '@/utils/errors'
 import {
   NButton, NCard, NTag,
-  NSpace, NSpin, NDataTable, NEmpty, NAlert
+  NSpace, NSpin, NDataTable, NEmpty, NAlert, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import type { Holding } from '@/types/api'
@@ -14,9 +17,47 @@ import MarketStatus from '@/components/market/MarketStatus.vue'
 const router = useRouter()
 const userStore = useUserStore()
 const marketStore = useMarketStore()
+const authStore = useAuthStore()
+const message = useMessage()
 
 const loading = ref(false)
 const loadError = ref('')
+
+// 修改昵称弹窗状态
+const editingName = ref(false)
+const newUsername = ref('')
+const savingName = ref(false)
+const nameError = ref('')
+
+function openNameEditor() {
+  newUsername.value = authStore.user?.username ?? ''
+  nameError.value = ''
+  editingName.value = true
+}
+
+async function saveUsername() {
+  const name = newUsername.value.trim()
+  if (!name) {
+    nameError.value = '昵称不能为空'
+    return
+  }
+  if (name.length < 2 || name.length > 32) {
+    nameError.value = '昵称长度需在 2-32 字符之间'
+    return
+  }
+  savingName.value = true
+  nameError.value = ''
+  try {
+    const resp = await userApi.updateUsername(name)
+    authStore.patchUsername(resp.username)
+    message.success(resp.changed ? '昵称已更新' : '昵称未变更')
+    editingName.value = false
+  } catch (e) {
+    nameError.value = extractErrorMessage(e, '修改失败')
+  } finally {
+    savingName.value = false
+  }
+}
 
 const loadData = async () => {
   loading.value = true
@@ -193,9 +234,14 @@ const holdingsByMarketArray = computed(() => {
         </div>
       </div>
 
-      <!-- 称号 + 快捷操作 -->
+      <!-- 账户 + 称号 + 快捷操作 -->
       <div class="rank-bar">
         <div class="rank-info">
+          <span class="account-name">
+            {{ authStore.user?.username || '匿名' }}
+            <button type="button" class="account-edit-btn" @click="openNameEditor" title="修改昵称">✎</button>
+          </span>
+          <span class="rank-divider">·</span>
           <span class="rank-text">{{ userStore.summary.rank }}</span>
         </div>
         <div class="rank-actions">
@@ -252,6 +298,30 @@ const holdingsByMarketArray = computed(() => {
             <NButton type="primary" @click="router.push('/market/list')">去市场看看</NButton>
           </template>
         </NEmpty>
+      </div>
+    </div>
+
+    <!-- 修改昵称弹窗 -->
+    <div v-if="editingName" class="name-modal-bg" @click.self="editingName = false">
+      <div class="name-modal">
+        <h3 class="name-modal-title">修改昵称</h3>
+        <p class="name-modal-hint">2-32 字符；中文 / 英文 / 数字 / 下划线 / 连字符</p>
+        <input
+          v-model="newUsername"
+          type="text"
+          class="name-input"
+          maxlength="32"
+          :disabled="savingName"
+          @keydown.enter="saveUsername"
+          autofocus
+        />
+        <p v-if="nameError" class="name-error">
+          <span class="warning-tag">注意</span>{{ nameError }}
+        </p>
+        <div class="name-modal-actions">
+          <NButton @click="editingName = false" :disabled="savingName">取消</NButton>
+          <NButton type="primary" @click="saveUsername" :loading="savingName">保存</NButton>
+        </div>
       </div>
     </div>
   </div>
@@ -350,9 +420,42 @@ const holdingsByMarketArray = computed(() => {
 .rank-info {
   display: flex;
   align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 600;
   color: #000;
+  flex-wrap: wrap;
+}
+
+.account-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-edit-btn {
+  appearance: none;
+  background: transparent;
+  border: 1.5px solid #000;
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.account-edit-btn:hover {
+  background: #000;
+  color: #fff;
+}
+
+.rank-divider {
+  color: #999;
 }
 
 .rank-text {
@@ -362,6 +465,77 @@ const holdingsByMarketArray = computed(() => {
 .rank-actions {
   display: flex;
   gap: 8px;
+}
+
+/* 修改昵称弹窗 */
+.name-modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.name-modal {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border: 4px solid #000;
+  box-shadow: 8px 8px 0 #000;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.name-modal-title {
+  font-size: 16px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.name-modal-hint {
+  font-size: 12px;
+  color: #666;
+}
+
+.name-input {
+  padding: 8px 10px;
+  border: 2px solid #000;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.name-input:focus {
+  outline: none;
+  background: #fafafa;
+}
+
+.name-error {
+  font-size: 12px;
+  color: #dc2626;
+  margin: 0;
+}
+
+.warning-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  background: #000;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.name-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 /* 持仓区 */
