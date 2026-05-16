@@ -55,6 +55,23 @@ let userScrolledBack = false
 
 const hasData = computed(() => pointCount.value > 0)
 
+// 按 lookback 选 bucket 降采样：避免长窗口下区间交易笔数撑爆后端 5000 行硬上限
+// （chart.py:_fetch_initial_shares_and_replay 的 `len(replay_rows) > limit` check）。
+// 同时控制返回点数 ≤ ~1500，前端绘制压力小。1h 留逐笔以保实时观感。
+const PRICE_BUCKET_THRESHOLDS: { maxLookbackMin: number; bucket?: string }[] = [
+  { maxLookbackMin: 60,    bucket: undefined }, // ≤1h：逐笔
+  { maxLookbackMin: 360,   bucket: '30s' },     // ≤6h
+  { maxLookbackMin: 1440,  bucket: '5m' },      // ≤24h
+  { maxLookbackMin: 4320,  bucket: '15m' },     // ≤3d
+  { maxLookbackMin: 10080, bucket: '1h' },      // ≤7d
+]
+const pickBucket = (lookbackMin: number): string | undefined => {
+  for (const row of PRICE_BUCKET_THRESHOLDS) {
+    if (lookbackMin <= row.maxLookbackMin) return row.bucket
+  }
+  return '1h'
+}
+
 const priceDirection = computed<'up' | 'down' | 'neutral'>(() => {
   if (firstPrice.value === null || lastPrice.value === null) return 'neutral'
   if (lastPrice.value === firstPrice.value) return 'neutral'
@@ -146,7 +163,10 @@ const loadFull = async () => {
     const now = new Date()
     const fromTs = new Date(now.getTime() - props.lookbackMinutes * 60 * 1000).toISOString()
     const toTs = now.toISOString()
-    const resp = await chartApi.getPriceSeries(props.outcomeId, fromTs, toTs, 5000)
+    // limit=20000 是后端 hard cap（chart.py 的 Query(ge=1, le=20000)）。
+    // bucket 仅压缩返回点数，不能减少 replay_rows 数；所以 limit 拉满 + bucket 双管齐下。
+    const bucket = pickBucket(props.lookbackMinutes)
+    const resp = await chartApi.getPriceSeries(props.outcomeId, fromTs, toTs, 20000, bucket)
     if (!resp || !resp.points) {
       pointCount.value = 0
       return
@@ -189,6 +209,14 @@ const loadFull = async () => {
   } catch (err) {
     error.value = err instanceof Error ? err.message : '价格数据加载失败'
     console.error('[PriceChart] loadFull failed:', err)
+    // 切到新 lookback 失败时清掉旧数据，避免 chart 残留上一档 lookback 的图但视窗
+    // 被 1Hz ticker 拉宽到新 lookback —— 这就是"显示不出来"的视觉来源。清空后
+    // hasData=false 才会让 error overlay 走 v-else-if 显示出来。
+    pointCount.value = 0
+    firstPrice.value = null
+    lastPrice.value = null
+    lastWrittenTs = 0
+    if (areaSeries) areaSeries.setData([])
   } finally {
     loading.value = false
   }
