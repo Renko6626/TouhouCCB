@@ -120,3 +120,59 @@ async def upsert_candles(db: AsyncSession, rows: Iterable[dict]) -> None:
         },
     )
     await db.execute(stmt)
+
+
+async def backfill_one_market(db: AsyncSession, market_id: int) -> int:
+    """回填某个 market 的全部 buy/sell Transaction 到 candle 表。
+
+    幂等：通过 upsert_candles 的 ON CONFLICT DO UPDATE 合并；但**不能对同一
+    Transaction 重复调用**（否则 volume/n 会被累加）—— 调用方应先
+    `DELETE FROM outcome_candle WHERE outcome_id IN (...)` 或保证只调一次。
+
+    返回处理的 Transaction 行数。
+    """
+    from sqlalchemy import select
+    from app.models.base import Market, Outcome, Transaction, TransactionType
+
+    market = await db.get(Market, market_id)
+    if market is None:
+        return 0
+    outcomes = (await db.execute(
+        select(Outcome).where(Outcome.market_id == market_id).order_by(Outcome.id)
+    )).scalars().all()
+    if not outcomes:
+        return 0
+    outcome_ids = [o.id for o in outcomes]
+
+    txs = (await db.execute(
+        select(Transaction)
+        .where(
+            Transaction.outcome_id.in_(outcome_ids),
+            Transaction.type.in_([TransactionType.BUY, TransactionType.SELL]),
+        )
+        .order_by(Transaction.timestamp.asc())
+    )).scalars().all()
+
+    n_processed = 0
+    for tx in txs:
+        # 优先用 market_prices_post 快照；缺失时 fallback
+        if tx.market_prices_post and len(tx.market_prices_post) == len(outcome_ids):
+            new_prices = [float(p) for p in tx.market_prices_post]
+        else:
+            # fallback: 用 tx.post_market_price 当被交易 outcome 价，其他 outcome 用 1/N
+            # 这是退化路径，生产前应先跑 backfill_market_prices_post 保证 snapshot 齐全
+            new_prices = [
+                float(tx.post_market_price) if oid == tx.outcome_id
+                else 1.0 / len(outcome_ids) for oid in outcome_ids
+            ]
+        rows = compute_candle_rows(
+            traded_outcome_id=tx.outcome_id,
+            outcome_ids=outcome_ids,
+            new_prices=new_prices,
+            traded_shares=tx.shares,
+            ts=tx.timestamp,
+        )
+        await upsert_candles(db, rows)
+        n_processed += 1
+
+    return n_processed
