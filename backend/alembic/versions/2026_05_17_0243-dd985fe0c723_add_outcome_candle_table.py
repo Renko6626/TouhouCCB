@@ -43,21 +43,15 @@ def upgrade() -> None:
     # ### end Alembic commands ###
 
     # ── 回填历史 Transaction → outcome_candle（spec § 6） ──
-    # 用独立 sync engine 跑回填；按 market 分批提交，避免单巨型事务长锁
-    # Transaction 表。URL 走 settings.build_db_url() 跟 alembic env.py 同步，
-    # 再把异步驱动换成 sync 对应驱动。
-    from sqlalchemy import create_engine
-    from app.core.config import settings
-
-    sync_url = settings.build_db_url()
-    sync_url = sync_url.replace("postgresql+asyncpg", "postgresql+psycopg2")
-    sync_url = sync_url.replace("sqlite+aiosqlite", "sqlite")
-    sync_url = sync_url.replace("mysql+asyncmy", "mysql+pymysql")
-    sync_engine = create_engine(sync_url)
-    try:
-        _backfill_sync(sync_engine)
-    finally:
-        sync_engine.dispose()
+    # 必须用 op.get_bind() 拿 alembic 当前 connection；不能新建 sync_engine。
+    # 原因：Postgres DDL（CREATE TABLE）是事务性的，外层 alembic tx 未 COMMIT
+    # 之前对其他 connection 不可见。独立 engine 开新 connection 看不到新建的
+    # outcome_candle 表，回填的 INSERT 会 ProgrammingError: relation does not
+    # exist。Postgres 严格隔离，SQLite 不区分，所以本地 dev 测试时不会暴露。
+    #
+    # 代价：回填必须跟 CREATE TABLE 在同一个 alembic 事务里跑完，"按 market
+    # 分批提交"无法实现。对当前规模（百~千笔 trade）一个大事务足够快。
+    _backfill_in_alembic_tx(op.get_bind())
 
 
 def downgrade() -> None:
@@ -67,24 +61,30 @@ def downgrade() -> None:
     # ### end Alembic commands ###
 
 
-def _backfill_sync(sync_engine) -> None:
-    """同步版本的回填：在 alembic upgrade 上下文中调用。
-    按 market 分批提交，避免单巨型事务长锁。
+def _backfill_in_alembic_tx(connection) -> None:
+    """在 alembic 当前 connection / 事务里跑回填。
+
+    `connection` 是 op.get_bind() 拿到的；它跟 CREATE TABLE 在同一事务，能看
+    到新建的 outcome_candle。回填的 INSERT 也走这条 connection，回填结果跟
+    CREATE TABLE 一起被 alembic 的外层 tx COMMIT（成功）或 ROLLBACK（失败）。
+
+    `Session(bind=connection)` 跟 sessionmaker(bind=engine) 的区别：前者复用
+    传入的 connection（已有 tx context），不开新 tx；session 内调 commit/flush
+    都受外层 alembic tx 管控。回填失败时无需手动 rollback——alembic 会一起回滚。
     """
-    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.orm import Session
     from app.models.base import Market
 
-    SessionLocal = sessionmaker(bind=sync_engine)
-    with SessionLocal() as s:
-        market_ids = [r[0] for r in s.execute(sa.select(Market.id).order_by(Market.id)).all()]
-
-    print(f"[migration] 回填 {len(market_ids)} 个 market 的 candle 数据...")
-    for mid in market_ids:
-        # 每 market 一个独立 session/事务，避免长锁
-        with SessionLocal() as s:
-            _backfill_one_market_sync(s, mid)
-            s.commit()
-        print(f"[migration]   market {mid} done")
+    session = Session(bind=connection)
+    try:
+        market_ids = [r[0] for r in session.execute(sa.select(Market.id).order_by(Market.id)).all()]
+        print(f"[migration] 回填 {len(market_ids)} 个 market 的 candle 数据...")
+        for mid in market_ids:
+            _backfill_one_market_sync(session, mid)
+            session.flush()  # 让本 market 数据进 DB，但不 commit（alembic 管 commit）
+            print(f"[migration]   market {mid} done")
+    finally:
+        session.close()
 
 
 def _backfill_one_market_sync(s, market_id: int) -> None:
