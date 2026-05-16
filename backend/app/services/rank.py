@@ -3,8 +3,9 @@
 全站只按 net_worth 一个口径定称号——无论是个人 summary、排行榜（净值/消费）
 还是其他场景，都调本函数。阈值与文案改动只需改这一处。
 
-约定：net_worth 含义由调用方决定（个人/榜单 net_worth = cash - debt；
-消费榜 = 兑换消费总额 - 当前债务）。负值/0 都落到最低档"初入幻想乡"。
+约定：net_worth 含义由调用方决定（个人/财富榜 net_worth = cash - debt
++ 持仓 LMSR 清算价；消费榜 = 兑换消费总额 - 当前债务）。负值/0 都落到
+最低档"初入幻想乡"。
 """
 from decimal import Decimal
 

@@ -142,7 +142,7 @@ class MarketTradeRead(BaseModel):
 class LeaderboardItem(BaseModel):
     user_id: int
     username: str
-    # 排序分值；net_worth 模式 = cash - debt，spending 模式 = 兑换消费总额 - 当前债务
+    # 排序分值；net_worth 模式 = cash - debt + 持仓 LMSR 清算价，spending 模式 = 兑换消费总额 - 当前债务
     net_worth: Money
     rank: str
     # spending 模式额外填充：累计兑换消费 & 当前债务
