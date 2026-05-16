@@ -67,19 +67,34 @@ async def lifespan(app: FastAPI):
 
 
 async def _resync_recent_candles(window_hours: int = 1) -> None:
-    """扫近 window_hours 内的 buy/sell Transaction，对 candle 表做幂等 UPSERT。
-    覆盖 migration→新代码之间的 race window。
+    """启动时清重建近 window_hours 内的 candle 桶，覆盖 migration→新代码上线之间的
+    race window。
 
-    注：upsert 用 ON CONFLICT DO UPDATE 累加 volume/n_trades，所以重复跑同一
-    Transaction 会 double-count。设计上只在 startup 跑一次、窗口小（1h），
-    影响有限。不做精确 dedup 是为了保持函数简单 + 幂等失败安全。
+    幂等性：先 DELETE 涉及窗口的 candle 行（按最大 interval=1h 对齐到桶边界、再
+    向前推一个 max_interval 以包住跨边界桶），再从 Transaction 表完整重建。这样
+    多次重启都得到同样结果，绝不 double-count volume/n_trades。
+
+    与 upsert_candles 的累加语义配合：DELETE 之后桶不存在 → 第一次 UPSERT 走 INSERT
+    分支，后续同 bucket 多笔走 UPDATE 累加，最终值 = 从 0 开始重新积累。
     """
     from app.core.database import async_session_maker
-    from app.models.base import Outcome, Transaction, TransactionType
-    from app.services.candle_writer import compute_candle_rows, upsert_candles
-    from sqlalchemy import select
+    from app.models.base import Outcome, OutcomeCandle, Transaction, TransactionType
+    from app.services.candle_writer import (
+        CANDLE_INTERVALS,
+        compute_candle_rows,
+        upsert_candles,
+    )
+    from sqlalchemy import delete, select
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    # 安全 cutoff：在 (now - window) 前再推一个 max_interval（1h），并 floor 到
+    # max_interval 边界。这保证：
+    #   1. 任何被回放的 trade 落入的桶都在 DELETE 范围内（跨 cutoff 边界的 1h 桶不漏删）
+    #   2. cutoff 之前的桶不被 DELETE 也不被回放 → 保持原状
+    max_interval_sec = max(step for _, step in CANDLE_INTERVALS)
+    raw_cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    safe_epoch = int(raw_cutoff.timestamp()) - max_interval_sec
+    safe_epoch -= safe_epoch % max_interval_sec
+    cutoff = datetime.fromtimestamp(safe_epoch, tz=timezone.utc)
 
     async with async_session_maker() as s:
         market_ids_result = (await s.execute(
@@ -104,6 +119,14 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
             outcome_ids = [o.id for o in outcomes]
             if not outcome_ids:
                 continue
+
+            # 关键：先清掉窗口内已有 candle 行，避免 UPSERT 累加路径污染
+            await s.execute(
+                delete(OutcomeCandle).where(
+                    OutcomeCandle.outcome_id.in_(outcome_ids),
+                    OutcomeCandle.bucket_start >= cutoff,
+                )
+            )
 
             txs = (await s.execute(
                 select(Transaction)
