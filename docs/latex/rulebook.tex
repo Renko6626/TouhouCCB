@@ -1,0 +1,809 @@
+% !TEX program = xelatex
+% ============================================================
+%  东方炒炒币 · 规则书 -- 主文件
+%  样式定义全部在 touhouccb.sty
+%  Build:  xelatex rulebook.tex  (run twice for TOC)
+% ============================================================
+\documentclass[11pt,a4paper,twoside]{article}
+\usepackage{touhouccb}
+
+\begin{document}
+
+% ------------------------------------------------------------
+%  封面
+% ------------------------------------------------------------
+\begin{titlepage}
+  \pagecolor{paper}
+  \color{ink}
+  \begin{center}
+  \vspace*{1.2cm}
+
+  {\sffamily\fontsize{10pt}{12pt}\selectfont \textcolor{soft}{\quad TOUHOU CCB \quad / \quad RULEBOOK \quad / \quad v1.0}}\par
+  \vspace{0.4cm}
+  {\color{rule}\hrule height 1.6pt}
+  \vspace{0.6cm}
+
+  {\sffamily\bfseries\fontsize{42pt}{50pt}\selectfont 东方炒炒币}\par
+  \vspace{0.5em}
+  {\sffamily\fontsize{16pt}{20pt}\selectfont \textcolor{soft}{Touhou Card Crypto Bet}}\par
+
+  \vspace{0.8cm}
+  {\color{rule}\hrule height 0.6pt}
+  \vspace{0.6cm}
+
+  {\sffamily\fontsize{14pt}{18pt}\selectfont \textbf{规\ 则\ 书}}\par
+  \vspace{0.4em}
+  {\kai\fontsize{12pt}{16pt}\selectfont 由大天狗\textcolor{goldAccent}{\textbf{饭纲丸龙}}特别赞助}\par
+
+  \vfill
+
+  {\kai\fontsize{13pt}{18pt}\selectfont 在幻想乡，价格即胜率。}\par
+
+  \vfill
+  {\color{rule}\hrule height 0.6pt}
+  \vspace{0.4cm}
+
+  \begin{minipage}{0.45\linewidth}\raggedright
+    \sffamily\small\textcolor{soft}{ISSUED BY}\\[0.15em]
+    \sffamily\textbf{饭纲丸龙金融市场管理委员会}\\
+    \sffamily\small\textcolor{soft}{Iizunamaru Financial Authority}
+  \end{minipage}\hfill
+  \begin{minipage}{0.45\linewidth}\raggedleft
+    \sffamily\small\textcolor{soft}{DOCUMENT}\\[0.15em]
+    \sffamily\textbf{Rulebook \textnumero\ 001}\\
+    \sffamily\small\textcolor{soft}{Compiled with Xe\LaTeX{}}
+  \end{minipage}
+
+  \vspace{0.4cm}
+  {\color{rule}\hrule height 1.6pt}
+  \end{center}
+\end{titlepage}
+\nopagecolor
+
+% ------------------------------------------------------------
+%  致新手：怎么读这本书
+% ------------------------------------------------------------
+\thispagestyle{empty}
+\vspace*{1.2cm}
+
+{\sffamily\bfseries\Large 致新手}\hfill{\sffamily\small\color{soft}HOW TO READ}\par
+\vspace{0.3em}
+{\color{rule}\hrule height 1pt}
+\vspace{1em}
+
+\textbf{这本规则书比看起来短。}\;真正"新手必读"的部分加起来\textbf{ 5 分钟}就能看完——前 4 节大约 6 页，看完你就能操作。其余章节按需查阅即可。
+
+\vspace{0.6em}
+
+\textbf{难度地图}
+
+\vspace{0.3em}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\sffamily\bfseries\color{goldAccent}}l X@{}}
+\toprule
+{\color{ink}\sffamily\bfseries 标签} & {\color{ink}\sffamily\bfseries 含义} \\
+\midrule
+\textsf{[入门]} & 第 1–4 节：核心概念 + 游戏内收益从哪里来。\textbf{看完就能玩。} \\
+\textsf{[实战]} & 第 5、6 节：手续费、滑点、游戏流程四阶段——避免踩坑。 \\
+\textsf{[对照]} & 第 5 节末：固定赔率概念对照——一张表翻译过来。 \\
+\textsf{[彩蛋]} & 附录 A：LMSR 数学推导。\textbf{不看完全不影响玩。} \\
+\textsf{[进阶]} & 附录 B：向依神女苑借钱（杠杆）。\textbf{新手暂时无视。} \\
+\bottomrule
+\end{tabularx}
+
+\normalsize
+\vspace{0.8em}
+
+\textbf{看不懂的地方？}\;所有金融术语（滑点、净值、做市商、二元期权……）在出现时都会用大白话解释一遍。如果某段实在啃不动，跳过它继续往下读，多半不影响理解后面的内容。
+
+\textbf{担心算错账？}\;实际下单时系统会实时显示成交均价、滑点幅度和扣手续费后的到账金额——\textbf{不需要心算}。
+
+\vspace{0.4em}
+
+\begin{notebox}
+\textbf{积分名称说明：}\;本系统中所有写作“元”的数值，均指软件内部的虚拟积分，正式名称为\term{金圆券}。金圆券只用于本游戏的规则计算、界面显示和教学演示，\textbf{不代表人民币、外币或任何真实世界货币}。
+\end{notebox}
+
+\vspace{0.4em}
+
+\textbf{最该记住的一句话}（贯穿整本规则书）：
+
+\begin{notebox}
+\centering 在本系统里，\textbf{价格\,=\,市场认为这一方会赢的概率}。\\[0.2em]
+价格 \money{0.30} 就是 30\,\% 胜率；价格 \money{0.80} 就是 80\,\% 胜率。\\[0.2em]
+\textbf{这一句听懂了，整本书的核心就懂了。}
+\end{notebox}
+
+\vspace{0.3em}
+\textcolor{soft}{\small 关于版权、虚拟货币性质和法律免责的正式声明在本书\textbf{末尾}。准备好了？翻页开始。}
+
+\clearpage
+
+% ------------------------------------------------------------
+%  目录
+% ------------------------------------------------------------
+\thispagestyle{empty}
+\vspace*{0.5cm}
+{\sffamily\bfseries\Large 目\quad 录}\par
+\vspace{0.4em}
+{\color{rule}\hrule height 1pt}
+\vspace{0.6em}
+\begingroup
+  \renewcommand{\contentsname}{}
+  \tableofcontents
+\endgroup
+\clearpage
+
+% ============================================================
+%  1. 缘起
+% ============================================================
+\section{缘起：哇多么好的机会}
+
+\dragonquote{驹草山如的旧摊位被封了，可妖怪们的热闹劲还没散。}{饭纲丸龙}
+
+自从驹草山如的旧摊位被八云紫\textbf{物理查封}以后，幻想乡的资金流动陷入了停滞。好多妖怪即使整天大吃大喝，她们的钱也根本花不完。为了振兴幻想乡的经济（顺便割点韭菜），大天狗饭纲丸龙开发了一套全新的游戏系统。
+
+在这里，你不再只是\textcolor{soft}{猜一次比赛结果}的旁观者，而是一名抓住好机会的\term{胜率交易员}——你的持仓可以随时买卖，不需要等到比赛结束；只要你的判断比别人准，游戏内余额就可能增加。
+
+\begin{notebox}
+本系统是一个基于 LMSR 的二元预测市场。你买卖的是一种\textbf{随对局结果结算}的“胜券”。开市后价格随每一笔交易实时变化，你既可以持有到结算(类似传统玩法)，也可以中途差价套利离场。
+\end{notebox}
+
+\vspace{0.4em}
+
+% ----- 30 秒上手卡 -----
+\begin{tcolorbox}[
+  colback=white,colframe=goldAccent,boxrule=1.2pt,sharp corners,arc=0pt,
+  title={\sffamily\bfseries\large 快速上手},
+  coltitle=white,colbacktitle=goldAccent,
+  left=12pt,right=12pt,top=10pt,bottom=10pt,
+  fonttitle=\sffamily\bfseries,
+]
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.30\linewidth} c >{\raggedright\arraybackslash}p{0.27\linewidth} c >{\raggedright\arraybackslash}p{0.28\linewidth}@{}}
+  \textcolor{goldAccent}{\textbf{\large (1)}}\;\textbf{选一边买入} &
+  $\rightarrow$ &
+  \textcolor{goldAccent}{\textbf{\large (2)}}\;\textbf{持有 \emph{或} 中途卖出} &
+  $\rightarrow$ &
+  \textcolor{goldAccent}{\textbf{\large (3)}}\;\textbf{比赛结束 / 结算} \\[0.3em]
+  开市后挑你看好的 A 或 B 胜券，按当前算法价付钱。 & &
+  可以一路捂到结束；也可以在涨/跌时随时卖回系统、提前止盈止损。 & &
+  系统自动按 \money{1.00} 回购赢家券，输家券归零，余额到账。 \\
+\end{tabular}
+
+\smallskip
+\textcolor{soft}{\footnotesize \textit{进阶玩法（限价单尚未上线、保证金/杠杆见附录 B）请掌握本页 3 步后再考虑。}}
+\end{tcolorbox}
+
+% ============================================================
+%  2. 核心资产：胜券
+% ============================================================
+\section{核心机制：什么是“胜券”？}
+
+以一场 \Reimu\,(A) vs \Marisa\,(B) 的对局为例，饭纲丸龙提供了两种可以自由交易的“胜券”：
+
+\vspace{0.4em}
+\noindent
+\begin{cardA}
+  \sffamily\textbf{\textcolor{reimuRed}{\large A\,胜券（灵梦赢）}}\\[0.3em]
+  若 \Reimu 最终获胜，每张在系统内结算为：\\[0.2em]
+  \hfill \textcolor{reimuRed}{\textbf{\Large 1.00 元}}\hfill\null\\[0.3em]
+  否则——\textcolor{soft}{化为废纸，价值 0 元。}
+\end{cardA}
+\hfill
+\begin{cardB}
+  \sffamily\textbf{\textcolor{marisaBlue}{\large B\,胜券（魔理沙赢）}}\\[0.3em]
+  若 \Marisa 最终获胜，每张在系统内结算为：\\[0.2em]
+  \hfill \textcolor{marisaBlue}{\textbf{\Large 1.00 元}}\hfill\null\\[0.3em]
+  否则——\textcolor{soft}{化为废纸，价值 0 元。}
+\end{cardB}
+
+\vspace{0.6em}
+
+因此在比赛结束之前，任意一张胜券的市价始终在 \money{0.00} 至 \money{1.00} 之间波动；比赛一旦结束，输家胜券立即\textbf{收敛为零}。
+
+\begin{notebox}
+\textbf{这是整本规则书最该记住的一句话：}\\
+在本系统里，\textbf{价格 \;=\; 市场认为这一方会赢的概率}。
+\begin{itemize}
+  \item 价格 \money{0.30} \;$\Longleftrightarrow$\; 市场觉得这一方有 \textbf{30\,\%} 胜率。
+  \item 价格 \money{0.80} \;$\Longleftrightarrow$\; 市场觉得这一方有 \textbf{80\,\%} 胜率。
+\end{itemize}
+所以\textbf{下单前先问自己一句：}\;“我心里估的真实胜率，比当前价格代表的胜率\textbf{高}还是\textbf{低}？”
+\begin{itemize}
+  \item 我估的胜率 \textit{比当前价格高} \;$\Rightarrow$\; 买入（价格被低估了）。
+  \item 我估的胜率 \textit{比当前价格低} \;$\Rightarrow$\; 不买，或卖掉（价格被高估了）。
+\end{itemize}
+本系统所有“游戏内收益从哪里来”的讨论，归根结底都是这一条的展开。
+\end{notebox}
+
+\subsection*{为什么没有“做空”按钮？}
+
+很多来自股票市场的老司机会问：“我看灵梦必输，怎么做空她？”
+
+\begin{tipbox}
+本系统是\textbf{零和二元市场}：
+\begin{itemize}
+  \item A 输 \;=\; B 赢
+  \item A 跌 \;=\; B 涨
+\end{itemize}
+所以\textbf{想做空 \Reimu，请直接买入 \Marisa}。当你持有 \Bcard 时，事实上就在享受“灵梦下跌”带来的收益。\textbf{买入对手盘，就是在做空当前选手。}
+\end{tipbox}
+
+% ============================================================
+%  3. 价格机制
+% ============================================================
+\section{价格是如何决定的？}
+
+\dragonquote{我不定赔率，是靠全场交易自动算出来的。}{饭纲丸龙}
+
+这里没有庄家拍脑门定赔率，价格完全由\textbf{全场玩家的买卖行为}自动计算。系统是一台只会算术的\term{自动做市商 (AMM)}。
+
+\subsection{供需决定价格}
+
+价格取决于\textbf{大家累计买走了多少张券}。
+
+\begin{itemize}
+  \item \textbf{初始状态}：没人买时，A、B 两边均为 \money{0.50}。
+  \item \textbf{价格上涨}：每一笔买入 \Reimu，都会让 \Acard\textbf{稍微变贵一点点}。
+  \item \textbf{价格下跌}：相反，如果大量买入 \Marisa，由于两边概率之和恒为 1，\Reimu 的价格被动下跌。
+\end{itemize}
+
+\subsection{价格是连续的}
+
+不同于传统赔率（开盘就锁死），这里的价格\textbf{实时流动}：
+
+\begin{itemize}
+  \item \textbf{买的人越多，越贵：}假设一个大户一次买入 1000 张 A，系统会立刻把 A 单价从 0.50 拉到 \up{0.60}。
+  \item \textbf{这就是交易机会：}价格波动反映了市场对胜负判断的变化，游戏内收益机会就藏在这些波动里。
+\end{itemize}
+
+\begin{notebox}
+\textbf{技术细节：}\;当前价格由 A、B 两边的累计净发行量共同决定，遵循 LMSR 算法。完整公式与不变量见\textbf{附录 A}。
+\end{notebox}
+
+% ============================================================
+%  4. 游戏内收益
+% ============================================================
+\section{游戏内收益从哪里来？——两种流派}
+
+你不必像传统固定结果玩法那样等到比赛结束。下面是常见的两种打法：
+
+\subsection{流派一：死磕到底（持有型）}
+
+\begin{exbox}
+\begin{enumerate}
+  \item 开赛前，你以 \money{0.50} 买入 \Acard。
+  \item 无视全程波动，坚定持有到结算。
+  \item \Reimu 获胜！系统按 \money{1.00} 结算。
+  \item \textbf{每张净赚 \up{0.50 元}}。
+\end{enumerate}
+\smallskip
+\textcolor{soft}{\footnotesize \textit{注：结算时会扣一笔手续费，实际到账略低于此理论值，以成交回执为准。}}
+\end{exbox}
+
+\subsection{流派二：波段交易（倒爷型，推荐）}
+
+\begin{exbox}
+\begin{enumerate}
+  \item 比赛刚开始，\Reimu 陷入苦战，价格跌到 \down{0.20}。你觉得大家反应过度，大量抄底。
+  \item 五分钟后她一飞冲天，局势逆转。市场疯狂买入，价格被推到 \up{0.80}。
+  \item 你\textbf{无需等待结算}，直接以 0.80 把券卖回系统。
+  \item \textbf{每张净赚 \up{0.60 元}}（0.20 进，0.80 出），之后输赢与你无关。
+\end{enumerate}
+\smallskip
+\textcolor{soft}{\footnotesize \textit{注：卖出会扣一笔手续费，实际到账略低于此理论值，以成交回执为准。}}
+\end{exbox}
+
+\begin{tipbox}
+\textbf{长持} vs \textbf{波段}没有优劣之分，关键在于你对\textbf{当前价格相对实际胜率}的判断。如果价格 \textit{低于} 你估计的胜率——买；\textit{高于}——卖。
+\end{tipbox}
+
+% ============================================================
+%  5. 防坑指南
+% ============================================================
+\section{交易员须知（防坑指南）}
+
+为了保证市场公平（以及大天狗的利润），请留意以下三条规则。
+
+\subsection{滑点：平均成本会高于挂牌价}
+
+当你买入时，\textbf{你买的每一张券价格都在微量上涨}。
+
+\begin{itemize}
+  \item \textbf{小额购买：}价格几乎不变，成交价≈当前价格。
+  \item \textbf{巨额购买：}一口气买 10000 张，你的\textbf{平均成交价}会明显高于起步价——因为你每买入一部分都会把价格往上推一点。
+\end{itemize}
+
+\subsection{手续费：卖出会扣一笔}
+
+系统在\textbf{卖出}操作（包括中途卖出 \emph{和} 最终结算）时，会按成交金额收取一笔手续费。具体比例由饭纲丸龙金融市场管理委员会动态调整——\textbf{你的到账余额会比挂牌价乘以张数略低一点点}，请以下单时的实时成交回执为准。
+
+\begin{lorebox}
+这笔钱将用于维护幻想乡的金融系统的稳定和持久发展。\\
+（也就是饭纲丸龙的零花钱。）
+\end{lorebox}
+
+\subsection{固定赔率概念对照}
+
+如果你习惯了固定赔率，请看下面这张对照表。\textbf{核心区别在于：赔率是死的（开盘买了就不会变），而这里的价格是活的（持仓价值随时波动）。}
+
+\begin{center}
+\begin{tabular}{>{\columncolor{lightGray}}c c c l}
+\toprule
+\textbf{价格} & \textbf{隐含胜率} & \textbf{对应传统赔率} & \textbf{含义} \\
+\midrule
+\money{0.50} & 50\,\% & 2.00 & 五五开 \\
+\money{0.20} & 20\,\% & 5.00 & 下风 / 冷门 \\
+\money{0.80} & 80\,\% & 1.25 & 优势 / 热门 \\
+\money{0.01} & 1\,\%  & 100.00 & 奇迹才会发生 \\
+\midrule
+\textbf{本质} & \multicolumn{2}{c}{\textbf{二元期权}} & 可随时止损 \\
+\textbf{vs.} & \multicolumn{2}{c}{\textbf{固定赔率}} & 通常不可中途撤回 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{tipbox}
+\textbf{金融小贴士：}\;本系统采用 \term{LMSR (Logarithmic Market Scoring Rule)} 机制。这里不需要人类做市商来接盘——系统具备\textbf{无限流动性}，只要你愿意接受算法当前的报价，永远买得进、卖得出。
+\end{tipbox}
+
+% ============================================================
+%  7. 游戏流程四阶段
+% ============================================================
+\section{游戏流程全解：从开盘到清算}
+
+为了保证幻想乡金融市场的公平与稳定，每一场\textbf{炒炒币}对决都严格遵循以下四个阶段。
+
+\vspace{0.3em}
+\noindent
+\begin{tcolorbox}[colback=white,colframe=rule,sharp corners,boxrule=0.8pt,left=4pt,right=4pt,top=4pt,bottom=4pt]
+\sffamily\small\centering
+\setlength{\tabcolsep}{2pt}
+\begin{tabular}{@{}c c c c c c c@{}}
+  \colorbox{lightGray}{\;\textbf{1. 做市}\;} & $\rightarrow$ &
+  \colorbox{lightGray}{\;\textbf{2. 交易期}\;} & $\rightarrow$ &
+  \colorbox{lightGray}{\;\textbf{3. 熔断期}\;} & $\rightarrow$ &
+  \colorbox{lightGray}{\;\textbf{4. 清算}\;} \\
+  \textcolor{soft}{开盘} & &
+  \textcolor{soft}{自由买卖} & &
+  \textcolor{soft}{买定离手} & &
+  \textcolor{soft}{强制结算} \\
+\end{tabular}
+\end{tcolorbox}
+
+\subsection{第一阶段：做市（Initialization）}
+\dragonquote{大天狗的恩赐。}{}
+
+比赛开始前，\textbf{饭纲丸龙（庄家）}会设定一个神秘参数（流动性系数 $b$）并投入一笔\textbf{初始保证金}。
+
+\begin{itemize}
+  \item \textbf{这意味着：}市场在没有玩家参与时就已经具有深度，初始价格被锚定在 \money{0.50}。
+  \item \textbf{底池效应：}这一步是为了防止第一个玩家花 1 块钱就把价格拉到 99\,\%。大天狗的资金像船的“压舱石”，保证了价格曲线的平滑。
+\end{itemize}
+
+\subsection{第二阶段：交易期（Trading）}
+\dragonquote{拼手速与眼光的时刻。}{}
+
+倒计时结束、交易通道开启：
+
+\begin{enumerate}
+  \item \textbf{实时定价：}你的每一次买入和卖出都会根据 LMSR 算法重新计算全场价格。
+  \item \textbf{即时成交：}每笔交易的对手都是\textbf{系统}本身。你不需要等待另一个玩家来吃单——系统随时接盘。
+\end{enumerate}
+
+\subsection{第三阶段：熔断期（Halt）}
+\dragonquote{买定离手。}{}
+
+当比赛进入尾声（如判定胜负前数分钟、或者比赛时间耗尽），系统会触发\textbf{交易熔断}：
+
+\begin{itemize}
+  \item \textbf{状态：}所有买卖按钮变灰。
+  \item \textbf{目的：}防止有人利用\textbf{裁判宣布结果}前那一瞬间的信息差进行作弊式买入。
+\end{itemize}
+
+\subsection{第四阶段：清算（Settlement）}
+\dragonquote{尘归尘，土归土，赢家通吃。}{}
+
+最终结果一旦敲定，系统执行\textbf{强制结算}：
+
+\begin{enumerate}
+  \item \textbf{赢家}卡片价值被强制锁定为 \up{1.00 元}。
+  \item \textbf{输家}卡片价值被强制归零。
+  \item 系统按 1.00 元 / 张回购赢家卡片，输家卡片直接销毁。
+  \item 余额更新完毕，可立即投入下一场比赛。
+\end{enumerate}
+
+% ============================================================
+%  8. 机制提示
+% ============================================================
+\section{饭纲丸龙的机制提示}
+
+\begin{enumerate}
+  \item \textbf{拒绝梭哈：}永远不要把所有鸡蛋放在一个篮子里——除非你打算承受发配去地狱打工的风险。
+  \item \textbf{善用止损：}如果你买的选手状态极差、价格一路狂跌，\textbf{可以果断卖出止损}。拿回 \money{0.10} 总比归零好。
+  \item \textbf{寻找分歧：}最赚的交易往往发生在\textbf{大众产生恐慌}的时候。当所有人都在抛售时，或许就是你捡漏 \money{0.05} 彩票单的最佳时机——前提是你对胜负的判断比大众更准。
+\end{enumerate}
+
+\begin{flushright}\kai\textit{祝各位在幻想乡金融市场——\textbf{武运昌隆}。}\end{flushright}
+
+\clearpage
+
+% ============================================================
+%  附录 A: LMSR
+% ============================================================
+\appendix
+\renewcommand{\thesection}{附录 \Alph{section}}
+\setcounter{section}{0}
+
+\section{LMSR 定价模型}
+
+\begin{notebox}
+\textbf{这一章可以跳过。}\;不读附录 A 完全不影响你玩游戏——它只是写给好奇“价格为什么长这个公式”的人看的数学推导。系统已经替你算好了一切，下单页面会直接显示成交价。你只需要相信：\textbf{价格 $=$ 市场胜率，两边相加恒为 1}。
+\end{notebox}
+
+为了保证幻想乡金融系统的绝对稳定，防止因为滑点计算错误导致的\textbf{资金池穿仓}，本系统采用\term{对数市场评分规则 (LMSR - Logarithmic Market Scoring Rule)}——目前预测市场领域\textbf{唯一}能同时保证\textbf{无限流动性}与\textbf{庄家本金安全}的数学模型。
+
+\subsection{核心公式：成本函数}
+
+在本系统中，价格并非简单的除法，而是通过\term{成本函数}推导。系统维护一个总成本 $C$，由市场上流通的 \Acard 数量 $S_A$ 与 \Bcard 数量 $S_B$ 决定：
+
+\begin{mathbox}
+\[
+  C(S_A,\,S_B) \;=\; b \cdot \ln\!\bigl(e^{S_A/b} + e^{S_B/b}\bigr)
+\]
+\end{mathbox}
+
+\begin{itemize}
+  \item $S_A,\,S_B$：当前全场玩家手中持有的胜券\textbf{累计净发行量}。
+  \item $b$（\term{流动性参数}）：系统设定的“底池深度”。
+  \begin{itemize}
+    \item $b$ 越大 $\Rightarrow$ 价格对资金越不敏感，适合大资金博弈（价格稳）。
+    \item $b$ 越小 $\Rightarrow$ 价格跳动越剧烈，适合刺激的狗斗（价格妖）。
+  \end{itemize}
+\end{itemize}
+
+\subsection{交易计算：自动滑点}
+
+当玩家想要购买 $N$ 张 \Acard 时，他需要支付的金额\textbf{等于系统总成本的变化量}：
+
+\begin{mathbox}
+\[
+  \text{玩家支付金额} \;=\; C(S_A + N,\,S_B) - C(S_A,\,S_B)
+\]
+\end{mathbox}
+
+这意味着：
+
+\begin{itemize}
+  \item 你买的\textbf{第一张}券最便宜，第 $N$ 张券最贵。
+  \item 这相当于系统自动通过微积分计算了价格曲线下的面积。
+  \item \textbf{没有人能通过把大单拆成小单来逃避滑点。}
+\end{itemize}
+
+\subsection{当前价格：Softmax 概率}
+
+如果你想知道“现在的单价是多少”，对成本函数求导即可：
+
+\begin{mathbox}
+\[
+  P_A \;=\; \frac{e^{S_A/b}}{e^{S_A/b} + e^{S_B/b}}
+  \qquad\qquad
+  P_B \;=\; \frac{e^{S_B/b}}{e^{S_A/b} + e^{S_B/b}}
+\]
+\end{mathbox}
+
+（当然，你也可以反过来：先给出价格函数，再对价格做积分，就能得到上面那个总成本函数。）
+
+\begin{notebox}
+无论 $S_A$ 和 $S_B$ 如何变化：
+\[
+  P_A + P_B \;\equiv\; 1.00
+\]
+这从根本上消除了\textbf{无风险套利}的可能性。
+\end{notebox}
+
+当你的购买量很小时，开销近似退化回了简单的\;价格\,$\times$\,数量。
+
+\subsection{庄家的底牌：最大亏损}
+
+这也是饭纲丸龙敢于开设这个市场的原因。
+在最坏的情况下（所有人都买对了赢家，或市场完全一边倒），系统的\textbf{最大净亏损}被数学锁定为：
+
+\begin{mathbox}
+\[
+  \text{最大亏损} \;=\; b \cdot \ln 2
+\]
+\end{mathbox}
+
+\begin{itemize}
+  \item \textbf{这是什么意思？}\;这笔钱相当于庄家为市场提供的“初始补贴”。只要庄家开局时准备好这笔钱（例如 $b=1000$ 时，仅需 $\approx$ 693 元），系统\textbf{永远不会破产}。
+  \item \textbf{如何覆盖成本？}\;虽然理论上有最大亏损，但系统会在每笔卖出时抽走一小笔手续费。只要交易量足够大，手续费收入就可能覆盖这笔初始成本。
+\end{itemize}
+
+\subsection{\texorpdfstring{为什么不能用简单的“价格\,$\times$\,数量”？}{为什么不能用简单的"价格 × 数量"？}}
+
+很多人在写代码时喜欢用最简单的公式：
+
+\[
+  \text{花费} \;=\; \text{当前价格} \times \text{购买数量}
+\]
+
+\begin{warnbox}
+\textbf{大错特错。}\;如果你敢这么写代码，一个训练有素的交易员能在 10 分钟内通过\textbf{无风险套利}把整个庄家的钱卷走。
+\end{warnbox}
+
+\subsubsection*{演示：一个简单的“刷钱”漏洞}
+
+假设当前市场状态：
+
+\begin{itemize}
+  \item \Reimu 获胜的当前价格 $P_{\text{start}} = 0.50$。
+  \item 流动性参数 $b$ 较小，价格波动敏感。
+\end{itemize}
+
+\textbf{如果采用错误的“乘法计价”：}
+
+\begin{enumerate}
+  \item \textbf{交易员操作：}她看到价格是 0.50，发起指令“我要买 1000 张 A 胜券”。
+  \item \textbf{错误扣款：}系统只收 $1000 \times 0.50 = 500$ 元。
+  \item \textbf{价格更新：}由于这 1000 张大额买入，A 价格瞬间飙升到 0.70。
+  \item \textbf{光速砸盘：}交易员立刻反手卖掉这 1000 张。即使按 0.70 回收（或稍低的平均价），手中资产价值都已远超 500 元。
+  \item \textbf{结果：}她什么都没做，只是点了一下买入再卖出，庄家的钱就进了她的口袋。
+\end{enumerate}
+
+\subsubsection*{LMSR 的机制}
+
+LMSR 算法之所以被称为“完美”，是因为它的\textbf{价值函数}已经相当于帮你计算了价格的积分：
+
+\begin{mathbox}
+\[
+  \text{真实花费} \;=\; \int_{S}^{S+N} P(x)\,dx \;=\; C_{\text{new}} - C_{\text{old}}
+\]
+\end{mathbox}
+
+即它已经精确地考虑好了“把一笔大单切分成无穷多小段购买”的微分过程。\textbf{切分大单不再有任何套利空间。}
+
+\clearpage
+
+% ============================================================
+%  附录 B: 贷款 / 杠杆
+% ============================================================
+\section{高级玩法：向依神女苑借钱}
+
+\begin{notebox}
+\textbf{只要你不主动点“借款”按钮，这一章描述的所有风险都跟你无关。}\;新手强烈建议先用现金账户跑熟（至少完整经历过一场买入 $\to$ 持有 $\to$ 卖出 / 结算的循环），等你能稳定盈利、并完全理解下方“按秒复利”和“无强平”这两个特性后，再考虑是否使用杠杆。不开杠杆的玩家完全可以把这一章当作金融知识科普来读。
+\end{notebox}
+
+\dragonquote{哇，多么好的机会啊！}{依神女苑}
+
+普通的现货交易（1 元买 1 元货）太乏味？\term{贷款功能}允许你向\textbf{依神女苑}赊一笔钱投入市场，把现金和持仓一起“撬”得更大——前提是你能承受利息和价格波动。
+
+\begin{notebox}
+\textbf{先把丑话说在前面：}\;本系统\textbf{没有强制平仓机制}。\Marisa 不会半夜砸盘把你的仓位平掉——但\textbf{利息会按秒滚动复利}，价格不利时你的额度会自动归零，把你“困”在亏损中无法加仓自救。爆仓不会瞬间发生，但慢慢把你磨死。
+\end{notebox}
+
+\subsection{核心概念：净值与可借额度}
+
+在本系统里，三个数字共同描述你的财务状态：
+
+\begin{itemize}
+  \item \textbf{现金 (cash)：}你账户里的可用余额。
+  \item \textbf{债务 (debt)：}你欠依神女苑的本金 + 已累计利息。
+  \item \textbf{持仓估值 (holdings\,value)：}你手中所有胜券按当前 LMSR 价格计算的市值。
+\end{itemize}
+
+由此推出最关键的指标——\term{净值 (Net Worth)}：
+
+\begin{mathbox}
+\[
+  \text{净值} \;=\; \text{现金} \;-\; \text{债务} \;+\; \text{持仓估值}
+\]
+\end{mathbox}
+
+\textit{直观理解：净值就是——如果你现在卖光所有胜券、把债务清偿，手里还能剩下多少钱。}
+
+\subsection{借款公式：杠杆系数 \texorpdfstring{$k$}{k}}
+
+系统使用一个全局\term{杠杆系数 $k$}（由饭纲丸龙金融市场管理委员会设定）控制每个人能借多少：
+
+\begin{mathbox}
+\[
+  \text{最大可借额度} \;=\; \max\!\bigl(0,\; k \cdot \text{净值} - \text{债务}\bigr)
+\]
+\end{mathbox}
+
+\begin{itemize}
+  \item $k$ 越大，可借的钱越多。当前生产环境若 $k = 2$，意味着你的债务最多扩张到净值的 2 倍。
+  \item 当你尝试借款超过此额度时，系统会\textbf{直接拒绝}（HTTP 400）。
+  \item 当价格不利、净值下跌时，这个额度会\textbf{自动收紧}。\textbf{但你已经借出的钱不会被强制平仓。}
+\end{itemize}
+
+\subsection{利息：按秒计的复利}
+
+依神女苑不会白借钱给你。她非常黑心，按以下方式累计利息：
+
+\begin{mathbox}
+\[
+  \text{债务}_{t+\Delta t} \;=\; \text{债务}_{t} \cdot \Bigl(1 + r_{\text{day}} \cdot \tfrac{\Delta t}{86400}\Bigr)
+\]
+\end{mathbox}
+
+\begin{itemize}
+  \item $r_{\text{day}}$ 是\textbf{日利率}（由后台配置 \texttt{loan\_daily\_rate}）。
+  \item $\Delta t$ 是距离上次结息的秒数。
+  \item 每次借款、还款或后台定时结息任务（loan sweep）都会\textbf{先把利息折进债务}再继续算账。
+  \item \textbf{这是复利：}债务越大，每秒长出来的利息越多。你睡觉的时候它也在长。
+\end{itemize}
+
+\subsection{强制平仓是什么？为什么暂时关闭？}
+
+在很多真实保证金系统里，平台不会允许玩家一直拖着亏损仓位不处理。当账户净值低到某条安全线以下时，系统会自动卖出你的持仓，用卖出所得偿还债务；这个过程通常叫\term{强制平仓}，简称“强平”。
+
+\begin{mathbox}
+\[
+  \text{强平触发条件示例：}\qquad
+  \frac{\text{净值}}{\text{持仓估值}} \;<\; m
+\]
+\end{mathbox}
+
+这里的 $m$ 是\term{维持保证金率}。例如 $m = 10\,\%$ 时，如果你所有持仓按当前 LMSR 清算价值计算后，净值已经低于持仓估值的 10\,\%，系统就会认为账户风险过高。
+
+一个典型强平算法会这样做：
+
+\begin{enumerate}
+  \item 定时或在每次价格变化后重新计算：现金、债务、持仓估值、净值。
+  \item 若净值低于维持保证金线，系统进入强平流程。
+  \item 按预设顺序卖出部分或全部胜券，卖出时仍按 LMSR 成本函数计算滑点。
+  \item 将卖出得到的现金优先用于偿还债务。
+  \item 若账户恢复到安全线以上，强平停止；若仍不足，则继续卖出，直到没有持仓可卖。
+\end{enumerate}
+
+\begin{notebox}
+\textbf{本系统当前暂时关闭强制平仓。}\;原因很简单：TouhouCCB 首先是社团同好之间的趣味活动和金融机制学习演示，不是严格的保证金交易平台。自动强平虽然更接近真实风控，但体验上会非常残酷——玩家可能一眨眼就被系统卖光仓位，既痛苦，也不利于新手理解机制。
+
+因此当前版本选择更温和的规则：\textbf{不强制卖出你的持仓}，但会让利息持续累加、可借额度自动收紧。你仍然需要自己决定什么时候卖出、什么时候还款。
+\end{notebox}
+
+\subsection{没有强平，但你会被“慢慢困死”}
+
+很多杠杆系统里有一条死线，跌穿就强制平仓——\textbf{本系统没有}。
+不过这并不意味着你高枕无忧。下面三件事会同时发生：
+
+\begin{enumerate}
+  \item \textbf{额度归零：}当净值 $\leq$ 当前债务 / $k$ 时，\textbf{最大可借额度自动变成 0}，你不能再借新钱补仓。
+  \item \textbf{利息持续累加：}哪怕你完全不操作，债务也会按秒滚动复利，把净值持续往下拽。
+  \item \textbf{现金可能为 0：}当 \texttt{cash} 为 0 时，系统会拒绝\textbf{还款请求}（错误："现金为 0，无法还款；请先卖出持仓变现"），你必须主动卖掉胜券才能凑出钱来还债。
+\end{enumerate}
+
+最终的结果是：\textbf{你不会突然爆炸，但会慢性失血。}\;价格如果不回头，你的净值会被利息+亏损逐步咬光，直到所剩无几。
+
+\subsection{例子：上天堂与下地狱}
+
+\begin{exbox}
+\textbf{初始条件：}\;你有 \money{1000} 现金、零债务；系统当前 $k = 2$，日利率 $r_{\text{day}} = 0.5\,\%$。
+
+\medskip
+
+\begin{enumerate}
+  \item \textbf{借钱开仓}：你向依神女苑借了 \money{2000}。
+  \begin{itemize}
+    \item 现金 = 3000 元 \;·\; 债务 = 2000 元 \;·\; 净值 = $3000 - 2000 = $ 1000 元
+    \item 接着你把全部 3000 元投入 \Reimu 胜券（此时单价 0.50）。
+    \item 持仓估值 = 3000 元 \;·\; 净值 = $3000 - 2000 = $ 1000 元（持仓代替了现金，净值不变）
+    \item 此时杠杆 $\approx 3\times$。
+  \end{itemize}
+
+  \item \textbf{暴涨场景}：\Reimu 价格涨 10\,\% 到 0.55。
+  \begin{itemize}
+    \item 持仓估值 = 3300 元 \;·\; 债务 $\approx$ 2000 元（短期内利息可忽略）
+    \item 净值 = $0 + 3300 - 2000 = \up{1300}$ 元
+    \item \textbf{价格涨 10\,\%，你赚了 30\,\%。}（如果不借钱只赚 10\,\%）
+  \end{itemize}
+
+  \item \textbf{暴跌场景}：\Reimu 价格跌 10\,\% 到 0.45。
+  \begin{itemize}
+    \item 持仓估值 = 2700 元 \;·\; 净值 = $\down{700}$ 元
+    \item 最大可借额度 = $\max(0,\; 2 \cdot 700 - 2000) = \down{0}$ 元——\textbf{借不到新钱了。}
+    \item 但仓位\textbf{不会被强平}，你仍然完整持有那批 \Reimu 胜券。
+  \end{itemize}
+
+  \item \textbf{被利息慢慢咬}：假设你不操作，一周后……
+  \begin{itemize}
+    \item 一周复利约 $1.005^{7} - 1 \approx 3.55\,\%$，债务增加到 $\approx$ \down{2071} 元。
+    \item 即使价格回到 0.50（持仓估值 3000 元），净值也只剩 $3000 - 2071 = \down{929}$ 元。
+    \item \textbf{时间是依神女苑的朋友，不是你的。}
+  \end{itemize}
+
+  \item \textbf{主动止血}：你决定平仓还债。
+  \begin{itemize}
+    \item 以 0.45 卖光持仓，扣除手续费后，现金\textbf{略少于} 2700 元（具体数额以实际成交回执为准，本例为方便计算近似按 2700 估算）。
+    \item 调用 \texttt{/loan/repay} 还款 2071 元，剩余现金 $\approx$ 600 元。
+    \item \textbf{你保住了 600 元左右的本金——比拖着不动好得多。}
+  \end{itemize}
+\end{enumerate}
+\end{exbox}
+
+\begin{warnbox}
+\textbf{风险提示：}\;杠杆是放大镜，它把你的盈利和亏损同时放大。
+
+\begin{itemize}
+  \item 没有强平 $\neq$ 没有风险——\textbf{利息是 24/7 不眠的}，你睡觉它也在长。
+  \item 当你的净值跌到 $k \times \text{净值} \leq \text{债务}$ 时，可借额度归零，你也就失去了“补仓自救”的最后选项。
+  \item \textbf{现金归零时无法还款}——务必在被动困死前主动卖出变现。
+  \item 借多少钱、什么时候平仓、要不要止损，完全由你自己负责。依神女苑只负责收利息。
+\end{itemize}
+\end{warnbox}
+
+% ------------------------------------------------------------
+%  免责声明（文末）
+% ------------------------------------------------------------
+\clearpage
+\thispagestyle{empty}
+\vspace*{1.2cm}
+
+{\sffamily\bfseries\Large 免责声明}\hfill{\sffamily\small\color{soft}DISCLAIMER}\par
+\vspace{0.3em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.88\linewidth}{1pt}}}
+\vspace{1em}
+
+\small
+\setlength{\parskip}{0.6em}
+
+本网站（“东方炒炒币”，\textit{TouhouCCB}）为一款基于同人设定的\textbf{社团趣味活动网页游戏}，核心目的为娱乐、二次创作交流，以及帮助用户直观理解\textbf{预测市场}、\textbf{LMSR 自动做市机制}、滑点、无风险套利等基础概念。本文档中的金融术语仅作为学习类比和游戏规则说明使用。继续使用本网站，即视为您已阅读、理解并同意以下条款。
+
+\vspace{0.4em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.62\linewidth}{0.4pt}}}
+\vspace{0.4em}
+
+\textbf{1.\;同人性质与活动范围}\\
+本系统中出现的所有角色（饭纲丸龙、博丽灵梦、雾雨魔理沙、依神女苑等）均为上海爱丽丝幻乐团（ZUN）所拥有的\textbf{东方 Project} 二次创作角色。本网站为\textbf{非官方、非营利的同人社团项目}，与官方及任何商业实体均无关联。本文档仅适用于不涉及现实价值兑换的社团内部演示与娱乐版本；若任何活动另行引入现实权益、实物奖品或商业合作，应另行制定并遵守相应合规规则，不适用本文档的默认边界。
+
+\textbf{2.\;游戏积分性质}\\
+规则书及系统界面中所提及的“\textbf{元}”（正式名称为“\textbf{金圆券}”）“余额”“现金”“债务”“持仓”“净值”等，均指代本游戏内部的\textbf{虚构积分、状态数值或教学变量}，并非人民币、美元、日元等任何现实世界法定货币，也不是加密货币、代币、证券、票券、储值卡、预付卡、债权凭证或其他具有现实财产价值的资产。本系统不发行、销售、募集、托管或承兑任何现实资产；游戏积分不可充值购买、不可提现、不可转让、不可赎回、不可兑换现金或任何现实权益，也不得用于现实世界的交易、支付、清偿或结算。
+
+\textbf{3.\;不涉及真实资金、收益或奖酬}\\
+本系统不接受任何形式的真实金钱充值、押金、报名费、投资款、购买款或其他对价，不向用户支付现金、返利、利息、分红、收益、奖酬或其他现实利益，也不承诺保本、回本、升值、收益率、排行榜奖励或任何现实回报。系统中的盈亏、手续费、利息、杠杆、清算等表述均为游戏内数值变化或教学模拟，不代表现实资金流入、流出或损益。
+
+\textbf{4.\;不构成金融、融资或代币活动}\\
+本系统不向任何用户提供证券、期货、基金、保险、外汇、贷款、支付、清算、资产管理、投资咨询、融资撮合、代币发行、虚拟货币交易或任何其他需要许可、备案或特定资质的金融服务。规则书中出现的“买入”“卖出”“二元期权”“做空”“杠杆”“贷款”“利息”“清算”“无风险套利”等术语，仅用于解释预测市场和 LMSR 的数学/机制概念，不构成现实世界中的投资建议、交易指令、产品宣传、募集说明、收益承诺或风险评级。
+
+\textbf{5.\;不构成博彩、投注或抽奖兑奖活动}\\
+本系统不以营利为目的组织、撮合或便利任何真实金钱投注，不设置可由游戏结果兑换的现金、财物、商品、服务、优惠券、积分权益或其他现实利益。用户在系统中获得或失去的任何数值均不具有现实价值。本文档中的胜负预测、赔率、期权、下注等类似表述如有出现，均仅为规则解释或金融机制教学语境，不表示本项目提供或鼓励任何现实赌博、博彩、投注、抽奖兑奖或类似活动。
+
+\textbf{6.\;用户责任与限制}\\
+用户不得将本系统用于现实金钱结算、私下对赌、积分买卖、账号交易、奖品兑换、商业推广、融资集资、代币发行、虚拟货币交易或任何违反法律法规、公序良俗及社团规则的用途。任何人将本系统中的价格、曲线、策略示例或数学模型套用于现实世界金融交易、赌博活动或其他高风险行为，由此产生的一切后果由其自行承担。
+
+\textbf{7.\;面向人群}\\
+本系统及本文档不构成对未成年人接触真实金融市场、虚拟货币交易或博彩活动的鼓励。未成年人应在监护人或社团指导者知情并同意的前提下参与适龄的娱乐与学习内容。如您所在司法辖区对模拟交易、预测市场、同人游戏或社团活动有特殊限制，请遵循当地法律法规自行判断是否继续使用。
+
+\vspace{0.4em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.62\linewidth}{0.4pt}}}
+\vspace{0.6em}
+
+\textcolor{soft}{\small —— TouhouCCB Project \;/\; 饭纲丸龙金融市场管理委员会}
+
+\setlength{\parskip}{0.55em}
+\normalsize
+
+% ------------------------------------------------------------
+%  收尾页
+% ------------------------------------------------------------
+\clearpage
+\thispagestyle{empty}
+\vspace*{4cm}
+\begin{center}
+\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.6\linewidth}{1.4pt}}}\par
+\vspace{1cm}
+{\sffamily\Large 这\,是\,多\,么\,好\,的\,机\,会}\par
+\vspace{0.5em}
+{\kai\large 幻想乡金融市场管理委员会}\par
+\vspace{0.3em}
+{\sffamily\small\color{soft}—— END OF DOCUMENT ——}\par
+\vspace{1cm}
+\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.6\linewidth}{1.4pt}}}\par
+\end{center}
+
+\end{document}
