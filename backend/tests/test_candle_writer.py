@@ -176,3 +176,29 @@ async def test_upsert_empty_rows_noop(client):
 def test_intervals_constant_matches_spec():
     """CANDLE_INTERVALS 必须是 spec 锁定的 4 档。"""
     assert CANDLE_INTERVALS == [("10s", 10), ("1m", 60), ("15m", 900), ("1h", 3600)]
+
+
+@pytest.mark.asyncio
+async def test_upsert_populates_updated_at(client):
+    """Regression: updated_at 必须在 INSERT 和 UPDATE 路径都非空。"""
+    _, oids = await _seed_market(n_outcomes=1)
+    ts = datetime(2026, 5, 17, 12, 34, 0, tzinfo=timezone.utc)
+
+    async with async_session_maker() as s:
+        # 首次 INSERT
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.5], Decimal("1"), ts))
+        await s.commit()
+        row = (await s.execute(
+            select(OutcomeCandle).where(OutcomeCandle.outcome_id == oids[0]).limit(1)
+        )).scalars().first()
+        assert row.updated_at is not None, "首次 INSERT 后 updated_at 必须非空"
+        first_updated = row.updated_at
+
+    async with async_session_maker() as s:
+        # 同 bucket 第二次（走 ON CONFLICT DO UPDATE）
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.6], Decimal("2"), ts))
+        await s.commit()
+        row = (await s.execute(
+            select(OutcomeCandle).where(OutcomeCandle.outcome_id == oids[0]).limit(1)
+        )).scalars().first()
+        assert row.updated_at is not None, "ON CONFLICT 更新后 updated_at 必须非空"
