@@ -2,13 +2,23 @@
 # 用法：python init_db.py 或 docker compose exec backend python init_db.py
 
 import asyncio
+from pathlib import Path
 from sqlmodel import SQLModel
 from sqlalchemy import text
 from sqlalchemy.schema import DropTable
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from app.core.database import engine, async_session_maker
 from app.core.config import settings
 from app.models.base import Market, Outcome, MarketStatus
+from app.models import redemption as _redemption_models  # noqa: F401  注册兑换码/弹幕表到 SQLModel.metadata
+
+
+def get_alembic_head() -> str:
+    """Return the Alembic head revision for the freshly-created schema."""
+    alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
+    return ScriptDirectory.from_config(Config(str(alembic_ini))).get_current_head()
 
 
 async def init_db():
@@ -41,26 +51,43 @@ async def init_db():
         print("-> CREATE ALL TABLES")
         await conn.run_sync(SQLModel.metadata.create_all)
 
-    # 2. 插入示例数据
-    async with async_session_maker() as db:
-        async with db.begin():
-            market = Market(
-                title="灵梦 vs 魔理沙 谁会赢？",
-                description="初始测试市场",
-                liquidity_b=100.0,
-                status=MarketStatus.TRADING,
-            )
-            db.add(market)
-            await db.flush()
+        # create_all 已经创建了当前模型定义下的完整 schema；
+        # 标记 Alembic 到 head，避免后续 deploy.sh 再重复执行历史 add_column/create_table。
+        print("-> STAMP ALEMBIC HEAD")
+        head_revision = get_alembic_head()
+        await conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS alembic_version "
+            "(version_num VARCHAR(32) NOT NULL)"
+        ))
+        await conn.execute(text("DELETE FROM alembic_version"))
+        await conn.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:version_num)"),
+            {"version_num": head_revision},
+        )
 
-            outcomes = [
-                Outcome(market_id=market.id, label="博丽灵梦"),
-                Outcome(market_id=market.id, label="雾雨魔理沙"),
-            ]
-            for o in outcomes:
-                db.add(o)
+    # 2. 开发环境插入示例数据；生产清库重开时保持真正空库。
+    if settings.is_production:
+        print("  生产环境：跳过示例市场创建")
+    else:
+        async with async_session_maker() as db:
+            async with db.begin():
+                market = Market(
+                    title="灵梦 vs 魔理沙 谁会赢？",
+                    description="初始测试市场",
+                    liquidity_b=100.0,
+                    status=MarketStatus.TRADING,
+                )
+                db.add(market)
+                await db.flush()
 
-            print("  示例市场创建完成:", market.title)
+                outcomes = [
+                    Outcome(market_id=market.id, label="博丽灵梦"),
+                    Outcome(market_id=market.id, label="雾雨魔理沙"),
+                ]
+                for o in outcomes:
+                    db.add(o)
+
+                print("  示例市场创建完成:", market.title)
 
     print("")
     print("====================================")
