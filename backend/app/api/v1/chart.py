@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Optional, Tuple
 
@@ -261,43 +261,6 @@ def _replay_numpy(
 
 
 # ========================================
-# 价格走势
-# ========================================
-
-@router.get("/price", response_model=PriceSeriesResponse, summary="价格曲线")
-async def get_price_series(
-    outcome_id: int = Query(..., description="Outcome ID"),
-    from_ts: datetime = Query(..., description="起始时间（ISO）"),
-    to_ts: datetime = Query(..., description="结束时间（ISO）"),
-    limit: int = Query(5000, ge=1, le=20000),
-    bucket: Optional[Interval] = Query(None),
-    db: AsyncSession = Depends(get_async_session),
-):
-    from_ts_u = _ensure_utc(from_ts)
-    to_ts_u = _ensure_utc(to_ts)
-    _validate_range(from_ts_u, to_ts_u)
-
-    market, all_outcomes, all_oids, oid_to_idx, target_idx, b = await _get_market_context(outcome_id, db)
-    _, price_points = await _fetch_initial_shares_and_replay(
-        db, all_outcomes, all_oids, oid_to_idx, target_idx, b, from_ts_u, to_ts_u, limit,
-    )
-
-    if not bucket:
-        points = [PricePoint(ts=ts, price=post) for ts, pre, post in price_points]
-        return PriceSeriesResponse(outcome_id=outcome_id, from_ts=from_ts_u, to_ts=to_ts_u, points=points)
-
-    # 按桶降采样
-    step = _INTERVAL_SECONDS[str(bucket)]
-    buckets: Dict[datetime, PricePoint] = {}
-    for ts, pre, post in price_points:
-        b0 = _bucket_start(ts, step)
-        buckets[b0] = PricePoint(ts=ts, price=post)
-
-    points = [buckets[k] for k in sorted(buckets.keys())]
-    return PriceSeriesResponse(outcome_id=outcome_id, from_ts=from_ts_u, to_ts=to_ts_u, points=points)
-
-
-# ========================================
 # K 线
 # ========================================
 
@@ -346,75 +309,103 @@ async def get_candles(
     to_ts: datetime = Query(..., description="结束时间（ISO）"),
     fill: bool = Query(False),
     limit: int = Query(5000, ge=1, le=20000),
-    max_trades: int = Query(200000, ge=1000, le=2000000),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if str(interval) not in _INTERVAL_SECONDS:
+    """直接查 outcome_candle 物化表 + rollup + fill。
+    告别 5000 笔逐笔重放硬上限（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）。
+    """
+    if str(interval) not in INTERVAL_ROUTE:
         raise HTTPException(status_code=400, detail="不支持的 interval")
+    storage_interval, rollup_factor = INTERVAL_ROUTE[str(interval)]
+    target_step  = _INTERVAL_SECONDS[str(interval)]
+    storage_step = _INTERVAL_SECONDS[storage_interval]
 
-    step = _INTERVAL_SECONDS[str(interval)]
     from_ts_u = _ensure_utc(from_ts)
-    to_ts_u = _ensure_utc(to_ts)
+    to_ts_u   = _ensure_utc(to_ts)
     _validate_range(from_ts_u, to_ts_u)
 
-    aligned_from, aligned_to = _align_range_to_buckets(from_ts_u, to_ts_u, step)
-    max_buckets = int((aligned_to.timestamp() - aligned_from.timestamp()) // step)
+    aligned_from, aligned_to = _align_range_to_buckets(from_ts_u, to_ts_u, target_step)
+    max_buckets = int((aligned_to.timestamp() - aligned_from.timestamp()) // target_step)
     if max_buckets > limit:
-        raise HTTPException(status_code=400, detail=f"时间跨度过大：预计 {max_buckets} 根K线，超过 limit={limit}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"时间跨度过大：预计 {max_buckets} 根K线，超过 limit={limit}",
+        )
 
-    # fill 时向前多扩一个 bucket 获取 prev_close
-    query_from = (
-        datetime.fromtimestamp(int(aligned_from.timestamp()) - step, tz=timezone.utc)
-        if fill else aligned_from
+    # fill 时多拉一个 prev_close 桶
+    extra_lookback = storage_step if fill else 0
+    from app.models.base import OutcomeCandle
+    stmt = (
+        select(OutcomeCandle)
+        .where(
+            OutcomeCandle.outcome_id == outcome_id,
+            OutcomeCandle.interval == storage_interval,
+            OutcomeCandle.bucket_start >= aligned_from - timedelta(seconds=extra_lookback),
+            OutcomeCandle.bucket_start < aligned_to,
+        )
+        .order_by(OutcomeCandle.bucket_start.asc())
     )
+    fine_candles = (await db.execute(stmt)).scalars().all()
+    # SQLite 把 DateTime(timezone=True) 读回成 naive；统一兜底为 UTC-aware，避免后续比较/timestamp 错乱
+    for c in fine_candles:
+        if c.bucket_start.tzinfo is None:
+            c.bucket_start = c.bucket_start.replace(tzinfo=timezone.utc)
 
-    market, all_outcomes, all_oids, oid_to_idx, target_idx, b = await _get_market_context(outcome_id, db)
-    _, price_points = await _fetch_initial_shares_and_replay(
-        db, all_outcomes, all_oids, oid_to_idx, target_idx, b, query_from, aligned_to, max_trades,
-    )
-
-    # 聚合成蜡烛
-    candle_buckets: Dict[datetime, Candle] = {}
-    prev_close: Optional[float] = None
-
-    for ts, pre_price, post_price in price_points:
-        b0 = _bucket_start(ts, step)
-
-        if b0 < aligned_from:
-            prev_close = post_price
-            continue
-
-        c = candle_buckets.get(b0)
-        if c is None:
-            c = Candle(
-                t=b0,
-                o=pre_price,
-                h=max(pre_price, post_price),
-                l=min(pre_price, post_price),
-                c=post_price,
-                v=0.0, n=0,
-            )
-            candle_buckets[b0] = c
-        else:
-            c.h = max(c.h, pre_price, post_price)
-            c.l = min(c.l, pre_price, post_price)
-            c.c = post_price
-        c.n += 1
+    if rollup_factor > 1:
+        candles_src = _rollup(fine_candles, target_step, aligned_from)
+    else:
+        candles_src = fine_candles
 
     if not fill:
-        candles = [candle_buckets[k] for k in sorted(candle_buckets.keys())]
-        return CandleSeriesResponse(outcome_id=outcome_id, interval=interval, from_ts=from_ts_u, to_ts=to_ts_u, candles=candles)
+        candles = [
+            Candle(
+                t=c.bucket_start,
+                o=c.open_price, h=c.high_price,
+                l=c.low_price,  c=c.close_price,
+                v=float(c.volume_shares), n=c.n_trades,
+            )
+            for c in candles_src
+            if c.bucket_start >= aligned_from
+        ]
+        return CandleSeriesResponse(outcome_id=outcome_id, interval=interval,
+                                    from_ts=from_ts_u, to_ts=to_ts_u, candles=candles)
 
-    # fill: 补齐空桶
+    # fill=true：扫每个 target_step 桶，缺失用 prev_close 填
+    by_bucket = {c.bucket_start: c for c in candles_src}
+    prev_close = None
+    if extra_lookback and candles_src:
+        before = [c for c in candles_src if c.bucket_start < aligned_from]
+        if before:
+            prev_close = before[-1].close_price
+    # 没有 prev_close（窗口前无任何成交） → 用窗口内第一根的 open 反向回填，
+    # 让前置空桶也能显示横线，避免曲线突然从中段出现。
+    if prev_close is None:
+        first_in_window = next(
+            (c for c in candles_src if c.bucket_start >= aligned_from),
+            None,
+        )
+        if first_in_window is not None:
+            prev_close = first_in_window.open_price
+
     candles: List[Candle] = []
     cur = aligned_from
     while cur < aligned_to:
-        c = candle_buckets.get(cur)
-        if c is not None:
-            candles.append(c)
-            prev_close = c.c
+        c = by_bucket.get(cur)
+        if c is not None and c.bucket_start >= aligned_from:
+            candles.append(Candle(
+                t=cur,
+                o=c.open_price, h=c.high_price,
+                l=c.low_price,  c=c.close_price,
+                v=float(c.volume_shares), n=c.n_trades,
+            ))
+            prev_close = c.close_price
         elif prev_close is not None:
-            candles.append(Candle(t=cur, o=prev_close, h=prev_close, l=prev_close, c=prev_close, v=0.0, n=0))
-        cur = datetime.fromtimestamp(int(cur.timestamp()) + step, tz=timezone.utc)
+            candles.append(Candle(
+                t=cur,
+                o=prev_close, h=prev_close, l=prev_close, c=prev_close,
+                v=0.0, n=0,
+            ))
+        cur = datetime.fromtimestamp(int(cur.timestamp()) + target_step, tz=timezone.utc)
 
-    return CandleSeriesResponse(outcome_id=outcome_id, interval=interval, from_ts=from_ts_u, to_ts=to_ts_u, candles=candles)
+    return CandleSeriesResponse(outcome_id=outcome_id, interval=interval,
+                                from_ts=from_ts_u, to_ts=to_ts_u, candles=candles)
