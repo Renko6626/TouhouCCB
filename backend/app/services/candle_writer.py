@@ -51,9 +51,10 @@ def compute_candle_rows(
     - 联动行 volume_shares=0, n_trades=0
     - 首次 INSERT 时 O=H=L=C=该 outcome 的新价；后续 UPSERT 用 ON CONFLICT 合并。
     """
-    assert len(outcome_ids) == len(new_prices), (
-        f"outcome_ids ({len(outcome_ids)}) 与 new_prices ({len(new_prices)}) 长度必须一致"
-    )
+    if len(outcome_ids) != len(new_prices):
+        raise ValueError(
+            f"outcome_ids ({len(outcome_ids)}) 与 new_prices ({len(new_prices)}) 长度必须一致"
+        )
 
     rows: List[dict] = []
     for oid, price in zip(outcome_ids, new_prices):
@@ -73,6 +74,7 @@ def compute_candle_rows(
                 "close_price":  price_d,
                 "volume_shares": v,
                 "n_trades":      n,
+                "updated_at":    ts,  # 显式填，避免 SQLAlchemy core insert() 跳过 SQLModel default_factory
             })
     return rows
 
