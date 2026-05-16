@@ -26,13 +26,20 @@ const props = withDefaults(defineProps<{
   interval?: ChartInterval
   width?: string
   height?: string
-  lookbackMinutes?: number
 }>(), {
   interval: '1m',
   width: '100%',
   height: '400px',
-  lookbackMinutes: 60,
 })
+
+// 各 interval 默认 lookback：每档约 80–90 根 candle
+const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
+  '10s': 15,
+  '1m':  80,
+  '15m': 1200,
+  '1h':  4800,
+}
+const lookbackMinutes = computed(() => LOOKBACK_MINUTES_MAP[props.interval])
 
 const realtime = inject(MarketRealtimeKey, null)
 
@@ -73,7 +80,7 @@ const toUtcTimestamp = (iso: string): UTCTimestamp =>
 
 const getLimitByWindow = () => {
   const step = stepSeconds.value
-  return Math.max(50, Math.ceil((props.lookbackMinutes * 60) / step) + 8)
+  return Math.max(50, Math.ceil((lookbackMinutes.value * 60) / step) + 8)
 }
 
 // ── 增量 MA 计算：仅用最近 MA_PERIOD-1 个已闭合 close + 当前 forming close
@@ -117,12 +124,12 @@ const loadFull = async () => {
   error.value = null
   try {
     const now = new Date()
-    const lookbackMs = Math.max(5, props.lookbackMinutes) * 60 * 1000
+    const lookbackMs = Math.max(5, lookbackMinutes.value) * 60 * 1000
     const fromTs = new Date(now.getTime() - lookbackMs).toISOString()
     const toTs = now.toISOString()
     const resp = await chartApi.getCandles(
       props.outcomeId, props.interval, fromTs, toTs,
-      true, getLimitByWindow(), 50000,
+      true, getLimitByWindow(),
     )
     if (!resp || !resp.candles) {
       candleCount.value = 0
@@ -208,7 +215,7 @@ const computeEffectiveNow = (): number => {
 const applyVisibleRangeToNow = () => {
   if (!chartInstance) return
   const to = computeEffectiveNow()
-  const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
+  const lookbackSec = Math.max(60, lookbackMinutes.value * 60)
   chartInstance.timeScale().setVisibleRange({
     from: (to - lookbackSec) as UTCTimestamp,
     to: to as UTCTimestamp,
@@ -371,8 +378,8 @@ onMounted(async () => {
   startTicker()
 })
 
-// 切 outcome / interval / lookback → 全量重载
-watch(() => [props.outcomeId, props.interval, props.lookbackMinutes], () => {
+// 切 outcome / interval → 全量重载（lookback 跟随 interval 推导）
+watch(() => [props.outcomeId, props.interval], () => {
   chartInstance?.applyOptions({
     timeScale: {
       secondsVisible: props.interval === '10s',

@@ -41,35 +41,13 @@ const maxSlippageBps = ref(100)
 import type { QuoteResponse } from '@/types/api'
 const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
-const candleInterval = ref<'10s' | '30s' | '1m' | '5m' | '15m' | '1h'>('1m')
+type ChartInterval = '10s' | '1m' | '15m' | '1h'
+const candleInterval = ref<ChartInterval>('1m')
 const candleIntervalOptions = [
   { label: '10秒', value: '10s' },
-  { label: '30秒', value: '30s' },
   { label: '1分钟', value: '1m' },
-  { label: '5分钟', value: '5m' },
   { label: '15分钟', value: '15m' },
   { label: '1小时', value: '1h' },
-] as const
-
-// interval → lookback 联动：每个周期默认显示约 80 根 K 线
-const LOOKBACK_MAP: Record<string, number> = {
-  '10s': 15,       // 15 分钟 = 90 根
-  '30s': 40,       // 40 分钟 = 80 根
-  '1m': 80,        // 80 分钟 = 80 根
-  '5m': 400,       // ~6.7 小时 = 80 根
-  '15m': 1200,     // 20 小时 = 80 根
-  '1h': 4800,      // ~3.3 天 = 80 根
-}
-const candleLookback = computed(() => LOOKBACK_MAP[candleInterval.value] || 80)
-
-// 价格走势图时间范围
-const priceLookback = ref(1440)  // 默认 24 小时
-const priceLookbackOptions = [
-  { label: '1小时', value: 60 },
-  { label: '6小时', value: 360 },
-  { label: '24小时', value: 1440 },
-  { label: '3天', value: 4320 },
-  { label: '7天', value: 10080 },
 ] as const
 
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -420,24 +398,13 @@ const relTime = (iso: string): string => {
                 <NButton size="small" :type="activeChartType === 'price' ? 'primary' : 'default'" @click="activeChartType = 'price'">价格走势</NButton>
                 <NButton size="small" :type="activeChartType === 'candle' ? 'primary' : 'default'" @click="activeChartType = 'candle'">K线图</NButton>
                 <span class="text-xs text-[#888] ml-2">|</span>
-                <template v-if="activeChartType === 'candle'">
-                  <NButton
-                    v-for="opt in candleIntervalOptions"
-                    :key="opt.value"
-                    size="tiny"
-                    :type="candleInterval === opt.value ? 'primary' : 'default'"
-                    @click="candleInterval = opt.value"
-                  >{{ opt.label }}</NButton>
-                </template>
-                <template v-else>
-                  <NButton
-                    v-for="opt in priceLookbackOptions"
-                    :key="opt.value"
-                    size="tiny"
-                    :type="priceLookback === opt.value ? 'primary' : 'default'"
-                    @click="priceLookback = opt.value"
-                  >{{ opt.label }}</NButton>
-                </template>
+                <NButton
+                  v-for="opt in candleIntervalOptions"
+                  :key="opt.value"
+                  size="tiny"
+                  :type="candleInterval === opt.value ? 'primary' : 'default'"
+                  @click="candleInterval = opt.value"
+                >{{ opt.label }}</NButton>
               </div>
             </div>
           </template>
@@ -446,14 +413,13 @@ const relTime = (iso: string): string => {
             <PriceChart
               v-if="activeChartType === 'price' && selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
-              :lookback-minutes="priceLookback"
+              :interval="candleInterval"
               height="100%"
             />
             <CandleChart
               v-else-if="selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
               :interval="candleInterval"
-              :lookback-minutes="candleLookback"
               height="100%"
             />
           </div>
