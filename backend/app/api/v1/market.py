@@ -35,6 +35,7 @@ from app.services.lmsr import (
     quantize_cost,
     quantize_price,
 )
+from app.services.wealth import compute_users_holdings_value
 
 logger = logging.getLogger(__name__)
 
@@ -1037,22 +1038,33 @@ async def resume_market(
 @router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富/消费排行榜")
 async def leaderboard(
     limit: int = Query(20, ge=1, le=100),
-    mode: str = Query("net_worth", description="net_worth=按 cash-debt；spending=按 兑换消费总额-当前债务"),
+    mode: str = Query("net_worth", description="net_worth=cash-debt+持仓 LMSR 清算价；spending=兑换消费总额-当前债务"),
     db: AsyncSession = Depends(get_async_session),
 ):
     if mode == "net_worth":
-        res = await db.execute(
-            select(User).order_by((User.cash - User.debt).desc()).limit(limit)
+        # 与 /user/summary、/admin/wealth 同口径：net_worth = cash - debt + 持仓 LMSR 清算价
+        # 数据库无法直接 ORDER BY 持仓估值（需 LMSR 全市场上下文），应用层算完再排。
+        users = (await db.execute(select(User))).scalars().all()
+        if not users:
+            return []
+        holdings = await compute_users_holdings_value(
+            db,
+            user_ids=[u.id for u in users],
+            sell_fee_rate=SELL_FEE_RATE,
         )
-        users = res.scalars().all()
+        scored = [
+            (u, u.cash - u.debt + holdings.get(u.id, ZERO))
+            for u in users
+        ]
+        scored.sort(key=lambda x: x[1], reverse=True)
         return [
             LeaderboardItem(
                 user_id=u.id,
                 username=u.username,
-                net_worth=(u.cash - u.debt).quantize(Decimal("0.01")),
-                rank=rank_title(u.cash - u.debt),
+                net_worth=nw.quantize(Decimal("0.01")),
+                rank=rank_title(nw),
             )
-            for u in users
+            for u, nw in scored[:limit]
         ]
 
     if mode == "spending":
