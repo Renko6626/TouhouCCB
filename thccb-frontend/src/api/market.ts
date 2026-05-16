@@ -34,18 +34,32 @@ export const marketApi = {
   },
 
   // 买入胜券
-  async buy(outcomeId: number, shares: number, maxSlippageBps?: number): Promise<TradeResponse> {
+  async buy(
+    outcomeId: number,
+    shares: number,
+    maxSlippageBps?: number,
+    acceptAnySlippage: boolean = false,
+  ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
-    if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
+    if (acceptAnySlippage) {
+      request.accept_any_slippage = true
+    } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
     return api.post<TradeResponse>('/api/v1/market/buy', request)
   },
 
   // 卖出胜券
-  async sell(outcomeId: number, shares: number, maxSlippageBps?: number): Promise<TradeResponse> {
+  async sell(
+    outcomeId: number,
+    shares: number,
+    maxSlippageBps?: number,
+    acceptAnySlippage: boolean = false,
+  ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
-    if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
+    if (acceptAnySlippage) {
+      request.accept_any_slippage = true
+    } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
     return api.post<TradeResponse>('/api/v1/market/sell', request)

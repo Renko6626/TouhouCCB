@@ -8,6 +8,7 @@ export interface TradeRequest {
   max_cost?: number          // 买入最高可接受成本（含费）；优先级高于 bps
   min_proceeds?: number      // 卖出最低可接受收入（净）；优先级高于 bps
   max_slippage_bps?: number  // 最大滑点，万分之一（100=1%），默认 500=5%
+  accept_any_slippage?: boolean  // true 时跳过 max_slippage_bps 检查（平仓/大额建仓用）
 }
 
 export interface TradeResponse {

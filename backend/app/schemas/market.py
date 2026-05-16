@@ -56,7 +56,13 @@ class TradeRequest(BaseModel):
         default=None,
         ge=0,
         le=10000,
-        description="最大滑点（万分之一），默认 500=5%；服务端 hardcap=1000=10%",
+        description="最大滑点（万分之一），默认 500=5%；服务端 hardcap=1000=10%。"
+                    "accept_any_slippage=True 时此字段被忽略",
+    )
+    accept_any_slippage: bool = Field(
+        default=False,
+        description="True 时跳过 max_slippage_bps 检查（仍检查 max_cost/min_proceeds）。"
+                    "供平仓/大额建仓等用户明确接受任意滑点的场景；UI 应清晰标识。",
     )
 
 

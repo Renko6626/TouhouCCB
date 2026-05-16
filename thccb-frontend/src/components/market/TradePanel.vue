@@ -29,12 +29,15 @@ const emit = defineEmits<{
   'executeTrade': []
 }>()
 
-// 滑点档位（万分之一）：0.5% / 1% / 2% / 5%
+// 滑点档位（万分之一）：0.5% / 1% / 2% / 5% / 无限制
+// value=-1 是 sentinel，表示"无限制"——父组件 detect 后给 API 发 accept_any_slippage=true
+const SLIPPAGE_UNLIMITED = -1
 const slippageOptions: SelectOption[] = [
   { label: '0.5%', value: 50 },
   { label: '1%', value: 100 },
   { label: '2%', value: 200 },
   { label: '5%', value: 500 },
+  { label: '⚠ 无限制', value: SLIPPAGE_UNLIMITED },
 ]
 
 const userStore = useUserStore()
@@ -69,6 +72,31 @@ const executeTrade = async () => {
     setTimeout(() => { isSubmitting.value = false }, 500)
   }
 }
+
+// 当前选中 outcome 的边际价（用 quote 算预估滑点）
+const selectedOutcomePrice = computed<number | null>(() => {
+  if (!props.selectedOutcomeId || !props.market?.outcomes) return null
+  const o = props.market.outcomes.find((x: OutcomeQuote) => x.id === props.selectedOutcomeId)
+  return o?.current_price ?? null
+})
+
+// 预估滑点 = |avg_price - marginal_price| / marginal_price
+// 反映 LMSR 大额单的真实成交滑点；用户看完这个再决定档位是否够用
+const estimatedSlippagePct = computed<number | null>(() => {
+  const margin = selectedOutcomePrice.value
+  const avg = props.quoteResult?.avg_price
+  if (!margin || !avg || margin <= 0) return null
+  return Math.abs(avg - margin) / margin * 100
+})
+
+// 预估滑点是否会被当前档位拒绝（提前让用户看到红色警告）
+const slippageWouldBeRejected = computed(() => {
+  if (props.maxSlippageBps === SLIPPAGE_UNLIMITED) return false
+  if (estimatedSlippagePct.value === null) return false
+  return estimatedSlippagePct.value > (props.maxSlippageBps / 100)
+})
+
+const isUnlimitedSlippage = computed(() => props.maxSlippageBps === SLIPPAGE_UNLIMITED)
 
 // ── 持仓与盈亏 ──
 const hasHolding = computed(() =>
@@ -281,6 +309,13 @@ const actionHint = computed<string>(() => {
       <div class="quote-row quote-row--total">
         <span>{{ props.tradeType === 'buy' ? '应付' : '到手' }}</span>
         <span>金 {{ props.quoteResult.net?.toFixed(2) }}</span>
+      </div>
+      <div v-if="estimatedSlippagePct !== null" class="quote-row" :class="{ 'quote-row--warn': slippageWouldBeRejected }">
+        <span>预估滑点</span>
+        <span>
+          {{ estimatedSlippagePct.toFixed(2) }}%
+          <span v-if="slippageWouldBeRejected" class="slippage-reject-hint">（超过 {{ (props.maxSlippageBps / 100).toFixed(1) }}%，会被拒）</span>
+        </span>
       </div>
       <div v-if="props.quoteExceedsCash" class="quote-warn">
         余额不足，请减少份额
@@ -613,6 +648,18 @@ const actionHint = computed<string>(() => {
   font-weight: 600;
   color: var(--color-down);
   margin-top: 2px;
+}
+
+.quote-row--warn {
+  color: var(--color-down);
+  font-weight: 600;
+}
+
+.slippage-reject-hint {
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: 4px;
+  color: var(--color-down);
 }
 
 /* 滑点行 */
