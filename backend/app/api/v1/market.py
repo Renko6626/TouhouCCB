@@ -36,6 +36,7 @@ from app.services.lmsr import (
     quantize_price,
 )
 from app.services.wealth import compute_users_holdings_value
+from app.services.candle_writer import compute_candle_rows, upsert_candles
 
 logger = logging.getLogger(__name__)
 
@@ -553,6 +554,16 @@ async def buy_shares(
         )
         db.add(tx)
 
+        # ★ candle 物化表 UPSERT（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）
+        candle_rows = compute_candle_rows(
+            traded_outcome_id=outcome.id,
+            outcome_ids=[o.id for o in all_outcomes],
+            new_prices=new_prices,
+            traded_shares=shares_d,
+            ts=tx.timestamp if tx.timestamp else datetime.now(timezone.utc),
+        )
+        await upsert_candles(db, candle_rows)
+
     logger.info(
         "BUY user_id=%s outcome_id=%s market_id=%s shares=%s cost=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
         user.id, outcome.id, market.id, shares_d, pay, avg_price, pre_mp, post_mp, locked_user.cash,
@@ -702,6 +713,16 @@ async def sell_shares(
             market_prices_post=list(new_prices),
         )
         db.add(tx)
+
+        # ★ candle 物化表 UPSERT（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）
+        candle_rows = compute_candle_rows(
+            traded_outcome_id=outcome.id,
+            outcome_ids=[o.id for o in all_outcomes],
+            new_prices=new_prices,
+            traded_shares=shares_d,
+            ts=tx.timestamp if tx.timestamp else datetime.now(timezone.utc),
+        )
+        await upsert_candles(db, candle_rows)
 
     logger.info(
         "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
