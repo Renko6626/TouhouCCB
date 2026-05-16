@@ -67,10 +67,12 @@ async def test_resync_fills_missing_recent_candles(client):
 
 @pytest.mark.asyncio
 async def test_resync_idempotent(client):
-    """没漏写时 resync 不会污染现有数据。"""
+    """resync 严格幂等：跑 1 次 vs 跑 N 次结果完全相同。"""
     mid, oids, headers = await _seed_user_market()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await client.post("/api/v1/market/buy", headers=headers,
+                      json={"outcome_id": oids[1], "shares": 2})
 
     async with async_session_maker() as s:
         before = sorted([
@@ -78,6 +80,9 @@ async def test_resync_idempotent(client):
             for c in (await s.execute(select(OutcomeCandle))).scalars().all()
         ])
 
+    # 跑 3 次 resync 模拟连续重启场景
+    await _resync_recent_candles()
+    await _resync_recent_candles()
     await _resync_recent_candles()
 
     async with async_session_maker() as s:
@@ -86,11 +91,42 @@ async def test_resync_idempotent(client):
             for c in (await s.execute(select(OutcomeCandle))).scalars().all()
         ])
 
-    # 注意：upsert_candles 用 ON CONFLICT DO UPDATE 累加 volume/n_trades
-    # 所以 resync 同一笔已 backfill 过的 transaction 会 double-count
-    # 这个测试**预期会失败**展示这个 limitation；如果 implementer 设计了 dedup
-    # （比如用 timestamp > max(updated_at) 过滤），就改成 assert before == after
-    # 实际上 plan 没要求 dedup，简化语义为"漏的会补，已有的会 double"
-    # 实际部署时只在 startup 跑一次、且窗口小（1h），double 影响有限
-    # 这里我们**接受 idempotent 失败**——只验证 resync 不会 crash
-    assert len(after) >= len(before)
+    # 严格相等：volume_shares 和 n_trades 不能被重复累加（previous double-count bug
+    # 的回归预防）
+    assert after == before, (
+        f"resync 非幂等 — 重启 3 次后数据漂移：\nbefore={before}\nafter={after}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_resync_outside_window_not_touched(client):
+    """resync 不应触碰窗口外（很久以前）的 candle 行。"""
+    mid, oids, headers = await _seed_user_market()
+    await client.post("/api/v1/market/buy", headers=headers,
+                      json={"outcome_id": oids[0], "shares": 1})
+
+    # 手工塞一个"很久以前"的 candle（2 年前），模拟 resync 窗口外的历史数据
+    ancient = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    async with async_session_maker() as s:
+        s.add(OutcomeCandle(
+            outcome_id=oids[0], interval="1h", bucket_start=ancient,
+            open_price=Decimal("0.5"), high_price=Decimal("0.5"),
+            low_price=Decimal("0.5"), close_price=Decimal("0.5"),
+            volume_shares=Decimal("99"), n_trades=42,
+        ))
+        await s.commit()
+
+    await _resync_recent_candles()
+
+    async with async_session_maker() as s:
+        ancient_row = (await s.execute(
+            select(OutcomeCandle).where(
+                OutcomeCandle.outcome_id == oids[0],
+                OutcomeCandle.interval == "1h",
+                OutcomeCandle.bucket_start == ancient,
+            )
+        )).scalars().first()
+
+    assert ancient_row is not None, "resync 不该删窗口外的桶"
+    assert ancient_row.volume_shares == Decimal("99.000000")
+    assert ancient_row.n_trades == 42
