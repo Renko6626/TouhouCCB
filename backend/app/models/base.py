@@ -42,7 +42,7 @@ class User(SQLModel, table=True):
     is_superuser: bool = Field(default=False, nullable=False)
 
     # 游戏业务属性 — Decimal(16,6)
-    cash: Decimal = Field(default=Decimal("100"), sa_type=Numeric(16, 6))
+    cash: Decimal = Field(default=Decimal("500"), sa_type=Numeric(16, 6))
     debt: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
 
     # LoanV1 — 上次利息结算时间；debt=0 时为 None
@@ -191,6 +191,46 @@ class Transaction(SQLModel, table=True):
 
     user: Optional["User"] = Relationship(back_populates="transactions")
     outcome: Optional["Outcome"] = Relationship(back_populates="transactions")
+
+
+class OutcomeCandle(SQLModel, table=True):
+    """物化 OHLCV K 线表。每笔 buy/sell 在事务内同步 UPSERT。
+
+    自然键 (outcome_id, interval, bucket_start)：同一 bucket 多次成交
+    INSERT ... ON CONFLICT DO UPDATE 合并 H/L/C/V/n。
+
+    settle/settle_lose 不写入：结算价不是真实成交、且 timestamp 扎堆。
+
+    不暴露 outcome relationship；Outcome 不加反向 candles 关系。
+    理由：遵守 base.py:61-67 hot path 性能护栏（lazy="raise_on_sql" 精神）。
+    """
+    __tablename__ = "outcome_candle"
+    __table_args__ = (
+        CheckConstraint("volume_shares >= 0", name="ck_candle_volume_non_negative"),
+        CheckConstraint("n_trades >= 0",      name="ck_candle_n_non_negative"),
+        CheckConstraint("high_price >= low_price", name="ck_candle_h_ge_l"),
+        CheckConstraint(
+            "interval IN ('10s', '1m', '15m', '1h')",
+            name="ck_candle_interval_supported",
+        ),
+    )
+
+    outcome_id:   int      = Field(foreign_key="outcome.id", primary_key=True)
+    interval:     str      = Field(primary_key=True, max_length=8)
+    bucket_start: datetime = Field(primary_key=True, sa_type=DateTime(timezone=True))
+
+    open_price:  Decimal = Field(sa_type=Numeric(16, 8))
+    high_price:  Decimal = Field(sa_type=Numeric(16, 8))
+    low_price:   Decimal = Field(sa_type=Numeric(16, 8))
+    close_price: Decimal = Field(sa_type=Numeric(16, 8))
+
+    volume_shares: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
+    n_trades:      int     = Field(default=0)
+
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+    )
 
 
 class SiteConfig(SQLModel, table=True):
