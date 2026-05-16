@@ -19,7 +19,7 @@ import type { Candle } from '@/types/api'
 import { getPalette, withAlpha } from '@/utils/palette'
 import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
 
-type ChartInterval = '10s' | '30s' | '1m' | '5m' | '15m' | '1h' | '1d'
+type ChartInterval = '10s' | '1m' | '15m' | '1h'
 
 const props = withDefaults(defineProps<{
   outcomeId: number
@@ -57,15 +57,14 @@ const candleCount = ref(0)
 const hasData = computed(() => candleCount.value > 0)
 
 const INTERVAL_SECONDS: Record<ChartInterval, number> = {
-  '10s': 10, '30s': 30, '1m': 60, '5m': 300,
-  '15m': 900, '1h': 3600, '1d': 86400,
+  '10s': 10, '1m': 60, '15m': 900, '1h': 3600,
 }
 
 // ── 本地增量状态（incremental update 核心） ─────────────
 // 已闭合 candles 的 close 数组（与 publishedTimes 同序），用于 O(MA_PERIOD) 增量算 MA
 let publishedCloses: number[] = []
 // 当前正在形成的 candle（forming）；trade 来时原地更新 h/l/c/v
-let currentCandle: { t: number; o: number; h: number; l: number; c: number; v: number } | null = null
+let currentCandle: { t: number; o: number; h: number; l: number; c: number; v: number; n: number } | null = null
 
 const stepSeconds = computed(() => INTERVAL_SECONDS[props.interval])
 
@@ -188,7 +187,7 @@ const renderFull = (candles: Candle[]) => {
     const last = candles[candles.length - 1]!
     currentCandle = {
       t: toUtcTimestamp(last.t) as number,
-      o: last.o, h: last.h, l: last.l, c: last.c, v: last.v,
+      o: last.o, h: last.h, l: last.l, c: last.c, v: last.v, n: last.n,
     }
   }
 
@@ -217,14 +216,17 @@ const applyVisibleRangeToNow = () => {
 }
 
 // SSE trade 来时，把它合并进本地 currentCandle 并 push 给 lightweight-charts
-const applyTrade = (price: number, shares: number, tsMs: number) => {
+// isDirectTrade=true 表示该 trade 直接发生在本图表的 outcome 上；否则是同市场其他 outcome
+// 的连带价格变动，只更新 OHLC 不计入 n_trades（与后端 candle_writer.compute_candle_rows
+// 的 n_trades 语义一致）
+const applyTrade = (price: number, shares: number, tsMs: number, isDirectTrade: boolean) => {
   if (!candleSeries) return
   const tsSec = Math.floor(tsMs / 1000)
   const bucketStart = Math.floor(tsSec / stepSeconds.value) * stepSeconds.value
 
   if (!currentCandle) {
     // 第一根：用 price 当 open
-    currentCandle = { t: bucketStart, o: price, h: price, l: price, c: price, v: shares }
+    currentCandle = { t: bucketStart, o: price, h: price, l: price, c: price, v: shares, n: isDirectTrade ? 1 : 0 }
     pushFormingToChart()
     candleCount.value += 1
     return
@@ -236,6 +238,7 @@ const applyTrade = (price: number, shares: number, tsMs: number) => {
     currentCandle.l = Math.min(currentCandle.l, price)
     currentCandle.c = price
     currentCandle.v += shares
+    if (isDirectTrade) currentCandle.n += 1
     pushFormingToChart()
     return
   }
@@ -251,6 +254,7 @@ const applyTrade = (price: number, shares: number, tsMs: number) => {
       l: Math.min(prevClose, price),
       c: price,
       v: shares,
+      n: isDirectTrade ? 1 : 0,
     }
     pushFormingToChart()
     candleCount.value += 1
@@ -288,7 +292,7 @@ const initChart = () => {
     timeScale: {
       borderColor: '#000',
       timeVisible: true,
-      secondsVisible: props.interval === '10s' || props.interval === '30s',
+      secondsVisible: props.interval === '10s',
     },
     crosshair: { mode: 1 },
     width: chartRef.value.clientWidth,
@@ -371,7 +375,7 @@ onMounted(async () => {
 watch(() => [props.outcomeId, props.interval, props.lookbackMinutes], () => {
   chartInstance?.applyOptions({
     timeScale: {
-      secondsVisible: props.interval === '10s' || props.interval === '30s',
+      secondsVisible: props.interval === '10s',
     },
   })
   loadFull()
@@ -385,8 +389,9 @@ if (realtime) {
     if (price === undefined) return
     const tsMs = new Date(trade.timestamp).getTime()
     // 只有交易的 outcome 才把 shares 计入 volume；其他 outcome 的图表 v 只随价格动
-    const sharesForThisChart = trade.outcome_id === props.outcomeId ? trade.shares : 0
-    applyTrade(price, sharesForThisChart, tsMs)
+    const isDirectTrade = trade.outcome_id === props.outcomeId
+    const sharesForThisChart = isDirectTrade ? trade.shares : 0
+    applyTrade(price, sharesForThisChart, tsMs, isDirectTrade)
   })
 
   watch(realtime.gapToken, () => {
