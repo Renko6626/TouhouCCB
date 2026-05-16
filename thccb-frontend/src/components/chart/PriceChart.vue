@@ -10,20 +10,29 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { chartApi } from '@/api/chart'
-import type { PricePoint } from '@/types/api'
 import { getPalette } from '@/utils/palette'
 import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
 
+type ChartInterval = '10s' | '1m' | '15m' | '1h'
+
 const props = withDefaults(defineProps<{
   outcomeId: number
-  lookbackMinutes?: number
+  interval?: ChartInterval
   width?: string
   height?: string
 }>(), {
-  lookbackMinutes: 1440,
+  interval: '1m',
   width: '100%',
   height: '400px',
 })
+
+// 跟 CandleChart 同款 LOOKBACK_MAP（每档约 80–90 个 candle 点）
+const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
+  '10s': 15,
+  '1m':  80,
+  '15m': 1200,
+  '1h':  4800,
+}
 
 // inject realtime —— 必须在 useMarketRealtime provider 下使用（TradingView 提供）
 const realtime = inject(MarketRealtimeKey, null)
@@ -54,23 +63,6 @@ let tickerId: ReturnType<typeof setInterval> | null = null
 let userScrolledBack = false
 
 const hasData = computed(() => pointCount.value > 0)
-
-// 按 lookback 选 bucket 降采样：避免长窗口下区间交易笔数撑爆后端 5000 行硬上限
-// （chart.py:_fetch_initial_shares_and_replay 的 `len(replay_rows) > limit` check）。
-// 同时控制返回点数 ≤ ~1500，前端绘制压力小。1h 留逐笔以保实时观感。
-const PRICE_BUCKET_THRESHOLDS: { maxLookbackMin: number; bucket?: string }[] = [
-  { maxLookbackMin: 60,    bucket: undefined }, // ≤1h：逐笔
-  { maxLookbackMin: 360,   bucket: '30s' },     // ≤6h
-  { maxLookbackMin: 1440,  bucket: '5m' },      // ≤24h
-  { maxLookbackMin: 4320,  bucket: '15m' },     // ≤3d
-  { maxLookbackMin: 10080, bucket: '1h' },      // ≤7d
-]
-const pickBucket = (lookbackMin: number): string | undefined => {
-  for (const row of PRICE_BUCKET_THRESHOLDS) {
-    if (lookbackMin <= row.maxLookbackMin) return row.bucket
-  }
-  return '1h'
-}
 
 const priceDirection = computed<'up' | 'down' | 'neutral'>(() => {
   if (firstPrice.value === null || lastPrice.value === null) return 'neutral'
@@ -125,7 +117,7 @@ const initChart = () => {
     timeScale: {
       borderColor: '#e0e0e0',
       timeVisible: true,
-      secondsVisible: props.lookbackMinutes <= 60,
+      secondsVisible: props.interval === '10s',
     },
     crosshair: { mode: 0 },
     width: chartRef.value.clientWidth,
@@ -154,28 +146,30 @@ const initChart = () => {
   })
 }
 
-// 全量加载（初始 / 切换 outcome+lookback / gap reconcile / 重连）
+// 全量加载（初始 / 切换 outcome+interval / gap reconcile / 重连）
 const loadFull = async () => {
   if (!props.outcomeId) return
   loading.value = true
   error.value = null
   try {
+    const lookbackMin = LOOKBACK_MINUTES_MAP[props.interval]
     const now = new Date()
-    const fromTs = new Date(now.getTime() - props.lookbackMinutes * 60 * 1000).toISOString()
+    const fromTs = new Date(now.getTime() - lookbackMin * 60 * 1000).toISOString()
     const toTs = now.toISOString()
-    // limit=20000 是后端 hard cap（chart.py 的 Query(ge=1, le=20000)）。
-    // bucket 仅压缩返回点数，不能减少 replay_rows 数；所以 limit 拉满 + bucket 双管齐下。
-    const bucket = pickBucket(props.lookbackMinutes)
-    const resp = await chartApi.getPriceSeries(props.outcomeId, fromTs, toTs, 20000, bucket)
-    if (!resp || !resp.points) {
+    const resp = await chartApi.getCandles(
+      props.outcomeId, props.interval, fromTs, toTs,
+      true,  // fill=true，曲线在无 trade 期间用 prev_close 平直延伸
+      5000,
+    )
+    if (!resp || !resp.candles) {
       pointCount.value = 0
       return
     }
 
-    const points = resp.points
-    pointCount.value = points.length
-    firstPrice.value = points[0]?.price ?? null
-    lastPrice.value = points[points.length - 1]?.price ?? null
+    const candles = resp.candles
+    pointCount.value = candles.length
+    firstPrice.value = candles[0]?.c ?? null
+    lastPrice.value = candles[candles.length - 1]?.c ?? null
 
     await nextTick()
     if (!chartInstance) initChart()
@@ -184,13 +178,12 @@ const loadFull = async () => {
     const fromTsSec = Math.floor(new Date(fromTs).getTime() / 1000) as UTCTimestamp
     const toTsSec = Math.floor(now.getTime() / 1000) as UTCTimestamp
 
-    const data = points.map((pt: PricePoint) => ({
-      time: Math.floor(new Date(pt.ts).getTime() / 1000) as UTCTimestamp,
-      value: pt.price,
+    // 用每根 candle 的 close 价作为折线点
+    const data = candles.map(c => ({
+      time: Math.floor(new Date(c.t).getTime() / 1000) as UTCTimestamp,
+      value: c.c,
     }))
-    // 追加一个"现在"的合成端点，价格沿用最后一笔成交（LMSR 无成交期间价格恒定）。
-    // 这样即使最后一笔在 1h 前，曲线也会延伸到当前时刻，配合 setVisibleRange 才能
-    // 让用户看到完整的请求时间窗。SSE 增量更新走 update()，同 ts 会自动 replace。
+    // 追加"现在"合成端点
     if (data.length > 0) {
       const last = data[data.length - 1]!
       if ((last.time as number) < (toTsSec as number)) {
@@ -201,17 +194,12 @@ const loadFull = async () => {
     lastWrittenTs = data.length > 0 ? (data[data.length - 1]!.time as number) : 0
     applyDirectionColors()
 
-    // 不用 fitContent()——它会缩到数据范围，让 1h 和 7d lookback 在稀疏交易时表现一致。
-    // setVisibleRange 强制时间轴跨整个请求窗口，曲线短就让左侧留空，时间尺度诚实。
     if (data.length > 0) {
       chartInstance?.timeScale().setVisibleRange({ from: fromTsSec, to: toTsSec })
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '价格数据加载失败'
     console.error('[PriceChart] loadFull failed:', err)
-    // 切到新 lookback 失败时清掉旧数据，避免 chart 残留上一档 lookback 的图但视窗
-    // 被 1Hz ticker 拉宽到新 lookback —— 这就是"显示不出来"的视觉来源。清空后
-    // hasData=false 才会让 error overlay 走 v-else-if 显示出来。
     pointCount.value = 0
     firstPrice.value = null
     lastPrice.value = null
@@ -255,7 +243,7 @@ const startTicker = () => {
       lastWrittenTs = nowSec
     }
     if (userScrolledBack) return  // 用户在看历史，不抢他的视野
-    const lookbackSec = Math.max(60, props.lookbackMinutes * 60)
+    const lookbackSec = LOOKBACK_MINUTES_MAP[props.interval] * 60
     chartInstance.timeScale().setVisibleRange({
       from: (nowSec - lookbackSec) as UTCTimestamp,
       to: nowSec as UTCTimestamp,
@@ -292,10 +280,10 @@ onMounted(async () => {
   startTicker()
 })
 
-// 切换 outcome / lookback → 完全重载
-watch(() => [props.outcomeId, props.lookbackMinutes], () => {
+// 切换 outcome / interval → 完全重载
+watch(() => [props.outcomeId, props.interval], () => {
   chartInstance?.applyOptions({
-    timeScale: { secondsVisible: props.lookbackMinutes <= 60 },
+    timeScale: { secondsVisible: props.interval === '10s' },
   })
   loadFull()
 })
