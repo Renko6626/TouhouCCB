@@ -1,6 +1,7 @@
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,17 +39,99 @@ _LOG_SKIP_PREFIXES = (
 )
 
 
+def _set_no_store_for_api(path: str, response):
+    if path.startswith("/api/v1/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup: 建表 → LoanV1 幂等补列/种默认配置 → 挂载 admin → 启动 loan sweep
     await init_db()
     await auto_migrate()
     setup_admin(app, engine)
+    # ── candle 表 race-window 兜底扫（spec § 6.3）──
+    # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
+    try:
+        await _resync_recent_candles()
+    except Exception as e:
+        # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
+        logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
     await start_scheduler()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
     await stop_scheduler()
     await engine.dispose()
+
+
+async def _resync_recent_candles(window_hours: int = 1) -> None:
+    """扫近 window_hours 内的 buy/sell Transaction，对 candle 表做幂等 UPSERT。
+    覆盖 migration→新代码之间的 race window。
+
+    注：upsert 用 ON CONFLICT DO UPDATE 累加 volume/n_trades，所以重复跑同一
+    Transaction 会 double-count。设计上只在 startup 跑一次、窗口小（1h），
+    影响有限。不做精确 dedup 是为了保持函数简单 + 幂等失败安全。
+    """
+    from app.core.database import async_session_maker
+    from app.models.base import Outcome, Transaction, TransactionType
+    from app.services.candle_writer import compute_candle_rows, upsert_candles
+    from sqlalchemy import select
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+
+    async with async_session_maker() as s:
+        market_ids_result = (await s.execute(
+            select(Outcome.market_id)
+            .join(Transaction, Transaction.outcome_id == Outcome.id)
+            .where(
+                Transaction.timestamp >= cutoff,
+                Transaction.type.in_([TransactionType.BUY, TransactionType.SELL]),
+            )
+            .distinct()
+        )).all()
+        market_ids = [r[0] for r in market_ids_result]
+
+    if not market_ids:
+        return
+
+    for mid in market_ids:
+        async with async_session_maker() as s:
+            outcomes = (await s.execute(
+                select(Outcome).where(Outcome.market_id == mid).order_by(Outcome.id)
+            )).scalars().all()
+            outcome_ids = [o.id for o in outcomes]
+            if not outcome_ids:
+                continue
+
+            txs = (await s.execute(
+                select(Transaction)
+                .where(
+                    Transaction.outcome_id.in_(outcome_ids),
+                    Transaction.timestamp >= cutoff,
+                    Transaction.type.in_([TransactionType.BUY, TransactionType.SELL]),
+                )
+                .order_by(Transaction.timestamp.asc())
+            )).scalars().all()
+
+            for tx in txs:
+                if tx.market_prices_post and len(tx.market_prices_post) == len(outcome_ids):
+                    new_prices = [float(p) for p in tx.market_prices_post]
+                else:
+                    new_prices = [
+                        float(tx.post_market_price) if oid == tx.outcome_id
+                        else 1.0 / len(outcome_ids) for oid in outcome_ids
+                    ]
+                rows = compute_candle_rows(
+                    traded_outcome_id=tx.outcome_id,
+                    outcome_ids=outcome_ids,
+                    new_prices=new_prices,
+                    traded_shares=tx.shares,
+                    ts=tx.timestamp,
+                )
+                await upsert_candles(s, rows)
+            await s.commit()
 
 
 app = FastAPI(title="东方炒炒币 (Touhou Exchange)", lifespan=lifespan)
@@ -72,7 +155,7 @@ async def log_requests(request: Request, call_next):
     """
     path = request.url.path
     if any(path.startswith(p) for p in _LOG_SKIP_PREFIXES):
-        return await call_next(request)
+        return _set_no_store_for_api(path, await call_next(request))
 
     start = time.perf_counter()
     try:
@@ -94,7 +177,7 @@ async def log_requests(request: Request, call_next):
         response.status_code,
         elapsed_ms,
     )
-    return response
+    return _set_no_store_for_api(path, response)
 
 # 注册认证模块
 # 最终路径示例：
