@@ -1,9 +1,8 @@
 // 图表相关类型定义
 
-export interface PricePoint {
-  ts: string
-  price: number
-}
+/** 前端支持的 candle interval —— 跟后端 OutcomeCandle.interval CheckConstraint 对齐。
+ * 30s/5m/1d 是后端 rollup-compatible，但前端不暴露主动发送。 */
+export type ChartInterval = '10s' | '1m' | '15m' | '1h'
 
 export interface Candle {
   t: string
@@ -15,16 +14,9 @@ export interface Candle {
   n: number
 }
 
-export interface PriceSeriesResponse {
-  outcome_id: number
-  from_ts: string
-  to_ts: string
-  points: PricePoint[]
-}
-
 export interface CandleSeriesResponse {
   outcome_id: number
-  interval: '10s' | '30s' | '1m' | '5m' | '15m' | '1h' | '1d'
+  interval: ChartInterval
   from_ts: string
   to_ts: string
   candles: Candle[]

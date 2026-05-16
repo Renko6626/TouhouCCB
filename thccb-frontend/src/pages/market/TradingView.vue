@@ -38,10 +38,9 @@ const selectedOutcomeId = ref<number | null>(null)
 const shares = ref(1)
 // 最大滑点：默认 1%（100 bps）；服务端 hardcap=1000 bps
 const maxSlippageBps = ref(100)
-import type { QuoteResponse } from '@/types/api'
+import type { QuoteResponse, ChartInterval } from '@/types/api'
 const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
-type ChartInterval = '10s' | '1m' | '15m' | '1h'
 const candleInterval = ref<ChartInterval>('1m')
 const candleIntervalOptions = [
   { label: '10秒', value: '10s' },

@@ -1,11 +1,11 @@
 import api from './index'
-import type { CandleSeriesResponse } from '@/types/api'
+import type { CandleSeriesResponse, ChartInterval } from '@/types/api'
 
 export const chartApi = {
   // K线数据
   async getCandles(
     outcomeId: number,
-    interval: '10s' | '1m' | '15m' | '1h',
+    interval: ChartInterval,
     fromTs: string,
     toTs: string,
     fill: boolean = false,

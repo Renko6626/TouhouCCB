@@ -10,10 +10,9 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts'
 import { chartApi } from '@/api/chart'
+import type { ChartInterval } from '@/types/api'
 import { getPalette } from '@/utils/palette'
 import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
-
-type ChartInterval = '10s' | '1m' | '15m' | '1h'
 
 const props = withDefaults(defineProps<{
   outcomeId: number
