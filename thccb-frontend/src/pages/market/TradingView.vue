@@ -281,13 +281,18 @@ watch([tradeType, selectedOutcomeId, shares], () => {
 }, { immediate: true })
 
 // 执行交易（tradeLoading 由 marketStore 统一管理）
+// maxSlippageBps = -1 是 TradePanel 里 SLIPPAGE_UNLIMITED sentinel，
+// 转成 acceptAnySlippage=true 让后端跳过 bps 检查（平仓 / 大额建仓场景）
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
 
+  const acceptAnySlippage = maxSlippageBps.value === -1
+  const effectiveBps = acceptAnySlippage ? undefined : maxSlippageBps.value
+
   try {
     const result = tradeType.value === 'buy'
-      ? await marketStore.buyShares(selectedOutcomeId.value, shares.value, maxSlippageBps.value)
-      : await marketStore.sellShares(selectedOutcomeId.value, shares.value, maxSlippageBps.value)
+      ? await marketStore.buyShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage)
+      : await marketStore.sellShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage)
 
     if (!result.success) {
       message.error(result.error || '交易失败，请重试')

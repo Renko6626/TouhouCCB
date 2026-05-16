@@ -502,16 +502,19 @@ async def buy_shares(
                 status_code=400,
                 detail=f"成交成本 {pay} 超过 max_cost 限制 {req.max_cost}，滑点过大请刷新报价",
             )
-        client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-        effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
-        slippage_limit_buy = (
-            expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
-        ).quantize(Decimal("0.000001"))
-        if pay > slippage_limit_buy:
-            raise HTTPException(
-                status_code=400,
-                detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
-            )
+        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓场景），跳过 bps 检查。
+        # max_cost 上面已经检查过——若用户传了绝对上限仍然有效，作为最后防线。
+        if not req.accept_any_slippage:
+            client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+            effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
+            slippage_limit_buy = (
+                expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
+            ).quantize(Decimal("0.000001"))
+            if pay > slippage_limit_buy:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
+                )
 
         if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
@@ -669,16 +672,18 @@ async def sell_shares(
                 status_code=400,
                 detail=f"成交收入 {net} 低于 min_proceeds 限制 {req.min_proceeds}，滑点过大请刷新报价",
             )
-        client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-        effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
-        slippage_floor_sell = (
-            expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
-        ).quantize(Decimal("0.000001"))
-        if net < slippage_floor_sell:
-            raise HTTPException(
-                status_code=400,
-                detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
-            )
+        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓）；min_proceeds 仍为最后防线
+        if not req.accept_any_slippage:
+            client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
+            effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
+            slippage_floor_sell = (
+                expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
+            ).quantize(Decimal("0.000001"))
+            if net < slippage_floor_sell:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
+                )
 
         # Decimal 精确运算
         locked_user.cash += net

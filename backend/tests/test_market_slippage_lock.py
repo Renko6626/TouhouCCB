@@ -160,6 +160,79 @@ async def test_buy_uses_default_slippage_when_unset(client):
 
 
 @pytest.mark.asyncio
+async def test_buy_accept_any_slippage_bypasses_bps_check(client):
+    """accept_any_slippage=true 时跳过 bps 检查；同等数量否则会被 hardcap 拒绝。"""
+    _, h = await _make_user(cash=Decimal("10000"))
+    # b=10 + 买 5 份 = ~12.6% 滑点，远超 hardcap 10%
+    _, outcome_ids = await _make_market(liquidity_b=10.0, n_outcomes=2)
+
+    # 不带 accept_any_slippage → 必拒
+    r = await client.post(
+        "/api/v1/market/buy",
+        json={"outcome_id": outcome_ids[0], "shares": 5},
+        headers=h,
+    )
+    assert r.status_code == 400
+
+    # 带 accept_any_slippage=true → 应成功
+    r = await client.post(
+        "/api/v1/market/buy",
+        json={"outcome_id": outcome_ids[0], "shares": 5, "accept_any_slippage": True},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_buy_accept_any_slippage_still_honors_max_cost(client):
+    """accept_any_slippage=true 但仍传 max_cost → max_cost 仍生效作为最后防线。"""
+    _, h = await _make_user(cash=Decimal("10000"))
+    _, outcome_ids = await _make_market(liquidity_b=10.0, n_outcomes=2)
+    r = await client.post(
+        "/api/v1/market/buy",
+        json={
+            "outcome_id": outcome_ids[0],
+            "shares": 5,
+            "accept_any_slippage": True,
+            "max_cost": "0.1",  # 极小，必拒
+        },
+        headers=h,
+    )
+    assert r.status_code == 400
+    assert "max_cost" in r.text
+
+
+@pytest.mark.asyncio
+async def test_sell_accept_any_slippage_bypasses_bps_check(client):
+    """sell 路径同样支持 accept_any_slippage 平仓场景。"""
+    _, h = await _make_user(cash=Decimal("10000"))
+    _, outcome_ids = await _make_market(liquidity_b=10.0, n_outcomes=2)
+    # 先 buy 10 份建仓（用 accept_any 才能建）
+    r = await client.post(
+        "/api/v1/market/buy",
+        json={"outcome_id": outcome_ids[0], "shares": 10, "accept_any_slippage": True},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+
+    # 直接全平仓 10 份会触发大滑点（>5% 默认）
+    r = await client.post(
+        "/api/v1/market/sell",
+        json={"outcome_id": outcome_ids[0], "shares": 10},  # 不带 accept
+        headers=h,
+    )
+    assert r.status_code == 400
+
+    # 带 accept_any_slippage → 成功平仓
+    r = await client.post(
+        "/api/v1/market/sell",
+        json={"outcome_id": outcome_ids[0], "shares": 10, "accept_any_slippage": True},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
 async def test_buy_accepts_when_within_slippage(client):
     """大流动性 + 小成交 + 默认 bps，应正常成交。"""
     _, h = await _make_user(cash=Decimal("10000"))

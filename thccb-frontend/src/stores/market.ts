@@ -145,11 +145,11 @@ export const useMarketStore = defineStore('market', () => {
     return raw
   }
 
-  const buyShares = async (outcomeId: number, shares: number, maxSlippageBps?: number) => {
+  const buyShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.buy(outcomeId, shares, maxSlippageBps)
+      const result = await marketApi.buy(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
 
       // 如果当前有市场详情，重新获取以更新价格
       if (currentMarket.value) {
@@ -166,11 +166,11 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const sellShares = async (outcomeId: number, shares: number, maxSlippageBps?: number) => {
+  const sellShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.sell(outcomeId, shares, maxSlippageBps)
+      const result = await marketApi.sell(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
 
       // 如果当前有市场详情，重新获取以更新价格
       if (currentMarket.value) {
