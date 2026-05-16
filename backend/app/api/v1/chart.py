@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import List, Dict, Optional, Tuple
 
 import numpy as np
@@ -32,6 +33,19 @@ router = APIRouter()
 _INTERVAL_SECONDS: Dict[str, int] = {
     "10s": 10, "30s": 30, "1m": 60, "5m": 300,
     "15m": 900, "1h": 3600, "1d": 86400,
+}
+
+# ── INTERVAL_ROUTE：把请求 interval 映射到 (storage_interval, rollup_factor) ──
+# 主存 4 档 (10s/1m/15m/1h)，老 3 档 (30s/5m/1d) 由 chart endpoint 现 rollup。
+# 所有 factor 都整除（30s=10s×3, 5m=1m×5, 1d=1h×24）。spec § 2 D2。
+INTERVAL_ROUTE: Dict[str, tuple[str, int]] = {
+    "10s": ("10s", 1),
+    "30s": ("10s", 3),
+    "1m":  ("1m", 1),
+    "5m":  ("1m", 5),
+    "15m": ("15m", 1),
+    "1h":  ("1h", 1),
+    "1d":  ("1h", 24),
 }
 
 
@@ -286,6 +300,43 @@ async def get_price_series(
 # ========================================
 # K 线
 # ========================================
+
+def _rollup(fine_candles, target_step: int, anchor: datetime):
+    """把按 storage interval 排好序的细桶合并到 target_step 粒度。
+
+    O = 组内第一桶 open_price
+    C = 组内最后桶 close_price
+    H = max(组内 high_price)
+    L = min(组内 low_price)
+    V = sum(组内 volume_shares)
+    n = sum(组内 n_trades)
+
+    返回与 OutcomeCandle 字段相同的 SimpleNamespace 列表（不构造 ORM 实例）。
+    """
+    from types import SimpleNamespace
+    if not fine_candles:
+        return []
+
+    groups: Dict[int, list] = {}
+    for c in fine_candles:
+        epoch = int(c.bucket_start.timestamp())
+        key = epoch - (epoch % target_step)
+        groups.setdefault(key, []).append(c)
+
+    rolled = []
+    for key in sorted(groups.keys()):
+        members = groups[key]
+        rolled.append(SimpleNamespace(
+            bucket_start=datetime.fromtimestamp(key, tz=timezone.utc),
+            open_price=members[0].open_price,
+            close_price=members[-1].close_price,
+            high_price=max(m.high_price for m in members),
+            low_price=min(m.low_price for m in members),
+            volume_shares=sum((m.volume_shares for m in members), Decimal("0")),
+            n_trades=sum(m.n_trades for m in members),
+        ))
+    return rolled
+
 
 @router.get("/candles", response_model=CandleSeriesResponse, summary="K线（OHLCV）")
 async def get_candles(
