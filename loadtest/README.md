@@ -99,9 +99,9 @@ sudo nginx -t && sudo systemctl reload nginx
 cd ~/thccb-loadtest
 
 export BASE_URL=https://thccb.secret-sealing.club
-export HOT_MARKET_ID=<prod 上 seed_markets.sh 输出的 id>
-export HOT_OUTCOME_YES=<YES outcome.id>
-export HOT_OUTCOME_NO=<NO outcome.id>
+export HOT_MARKET_ID=23
+export HOT_OUTCOME_YES=72
+export HOT_OUTCOME_NO=73
 # tokens.txt 已在 ~/thccb-loadtest/tokens.txt，auth.js 自动读取
 
 # smoke 先验（1 VU × 60s）
