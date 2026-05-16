@@ -38,6 +38,7 @@ const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
   '1h':  4800,
 }
 const lookbackMinutes = computed(() => LOOKBACK_MINUTES_MAP[props.interval])
+const DEFAULT_VISIBLE_CANDLE_COUNT = 80
 
 const realtime = inject(MarketRealtimeKey, null)
 
@@ -72,6 +73,12 @@ let publishedCloses: number[] = []
 let currentCandle: { t: number; o: number; h: number; l: number; c: number; v: number; n: number } | null = null
 
 const stepSeconds = computed(() => INTERVAL_SECONDS[props.interval])
+const visibleLookbackSeconds = computed(() =>
+  Math.min(
+    lookbackMinutes.value * 60,
+    DEFAULT_VISIBLE_CANDLE_COUNT * stepSeconds.value,
+  ),
+)
 
 const toUtcTimestamp = (iso: string): UTCTimestamp =>
   Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp
@@ -197,7 +204,7 @@ const renderFull = (candles: Candle[]) => {
   }
 
   // 不用 fitContent()：那会让时间轴缩到数据范围，与 ticker 平移视窗冲突。
-  // setVisibleRange 显式跨整个请求窗口，ticker 之后会每秒平移这个窗口。
+  // 数据仍按 lookback 全量加载，但默认可视窗只显示约 80 根 candle。
   // 用 max(clientNow, currentCandle.t + step) 兜底客户端时钟慢于服务器时钟的情况，
   // 避免最后一根 forming candle 落到可视窗右侧外。
   applyVisibleRangeToNow()
@@ -213,7 +220,7 @@ const computeEffectiveNow = (): number => {
 const applyVisibleRangeToNow = () => {
   if (!chartInstance) return
   const to = computeEffectiveNow()
-  const lookbackSec = Math.max(60, lookbackMinutes.value * 60)
+  const lookbackSec = Math.max(60, visibleLookbackSeconds.value)
   chartInstance.timeScale().setVisibleRange({
     from: (to - lookbackSec) as UTCTimestamp,
     to: to as UTCTimestamp,
