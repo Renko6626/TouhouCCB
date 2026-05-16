@@ -25,12 +25,21 @@ const props = withDefaults(defineProps<{
   height: '400px',
 })
 
-// 跟 CandleChart 同款 LOOKBACK_MAP（每档约 80–90 个 candle 点）
+// 跟 CandleChart 同款 LOOKBACK_MAP；高频档拉更多历史点
 const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
-  '10s': 15,
-  '1m':  80,
+  '10s': 500,
+  '1m':  480,
   '15m': 1200,
   '1h':  4800,
+}
+
+const INTERVAL_SECONDS: Record<ChartInterval, number> = {
+  '10s': 10, '1m': 60, '15m': 900, '1h': 3600,
+}
+
+const getLimitByWindow = () => {
+  const step = INTERVAL_SECONDS[props.interval]
+  return Math.max(50, Math.ceil((LOOKBACK_MINUTES_MAP[props.interval] * 60) / step) + 8)
 }
 
 // inject realtime —— 必须在 useMarketRealtime provider 下使用（TradingView 提供）
@@ -158,7 +167,7 @@ const loadFull = async () => {
     const resp = await chartApi.getCandles(
       props.outcomeId, props.interval, fromTs, toTs,
       true,  // fill=true，曲线在无 trade 期间用 prev_close 平直延伸
-      5000,
+      getLimitByWindow(),
     )
     if (!resp || !resp.candles) {
       pointCount.value = 0

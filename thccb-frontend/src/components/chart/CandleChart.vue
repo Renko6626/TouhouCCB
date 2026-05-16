@@ -30,10 +30,10 @@ const props = withDefaults(defineProps<{
   height: '400px',
 })
 
-// 各 interval 默认 lookback：每档约 80–90 根 candle
+// 各 interval 默认 lookback；高频档拉更多历史K线
 const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
-  '10s': 15,
-  '1m':  80,
+  '10s': 500,
+  '1m':  480,
   '15m': 1200,
   '1h':  4800,
 }
