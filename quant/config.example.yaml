@@ -1,0 +1,30 @@
+risk:
+  single_order_cap_cny: 50
+  daily_loss_cap_cny: 100
+  daily_turnover_cap_cny: 2000
+  max_slippage_bps: 300
+  min_seconds_between_orders: 3
+
+client:
+  rate_limit_per_sec: 8
+  request_timeout_sec: 10
+
+strategies:
+  - name: dca_market_1_outcome_yes
+    type: dca
+    enabled: false
+    outcome_id: 1
+    cny_per_buy: 5.0
+    interval_hours: 6
+    total_budget_cny: 200
+
+  - name: grid_market_1_outcome_yes
+    type: grid
+    enabled: false
+    market_id: 1
+    outcome_id: 1
+    price_low: 0.30
+    price_high: 0.60
+    grid_count: 6
+    shares_per_grid: 2.0
+    tick_interval_sec: 30

@@ -85,3 +85,14 @@ cypress/videos/
 cypress/screenshots/
 __screenshots__/
 
+
+# quant trader
+quant/.env
+quant/config.yaml
+quant/state/
+quant/logs/
+quant/.venv/
+quant/__pycache__/
+quant/**/__pycache__/
+quant/*.db*
+quant/.pytest_cache/
