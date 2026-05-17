@@ -19,6 +19,8 @@ from thccb_quant.broker.live import LiveBroker
 from thccb_quant.broker.risk import RiskConfig, RiskGuard
 from thccb_quant.client.auth import TokenManager
 from thccb_quant.client.rest import RestClient
+from thccb_quant.client.sse import SseClient
+from thccb_quant.client.sse_subscriber import SseSubscriber
 from thccb_quant.errors import FatalAuthError
 from thccb_quant.logging_setup import setup_logging, get_logger
 from thccb_quant.state.store import Store
@@ -54,9 +56,17 @@ async def _kill_switch_watcher(logger):
             pass
 
 
-async def _run_strategy(strategy, ctx: StrategyContext, logger):
+async def _setup_strategy(strategy, ctx: StrategyContext, logger):
     try:
         await strategy.setup(ctx)
+    except Exception:
+        logger.exception("strategy_setup_failed", strategy=strategy.name)
+        raise
+
+
+async def _run_strategy_loop(strategy, ctx: StrategyContext, logger):
+    """已经 setup 过，仅跑 tick 循环 + teardown。"""
+    try:
         while not _stop_event.is_set():
             try:
                 await strategy.tick()
@@ -185,20 +195,43 @@ async def main_async(dry_run: bool) -> int:
         asyncio.create_task(_refresh_token_warner(token_mgr, logger)),
     ]
 
+    # 实例化所有 enabled 策略
+    enabled_pairs = []  # [(strategy, ctx, strategy_logger), ...]
     for s_cfg in config["strategies"]:
         if not s_cfg.get("enabled", False):
             continue
-        s_type = s_cfg["type"]
-        cls = get_strategy_class(s_type)
+        cls = get_strategy_class(s_cfg["type"])
         strat = cls(name=s_cfg["name"], config=s_cfg)
+        s_logger = get_logger(s_cfg["name"], strategy=s_cfg["name"])
         ctx = StrategyContext(
-            rest=rest, broker=broker, store=store,
-            logger=get_logger(s_cfg["name"], strategy=s_cfg["name"]),
+            rest=rest, broker=broker, store=store, logger=s_logger,
             config={**config["risk"], **s_cfg},
         )
-        tasks.append(asyncio.create_task(
-            _run_strategy(strat, ctx, get_logger(s_cfg["name"], strategy=s_cfg["name"]))
-        ))
+        enabled_pairs.append((strat, ctx, s_logger))
+
+    # 先 setup 所有策略（让 market_id 落定）
+    for strat, ctx, s_logger in enabled_pairs:
+        await _setup_strategy(strat, ctx, s_logger)
+
+    # 计算 SSE 需要订阅的 market_ids
+    market_ids = {s.market_id for s, _, _ in enabled_pairs if s.market_id is not None}
+    sse_raw = None
+    if market_ids:
+        sse_raw = httpx.AsyncClient(base_url=base_url, timeout=None)
+        sse_client = SseClient(
+            base_url=base_url, token_manager=token_mgr, raw_client=sse_raw,
+        )
+        subscriber = SseSubscriber(
+            rest=rest, store=store, sse_client=sse_client,
+            strategies=[s for s, _, _ in enabled_pairs],
+            market_ids=market_ids,
+            logger=get_logger("sse"),
+        )
+        tasks.append(asyncio.create_task(subscriber.run()))
+
+    # 起策略 tick 循环
+    for strat, ctx, s_logger in enabled_pairs:
+        tasks.append(asyncio.create_task(_run_strategy_loop(strat, ctx, s_logger)))
 
     await _stop_event.wait()
     logger.info("shutting_down")
@@ -209,6 +242,8 @@ async def main_async(dry_run: bool) -> int:
     await store.close()
     await api_client.aclose()
     await raw_client.aclose()
+    if sse_raw is not None:
+        await sse_raw.aclose()
     logger.info("stopped_clean")
     return 0
 
