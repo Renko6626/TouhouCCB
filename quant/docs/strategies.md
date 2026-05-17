@@ -1,12 +1,12 @@
 # 内置策略一览
 
-当前 `quant/` 内置两个策略：**DCA**（定投）和 **Grid**（网格）。两个都是
-**polling 驱动**（按 `tick_interval_sec` 定时唤醒决策），尚无 SSE 事件
-驱动的策略——`Strategy.on_sse_event` hook 已铺好但默认 no-op；Phase 2
-的短线策略会用这个 hook。
+当前 `quant/` 内置三个策略：**DCA**（定投）、**Grid**（网格）和
+**VolatilityHarvest**（波动率收割）。前两个是 **polling 驱动**（按
+`tick_interval_sec` 定时唤醒决策）；VolatilityHarvest 走 `Strategy.on_sse_event`
+hook，是 **SSE 事件驱动**——每笔真实成交触发一次决策。
 
-设计语义实现在 `quant/thccb_quant/strategy/{dca,grid}.py`，注册名是
-`type` 字段（`config.yaml` 里用）。
+设计语义实现在 `quant/thccb_quant/strategy/{dca,grid,volharvest}.py`，
+注册名是 `type` 字段（`config.yaml` 里用）。
 
 ---
 
@@ -157,6 +157,114 @@ tick:
 - ⚠️ **`_last_bin` 不持久化**：重启后第一个 tick 会重新当作"首次进入"处理，
   可能在原本不该买的地方触发一次买入；如果担心，重启前先 `touch state/KILL`
   等优雅停（实际上无差别，因为持仓状态从 orders 表 replay 是正确的）
+
+---
+
+## VolatilityHarvest — 波动率收割
+
+**目的**：吃散户情绪驱动的短期 mean reversion。维护 logit 空间的滑窗中位数
++ MAD，当当前价偏离中位数超过 `k_sigma × σ` 时反向调整持仓（涨太多卖、跌太多
+买），让自然回归把持仓拉回底仓。
+
+**注册类型**: `type: volharvest`
+
+### 与 Grid 的区别
+
+- Grid: 固定价位格点，价格穿过格点边界才动作；适合震荡区间已知的市场
+- VolatilityHarvest: 动态 MAD 自适应阈值；适合 trend 缓慢漂移 + 短期 noise
+  的市场（thccb 散户主导市场更适合）
+
+### Config 字段
+
+完整字段见 `quant/config.example.yaml` 和 spec
+`docs/superpowers/specs/2026-05-17-volatility-harvest-design.md`。
+
+关键参数：
+
+| 字段 | 含义 | 默认 |
+|---|---|---|
+| `window_size` | 滑窗 N 笔 SSE trade event | 100 |
+| `k_sigma` | 触发 = k × 1.4826 × MAD（≈ σ 倍数） | 2.0 |
+| `scale_mad` | deadband 之外 tanh 的尺度 | 1.0 |
+| `base_shares` | 目标底仓（inventory，非 alpha 判断） | 500 |
+| `max_offset_shares` | 偏离底仓上下限 | 200 |
+| `min_trade_shares` / `max_trade_shares` | 单笔下限/上限 | 5 / 20 |
+| `bootstrap_interval_sec` | bootstrap 节流 | 30s |
+| `bootstrap_skip_if_overpriced` | 价格偏高时暂停 bootstrap | true |
+| `reconcile_interval_sec` | 周期校准真实持仓 | 300s |
+| `trend_guard_events` | 连续 N 笔同向 → 暂停逆势加仓 | 5 |
+
+### 触发逻辑（每个 SSE trade event）
+
+```
+SSE trade → push (ts, logit_price) 到滑窗 + push side 到 trend_window
+↓
+reconcile（每 reconcile_interval_sec 校准一次 _holding）
+↓
+若 _holding < base_shares → bootstrap mode：
+  - 间隔/overpriced 检查 → 通过则买 min(base-holding, bootstrap_max_step)
+  - 不进入主信号流程
+否则进入主信号：
+  - 窗口未热（< N/2）→ skip
+  - MAD < min_mad_logit → skip
+  - threshold = k_sigma * 1.4826 * MAD
+  - excess = max(0, |deviation| - threshold)
+  - target = excess==0 ? base : base - max_offset * tanh(sign(dev) * excess/(scale*MAD))
+  - delta = target - _holding，clip 到 ±max_trade_shares，drop 若 < min_trade_shares
+  - trend guard：连续 trend_guard_events 笔同向 → 拦逆势单
+  - 下单
+```
+
+### PnL 拆分（重要）
+
+`base_shares=500` 是**库存池不是 alpha 判断**。复盘时必须拆：
+
+```text
+total_pnl = base_pnl + offset_pnl
+  base_pnl   = (当前价 - bootstrap 均价) × base_shares    # directional bet 损益
+  offset_pnl = Σ(每次 offset 调整的回归收益)              # 真正的波动率 alpha
+```
+
+每条 `volharvest_trade` 日志带 `bootstrap_mode` 字段，可用 jq 区分。
+
+### 适用 / 不适用
+
+- ✅ **适用**：thccb 散户情绪主导 + 价格 = 缓慢 trend + 短噪声的市场
+- ✅ **真实 SSE 事件驱动**：每笔成交都更新统计，响应快
+- ✅ **deadband + tanh**：小偏离不动，大偏离平滑加仓，**无 76% 跳变**
+- ✅ **保险丝**：trend guard 拦逆势单 + max_offset 仓位硬上限 + 周期 reconcile
+  防内部状态漂移
+- ⚠️ **trend 真转风险**：mean reversion 策略固有；max_offset 是损失上限
+- ⚠️ **base_shares 是 directional bet**：PnL 必须拆 base_pnl + offset_pnl 看
+- ⚠️ **窗口预热慢**：thccb 低流动性下首次满 N=100 可能要 1-2 小时
+- ⚠️ **滑点吃利润**：±10% 波动市场实盘前 `risk.max_slippage_bps` 至少调到 800
+
+### 上实盘流程
+
+按 spec §9 三阶段：
+
+1. **短跑 60s**：验启停不崩，看到 `sse_partial_trades_preloaded` + `stopped_clean`
+2. **长跑 6h+**：验主信号，看到 ≥100 个 `volharvest_signal` event + 至少一次
+   reconcile + 至少一次 trend guard 触发
+3. **微调**：`risk.max_slippage_bps` 调到 800-1500；`base_shares` 起步先 200
+   观察 1-2 天 PnL 拆分；`risk.daily_loss_cap_cny` 设到 `base × avg_price × 0.5`
+   量级
+
+### 复盘 SQL/jq 示例
+
+```bash
+# 所有"想下单但被拦"的情况
+jq 'select(.event=="volharvest_signal" and .reason!="ok")' logs/system.jsonl
+
+# 只看 offset 交易（非 bootstrap）
+jq 'select(.event=="volharvest_trade" and .bootstrap_mode==false)' logs/system.jsonl
+
+# trend guard 触发频率
+jq 'select(.event=="volharvest_trend_guard_blocked")' logs/system.jsonl | wc -l
+
+# 决策表完整复盘
+sqlite3 quant/state/quant.db "SELECT ts, action, reason FROM decisions WHERE strategy LIKE 'volharvest%' ORDER BY id DESC LIMIT 50"
+```
 
 ---
 
