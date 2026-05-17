@@ -15,7 +15,9 @@ def setup_logging(log_dir: Path, channel: str = "system") -> None:
     handler.setFormatter(logging.Formatter("%(message)s"))
 
     root = logging.getLogger()
-    root.handlers.clear()
+    for h in list(root.handlers):
+        h.close()
+        root.removeHandler(h)
     root.addHandler(handler)
     root.setLevel(logging.INFO)
 
