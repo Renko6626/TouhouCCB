@@ -200,8 +200,21 @@ async def main_async(dry_run: bool) -> int:
     for s_cfg in config["strategies"]:
         if not s_cfg.get("enabled", False):
             continue
-        cls = get_strategy_class(s_cfg["type"])
-        strat = cls(name=s_cfg["name"], config=s_cfg)
+        try:
+            cls = get_strategy_class(s_cfg["type"])
+            strat = cls(name=s_cfg["name"], config=s_cfg)
+        except (KeyError, ValueError) as e:
+            logger.error(
+                "strategy_config_invalid",
+                strategy=s_cfg.get("name", "<unnamed>"),
+                type=s_cfg.get("type", "<missing>"),
+                error=str(e),
+                hint="check config.yaml; DCA + Grid require 'market_id' field since SSE Phase 1",
+            )
+            await store.close()
+            await api_client.aclose()
+            await raw_client.aclose()
+            return 1
         s_logger = get_logger(s_cfg["name"], strategy=s_cfg["name"])
         ctx = StrategyContext(
             rest=rest, broker=broker, store=store, logger=s_logger,

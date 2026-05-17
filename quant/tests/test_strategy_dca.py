@@ -86,3 +86,12 @@ async def test_dca_setup_sets_market_id(store: Store):
     ctx = await _make_ctx(store)
     await s.setup(ctx)
     assert s.market_id == 7
+
+
+async def test_dca_missing_market_id_raises_keyerror(store: Store):
+    """DCA config 缺 market_id 应在 __init__ 抛 KeyError，trader 应能 catch + 友好提示。"""
+    cfg = {"outcome_id": 1, "cny_per_buy": 5.0,
+           "interval_hours": 6, "total_budget_cny": 200}  # 故意没 market_id
+    import pytest
+    with pytest.raises(KeyError, match="market_id"):
+        DcaStrategy(name="d", config=cfg)
