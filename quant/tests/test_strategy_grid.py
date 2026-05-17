@@ -99,3 +99,10 @@ async def test_grid_sells_after_rebound(store: Store):
     ctx.rest.get_market = AsyncMock(return_value=_market(0.55))
     await s.tick()
     assert ctx.broker.sell.call_count >= 1
+
+
+async def test_grid_setup_sets_market_id(store: Store):
+    s = GridStrategy(name="g", config=_cfg())
+    ctx = await _make_ctx(store, current_price=0.40)
+    await s.setup(ctx)
+    assert s.market_id == 1

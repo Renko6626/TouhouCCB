@@ -49,6 +49,7 @@ class GridStrategy(Strategy):
     # ─── lifecycle ─────────────────────────────────────────────────
 
     async def setup(self, ctx: StrategyContext) -> None:
+        self.market_id = self._market_id
         self._ctx = ctx
         # 从历史 orders 表按时间顺序 replay 出 _held 状态
         rows = await ctx.store.recent_orders(strategy=self.name, limit=10000)
