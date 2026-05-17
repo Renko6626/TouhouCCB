@@ -553,3 +553,48 @@ def test_missing_market_id_raises_keyerror():
     del cfg["market_id"]
     with pytest.raises(KeyError, match="market_id"):
         VolatilityHarvest(name="v", config=cfg)
+
+
+# ─── 11. 反侦察：整数 shares 下单 ─────────────────────────────────
+
+async def test_volharvest_orders_integer_shares_in_main_signal(store):
+    """主信号下单 shares 必须是整数。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(
+        window_size=5, base_shares=100.0, max_offset_shares=50.0,
+        min_trade_shares=1.0, max_trade_shares=20.0,
+        k_sigma=0.5, scale_mad=0.5,
+    ))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))
+    await s.setup(ctx)
+    # 制造非零 deviation 让 tanh 给非整数 target
+    for i, p in enumerate([0.5, 0.51, 0.49, 0.5, 0.55]):
+        await s.on_sse_event(_trade_event(seq=i+1, side="BUY", price=p))
+    # 触发一笔实际下单
+    await s.on_sse_event(_trade_event(seq=100, side="BUY", price=0.75))
+
+    # 至少有一笔下单
+    total = ctx.broker.buy.call_count + ctx.broker.sell.call_count
+    if total > 0:
+        # 检查每一笔下单的 shares 都是整数
+        all_calls = (list(ctx.broker.buy.call_args_list)
+                     + list(ctx.broker.sell.call_args_list))
+        for call in all_calls:
+            shares = call.kwargs["shares"]
+            assert shares == shares.to_integral_value(), \
+                f"non-integer shares: {shares}"
+
+
+async def test_volharvest_bootstrap_orders_integer_shares(store):
+    """Bootstrap 下单 shares 必须是整数。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(
+        base_shares=100.0, bootstrap_max_step=7.5,  # 非整数 max_step
+        bootstrap_interval_sec=0,
+    ))
+    ctx = await _make_ctx(store, current_holding=Decimal("50"))  # 需要 bootstrap
+    await s.setup(ctx)
+    await s.on_sse_event(_trade_event(seq=1, side="BUY", price=0.5))
+    assert ctx.broker.buy.call_count == 1
+    shares = ctx.broker.buy.call_args.kwargs["shares"]
+    assert shares == shares.to_integral_value(), f"non-integer shares: {shares}"
+    # 7.5 向下取整 = 7
+    assert shares == Decimal("7"), f"expected 7, got {shares}"

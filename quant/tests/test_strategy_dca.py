@@ -95,3 +95,41 @@ async def test_dca_missing_market_id_raises_keyerror(store: Store):
     import pytest
     with pytest.raises(KeyError, match="market_id"):
         DcaStrategy(name="d", config=cfg)
+
+
+async def test_dca_orders_integer_shares(store):
+    """反侦察：下单 shares 必须是整数（向下取整）。"""
+    cfg = {"market_id": 1, "outcome_id": 1, "cny_per_buy": 5.0,
+           "interval_hours": 6, "total_budget_cny": 200}
+    s = DcaStrategy(name="d", config=cfg)
+    ctx = await _make_ctx(store)
+    # 给一个让 cny_per_buy/avg_price 不整除的价格
+    ctx.rest.quote = AsyncMock(return_value=QuoteResponse(
+        outcome_id=1, side="buy", shares=Decimal("1"),
+        avg_price=Decimal("0.62"),  # 5.0 / 0.62 = 8.064516...
+        gross=Decimal("0.62"), fee=Decimal("0"), net=Decimal("0.62"),
+    ))
+    await s.setup(ctx)
+    await s.tick()
+    assert ctx.broker.buy.call_count == 1
+    kwargs = ctx.broker.buy.call_args.kwargs
+    shares = kwargs["shares"]
+    # 必须是整数：8.064516... → 8
+    assert shares == shares.to_integral_value(), f"shares not integer: {shares}"
+    assert shares == Decimal("8"), f"expected 8, got {shares}"
+
+
+async def test_dca_skips_if_target_shares_below_1(store):
+    """cny_per_buy 太小以至于买不到 1 股 → skip。"""
+    cfg = {"market_id": 1, "outcome_id": 1, "cny_per_buy": 0.3,
+           "interval_hours": 0, "total_budget_cny": 100}
+    s = DcaStrategy(name="d", config=cfg)
+    ctx = await _make_ctx(store)
+    ctx.rest.quote = AsyncMock(return_value=QuoteResponse(
+        outcome_id=1, side="buy", shares=Decimal("1"),
+        avg_price=Decimal("0.5"),  # 0.3 / 0.5 = 0.6 < 1
+        gross=Decimal("0.5"), fee=Decimal("0"), net=Decimal("0.5"),
+    ))
+    await s.setup(ctx)
+    await s.tick()
+    assert ctx.broker.buy.call_count == 0

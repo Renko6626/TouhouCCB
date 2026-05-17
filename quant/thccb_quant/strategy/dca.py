@@ -4,7 +4,7 @@
 然后下买单。total_budget_cny 是该策略总花销上限。
 """
 import time
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 
 from thccb_quant.errors import RiskRejected, BusinessError, TransientError
 from thccb_quant.strategy.base import Strategy, StrategyContext
@@ -57,7 +57,16 @@ class DcaStrategy(Strategy):
         )
         if probe.avg_price <= 0:
             return
-        target_shares = (self._cny_per_buy / probe.avg_price).quantize(Decimal("0.000001"))
+        target_shares = (self._cny_per_buy / probe.avg_price).quantize(
+            Decimal("1"), rounding=ROUND_DOWN
+        )
+        if target_shares < Decimal("1"):
+            # cny_per_buy too small relative to avg_price to buy even 1 share
+            await self._ctx.store.log_decision(
+                strategy=self.name, outcome_id=self._outcome_id,
+                action="skip", reason="target_shares < 1 after integer rounding",
+            )
+            return
 
         try:
             resp = await self._ctx.broker.buy(
