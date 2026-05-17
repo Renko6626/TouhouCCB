@@ -598,3 +598,27 @@ async def test_volharvest_bootstrap_orders_integer_shares(store):
     assert shares == shares.to_integral_value(), f"non-integer shares: {shares}"
     # 7.5 向下取整 = 7
     assert shares == Decimal("7"), f"expected 7, got {shares}"
+
+
+async def test_volharvest_fractional_holding_gap_exits_bootstrap(store):
+    """holding=299.72 base=300 时差 0.28 股，整数化后 step=0 会死循环
+    skip 'step_below_min'。Fix：差 < 1 整数股直接绕过 bootstrap 走主信号。
+    """
+    s = VolatilityHarvest(name="v", config=_default_cfg(
+        window_size=5, base_shares=300.0, max_offset_shares=100.0,
+        min_trade_shares=1.0, max_trade_shares=20.0,
+        k_sigma=0.5, scale_mad=0.5,
+        bootstrap_max_step=30.0, bootstrap_interval_sec=0,
+    ))
+    ctx = await _make_ctx(store, current_holding=Decimal("299.72"))
+    await s.setup(ctx)
+    assert s._holding == Decimal("299.72")
+
+    # 喂 5 笔预热（这些不应再进 bootstrap 而是更新 window）
+    for i, p in enumerate([0.5, 0.51, 0.49, 0.5, 0.5]):
+        await s.on_sse_event(_trade_event(seq=i+1, side="BUY", price=p))
+
+    # 不应有任何 bootstrap-related skip decision（bug 之前会有一堆）
+    decisions = await store.recent_decisions(strategy="v", limit=50)
+    boot_skips = [d for d in decisions if "step_below_min" in (d.get("reason") or "")]
+    assert len(boot_skips) == 0, f"expected 0 bootstrap skips, got {len(boot_skips)}"

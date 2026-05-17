@@ -173,8 +173,12 @@ class VolatilityHarvest(Strategy):
         # Reconcile 先于主流程，让漂移修正影响后续决策
         await self._maybe_reconcile()
 
-        # Bootstrap mode：_holding < base 时优先补底仓，不进主信号
-        if self._holding < self._base:
+        # Bootstrap mode：差 ≥ 1 整数股才进 bootstrap（否则整数化后 step=0
+        # 死循环：永远 skip "step_below_min" 永远进不了主信号）
+        needed = (self._base - self._holding).quantize(
+            Decimal("1"), rounding=ROUND_DOWN
+        )
+        if needed >= Decimal("1"):
             await self._maybe_bootstrap(price=price, current_logit=current_logit)
             return
 
