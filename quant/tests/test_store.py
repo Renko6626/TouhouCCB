@@ -62,3 +62,17 @@ async def test_log_decision(store: Store):
     rows = await store.recent_decisions(strategy="g", limit=10)
     assert len(rows) == 1
     assert rows[0]["action"] == "skip"
+
+
+async def test_daily_stats_decimal_precision_preserved(store: Store):
+    """REAL 算术会让 0.1+0.2 = 0.30000000000000004，应使用 Decimal 算术保精度。"""
+    await store.add_turnover(Decimal("0.1"))
+    await store.add_turnover(Decimal("0.2"))
+    today = datetime.now(timezone.utc).date().isoformat()
+    stats = await store.get_daily_stats(today)
+    assert Decimal(stats["gross_turnover"]) == Decimal("0.3")
+
+    await store.add_pnl(Decimal("-0.123456"))
+    await store.add_pnl(Decimal("-0.234567"))
+    stats = await store.get_daily_stats(today)
+    assert Decimal(stats["net_pnl"]) == Decimal("-0.358023")
