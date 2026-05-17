@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import signal
 import sys
+import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -35,8 +36,16 @@ STATE_DIR = QUANT_ROOT / "state"
 LOG_DIR = QUANT_ROOT / "logs"
 KILL_FILE = STATE_DIR / "KILL"
 
+# liveness watchdog：兜底防 SseSubscriber 静默卡死（生产真出过：volharvest
+# 落后 38s 后哑火 28min）。watchdog 每 60s 检查 subscriber 最后处理 event
+# 的时间，超 5min 没动静就 set _stop_event，让 main_async return 1，
+# 由 run.sh 外层守护拉起重启。
+LIVENESS_WATCHDOG_INTERVAL_SEC = 60
+LIVENESS_DEAD_THRESHOLD_SEC = 300
+
 
 _stop_event = asyncio.Event()
+_liveness_triggered = False
 
 
 def _install_signal_handlers():
@@ -55,6 +64,35 @@ async def _kill_switch_watcher(logger):
             await asyncio.wait_for(_stop_event.wait(), timeout=5.0)
         except asyncio.TimeoutError:
             pass
+
+
+async def _liveness_watchdog(subscriber: SseSubscriber, logger) -> None:
+    """每 60s 检查 SseSubscriber 是否还在处理 event；超 5min 静默就触发重启。
+
+    触发条件 = 通过 `_stop_event` 优雅停 + 设 `_liveness_triggered` 让
+    `main_async` 返回 1，由外层 run.sh 30s 后拉起新进程。
+    """
+    global _liveness_triggered
+    while not _stop_event.is_set():
+        try:
+            await asyncio.wait_for(
+                _stop_event.wait(), timeout=LIVENESS_WATCHDOG_INTERVAL_SEC,
+            )
+        except asyncio.TimeoutError:
+            pass
+        if _stop_event.is_set():
+            return
+        idle = time.monotonic() - subscriber.last_event_handled_ts
+        if idle > LIVENESS_DEAD_THRESHOLD_SEC:
+            logger.error(
+                "liveness_watchdog_dead_subscriber",
+                idle_sec=idle,
+                threshold_sec=LIVENESS_DEAD_THRESHOLD_SEC,
+                hint="subscriber 长时间无 event，触发重启",
+            )
+            _liveness_triggered = True
+            _stop_event.set()
+            return
 
 
 async def _setup_strategy(strategy, ctx: StrategyContext, logger):
@@ -242,6 +280,9 @@ async def main_async(dry_run: bool) -> int:
             logger=get_logger("sse"),
         )
         tasks.append(asyncio.create_task(subscriber.run()))
+        tasks.append(asyncio.create_task(
+            _liveness_watchdog(subscriber, get_logger("liveness"))
+        ))
 
     # 起策略 tick 循环
     for strat, ctx, s_logger in enabled_pairs:
@@ -258,8 +299,8 @@ async def main_async(dry_run: bool) -> int:
     await raw_client.aclose()
     if sse_raw is not None:
         await sse_raw.aclose()
-    logger.info("stopped_clean")
-    return 0
+    logger.info("stopped_clean", liveness_triggered=_liveness_triggered)
+    return 1 if _liveness_triggered else 0
 
 
 def main() -> int:

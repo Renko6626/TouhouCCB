@@ -2,6 +2,7 @@
 on_sse_event。spec §6。
 """
 import asyncio
+import time
 from typing import Iterable
 
 import structlog
@@ -22,13 +23,23 @@ class SseSubscriber:
         strategies: list[Strategy],
         market_ids: Iterable[int],
         logger: structlog.BoundLogger,
+        dispatch_timeout_sec: float = 15.0,
     ):
+        # dispatch_timeout_sec 默认 15s：基于 RestClient 最多重试 3 次 × 10s
+        # + backoff ≈ 14s 单 broker 调用链最坏情况。
         self._rest = rest
         self._store = store
         self._sse = sse_client
         self._strategies = list(strategies)
         self._market_ids = set(market_ids)
         self._log = logger
+        self._dispatch_timeout_sec = dispatch_timeout_sec
+        self._last_event_handled_ts = time.monotonic()
+
+    @property
+    def last_event_handled_ts(self) -> float:
+        """monotonic 时间戳，每次 _handle_event 完成（无论 dispatch 结果）后更新。"""
+        return self._last_event_handled_ts
 
     async def run(self) -> None:
         await self._preload_partial_trades()
@@ -66,25 +77,36 @@ class SseSubscriber:
                                     market_id=market_id, seq=event.seq)
 
     async def _handle_event(self, market_id: int, event: SseEvent) -> None:
-        if event.type == "trade":
-            await self._store.log_trade(market_id=market_id, payload=event.data)
-            await self._dispatch(market_id, event)
-        elif event.type == "market_status":
-            self._log.info("sse_market_status",
-                           market_id=market_id,
-                           status=event.data.get("status"))
-            await self._dispatch(market_id, event)
-        elif event.type == "snapshot":
-            self._log.info("sse_snapshot_bootstrapped",
-                           market_id=market_id, seq=event.seq,
-                           gap_recover=event.data.get("gap_recover", False))
+        try:
+            if event.type == "trade":
+                await self._store.log_trade(market_id=market_id, payload=event.data)
+                await self._dispatch(market_id, event)
+            elif event.type == "market_status":
+                self._log.info("sse_market_status",
+                               market_id=market_id,
+                               status=event.data.get("status"))
+                await self._dispatch(market_id, event)
+            elif event.type == "snapshot":
+                self._log.info("sse_snapshot_bootstrapped",
+                               market_id=market_id, seq=event.seq,
+                               gap_recover=event.data.get("gap_recover", False))
+        finally:
+            # liveness watchdog 依赖该 ts：无论 event 类型 / dispatch 成败都得推进
+            self._last_event_handled_ts = time.monotonic()
 
     async def _dispatch(self, market_id: int, event: SseEvent) -> None:
         for s in self._strategies:
             if getattr(s, "market_id", None) != market_id:
                 continue
             try:
-                await s.on_sse_event(event)
+                await asyncio.wait_for(
+                    s.on_sse_event(event),
+                    timeout=self._dispatch_timeout_sec,
+                )
+            except asyncio.TimeoutError:
+                self._log.error("sse_dispatch_timeout",
+                                strategy=s.name, market_id=market_id,
+                                timeout_sec=self._dispatch_timeout_sec)
             except Exception:
                 self._log.exception("sse_on_sse_event_failed",
                                     strategy=s.name, market_id=market_id)

@@ -100,6 +100,75 @@ async def test_strategy_exception_isolated(store):
     s2.on_sse_event.assert_called_once()
 
 
+async def test_dispatch_timeout_does_not_block_next_strategy(store):
+    """A 个 strategy 卡住超 timeout 不应阻塞 B strategy 收到 event。"""
+    import asyncio as _asyncio
+
+    # strategy A: 卡住 5 秒
+    slow_strat = _mk_strategy("slow", market_id=1)
+    async def slow_on_sse(event):
+        await _asyncio.sleep(5)  # 远超我们 dispatch_timeout=0.2 的设置
+    slow_strat.on_sse_event = slow_on_sse
+
+    # strategy B: 正常
+    fast_strat = _mk_strategy("fast", market_id=1)
+
+    sub = await _make_sub(
+        store,
+        sse_events_per_market={1: [_trade_event(1, 1, trade_id=10)]},
+        strategies=[slow_strat, fast_strat],
+        market_ids={1},
+    )
+    sub._dispatch_timeout_sec = 0.2  # 让测试快
+
+    await _asyncio.wait_for(sub.run(), timeout=3.0)
+
+    # fast strategy 应该被调用（slow 的 timeout 不应阻塞它）
+    fast_strat.on_sse_event.assert_called_once()
+
+
+async def test_dispatch_timeout_logs_warning(store, caplog):
+    """timeout 时应该 log sse_dispatch_timeout（区别于 sse_on_sse_event_failed）。"""
+    import asyncio as _asyncio
+    import logging
+    caplog.set_level(logging.ERROR)
+
+    slow_strat = _mk_strategy("slow", market_id=1)
+    async def slow_on_sse(event):
+        await _asyncio.sleep(5)
+    slow_strat.on_sse_event = slow_on_sse
+
+    sub = await _make_sub(
+        store,
+        sse_events_per_market={1: [_trade_event(1, 1, trade_id=10)]},
+        strategies=[slow_strat],
+        market_ids={1},
+    )
+    sub._dispatch_timeout_sec = 0.1
+
+    await _asyncio.wait_for(sub.run(), timeout=2.0)
+
+    # 不能确切断言 log 输出（因为 structlog 不一定走 caplog），但可以断言
+    # 没有 unhandled exception——sub.run() 干净完成
+    # （如果 wait_for 没把 TimeoutError 吃掉就会冒泡）
+
+
+async def test_last_event_handled_ts_updates(store):
+    """每个 event 处理后 last_event_handled_ts 应该更新。"""
+    import time as _time
+
+    sub = await _make_sub(
+        store,
+        sse_events_per_market={1: [_trade_event(1, 1, trade_id=10)]},
+        strategies=[],
+        market_ids={1},
+    )
+    before = sub.last_event_handled_ts
+    await asyncio.wait_for(sub.run(), timeout=2.0)
+    after = sub.last_event_handled_ts
+    assert after > before, f"expected ts to advance, before={before} after={after}"
+
+
 async def test_preload_partial_trades(store):
     sse = MagicMock()
     async def subscribe(market_id):
