@@ -139,8 +139,13 @@ async def _parse_sse_stream(resp) -> AsyncIterator[SseEvent]:
 
 
 async def _aiter_lines_with_timeout(resp, timeout: float):
-    """asyncio.wait_for 包 aiter_lines；timeout 内无新行抛 TimeoutError。"""
+    """asyncio.wait_for 包 aiter_lines；timeout 内无新行抛 TimeoutError；
+    上游 EOF 时正常 return（避免 async gen 把 StopAsyncIteration 变成 RuntimeError）。
+    """
     it = resp.aiter_lines().__aiter__()
     while True:
-        line = await asyncio.wait_for(it.__anext__(), timeout=timeout)
+        try:
+            line = await asyncio.wait_for(it.__anext__(), timeout=timeout)
+        except StopAsyncIteration:
+            return
         yield line
