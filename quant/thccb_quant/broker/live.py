@@ -2,11 +2,15 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import structlog
+
 from thccb_quant.broker.base import Broker
 from thccb_quant.broker.risk import RiskGuard
 from thccb_quant.client.rest import RestClient, OrderResponse
 from thccb_quant.errors import BusinessError, RiskRejected
 from thccb_quant.state.store import Store
+
+_log = structlog.get_logger("broker")
 
 
 class LiveBroker(Broker):
@@ -53,6 +57,10 @@ class LiveBroker(Broker):
                 strategy=strategy, outcome_id=outcome_id, side=side,
                 shares=shares, status="failed", error=str(e),
             )
+            _log.error(
+                "order_failed", strategy=strategy, outcome_id=outcome_id,
+                side=side, shares=str(shares), error=str(e),
+            )
             raise
 
         await self._store.log_order(
@@ -61,7 +69,17 @@ class LiveBroker(Broker):
             status="success",
         )
         await self._store.add_turnover(resp.cost.copy_abs())
+        # 当日净现金流 PnL 代理：买入 -cost，卖出 +|cost|（/sell 返回 cost 是负数）。
+        # 不计未实现浮盈，是保守口径；用于 daily_loss_cap_cny 风控 gate。
+        if side == "buy":
+            await self._store.add_pnl(-resp.cost)
+        else:
+            await self._store.add_pnl(resp.cost.copy_abs())
         self._risk.mark_order(outcome_id=outcome_id)
+        _log.info(
+            "order_success", strategy=strategy, outcome_id=outcome_id,
+            side=side, shares=str(shares), cost=str(resp.cost),
+        )
         return resp
 
     async def buy(self, *, strategy, outcome_id, shares, max_slippage_bps):

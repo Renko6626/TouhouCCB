@@ -81,14 +81,24 @@ tmux kill-session -t quant
 | max_slippage_bps | 300 |
 | min_seconds_between_orders | 3 |
 
+**注意**: `daily_loss_cap_cny` 当前是基于"当日净现金流"的保守代理
+（卖出收入 - 买入支出），不计未实现浮盈。所以早期 buy 多了会显示为
+"亏损"逼近 cap，即使持仓有浮盈。这是有意为之 — 学习阶段宁可保守。
+
 ## 日志位置
 
-- `logs/orders.jsonl` —— 所有下单尝试（成功/失败）
-- `logs/decisions.jsonl` —— 所有策略决策（含未下单）
-- `logs/system.jsonl` —— token 续期、kill switch、风控告警
+所有事件统一写入 `logs/system.jsonl`（structlog JSON Lines 格式）。用
+`event` 字段区分类型：
+
+- `event` 形如 `order_*` / `strategy_tick_failed` —— 下单相关
+- `event` 形如 `kill_switch_detected` / `refresh_token_*` —— 系统事件
+- 策略决策记录写在 SQLite `decisions` 表（不是日志文件），用 `sqlite3
+  state/quant.db "SELECT * FROM decisions ORDER BY id DESC LIMIT 50"` 看
 
 复盘示例：
 
 ```bash
-jq 'select(.strategy=="dca_x" and .status=="success") | .cost' logs/orders.jsonl
+jq 'select(.strategy=="dca_x" and .event=="order_success") | .cost' \
+   logs/system.jsonl
+sqlite3 state/quant.db "SELECT ts, action, reason FROM decisions WHERE strategy='dca_x' ORDER BY id DESC LIMIT 20"
 ```
