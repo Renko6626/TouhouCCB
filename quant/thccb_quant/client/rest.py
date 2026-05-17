@@ -87,6 +87,20 @@ class UserSummary(BaseModel):
     net_worth: Decimal
 
 
+class PartialTrade(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: int
+    outcome_id: int
+    type: str
+    shares: Decimal
+    price: Decimal
+    username: Optional[str] = None
+    timestamp: str
+    market_id: int
+    market_title: Optional[str] = None
+    outcome_label: Optional[str] = None
+
+
 # ── RestClient ──────────────────────────────────────────────────
 
 class _TokenBucket:
@@ -216,3 +230,10 @@ class RestClient:
     async def get_user_summary(self) -> UserSummary:
         r = await self._request("GET", "/api/v1/user/summary")
         return UserSummary.model_validate(r.json())
+
+    async def get_recent_trades(self, *, limit: int = 100) -> List[PartialTrade]:
+        r = await self._request(
+            "GET", "/api/v1/market/recent-trades",
+            params={"limit": limit},
+        )
+        return [PartialTrade.model_validate(x) for x in r.json()]
