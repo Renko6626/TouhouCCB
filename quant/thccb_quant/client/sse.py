@@ -16,7 +16,7 @@ from thccb_quant.client.auth import TokenManager
 
 _log = structlog.get_logger("sse_client")
 
-ZOMBIE_TIMEOUT_SEC = 25.0
+ZOMBIE_TIMEOUT_SEC = 35.0  # > server ping 25s 给容差，防 race 频繁 reconnect
 PREEMPTIVE_RECONNECT_SEC = 58 * 60
 BACKOFF_SECS = [0.5, 1.0, 2.0, 5.0, 10.0]
 
