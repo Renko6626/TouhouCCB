@@ -22,6 +22,7 @@ class StrategyContext:
 class Strategy(ABC):
     name: str
     tick_interval_sec: int = 30
+    market_id: int | None = None  # 由策略 setup() 设置；SseSubscriber 用以路由
 
     def __init__(self, name: str, config: dict):
         self.name = name

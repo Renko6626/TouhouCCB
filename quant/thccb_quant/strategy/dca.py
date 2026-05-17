@@ -24,8 +24,10 @@ class DcaStrategy(Strategy):
         self._spent = Decimal("0")
         self._last_buy_ts: float = 0.0
         self._ctx: StrategyContext | None = None
+        self._market_id: int = int(config["market_id"])
 
     async def setup(self, ctx: StrategyContext) -> None:
+        self.market_id = self._market_id
         self._ctx = ctx
         # 从历史 orders 还原 _spent
         rows = await ctx.store.recent_orders(strategy=self.name, limit=10000)

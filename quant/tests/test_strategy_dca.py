@@ -38,6 +38,7 @@ async def _make_ctx(store: Store, broker_buy_resp=None) -> StrategyContext:
 
 async def test_dca_buys_at_interval(store: Store):
     cfg = {
+        "market_id": 1,
         "outcome_id": 1, "cny_per_buy": 5.0,
         "interval_hours": 6, "total_budget_cny": 200,
     }
@@ -50,6 +51,7 @@ async def test_dca_buys_at_interval(store: Store):
 
 async def test_dca_respects_interval(store: Store):
     cfg = {
+        "market_id": 1,
         "outcome_id": 1, "cny_per_buy": 5.0,
         "interval_hours": 6, "total_budget_cny": 200,
     }
@@ -63,6 +65,7 @@ async def test_dca_respects_interval(store: Store):
 
 async def test_dca_respects_total_budget(store: Store):
     cfg = {
+        "market_id": 1,
         "outcome_id": 1, "cny_per_buy": 5.0,
         "interval_hours": 0,  # 间隔为 0，纯靠预算限制
         "total_budget_cny": 10,
@@ -74,3 +77,12 @@ async def test_dca_respects_total_budget(store: Store):
     await s.tick()
     await s.tick()  # 第三次应该被预算挡住
     assert ctx.broker.buy.call_count == 2
+
+
+async def test_dca_setup_sets_market_id(store: Store):
+    cfg = {"market_id": 7, "outcome_id": 1, "cny_per_buy": 5.0,
+           "interval_hours": 6, "total_budget_cny": 200}
+    s = DcaStrategy(name="d", config=cfg)
+    ctx = await _make_ctx(store)
+    await s.setup(ctx)
+    assert s.market_id == 7

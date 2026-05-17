@@ -13,6 +13,7 @@ strategies:
   - name: dca_market_1_outcome_yes
     type: dca
     enabled: false
+    market_id: 1
     outcome_id: 1
     cny_per_buy: 5.0
     interval_hours: 6
