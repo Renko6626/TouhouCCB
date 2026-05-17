@@ -177,3 +177,72 @@ class Store:
         if row:
             return dict(row)
         return {"date": date, "gross_turnover": "0", "net_pnl": "0"}
+
+    async def log_trade(self, *, market_id: int, payload: dict) -> None:
+        """SSE trade event 入 trades 表。INSERT OR IGNORE 防重连重复。
+
+        payload 形如 {"trade": {id, type, outcome_id, username, shares, price,
+        gross, fee, post_market_price, market_prices_post, timestamp}}
+        """
+        import json as _json
+        t = payload["trade"]
+        await self._conn.execute(
+            "INSERT OR IGNORE INTO trades "
+            "(trade_id, ts, ingest_ts, market_id, outcome_id, side, shares, "
+            " price, gross, fee, username, post_market_price, market_prices_post_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                int(t["id"]),
+                str(t["timestamp"]),
+                _utcnow_iso(),
+                market_id,
+                int(t["outcome_id"]),
+                str(t["type"]),
+                str(t["shares"]),
+                str(t["price"]),
+                str(t["gross"]),
+                str(t["fee"]),
+                t.get("username"),
+                str(t["post_market_price"]),
+                _json.dumps(t["market_prices_post"]),
+            ),
+        )
+        await self._conn.commit()
+
+    async def bulk_insert_partial_trades(self, items: list[dict]) -> int:
+        """批量 INSERT OR IGNORE recent-trades 响应，返回实际插入条数。
+
+        item 字段：id, outcome_id, type, shares, price, username, timestamp,
+        market_id, market_title, outcome_label
+        """
+        if not items:
+            return 0
+        cur = await self._conn.executemany(
+            "INSERT OR IGNORE INTO partial_trades "
+            "(trade_id, ts, market_id, outcome_id, side, shares, price, "
+            " username, market_title, outcome_label) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (int(i["id"]), str(i["timestamp"]), int(i["market_id"]),
+                 int(i["outcome_id"]), str(i["type"]), str(i["shares"]),
+                 str(i["price"]), i.get("username"),
+                 i.get("market_title"), i.get("outcome_label"))
+                for i in items
+            ],
+        )
+        await self._conn.commit()
+        return cur.rowcount
+
+    async def recent_trades_observed(
+        self, *, market_id: int | None = None, limit: int = 50
+    ) -> list[dict]:
+        if market_id is not None:
+            cur = await self._conn.execute(
+                "SELECT * FROM trades WHERE market_id = ? ORDER BY id DESC LIMIT ?",
+                (market_id, limit),
+            )
+        else:
+            cur = await self._conn.execute(
+                "SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)
+            )
+        return [dict(r) for r in await cur.fetchall()]
