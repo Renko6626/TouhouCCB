@@ -622,3 +622,73 @@ async def test_volharvest_fractional_holding_gap_exits_bootstrap(store):
     decisions = await store.recent_decisions(strategy="v", limit=50)
     boot_skips = [d for d in decisions if "step_below_min" in (d.get("reason") or "")]
     assert len(boot_skips) == 0, f"expected 0 bootstrap skips, got {len(boot_skips)}"
+
+
+async def test_bootstrap_done_flag_set_on_setup_when_above_base(store):
+    """启动时 holding >= base → 直接标记 bootstrap_done=True。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(base_shares=100.0))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))
+    await s.setup(ctx)
+    assert s._bootstrap_done is True
+
+
+async def test_bootstrap_done_flag_false_on_setup_when_below_base(store):
+    """启动时 holding < base → bootstrap_done=False，bootstrap 会触发。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(base_shares=100.0))
+    ctx = await _make_ctx(store, current_holding=Decimal("30"))
+    await s.setup(ctx)
+    assert s._bootstrap_done is False
+
+
+async def test_main_signal_sell_below_base_does_not_reenter_bootstrap(store):
+    """关键 regression：bootstrap 完成后主信号 sell 让 holding 跌破 base，
+    不应重回 bootstrap mode（让 mean reversion 自然回归）。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(
+        window_size=5, base_shares=100.0, max_offset_shares=50.0,
+        min_trade_shares=1.0, max_trade_shares=20.0,
+        k_sigma=0.5, scale_mad=2.0,
+        bootstrap_max_step=10.0, bootstrap_interval_sec=0,
+    ))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))  # 已在 base
+    await s.setup(ctx)
+    assert s._bootstrap_done is True
+
+    # 预热 + 触发主信号 sell（价格高于均值）
+    for i, p in enumerate([0.5, 0.51, 0.49, 0.5, 0.5]):
+        await s.on_sse_event(_trade_event(seq=i+1, side="BUY", price=p))
+    # 模拟主信号触发 sell：手动减 _holding 模拟一次成功 sell
+    s._holding = Decimal("80")  # 从 100 卖了 20
+
+    # 之后再喂 event，应该走主信号路径，不调 bootstrap
+    # 重置 mock 让我们能区分
+    bootstrap_buys_before = ctx.broker.buy.call_count
+    for i, p in enumerate([0.5, 0.51, 0.49, 0.50, 0.49]):
+        await s.on_sse_event(_trade_event(seq=100+i, side="BUY", price=p))
+
+    # bootstrap 不应该被调用补仓
+    # 看 decisions 没有 reason="bootstrap" 行
+    decisions = await store.recent_decisions(strategy="v", limit=50)
+    bootstrap_decisions = [d for d in decisions if d.get("reason") == "bootstrap"]
+    assert len(bootstrap_decisions) == 0, \
+        f"expected 0 bootstrap actions, got {len(bootstrap_decisions)}"
+
+
+async def test_bootstrap_completion_during_run(store):
+    """启动时 holding < base，bootstrap 期间逐步补到 base，达到时设 done flag。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(
+        base_shares=20.0, bootstrap_max_step=5.0, bootstrap_interval_sec=0,
+    ))
+    ctx = await _make_ctx(store, current_holding=Decimal("15"))
+    # mock broker.buy 让 _holding 真增长
+    async def fake_buy(**kw):
+        return MagicMock(shares=kw["shares"], cost=Decimal("3"),
+                         new_cash=Decimal("100"))
+    ctx.broker.buy = AsyncMock(side_effect=fake_buy)
+    await s.setup(ctx)
+    assert s._bootstrap_done is False
+
+    # 第一笔 event 触发 bootstrap：need=5, max_step=5 → buy 5
+    await s.on_sse_event(_trade_event(seq=1, side="BUY", price=0.5))
+    # 应该完成 bootstrap：holding 15 → 20
+    assert s._holding == Decimal("20")
+    assert s._bootstrap_done is True
