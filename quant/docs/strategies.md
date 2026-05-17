@@ -197,16 +197,35 @@ sqlite3 quant/state/quant.db \
 
 ## 写一个新策略
 
-1. 继承 `thccb_quant.strategy.base.Strategy`
-2. `@register("your_type")` 装饰类
-3. 实现 `setup(ctx)` 和 `tick()`（必填），可选 `on_sse_event(event)` 和 `teardown()`
-4. `__init__` 必须设置 `self.market_id`（SseSubscriber 用这个路由）
-5. 在 `quant/thccb_quant/trader.py` 顶部加 `import thccb_quant.strategy.your_type` 触发注册副作用
-6. 写测试 `quant/tests/test_strategy_your_type.py`（用 `MagicMock` + `AsyncMock` mock broker/rest）
-7. 在 `quant/config.example.yaml` 加示例条目
+完整规范见 Claude Code 项目本地 skill：
+**`.claude/skills/writing-quant-strategy/SKILL.md`**
 
-参考现有 `dca.py` / `grid.py` 作为模板。新策略 PR 前请：
-- `pytest -x quant/tests/` 全过
-- 在 dry-run 模式下跑 ≥24 小时观察 `decisions` 表行为是否符合预期
-- 上实盘前用极小 `single_order_cap_cny`（如 1 元）+ 极小 `total_budget_cny`
-  跑一段时间，对账无误后再放大
+让 Claude Code 帮你写时它会自动 invoke 这个 skill。手动开发时也建议读一遍。
+
+### 6 步速查
+
+1. `quant/thccb_quant/strategy/<name>.py` — 继承 `Strategy`，`@register("<type>")`
+2. `quant/thccb_quant/trader.py` 顶部加 `import thccb_quant.strategy.<name>`
+   触发注册副作用（**不加 trader 拿不到这个 type**）
+3. `quant/config.example.yaml` 加示例（必含 `market_id` 字段）
+4. `quant/tests/test_strategy_<name>.py` — 三类测试：
+   - 单元（信号触发逻辑）
+   - 集成（用真 `SseSubscriber` + mock `SseClient` 验证 dispatch 路由）
+   - replay（重启从 orders 表恢复内部状态）
+5. `pytest -x` 全过
+6. dry-run 30s+ smoke 真实环境，看 `decisions` 表 + `system.jsonl`
+
+### 三条必须遵守的硬规则（skill 详述）
+
+- `setup()` 第一行 `self.market_id = self._market_id` — SseSubscriber 路由依赖
+- 只 catch `RiskRejected / BusinessError / TransientError` 三类 —
+  catch 宽泛 `Exception` 会吞 `FatalAuthError` 让 trader 应停未停
+- 下单永远走 `ctx.broker.buy/sell`，不要直接调 `ctx.rest.buy/sell`
+  （会绕开风控/幂等/落账）
+
+### 上实盘前
+
+- dry-run 至少 ≥24 小时观察 `decisions` 表是否符合预期
+- 用极小 `single_order_cap_cny`（1 元）+ 极小总预算跑一段，对账无误再放大
+- 检查 `max_slippage_bps` 是否合理：spec 默认 300 (3%) 在 ±10% 波动市场会大量拒单，
+  实盘前考虑放宽到 800-1500
