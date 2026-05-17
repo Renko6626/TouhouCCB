@@ -164,22 +164,29 @@ class TokenManager:
 
 - Access token 寿命 60 min（后端 `ACCESS_TOKEN_EXPIRE_MINUTES`），每请求前
   检查剩余时间
-- Refresh token 寿命 7 天，到期前 1 天打 ERROR 日志要求手工重登；到期则
-  抛 `FatalAuthError` → 全局停机
-- 写回 `.env` 用 `python-dotenv.set_key`（原子写）
+- Refresh token 寿命 7 天；**后端 `/auth/refresh` 只返回新 access_token，
+  不轮换 refresh_token**（见 `backend/app/api/v1/auth.py:210`），所以
+  refresh token 必须由用户手工每 7 天重新从浏览器拿一次
+- Refresh token 到期前 1 天（即签发起 6 天后）打 ERROR 日志要求手工重登；
+  到期后调 refresh 会拿 401 → 抛 `FatalAuthError` → 全局停机
+- 写回 `.env` 用 `python-dotenv.set_key`（原子写），只更新
+  `THCCB_ACCESS_TOKEN`，不动 `THCCB_REFRESH_TOKEN`
 
 ### 4.2 RestClient (`client/rest.py`)
 
 封装这些端点：
 
-- `quote(outcome_id, shares, side)` → `QuoteResponse`
-- `buy(outcome_id, shares, max_slippage_bps)` → `OrderResponse`
-- `sell(outcome_id, shares, max_slippage_bps)` → `OrderResponse`
-- `list_markets(...)` → `list[MarketSummary]`
-- `get_market(market_id)` → `MarketDetail`
-- `get_positions()` → `PositionsResponse`
-- `get_trades(market_id, limit)` → `list[Trade]`
-- `get_me()` → `UserInfo`
+| 方法 | HTTP 端点 | 返回 |
+|---|---|---|
+| `quote(outcome_id, shares, side)` | `POST /api/v1/market/quote` | `QuoteResponse` |
+| `buy(outcome_id, shares, max_slippage_bps)` | `POST /api/v1/market/buy` | `OrderResponse` |
+| `sell(outcome_id, shares, max_slippage_bps)` | `POST /api/v1/market/sell` | `OrderResponse` |
+| `list_markets(...)` | `GET /api/v1/market/list` | `list[MarketSummary]` |
+| `get_market(market_id)` | `GET /api/v1/market/{id}` | `MarketDetail` |
+| `get_holdings()` | `GET /api/v1/user/holdings` | `list[HoldingRead]` |
+| `get_user_summary()` | `GET /api/v1/user/summary` | `UserSummary`（含 cash/debt/holdings_value/net_worth） |
+| `get_recent_trades(market_id, limit)` | `GET /api/v1/market/recent-trades` | `list[RecentTradeRead]` |
+| `get_me()` | `GET /api/v1/auth/me` | `UserInfo` |
 
 **自限速**：内置 token bucket，默认 8 r/s（留 buffer 给后端 10 r/s 上限）。
 
