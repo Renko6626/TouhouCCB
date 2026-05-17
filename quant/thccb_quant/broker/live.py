@@ -28,17 +28,26 @@ class LiveBroker(Broker):
 
         today = datetime.now(timezone.utc).date().isoformat()
         stats = await self._store.get_daily_stats(today)
-        self._risk.check(
-            outcome_id=outcome_id, side=side, cost=cost,
-            max_slippage_bps=max_slippage_bps,
-            turnover_today=Decimal(stats["gross_turnover"]),
-            net_pnl_today=Decimal(stats["net_pnl"]),
-        )
+        try:
+            self._risk.check(
+                outcome_id=outcome_id, side=side, cost=cost,
+                max_slippage_bps=max_slippage_bps,
+                turnover_today=Decimal(stats["gross_turnover"]),
+                net_pnl_today=Decimal(stats["net_pnl"]),
+            )
+        except RiskRejected as e:
+            _log.warning("order_rejected_by_risk",
+                         strategy=strategy, outcome_id=outcome_id, side=side,
+                         shares=str(shares), cost=str(cost), reason=str(e))
+            raise
 
         if await self._store.has_recent_duplicate(
             strategy, outcome_id, side, shares,
             within_sec=5, statuses=("success", "dryrun"),
         ):
+            _log.warning("order_rejected_by_risk",
+                         strategy=strategy, outcome_id=outcome_id, side=side,
+                         shares=str(shares), reason="duplicate within 5s")
             raise RiskRejected("duplicate within 5s")
 
         try:
