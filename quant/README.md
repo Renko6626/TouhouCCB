@@ -57,6 +57,13 @@ tmux kill-session -t quant
 
 启动时若 `state/KILL` 存在则拒绝启动，要手工 `rm` 才能重跑。
 
+## 内置策略
+
+- **`dca`** —— 定投，定时按 CNY 金额买入直到总预算耗尽。详见 `docs/strategies.md`
+- **`grid`** —— 网格，区间内涨卖跌买。详见 `docs/strategies.md`
+- **`volharvest`** —— 波动率收割（SSE 驱动 + logit 空间 mean reversion）。
+  详见 `docs/strategies.md` 和 `docs/superpowers/specs/2026-05-17-volatility-harvest-design.md`
+
 ## 加新策略
 
 1. 临时停 watchdog：`touch state/KILL`
