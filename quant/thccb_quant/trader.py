@@ -1,7 +1,6 @@
 """Trader 主入口：asyncio loop + 信号 + kill switch + 策略调度。spec §2/§5.5/§11。"""
 import argparse
 import asyncio
-import os
 import signal
 import sys
 from datetime import datetime, timezone, timedelta
@@ -9,7 +8,6 @@ from decimal import Decimal
 from pathlib import Path
 
 import httpx
-import structlog
 import yaml
 from dotenv import dotenv_values
 
@@ -21,7 +19,7 @@ from thccb_quant.broker.live import LiveBroker
 from thccb_quant.broker.risk import RiskConfig, RiskGuard
 from thccb_quant.client.auth import TokenManager
 from thccb_quant.client.rest import RestClient
-from thccb_quant.errors import FatalAuthError, StrategyError
+from thccb_quant.errors import FatalAuthError
 from thccb_quant.logging_setup import setup_logging, get_logger
 from thccb_quant.state.store import Store
 from thccb_quant.strategy.base import StrategyContext
@@ -62,6 +60,10 @@ async def _run_strategy(strategy, ctx: StrategyContext, logger):
         while not _stop_event.is_set():
             try:
                 await strategy.tick()
+            except FatalAuthError:
+                logger.error("strategy_hit_fatal_auth_error_stopping_trader")
+                _stop_event.set()
+                raise
             except Exception as e:
                 logger.exception("strategy_tick_failed", error=str(e))
             try:
@@ -198,11 +200,7 @@ async def main_async(dry_run: bool) -> int:
             _run_strategy(strat, ctx, get_logger(s_cfg["name"], strategy=s_cfg["name"]))
         ))
 
-    try:
-        await _stop_event.wait()
-    except FatalAuthError:
-        logger.error("fatal_auth_error_stopping")
-
+    await _stop_event.wait()
     logger.info("shutting_down")
     for t in tasks:
         t.cancel()
