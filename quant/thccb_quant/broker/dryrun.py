@@ -2,11 +2,15 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import structlog
+
 from thccb_quant.broker.base import Broker
 from thccb_quant.broker.risk import RiskGuard
 from thccb_quant.client.rest import RestClient, OrderResponse
 from thccb_quant.errors import RiskRejected
 from thccb_quant.state.store import Store
+
+_log = structlog.get_logger("broker")
 
 
 class DryRunBroker(Broker):
@@ -43,6 +47,10 @@ class DryRunBroker(Broker):
             status="dryrun",
         )
         self._risk.mark_order(outcome_id=outcome_id)
+        _log.info(
+            "order_dryrun", strategy=strategy, outcome_id=outcome_id,
+            side=side, shares=str(shares), cost=str(cost),
+        )
         return OrderResponse(
             shares=shares, cost=cost, new_cash=Decimal("0"),
             message="dryrun",
