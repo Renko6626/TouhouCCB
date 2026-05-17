@@ -13,7 +13,7 @@ import statistics
 import time
 from collections import deque
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
 from thccb_quant.client.sse import SseEvent
@@ -261,7 +261,9 @@ class VolatilityHarvest(Strategy):
         need = self._base - self._holding
         step_raw = min(need, self._boot_step, self._max_trade)
         step = step_raw if step_raw > 0 else Decimal("0")
-        if step < self._min_trade:
+        # 量化到整数 shares（反侦察：散户都是整数下单）
+        step = step.quantize(Decimal("1"), rounding=ROUND_DOWN)
+        if step < self._min_trade.quantize(Decimal("1"), rounding=ROUND_DOWN):
             self._ctx.logger.info(
                 "volharvest_bootstrap_skip",
                 reason="step_below_min", step=str(step),
@@ -329,8 +331,11 @@ class VolatilityHarvest(Strategy):
 
         win_age = ts_epoch - self._window[0][0]
 
+        # 量化到整数 shares（反侦察：散户都是整数下单）
+        shares_abs = abs(delta).quantize(Decimal("1"), rounding=ROUND_DOWN)
+
         # min trade 过滤（含 deadband 内 delta==0 的情况）
-        if abs(delta) < self._min_trade:
+        if shares_abs < self._min_trade:
             self._ctx.logger.info(
                 "volharvest_signal",
                 price=str(price), logit_price=current_logit,
@@ -348,9 +353,11 @@ class VolatilityHarvest(Strategy):
             return
 
         clip_reason = "ok"
-        if abs(delta) > self._max_trade:
-            delta = self._max_trade.copy_sign(delta)
+        max_trade_int = self._max_trade.quantize(Decimal("1"), rounding=ROUND_DOWN)
+        if shares_abs > max_trade_int:
+            shares_abs = max_trade_int
             clip_reason = "clipped"
+        delta = shares_abs if delta > 0 else -shares_abs
 
         # trend guard：连续 N 笔同向 → 拦逆势加仓
         if (
