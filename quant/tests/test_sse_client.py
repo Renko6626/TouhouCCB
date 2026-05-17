@@ -137,3 +137,42 @@ async def test_gap_triggers_reconnect_rebootstrap(tmp_path: Path):
     assert ("snapshot", 20) in types_seqs
     snap20 = next(ev for ev in got if ev.type == "snapshot" and ev.seq == 20)
     assert snap20.data.get("gap_recover") is True
+
+
+async def test_clean_eof_reconnects_without_unknown_error(tmp_path: Path, caplog):
+    """上游正常 EOF（1h 强断）后应立刻重连，不应走 sse_unknown_error 路径。"""
+    import logging
+    caplog.set_level(logging.WARNING, logger="sse_client")
+
+    stream1 = FakeStream([
+        "event: snapshot",
+        'data: {"type":"snapshot","seq":0,"data":{}}',
+        "",
+    ])  # 结束后正常 EOF
+    stream2 = FakeStream([
+        "event: snapshot",
+        'data: {"type":"snapshot","seq":5,"data":{}}',
+        "",
+    ])
+    client = _mk_client_with_streams([stream1, stream2])
+    sse = await _mk_sse(tmp_path, client)
+    got = []
+    async def collect():
+        async for ev in sse.subscribe(1):
+            got.append(ev)
+            if len(got) >= 2:
+                return
+    try:
+        await asyncio.wait_for(collect(), timeout=2.0)
+    except asyncio.TimeoutError:
+        pass
+
+    # 应收到两个 snapshot；第二个不应该是 gap_recover（因为是 EOF 重连不是 gap）
+    assert len(got) >= 2
+    assert got[0].type == "snapshot" and got[0].seq == 0
+    assert got[1].type == "snapshot" and got[1].seq == 5
+    # 关键断言：不应该有 sse_unknown_error log（说明没走 RuntimeError 路径）
+    unknown_errors = [r for r in caplog.records
+                      if "sse_unknown_error" in r.getMessage()]
+    assert len(unknown_errors) == 0, \
+        f"Expected no sse_unknown_error logs, got {len(unknown_errors)}"
