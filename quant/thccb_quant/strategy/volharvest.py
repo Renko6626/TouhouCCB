@@ -84,6 +84,7 @@ class VolatilityHarvest(Strategy):
         self._holding: Decimal = Decimal("0")
         self._outcome_index: int = -1  # setup 里查 market 后定下
         self._ctx: Optional[StrategyContext] = None
+        self._bootstrap_done: bool = False
 
     # ─── lifecycle ────────────────────────────────────────────
 
@@ -97,6 +98,9 @@ class VolatilityHarvest(Strategy):
             Decimal("0"),
         )
         self._holding = actual
+        # 若启动时已 ≥ base，直接标记 bootstrap 完成
+        if (self._base - self._holding).quantize(Decimal("1"), rounding=ROUND_DOWN) < Decimal("1"):
+            self._bootstrap_done = True
         # 查 market 拿 outcome 排序，定位自己在 market_prices_post 的下标
         market = await ctx.rest.get_market(self._market_id)
         sorted_outcomes = sorted(market.outcomes, key=lambda o: o.id)
@@ -173,16 +177,22 @@ class VolatilityHarvest(Strategy):
         # Reconcile 先于主流程，让漂移修正影响后续决策
         await self._maybe_reconcile()
 
-        # Bootstrap mode：差 ≥ 1 整数股才进 bootstrap（否则整数化后 step=0
-        # 死循环：永远 skip "step_below_min" 永远进不了主信号）
-        needed = (self._base - self._holding).quantize(
-            Decimal("1"), rounding=ROUND_DOWN
-        )
-        if needed >= Decimal("1"):
-            await self._maybe_bootstrap(price=price, current_logit=current_logit)
-            return
-
-        # 主信号流程
+        # Bootstrap mode 只在初次建仓阶段（_bootstrap_done=False）激活
+        # 一旦达到 base 就永久退出 bootstrap，之后即使 sell 后 holding < base 也走主信号
+        if not self._bootstrap_done:
+            needed = (self._base - self._holding).quantize(
+                Decimal("1"), rounding=ROUND_DOWN
+            )
+            if needed >= Decimal("1"):
+                await self._maybe_bootstrap(price=price, current_logit=current_logit)
+                return
+            # 差 < 1 整数股 → bootstrap 完成
+            self._bootstrap_done = True
+            self._ctx.logger.info(
+                "volharvest_bootstrap_completed",
+                holding=str(self._holding), base=str(self._base),
+            )
+        # 走主信号
         await self._maybe_trade(
             price=price, current_logit=current_logit, ts_epoch=ts_epoch,
         )
@@ -290,6 +300,12 @@ class VolatilityHarvest(Strategy):
             return
         self._holding += resp.shares
         self._last_boot_ts = now
+        if (self._base - self._holding).quantize(Decimal("1"), rounding=ROUND_DOWN) < Decimal("1"):
+            self._bootstrap_done = True
+            self._ctx.logger.info(
+                "volharvest_bootstrap_completed",
+                holding=str(self._holding), base=str(self._base),
+            )
         self._ctx.logger.info(
             "volharvest_trade",
             side="buy", shares=str(resp.shares), cost=str(resp.cost),
