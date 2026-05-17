@@ -82,6 +82,7 @@ class VolatilityHarvest(Strategy):
         self._trend_window: deque[str] = deque(maxlen=self._trend_n)
         # 内部状态
         self._holding: Decimal = Decimal("0")
+        self._outcome_index: int = -1  # setup 里查 market 后定下
         self._ctx: Optional[StrategyContext] = None
 
     # ─── lifecycle ────────────────────────────────────────────
@@ -96,11 +97,24 @@ class VolatilityHarvest(Strategy):
             Decimal("0"),
         )
         self._holding = actual
+        # 查 market 拿 outcome 排序，定位自己在 market_prices_post 的下标
+        market = await ctx.rest.get_market(self._market_id)
+        sorted_outcomes = sorted(market.outcomes, key=lambda o: o.id)
+        try:
+            self._outcome_index = next(
+                i for i, o in enumerate(sorted_outcomes)
+                if o.id == self._outcome_id
+            )
+        except StopIteration:
+            raise ValueError(
+                f"outcome_id {self._outcome_id} not in market {self._market_id}"
+            )
         # 启动时设 last_reconcile_ts 以避免第一次 event 就重复 RPC
         self._last_reconcile_ts = time.monotonic()
         ctx.logger.info(
             "volharvest_setup",
             outcome_id=self._outcome_id,
+            outcome_index=self._outcome_index,
             holding=str(self._holding),
             base=str(self._base),
             bootstrap_mode=self._holding < self._base,
@@ -118,18 +132,33 @@ class VolatilityHarvest(Strategy):
         if not trade:
             return
         try:
-            outcome_id = int(trade["outcome_id"])
-        except (KeyError, TypeError, ValueError):
-            return
-        if outcome_id != self._outcome_id:
-            return
-        try:
-            price = float(trade["post_market_price"])
+            trade_outcome_id = int(trade["outcome_id"])
             side = str(trade["type"])
             ts_str = str(trade["timestamp"])
         except (KeyError, TypeError, ValueError):
             self._ctx.logger.warning("volharvest_bad_event",
                                      outcome_id=self._outcome_id)
+            return
+        # LMSR：全市场任一 outcome 成交都会改变 self 价格，所以不再 early-out
+        # 用 market_prices_post[self._outcome_index] 取自己的价
+        mp = trade.get("market_prices_post")
+        if not isinstance(mp, (list, tuple)) or len(mp) <= self._outcome_index:
+            self._ctx.logger.warning(
+                "volharvest_bad_event",
+                outcome_id=self._outcome_id,
+                reason="missing_market_prices_post",
+                outcome_index=self._outcome_index,
+                mp_len=len(mp) if isinstance(mp, (list, tuple)) else None,
+            )
+            return
+        try:
+            price = float(mp[self._outcome_index])
+        except (TypeError, ValueError):
+            self._ctx.logger.warning(
+                "volharvest_bad_event",
+                outcome_id=self._outcome_id,
+                reason="bad_market_prices_post_value",
+            )
             return
         ts_epoch = self._parse_ts(ts_str)
         if ts_epoch is None:
@@ -138,7 +167,8 @@ class VolatilityHarvest(Strategy):
 
         current_logit = to_logit(price)
         self._window.append((ts_epoch, current_logit))
-        self._trend_window.append(side)
+        direction = self._self_price_direction(trade_outcome_id, side)
+        self._trend_window.append(direction)
 
         # Reconcile 先于主流程，让漂移修正影响后续决策
         await self._maybe_reconcile()
@@ -154,6 +184,18 @@ class VolatilityHarvest(Strategy):
         )
 
     # ─── helpers ──────────────────────────────────────────────
+
+    def _self_price_direction(self, trade_outcome_id: int, side: str) -> str:
+        """把 (trade outcome, trade side) 映射成对 self 价格的方向（UP/DOWN）。
+
+        LMSR：买 outcome X → X 的 shares 增加 → X 价上涨、其它 outcome 价下跌。
+        所以：self BUY=UP, self SELL=DOWN, other BUY=DOWN, other SELL=UP。
+        """
+        is_self = (trade_outcome_id == self._outcome_id)
+        if side == "BUY":
+            return "UP" if is_self else "DOWN"
+        # SELL
+        return "DOWN" if is_self else "UP"
 
     @staticmethod
     def _parse_ts(raw: str) -> Optional[float]:
@@ -316,10 +358,10 @@ class VolatilityHarvest(Strategy):
             and len(set(self._trend_window)) == 1
         ):
             guard_side = self._trend_window[0]
-            if guard_side == "BUY" and delta < 0:
+            if guard_side == "UP" and delta < 0:
                 self._ctx.logger.info(
                     "volharvest_trend_guard_blocked",
-                    guard_side="BUY", blocked_action="sell",
+                    guard_side="UP", blocked_action="sell",
                     last_n_sides=list(self._trend_window),
                 )
                 await self._ctx.store.log_decision(
@@ -328,10 +370,10 @@ class VolatilityHarvest(Strategy):
                     snapshot={"delta": str(delta), "deviation": deviation},
                 )
                 return
-            if guard_side == "SELL" and delta > 0:
+            if guard_side == "DOWN" and delta > 0:
                 self._ctx.logger.info(
                     "volharvest_trend_guard_blocked",
-                    guard_side="SELL", blocked_action="buy",
+                    guard_side="DOWN", blocked_action="buy",
                     last_n_sides=list(self._trend_window),
                 )
                 await self._ctx.store.log_decision(

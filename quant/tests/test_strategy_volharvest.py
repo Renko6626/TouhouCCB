@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import structlog
 
-from thccb_quant.client.rest import HoldingRead
+from thccb_quant.client.rest import HoldingRead, MarketDetail, OutcomeDetail
 from thccb_quant.client.sse import SseEvent
 from thccb_quant.client.sse_subscriber import SseSubscriber
 from thccb_quant.errors import RiskRejected
@@ -62,6 +62,15 @@ def _holding(outcome_id: int, amount: Decimal) -> HoldingRead:
 async def _make_ctx(store: Store, current_holding: Decimal = Decimal("100")) -> StrategyContext:
     rest = MagicMock()
     rest.get_holdings = AsyncMock(return_value=[_holding(1, current_holding)])
+    rest.get_market = AsyncMock(return_value=MarketDetail(
+        id=1, title="t", status="trading", liquidity_b=10000.0,
+        outcomes=[
+            OutcomeDetail(id=1, label="yes", total_shares=Decimal("100"),
+                          current_price=Decimal("0.5")),
+            OutcomeDetail(id=2, label="no", total_shares=Decimal("100"),
+                          current_price=Decimal("0.5")),
+        ],
+    ))
     broker = MagicMock()
     broker.buy = AsyncMock(return_value=MagicMock(
         shares=Decimal("1"), cost=Decimal("0.5"), new_cash=Decimal("499.5"),
@@ -81,6 +90,12 @@ def _trade_event(
     outcome_id: int = 1, trade_id: int | None = None,
     ts: str = "2026-05-17T07:00:00Z",
 ) -> SseEvent:
+    """price 是被成交 outcome 的 post_market_price；market_prices_post 始终按
+    outcome.id 升序（outcome 1, outcome 2）排列。"""
+    if outcome_id == 1:
+        prices_post = [price, 1.0 - price]
+    else:  # outcome_id == 2（二元市场互补）
+        prices_post = [1.0 - price, price]
     return SseEvent(
         type="trade", seq=seq,
         data={"trade": {
@@ -89,7 +104,7 @@ def _trade_event(
             "username": "u", "shares": 1.0, "price": price,
             "gross": price, "fee": 0.0,
             "post_market_price": price,
-            "market_prices_post": [price, 1 - price],
+            "market_prices_post": prices_post,
             "timestamp": ts,
         }},
     )
@@ -346,6 +361,38 @@ async def test_trend_guard_not_full_passes(store):
     # trend_window 此时只有 6 笔 < 10 → guard 不拦
     await s.on_sse_event(_trade_event(seq=10, side="BUY", price=0.80))
     assert ctx.broker.sell.call_count >= 1
+
+
+# ─── 5b. cross-outcome SSE 处理（LMSR 任一 outcome 成交都改变 self 价）─
+
+async def test_other_outcome_trade_updates_window_with_self_price(store):
+    """outcome 2 trade 也要喂窗口，且价格用的是 self（outcome 1）的现价。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(window_size=10))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))
+    await s.setup(ctx)
+    # outcome 2 SELL @ outcome 2 price 0.30 → outcome 1 price = 0.70
+    await s.on_sse_event(_trade_event(seq=1, side="SELL", price=0.30, outcome_id=2))
+    assert len(s._window) == 1
+    expected_logit = math.log(0.70 / 0.30)
+    assert abs(s._window[-1][1] - expected_logit) < 1e-6
+
+
+async def test_other_outcome_buy_is_down_pressure(store):
+    """outcome 2 BUY → 对 self 是下跌压力 → trend_window 推 'DOWN'。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(trend_guard_events=3))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))
+    await s.setup(ctx)
+    await s.on_sse_event(_trade_event(seq=1, side="BUY", price=0.50, outcome_id=2))
+    assert list(s._trend_window) == ["DOWN"]
+
+
+async def test_other_outcome_sell_is_up_pressure(store):
+    """outcome 2 SELL → 对 self 是上涨压力 → trend_window 推 'UP'。"""
+    s = VolatilityHarvest(name="v", config=_default_cfg(trend_guard_events=3))
+    ctx = await _make_ctx(store, current_holding=Decimal("100"))
+    await s.setup(ctx)
+    await s.on_sse_event(_trade_event(seq=1, side="SELL", price=0.50, outcome_id=2))
+    assert list(s._trend_window) == ["UP"]
 
 
 # ─── 6. bootstrap guard ──────────────────────────────────────────
