@@ -29,3 +29,28 @@ strategies:
     grid_count: 6
     shares_per_grid: 2.0
     tick_interval_sec: 30
+
+  - name: volharvest_market_1_outcome_1
+    type: volharvest
+    enabled: false
+    market_id: 1
+    outcome_id: 1
+    # 价格统计（logit 空间）
+    window_size: 100              # 滑窗 N 笔 SSE trade event
+    k_sigma: 2.0                  # 触发阈值 = k_sigma * 1.4826 * MAD ≈ k_sigma * σ
+    scale_mad: 1.0                # deadband 之外 tanh 的尺度
+    min_mad_logit: 0.01           # MAD 太小则跳过，防除零和过敏感
+    # 仓位
+    base_shares: 500.0            # 目标底仓（inventory，非 alpha 判断）
+    max_offset_shares: 200.0      # tanh 饱和上限 → 持仓范围 [300, 700]
+    min_trade_shares: 5.0         # |delta| < 此值不下单
+    max_trade_shares: 20.0        # |delta| > 此值 clip 到 ±max_trade_shares
+    # Bootstrap
+    bootstrap_max_step: 10.0      # 每次 bootstrap 最多补 N shares
+    bootstrap_interval_sec: 30    # bootstrap 节流
+    bootstrap_skip_if_overpriced: true  # 价格偏高时暂停 bootstrap
+    # 周期校准
+    reconcile_interval_sec: 300   # 5 分钟读一次真实持仓校准 _holding
+    reconcile_tolerance: 1.0      # 差异 > 此值才覆盖 + log warning
+    # 趋势过滤
+    trend_guard_events: 5         # 最近 N 笔 trade 全同向 → 暂停逆势加仓
