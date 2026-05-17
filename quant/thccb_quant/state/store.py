@@ -133,22 +133,40 @@ class Store:
 
     async def add_turnover(self, amount: Decimal) -> None:
         today = datetime.now(timezone.utc).date().isoformat()
-        await self._conn.execute(
-            "INSERT INTO daily_stats (date, gross_turnover, net_pnl) VALUES (?, ?, '0') "
-            "ON CONFLICT(date) DO UPDATE SET gross_turnover = "
-            "CAST((CAST(gross_turnover AS REAL) + ?) AS TEXT)",
-            (today, str(amount), float(amount)),
+        cur = await self._conn.execute(
+            "SELECT gross_turnover FROM daily_stats WHERE date = ?", (today,)
         )
+        row = await cur.fetchone()
+        if row is None:
+            await self._conn.execute(
+                "INSERT INTO daily_stats (date, gross_turnover, net_pnl) VALUES (?, ?, '0')",
+                (today, str(amount)),
+            )
+        else:
+            new_val = Decimal(row["gross_turnover"]) + amount
+            await self._conn.execute(
+                "UPDATE daily_stats SET gross_turnover = ? WHERE date = ?",
+                (str(new_val), today),
+            )
         await self._conn.commit()
 
     async def add_pnl(self, amount: Decimal) -> None:
         today = datetime.now(timezone.utc).date().isoformat()
-        await self._conn.execute(
-            "INSERT INTO daily_stats (date, gross_turnover, net_pnl) VALUES (?, '0', ?) "
-            "ON CONFLICT(date) DO UPDATE SET net_pnl = "
-            "CAST((CAST(net_pnl AS REAL) + ?) AS TEXT)",
-            (today, str(amount), float(amount)),
+        cur = await self._conn.execute(
+            "SELECT net_pnl FROM daily_stats WHERE date = ?", (today,)
         )
+        row = await cur.fetchone()
+        if row is None:
+            await self._conn.execute(
+                "INSERT INTO daily_stats (date, gross_turnover, net_pnl) VALUES (?, '0', ?)",
+                (today, str(amount)),
+            )
+        else:
+            new_val = Decimal(row["net_pnl"]) + amount
+            await self._conn.execute(
+                "UPDATE daily_stats SET net_pnl = ? WHERE date = ?",
+                (str(new_val), today),
+            )
         await self._conn.commit()
 
     async def get_daily_stats(self, date: str) -> dict[str, Any]:
