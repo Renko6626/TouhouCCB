@@ -7,6 +7,7 @@
 - 启动从 rest.get_holdings + get_user_summary bootstrap 内部 state
 - EMA 状态重启不持久化（重新预热）—— 文档化的取舍
 """
+import json
 import math
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
@@ -96,6 +97,66 @@ class MeanRevStrategy(Strategy):
             ema_alpha=self._ema_alpha,
             threshold_logit=self._threshold_logit,
             warmup_events=self._warmup_events,
+        )
+
+        # 重启从 trades 表（上一轮 SseSubscriber 记下的 SSE 成交）回放 EMA，
+        # 防冷市场被 liveness_watchdog 误杀后新进程永远卡 warmup_events=20 不出
+        # 信号。trades 表是 INSERT OR IGNORE 累计的 SSE history，有 outcome A 的
+        # market_prices_post_json。第一次跑（DB 空）走 fallback 没数据，仍要等
+        # 20 笔新 event；之后每次重启都从满 warmup 继续。
+        await self._warmup_replay_from_history(ctx)
+
+    async def _warmup_replay_from_history(self, ctx: StrategyContext) -> None:
+        """从 store.trades 表的历史 SSE event 反推 EMA 初值 + event_count。
+
+        各种异常（schema 缺字段、JSON 坏、price 非法）静默 skip 单条而不中断，
+        保证 setup 永远不因 history 异常而失败。
+        """
+        try:
+            rows = await ctx.store.recent_trades_observed(
+                market_id=self._market_id,
+                limit=max(self._warmup_events * 2, 50),
+            )
+        except Exception:
+            ctx.logger.exception("meanrev_warmup_replay_query_failed")
+            return
+
+        if not rows:
+            ctx.logger.info("meanrev_warmup_replay_no_history",
+                            warmup_events=self._warmup_events)
+            return
+
+        replayed = 0
+        # recent_trades_observed 是 id DESC → 反转回时间正序回放
+        for row in reversed(rows):
+            mp_raw = row.get("market_prices_post_json")
+            if not mp_raw:
+                continue
+            try:
+                mp = json.loads(mp_raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(mp, list) or len(mp) < 2:
+                continue
+            try:
+                price_a = float(mp[0])
+            except (TypeError, ValueError):
+                continue
+            current_logit = to_logit(price_a)
+            if self._ema_logit is None:
+                self._ema_logit = current_logit
+            else:
+                a = self._ema_alpha
+                self._ema_logit = a * current_logit + (1.0 - a) * self._ema_logit
+            self._event_count += 1
+            replayed += 1
+
+        ctx.logger.info(
+            "meanrev_warmup_replayed",
+            replayed_count=replayed,
+            event_count=self._event_count,
+            ema_logit=self._ema_logit,
+            warmup_done=self._event_count >= self._warmup_events,
         )
 
     async def tick(self) -> None:

@@ -167,6 +167,68 @@ async def test_setup_bootstraps_holdings_and_cash(store):
     assert s._outcome_ids == (1, 2)
 
 
+async def test_setup_replays_ema_from_trades_history(store):
+    """trades 表里有历史 SSE event → setup 应回放 EMA + event_count，省 warmup。
+
+    防冷市场被 liveness 误杀后重启卡在 warmup_events=20 永远不出信号。
+    """
+    # 先在 trades 表种 25 笔历史成交（模拟上一轮 trader 的 SSE 记录）
+    import json as _json
+    for i in range(25):
+        await store.log_trade(market_id=1, payload={"trade": {
+            "id": 9000 + i, "type": "BUY", "outcome_id": 1,
+            "username": "histuser", "shares": 1.0, "price": 0.5,
+            "gross": 0.5, "fee": 0.0,
+            "post_market_price": 0.55,
+            # 关键：mp[0] = outcome A 的 post 价（递增模拟）
+            "market_prices_post": [0.50 + i * 0.005, 0.50 - i * 0.005],
+            "timestamp": f"2026-05-18T10:{i:02d}:00Z",
+        }})
+
+    s = MeanRevStrategy(name="t", config=_default_cfg(warmup_events=20))
+    ctx = await _make_ctx(store, cash=Decimal("500"))
+    await s.setup(ctx)
+
+    # 25 笔回放完，event_count >= warmup_events → warmup 完成
+    assert s._event_count == 25, f"应回放 25 笔, got {s._event_count}"
+    assert s._ema_logit is not None, "EMA 应被初始化"
+    # 不立即 warmup_done 检查，但下一笔 event 应该直接跑信号判断（不走 warmup return）
+
+
+async def test_setup_no_history_no_replay(store):
+    """trades 表空 → 回放 0 笔，event_count=0，老 warmup 行为不变。"""
+    s = MeanRevStrategy(name="t", config=_default_cfg(warmup_events=20))
+    ctx = await _make_ctx(store, cash=Decimal("500"))
+    await s.setup(ctx)
+    assert s._event_count == 0, "空 history 应跳过回放"
+    assert s._ema_logit is None
+
+
+async def test_setup_bad_history_rows_skipped(store):
+    """单笔 history 损坏（JSON 坏 / 字段缺）不应让 setup 失败，跳过坏行即可。"""
+    # 一笔坏的（手工写 SQL 绕过 log_trade 的合法性检查）
+    await store._conn.execute(
+        "INSERT INTO trades (trade_id, ts, ingest_ts, market_id, outcome_id, side, "
+        " shares, price, gross, fee, username, post_market_price, market_prices_post_json) "
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (9000, "2026-05-18T10:00:00Z", "2026-05-18T10:00:00Z", 1, 1, "BUY",
+         "1.0", "0.5", "0.5", "0", None, "0.5", "{not valid json"),
+    )
+    # 一笔正常的
+    await store.log_trade(market_id=1, payload={"trade": {
+        "id": 9001, "type": "BUY", "outcome_id": 1,
+        "username": "u", "shares": 1.0, "price": 0.5,
+        "gross": 0.5, "fee": 0.0,
+        "post_market_price": 0.5,
+        "market_prices_post": [0.5, 0.5],
+        "timestamp": "2026-05-18T10:01:00Z",
+    }})
+    s = MeanRevStrategy(name="t", config=_default_cfg(warmup_events=20))
+    ctx = await _make_ctx(store, cash=Decimal("500"))
+    await s.setup(ctx)
+    assert s._event_count == 1, "坏行应被 skip，只回放好的那一笔"
+
+
 async def test_setup_rejects_non_binary_market(store):
     rest = MagicMock()
     rest.get_market = AsyncMock(return_value=MarketDetail(
