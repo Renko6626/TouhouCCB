@@ -35,11 +35,19 @@ class SseSubscriber:
         self._log = logger
         self._dispatch_timeout_sec = dispatch_timeout_sec
         self._last_event_handled_ts = time.monotonic()
+        # 诊断计数：trade event 因 trade_id 重复被跳过的总次数。
+        # 突然涨 = backend SSE race 或 重连风暴异常；正常 << 1/分钟。
+        self._dedup_skipped_count = 0
 
     @property
     def last_event_handled_ts(self) -> float:
         """monotonic 时间戳，每次 _handle_event 完成（无论 dispatch 结果）后更新。"""
         return self._last_event_handled_ts
+
+    @property
+    def dedup_skipped_count(self) -> int:
+        """累计 dedup 触发次数；WebUI 用以监控 SSE 流是否健康。"""
+        return self._dedup_skipped_count
 
     async def run(self) -> None:
         await self._preload_partial_trades()
@@ -91,9 +99,11 @@ class SseSubscriber:
                         trade_id = int(event.data["trade"]["id"])
                     except (KeyError, TypeError, ValueError):
                         pass
+                    self._dedup_skipped_count += 1
                     self._log.info(
                         "sse_trade_dedup_skipped",
                         market_id=market_id, seq=event.seq, trade_id=trade_id,
+                        total_dedup_skipped=self._dedup_skipped_count,
                     )
                     return
                 await self._dispatch(market_id, event)

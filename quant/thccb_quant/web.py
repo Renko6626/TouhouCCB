@@ -75,6 +75,7 @@ _INDEX_HTML = """<!doctype html>
     <div class="kv"><span class="k">status</span><span class="v" id="sse-status">—</span></div>
     <div class="kv"><span class="k">idle</span><span class="v" id="sse-idle">—</span></div>
     <div class="kv"><span class="k">subscribed markets</span><span class="v" id="sse-markets">—</span></div>
+    <div class="kv"><span class="k">dedup skipped</span><span class="v" id="sse-dedup">—</span></div>
   </div>
 </div>
 
@@ -207,6 +208,11 @@ async function refresh() {
     else { sseEl.textContent = 'healthy'; sseEl.className = 'v ok'; }
     document.getElementById('sse-idle').textContent = idle != null ? fmt(idle, 1)+'s' : '—';
     document.getElementById('sse-markets').textContent = JSON.stringify(st.sse.subscribed_markets);
+    const dedupEl = document.getElementById('sse-dedup');
+    const ddp = st.sse.dedup_skipped_count;
+    dedupEl.textContent = ddp ?? '—';
+    // dedup 不应该高频涨，>10 标黄 >100 标红提醒
+    dedupEl.className = 'v ' + (ddp > 100 ? 'err' : ddp > 10 ? 'warn' : 'ok');
 
     // Strategies
     document.getElementById('strategies').innerHTML = ss.map(strategyCard).join('') || '<div class="card small">no enabled strategies</div>';
@@ -256,10 +262,12 @@ def make_app() -> FastAPI:
         sub = RUNTIME.subscriber
         idle = None
         markets: list[int] = []
+        dedup_count = 0
         if sub is not None:
             try:
                 idle = time.monotonic() - sub.last_event_handled_ts
                 markets = sorted(sub._market_ids)
+                dedup_count = getattr(sub, "dedup_skipped_count", 0)
             except Exception:
                 pass
         return {
@@ -272,6 +280,7 @@ def make_app() -> FastAPI:
                 "active": sub is not None,
                 "idle_sec": idle,
                 "subscribed_markets": markets,
+                "dedup_skipped_count": dedup_count,
             },
         }
 
