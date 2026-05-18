@@ -54,3 +54,16 @@ strategies:
     reconcile_tolerance: 1.0      # 差异 > 此值才覆盖 + log warning
     # 趋势过滤
     trend_guard_events: 5         # 最近 N 笔 trade 全同向 → 暂停逆势加仓
+
+  - name: meanrev_market_1
+    type: meanrev
+    enabled: false
+    market_id: 1
+    # 二元市场专用！setup 校验 len(outcomes)==2
+    ema_alpha: 0.10               # logit EMA 衰减；半衰期 ≈ 7 笔
+    threshold_logit: 0.08         # 偏离阈值；≈ 价格 ±2% (p≈0.5 时)
+    warmup_events: 20             # 冷启动跳过前 N 笔 SSE event
+    trade_pct_of_cash: 0.05       # 在 |deviation|=threshold 时基础下单 = cash × 5%
+    size_scale_cap: 3.0           # size = base × min(|deviation|/threshold, cap)；cap=1 关闭缩放
+    min_trade: 10                 # floor 后 < 此值直接 skip（过滤残余小数 + 边际触发）
+    max_holding_per_side: 200     # 单边持仓硬上限，防 cash 一夜烧光

@@ -15,6 +15,7 @@ from dotenv import dotenv_values
 # 触发策略注册副作用
 import thccb_quant.strategy.dca  # noqa: F401
 import thccb_quant.strategy.grid  # noqa: F401
+import thccb_quant.strategy.meanrev  # noqa: F401
 import thccb_quant.strategy.volharvest  # noqa: F401
 from thccb_quant.broker.dryrun import DryRunBroker
 from thccb_quant.broker.live import LiveBroker
