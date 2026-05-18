@@ -116,6 +116,11 @@ class SseSubscriber:
                 self._log.info("sse_snapshot_bootstrapped",
                                market_id=market_id, seq=event.seq,
                                gap_recover=event.data.get("gap_recover", False))
+            elif event.type == "ping":
+                # ping 不 dispatch（策略不需要）；进 finally 块刷 _last_event_handled_ts
+                # 让冷市场 25s 一次的 ping 也算 alive proof，避免被 WebUI 误标 stalled
+                # 或 liveness_watchdog 误杀。
+                pass
         finally:
             # liveness watchdog 依赖该 ts：无论 event 类型 / dispatch 成败都得推进
             self._last_event_handled_ts = time.monotonic()

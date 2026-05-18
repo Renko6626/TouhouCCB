@@ -64,7 +64,12 @@ class SseClient:
                             last_seq = event.seq
                             yield event
                         elif event.type == "ping":
-                            pass  # 不 yield，仅靠 parse 内的 timeout 重置
+                            # yield ping 让上层 SseSubscriber 用作 alive proof：
+                            # 冷市场 5min+ 无交易时，trader 仍能看到 server 每 25s 发的
+                            # ping → 推进 last_event_handled_ts → WebUI 不误报 stalled，
+                            # liveness_watchdog 也不会误杀重启。
+                            # 不参与 gap 检测（ping seq 不递增），仅用作 keepalive 信号。
+                            yield event
                         else:
                             if event.seq == last_seq + 1:
                                 last_seq = event.seq

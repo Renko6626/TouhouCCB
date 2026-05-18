@@ -153,6 +153,25 @@ async def test_dispatch_timeout_logs_warning(store, caplog):
     # （如果 wait_for 没把 TimeoutError 吃掉就会冒泡）
 
 
+async def test_ping_event_advances_alive_ts_but_skips_dispatch(store):
+    """ping 必须更新 last_event_handled_ts（防 WebUI 误标 stalled / liveness 误杀）
+    但 NOT dispatch（策略不需要 ping）。"""
+    strat = _mk_strategy("s1", market_id=1)
+    ping = SseEvent(type="ping", seq=0, data={})
+    sub = await _make_sub(
+        store,
+        sse_events_per_market={1: [ping]},
+        strategies=[strat],
+        market_ids={1},
+    )
+    before = sub.last_event_handled_ts
+    await asyncio.sleep(0.01)  # 确保 monotonic 推进
+    await asyncio.wait_for(sub.run(), timeout=2.0)
+    after = sub.last_event_handled_ts
+    assert after > before, "ping 应该推进 last_event_handled_ts"
+    strat.on_sse_event.assert_not_called()
+
+
 async def test_duplicate_trade_event_skips_dispatch(store):
     """同一 trade_id 来两次：第一次正常 dispatch，第二次 store 返回 False → 跳过 dispatch。
 
