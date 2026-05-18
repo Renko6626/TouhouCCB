@@ -17,6 +17,8 @@ import thccb_quant.strategy.dca  # noqa: F401
 import thccb_quant.strategy.grid  # noqa: F401
 import thccb_quant.strategy.meanrev  # noqa: F401
 import thccb_quant.strategy.volharvest  # noqa: F401
+from thccb_quant import web as _quant_web
+from thccb_quant.runtime import RUNTIME
 from thccb_quant.broker.dryrun import DryRunBroker
 from thccb_quant.broker.live import LiveBroker
 from thccb_quant.broker.risk import RiskConfig, RiskGuard
@@ -224,6 +226,15 @@ async def main_async(dry_run: bool) -> int:
         LiveBroker(rest=rest, risk=risk, store=store)
     )
 
+    # Runtime registry —— WebUI 拿活体状态用
+    import time as _time
+    RUNTIME.started_at = _time.monotonic()
+    RUNTIME.started_at_wall = _time.time()
+    RUNTIME.dry_run = dry_run
+    RUNTIME.base_url = base_url
+    RUNTIME.store = store
+    RUNTIME.config = config
+
     logger.info("startup",
                 base_url=base_url, dry_run=dry_run,
                 strategies_count=len(config["strategies"]))
@@ -283,6 +294,19 @@ async def main_async(dry_run: bool) -> int:
         tasks.append(asyncio.create_task(subscriber.run()))
         tasks.append(asyncio.create_task(
             _liveness_watchdog(subscriber, get_logger("liveness"))
+        ))
+        RUNTIME.subscriber = subscriber
+
+    # 给 WebUI 暴露所有 enabled 策略
+    RUNTIME.strategies = [s for s, _, _ in enabled_pairs]
+
+    # 启动 WebUI（绑 127.0.0.1，端口从 config["web"]["port"] 读；缺字段默认 8765）
+    web_cfg = config.get("web") or {}
+    if web_cfg.get("enabled", True):
+        host = str(web_cfg.get("host", "127.0.0.1"))
+        port = int(web_cfg.get("port", 8765))
+        tasks.append(asyncio.create_task(
+            _quant_web.serve(host=host, port=port, logger=get_logger("web"))
         ))
 
     # 起策略 tick 循环

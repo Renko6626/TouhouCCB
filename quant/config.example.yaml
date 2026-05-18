@@ -9,6 +9,13 @@ client:
   rate_limit_per_sec: 8
   request_timeout_sec: 10
 
+# WebUI（trader 进程内嵌的轻量监控页）。生产侧建议 ssh -L 8765:127.0.0.1:8765 访问，
+# 不要 bind 0.0.0.0 裸暴露。
+web:
+  enabled: true
+  host: 127.0.0.1
+  port: 8765
+
 strategies:
   - name: dca_market_1_outcome_yes
     type: dca
