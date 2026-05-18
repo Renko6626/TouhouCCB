@@ -19,6 +19,9 @@ export interface UserSummary {
   unrealized_pnl: number
   net_worth: number
   rank: string
+  margin_ratio: number | null
+  margin_status: 'healthy' | 'warning' | 'danger'
+  last_liquidated_at: string | null
 }
 
 export interface Holding {
