@@ -55,14 +55,30 @@ class MarketEventBroker:
         self._seq: Dict[int, int] = {}
         self._lock = asyncio.Lock()
 
-    async def subscribe(self, market_id: int) -> Subscriber:
+    async def subscribe(self, market_id: int) -> Tuple["Subscriber", int]:
+        """订阅 + 同锁内读 anchor seq，保证 q 内事件的 seq 全部 > 返回的 anchor。
+
+        旧实现 anchor 在 subscribe 外另读，与 subscribe 之间存在微秒级 race window：
+        publish 可能在两步之间发生，导致 q 收到一个 seq == anchor 的事件，client
+        以为是 gap → reconnect → silent loss。
+
+        现在 anchor 在 lock 内读：
+        - 任何后续 publish 必须先获 lock → seq 必 > anchor，且 subs copy 包含我们 → 入 q
+        - 任何之前 publish 的 subs copy 不含我们 → 不入 q，seq <= anchor
+
+        Snapshot.data 可能包含一些 seq > anchor 事件的状态影响（如果它们在 DB read
+        期间 commit），但这些事件**同样**会通过 q 推送，client 看到的是重复（不是漏失）。
+        重复由 trader 侧用 trade_id 去重（store.log_trade INSERT OR IGNORE +
+        sse_subscriber 跳过已存在事件的 dispatch）。
+        """
         async with self._lock:
             subs = self._topics.setdefault(market_id, set())
             if len(subs) >= self.MAX_SUBSCRIBERS_PER_MARKET:
                 raise RuntimeError(f"市场 {market_id} 订阅者已满（上限 {self.MAX_SUBSCRIBERS_PER_MARKET}）")
             sub = Subscriber(q=asyncio.Queue(maxsize=self.QUEUE_MAXSIZE))
             subs.add(sub)
-        return sub
+            anchor = self._seq.get(market_id, 0)
+        return sub, anchor
 
     def current_seq(self, market_id: int) -> int:
         """当前 per-market 序号（无锁读取）。

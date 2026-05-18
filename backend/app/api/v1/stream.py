@@ -121,7 +121,11 @@ async def stream_market(market_id: int, request: Request):
         # 无法返 503，只能静默关流，前端 onerror 会触发重连。
         sub: Subscriber
         try:
-            sub = await BROKER.subscribe(market_id)
+            # 原子化：subscribe + anchor 在同一把锁内完成。返回 anchor 保证 q 内
+            # 后续 event 的 seq 全部 > anchor，client 不再误判 gap_reconnect。
+            # （详见 BROKER.subscribe docstring；之前 `current_seq() AFTER subscribe`
+            # 的实现有微秒级 race 导致 silent loss。）
+            sub, snap_seq_anchor = await BROKER.subscribe(market_id)
         except RuntimeError:
             # cap race；同时释放 IP 计数，不然这台 IP 一次失败白吃一个名额
             await IP_LIMITER.release(market_id, ip)
@@ -130,17 +134,10 @@ async def stream_market(market_id: int, request: Request):
         kicked_task: asyncio.Task | None = None
         start_time = time.monotonic()
         try:
-            # 关键修复：anchor 在 snapshot 读取**之前**取，避免 silent data loss。
-            #
-            # 旧实现：anchor = current_seq() AFTER snap.read。如果在 snap 读 outcome
-            # 状态期间发生一笔 publish T (seq=N+1)：
-            #   - snap.data 不含 T（DB SELECT 在 T commit 前完成）
-            #   - anchor = N+1（T 已经 publish）
-            #   - 客户端 lastSeq=N+1 → 期待 N+2 → 永远收不到 T 的 trade event
-            # 现在：anchor 在 snap.read 前取，最坏情况 T 同时进 snap.data 和后续
-            # event 流 → 客户端可能看到 T 重复（trade list 上多一行），但不会丢。
-            # 重复仅有视觉副作用；丢失会影响 quant 策略状态正确性。
-            snap_seq_anchor = BROKER.current_seq(market_id)
+            # snapshot.data 可能含 seq > anchor 事件的效果（DB commit 抢在 snap.read
+            # 之前）；那些事件**同时**会通过 q 流给 client → 看上去是 trade 重复一次。
+            # 重复由 trader 侧用 trade_id 去重（DB INSERT OR IGNORE + SseSubscriber
+            # 跳 dispatch），可接受。漏失才是真灾难，所以保守选重复。
             async with async_session_maker() as db:
                 snap = await _build_snapshot(db, market_id)
 
