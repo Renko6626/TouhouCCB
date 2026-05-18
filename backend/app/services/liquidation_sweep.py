@@ -45,8 +45,11 @@ def _is_deadlock_error(exc: Exception) -> bool:
     return False
 
 
-async def run_liquidation_sweep_once() -> dict:
-    """扫一次全体 debt>0 用户。给 scheduler + admin run-now 共用。"""
+async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
+    """扫一次全体 debt>0 用户。给 scheduler + admin run-now 共用。
+
+    trigger_source: "scheduler"（定时 cron 触发）或 "admin_manual"（管理员手动触发）。
+    """
     start_ts = time.monotonic()
     async with async_session_maker() as session:
         enabled = await site_config.get_bool(session, "liquidation_enabled")
@@ -98,7 +101,7 @@ async def run_liquidation_sweep_once() -> dict:
                     if margin < hard_thr:
                         ev = await liquidation_service.liquidate_user(
                             session, user, daily_rate=rate,
-                            trigger_source="scheduler",
+                            trigger_source=trigger_source,
                         )
                         triggered += 1
                         if (ev.sold_positions_count == 0

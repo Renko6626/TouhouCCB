@@ -18,7 +18,7 @@ async def admin_run_liquidation_sweep(
     admin: User = Depends(current_superuser),
 ):
     """跟 scheduler 同逻辑。不绕过阈值——admin 没有 override 权力。"""
-    result = await liquidation_sweep.run_liquidation_sweep_once()
+    result = await liquidation_sweep.run_liquidation_sweep_once(trigger_source="admin_manual")
     logger.info(
         "ADMIN_RUN_LIQUIDATION_SWEEP admin_id=%s result=%s",
         admin.id, result,
