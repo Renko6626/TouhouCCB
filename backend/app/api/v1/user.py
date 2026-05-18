@@ -89,6 +89,21 @@ async def get_user_summary(
     unrealized_pnl = holdings_value - total_cost_basis
     rank = rank_title(net_worth)
 
+    # Margin classification
+    margin_ratio = None
+    margin_status = "healthy"
+    if user.debt > ZERO:
+        margin_ratio = (net_worth / user.debt).quantize(Decimal("0.000001"))
+        try:
+            hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
+            soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
+        except Exception:
+            hard, soft = Decimal("0.2"), Decimal("0.5")
+        if margin_ratio < hard:
+            margin_status = "danger"
+        elif margin_ratio < soft:
+            margin_status = "warning"
+
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
@@ -97,6 +112,9 @@ async def get_user_summary(
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
         "rank": rank,
+        "margin_ratio": margin_ratio,
+        "margin_status": margin_status,
+        "last_liquidated_at": user.last_liquidated_at,
     }
 
 
