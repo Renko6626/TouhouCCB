@@ -55,3 +55,32 @@ async def test_set_value_updates_row():
     async with async_session_maker() as s:
         v = await get_decimal(s, "x_rate")
     assert v == Decimal("0.1")
+
+
+@pytest.mark.asyncio
+async def test_liquidation_site_config_defaults_loaded(client):
+    """liquidation_* 4 个 key 应在初始化后默认存在。"""
+    from app.services.loan_migrate import auto_migrate
+    # setup_db 已 drop_all + create_all，需重新 auto_migrate 才有默认值
+    await auto_migrate()
+
+    async with async_session_maker() as db:
+        enabled = await get_bool(db, "liquidation_enabled")
+        interval = await get_int(db, "liquidation_sweep_interval_sec")
+        hard = await get_decimal(db, "liquidation_hard_threshold")
+        soft = await get_decimal(db, "liquidation_soft_threshold")
+
+    assert enabled is False, "默认应关，灰度开启"
+    assert interval == 600
+    assert hard == Decimal("0.2")
+    assert soft == Decimal("0.5")
+
+
+@pytest.mark.asyncio
+async def test_liquidation_site_config_keys_in_allowed():
+    """site_config.ALLOWED_KEYS 必须含这 4 个 key 才能通过 admin API 改。"""
+    from app.api.v1.site_config import _WHITELIST
+    assert "liquidation_enabled" in _WHITELIST
+    assert "liquidation_sweep_interval_sec" in _WHITELIST
+    assert "liquidation_hard_threshold" in _WHITELIST
+    assert "liquidation_soft_threshold" in _WHITELIST
