@@ -13,7 +13,7 @@ class RiskConfig:
     daily_loss_cap_cny: Decimal
     daily_turnover_cap_cny: Decimal
     max_slippage_bps: int
-    min_seconds_between_orders: int
+    min_seconds_between_orders: float  # 支持亚秒粒度（如 0.5）应对散户挤兑
 
 
 class RiskGuard:
