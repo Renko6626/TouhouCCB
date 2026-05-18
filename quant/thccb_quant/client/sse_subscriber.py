@@ -79,7 +79,23 @@ class SseSubscriber:
     async def _handle_event(self, market_id: int, event: SseEvent) -> None:
         try:
             if event.type == "trade":
-                await self._store.log_trade(market_id=market_id, payload=event.data)
+                # log_trade 返回 False 表示这个 trade_id 已经在 DB 里，是重复事件
+                # （backend snapshot+event 双推 / SSE 重连后重发 / etc.）。
+                # 跳过 dispatch 防策略 EMA 等内部状态多更新一次。
+                is_new = await self._store.log_trade(
+                    market_id=market_id, payload=event.data,
+                )
+                if not is_new:
+                    trade_id = None
+                    try:
+                        trade_id = int(event.data["trade"]["id"])
+                    except (KeyError, TypeError, ValueError):
+                        pass
+                    self._log.info(
+                        "sse_trade_dedup_skipped",
+                        market_id=market_id, seq=event.seq, trade_id=trade_id,
+                    )
+                    return
                 await self._dispatch(market_id, event)
             elif event.type == "market_status":
                 self._log.info("sse_market_status",

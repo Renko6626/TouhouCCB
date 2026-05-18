@@ -20,7 +20,8 @@ async def test_log_trade_inserts_full_row(store: Store):
             "market_prices_post": [0.43, 0.57], "timestamp": "2026-05-17T07:00:00Z",
         }
     }
-    await store.log_trade(market_id=1, payload=payload)
+    is_new = await store.log_trade(market_id=1, payload=payload)
+    assert is_new is True
     rows = await store.recent_trades_observed(market_id=1, limit=10)
     assert len(rows) == 1
     assert rows[0]["trade_id"] == 1001
@@ -35,8 +36,10 @@ async def test_log_trade_dedup_by_trade_id(store: Store):
         "post_market_price": 0.5, "market_prices_post": [0.5, 0.5],
         "timestamp": "2026-05-17T07:00:00Z",
     }}
-    await store.log_trade(market_id=1, payload=payload)
-    await store.log_trade(market_id=1, payload=payload)  # INSERT OR IGNORE
+    first = await store.log_trade(market_id=1, payload=payload)
+    second = await store.log_trade(market_id=1, payload=payload)  # INSERT OR IGNORE
+    assert first is True, "第一次 insert 应返 True"
+    assert second is False, "第二次（duplicate）应返 False；调用方据此 skip dispatch"
     rows = await store.recent_trades_observed(market_id=1, limit=10)
     assert len(rows) == 1
 
