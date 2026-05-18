@@ -11,6 +11,7 @@ import MarketStatus from '@/components/market/MarketStatus.vue'
 import OutcomeCard from '@/components/market/OutcomeCard.vue'
 import PriceChart from '@/components/chart/PriceChart.vue'
 import CandleChart from '@/components/chart/CandleChart.vue'
+import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -338,6 +339,9 @@ const relTime = (iso: string): string => {
 
 <template>
   <div class="trading-view-page">
+    <!-- ── 保证金警告横幅（warning/danger 时可见） ── -->
+    <MarginCallBanner />
+
     <!-- 加载状态 -->
     <div v-if="loading" class="text-center py-12">
       <NSpin size="large" />
