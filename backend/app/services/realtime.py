@@ -3,10 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
+
+
+_logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MarketEvent:
@@ -19,9 +24,21 @@ class MarketEvent:
     # 真实事件的 seq（不增）。设为 0 表示"不参与 gap 检测"（用于向后兼容）。
     seq: int = 0
 
-import logging
 
-_logger = logging.getLogger(__name__)
+@dataclass(eq=False)
+class Subscriber:
+    """每个 SSE 连接对应一个 Subscriber。包含事件队列 + kicked 信号。
+
+    kicked = publish() 检测到这个 queue 满（慢消费者）后会被 set；
+    stream.py gen() 在 wait_for queue 或 kicked 任一就绪时即退出，
+    避免 generator 卡在死队列上空转（旧 bug：踢出 subs 后 generator 仍
+    await q.get() 等不到任何 trade event，只能靠 25s ping 假装活着）。
+
+    eq=False 让 dataclass 退回默认 __eq__ / __hash__ = identity-based，
+    这样实例可以放进 `_topics: set[Subscriber]`（每个实例是 unique key）。
+    """
+    q: asyncio.Queue
+    kicked: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class MarketEventBroker:
@@ -33,19 +50,19 @@ class MarketEventBroker:
     QUEUE_MAXSIZE = 2000
 
     def __init__(self) -> None:
-        self._topics: Dict[int, set[asyncio.Queue]] = {}
+        self._topics: Dict[int, set[Subscriber]] = {}
         # per-market 序号计数器；publish 时持锁递增并写入 event.seq
         self._seq: Dict[int, int] = {}
         self._lock = asyncio.Lock()
 
-    async def subscribe(self, market_id: int) -> asyncio.Queue:
+    async def subscribe(self, market_id: int) -> Subscriber:
         async with self._lock:
             subs = self._topics.setdefault(market_id, set())
             if len(subs) >= self.MAX_SUBSCRIBERS_PER_MARKET:
                 raise RuntimeError(f"市场 {market_id} 订阅者已满（上限 {self.MAX_SUBSCRIBERS_PER_MARKET}）")
-            q: asyncio.Queue = asyncio.Queue(maxsize=self.QUEUE_MAXSIZE)
-            subs.add(q)
-        return q
+            sub = Subscriber(q=asyncio.Queue(maxsize=self.QUEUE_MAXSIZE))
+            subs.add(sub)
+        return sub
 
     def current_seq(self, market_id: int) -> int:
         """当前 per-market 序号（无锁读取）。
@@ -67,12 +84,12 @@ class MarketEventBroker:
         """
         return len(self._topics.get(market_id, ()))
 
-    async def unsubscribe(self, market_id: int, q: asyncio.Queue) -> None:
+    async def unsubscribe(self, market_id: int, sub: Subscriber) -> None:
         async with self._lock:
             s = self._topics.get(market_id)
             if not s:
                 return
-            s.discard(q)
+            s.discard(sub)
             if not s:
                 self._topics.pop(market_id, None)
 
@@ -92,23 +109,67 @@ class MarketEventBroker:
             seq=seq,
         )
 
-        dead_queues = []
-        for q in subs:
+        dead_subs = []
+        for sub in subs:
             try:
-                q.put_nowait(evt)
+                sub.q.put_nowait(evt)
             except asyncio.QueueFull:
-                dead_queues.append(q)
+                dead_subs.append(sub)
                 _logger.warning(f"SSE queue full for market {market_id}, removing slow consumer")
 
-        # 清理慢消费者
-        if dead_queues:
+        # 清理慢消费者，并 set kicked 让 generator 立即退出
+        if dead_subs:
             async with self._lock:
                 s = self._topics.get(market_id)
                 if s:
-                    for q in dead_queues:
-                        s.discard(q)
+                    for sub in dead_subs:
+                        s.discard(sub)
+            # set kicked 在 lock 外，避免多余持锁；Event.set 本身线程/协程安全
+            for sub in dead_subs:
+                sub.kicked.set()
+
 
 BROKER = MarketEventBroker()
+
+
+class IpConcurrencyLimiter:
+    """Per-IP 并发 SSE 连接限制（防匿名 DDoS 把 MAX_SUBSCRIBERS_PER_MARKET 打满）。
+
+    粒度 = (market_id, ip)。同一 IP 对同一市场最多 MAX_PER_IP 并发。
+    nginx 走 X-Forwarded-For 时，调用方负责提取真实 client IP（取首段）。
+    """
+    MAX_PER_IP = 10
+
+    def __init__(self) -> None:
+        self._counts: Dict[Tuple[int, str], int] = {}
+        self._lock = asyncio.Lock()
+
+    async def try_acquire(self, market_id: int, ip: str) -> bool:
+        """返回 True 表示获取到额度；False 表示已达上限拒绝新连接。"""
+        async with self._lock:
+            key = (market_id, ip)
+            cur = self._counts.get(key, 0)
+            if cur >= self.MAX_PER_IP:
+                return False
+            self._counts[key] = cur + 1
+            return True
+
+    async def release(self, market_id: int, ip: str) -> None:
+        async with self._lock:
+            key = (market_id, ip)
+            cur = self._counts.get(key, 0)
+            if cur <= 1:
+                self._counts.pop(key, None)
+            else:
+                self._counts[key] = cur - 1
+
+    def count(self, market_id: int, ip: str) -> int:
+        """诊断用，无锁近似读。"""
+        return self._counts.get((market_id, ip), 0)
+
+
+IP_LIMITER = IpConcurrencyLimiter()
+
 
 def sse_pack(evt: MarketEvent) -> str:
     payload = {
