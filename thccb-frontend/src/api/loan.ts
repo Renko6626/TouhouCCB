@@ -48,16 +48,17 @@ export interface LiquidationEvent {
   user_id: number
   username: string
   triggered_at: string
-  pre_cash: string
-  pre_debt: string
-  pre_holdings_value: string
-  pre_net_worth: string
-  pre_margin_ratio: string
+  pre_cash: number
+  pre_debt: number
+  pre_holdings_value: number
+  pre_net_worth: number
+  /** null when debt was zero at snapshot time */
+  pre_margin_ratio: number | null
   sold_positions_count: number
-  total_proceeds: string
-  repaid_amount: string
-  remaining_debt: string
-  post_cash: string
+  total_proceeds: number
+  repaid_amount: number
+  remaining_debt: number
+  post_cash: number
   trigger_source: string
   fully_liquidated: boolean
 }

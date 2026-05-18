@@ -17,16 +17,13 @@ function relativeTime(iso: string): string {
   return `${d} 天前`
 }
 
-function fmtNum(val: string, decimals = 2): string {
-  const n = parseFloat(val)
-  if (isNaN(n)) return val
-  return n.toFixed(decimals)
+function fmtNum(val: number, decimals = 2): string {
+  return val.toFixed(decimals)
 }
 
-function fmtPct(val: string): string {
-  const n = parseFloat(val)
-  if (isNaN(n)) return val
-  return (n * 100).toFixed(1) + '%'
+function fmtPct(val: number | null): string {
+  if (val === null || val === undefined) return '—'
+  return (val * 100).toFixed(1) + '%'
 }
 
 async function load() {
