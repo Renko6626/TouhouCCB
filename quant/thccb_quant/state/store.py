@@ -178,15 +178,20 @@ class Store:
             return dict(row)
         return {"date": date, "gross_turnover": "0", "net_pnl": "0"}
 
-    async def log_trade(self, *, market_id: int, payload: dict) -> None:
+    async def log_trade(self, *, market_id: int, payload: dict) -> bool:
         """SSE trade event 入 trades 表。INSERT OR IGNORE 防重连重复。
 
         payload 形如 {"trade": {id, type, outcome_id, username, shares, price,
         gross, fee, post_market_price, market_prices_post, timestamp}}
+
+        返回 True = 新插入（trade_id 第一次见）；False = 已存在（重复，
+        例如 backend snapshot+event 双推、或 SSE 重连后 server 重新推一笔）。
+        调用方应该用这个返回值决定是否 dispatch 给策略，避免同笔交易让策略
+        EMA / 累计统计 等内部状态多更新一次。
         """
         import json as _json
         t = payload["trade"]
-        await self._conn.execute(
+        cur = await self._conn.execute(
             "INSERT OR IGNORE INTO trades "
             "(trade_id, ts, ingest_ts, market_id, outcome_id, side, shares, "
             " price, gross, fee, username, post_market_price, market_prices_post_json) "
@@ -208,6 +213,7 @@ class Store:
             ),
         )
         await self._conn.commit()
+        return cur.rowcount > 0
 
     async def bulk_insert_partial_trades(self, items: list[dict]) -> int:
         """批量 INSERT OR IGNORE recent-trades 响应，返回实际插入条数。

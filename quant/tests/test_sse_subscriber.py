@@ -153,6 +153,28 @@ async def test_dispatch_timeout_logs_warning(store, caplog):
     # （如果 wait_for 没把 TimeoutError 吃掉就会冒泡）
 
 
+async def test_duplicate_trade_event_skips_dispatch(store):
+    """同一 trade_id 来两次：第一次正常 dispatch，第二次 store 返回 False → 跳过 dispatch。
+
+    防 backend snapshot+event 双推 / SSE 重连重发让策略 EMA 多更新一次。
+    """
+    strat = _mk_strategy("s1", market_id=1)
+    ev = _trade_event(seq=1, market_id=1, trade_id=42)
+    ev2 = _trade_event(seq=2, market_id=1, trade_id=42)   # 同 trade_id
+    sub = await _make_sub(
+        store,
+        sse_events_per_market={1: [ev, ev2]},
+        strategies=[strat],
+        market_ids={1},
+    )
+    await asyncio.wait_for(sub.run(), timeout=2.0)
+    # 第一次入 DB + dispatch；第二次 INSERT OR IGNORE 跳过 → 不 dispatch
+    assert strat.on_sse_event.call_count == 1, \
+        f"重复 trade 应只 dispatch 一次, got {strat.on_sse_event.call_count}"
+    rows = await store.recent_trades_observed(market_id=1, limit=10)
+    assert len(rows) == 1
+
+
 async def test_last_event_handled_ts_updates(store):
     """每个 event 处理后 last_event_handled_ts 应该更新。"""
     import time as _time
