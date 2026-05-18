@@ -327,3 +327,26 @@ class MeanRevStrategy(Strategy):
             "cash": str(self._cash),
             **extras,
         }
+
+    def snapshot(self) -> dict:
+        """WebUI 读这个拿活体策略状态。"""
+        base = super().snapshot()
+        base.update({
+            "type": "meanrev",
+            "outcome_ids": list(self._outcome_ids),
+            "ema_alpha": self._ema_alpha,
+            "ema_logit": self._ema_logit,
+            "event_count": self._event_count,
+            "warmup_events": self._warmup_events,
+            "warmup_done": self._event_count >= self._warmup_events,
+            "threshold_logit": self._threshold_logit,
+            "size_scale_cap": self._size_scale_cap,
+            "trade_pct_of_cash": str(self._trade_pct),
+            "min_trade": str(self._min_trade),
+            "max_holding_per_side": str(self._max_holding_per_side),
+            "holding": {
+                str(oid): str(amt) for oid, amt in self._holding.items()
+            } if self._holding else {},
+            "cash": str(self._cash),
+        })
+        return base

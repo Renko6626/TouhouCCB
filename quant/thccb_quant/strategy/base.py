@@ -39,3 +39,13 @@ class Strategy(ABC):
 
     async def teardown(self) -> None:
         """优雅停机钩子，默认 no-op。"""
+
+    def snapshot(self) -> dict:
+        """供 WebUI 读策略活体状态。默认实现只返回基本身份信息，
+        各策略覆盖加自己的内部状态（EMA / 持仓 / 累计花费等）。"""
+        return {
+            "name": self.name,
+            "type": self.__class__.__name__,
+            "market_id": self.market_id,
+            "tick_interval_sec": self.tick_interval_sec,
+        }
