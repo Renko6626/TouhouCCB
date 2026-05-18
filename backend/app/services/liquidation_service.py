@@ -169,6 +169,35 @@ async def liquidate_user(
             user.debt = updated_user.debt
             user.debt_last_accrued_at = updated_user.debt_last_accrued_at
 
+    # 仅当实际卖出了仓位或还了债时才更新时间戳 / 写 event；
+    # 全部仓位 proceeds<0 而跳过的"卡水下"用户不算真正被强平，
+    # 避免 UI 显示"刚被强平"误导用户，也减少噪声 event 行。
+    if sold_count == 0 and repaid == ZERO:
+        _logger.info(
+            "liquidation_noop_skipped",
+            extra={
+                "user_id": user.id,
+                "trigger_source": trigger_source,
+                "reason": "sold_count=0 and repaid=0; last_liquidated_at and event not written",
+            },
+        )
+        # 构造一个 noop event 对象供调用方检查计数，但不写入 DB
+        return LiquidationEvent(
+            user_id=user.id,
+            triggered_at=datetime.now(timezone.utc),
+            pre_cash=pre_cash,
+            pre_debt=pre_debt,
+            pre_holdings_value=pre_hv,
+            pre_net_worth=pre_nw,
+            pre_margin_ratio=pre_margin,
+            sold_positions_count=0,
+            total_proceeds=ZERO,
+            repaid_amount=ZERO,
+            remaining_debt=user.debt,
+            post_cash=user.cash,
+            trigger_source=trigger_source,
+        )
+
     user.last_liquidated_at = datetime.now(timezone.utc)
 
     # 4. 写 rollup event
