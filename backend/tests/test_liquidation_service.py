@@ -126,7 +126,11 @@ async def test_liquidate_user_partial_repay_remaining_debt(client):
 
 @pytest.mark.asyncio
 async def test_liquidate_user_skips_settled_market(client):
-    """已结算 market 的 position 应跳过（让 resolve flow 处理）。"""
+    """已结算 market 的 position 应跳过（让 resolve flow 处理）。
+
+    当全部仓位都跳过（sold=0, repaid=0）时，不写 LiquidationEvent，
+    也不更新 last_liquidated_at（no-op guard）。
+    """
     async with async_session_maker() as db:
         u, m, outs = await _setup_user_with_positions(
             db, cash=0, debt=100,
@@ -142,6 +146,8 @@ async def test_liquidate_user_skips_settled_market(client):
             event = await liquidation_service.liquidate_user(
                 db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
             )
+        # 函数返回 noop event 对象但未 add 到 session
+        assert event.sold_positions_count == 0
 
     async with async_session_maker() as db:
         positions = (await db.execute(
@@ -149,7 +155,49 @@ async def test_liquidate_user_skips_settled_market(client):
         )).scalars().all()
         assert len(positions) == 1, "settled market 的 position 应保留"
 
+        # no-op guard：无 event 行写入
         events = (await db.execute(
             select(LiquidationEvent).where(LiquidationEvent.user_id == user_id)
         )).scalars().all()
-        assert events[0].sold_positions_count == 0
+        assert len(events) == 0, "全部跳过时不应写 LiquidationEvent"
+
+        # no-op guard：last_liquidated_at 不应被更新
+        u2 = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+        assert u2.last_liquidated_at is None, "全部跳过时不应更新 last_liquidated_at"
+
+
+@pytest.mark.asyncio
+async def test_liquidate_user_noop_no_timestamp_no_event(client):
+    """cash=0, debt>0, no positions → sold=0, repaid=0 → no-op guard。
+
+    last_liquidated_at 应仍为 None；不应有 LiquidationEvent 行。
+    """
+    async with async_session_maker() as db:
+        u = User(
+            username="noop_guard_user",
+            casdoor_id="noop_guard_cd",
+            cash=Decimal("0"),
+            debt=Decimal("100"),
+            debt_last_accrued_at=datetime.now(timezone.utc),
+        )
+        db.add(u)
+        await db.commit()
+        user_id = u.id
+
+    async with async_session_maker() as db:
+        async with db.begin():
+            user = await lock_user(db, user_id)
+            event = await liquidation_service.liquidate_user(
+                db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
+            )
+        assert event.sold_positions_count == 0
+        assert event.repaid_amount == Decimal("0")
+
+    async with async_session_maker() as db:
+        u2 = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+        assert u2.last_liquidated_at is None, "no-op: last_liquidated_at 不应被设置"
+
+        ev_rows = (await db.execute(
+            select(LiquidationEvent).where(LiquidationEvent.user_id == user_id)
+        )).scalars().all()
+        assert len(ev_rows) == 0, "no-op: 不应写入 LiquidationEvent"
