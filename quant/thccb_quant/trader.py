@@ -207,7 +207,7 @@ async def main_async(dry_run: bool) -> int:
             daily_loss_cap_cny=Decimal(str(config["risk"]["daily_loss_cap_cny"])),
             daily_turnover_cap_cny=Decimal(str(config["risk"]["daily_turnover_cap_cny"])),
             max_slippage_bps=int(config["risk"]["max_slippage_bps"]),
-            min_seconds_between_orders=int(config["risk"]["min_seconds_between_orders"]),
+            min_seconds_between_orders=float(config["risk"]["min_seconds_between_orders"]),
         ),
         STATE_DIR,
     )
