@@ -146,38 +146,86 @@ function strategyCard(s) {
   if (s.warmup_done === false) badges += pill('warmup '+s.event_count+'/'+s.warmup_events, 'warn');
   else if (s.warmup_done === true) badges += pill('active', 'ok');
 
-  // Signal visualization (meanrev specific)
+  // ─── Fair value + 触发价区间（meanrev 核心一眼判读）──────────────
+  let fairBlock = '';
+  if (s.ema_price != null) {
+    const dev = s.last_signal?.deviation;
+    const inDb = s.last_signal?.in_deadband;
+    const lastPx = s.last_signal?.price_a;
+    fairBlock = `
+      <div class="kv" style="font-size:13px;">
+        <span class="k">📍 fair value (EMA)</span>
+        <span class="v ok">${fmt(s.ema_price, 4)}</span>
+      </div>
+      <div class="kv">
+        <span class="k">trigger range</span>
+        <span class="v">${fmt(s.trigger_price_low, 4)} ← <span class="ok">deadband</span> → ${fmt(s.trigger_price_high, 4)}</span>
+      </div>
+      ${lastPx != null ? `<div class="kv">
+        <span class="k">last seen price</span>
+        <span class="v ${inDb ? 'ok' : 'warn'}">${fmt(lastPx, 4)}${inDb===false ? ' ⚡ over threshold' : ''}</span>
+      </div>` : ''}
+    `;
+  }
+
+  // ─── Signal viz bar ──────────────────────────────────────────────
   let signalViz = '';
-  if (s.threshold_logit != null && s.ema_logit != null) {
-    // Map -1..1 logit to 0..100% (approx)
+  if (s.threshold_logit != null && s.last_signal?.deviation != null) {
     const t = Math.max(0.001, s.threshold_logit);
-    const dev = (s._lastDeviation ?? 0);
+    const dev = s.last_signal.deviation;
     const ratio = Math.max(-3, Math.min(3, dev / t)) / 6 + 0.5;
+    const mult = s.last_signal.size_multiplier;
     signalViz = `
-      <div class="kv"><span class="k">ema_logit</span><span class="v">${fmt(s.ema_logit, 4)}</span></div>
-      <div class="kv"><span class="k">threshold</span><span class="v">±${s.threshold_logit}</span></div>
       <div class="signal-bar">
         <div class="band" style="left:${(0.5 - 0.5/3)*100}%;width:${(1/3)*100}%"></div>
         <div class="marker" style="left:${ratio*100}%"></div>
       </div>
-      <div class="small">deadband (deviation/threshold ∈ [-1,1])</div>
+      <div class="small">last signal: dev=${fmt(dev,4)} (${(dev/t).toFixed(2)}×thr)  mult=${fmt(mult,2)}  ${ageStr(s.last_signal.ts)} ago</div>
     `;
   }
 
+  // ─── 最近一次成交（解释上次为什么动）──────────────────────────────
+  let lastTradeBlock = '';
+  if (s.last_trade) {
+    const t = s.last_trade;
+    const sideCls = 'side-' + t.side;
+    lastTradeBlock = `
+      <div class="kv" style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;">
+        <span class="k">last trade</span>
+        <span class="v ${sideCls}">${t.side.toUpperCase()} outcome=${t.outcome_id} shares=${t.shares}</span>
+      </div>
+      <div class="small">@ price ${fmt(t.price_a, 4)}  dev=${fmt(t.deviation, 4)}  cost=${t.cost}  ${ageStr(t.ts)} ago</div>
+    `;
+  }
+
+  // ─── 持仓 ────────────────────────────────────────────────────────
   const holdings = s.holding ? Object.entries(s.holding).map(([oid, amt]) =>
-    `<div class="kv"><span class="k">outcome ${oid}</span><span class="v">${amt}</span></div>`
+    `<div class="kv"><span class="k">holding o=${oid}</span><span class="v">${amt}</span></div>`
   ).join('') : '';
 
   return `<div class="card">
     <div style="font-weight:600;margin-bottom:6px;">${s.name}</div>
     <div style="margin-bottom:6px;">${badges}</div>
+    ${fairBlock}
     ${signalViz}
     ${holdings}
     ${s.cash != null ? `<div class="kv"><span class="k">cash</span><span class="v">${s.cash}</span></div>` : ''}
-    ${s.trade_pct_of_cash != null ? `<div class="kv"><span class="k">trade_pct</span><span class="v">${s.trade_pct_of_cash}</span></div>` : ''}
-    ${s.size_scale_cap != null ? `<div class="kv"><span class="k">size_cap</span><span class="v">×${s.size_scale_cap}</span></div>` : ''}
-    ${s.max_holding_per_side != null ? `<div class="kv"><span class="k">max_holding</span><span class="v">${s.max_holding_per_side}</span></div>` : ''}
+    <div class="small" style="margin-top:4px;">
+      ${s.trade_pct_of_cash != null ? `pct=${s.trade_pct_of_cash} ` : ''}
+      ${s.size_scale_cap != null ? `cap=×${s.size_scale_cap} ` : ''}
+      ${s.max_holding_per_side != null ? `max_h=${s.max_holding_per_side}` : ''}
+    </div>
+    ${lastTradeBlock}
   </div>`;
+}
+
+// 把 wall-time epoch 秒转成 "Xs / Xm / Xh ago" 形式
+function ageStr(epochSec) {
+  if (epochSec == null) return '?';
+  const sec = Date.now() / 1000 - epochSec;
+  if (sec < 60) return Math.round(sec) + 's';
+  if (sec < 3600) return Math.floor(sec/60) + 'm' + Math.round(sec%60) + 's';
+  return Math.floor(sec/3600) + 'h' + Math.floor((sec%3600)/60) + 'm';
 }
 
 async function refresh() {
