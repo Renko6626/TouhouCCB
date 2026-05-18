@@ -24,6 +24,11 @@ def to_logit(p: float) -> float:
     return math.log(p / (1.0 - p))
 
 
+def _sigmoid(x: float) -> float:
+    """logit → price。to_logit 的逆。"""
+    return 1.0 / (1.0 + math.exp(-x))
+
+
 @register("meanrev")
 class MeanRevStrategy(Strategy):
     tick_interval_sec = 300  # SSE 驱动；tick 仅作守护 no-op
@@ -60,6 +65,10 @@ class MeanRevStrategy(Strategy):
         self._cash: Decimal = Decimal("0")
         self._outcome_ids: tuple[int, int] = (0, 0)  # (id_A, id_B) by sorted asc
         self._ctx: Optional[StrategyContext] = None
+        # WebUI 用：记录最近一次 signal / 成交，方便外部解释"为什么动 / 为什么不动"
+        # 用 wall-time（time.time）方便和 wall ts 比 age；策略内部决策不依赖它。
+        self._last_signal: Optional[dict] = None
+        self._last_trade: Optional[dict] = None
 
     # ─── lifecycle ────────────────────────────────────────────
 
@@ -208,6 +217,16 @@ class MeanRevStrategy(Strategy):
             abs(deviation) / self._threshold_logit if self._threshold_logit > 0 else 0.0,
             self._size_scale_cap,
         )
+        in_deadband = abs(deviation) < self._threshold_logit
+        # WebUI 用：记录这次 signal 的快照，让外部能看到"最近一次策略视角"
+        import time as _time
+        self._last_signal = {
+            "ts": _time.time(),
+            "price_a": price_a,
+            "deviation": deviation,
+            "size_multiplier": size_multiplier,
+            "in_deadband": in_deadband,
+        }
         # 信号诊断行：每个 post-warmup event 都吐一条，无论是否动作，
         # 让 dry-run / 复盘能 jq 'select(.event=="meanrev_signal")' 看清策略视角
         self._ctx.logger.info(
@@ -217,13 +236,13 @@ class MeanRevStrategy(Strategy):
             ema_logit=self._ema_logit,
             deviation=deviation,
             threshold=self._threshold_logit,
-            in_deadband=abs(deviation) < self._threshold_logit,
+            in_deadband=in_deadband,
             size_multiplier=size_multiplier,
             holding_a=str(self._holding[self._outcome_ids[0]]),
             holding_b=str(self._holding[self._outcome_ids[1]]),
             cash=str(self._cash),
         )
-        if abs(deviation) < self._threshold_logit:
+        if in_deadband:
             return  # deadband
 
         id_a, id_b = self._outcome_ids
@@ -313,6 +332,16 @@ class MeanRevStrategy(Strategy):
         # new_cash=0（dryrun 不模拟现金），用 cost 增量在 live + dry-run 都正确：
         # BUY: resp.cost > 0 （付出），cash 减；SELL: resp.cost < 0（收回），cash 加。
         self._cash -= resp.cost
+        import time as _time
+        self._last_trade = {
+            "ts": _time.time(),
+            "side": "buy",
+            "outcome_id": outcome_id,
+            "shares": str(resp.shares),
+            "cost": str(resp.cost),
+            "price_a": price_a,
+            "deviation": deviation,
+        }
         self._ctx.logger.info(
             "meanrev_trade", side="buy", outcome_id=outcome_id,
             shares=str(resp.shares), cost=str(resp.cost),
@@ -349,6 +378,16 @@ class MeanRevStrategy(Strategy):
         self._holding[outcome_id] -= resp.shares
         # 见 _do_buy 同处注释：cash -= cost 在 BUY/SELL 都正确
         self._cash -= resp.cost
+        import time as _time
+        self._last_trade = {
+            "ts": _time.time(),
+            "side": "sell",
+            "outcome_id": outcome_id,
+            "shares": str(resp.shares),
+            "cost": str(resp.cost),
+            "price_a": price_a,
+            "deviation": deviation,
+        }
         self._ctx.logger.info(
             "meanrev_trade", side="sell", outcome_id=outcome_id,
             shares=str(resp.shares), cost=str(resp.cost),
@@ -392,11 +431,22 @@ class MeanRevStrategy(Strategy):
     def snapshot(self) -> dict:
         """WebUI 读这个拿活体策略状态。"""
         base = super().snapshot()
+        # logit → 价格空间换算（WebUI 显示用，避免人脑算 sigmoid）
+        ema_price = None
+        trigger_price_low = None
+        trigger_price_high = None
+        if self._ema_logit is not None:
+            ema_price = _sigmoid(self._ema_logit)
+            trigger_price_low = _sigmoid(self._ema_logit - self._threshold_logit)
+            trigger_price_high = _sigmoid(self._ema_logit + self._threshold_logit)
         base.update({
             "type": "meanrev",
             "outcome_ids": list(self._outcome_ids),
             "ema_alpha": self._ema_alpha,
             "ema_logit": self._ema_logit,
+            "ema_price": ema_price,                   # ← 心目中的"公允价"
+            "trigger_price_low": trigger_price_low,   # ← 低于此价触发买/做多
+            "trigger_price_high": trigger_price_high, # ← 高于此价触发卖/做空
             "event_count": self._event_count,
             "warmup_events": self._warmup_events,
             "warmup_done": self._event_count >= self._warmup_events,
@@ -409,5 +459,7 @@ class MeanRevStrategy(Strategy):
                 str(oid): str(amt) for oid, amt in self._holding.items()
             } if self._holding else {},
             "cash": str(self._cash),
+            "last_signal": self._last_signal,   # 最近一次信号视角（解释当前为什么不动）
+            "last_trade": self._last_trade,     # 最近一次成交（解释上次为什么动）
         })
         return base
