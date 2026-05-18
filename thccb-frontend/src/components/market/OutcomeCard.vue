@@ -44,7 +44,7 @@ const heatLabel = computed(() => {
 
       <div class="outcome-row">
         <span class="outcome-label">总份额:</span>
-        <span class="outcome-value">{{ props.outcome.total_shares.toLocaleString() }}</span>
+        <span class="outcome-value">{{ Math.round(props.outcome.total_shares).toLocaleString() }}</span>
       </div>
 
       <div v-if="props.outcome.payout != null" class="outcome-row">
@@ -60,7 +60,7 @@ const heatLabel = computed(() => {
 
     <template #footer>
       <div class="outcome-footer">
-        <span class="outcome-label">{{ props.outcome.total_shares.toLocaleString() }} 份</span>
+        <span class="outcome-label">{{ Math.round(props.outcome.total_shares).toLocaleString() }} 份</span>
         <span class="heat-tag">{{ heatLabel }}</span>
       </div>
     </template>
