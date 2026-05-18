@@ -32,25 +32,82 @@ async def setup_db():
 
 @pytest.mark.asyncio
 async def test_subscribe_returns_subscriber_with_event():
-    """subscribe 返回 Subscriber，含 queue + kicked Event。"""
+    """subscribe 返回 (Subscriber, anchor) tuple；Subscriber 含 queue + kicked Event。"""
     b = MarketEventBroker()
-    sub = await b.subscribe(1)
+    sub, anchor = await b.subscribe(1)
     try:
         assert isinstance(sub, Subscriber)
         assert isinstance(sub.q, asyncio.Queue)
         assert isinstance(sub.kicked, asyncio.Event)
         assert not sub.kicked.is_set()
         assert b.subscriber_count(1) == 1
+        assert anchor == 0  # fresh market, 没人 publish 过
     finally:
         await b.unsubscribe(1, sub)
         assert b.subscriber_count(1) == 0
 
 
 @pytest.mark.asyncio
+async def test_subscribe_anchor_reflects_current_seq():
+    """先 publish 几笔再 subscribe → anchor = 最新 seq。"""
+    b = MarketEventBroker()
+    # 没订阅者时 publish 三笔 → seq 递增到 3 但没 q 接收
+    await b.publish(1, "trade", {})
+    await b.publish(1, "trade", {})
+    await b.publish(1, "trade", {})
+    sub, anchor = await b.subscribe(1)
+    try:
+        assert anchor == 3, f"anchor 应该是当前 seq=3, got {anchor}"
+        # 现在 publish 第 4 笔，应该是新订阅者收到的第一个 event 且 seq=4
+        await b.publish(1, "trade", {"i": 4})
+        evt = await asyncio.wait_for(sub.q.get(), timeout=1.0)
+        assert evt.seq == 4, "新 event seq 必须 > anchor"
+        assert evt.seq > anchor
+    finally:
+        await b.unsubscribe(1, sub)
+
+
+@pytest.mark.asyncio
+async def test_subscribe_anchor_atomicity_under_concurrent_publish():
+    """关键不变量：subscribe 返回 anchor 后，q 内事件 seq 严格 > anchor。
+
+    模拟 high-frequency publish 期间订阅：先并发跑一堆 publish + 一个 subscribe，
+    然后断言 anchor < min(q 内所有 event 的 seq)。
+    """
+    b = MarketEventBroker()
+
+    async def publisher():
+        for _ in range(200):
+            await b.publish(1, "trade", {})
+            await asyncio.sleep(0)  # let other coroutines run
+
+    # 同时跑发布者 + 订阅者
+    pub_task = asyncio.create_task(publisher())
+    await asyncio.sleep(0.001)  # 让 publisher 跑几笔
+    sub, anchor = await b.subscribe(1)
+
+    # 等 publisher 完成
+    await pub_task
+
+    # 取 q 内所有 event 的 seq
+    seqs_seen = []
+    while not sub.q.empty():
+        evt = sub.q.get_nowait()
+        seqs_seen.append(evt.seq)
+
+    # 关键断言：所有进 q 的 event seq 都 > anchor
+    assert all(s > anchor for s in seqs_seen), \
+        f"违反原子性！anchor={anchor}, q 内最小 seq={min(seqs_seen)}, " \
+        f"应该全部 > anchor"
+
+    await b.unsubscribe(1, sub)
+
+
+@pytest.mark.asyncio
 async def test_publish_to_subscriber_queue():
     """publish 应该把 event 推到 subscriber 的 q。"""
     b = MarketEventBroker()
-    sub = await b.subscribe(1)
+    sub, _ = await b.subscribe(1)
     try:
         await b.publish(1, "trade", {"x": 1})
         evt = await asyncio.wait_for(sub.q.get(), timeout=1.0)
@@ -65,7 +122,7 @@ async def test_publish_to_subscriber_queue():
 @pytest.mark.asyncio
 async def test_publish_increments_seq_but_ping_does_not():
     b = MarketEventBroker()
-    sub = await b.subscribe(1)
+    sub, _ = await b.subscribe(1)
     try:
         await b.publish(1, "trade", {})
         await b.publish(1, "trade", {})
@@ -84,8 +141,8 @@ async def test_publish_increments_seq_but_ping_does_not():
 async def test_subscribe_respects_max_cap(monkeypatch):
     b = MarketEventBroker()
     monkeypatch.setattr(b, "MAX_SUBSCRIBERS_PER_MARKET", 2)
-    s1 = await b.subscribe(1)
-    s2 = await b.subscribe(1)
+    s1, _ = await b.subscribe(1)
+    s2, _ = await b.subscribe(1)
     try:
         with pytest.raises(RuntimeError, match="订阅者已满"):
             await b.subscribe(1)
