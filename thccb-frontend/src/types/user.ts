@@ -43,7 +43,7 @@ export interface Transaction {
   market_id?: number | null
   market_title?: string | null
   outcome_label?: string | null
-  type: 'buy' | 'sell' | 'settle' | 'settle_lose'
+  type: 'buy' | 'sell' | 'settle' | 'settle_lose' | 'liquidate'
   shares: number
   price: number
   gross: number
