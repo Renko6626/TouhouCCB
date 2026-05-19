@@ -127,25 +127,38 @@ def _empty_result(enabled: bool, duration_ms: int = 0) -> dict:
     }
 
 
-async def _recent_signal_exists(
-    db: "AsyncSession", user_id: int, signal: str, now: datetime,
-) -> bool:
-    """6h 内是否已有 pending BotSuspicion 含此 signal。"""
+async def _recent_pending_signals(
+    db: "AsyncSession", user_id: int, now: datetime,
+) -> set[str]:
+    """拉 6h 内 user 的所有 pending BotSuspicion，python 端 split csv 返回 set。
+
+    用 set 精确比对替代之前 `signals.contains(signal)` 的 SQL LIKE 子串匹配。
+    LIKE 在 4 个信号名 (high_freq/late_night/regular_interval/fast_follow) 互不
+    为子串时无 bug，但**前瞻**：未来加新信号若命名为 'freq' / 'high_freq_v2'
+    会造成 dedup 误判。改成精确 csv split 后绝对安全。
+
+    单次 query 替代 N 次（一个 user 一次拉全部，多信号 dedup 复用）。
+    """
     # 延迟导入避免 module-import-time 循环
     from app.models.base import BotSuspicion
 
     threshold = now - timedelta(seconds=_DEDUP_WINDOW_SEC)
     stmt = (
-        select(BotSuspicion.id)
+        select(BotSuspicion.signals)
         .where(
             BotSuspicion.user_id == user_id,
             BotSuspicion.review_status == "pending",
             BotSuspicion.triggered_at > threshold,
-            BotSuspicion.signals.contains(signal),
         )
-        .limit(1)
     )
-    return (await db.execute(stmt)).scalar() is not None
+    rows = (await db.execute(stmt)).scalars().all()
+    pending: set[str] = set()
+    for csv_signals in rows:
+        for sig in csv_signals.split(","):
+            sig = sig.strip()
+            if sig:
+                pending.add(sig)
+    return pending
 
 
 async def run_bot_detection_once() -> dict:
@@ -271,11 +284,9 @@ async def run_bot_detection_once() -> dict:
             if not triggered_signals:
                 continue
 
-            # 6h dedup
-            new_signals = []
-            for sig in triggered_signals:
-                if not await _recent_signal_exists(db, uid, sig, now):
-                    new_signals.append(sig)
+            # 6h dedup（一次拉，多信号复用）
+            pending_set = await _recent_pending_signals(db, uid, now)
+            new_signals = [s for s in triggered_signals if s not in pending_set]
             if not new_signals:
                 continue
 
