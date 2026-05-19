@@ -103,6 +103,7 @@ function relativeTime(ms: number): string {
       </div>
       <div class="buffer-hint">
         净值再跌 <span class="num">{{ bufferPct.toFixed(1) }}%</span> 触发强制平仓
+        <span class="caliber-hint">（按清算口径，比顶部账面更保守）</span>
       </div>
     </div>
 
@@ -289,6 +290,12 @@ function relativeTime(ms: number): string {
   color: #666666;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.caliber-hint {
+  font-size: 10px;
+  font-weight: 500;
+  color: #999999;
 }
 
 .just-liquidated-chip {

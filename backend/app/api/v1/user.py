@@ -14,7 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
-from app.models.base import User, Position, Transaction, Outcome, Market
+from app.models.base import User, Position, Transaction, Outcome, Market, MarketStatus
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
@@ -157,10 +157,18 @@ async def get_my_holdings(
 
         avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
-        # 双口径浮盈：MTM 主（账面）+ LCV 副（立即变现），跟 /user/summary 同款双口径策略
+        # 双口径浮盈，跟 /user/summary 镜像：
+        #   MTM 主显示 不过滤 HALT（账面估值按瞬时价正常算，避免临时 HALT 让账面归零）
+        #   LCV 副字段 在 HALT 时 = -cost_basis（不可变现 → "立即变现"价值为 0
+        #     → 立即变现浮盈 = 0 - cost_basis）。同时 market_value 也置 0
+        #     表达"现在卖不出去"
         mtm_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
         unrealized_pnl_mtm = mtm_value - pos.cost_basis
-        unrealized_pnl_lcv = market_value - pos.cost_basis
+        if market.status != MarketStatus.TRADING:
+            market_value = ZERO
+            unrealized_pnl_lcv = -pos.cost_basis
+        else:
+            unrealized_pnl_lcv = market_value - pos.cost_basis
 
         results.append(
             HoldingRead(

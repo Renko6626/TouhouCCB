@@ -100,12 +100,10 @@ async def test_mtm_matches_expected_formula():
 
 
 @pytest.mark.asyncio
-async def test_mtm_skips_halt_markets():
-    """HALT/RESOLVED 市场的持仓不算估值（fake collateral 风险防护）。
+async def test_mtm_includes_halt_markets():
+    """MTM 不过滤 HALT：账面估值按瞬时价算，避免临时 HALT 让用户账面归零。
 
-    用户只有 HALT 持仓 → 估值结果应为 0（不能拿这些算抵押）。
-    实现可能返回 {uid: 0} 或干脆漏掉 uid，调用方都按 .get(uid, ZERO)
-    取值，两种返回行为等价。
+    LCV 那边过滤 HALT 是为了 margin/借款的保守语义，两套口径职责不同。
     """
     uid = await _seed_user()
     await _seed_market_position(
@@ -116,14 +114,15 @@ async def test_mtm_skips_halt_markets():
     async with async_session_maker() as s:
         result = await compute_users_holdings_value_mtm(s, user_ids=[uid])
 
-    assert result.get(uid, Decimal("0")) == Decimal("0"), (
-        f"HALT 市场持仓不应贡献估值，但拿到 {result.get(uid)}"
+    # MTM 应该算 HALT 持仓的瞬时价 × 数量 ≈ 176
+    assert result.get(uid, Decimal("0")) > Decimal("100"), (
+        f"HALT 持仓应正常计入 MTM（账面价值），拿到 {result.get(uid)}"
     )
 
 
 @pytest.mark.asyncio
 async def test_lcv_skips_halt_markets():
-    """同款过滤要在 LCV 函数也生效（统一行为）。"""
+    """LCV 过滤 HALT：不可变现 → 立即清算价值为 0。防 fake collateral。"""
     uid = await _seed_user()
     await _seed_market_position(
         user_id=uid, amount=Decimal("200"),

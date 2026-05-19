@@ -5,16 +5,19 @@
 - **LCV** (Liquidation Value, "立即清算价值")：`compute_users_holdings_value`
   按 LMSR cost diff 算「全部卖出能拿到多少」，含滑点 + 扣卖出 fee。**保守**。
   用于：强平判定、margin 计算、借款额度上限、内部分析（/admin/wealth）。
-  保守倾向，避免用户用大仓位的"虚高估值"过度杠杆然后突然爆仓。
+  **HALT/RESOLVED 持仓不计入**（不可变现 → 立即清算价值为 0），防止 fake collateral。
 
 - **MTM** (Mark-to-Market, "账面瞬时估值")：`compute_users_holdings_value_mtm`
   按瞬时价 × 数量算（LMSR 边际价 × position.amount），**不含滑点不扣 fee**。
   直观，符合用户对"我有多少钱"的认知。
   用于：/user/summary 主显示、排行榜排序、UI 显示净值。
+  **HALT/RESOLVED 持仓正常计入**（按瞬时价算账面估值，不关心能否立即变现）。
+  避免临时 HALT 让用户账面归零体感像突然爆仓。
 
-两者对大持仓用户差距可达 20%+（LMSR `b=100` 量级时单笔滑点 10% 量级）。
-**必须分场景使用**，不能交叉，否则会出现"借款看到 NW=500、Portfolio 看到 350"的
-分裂体感。详见 docs/holdings-value-semantics.md。
+两套对 HALT 的不同处理是有意为之的：MTM 是"账面"，LCV 是"流动性"。两者对大持仓
+用户差距可达 20%+（LMSR `b=100` 量级时单笔滑点 10% 量级）。**必须分场景使用**，
+不能交叉，否则会出现"借款看到 NW=500、Portfolio 看到 350"的分裂体感。
+详见 docs/holdings-value-semantics.md。
 
 不进 buy/sell hot path；调用方一般是榜单/统计/估值接口。
 """
@@ -188,10 +191,10 @@ async def compute_users_holdings_value_mtm(
         total = ZERO
         for pos in user_positions:
             market: Market = pos.outcome.market
-            # 只算可交易市场的持仓（同 LCV 函数）：HALT/RESOLVED 市场无法立即变现，
-            # 不应计入估值。详见 LCV 函数处的同款注释。
-            if market.status != MarketStatus.TRADING:
-                continue
+            # MTM 不过滤 HALT/RESOLVED：账面估值的语义是"按当前 LMSR 瞬时价
+            # 计算"，不关心能否立即变现。否则用户全押 HALT 时账面归零，体感像
+            # 突然爆仓。LCV 那边过滤 HALT 是为了 margin/借款额度的保守语义，
+            # 两套口径职责不同。详见 docs/holdings-value-semantics.md。
             ctx_outcomes = outcomes_by_market.get(market.id, [])
             if not ctx_outcomes:
                 continue
