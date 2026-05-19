@@ -11,7 +11,8 @@
 """
 from __future__ import annotations
 import statistics
-from datetime import timezone
+from datetime import timedelta, timezone
+from decimal import Decimal
 from typing import Iterable
 
 # UTC+8 凌晨 03-06 = UTC 19-22 (前一天)
@@ -50,3 +51,48 @@ def compute_regular_interval_signal(
         return False
     sd = statistics.stdev(intervals_ms)
     return sd < stddev_ms_threshold
+
+
+def compute_fast_follow_signal(
+    all_transactions: list,
+    *,
+    target_user_id: int,
+    trigger_cost_threshold: Decimal,
+    latency_ms: int,
+    count_threshold: int,
+) -> bool:
+    """fast_follow 信号: target user 在别人大单后 latency 内同 market 跟进 ≥ count 次。
+
+    - trigger: any user (除 target user 自己) 的交易 abs(cost) ≥ trigger_cost_threshold
+    - 跟进: target user 在 trigger 之后 latency_ms 内、同 market_id 的交易
+    - 阈值: 跟进次数 ≥ count_threshold
+
+    LMSR 卖出 cost 为负，所以用 abs(cost)。
+
+    详见 spec § L4 信号算法。
+    """
+    # 提取 triggers（排除自己的）
+    triggers = [
+        tx for tx in all_transactions
+        if abs(float(tx.cost)) >= float(trigger_cost_threshold)
+        and tx.user_id != target_user_id
+    ]
+    if not triggers:
+        return False
+
+    # target user 在各 market 上的交易
+    target_txns = [tx for tx in all_transactions if tx.user_id == target_user_id]
+
+    follow_count = 0
+    for trigger in triggers:
+        deadline = trigger.timestamp + timedelta(milliseconds=latency_ms)
+        # 找 target user 在 trigger 之后 latency 内同 market 的最近一笔
+        for tt in target_txns:
+            if (
+                tt.market_id == trigger.market_id
+                and trigger.timestamp < tt.timestamp <= deadline
+            ):
+                follow_count += 1
+                break  # 一个 trigger 只算一次跟进
+
+    return follow_count >= count_threshold

@@ -103,3 +103,88 @@ def test_regular_interval_skipped_below_3_txns():
     """少于 3 笔 → 算法跳过，返 False。"""
     txns = [_txn(0), _txn(1)]
     assert compute_regular_interval_signal(txns, stddev_ms_threshold=100) is False
+
+
+from decimal import Decimal
+from app.services.bot_detection import compute_fast_follow_signal
+
+
+def _txn_with_market(ts_offset_sec: float, *, market_id: int, user_id: int, cost: float = 10.0):
+    """带 market_id / user_id 的交易对象，供 fast_follow 测试用。"""
+    base = datetime.now(timezone.utc) - timedelta(hours=1)
+    class T: pass
+    t = T()
+    t.timestamp = base + timedelta(seconds=ts_offset_sec)
+    t.cost = cost
+    t.market_id = market_id
+    t.user_id = user_id
+    return t
+
+
+def test_fast_follow_triggers_when_user_follows_big_trades():
+    """trigger user 在 t=0/100/200 发 600 块大单；target user 每次后 500ms 内同 market 跟进 → 3 次跟进，阈值 3 → 触发。"""
+    trigger_user_txns = [
+        _txn_with_market(0, market_id=1, user_id=99, cost=600),
+        _txn_with_market(100, market_id=1, user_id=99, cost=600),
+        _txn_with_market(200, market_id=1, user_id=99, cost=600),
+    ]
+    target_user_txns = [
+        _txn_with_market(0.5, market_id=1, user_id=1, cost=10),
+        _txn_with_market(100.4, market_id=1, user_id=1, cost=10),
+        _txn_with_market(200.3, market_id=1, user_id=1, cost=10),
+    ]
+    all_txns = trigger_user_txns + target_user_txns
+    assert compute_fast_follow_signal(
+        all_txns, target_user_id=1,
+        trigger_cost_threshold=Decimal("500"),
+        latency_ms=1000, count_threshold=3,
+    ) is True
+
+
+def test_fast_follow_self_followups_dont_count():
+    """user 自己的大单不算 trigger（自跟进不算）。"""
+    txns = [
+        _txn_with_market(0, market_id=1, user_id=1, cost=600),     # self trigger, 不计
+        _txn_with_market(0.5, market_id=1, user_id=1, cost=10),    # self followup
+        _txn_with_market(100, market_id=1, user_id=1, cost=600),
+        _txn_with_market(100.4, market_id=1, user_id=1, cost=10),
+        _txn_with_market(200, market_id=1, user_id=1, cost=600),
+        _txn_with_market(200.3, market_id=1, user_id=1, cost=10),
+    ]
+    assert compute_fast_follow_signal(
+        txns, target_user_id=1,
+        trigger_cost_threshold=Decimal("500"),
+        latency_ms=1000, count_threshold=3,
+    ) is False
+
+
+def test_fast_follow_cross_market_doesnt_count():
+    """trigger 在 market_id=1，target user 跟进在 market_id=2 → 不算。"""
+    txns = [
+        _txn_with_market(0, market_id=1, user_id=99, cost=600),
+        _txn_with_market(0.5, market_id=2, user_id=1, cost=10),   # 跨市场跟进，不算
+        _txn_with_market(100, market_id=1, user_id=99, cost=600),
+        _txn_with_market(100.4, market_id=2, user_id=1, cost=10),
+        _txn_with_market(200, market_id=1, user_id=99, cost=600),
+        _txn_with_market(200.3, market_id=2, user_id=1, cost=10),
+    ]
+    assert compute_fast_follow_signal(
+        txns, target_user_id=1,
+        trigger_cost_threshold=Decimal("500"),
+        latency_ms=1000, count_threshold=3,
+    ) is False
+
+
+def test_fast_follow_below_count_threshold():
+    """只 2 次跟进，阈值 3 → 不触发。"""
+    txns = [
+        _txn_with_market(0, market_id=1, user_id=99, cost=600),
+        _txn_with_market(0.5, market_id=1, user_id=1, cost=10),
+        _txn_with_market(100, market_id=1, user_id=99, cost=600),
+        _txn_with_market(100.4, market_id=1, user_id=1, cost=10),
+    ]
+    assert compute_fast_follow_signal(
+        txns, target_user_id=1,
+        trigger_cost_threshold=Decimal("500"),
+        latency_ms=1000, count_threshold=3,
+    ) is False
