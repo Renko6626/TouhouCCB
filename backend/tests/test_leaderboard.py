@@ -72,25 +72,30 @@ async def _seed_market_with_position(
         return m.id
 
 
-def _expected_liquidation(shares: float, b: float) -> float:
-    """卖空 outcome[0] 全部 shares 的 LMSR gross（b=100, n_outcomes=2, 另一支=0）。"""
-    cost_before = b * math.log(math.exp(shares / b) + 1.0)
-    cost_after = b * math.log(2.0)
-    return cost_before - cost_after
+def _expected_mtm(shares: float, b: float) -> float:
+    """outcome[0] 持有 shares、outcome[1]=0、b=100 时的 MTM = shares × marginal_price。
+
+    leaderboard 现在用 MTM 排序口径（瞬时价 × 数量，不含滑点）。
+    详见 docs/holdings-value-semantics.md。
+    """
+    exp0 = math.exp(shares / b)
+    exp1 = 1.0
+    price_0 = exp0 / (exp0 + exp1)
+    return shares * price_0
 
 
 @pytest.mark.asyncio
 async def test_leaderboard_includes_holdings_value(client):
     """核心断言：持仓重的玩家应排在现金更多但无持仓的玩家前面。"""
-    # whale: cash=10, 持有 200 share（LMSR 清算价 ~143） → net_worth ~153
+    # whale: cash=10, 持有 200 share，MTM 估值约 200 × 0.88 ≈ 176 → NW ≈ 186
     whale_id, whale_name = await _seed_user(cash=Decimal("10"))
     await _seed_market_with_position(user_id=whale_id, user_shares=Decimal("200"))
 
     # cash_only: cash=100, 无持仓 → net_worth = 100
     _, cash_only_name = await _seed_user(cash=Decimal("100"))
 
-    # 校验我们对 LMSR 估值的预期落在 whale 应该胜出的区间
-    expected_whale_holdings = _expected_liquidation(200.0, 100.0)
+    # 校验 setup 落在 whale 应该胜出的区间
+    expected_whale_holdings = _expected_mtm(200.0, 100.0)
     assert expected_whale_holdings > 90, f"setup 失误：whale 持仓估值 {expected_whale_holdings} 不足以超过 cash_only"
 
     resp = await client.get("/api/v1/market/leaderboard", params={"mode": "net_worth", "limit": 100})
@@ -105,7 +110,7 @@ async def test_leaderboard_includes_holdings_value(client):
         f"whale 应排在 cash_only 之前；当前 names={names}"
     )
 
-    # whale 的 net_worth 应 ≈ 10 + ~143
+    # whale 的 net_worth 应 ≈ 10 + MTM(176) ≈ 186
     whale_nw = float(rows[whale_pos]["net_worth"])
     assert whale_nw > 100, f"whale net_worth={whale_nw}，未含持仓估值"
     # 允许 0.5 单位误差（量化到 0.01，且 LMSR float 计算）

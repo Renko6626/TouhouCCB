@@ -14,14 +14,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
-from app.models.base import User, Position, Transaction, Outcome, Market
+from app.models.base import User, Position, Transaction, Outcome, Market, MarketStatus
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm, user_has_halt_holdings
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
@@ -53,41 +53,62 @@ async def get_user_summary(
     for pos in positions:
         total_cost_basis += pos.cost_basis
 
-    # 持仓清算价值：LMSR 卖出 gross × (1 - SELL_FEE_RATE)，与 sweep/leaderboard 同口径
-    holdings_value = (
+    # 双口径估值：MTM (主显示) + LCV (强平/借款保守口径)
+    # 详见 docs/holdings-value-semantics.md
+    holdings_mtm = (
+        await compute_users_holdings_value_mtm(db, user_ids=[user.id])
+    ).get(user.id, ZERO)
+    holdings_lcv = (
         await compute_users_holdings_value(db, user_ids=[user.id])
     ).get(user.id, ZERO)
 
-    net_worth = user.cash - user.debt + holdings_value
-    unrealized_pnl = holdings_value - total_cost_basis
+    # net_worth (主显示/排名)用 MTM；net_worth_liquidation 用 LCV (margin 用)
+    net_worth = user.cash - user.debt + holdings_mtm
+    net_worth_lcv = user.cash - user.debt + holdings_lcv
+    unrealized_pnl = holdings_mtm - total_cost_basis        # MTM 主显示
+    unrealized_pnl_lcv = holdings_lcv - total_cost_basis    # LCV 保守口径
     rank = rank_title(net_worth)
 
-    # Margin classification
+    # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
+    # site_config 缺失时 fallback 默认值，跟 sweep / liquidate 用同一套约定
+    try:
+        hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
+        soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
+    except Exception:
+        hard, soft = Decimal("0.2"), Decimal("0.5")
+
+    # Margin classification — 用保守 LCV 口径，避免大仓位用户被 MTM 估值误导成"安全"
     margin_ratio = None
     margin_status = "healthy"
     if user.debt > ZERO:
-        margin_ratio = (net_worth / user.debt).quantize(Decimal("0.000001"))
-        try:
-            hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
-            soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
-        except Exception:
-            hard, soft = Decimal("0.2"), Decimal("0.5")
+        margin_ratio = (net_worth_lcv / user.debt).quantize(Decimal("0.000001"))
         if margin_ratio < hard:
             margin_status = "danger"
         elif margin_ratio < soft:
             margin_status = "warning"
 
+    # 流动性危机保护标志：HALT 市场有持仓时 sweep 会跳过强平。前端应据此
+    # 把 danger 红 banner 替换成 info 蓝 banner，避免"看到红色但实际不会被强平"
+    # 的体感困惑（review I3）。
+    liquidation_protected = await user_has_halt_holdings(db, user.id)
+
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
-        "holdings_value": holdings_value.quantize(Decimal("0.01")),
+        "holdings_value": holdings_mtm.quantize(Decimal("0.01")),
+        "holdings_value_liquidation": holdings_lcv.quantize(Decimal("0.01")),
         "total_cost_basis": total_cost_basis.quantize(Decimal("0.01")),
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
+        "unrealized_pnl_liquidation": unrealized_pnl_lcv.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
+        "net_worth_liquidation": net_worth_lcv.quantize(Decimal("0.01")),
         "rank": rank,
         "margin_ratio": margin_ratio,
         "margin_status": margin_status,
         "last_liquidated_at": user.last_liquidated_at,
+        "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
+        "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
+        "liquidation_protected": liquidation_protected,
     }
 
 
@@ -142,6 +163,19 @@ async def get_my_holdings(
 
         avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
+        # 双口径浮盈，跟 /user/summary 镜像：
+        #   MTM 主显示 不过滤 HALT（账面估值按瞬时价正常算，避免临时 HALT 让账面归零）
+        #   LCV 副字段 在 HALT 时 = -cost_basis（不可变现 → "立即变现"价值为 0
+        #     → 立即变现浮盈 = 0 - cost_basis）。同时 market_value 也置 0
+        #     表达"现在卖不出去"
+        mtm_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
+        unrealized_pnl_mtm = mtm_value - pos.cost_basis
+        if market.status != MarketStatus.TRADING:
+            market_value = ZERO
+            unrealized_pnl_lcv = -pos.cost_basis
+        else:
+            unrealized_pnl_lcv = market_value - pos.cost_basis
+
         results.append(
             HoldingRead(
                 outcome_id=pos.outcome_id,
@@ -153,7 +187,8 @@ async def get_my_holdings(
                 avg_price=avg_price,
                 current_price=price_d,
                 market_value=market_value.quantize(Decimal("0.01")),
-                unrealized_pnl=(market_value - pos.cost_basis).quantize(Decimal("0.01")),
+                unrealized_pnl=unrealized_pnl_mtm.quantize(Decimal("0.01")),
+                unrealized_pnl_liquidation=unrealized_pnl_lcv.quantize(Decimal("0.01")),
             )
         )
     return results
