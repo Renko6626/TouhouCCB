@@ -25,6 +25,17 @@ _WHITELIST = {
     "liquidation_sweep_interval_sec": "int",
     "liquidation_hard_threshold": "decimal",
     "liquidation_soft_threshold": "decimal",
+    "activity_mode_enabled": "bool",
+    "quant_whitelist_user_ids": "string",
+    "bot_detection_enabled": "bool",
+    "bot_detection_interval_sec": "int",
+    "bot_detection_window_sec": "int",
+    "bot_freq_threshold": "int",
+    "bot_late_night_threshold": "int",
+    "bot_interval_stddev_ms_threshold": "int",
+    "bot_fast_follow_trigger_cost": "decimal",
+    "bot_fast_follow_latency_ms": "int",
+    "bot_fast_follow_count_threshold": "int",
 }
 
 

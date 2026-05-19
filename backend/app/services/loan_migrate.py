@@ -29,6 +29,18 @@ DEFAULT_CONFIGS = [
     ("liquidation_sweep_interval_sec", "600", "int"),   # 10 min
     ("liquidation_hard_threshold", "0.2", "decimal"),
     ("liquidation_soft_threshold", "0.5", "decimal"),
+    # ── Anti-bot (spec 2026-05-20-anti-bot-design.md) ──
+    ("activity_mode_enabled", "false", "bool"),
+    ("quant_whitelist_user_ids", "", "string"),
+    ("bot_detection_enabled", "true", "bool"),
+    ("bot_detection_interval_sec", "1800", "int"),
+    ("bot_detection_window_sec", "7200", "int"),
+    ("bot_freq_threshold", "120", "int"),
+    ("bot_late_night_threshold", "20", "int"),
+    ("bot_interval_stddev_ms_threshold", "100", "int"),
+    ("bot_fast_follow_trigger_cost", "500.0", "decimal"),
+    ("bot_fast_follow_latency_ms", "1000", "int"),
+    ("bot_fast_follow_count_threshold", "3", "int"),
 ]
 
 
