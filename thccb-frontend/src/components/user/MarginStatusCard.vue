@@ -14,8 +14,12 @@ const ratio = computed(() => summary.value?.margin_ratio ?? null)
 const status = computed(() => summary.value?.margin_status ?? 'healthy')
 const hardThr = computed(() => summary.value?.margin_hard_threshold ?? 0.2)
 const softThr = computed(() => summary.value?.margin_soft_threshold ?? 0.5)
+// net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
 const netWorth = computed(() => Number(summary.value?.net_worth ?? 0))
+const netWorthLcv = computed(() => Number(summary.value?.net_worth_liquidation ?? 0))
 const debt = computed(() => Number(summary.value?.debt ?? 0))
+// 两口径差距（LMSR 滑点 + 手续费的损耗）
+const slippageGap = computed(() => netWorth.value - netWorthLcv.value)
 
 // 距离强平线的相对缓冲：净值再跌 X% 触发
 //   触发条件：NW' = hard × debt
@@ -70,8 +74,13 @@ function relativeTime(ms: number): string {
       </span>
       <div class="ratio-meta">
         <div class="formula">
-          净值 <span class="num">{{ netWorth.toFixed(2) }}</span>
+          立即变现 <span class="num">{{ netWorthLcv.toFixed(2) }}</span>
           ÷ 借款 <span class="num">{{ debt.toFixed(2) }}</span>
+        </div>
+        <div v-if="slippageGap > 0.01" class="formula-explain">
+          账面净值 <span class="num">{{ netWorth.toFixed(2) }}</span>，
+          滑点损耗 <span class="num">-{{ slippageGap.toFixed(2) }}</span>
+          <span class="hint">（保证金按保守"立即变现"口径算）</span>
         </div>
         <div class="thresholds">
           强平线 <span class="num">{{ Number(hardThr).toFixed(2) }}</span>
@@ -203,6 +212,18 @@ function relativeTime(ms: number): string {
 .thresholds {
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.formula-explain {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #666666;
+}
+
+.hint {
+  color: #888888;
+  font-weight: 500;
 }
 
 .num {

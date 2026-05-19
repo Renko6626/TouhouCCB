@@ -23,11 +23,17 @@ class HoldingRead(BaseModel):
 class UserSummary(BaseModel):
     cash: Money
     debt: Money
+    # 主显示口径（MTM 瞬时价 × 数量，不含滑点，符合用户对"我有多少钱"的直觉）
     holdings_value: Money
+    # 保守口径（LCV 立即清算价值，含滑点 + 扣 sell_fee，强平/借款额度按这个）
+    # 大仓位用户 LCV 通常 < MTM；UI 提示用户两者差距以理解 LMSR 滑点
+    holdings_value_liquidation: Money
     total_cost_basis: Money   # 所有持仓总成本
-    unrealized_pnl: Money     # holdings_value - total_cost_basis
-    net_worth: Money
-    rank: str
+    unrealized_pnl: Money     # holdings_value (MTM) - total_cost_basis
+    net_worth: Money          # cash - debt + holdings_value (MTM)，显示/排名用
+    net_worth_liquidation: Money  # cash - debt + holdings_value_liquidation，margin 用
+    rank: str                 # 按 net_worth (MTM) 算
+    # margin 按 net_worth_liquidation / debt 算，比 MTM 更保守
     margin_ratio: Optional[Decimal] = None
     margin_status: str = "healthy"
     last_liquidated_at: Optional[datetime] = None
