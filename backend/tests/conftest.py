@@ -76,3 +76,22 @@ async def setup_db():
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
     yield
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _dispose_engine_after_session():
+    """所有测试结束后 dispose engine 的 connection pool，避免 pytest 进程不退出。
+
+    不加这个 → 不用 `client` fixture 的纯 unit 测（如 test_loan_service.py、
+    test_wealth_mtm.py）跑完所有 case 后，aiosqlite connection 仍被 engine pool
+    hold 着，pytest 进程 hang 在 connection cleanup，曾经被 timeout 杀掉
+    (exit 124)。
+
+    用 `client` fixture 的测试不会有这问题，因为 LifespanManager shutdown 会调
+    `main.lifespan` 里的 `await engine.dispose()`。但 unit 测试根本没跑 lifespan，
+    engine 留挂。这个 session-scope teardown 兜底所有测试结束后清理。
+
+    教训详见 docs/schema-conventions.md 后续补充 + memory feedback。
+    """
+    yield
+    await engine.dispose()
