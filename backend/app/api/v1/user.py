@@ -21,7 +21,7 @@ from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
-from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm, user_has_halt_holdings
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
@@ -87,6 +87,11 @@ async def get_user_summary(
         elif margin_ratio < soft:
             margin_status = "warning"
 
+    # 流动性危机保护标志：HALT 市场有持仓时 sweep 会跳过强平。前端应据此
+    # 把 danger 红 banner 替换成 info 蓝 banner，避免"看到红色但实际不会被强平"
+    # 的体感困惑（review I3）。
+    liquidation_protected = await user_has_halt_holdings(db, user.id)
+
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
@@ -103,6 +108,7 @@ async def get_user_summary(
         "last_liquidated_at": user.last_liquidated_at,
         "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
         "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
+        "liquidation_protected": liquidation_protected,
     }
 
 

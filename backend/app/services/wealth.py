@@ -5,13 +5,13 @@
 - **LCV** (Liquidation Value, "立即清算价值")：`compute_users_holdings_value`
   按 LMSR cost diff 算「全部卖出能拿到多少」，含滑点 + 扣卖出 fee。**保守**。
   用于：强平判定、margin 计算、借款额度上限、内部分析（/admin/wealth）。
-  **HALT/RESOLVED 持仓不计入**（不可变现 → 立即清算价值为 0），防止 fake collateral。
+  **HALT 持仓不计入**（不可变现 → 立即清算价值为 0），防止 fake collateral。
 
 - **MTM** (Mark-to-Market, "账面瞬时估值")：`compute_users_holdings_value_mtm`
   按瞬时价 × 数量算（LMSR 边际价 × position.amount），**不含滑点不扣 fee**。
   直观，符合用户对"我有多少钱"的认知。
   用于：/user/summary 主显示、排行榜排序、UI 显示净值。
-  **HALT/RESOLVED 持仓正常计入**（按瞬时价算账面估值，不关心能否立即变现）。
+  **HALT 持仓正常计入**（按瞬时价算账面估值，不关心能否立即变现）。
   避免临时 HALT 让用户账面归零体感像突然爆仓。
 
 两套对 HALT 的不同处理是有意为之的：MTM 是"账面"，LCV 是"流动性"。两者对大持仓
@@ -111,7 +111,7 @@ async def compute_users_holdings_value(
         total = ZERO
         for pos in user_positions:
             market: Market = pos.outcome.market
-            # 只算可交易市场的持仓：HALT/RESOLVED 市场的份额无法立即变现，
+            # 只算可交易市场的持仓：HALT 市场的份额无法立即变现，
             # 不应计入抵押估值/margin。这与 liquidation_service.py 的"跳过非
             # TRADING 市场"约定一致，避免 fake collateral 风险。
             if market.status != MarketStatus.TRADING:
@@ -135,6 +135,32 @@ async def compute_users_holdings_value(
             total += quantize_cost(gross * fee_factor)
         result[uid] = total
     return result
+
+
+async def user_has_halt_holdings(db: AsyncSession, user_id: int) -> bool:
+    """检测 user 是否在 HALT 市场仍有 amount > 0 持仓。
+
+    用于流动性危机保护：
+    - liquidation_sweep 阶段 1 预筛掉这些用户，避免无谓 lock_user
+    - /user/summary 返回 liquidation_protected 标志，UI 显示"保护中"而非"危险"
+
+    显式过滤 `== MarketStatus.HALT`（非 `!= TRADING`）：SETTLED 市场上的 position
+    在结算时已被删除（market.py:821），且未来如果引入 PAUSED/MAINTENANCE 等中间
+    状态，不应自动获得强平豁免。
+    """
+    stmt = (
+        select(Position.id)
+        .join(Outcome, Outcome.id == Position.outcome_id)
+        .join(Market, Market.id == Outcome.market_id)
+        .where(
+            Position.user_id == user_id,
+            Position.amount > 0,
+            Market.status == MarketStatus.HALT,
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar() is not None
 
 
 async def compute_users_holdings_value_mtm(
@@ -191,7 +217,7 @@ async def compute_users_holdings_value_mtm(
         total = ZERO
         for pos in user_positions:
             market: Market = pos.outcome.market
-            # MTM 不过滤 HALT/RESOLVED：账面估值的语义是"按当前 LMSR 瞬时价
+            # MTM 不过滤 HALT：账面估值的语义是"按当前 LMSR 瞬时价
             # 计算"，不关心能否立即变现。否则用户全押 HALT 时账面归零，体感像
             # 突然爆仓。LCV 那边过滤 HALT 是为了 margin/借款额度的保守语义，
             # 两套口径职责不同。详见 docs/holdings-value-semantics.md。

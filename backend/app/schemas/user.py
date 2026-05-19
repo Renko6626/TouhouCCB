@@ -45,6 +45,8 @@ class UserSummary(BaseModel):
     last_liquidated_at: Optional[datetime] = None
     margin_hard_threshold: Decimal = Decimal("0.2")
     margin_soft_threshold: Decimal = Decimal("0.5")
+    # 用户在 HALT 市场有持仓 → sweep 会跳过强平。前端把 danger banner 换成 info 状态。
+    liquidation_protected: bool = False
 
 
 class TransactionRead(BaseModel):

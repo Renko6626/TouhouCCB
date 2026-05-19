@@ -9,6 +9,8 @@ const ratio = computed(() => userStore.summary?.margin_ratio)
 const hardThr = computed(() => userStore.summary?.margin_hard_threshold ?? 0.2)
 const softThr = computed(() => userStore.summary?.margin_soft_threshold ?? 0.5)
 const lastLiquidatedAt = computed(() => userStore.summary?.last_liquidated_at)
+// HALT 市场有持仓 → sweep 守卫保护中。优先显示保护态而非 danger/warning。
+const protectedByHalt = computed(() => userStore.summary?.liquidation_protected ?? false)
 
 // 距上次强平的毫秒数，null 表示从未强平或未取到
 const sinceLastLiquidated = computed(() => {
@@ -23,7 +25,7 @@ const showJustLiquidatedChip = computed(() => {
 })
 
 const visible = computed(
-  () => status.value !== 'healthy' || showJustLiquidatedChip.value
+  () => status.value !== 'healthy' || showJustLiquidatedChip.value || protectedByHalt.value
 )
 
 function formatRatio(r: number | null | undefined): string {
@@ -55,8 +57,25 @@ const justLiquidatedMessage = computed(() => {
   return `你刚于 ${relativeTime(ms)} 被强制平仓`
 })
 
-// banner 主体仅在 warning/danger 时显示；healthy + 刚被强平时只显示底部 chip
-const showMainBanner = computed(() => status.value !== 'healthy')
+// banner 主体仅在 warning/danger 时显示；healthy + 刚被强平时只显示底部 chip。
+// HALT 保护态优先：即使 status=danger，protectedByHalt=true 时显示 info 蓝色而非 danger 红色，
+// 避免"红色告警但实际不会强平"的体感困惑（review I3）。
+const showMainBanner = computed(
+  () => status.value !== 'healthy' || protectedByHalt.value
+)
+
+// 显示模式：'protected' > 'danger' > 'warning'（HALT 保护优先）
+const displayMode = computed<'protected' | 'danger' | 'warning' | null>(() => {
+  if (protectedByHalt.value && status.value !== 'healthy') return 'protected'
+  if (status.value === 'danger') return 'danger'
+  if (status.value === 'warning') return 'warning'
+  return null
+})
+
+const protectedMessage = computed(() => {
+  const r = formatRatio(ratio.value)
+  return `市场熔断保护中 — 净值/借款 = ${r}（按清算口径），但你持有 HALT 市场持仓，sweep 跳过本轮强平。待市场恢复后再判定。`
+})
 </script>
 
 <template>
@@ -64,10 +83,16 @@ const showMainBanner = computed(() => status.value !== 'healthy')
     <div
       v-if="showMainBanner"
       class="margin-call-banner"
-      :class="`status-${status}`"
+      :class="`status-${displayMode}`"
     >
-      <span class="banner-label">{{ status === 'danger' ? 'MARGIN CALL' : 'MARGIN WARNING' }}</span>
-      <span class="banner-message">{{ message }}</span>
+      <span class="banner-label">
+        {{ displayMode === 'protected' ? 'HALT PROTECTED'
+           : displayMode === 'danger' ? 'MARGIN CALL'
+           : 'MARGIN WARNING' }}
+      </span>
+      <span class="banner-message">
+        {{ displayMode === 'protected' ? protectedMessage : message }}
+      </span>
     </div>
 
     <div v-if="showJustLiquidatedChip" class="just-liquidated-chip">
@@ -122,6 +147,12 @@ const showMainBanner = computed(() => status.value !== 'healthy')
   color: #991b1b;
   border-color: #dc2626;
   font-weight: 700;
+}
+
+.status-protected {
+  background: #dbeafe;
+  color: #1e3a8a;
+  border-color: #2563eb;
 }
 
 .just-liquidated-chip {
