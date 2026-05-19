@@ -9,6 +9,7 @@ market → outcomes → user 不一致，理论上同 user 自己同时 SELL 时
 sweep 层 catch DBAPI DeadlockError + log + 该 user 跳过本轮，下次再试。
 """
 from __future__ import annotations
+import asyncio
 import logging
 import time
 from decimal import Decimal
@@ -43,6 +44,81 @@ def _is_deadlock_error(exc: Exception) -> bool:
         msg = str(exc).lower()
         return ("deadlock" in msg) or ("40p01" in msg)
     return False
+
+
+async def _liquidate_one_user(
+    *,
+    uid: int,
+    hard_thr: Decimal,
+    rate: Decimal,
+    trigger_source: str,
+    now: float,
+    sem: asyncio.Semaphore,
+) -> str:
+    """阶段 2 内单用户强平 worker，给 asyncio.gather 调用。
+
+    返回值用于 sweep 主函数聚合统计：
+    - 'triggered': 成功强平
+    - 'recovered': lock 后 margin 已恢复，放过
+    - 'skipped': HALT race / debt=0 / etc.
+    - 'deadlock': 死锁，跳过该用户本轮
+    - 'error': 其他异常
+
+    Semaphore 限并发：防 DB_POOL_SIZE=10 耗尽 + 同 market 锁竞争一窝蜂。
+    """
+    async with sem:
+        try:
+            async with async_session_maker() as session:
+                async with session.begin():
+                    user = await lock_user(session, uid)
+                    if user.debt <= Decimal("0"):
+                        return "skipped"
+
+                    if await user_has_halt_holdings(session, uid):
+                        logger.info(
+                            "sweep_skip_user_with_halt_holdings",
+                            extra={"user_id": uid, "stage": "stage2_race_guard"},
+                        )
+                        return "skipped"
+
+                    # 重算 margin —— lock 后值才稳定
+                    hv_now = (
+                        await compute_users_holdings_value(
+                            session, user_ids=[uid]
+                        )
+                    ).get(uid, Decimal("0"))
+                    margin_now = (user.cash - user.debt + hv_now) / user.debt
+                    if margin_now >= hard_thr:
+                        logger.info(
+                            "sweep_skip_recovered",
+                            extra={"user_id": uid, "margin_now": float(margin_now)},
+                        )
+                        return "recovered"
+
+                    ev = await liquidation_service.liquidate_user(
+                        session, user, daily_rate=rate,
+                        trigger_source=trigger_source,
+                    )
+                    if (ev.sold_positions_count == 0
+                            and ev.repaid_amount == 0):
+                        _recently_attempted[uid] = now
+                    return "triggered"
+        except DBAPIError as e:
+            if _is_deadlock_error(e):
+                logger.warning(
+                    "liquidation_sweep_deadlock_skipped_this_round",
+                    extra={"user_id": uid, "error": str(e)[:200]},
+                )
+                return "deadlock"
+            logger.exception(
+                "liquidation_sweep_user_dbapi_error", extra={"user_id": uid}
+            )
+            return "error"
+        except Exception:
+            logger.exception(
+                "liquidation_sweep_user_error", extra={"user_id": uid}
+            )
+            return "error"
 
 
 async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
@@ -143,75 +219,36 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
             },
         )
 
+    # ===== 阶段 2：仅越线用户并发 lock + 重算 margin + 强平 =====
+    # 每个用户独立 session，互不干扰；用 asyncio.gather + Semaphore(3) 限并发
+    # 防止连接池 (DB_POOL_SIZE=10) 耗尽 + 同 market 锁竞争被一窝蜂阻塞。
+    # 同 user 内部 lock 顺序仍是 user → outcomes (锁顺序跟 BUY/SELL 不同 →
+    # 已有 deadlock catch 跳过当轮)。
     triggered = 0
     warned = len(over_soft)
     errors = 0
     deadlocks = 0
 
-    # ===== 阶段 2：仅越线用户 lock + 重算 margin + 强平 =====
-    # 重算 margin 防 stale read：阶段 1 read 到的 user state 可能在 read → lock 之间
-    # 被并发交易/还债改了，如果实际已恢复 healthy 就放过。
-    for uid in over_hard:
-        try:
-            async with async_session_maker() as session:
-                async with session.begin():
-                    user = await lock_user(session, uid)
-                    if user.debt <= Decimal("0"):
-                        continue
-
-                    # 阶段 2 HALT 守卫（defense-in-depth）：阶段 1 已预筛，
-                    # 这里防 race —— market 在 read → lock 之间被 admin halt。
-                    if await user_has_halt_holdings(session, uid):
-                        logger.info(
-                            "sweep_skip_user_with_halt_holdings",
-                            extra={"user_id": uid, "stage": "stage2_race_guard"},
-                        )
-                        continue
-
-                    # 重算 margin —— lock 后值才稳定
-                    hv_now = (
-                        await compute_users_holdings_value(
-                            session, user_ids=[uid]
-                        )
-                    ).get(uid, Decimal("0"))
-                    margin_now = (user.cash - user.debt + hv_now) / user.debt
-                    if margin_now >= hard_thr:
-                        logger.info(
-                            "sweep_skip_recovered",
-                            extra={
-                                "user_id": uid,
-                                "margin_now": float(margin_now),
-                            },
-                        )
-                        continue  # 已恢复，放过
-
-                    ev = await liquidation_service.liquidate_user(
-                        session, user, daily_rate=rate,
-                        trigger_source=trigger_source,
-                    )
-                    triggered += 1
-                    if (ev.sold_positions_count == 0
-                            and ev.repaid_amount == 0):
-                        _recently_attempted[uid] = now
-        except DBAPIError as e:
-            if _is_deadlock_error(e):
+    if over_hard:
+        sem = asyncio.Semaphore(3)
+        results = await asyncio.gather(
+            *[
+                _liquidate_one_user(
+                    uid=uid, hard_thr=hard_thr, rate=rate,
+                    trigger_source=trigger_source, now=now, sem=sem,
+                )
+                for uid in over_hard
+            ],
+            return_exceptions=False,  # 每个内部已 try/except，外层不会抛
+        )
+        for r in results:
+            if r == "triggered":
+                triggered += 1
+            elif r == "deadlock":
                 deadlocks += 1
-                logger.warning(
-                    "liquidation_sweep_deadlock_skipped_this_round",
-                    extra={"user_id": uid, "error": str(e)[:200]},
-                )
-            else:
+            elif r == "error":
                 errors += 1
-                logger.exception(
-                    "liquidation_sweep_user_dbapi_error",
-                    extra={"user_id": uid},
-                )
-        except Exception:
-            errors += 1
-            logger.exception(
-                "liquidation_sweep_user_error",
-                extra={"user_id": uid},
-            )
+            # "skipped" / "recovered" 不计
 
     duration_ms = int((time.monotonic() - start_ts) * 1000)
     result = {
