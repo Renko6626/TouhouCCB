@@ -3,10 +3,8 @@
 设计：复用 services.lmsr + services.wealth + services.loan_service，不
 重新实现 LMSR 数学。锁顺序遵循 market_locks.py 约定。
 
-注意：decrease_debt 内部会再次 SELECT FOR UPDATE 同一个 user 行；
-调用前必须先 flush 让 ORM 将内存中的 cash/debt 变更写入 DB，
-否则 decrease_debt 读到的 cash 是 flush 前快照，可能导致扣款金额
-与实际现金不符。
+注意：用 decrease_debt_locked 直接改 in-memory user 对象，省 1 SELECT FOR UPDATE
++ 1 flush。前提是调用方 (sweep) 已经 lock 了 user。
 """
 from __future__ import annotations
 import logging
@@ -22,12 +20,13 @@ from app.models.base import (
     Transaction, TransactionType, User,
 )
 from app.services import loan_service
-from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
+from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_outcomes_for_market
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import _get_sell_fee_rate  # 复用 LCV 统一 fee
 
 _logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 
 async def liquidate_user(
@@ -49,16 +48,12 @@ async def liquidate_user(
     if user.debt <= ZERO:
         raise ValueError("liquidate_user requires user.debt > 0")
 
-    # 0. pre-snapshot（在任何改动之前快照）
+    # 0. pre-snapshot 之前先拉 positions + lock outcomes，让 pre_hv 用同一份数据
+    #    inline 算（省一次独立的 compute_users_holdings_value 调用 + 其 3-4 个 query）
     pre_cash = user.cash
     pre_debt = user.debt
-    pre_hv = (
-        await compute_users_holdings_value(session, user_ids=[user.id])
-    ).get(user.id, ZERO)
-    pre_nw = pre_cash - pre_debt + pre_hv
-    pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
 
-    # 1. 拉所有持仓（加载 outcome + outcome.market，for status check）
+    # 1. 拉所有持仓（加载 outcome + outcome.market）+ FOR UPDATE 锁 position 行
     pos_res = await session.execute(
         select(Position)
         .options(selectinload(Position.outcome).selectinload(Outcome.market))
@@ -68,106 +63,154 @@ async def liquidate_user(
     )
     positions = pos_res.scalars().all()
 
-    total_proceeds = ZERO
-    sold_count = 0
+    # 按 market 分组：同 user 在同 market 多个 outcome 持仓时只锁一次 outcomes
+    positions_by_market: dict[int, list[Position]] = {}
+    for pos in positions:
+        positions_by_market.setdefault(pos.outcome.market_id, []).append(pos)
 
+    # 2. 一次性锁所有相关 market 的 outcomes（按 market_id 升序避死锁），用 lock
+    #    后的最新 outcomes 状态算 pre_hv（LCV 口径，等价于 compute_users_holdings_value
+    #    但省去 N+1 query；fee_factor 同源避免口径分裂）
+    outcomes_by_market: dict[int, list[Outcome]] = {}
+    sorted_market_ids = sorted(positions_by_market.keys())
+    for market_id in sorted_market_ids:
+        market = positions_by_market[market_id][0].outcome.market
+        if market.status != MarketStatus.TRADING:
+            continue
+        outcomes_by_market[market_id] = await lock_outcomes_for_market(session, market_id)
+
+    # 3. inline 算 pre_hv（LCV）：用刚 lock 的 outcomes 数据，不再单独跑
+    #    compute_users_holdings_value（省 3-4 个 query）。HALT 市场持仓不计入
+    #    （与 services.wealth LCV 函数同语义）。
+    fee_factor = ONE - _get_sell_fee_rate()
+    pre_hv = ZERO
     for pos in positions:
         market = pos.outcome.market
         if market.status != MarketStatus.TRADING:
-            _logger.info(
-                "liquidation_skip_non_trading_market",
-                extra={
-                    "user_id": user.id,
-                    "position_id": pos.id,
-                    "market_id": market.id,
-                    "market_status": market.status,
-                },
-            )
             continue
-
-        # 锁顺序说明：market.py BUY/SELL 用 market → outcomes → user，本函数被调用时
-        # 调用方已 lock user，然后我们逐 market 拿 outcomes 锁 → 顺序变成 user → outcomes。
-        # 跟 market.py 的 user 位置不同 → 理论上存在 deadlock 环形：
-        #   TX1（本函数）: holds user A, wants market M outcomes
-        #   TX2（user A 自己的 SELL on M）: holds M+outcomes, wants user A
-        # 实际触发条件：sweep 期间用户 A 自己手动/quant 同时 SELL。低概率（10min sweep 间隔）。
-        # 缓解策略：在 sweep 层 catch DBAPI DeadlockError + 跳过该用户下一轮处理（见 T6）。
-        all_outcomes = await lock_outcomes_for_market(session, market.id)
-        idx = next(
-            (i for i, o in enumerate(all_outcomes) if o.id == pos.outcome_id), None
-        )
+        outs = outcomes_by_market.get(market.id)
+        if not outs:
+            continue
+        idx = next((i for i, o in enumerate(outs) if o.id == pos.outcome_id), None)
         if idx is None:
-            _logger.error(
-                "liquidation_outcome_not_in_market",
-                extra={"user_id": user.id, "position_id": pos.id,
-                       "outcome_id": pos.outcome_id, "market_id": market.id},
-            )
+            continue
+        b = float(market.liquidity_b)
+        shares_list = [float(o.total_shares) for o in outs]
+        old_cost = calculate_lmsr_cost(shares_list, b)
+        after = list(shares_list)
+        after[idx] -= float(pos.amount)
+        new_cost = calculate_lmsr_cost(after, b)
+        gross = quantize_cost(old_cost - new_cost)
+        pre_hv += quantize_cost(gross * fee_factor)
+
+    pre_nw = pre_cash - pre_debt + pre_hv
+    # 注意：本 pre_margin 用 post-lock outcomes 算的 LCV NW，可能跟 sweep
+    # stage 2 重算的 margin_now (用 compute_users_holdings_value 不锁 outcomes)
+    # 有微小数值差 (~1 LSB)。pre_margin 仅写入 LiquidationEvent 作审计快照，
+    # 不参与门槛判定，差异可忽略。详见 review M4。
+    pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
+
+    total_proceeds = ZERO
+    sold_count = 0
+
+    # 锁顺序说明：market.py BUY/SELL 用 market → outcomes → user，本函数被调用时
+    # 调用方已 lock user → 这里 lock outcomes → 顺序 user → outcomes。跟 market.py
+    # 的 user 位置不同 → 理论上存在 deadlock 环形。缓解：sweep 层 catch DBAPI
+    # DeadlockError + 跳过该用户下一轮。
+    # 4. 循环卖出（复用已 lock 的 outcomes_by_market）
+    for market_id in sorted_market_ids:
+        pos_group = positions_by_market[market_id]
+        # 用第一个 position 的 market 引用（同 market_id 共享 market 对象）
+        market = pos_group[0].outcome.market
+        if market.status != MarketStatus.TRADING:
+            for pos in pos_group:
+                _logger.info(
+                    "liquidation_skip_non_trading_market",
+                    extra={
+                        "user_id": user.id,
+                        "position_id": pos.id,
+                        "market_id": market.id,
+                        "market_status": market.status,
+                    },
+                )
             continue
 
+        # outcomes 已在阶段 2 lock 过，直接复用
+        all_outcomes = outcomes_by_market[market.id]
         b = float(market.liquidity_b)
-        old_q = [float(o.total_shares) for o in all_outcomes]
-        new_q = list(old_q)
-        new_q[idx] -= float(pos.amount)
+        outcomes_idx_by_id = {o.id: i for i, o in enumerate(all_outcomes)}
 
-        old_cost, old_prices = calculate_lmsr_with_prices(old_q, b)
-        new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
-        proceeds = quantize_cost(old_cost - new_cost)
+        for pos in pos_group:
+            idx = outcomes_idx_by_id.get(pos.outcome_id)
+            if idx is None:
+                _logger.error(
+                    "liquidation_outcome_not_in_market",
+                    extra={"user_id": user.id, "position_id": pos.id,
+                           "outcome_id": pos.outcome_id, "market_id": market.id},
+                )
+                continue
 
-        if proceeds < ZERO:
-            _logger.error(
-                "liquidation_negative_proceeds",
-                extra={
-                    "user_id": user.id,
-                    "position_id": pos.id,
-                    "proceeds": str(proceeds),
-                },
+            # 每 position 用"最新的 outcomes 状态"算 LMSR：同 market 多 outcome
+            # 先后被清算时，shares_list 反映前面已卖的状态（path-independent，总
+            # proceeds 不变，但单笔 attribution 跟串行顺序一致）。
+            old_q = [float(o.total_shares) for o in all_outcomes]
+            new_q = list(old_q)
+            new_q[idx] -= float(pos.amount)
+
+            old_cost, old_prices = calculate_lmsr_with_prices(old_q, b)
+            new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
+            proceeds = quantize_cost(old_cost - new_cost)
+
+            if proceeds < ZERO:
+                _logger.error(
+                    "liquidation_negative_proceeds",
+                    extra={
+                        "user_id": user.id,
+                        "position_id": pos.id,
+                        "proceeds": str(proceeds),
+                    },
+                )
+                continue  # skip position; spec § 3 says SKIP not DELETE
+
+            # 应用变更：更新用户现金、outcome 份额、删除持仓
+            user.cash += proceeds
+            all_outcomes[idx].total_shares -= pos.amount
+            await session.delete(pos)
+
+            # 记 LIQUIDATE Transaction（与 SELL 格式一致）
+            avg_price = (
+                quantize_price(proceeds / pos.amount) if pos.amount > ZERO else ZERO
             )
-            continue  # skip position; spec § 3 says SKIP not DELETE
+            tx = Transaction(
+                user_id=user.id,
+                outcome_id=pos.outcome_id,
+                type=TransactionType.LIQUIDATE,
+                shares=pos.amount,
+                cost=-proceeds,         # 与 SELL 同口径：收入为负成本
+                price=avg_price,
+                pre_market_price=quantize_price(old_prices[idx]),
+                post_market_price=quantize_price(new_prices[idx]),
+                gross=proceeds,
+                fee=ZERO,               # 强平不收手续费
+                market_prices_post=list(new_prices),
+            )
+            session.add(tx)
 
-        # 应用变更：更新用户现金、outcome 份额、删除持仓
-        user.cash += proceeds
-        all_outcomes[idx].total_shares -= pos.amount
-        await session.delete(pos)
+            total_proceeds += proceeds
+            sold_count += 1
 
-        # 记 LIQUIDATE Transaction（与 SELL 格式一致）
-        avg_price = (
-            quantize_price(proceeds / pos.amount) if pos.amount > ZERO else ZERO
-        )
-        tx = Transaction(
-            user_id=user.id,
-            outcome_id=pos.outcome_id,
-            type=TransactionType.LIQUIDATE,
-            shares=pos.amount,
-            cost=-proceeds,         # 与 SELL 同口径：收入为负成本
-            price=avg_price,
-            pre_market_price=quantize_price(old_prices[idx]),
-            post_market_price=quantize_price(new_prices[idx]),
-            gross=proceeds,
-            fee=ZERO,               # 强平不收手续费
-            market_prices_post=list(new_prices),
-        )
-        session.add(tx)
-
-        total_proceeds += proceeds
-        sold_count += 1
-
-    # 2. flush 让 ORM 将 user.cash 写入 DB，之后 decrease_debt 的
-    #    SELECT FOR UPDATE 读到的才是含仓位卖出回款后的最新现金
-    await session.flush()
-
-    # 3. 最大化还债（decrease_debt 内会再次 SELECT FOR UPDATE user + accrue interest）
+    # 2. 最大化还债：用 decrease_debt_locked 直接改 in-memory user 对象，
+    #    省 1 SELECT FOR UPDATE + 1 flush（旧版要 flush 让 cash 落库才能让
+    #    decrease_debt 内部 SELECT 读到，新版直接操作已 lock 的 user 对象）。
     repaid = ZERO
     if user.cash > ZERO and user.debt > ZERO:
         repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
         if repay_amount > ZERO:
-            updated_user, repaid = await loan_service.decrease_debt(
-                session, user.id, repay_amount,
+            repaid = await loan_service.decrease_debt_locked(
+                session, user, repay_amount,
                 consume_cash=True, daily_rate=daily_rate,
             )
-            # 同步 user 对象上的 cash/debt（decrease_debt 改的是它自己 SELECT 出的 ORM 对象）
-            user.cash = updated_user.cash
-            user.debt = updated_user.debt
-            user.debt_last_accrued_at = updated_user.debt_last_accrued_at
+            # decrease_debt_locked 已直接更新 user 对象，无需手动同步
 
     # 仅当实际卖出了仓位或还了债时才更新时间戳 / 写 event；
     # 全部仓位 proceeds<0 而跳过的"卡水下"用户不算真正被强平，

@@ -76,6 +76,52 @@ async def increase_debt(
     return u
 
 
+async def decrease_debt_locked(
+    session: AsyncSession,
+    user: User,
+    amount: Decimal,
+    *,
+    consume_cash: bool,
+    daily_rate: Decimal,
+) -> Decimal:
+    """对已 lock 的 user 对象做 decrease_debt 核心算法，**不 SELECT FOR UPDATE**。
+
+    调用方负责：
+    - user 已被 lock_user / SELECT FOR UPDATE 拿到
+    - 在同一事务内 commit
+
+    省 1 个 SELECT FOR UPDATE round trip + 1 次 flush (vs 老的 decrease_debt
+    要先 flush 把 user.cash 落库才能让内部 SELECT 读到)。直接改 in-memory
+    user 对象的 cash/debt，调用方拿到的 user 已是最新值。
+
+    edge case 同 decrease_debt：accrue_interest 后的真实 debt 可能因复利大于
+    调用方快照，effective 取 min(amount, debt[, cash])。
+
+    返回 effective 金额。amount 必须 > 0。
+    """
+    if amount <= 0:
+        raise ValueError("amount must be positive")
+    now = _compat_now(user)
+    accrue_interest(user, daily_rate, now)
+    effective = min(amount, user.debt).quantize(_QUANT)
+    if consume_cash:
+        # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
+        effective = min(effective, user.cash).quantize(_QUANT)
+    if effective <= 0:
+        return Decimal("0")
+    user.debt = (user.debt - effective).quantize(_QUANT)
+    if consume_cash:
+        user.cash = (user.cash - effective).quantize(_QUANT)
+    if user.debt <= 0:
+        user.debt = Decimal("0")
+        user.debt_last_accrued_at = None
+    # 防御性兜底：debt/cash 不应出现负值
+    if user.debt < 0 or user.cash < 0:
+        raise LoanServiceError(f"invariant violated post-decrease: debt={user.debt} cash={user.cash}")
+    session.add(user)
+    return effective
+
+
 async def decrease_debt(
     session: AsyncSession,
     user_id: int,
@@ -84,37 +130,22 @@ async def decrease_debt(
     consume_cash: bool,
     daily_rate: Decimal,
 ) -> tuple[User, Decimal]:
-    """SELECT FOR UPDATE user → accrue → effective 取「真实负债（含利息）」与（如扣现金）「真实现金」三方最小值 → 扣减。
+    """SELECT FOR UPDATE user → accrue → effective 扣减。
 
-    edge case 关键：accrue_interest 后的真实 debt 可能因复利大于调用方传入的快照
-    估算；直接拿快照预检会让现金被扣到负值。所以这里 effective = min(amount, post-accrual debt[, cash])。
-    consume_cash=True 时 cash -= effective；False 时 cash 不变。
-    debt 归零时清 last_accrued_at。调用方负责 commit。
-    返回 (user, effective_amount)。amount 必须 > 0。
+    原 API，调用方传 user_id，内部 lock。需要避免 lock 的 hot path 用
+    decrease_debt_locked。
+
+    返回 (user, effective_amount)。
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
     stmt = select(User).where(User.id == user_id).with_for_update()
     result = await session.execute(stmt)
     u = result.scalar_one()
-    now = _compat_now(u)
-    accrue_interest(u, daily_rate, now)
-    effective = min(amount, u.debt).quantize(_QUANT)
-    if consume_cash:
-        # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
-        effective = min(effective, u.cash).quantize(_QUANT)
-    if effective <= 0:
-        return u, Decimal("0")
-    u.debt = (u.debt - effective).quantize(_QUANT)
-    if consume_cash:
-        u.cash = (u.cash - effective).quantize(_QUANT)
-    if u.debt <= 0:
-        u.debt = Decimal("0")
-        u.debt_last_accrued_at = None
-    # 防御性兜底：debt/cash 不应出现负值
-    if u.debt < 0 or u.cash < 0:
-        raise LoanServiceError(f"invariant violated post-decrease: debt={u.debt} cash={u.cash}")
-    session.add(u)
+    effective = await decrease_debt_locked(
+        session, u, amount,
+        consume_cash=consume_cash, daily_rate=daily_rate,
+    )
     return u, effective
 
 
