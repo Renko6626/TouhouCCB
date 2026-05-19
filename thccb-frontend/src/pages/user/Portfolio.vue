@@ -13,6 +13,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import type { Holding } from '@/types/api'
 import MarketStatus from '@/components/market/MarketStatus.vue'
+import MarginStatusCard from '@/components/user/MarginStatusCard.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -233,6 +234,9 @@ const holdingsByMarketArray = computed(() => {
           <span class="asset-value asset-value-net">金 {{ userStore.summary.net_worth.toFixed(2) }}</span>
         </div>
       </div>
+
+      <!-- 保证金率详情（debt > 0 时才显示） -->
+      <MarginStatusCard />
 
       <!-- 账户 + 称号 + 快捷操作 -->
       <div class="rank-bar">

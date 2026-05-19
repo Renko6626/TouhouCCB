@@ -22,6 +22,8 @@ export interface UserSummary {
   margin_ratio: number | null
   margin_status: 'healthy' | 'warning' | 'danger'
   last_liquidated_at: string | null
+  margin_hard_threshold: number
+  margin_soft_threshold: number
 }
 
 export interface Holding {

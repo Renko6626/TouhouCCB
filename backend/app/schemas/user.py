@@ -31,6 +31,8 @@ class UserSummary(BaseModel):
     margin_ratio: Optional[Decimal] = None
     margin_status: str = "healthy"
     last_liquidated_at: Optional[datetime] = None
+    margin_hard_threshold: Decimal = Decimal("0.2")
+    margin_soft_threshold: Decimal = Decimal("0.5")
 
 
 class TransactionRead(BaseModel):
