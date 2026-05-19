@@ -52,20 +52,30 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
     """
     start_ts = time.monotonic()
     async with async_session_maker() as session:
-        enabled = await site_config.get_bool(session, "liquidation_enabled")
-        if not enabled:
-            return {"skipped": "disabled"}
-        hard_thr = await site_config.get_decimal(
-            session, "liquidation_hard_threshold"
-        )
-        soft_thr = await site_config.get_decimal(
-            session, "liquidation_soft_threshold"
-        )
+        # 一次批量取 4 个 key，省 3 个 round trip vs 4 次串行 get_*
         try:
-            rate = await site_config.get_decimal(session, "loan_daily_rate")
+            cfg = await site_config.get_many(session, [
+                "liquidation_enabled",
+                "liquidation_hard_threshold",
+                "liquidation_soft_threshold",
+                "loan_daily_rate",
+            ])
         except Exception:
-            logger.exception("liquidation_sweep_no_daily_rate")
+            logger.exception("liquidation_sweep_config_load_failed")
+            return {"skipped": "config_load_failed"}
+
+        if cfg.get("liquidation_enabled", "false").lower() not in ("true", "1", "yes"):
+            return {"skipped": "disabled"}
+        if "loan_daily_rate" not in cfg:
+            logger.error("liquidation_sweep_no_daily_rate")
             return {"skipped": "no_daily_rate"}
+        try:
+            hard_thr = Decimal(cfg["liquidation_hard_threshold"])
+            soft_thr = Decimal(cfg["liquidation_soft_threshold"])
+            rate = Decimal(cfg["loan_daily_rate"])
+        except (KeyError, Exception):
+            logger.exception("liquidation_sweep_config_parse_failed")
+            return {"skipped": "config_parse_failed"}
 
     async with async_session_maker() as session:
         # 阶段 1 预筛：排除"有 HALT 持仓"的用户，避免无谓 lock_user FOR UPDATE。
