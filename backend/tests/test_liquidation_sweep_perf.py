@@ -93,7 +93,13 @@ async def _setup_perf_scenario():
 
 @pytest.mark.asyncio
 async def test_sweep_100_users_perf_median(client):
-    """100 用户 sweep 中位数耗时 benchmark。打印结果供 CI/手工 review。"""
+    """100 用户 sweep 中位数耗时 benchmark。打印结果供 CI/手工 review。
+
+    注意：第一次 (warmup) 跑后 over_hard 用户的 debt 已被改成 0，后续 4 次跑
+    实际是"100 candidate 但 0 触发强平"的 stage-1-only fast path。这个仍然
+    覆盖 perf 主要瓶颈（candidate query + 批量 holdings_value），但严格说
+    第 1 次和第 2-5 次测的是不同 path。详见 review M3。
+    """
     await _setup_perf_scenario()
 
     # 清缓存 + 把第一次跑当 warmup
@@ -110,21 +116,21 @@ async def test_sweep_100_users_perf_median(client):
         result = await liquidation_sweep.run_liquidation_sweep_once()
         elapsed_ms = (time.monotonic() - start) * 1000
         durations.append(elapsed_ms)
-        # warmup（第一次）的 result triggered_count 应有；后续 user.debt 已被改 0
-        # 所以可能 triggered=0 都正常
         assert "sweep_duration_ms" in result, f"result missing duration: {result}"
+        # 监控新加的 counter
+        assert "recovered_count" in result, "review I4 字段缺失"
+        assert "skipped_count" in result
 
     median = statistics.median(durations)
-    p95 = sorted(durations)[-1]  # 最差
-    # 打印结果（即使 pass 也展示数据；用 stderr 这样 -q 也能看到）
+    worst = sorted(durations)[-1]
     print(f"\n=== sweep perf benchmark ({N_USERS} users, {N_OVER_THRESHOLD} over_hard) ===", file=sys.stderr)
     for i, d in enumerate(durations):
         print(f"  run {i+1}: {d:.1f} ms", file=sys.stderr)
     print(f"  median: {median:.1f} ms", file=sys.stderr)
-    print(f"  worst:  {p95:.1f} ms", file=sys.stderr)
+    print(f"  worst:  {worst:.1f} ms", file=sys.stderr)
 
-    # 软性断言：100 用户应 < 1000ms (perf 优化前 ~2300ms)
-    # 严格断言 < 200ms 在 SQLite 测环境下可能不稳定，所以放宽
-    assert median < 1000.0, (
-        f"sweep 中位数 {median:.1f}ms > 1000ms，perf 退化"
+    # 收紧断言（review M2）：观测中位数 ~70ms，给 4x 头寸防 CI 偶发抖动 + 未来回归保护
+    # 之前 perf 优化前实测 ~2300ms，现在 < 300ms 留出明确退化告警空间
+    assert median < 300.0, (
+        f"sweep 中位数 {median:.1f}ms > 300ms，perf 退化（基准 ~72ms）"
     )

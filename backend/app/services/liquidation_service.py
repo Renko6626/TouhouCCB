@@ -104,6 +104,10 @@ async def liquidate_user(
         pre_hv += quantize_cost(gross * fee_factor)
 
     pre_nw = pre_cash - pre_debt + pre_hv
+    # 注意：本 pre_margin 用 post-lock outcomes 算的 LCV NW，可能跟 sweep
+    # stage 2 重算的 margin_now (用 compute_users_holdings_value 不锁 outcomes)
+    # 有微小数值差 (~1 LSB)。pre_margin 仅写入 LiquidationEvent 作审计快照，
+    # 不参与门槛判定，差异可忽略。详见 review M4。
     pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
 
     total_proceeds = ZERO
@@ -134,18 +138,17 @@ async def liquidate_user(
         # outcomes 已在阶段 2 lock 过，直接复用
         all_outcomes = outcomes_by_market[market.id]
         b = float(market.liquidity_b)
-        outcomes_by_id = {o.id: (i, o) for i, o in enumerate(all_outcomes)}
+        outcomes_idx_by_id = {o.id: i for i, o in enumerate(all_outcomes)}
 
         for pos in pos_group:
-            idx_pair = outcomes_by_id.get(pos.outcome_id)
-            if idx_pair is None:
+            idx = outcomes_idx_by_id.get(pos.outcome_id)
+            if idx is None:
                 _logger.error(
                     "liquidation_outcome_not_in_market",
                     extra={"user_id": user.id, "position_id": pos.id,
                            "outcome_id": pos.outcome_id, "market_id": market.id},
                 )
                 continue
-            idx, _outcome = idx_pair
 
             # 每 position 用"最新的 outcomes 状态"算 LMSR：同 market 多 outcome
             # 先后被清算时，shares_list 反映前面已卖的状态（path-independent，总
