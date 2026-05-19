@@ -3,10 +3,8 @@
 设计：复用 services.lmsr + services.wealth + services.loan_service，不
 重新实现 LMSR 数学。锁顺序遵循 market_locks.py 约定。
 
-注意：decrease_debt 内部会再次 SELECT FOR UPDATE 同一个 user 行；
-调用前必须先 flush 让 ORM 将内存中的 cash/debt 变更写入 DB，
-否则 decrease_debt 读到的 cash 是 flush 前快照，可能导致扣款金额
-与实际现金不符。
+注意：用 decrease_debt_locked 直接改 in-memory user 对象，省 1 SELECT FOR UPDATE
++ 1 flush。前提是调用方 (sweep) 已经 lock 了 user。
 """
 from __future__ import annotations
 import logging
@@ -164,23 +162,18 @@ async def liquidate_user(
             total_proceeds += proceeds
             sold_count += 1
 
-    # 2. flush 让 ORM 将 user.cash 写入 DB，之后 decrease_debt 的
-    #    SELECT FOR UPDATE 读到的才是含仓位卖出回款后的最新现金
-    await session.flush()
-
-    # 3. 最大化还债（decrease_debt 内会再次 SELECT FOR UPDATE user + accrue interest）
+    # 2. 最大化还债：用 decrease_debt_locked 直接改 in-memory user 对象，
+    #    省 1 SELECT FOR UPDATE + 1 flush（旧版要 flush 让 cash 落库才能让
+    #    decrease_debt 内部 SELECT 读到，新版直接操作已 lock 的 user 对象）。
     repaid = ZERO
     if user.cash > ZERO and user.debt > ZERO:
         repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
         if repay_amount > ZERO:
-            updated_user, repaid = await loan_service.decrease_debt(
-                session, user.id, repay_amount,
+            repaid = await loan_service.decrease_debt_locked(
+                session, user, repay_amount,
                 consume_cash=True, daily_rate=daily_rate,
             )
-            # 同步 user 对象上的 cash/debt（decrease_debt 改的是它自己 SELECT 出的 ORM 对象）
-            user.cash = updated_user.cash
-            user.debt = updated_user.debt
-            user.debt_last_accrued_at = updated_user.debt_last_accrued_at
+            # decrease_debt_locked 已直接更新 user 对象，无需手动同步
 
     # 仅当实际卖出了仓位或还了债时才更新时间戳 / 写 event；
     # 全部仓位 proceeds<0 而跳过的"卡水下"用户不算真正被强平，
