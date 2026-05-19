@@ -66,6 +66,26 @@ LCV = (C(q) - C(q_after_full_sell)) × (1 - sell_fee_rate)
 | 强平触发线 | LCV | 强平时仍有 buffer，不会"突然资不抵债" |
 | 财富统计 / sweep | LCV | 内部分析保守一致 |
 
+## HALT/RESOLVED 市场的不对称处理
+
+两套口径对非 TRADING 市场的持仓**有意采用不同处理**：
+
+| 口径 | HALT/RESOLVED 持仓 | 理由 |
+|---|---|---|
+| **MTM** | **正常计入**（按瞬时价算） | "账面估值" 不关心能否变现。避免临时 HALT 让用户账面归零、体感像爆仓 |
+| **LCV** | **不计入**（按 0 算） | "立即变现" 真的拿不到。计入会让 margin 被 HALT 资产虚撑，借款页面虚高 collateral |
+
+**典型场景**：用户全押 outcome A，market 进入 HALT
+- Portfolio 顶部"净资产"显示 ≈ 投入额（MTM 不变）→ 用户不慌
+- MarginStatusCard 显示 LCV NW ≈ cash → margin 暂时算"无抵押"，借不到新钱
+- 用户主动 sell 被市场拒（HALT），但**不会被强平**（强平只处理 TRADING 市场）
+- Market 恢复 TRADING 后，两套口径自动恢复一致
+
+**强平动作本身（`liquidation_service.py:73-80`）**：
+- 跳过所有非 TRADING 市场的持仓（保持原状不动）
+- 跟 LCV 过滤一致：不可变现 → 不参与强平
+- 只对 TRADING 持仓执行 sell + 还债
+
 ## 代码入口
 
 后端：
