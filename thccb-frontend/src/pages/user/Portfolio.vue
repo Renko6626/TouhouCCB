@@ -139,10 +139,13 @@ const holdingsColumns: DataTableColumns<Holding> = [
     key: 'unrealized_pnl',
     width: 110,
     render: (row) => {
-      const val = row.unrealized_pnl
+      const mtm = row.unrealized_pnl
+      const lcv = row.unrealized_pnl_liquidation
+      const tooltip = `账面 ${pnlSign(mtm)}金${mtm.toFixed(2)} · 立即变现 ${pnlSign(lcv)}金${lcv.toFixed(2)}`
       return h('span', {
-        style: { color: pnlColor(val), fontWeight: '700', fontVariantNumeric: 'tabular-nums' },
-      }, `${pnlSign(val)}金 ${val.toFixed(2)}`)
+        title: tooltip,
+        style: { color: pnlColor(mtm), fontWeight: '700', fontVariantNumeric: 'tabular-nums' },
+      }, `${pnlSign(mtm)}金 ${mtm.toFixed(2)}`)
     },
   },
   {
@@ -213,10 +216,17 @@ const holdingsByMarketArray = computed(() => {
           <span class="asset-label">持仓市值</span>
           <span class="asset-value">金 {{ userStore.summary.holdings_value.toFixed(2) }}</span>
         </div>
-        <div class="asset-card">
+        <div class="asset-card" title="账面浮盈：按 LMSR 瞬时价 × 持仓数量计（不含全卖滑点）">
           <span class="asset-label">浮动盈亏</span>
           <span class="asset-value" :style="{ color: pnlColor(userStore.summary.unrealized_pnl) }">
             {{ pnlSign(userStore.summary.unrealized_pnl) }}金 {{ userStore.summary.unrealized_pnl.toFixed(2) }}
+          </span>
+          <span
+            v-if="Math.abs(userStore.summary.unrealized_pnl - userStore.summary.unrealized_pnl_liquidation) > 0.01"
+            class="asset-sub"
+            :title="`立即变现浮盈 = 全部卖出可得 - 成本（含 LMSR 滑点 + 扣手续费）`"
+          >
+            立即变现 {{ pnlSign(userStore.summary.unrealized_pnl_liquidation) }}金 {{ userStore.summary.unrealized_pnl_liquidation.toFixed(2) }}
           </span>
         </div>
         <div
@@ -393,6 +403,15 @@ const holdingsByMarketArray = computed(() => {
   color: #000;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+.asset-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: #666;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
 .asset-value-net {

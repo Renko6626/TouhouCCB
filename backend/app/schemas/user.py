@@ -16,8 +16,13 @@ class HoldingRead(BaseModel):
     cost_basis: Money
     avg_price: Price          # cost_basis / amount，真实买入加权均价
     current_price: Price      # LMSR 边际价（再买/再卖第 1 份的瞬时价）
-    market_value: Money       # 全部卖出可获得的 LMSR 清算价值（含滑点，已扣卖出手续费）
-    unrealized_pnl: Money     # market_value - cost_basis（口径自洽，可与"卖出均价"配合）
+    market_value: Money       # 全部卖出可获得的 LMSR 清算价值（LCV，含滑点+扣 sell_fee）
+    # MTM 主显示口径：amount × current_price - cost_basis（账面浮盈，不含滑点）
+    # 与 UserSummary.unrealized_pnl / net_worth 保持同口径，让顶部资产卡 ≡ 表格求和
+    unrealized_pnl: Money
+    # LCV 保守口径：market_value - cost_basis（立即变现浮盈，含滑点+扣 fee）
+    # 与"卖出均价 = market_value / amount"自洽：amount × (sell_avg - avg_price) = unrealized_pnl_liquidation
+    unrealized_pnl_liquidation: Money
 
 
 class UserSummary(BaseModel):
@@ -29,7 +34,8 @@ class UserSummary(BaseModel):
     # 大仓位用户 LCV 通常 < MTM；UI 提示用户两者差距以理解 LMSR 滑点
     holdings_value_liquidation: Money
     total_cost_basis: Money   # 所有持仓总成本
-    unrealized_pnl: Money     # holdings_value (MTM) - total_cost_basis
+    unrealized_pnl: Money     # MTM 主显示：holdings_value (MTM) - total_cost_basis
+    unrealized_pnl_liquidation: Money  # LCV 保守：holdings_value_liquidation - total_cost_basis
     net_worth: Money          # cash - debt + holdings_value (MTM)，显示/排名用
     net_worth_liquidation: Money  # cash - debt + holdings_value_liquidation，margin 用
     rank: str                 # 按 net_worth (MTM) 算

@@ -19,7 +19,8 @@ MTM = Σ (amount × LMSR 边际价)
 **用于**：
 - `/user/summary` 主显示 `holdings_value` / `net_worth`
 - 排行榜 `/market/leaderboard` 排序
-- `unrealized_pnl = holdings_value (MTM) - cost_basis` 未实现盈亏
+- `unrealized_pnl = holdings_value (MTM) - cost_basis` 未实现盈亏（主显示）
+- `/user/holdings` 每行 `unrealized_pnl = amount × current_price - cost_basis`（主显示）
 - 称号 `rank_title()` 计算
 
 ### LCV（Liquidation Value，立即清算价值）
@@ -33,7 +34,9 @@ LCV = (C(q) - C(q_after_full_sell)) × (1 - sell_fee_rate)
 通常 < MTM，差距 ≈ 滑点 + sell_fee。
 
 **用于**：
-- `/user/summary` 副字段 `holdings_value_liquidation` / `net_worth_liquidation`
+- `/user/summary` 副字段 `holdings_value_liquidation` / `net_worth_liquidation` / `unrealized_pnl_liquidation`
+- `/user/holdings` 副字段 `unrealized_pnl_liquidation = market_value - cost_basis`
+  （与"卖出均价 = market_value / amount"自洽）
 - `margin_ratio = net_worth_liquidation / debt` 保证金率判定
 - 借款额度 `max_borrow` 上限（避免过度杠杆）
 - 强平 sweep 触发判定 + 强平动作本身的 proceeds
