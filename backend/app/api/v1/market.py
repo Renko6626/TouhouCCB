@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -43,6 +43,8 @@ from app.services.market_locks import (
     lock_outcomes_for_market as _lock_outcomes_for_market,
     lock_outcome as _lock_outcome,
 )
+from app.services import site_config
+from app.services.anti_bot import verify_client_token, parse_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -408,10 +410,44 @@ async def get_market_detail(
 # 交易接口（登录用户）
 # ==========================================
 
+
+async def verify_anti_bot(
+    request: Request,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> User:
+    """L2 anti-bot 验证 + L3 白名单。
+
+    1. activity_mode_enabled=false → 通过 (默认 / 平时)
+    2. user 在 quant_whitelist_user_ids → 通过 (自己 quant 例外)
+    3. 否则验 HMAC X-Client-Token + X-Client-TS，失败 403
+
+    详见 spec docs/superpowers/specs/2026-05-20-anti-bot-design.md。
+    """
+    if not await site_config.get_bool(db, "activity_mode_enabled"):
+        return user
+
+    try:
+        whitelist_csv = await site_config.get_str(db, "quant_whitelist_user_ids")
+    except Exception:
+        whitelist_csv = ""
+    if user.id in parse_whitelist(whitelist_csv):
+        return user
+
+    token = request.headers.get("X-Client-Token")
+    ts = request.headers.get("X-Client-TS")
+    if not token or not ts:
+        raise HTTPException(403, detail="anti-bot 验证缺失（活动期间禁止脚本访问）")
+
+    if not verify_client_token(token, ts, user.id):
+        raise HTTPException(403, detail="anti-bot 验证失败")
+    return user
+
+
 @router.post("/buy", response_model=TradeResponse, summary="买入胜券")
 async def buy_shares(
     req: TradeRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     shares_d = quantize_cost(req.shares)
@@ -566,7 +602,7 @@ async def buy_shares(
 @router.post("/sell", response_model=TradeResponse, summary="卖出胜券")
 async def sell_shares(
     req: TradeRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     shares_d = quantize_cost(req.shares)
@@ -885,7 +921,7 @@ async def resolve_market(
 @router.post("/quote", response_model=QuoteResponse, summary="下单预估（不真实成交）")
 async def quote_trade(
     req: QuoteRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     # ── 缓存命中 fast path ──

@@ -56,6 +56,10 @@ async def get_bool(session: AsyncSession, key: str) -> bool:
     return (await _get_raw(session, key)).lower() in ("true", "1", "yes")
 
 
+async def get_str(session: AsyncSession, key: str) -> str:
+    return await _get_raw(session, key)
+
+
 async def get_all(session: AsyncSession) -> list[SiteConfig]:
     result = await session.execute(select(SiteConfig).order_by(SiteConfig.key))
     return list(result.scalars().all())
