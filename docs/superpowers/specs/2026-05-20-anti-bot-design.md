@@ -111,7 +111,7 @@ class BotSuspicion(SQLModel, table=True):
 
 白名单走 site_config csv，不用 `is_quant_whitelisted: bool` 列（YAGNI；用户量小，csv 够）。
 
-### Site_config 新 keys（共 8 个）
+### Site_config 新 keys（共 11 个）
 
 | Key | Type | 默认 | 含义 |
 |---|---|---|---|
@@ -123,6 +123,9 @@ class BotSuspicion(SQLModel, table=True):
 | `bot_freq_threshold` | int | `120` | 2h 窗口内 ≥ 120 笔 |
 | `bot_late_night_threshold` | int | `20` | 03-06 时段 ≥ 20 笔 |
 | `bot_interval_stddev_ms_threshold` | int | `100` | 间隔 stddev < 100ms |
+| `bot_fast_follow_trigger_cost` | decimal | `500.0` | "大额交易"门槛（金/笔），≥ 此值算作 trigger event |
+| `bot_fast_follow_latency_ms` | int | `1000` | 跟进延迟阈值，user 在 trigger 后 < 此值下单 → 算一次 fast_follow |
+| `bot_fast_follow_count_threshold` | int | `3` | 窗口内 ≥ 此次数 fast_follow → 触发信号 |
 
 由 `app/services/loan_migrate.py::DEFAULT_CONFIGS` 在启动时种入，`app/api/v1/site_config.py::_WHITELIST` 添加可写白名单。
 
@@ -255,6 +258,12 @@ async def run_bot_detection_once() -> dict:
 - **high_freq**: 窗口内总笔数 ≥ `bot_freq_threshold`
 - **late_night**: 03-06 时段（Asia/Shanghai）笔数 ≥ `bot_late_night_threshold`
 - **regular_interval**: ≥ 3 笔交易 + 相邻间隔的 stddev_ms < `bot_interval_stddev_ms_threshold`（少于 3 笔跳过）
+- **fast_follow**: 检测"大额交易后毫秒级跟进"（bot 特征）
+  1. 找出窗口内所有"trigger 交易"：`abs(cost) ≥ bot_fast_follow_trigger_cost` 且 **trigger 不是当前 user 自己的交易**（自己跟自己不算）
+  2. 对每个 trigger 交易，找当前 user 在该 trigger 之后 `bot_fast_follow_latency_ms` 内同 market_id 的交易（最近一笔）
+  3. 计算这种"跟进事件"次数
+  4. ≥ `bot_fast_follow_count_threshold` 次 → 触发
+  5. 实现：trigger 数组按 timestamp 排序，user 交易也排序，双指针扫
 
 **不重复写**：
 - 检查 `BotSuspicion WHERE user_id=? AND signals like '%<signal>%' AND review_status='pending' AND triggered_at > now - 6h`
@@ -373,6 +382,9 @@ APScheduler `max_instances=1` 防同 job 重叠（跟 loan_sweep / liquidation_s
 - late_night：合成 20 笔 03-06 → 触发
 - regular_interval：stddev < 100ms → 触发；> 100ms → 不触发
 - < 3 笔 → regular_interval skip
+- fast_follow：合成 5 个 trigger 大单 + user 在每个后 500ms 内跟进 → 触发
+- fast_follow 自跟进不算：user 自己的大单后 100ms 自己再交易 → 不触发
+- fast_follow 跨 market：trigger 在 market A，user 在 market B 跟进 → 不算（同 market_id 才算）
 - 白名单 user → 不参与扫描
 - 6h 内同信号重复 → 不重写
 - enabled=false → tick 直接 return 完整 schema（review I-1 教训）
@@ -454,7 +466,7 @@ merge 后 5-10 分钟部署完成。
 
 ## 后续迭代（不在本 spec 范围）
 
-- **新信号**：用户行为分析模型（比如同一 IP 多账号、注册时间集中等）
+- **新信号**：用户行为分析模型（同一 IP 多账号、注册时间集中、price impact 反向跟进）
 - **自动清理**：cron 删 30+ 天 `review_status != 'pending'`
 - **CAPTCHA**：仅在 BotSuspicion 多次触发同 user 时按钮启用
 - **风控分数**：不只 binary signal，给 user 算 bot 嫌疑 score 然后阈值分级
