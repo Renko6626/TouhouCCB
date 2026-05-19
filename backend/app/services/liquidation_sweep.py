@@ -22,32 +22,7 @@ from app.core.database import async_session_maker
 from app.models.base import Market, MarketStatus, Outcome, Position, User
 from app.services import liquidation_service, site_config
 from app.services.market_locks import lock_user
-from app.services.wealth import compute_users_holdings_value
-
-
-async def _user_has_non_trading_holdings(session, user_id: int) -> bool:
-    """检测 user 是否在 HALT/RESOLVED 市场仍有 amount>0 持仓。
-
-    用于"流动性危机保护"守卫：HALT 期间这些持仓的 LCV 估值被算 0，但用户的总
-    资产可能仍健康。盲目按 LCV margin 强平会平掉用户的 TRADING 持仓导致滑点
-    损失 + 失去后续机会（LTCM 1998 经典场景）。
-
-    假设：HALT/RESOLVED 状态由 admin 控制，持续时间短，不存在用户故意持有 HALT
-    持仓豁免强平的滥用空间。
-    """
-    stmt = (
-        select(Position.id)
-        .join(Outcome, Outcome.id == Position.outcome_id)
-        .join(Market, Market.id == Outcome.market_id)
-        .where(
-            Position.user_id == user_id,
-            Position.amount > 0,
-            Market.status != MarketStatus.TRADING,
-        )
-        .limit(1)
-    )
-    result = await session.execute(stmt)
-    return result.scalar() is not None
+from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
 
 
 logger = logging.getLogger("thccb.liquidation_sweep")
@@ -93,8 +68,26 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
             return {"skipped": "no_daily_rate"}
 
     async with async_session_maker() as session:
+        # 阶段 1 预筛：排除"有 HALT 持仓"的用户，避免无谓 lock_user FOR UPDATE。
+        # 这些用户的 LCV margin 可能危险但实际受流动性危机保护（见 user_has_halt_holdings）。
+        # 阶段 2 仍保留同款守卫做 defense-in-depth：防止 market 在阶段 1 → 阶段 2 之间被 halt。
+        from sqlalchemy import exists  # 局部 import 避免污染模块顶层
+        halt_pos_subq = (
+            select(Position.id)
+            .join(Outcome, Outcome.id == Position.outcome_id)
+            .join(Market, Market.id == Outcome.market_id)
+            .where(
+                Position.user_id == User.id,
+                Position.amount > 0,
+                Market.status == MarketStatus.HALT,
+            )
+        )
         ids = (
-            await session.execute(select(User.id).where(User.debt > 0))
+            await session.execute(
+                select(User.id)
+                .where(User.debt > 0)
+                .where(~exists(halt_pos_subq))
+            )
         ).scalars().all()
 
     triggered = 0
@@ -115,13 +108,13 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                     if user.debt <= Decimal("0"):
                         continue
 
-                    # 流动性危机保护：用户在 HALT/RESOLVED 市场有持仓时跳过本轮，
-                    # 等市场恢复 TRADING 后再判定 margin。详见 _user_has_non_trading_holdings
-                    # docstring 和 docs/holdings-value-semantics.md。
-                    if await _user_has_non_trading_holdings(session, uid):
+                    # 阶段 2 守卫（defense-in-depth）：阶段 1 已经预筛掉绝大多数 HALT 用户，
+                    # 这里防 race —— market 在阶段 1 → lock_user 之间被 admin halt。
+                    # 详见 user_has_halt_holdings 和 docs/holdings-value-semantics.md。
+                    if await user_has_halt_holdings(session, uid):
                         logger.info(
                             "sweep_skip_user_with_halt_holdings",
-                            extra={"user_id": uid},
+                            extra={"user_id": uid, "stage": "stage2_race_guard"},
                         )
                         continue
 

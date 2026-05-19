@@ -66,11 +66,11 @@ LCV = (C(q) - C(q_after_full_sell)) × (1 - sell_fee_rate)
 | 强平触发线 | LCV | 强平时仍有 buffer，不会"突然资不抵债" |
 | 财富统计 / sweep | LCV | 内部分析保守一致 |
 
-## HALT/RESOLVED 市场的不对称处理
+## HALT 市场的不对称处理
 
 两套口径对非 TRADING 市场的持仓**有意采用不同处理**：
 
-| 口径 | HALT/RESOLVED 持仓 | 理由 |
+| 口径 | HALT 持仓 | 理由 |
 |---|---|---|
 | **MTM** | **正常计入**（按瞬时价算） | "账面估值" 不关心能否变现。避免临时 HALT 让用户账面归零、体感像爆仓 |
 | **LCV** | **不计入**（按 0 算） | "立即变现" 真的拿不到。计入会让 margin 被 HALT 资产虚撑，借款页面虚高 collateral |
@@ -93,11 +93,14 @@ MTM 可能很大。盲目按 LCV margin 强平 → 用户的 TRADING 持仓被�
 + 失去后续机会，**实际总资产可能仍健康**。这是 LTCM 1998 经典流动性危机：
 资产够，但短期变不了现就被强行平仓。
 
-**守卫**：sweep 阶段 2 lock user 之后，检查 `_user_has_non_trading_holdings`，
-若 user 在任一 HALT/RESOLVED 市场有 `amount > 0` 持仓 → **跳过本轮**，等
-市场恢复 TRADING 后再判定。
+**守卫（双层）**：
+- **阶段 1 预筛**：candidate query 通过 `NOT EXISTS` 子查询排除"有 HALT 持仓"
+  的用户，避免无谓 `lock_user FOR UPDATE` + 跟正常 BUY/SELL 抢锁
+- **阶段 2 守卫**（defense-in-depth）：lock user 之后再调
+  `services.wealth.user_has_halt_holdings`，防止 market 在阶段 1 → 阶段 2 之间
+  被 admin halt 的 race condition
 
-**假设**：HALT/RESOLVED 状态由 admin 控制，持续时间短（小时级）。不存在
+**假设**：HALT 状态由 admin 控制，持续时间短（小时级）。不存在
 用户故意持有 HALT 持仓豁免强平的滥用空间。如果将来 HALT 持续时间变长，
 需重新评估这个守卫是否合理。
 

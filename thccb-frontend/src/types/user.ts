@@ -34,6 +34,8 @@ export interface UserSummary {
   last_liquidated_at: string | null
   margin_hard_threshold: number
   margin_soft_threshold: number
+  /** HALT 市场有持仓 → sweep 跳过强平。前端把 danger 换成 info 保护态 */
+  liquidation_protected: boolean
 }
 
 export interface Holding {

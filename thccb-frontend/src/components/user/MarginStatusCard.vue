@@ -11,7 +11,12 @@ const shouldShow = computed(() => {
 })
 
 const ratio = computed(() => summary.value?.margin_ratio ?? null)
-const status = computed(() => summary.value?.margin_status ?? 'healthy')
+const baseStatus = computed(() => summary.value?.margin_status ?? 'healthy')
+const protectedByHalt = computed(() => summary.value?.liquidation_protected ?? false)
+// HALT 保护优先：danger/warning + HALT 持仓 → 显示保护态而非危险
+const status = computed(() =>
+  protectedByHalt.value && baseStatus.value !== 'healthy' ? 'protected' : baseStatus.value
+)
 const hardThr = computed(() => summary.value?.margin_hard_threshold ?? 0.2)
 const softThr = computed(() => summary.value?.margin_soft_threshold ?? 0.5)
 // net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
@@ -32,6 +37,7 @@ const bufferPct = computed(() => {
 })
 
 const statusLabel = computed(() => {
+  if (status.value === 'protected') return '熔断保护'
   if (status.value === 'danger') return '危险'
   if (status.value === 'warning') return '警戒'
   return '健康'
@@ -134,6 +140,11 @@ function relativeTime(ms: number): string {
   background: #fff8f8;
 }
 
+.margin-status-card.status-protected {
+  border-color: #2563eb;
+  background: #f5f9ff;
+}
+
 .card-header {
   display: flex;
   align-items: baseline;
@@ -176,6 +187,12 @@ function relativeTime(ms: number): string {
   color: #991b1b;
   border-color: #dc2626;
   background: #fee2e2;
+}
+
+.badge-protected {
+  color: #1e3a8a;
+  border-color: #2563eb;
+  background: #dbeafe;
 }
 
 .ratio-row {
@@ -283,6 +300,10 @@ function relativeTime(ms: number): string {
 
 .fill-danger {
   background: #dc2626;
+}
+
+.fill-protected {
+  background: #2563eb;
 }
 
 .buffer-hint {
