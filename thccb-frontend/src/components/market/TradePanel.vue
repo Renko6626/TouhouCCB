@@ -134,6 +134,14 @@ const sellAvgPrice = computed(() => {
 // LCV 浮盈：用于 tooltip 副显示，告诉用户"实际变现你能拿多少"
 const pnlLcv = computed(() => props.userHolding?.unrealized_pnl_liquidation ?? 0)
 
+// 账面市值 (MTM) = amount × current_price，按瞬时价的持仓估值
+// 跟 market_value (LCV) 对照让用户看到滑点损耗
+const holdingMtmValue = computed(() => {
+  const h = props.userHolding
+  if (!h || h.amount <= 0) return null
+  return h.amount * h.current_price
+})
+
 // 整体浮盈方向（用于资产栏第 4 格着色）
 const summaryPnlDirection = computed<'up' | 'down' | 'flat'>(() => {
   const v = userStore.summary?.unrealized_pnl ?? 0
@@ -236,18 +244,33 @@ const actionHint = computed<string>(() => {
 
     <!-- 当前选项的持仓 + 浮盈（仅持有时显示） -->
     <div v-if="hasHolding && props.userHolding" class="holding-box" :class="`holding-box--${pnlDirection}`">
+      <!-- 行 1：我现在有什么（数量 + 瞬时价 + 账面市值 MTM） -->
       <div class="holding-meta">
         <div class="holding-cell">
           <span class="holding-label">持仓</span>
           <span class="holding-value">{{ props.userHolding.amount.toLocaleString() }} 份</span>
         </div>
         <div class="holding-cell">
-          <span class="holding-label">均价</span>
+          <span class="holding-label" title="LMSR 瞬时单价（再买/再卖第 1 份的边际价）">现价</span>
+          <span class="holding-value">金 {{ props.userHolding.current_price.toFixed(4) }}</span>
+        </div>
+        <div class="holding-cell">
+          <span class="holding-label" title="账面市值 = 持仓 × 瞬时价（MTM 口径，不含全卖滑点）">账面市值</span>
+          <span class="holding-value">金 {{ holdingMtmValue !== null ? holdingMtmValue.toFixed(2) : '—' }}</span>
+        </div>
+      </div>
+      <!-- 行 2：买卖对照（买入均价 + 卖出均价，让用户看到滑点） -->
+      <div class="holding-meta">
+        <div class="holding-cell">
+          <span class="holding-label" title="买入加权均价 = 成本 / 持仓数量">买入均价</span>
           <span class="holding-value">金 {{ props.userHolding.avg_price.toFixed(4) }}</span>
         </div>
         <div class="holding-cell">
-          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点）">卖出均价</span>
+          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点 + 扣手续费，跟现价的差额就是滑点损耗）">卖出均价</span>
           <span class="holding-value">金 {{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
+        </div>
+        <div class="holding-cell">
+          <!-- 占位让 grid 对齐；如果想之后塞"滑点 -X" 可以替换 -->
         </div>
       </div>
       <div class="holding-pnl-row">
