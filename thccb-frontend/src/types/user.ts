@@ -19,8 +19,10 @@ export interface UserSummary {
   /** LCV 保守口径：LMSR 清算价值（含滑点 + 扣 sell_fee），用于借款额度/margin 判定 */
   holdings_value_liquidation: number
   total_cost_basis: number
-  /** = holdings_value (MTM) - total_cost_basis */
+  /** MTM 主显示：holdings_value (MTM) - total_cost_basis */
   unrealized_pnl: number
+  /** LCV 保守：holdings_value_liquidation - total_cost_basis */
+  unrealized_pnl_liquidation: number
   /** MTM 主显示：cash - debt + holdings_value */
   net_worth: number
   /** LCV 保守：cash - debt + holdings_value_liquidation，margin 按此算 */
@@ -41,10 +43,14 @@ export interface Holding {
   outcome_label: string
   amount: number
   cost_basis: number
-  avg_price: number
-  current_price: number
-  market_value: number
+  avg_price: number       // cost_basis / amount，买入加权均价
+  current_price: number   // LMSR 边际价
+  market_value: number    // LCV 立即清算价值（含滑点 + 扣 sell_fee）
+  /** MTM 主显示：amount × current_price - cost_basis（账面，不含滑点） */
   unrealized_pnl: number
+  /** LCV 保守：market_value - cost_basis（立即变现，含滑点 + 扣 fee）
+   *  与"卖出均价 = market_value/amount"自洽 */
+  unrealized_pnl_liquidation: number
 }
 
 export interface Transaction {

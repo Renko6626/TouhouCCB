@@ -65,7 +65,8 @@ async def get_user_summary(
     # net_worth (主显示/排名)用 MTM；net_worth_liquidation 用 LCV (margin 用)
     net_worth = user.cash - user.debt + holdings_mtm
     net_worth_lcv = user.cash - user.debt + holdings_lcv
-    unrealized_pnl = holdings_mtm - total_cost_basis
+    unrealized_pnl = holdings_mtm - total_cost_basis        # MTM 主显示
+    unrealized_pnl_lcv = holdings_lcv - total_cost_basis    # LCV 保守口径
     rank = rank_title(net_worth)
 
     # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
@@ -93,6 +94,7 @@ async def get_user_summary(
         "holdings_value_liquidation": holdings_lcv.quantize(Decimal("0.01")),
         "total_cost_basis": total_cost_basis.quantize(Decimal("0.01")),
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
+        "unrealized_pnl_liquidation": unrealized_pnl_lcv.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
         "net_worth_liquidation": net_worth_lcv.quantize(Decimal("0.01")),
         "rank": rank,
@@ -155,6 +157,11 @@ async def get_my_holdings(
 
         avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
+        # 双口径浮盈：MTM 主（账面）+ LCV 副（立即变现），跟 /user/summary 同款双口径策略
+        mtm_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
+        unrealized_pnl_mtm = mtm_value - pos.cost_basis
+        unrealized_pnl_lcv = market_value - pos.cost_basis
+
         results.append(
             HoldingRead(
                 outcome_id=pos.outcome_id,
@@ -166,7 +173,8 @@ async def get_my_holdings(
                 avg_price=avg_price,
                 current_price=price_d,
                 market_value=market_value.quantize(Decimal("0.01")),
-                unrealized_pnl=(market_value - pos.cost_basis).quantize(Decimal("0.01")),
+                unrealized_pnl=unrealized_pnl_mtm.quantize(Decimal("0.01")),
+                unrealized_pnl_liquidation=unrealized_pnl_lcv.quantize(Decimal("0.01")),
             )
         )
     return results
