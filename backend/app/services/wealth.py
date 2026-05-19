@@ -1,10 +1,22 @@
-"""持仓估值与净值统一口径。
+"""持仓估值的两套口径。
 
-`compute_users_holdings_value` 批量计算指定用户的持仓 LMSR 清算价值（含滑点 +
-扣卖出 fee），与 /user/summary 同口径。给 /market/leaderboard、/admin/wealth
-等批量场景共用，避免口径分裂。
+本项目对"持仓估值"有两种语义，对应不同场景：
 
-不进 buy/sell hot path；调用方一般是榜单/统计接口。
+- **LCV** (Liquidation Value, "立即清算价值")：`compute_users_holdings_value`
+  按 LMSR cost diff 算「全部卖出能拿到多少」，含滑点 + 扣卖出 fee。**保守**。
+  用于：强平判定、margin 计算、借款额度上限、内部分析（/admin/wealth）。
+  保守倾向，避免用户用大仓位的"虚高估值"过度杠杆然后突然爆仓。
+
+- **MTM** (Mark-to-Market, "账面瞬时估值")：`compute_users_holdings_value_mtm`
+  按瞬时价 × 数量算（LMSR 边际价 × position.amount），**不含滑点不扣 fee**。
+  直观，符合用户对"我有多少钱"的认知。
+  用于：/user/summary 主显示、排行榜排序、UI 显示净值。
+
+两者对大持仓用户差距可达 20%+（LMSR `b=100` 量级时单笔滑点 10% 量级）。
+**必须分场景使用**，不能交叉，否则会出现"借款看到 NW=500、Portfolio 看到 350"的
+分裂体感。详见 docs/holdings-value-semantics.md。
+
+不进 buy/sell hot path；调用方一般是榜单/统计/估值接口。
 """
 from __future__ import annotations
 
@@ -16,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.base import Market, Outcome, Position
-from app.services.lmsr import calculate_lmsr_cost, quantize_cost
+from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -113,5 +125,77 @@ async def compute_users_holdings_value(
             new_cost = calculate_lmsr_cost(after_sell, b)
             gross = quantize_cost(old_cost - new_cost)
             total += quantize_cost(gross * fee_factor)
+        result[uid] = total
+    return result
+
+
+async def compute_users_holdings_value_mtm(
+    db: AsyncSession,
+    user_ids: Optional[Iterable[int]] = None,
+) -> Dict[int, Decimal]:
+    """返回 {user_id: 持仓 MTM 价值} = Σ(amount × LMSR 边际价)。
+
+    MTM (mark-to-market)：按当前 LMSR 边际价乘持仓数量算账面估值。
+    **不含滑点、不扣手续费**，等价于"假设按当前瞬时价交易小量股"。
+    通常 > LCV，差距 ≈ 滑点 + sell_fee。
+
+    用于：/user/summary 主显示、排行榜排序、unrealized_pnl 计算。
+    **不要用于强平/借款额度判定**——那些场景必须用 compute_users_holdings_value (LCV)
+    才能保证保守安全。
+
+    实现参考已废弃的 loan.py:_holdings_value，但批量化避免 N+1 query。
+    """
+    user_ids_list: Optional[List[int]] = None
+    if user_ids is not None:
+        user_ids_list = list(user_ids)
+        if not user_ids_list:
+            return {}
+
+    pos_stmt = (
+        select(Position)
+        .where(Position.amount > 0)
+        .options(selectinload(Position.outcome).selectinload(Outcome.market))
+    )
+    if user_ids_list is not None:
+        pos_stmt = pos_stmt.where(Position.user_id.in_(user_ids_list))
+
+    positions: List[Position] = (await db.execute(pos_stmt)).scalars().all()
+    if not positions:
+        return {}
+
+    positions_by_user: Dict[int, List[Position]] = {}
+    for p in positions:
+        positions_by_user.setdefault(p.user_id, []).append(p)
+
+    market_ids = {p.outcome.market_id for p in positions}
+    outcomes_by_market: Dict[int, List[Outcome]] = {}
+    if market_ids:
+        all_outcomes = (await db.execute(
+            select(Outcome)
+            .where(Outcome.market_id.in_(market_ids))
+            .order_by(Outcome.market_id, Outcome.id)
+        )).scalars().all()
+        for o in all_outcomes:
+            outcomes_by_market.setdefault(o.market_id, []).append(o)
+
+    result: Dict[int, Decimal] = {}
+    for uid, user_positions in positions_by_user.items():
+        total = ZERO
+        for pos in user_positions:
+            market: Market = pos.outcome.market
+            ctx_outcomes = outcomes_by_market.get(market.id, [])
+            if not ctx_outcomes:
+                continue
+            idx = next(
+                (i for i, o in enumerate(ctx_outcomes) if o.id == pos.outcome_id),
+                None,
+            )
+            if idx is None:
+                continue
+            b = float(market.liquidity_b)
+            shares_list = [float(o.total_shares) for o in ctx_outcomes]
+            price = Decimal(str(get_current_price(shares_list, idx, b)))
+            mtm = (pos.amount * price).quantize(Decimal("0.000001"))
+            total += mtm
         result[uid] = total
     return result

@@ -21,7 +21,7 @@ from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
@@ -53,13 +53,19 @@ async def get_user_summary(
     for pos in positions:
         total_cost_basis += pos.cost_basis
 
-    # 持仓清算价值：LMSR 卖出 gross × (1 - SELL_FEE_RATE)，与 sweep/leaderboard 同口径
-    holdings_value = (
+    # 双口径估值：MTM (主显示) + LCV (强平/借款保守口径)
+    # 详见 docs/holdings-value-semantics.md
+    holdings_mtm = (
+        await compute_users_holdings_value_mtm(db, user_ids=[user.id])
+    ).get(user.id, ZERO)
+    holdings_lcv = (
         await compute_users_holdings_value(db, user_ids=[user.id])
     ).get(user.id, ZERO)
 
-    net_worth = user.cash - user.debt + holdings_value
-    unrealized_pnl = holdings_value - total_cost_basis
+    # net_worth (主显示/排名)用 MTM；net_worth_liquidation 用 LCV (margin 用)
+    net_worth = user.cash - user.debt + holdings_mtm
+    net_worth_lcv = user.cash - user.debt + holdings_lcv
+    unrealized_pnl = holdings_mtm - total_cost_basis
     rank = rank_title(net_worth)
 
     # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
@@ -70,11 +76,11 @@ async def get_user_summary(
     except Exception:
         hard, soft = Decimal("0.2"), Decimal("0.5")
 
-    # Margin classification
+    # Margin classification — 用保守 LCV 口径，避免大仓位用户被 MTM 估值误导成"安全"
     margin_ratio = None
     margin_status = "healthy"
     if user.debt > ZERO:
-        margin_ratio = (net_worth / user.debt).quantize(Decimal("0.000001"))
+        margin_ratio = (net_worth_lcv / user.debt).quantize(Decimal("0.000001"))
         if margin_ratio < hard:
             margin_status = "danger"
         elif margin_ratio < soft:
@@ -83,10 +89,12 @@ async def get_user_summary(
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
-        "holdings_value": holdings_value.quantize(Decimal("0.01")),
+        "holdings_value": holdings_mtm.quantize(Decimal("0.01")),
+        "holdings_value_liquidation": holdings_lcv.quantize(Decimal("0.01")),
         "total_cost_basis": total_cost_basis.quantize(Decimal("0.01")),
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
+        "net_worth_liquidation": net_worth_lcv.quantize(Decimal("0.01")),
         "rank": rank,
         "margin_ratio": margin_ratio,
         "margin_status": margin_status,
