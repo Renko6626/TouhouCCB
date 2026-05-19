@@ -40,11 +40,16 @@ class UserSummary(BaseModel):
     net_worth_liquidation: Money  # cash - debt + holdings_value_liquidation，margin 用
     rank: str                 # 按 net_worth (MTM) 算
     # margin 按 net_worth_liquidation / debt 算，比 MTM 更保守
-    margin_ratio: Optional[Decimal] = None
+    # 用 Optional[Money] / Money 确保 JSON 序列化为 number 而非 string
+    # （之前用 raw Optional[Decimal] / Decimal，pydantic v2 默认序列化 Decimal
+    # 为 JSON string，前端 TS 类型标 number 实际拿到 string → MarginCallBanner
+    # 内 ratio.toFixed() / hardThr.toFixed() 在大持仓 + 借款 + LCV 负净值场景
+    # 触发 "TypeError: a.toFixed is not a function"）
+    margin_ratio: Optional[Money] = None
     margin_status: str = "healthy"
     last_liquidated_at: Optional[datetime] = None
-    margin_hard_threshold: Decimal = Decimal("0.2")
-    margin_soft_threshold: Decimal = Decimal("0.5")
+    margin_hard_threshold: Money = Decimal("0.2")
+    margin_soft_threshold: Money = Decimal("0.5")
     # 用户在 HALT 市场有持仓 → sweep 会跳过强平。前端把 danger banner 换成 info 状态。
     liquidation_protected: bool = False
 
