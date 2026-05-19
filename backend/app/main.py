@@ -20,6 +20,10 @@ from app.services.liquidation_sweep import (
     start_scheduler as start_liquidation_scheduler,
     stop_scheduler as stop_liquidation_scheduler,
 )
+from app.services.bot_detection import (
+    start_scheduler as start_bot_detection_scheduler,
+    stop_scheduler as stop_bot_detection_scheduler,
+)
 from app.services.loan_migrate import auto_migrate
 
 from dotenv import load_dotenv
@@ -68,9 +72,11 @@ async def lifespan(app: FastAPI):
         logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
     await start_loan_scheduler()
     await start_liquidation_scheduler()
+    await start_bot_detection_scheduler()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
-    # 启动顺序 loan 先 liquidation 后，停止时反序
+    # 启动顺序 loan → liquidation → bot_detection，停止时反序
+    await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()
     await engine.dispose()

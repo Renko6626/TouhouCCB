@@ -35,11 +35,12 @@ from app.services.site_config import clear_cache
 
 @pytest.fixture(scope="session", autouse=True)
 def _disable_scheduler():
-    """禁用 APScheduler：loan_sweep + liquidation_sweep 都 no-op。
+    """禁用 APScheduler：loan_sweep + liquidation_sweep + bot_detection 都 no-op。
 
     main.py 通过别名导入：
     - start_loan_scheduler / stop_loan_scheduler
     - start_liquidation_scheduler / stop_liquidation_scheduler
+    - start_bot_detection_scheduler / stop_bot_detection_scheduler
     所以要 patch 这些绑定在 app.main 命名空间的本地名，patch 原始模块无效。
     """
     async def _noop():
@@ -50,6 +51,8 @@ def _disable_scheduler():
         patch("app.main.stop_loan_scheduler", _noop),
         patch("app.main.start_liquidation_scheduler", _noop),
         patch("app.main.stop_liquidation_scheduler", _noop),
+        patch("app.main.start_bot_detection_scheduler", _noop),
+        patch("app.main.stop_bot_detection_scheduler", _noop),
     ):
         yield
 

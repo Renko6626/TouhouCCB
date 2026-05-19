@@ -16,8 +16,9 @@ import statistics
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Optional
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -306,3 +307,57 @@ async def run_bot_detection_once() -> dict:
     }
     _logger.info("bot_detection_done", extra=result)
     return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scheduler lifecycle (Task 12)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_scheduler: Optional[AsyncIOScheduler] = None
+_JOB_ID = "bot_detection_tick"
+
+
+async def _tick_safe():
+    try:
+        await run_bot_detection_once()
+    except Exception:
+        _logger.exception("bot_detection_tick_failed")
+
+
+async def start_scheduler() -> None:
+    """FastAPI lifespan 调。从 site_config 读 interval 启动 scheduler。"""
+    global _scheduler
+    if _scheduler is not None:
+        return
+    from app.core.database import async_session_maker
+    from app.services import site_config
+    async with async_session_maker() as db:
+        try:
+            interval = await site_config.get_int(db, "bot_detection_interval_sec")
+        except Exception:
+            interval = 1800
+    interval = max(60, min(7200, interval))
+    _scheduler = AsyncIOScheduler(timezone="UTC")
+    _scheduler.add_job(
+        _tick_safe, "interval", seconds=interval,
+        id=_JOB_ID, max_instances=1,
+    )
+    _scheduler.start()
+    _logger.info("bot_detection_scheduler_started", extra={"interval_sec": interval})
+
+
+async def stop_scheduler() -> None:
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+
+
+async def reschedule(interval_sec: int) -> None:
+    """管理员改 site_config 后调，热调度。"""
+    global _scheduler
+    if _scheduler is None:
+        return
+    interval = max(60, min(7200, interval_sec))
+    _scheduler.reschedule_job(_JOB_ID, trigger="interval", seconds=interval)
+    _logger.info("bot_detection_scheduler_rescheduled", extra={"interval_sec": interval})
