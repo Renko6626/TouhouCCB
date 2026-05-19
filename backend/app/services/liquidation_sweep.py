@@ -19,10 +19,35 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
 from app.core.database import async_session_maker
-from app.models.base import User
+from app.models.base import Market, MarketStatus, Outcome, Position, User
 from app.services import liquidation_service, site_config
 from app.services.market_locks import lock_user
 from app.services.wealth import compute_users_holdings_value
+
+
+async def _user_has_non_trading_holdings(session, user_id: int) -> bool:
+    """检测 user 是否在 HALT/RESOLVED 市场仍有 amount>0 持仓。
+
+    用于"流动性危机保护"守卫：HALT 期间这些持仓的 LCV 估值被算 0，但用户的总
+    资产可能仍健康。盲目按 LCV margin 强平会平掉用户的 TRADING 持仓导致滑点
+    损失 + 失去后续机会（LTCM 1998 经典场景）。
+
+    假设：HALT/RESOLVED 状态由 admin 控制，持续时间短，不存在用户故意持有 HALT
+    持仓豁免强平的滥用空间。
+    """
+    stmt = (
+        select(Position.id)
+        .join(Outcome, Outcome.id == Position.outcome_id)
+        .join(Market, Market.id == Outcome.market_id)
+        .where(
+            Position.user_id == user_id,
+            Position.amount > 0,
+            Market.status != MarketStatus.TRADING,
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar() is not None
 
 
 logger = logging.getLogger("thccb.liquidation_sweep")
@@ -88,6 +113,16 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                 async with session.begin():
                     user = await lock_user(session, uid)
                     if user.debt <= Decimal("0"):
+                        continue
+
+                    # 流动性危机保护：用户在 HALT/RESOLVED 市场有持仓时跳过本轮，
+                    # 等市场恢复 TRADING 后再判定 margin。详见 _user_has_non_trading_holdings
+                    # docstring 和 docs/holdings-value-semantics.md。
+                    if await _user_has_non_trading_holdings(session, uid):
+                        logger.info(
+                            "sweep_skip_user_with_halt_holdings",
+                            extra={"user_id": uid},
+                        )
                         continue
 
                     hv = (

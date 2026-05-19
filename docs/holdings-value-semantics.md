@@ -86,6 +86,23 @@ LCV = (C(q) - C(q_after_full_sell)) × (1 - sell_fee_rate)
 - 跟 LCV 过滤一致：不可变现 → 不参与强平
 - 只对 TRADING 持仓执行 sell + 还债
 
+### 流动性危机保护 (`liquidation_sweep.py`)
+
+**问题**：用户混合持有 TRADING + HALT 市场仓位时，HALT 部分 LCV 算 0 但
+MTM 可能很大。盲目按 LCV margin 强平 → 用户的 TRADING 持仓被卖光，损失滑点
++ 失去后续机会，**实际总资产可能仍健康**。这是 LTCM 1998 经典流动性危机：
+资产够，但短期变不了现就被强行平仓。
+
+**守卫**：sweep 阶段 2 lock user 之后，检查 `_user_has_non_trading_holdings`，
+若 user 在任一 HALT/RESOLVED 市场有 `amount > 0` 持仓 → **跳过本轮**，等
+市场恢复 TRADING 后再判定。
+
+**假设**：HALT/RESOLVED 状态由 admin 控制，持续时间短（小时级）。不存在
+用户故意持有 HALT 持仓豁免强平的滥用空间。如果将来 HALT 持续时间变长，
+需重新评估这个守卫是否合理。
+
+**对照测**：`test_sweep_skips_user_with_halt_holdings` + `test_sweep_triggers_user_with_only_trading_holdings`
+
 ## 代码入口
 
 后端：
