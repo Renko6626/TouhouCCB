@@ -27,7 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.base import Market, Outcome, Position
+from app.models.base import Market, MarketStatus, Outcome, Position
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost
 
 ZERO = Decimal("0")
@@ -108,6 +108,11 @@ async def compute_users_holdings_value(
         total = ZERO
         for pos in user_positions:
             market: Market = pos.outcome.market
+            # 只算可交易市场的持仓：HALT/RESOLVED 市场的份额无法立即变现，
+            # 不应计入抵押估值/margin。这与 liquidation_service.py 的"跳过非
+            # TRADING 市场"约定一致，避免 fake collateral 风险。
+            if market.status != MarketStatus.TRADING:
+                continue
             ctx_outcomes = outcomes_by_market.get(market.id, [])
             if not ctx_outcomes:
                 continue
@@ -183,6 +188,10 @@ async def compute_users_holdings_value_mtm(
         total = ZERO
         for pos in user_positions:
             market: Market = pos.outcome.market
+            # 只算可交易市场的持仓（同 LCV 函数）：HALT/RESOLVED 市场无法立即变现，
+            # 不应计入估值。详见 LCV 函数处的同款注释。
+            if market.status != MarketStatus.TRADING:
+                continue
             ctx_outcomes = outcomes_by_market.get(market.id, [])
             if not ctx_outcomes:
                 continue
