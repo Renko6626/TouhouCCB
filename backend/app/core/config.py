@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # 在 danmuku 侧验签失败（用户已收到的旧码会失效，所以避免频繁轮换）。
     DANMUKU_SECRET_KEY: str = Field(default="114514")
 
+    # Anti-bot HMAC SECRET (spec docs/superpowers/specs/2026-05-20-anti-bot-design.md)
+    # 后端验证 X-Client-Token 用；activity_mode_enabled=false 时不验，留空也可
+    # 生产 .env 设 32-byte random hex；前端 vite build 注入 VITE_CLIENT_TOKEN_SECRET
+    CLIENT_TOKEN_SECRET: str = Field(default="")
+
     # Casdoor SSO（通过 .well-known/openid-configuration 自动发现）
     CASDOOR_ENDPOINT: str = ""            # e.g. https://auth.example.com
     CASDOOR_CLIENT_ID: str = ""
