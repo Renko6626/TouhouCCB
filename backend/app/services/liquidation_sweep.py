@@ -77,10 +77,14 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
             logger.exception("liquidation_sweep_config_parse_failed")
             return {"skipped": "config_parse_failed"}
 
+    # ===== 阶段 1：read-only 批量算 margin，零锁 =====
+    # 用一个 session 跑完所有候选用户的预筛 + holdings_value 批量计算，
+    # 期间不持有任何 FOR UPDATE 锁，对 BUY/SELL 零阻塞。
+    now = time.monotonic()
+    over_hard: list[int] = []
+    over_soft: list[tuple[int, Decimal]] = []
     async with async_session_maker() as session:
-        # 阶段 1 预筛：排除"有 HALT 持仓"的用户，避免无谓 lock_user FOR UPDATE。
-        # 这些用户的 LCV margin 可能危险但实际受流动性危机保护（见 user_has_halt_holdings）。
-        # 阶段 2 仍保留同款守卫做 defense-in-depth：防止 market 在阶段 1 → 阶段 2 之间被 halt。
+        # 候选用户预筛：debt>0 且没有 HALT 持仓（流动性危机保护）
         from sqlalchemy import exists  # 局部 import 避免污染模块顶层
         halt_pos_subq = (
             select(Position.id)
@@ -92,25 +96,62 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                 Market.status == MarketStatus.HALT,
             )
         )
-        ids = (
+        candidate_rows = (
             await session.execute(
-                select(User.id)
+                select(User.id, User.cash, User.debt)
                 .where(User.debt > 0)
                 .where(~exists(halt_pos_subq))
             )
-        ).scalars().all()
+        ).all()
+
+        if not candidate_rows:
+            duration_ms = int((time.monotonic() - start_ts) * 1000)
+            return {
+                "triggered_count": 0, "soft_warning_count": 0,
+                "errors": 0, "deadlocks": 0,
+                "sweep_duration_ms": duration_ms,
+            }
+
+        # 过滤掉 cooldown 内的用户，剩余的批量算 holdings_value
+        active_rows = [
+            r for r in candidate_rows
+            if _recently_attempted.get(r.id, 0.0) + _STUCK_COOLDOWN_SEC <= now
+        ]
+        active_uids = [r.id for r in active_rows]
+
+        # 关键：一次批量算所有候选用户的 LCV holdings（之前是 N 个独立 query × N 用户）
+        hvs = await compute_users_holdings_value(session, user_ids=active_uids)
+
+        # Python 端筛 over_hard / over_soft
+        for r in active_rows:
+            hv = hvs.get(r.id, Decimal("0"))
+            nw = r.cash - r.debt + hv
+            margin = nw / r.debt
+            if margin < hard_thr:
+                over_hard.append(r.id)
+            elif margin < soft_thr:
+                over_soft.append((r.id, margin))
+
+    # 软阈值仅 log warning，不需要加锁
+    for uid, margin in over_soft:
+        logger.warning(
+            "margin_call_soft_threshold",
+            extra={
+                "user_id": uid,
+                "margin_ratio": float(margin),
+                "soft_threshold": float(soft_thr),
+            },
+        )
 
     triggered = 0
-    warned = 0
+    warned = len(over_soft)
     errors = 0
     deadlocks = 0
-    now = time.monotonic()
 
-    for uid in ids:
-        last_attempt = _recently_attempted.get(uid, 0.0)
-        if last_attempt + _STUCK_COOLDOWN_SEC > now:
-            continue
-
+    # ===== 阶段 2：仅越线用户 lock + 重算 margin + 强平 =====
+    # 重算 margin 防 stale read：阶段 1 read 到的 user state 可能在 read → lock 之间
+    # 被并发交易/还债改了，如果实际已恢复 healthy 就放过。
+    for uid in over_hard:
         try:
             async with async_session_maker() as session:
                 async with session.begin():
@@ -118,9 +159,8 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                     if user.debt <= Decimal("0"):
                         continue
 
-                    # 阶段 2 守卫（defense-in-depth）：阶段 1 已经预筛掉绝大多数 HALT 用户，
-                    # 这里防 race —— market 在阶段 1 → lock_user 之间被 admin halt。
-                    # 详见 user_has_halt_holdings 和 docs/holdings-value-semantics.md。
+                    # 阶段 2 HALT 守卫（defense-in-depth）：阶段 1 已预筛，
+                    # 这里防 race —— market 在 read → lock 之间被 admin halt。
                     if await user_has_halt_holdings(session, uid):
                         logger.info(
                             "sweep_skip_user_with_halt_holdings",
@@ -128,33 +168,31 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                         )
                         continue
 
-                    hv = (
+                    # 重算 margin —— lock 后值才稳定
+                    hv_now = (
                         await compute_users_holdings_value(
                             session, user_ids=[uid]
                         )
                     ).get(uid, Decimal("0"))
-                    nw = user.cash - user.debt + hv
-                    margin = nw / user.debt
-
-                    if margin < hard_thr:
-                        ev = await liquidation_service.liquidate_user(
-                            session, user, daily_rate=rate,
-                            trigger_source=trigger_source,
-                        )
-                        triggered += 1
-                        if (ev.sold_positions_count == 0
-                                and ev.repaid_amount == 0):
-                            _recently_attempted[uid] = now
-                    elif margin < soft_thr:
-                        warned += 1
-                        logger.warning(
-                            "margin_call_soft_threshold",
+                    margin_now = (user.cash - user.debt + hv_now) / user.debt
+                    if margin_now >= hard_thr:
+                        logger.info(
+                            "sweep_skip_recovered",
                             extra={
                                 "user_id": uid,
-                                "margin_ratio": float(margin),
-                                "soft_threshold": float(soft_thr),
+                                "margin_now": float(margin_now),
                             },
                         )
+                        continue  # 已恢复，放过
+
+                    ev = await liquidation_service.liquidate_user(
+                        session, user, daily_rate=rate,
+                        trigger_source=trigger_source,
+                    )
+                    triggered += 1
+                    if (ev.sold_positions_count == 0
+                            and ev.repaid_amount == 0):
+                        _recently_attempted[uid] = now
         except DBAPIError as e:
             if _is_deadlock_error(e):
                 deadlocks += 1
