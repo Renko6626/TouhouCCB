@@ -283,3 +283,23 @@ class LiquidationEvent(SQLModel, table=True):
     post_cash: Decimal = Field(sa_type=Numeric(16, 6))
 
     trigger_source: str  # "scheduler" | "admin_manual"
+
+
+class BotSuspicion(SQLModel, table=True):
+    __tablename__ = "bot_suspicion"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    triggered_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+        index=True,
+    )
+    signals: str = Field(max_length=200)
+    metrics: str = Field(max_length=500, default="{}")
+    window_start: datetime = Field(sa_type=DateTime(timezone=True))
+    window_end: datetime = Field(sa_type=DateTime(timezone=True))
+    review_status: str = Field(default="pending", max_length=20)
+    reviewed_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    reviewed_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    review_note: Optional[str] = Field(default=None, max_length=500)
