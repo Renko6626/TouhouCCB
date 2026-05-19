@@ -62,16 +62,19 @@ async def get_user_summary(
     unrealized_pnl = holdings_value - total_cost_basis
     rank = rank_title(net_worth)
 
+    # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
+    # site_config 缺失时 fallback 默认值，跟 sweep / liquidate 用同一套约定
+    try:
+        hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
+        soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
+    except Exception:
+        hard, soft = Decimal("0.2"), Decimal("0.5")
+
     # Margin classification
     margin_ratio = None
     margin_status = "healthy"
     if user.debt > ZERO:
         margin_ratio = (net_worth / user.debt).quantize(Decimal("0.000001"))
-        try:
-            hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
-            soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
-        except Exception:
-            hard, soft = Decimal("0.2"), Decimal("0.5")
         if margin_ratio < hard:
             margin_status = "danger"
         elif margin_ratio < soft:
@@ -88,6 +91,8 @@ async def get_user_summary(
         "margin_ratio": margin_ratio,
         "margin_status": margin_status,
         "last_liquidated_at": user.last_liquidated_at,
+        "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
+        "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
     }
 
 
