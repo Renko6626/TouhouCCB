@@ -9,38 +9,26 @@ from sqlmodel import select
 
 from app.core.database import get_async_session
 from app.core.users import current_active_user
-from app.models.base import User, Position, Outcome, Market, MarketStatus, LiquidationEvent
+from app.models.base import User, LiquidationEvent
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
-from app.services.lmsr import get_current_price
+from app.services.wealth import compute_users_holdings_value
 
 router = APIRouter()
 logger = logging.getLogger("thccb.loan")
 
 
 async def _holdings_value(db: AsyncSession, user_id: int) -> Decimal:
-    """用 LMSR 瞬时价估算持仓价值（TRADING 状态的市场）。"""
-    pos_result = await db.execute(select(Position).where(Position.user_id == user_id))
-    positions = list(pos_result.scalars().all())
-    total = Decimal("0")
-    for p in positions:
-        if p.amount <= 0:
-            continue
-        o = await db.get(Outcome, p.outcome_id)
-        if not o:
-            continue
-        m = await db.get(Market, o.market_id)
-        if not m or m.status != MarketStatus.TRADING:
-            continue
-        outs_result = await db.execute(select(Outcome).where(Outcome.market_id == m.id))
-        outs = list(outs_result.scalars().all())
-        idx = next((i for i, x in enumerate(outs) if x.id == o.id), None)
-        if idx is None:
-            continue
-        shares = [float(x.total_shares) for x in outs]
-        price = Decimal(str(get_current_price(shares, idx, m.liquidity_b)))
-        total += (p.amount * price).quantize(Decimal("0.000001"))
-    return total
+    """借款相关接口的持仓估值 —— 用 LCV (立即清算价值) 保守口径。
+
+    历史上这里用 MTM (瞬时价 × 数量)，导致借款页 NW 偏高、Portfolio NW 偏低的
+    分裂体感。统一改 LCV 后：借款额度更保守（按可变现金额算 max_borrow），
+    避免用户被 MTM 高估值"骗"出超出真实清算能力的杠杆。详见
+    docs/holdings-value-semantics.md。
+    """
+    return (
+        await compute_users_holdings_value(db, user_ids=[user_id])
+    ).get(user_id, Decimal("0"))
 
 
 @router.get("/quota", response_model=LoanQuotaResponse)

@@ -142,4 +142,73 @@ async def test_sweep_reports_sweep_duration_ms(client):
     await _enable_liquidation()
     result = await liquidation_sweep.run_liquidation_sweep_once()
     assert "sweep_duration_ms" in result
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_user_with_halt_holdings(client):
+    """流动性危机保护：用户在 HALT 市场有持仓时，即使 LCV margin 危险也跳过。
+
+    场景：用户同时持有 TRADING 市场（LCV 算入）和 HALT 市场（LCV=0）的仓位。
+    LCV margin 看起来危险 → 但 HALT 持仓可能价值高，市场恢复后用户其实健康。
+    sweep 应保守跳过本轮，等市场恢复 TRADING 后再判定。
+    """
+    await _enable_liquidation()
+
+    async with async_session_maker() as db:
+        # 造一个 user，cash=0 debt=500，只有 HALT 市场持仓
+        u = User(
+            username="halt_protected", casdoor_id="cas_halt",
+            cash=Decimal("0"), debt=Decimal("500"),
+            debt_last_accrued_at=datetime.now(timezone.utc),
+        )
+        db.add(u)
+        await db.flush()
+
+        m = Market(
+            title="m_halt", description="", liquidity_b=100.0,
+            status=MarketStatus.HALT, tags="",
+        )
+        db.add(m)
+        await db.flush()
+        o = Outcome(market_id=m.id, label="A", total_shares=Decimal("100"))
+        db.add(o)
+        await db.flush()
+        p = Position(
+            user_id=u.id, outcome_id=o.id,
+            amount=Decimal("100"), cost_basis=Decimal("80"),
+        )
+        db.add(p)
+        await db.commit()
+        uid = u.id
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+
+    # 应跳过：triggered_count=0、不写 LiquidationEvent
+    assert result["triggered_count"] == 0, (
+        f"HALT 持仓用户应被守卫跳过，但被强平了: {result}"
+    )
+    async with async_session_maker() as db:
+        events = (await db.execute(
+            select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
+        )).scalars().all()
+        assert len(events) == 0, "HALT 守卫触发时不应写 LiquidationEvent"
+
+
+@pytest.mark.asyncio
+async def test_sweep_triggers_user_with_only_trading_holdings(client):
+    """对照测试：只有 TRADING 持仓的用户 margin 危险时仍正常强平。
+
+    确认 HALT 守卫只豁免有 HALT 持仓的用户，不影响正常强平路径。
+    """
+    await _enable_liquidation()
+
+    async with async_session_maker() as db:
+        uid = await _seed_user(
+            db, cash=0, debt=500, hv_via_position=("A", 50),
+        )
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result["triggered_count"] == 1, (
+        f"纯 TRADING 持仓用户应被正常强平，但被跳过了: {result}"
+    )
     assert isinstance(result["sweep_duration_ms"], int)

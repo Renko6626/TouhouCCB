@@ -35,7 +35,7 @@ from app.services.lmsr import (
     quantize_cost,
     quantize_price,
 )
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
 from app.services.candle_writer import compute_candle_rows, upsert_candles
 from app.services.market_locks import (
     lock_market as _lock_market,
@@ -1028,15 +1028,15 @@ async def leaderboard(
     db: AsyncSession = Depends(get_async_session),
 ):
     if mode == "net_worth":
-        # 与 /user/summary、/admin/wealth 同口径：net_worth = cash - debt + 持仓 LMSR 清算价
-        # 数据库无法直接 ORDER BY 持仓估值（需 LMSR 全市场上下文），应用层算完再排。
+        # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
+        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观，
+        # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
         users = (await db.execute(select(User))).scalars().all()
         if not users:
             return []
-        holdings = await compute_users_holdings_value(
+        holdings = await compute_users_holdings_value_mtm(
             db,
             user_ids=[u.id for u in users],
-            sell_fee_rate=SELL_FEE_RATE,
         )
         scored = [
             (u, u.cash - u.debt + holdings.get(u.id, ZERO))

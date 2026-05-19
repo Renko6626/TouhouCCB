@@ -121,13 +121,18 @@ const pnlPercent = computed(() => {
   return (h.unrealized_pnl / h.cost_basis) * 100
 })
 
-// 卖出均价：amount × 卖出均价 = market_value（含 LMSR 滑点的真实可得每份均价）
-// 与"均价 (cost_basis/amount)"配合使用，使 amount × (卖出均价 - 均价) ≡ 浮盈
+// 卖出均价 = market_value / amount，即"全部卖出可得的平均每份价格（含 LMSR 滑点 + 扣 sell_fee）"
+// 注意：和"均价 (cost_basis/amount)"配合，amount × (卖出均价 - 均价) ≡ unrealized_pnl_liquidation
+// 而 holding box 显示的"浮盈"现在是 MTM 口径（与顶部资产栏统一），所以这两个数不直接相等。
+// MTM 浮盈 用 current_price（瞬时价）算；LCV 浮盈 用 market_value（含滑点）算。
 const sellAvgPrice = computed(() => {
   const h = props.userHolding
   if (!h || h.amount <= 0) return null
   return h.market_value / h.amount
 })
+
+// LCV 浮盈：用于 tooltip 副显示，告诉用户"实际变现你能拿多少"
+const pnlLcv = computed(() => props.userHolding?.unrealized_pnl_liquidation ?? 0)
 
 // 整体浮盈方向（用于资产栏第 4 格着色）
 const summaryPnlDirection = computed<'up' | 'down' | 'flat'>(() => {
@@ -246,7 +251,10 @@ const actionHint = computed<string>(() => {
         </div>
       </div>
       <div class="holding-pnl-row">
-        <div class="holding-pnl">
+        <div
+          class="holding-pnl"
+          :title="`账面浮盈（按瞬时价）${pnlSign}金${Math.abs(props.userHolding.unrealized_pnl).toFixed(2)}\n立即变现浮盈（含滑点）${pnlLcv >= 0 ? '+' : '−'}金${Math.abs(pnlLcv).toFixed(2)}`"
+        >
           <span class="holding-pnl-label">浮盈</span>
           <span class="holding-pnl-value" :class="`pnl-${pnlDirection}`">
             {{ pnlSign }}金 {{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}

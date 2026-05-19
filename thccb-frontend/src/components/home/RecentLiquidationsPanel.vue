@@ -100,8 +100,8 @@ onBeforeUnmount(() => {
 
         <!-- card body: two rows of stats -->
         <div class="liq-stats">
-          <div class="liq-stat">
-            <span class="liq-stat-label">爆仓前净值</span>
+          <div class="liq-stat" title="按强平口径（立即变现，含 LMSR 滑点+扣手续费）记录，跟 Portfolio 顶部账面净值不直接对应">
+            <span class="liq-stat-label">爆仓前净值<span class="liq-caliber-hint">·清算口径</span></span>
             <span class="liq-stat-value liq-val-red">金 {{ fmtNum(ev.pre_net_worth) }}</span>
           </div>
           <div class="liq-stat">
@@ -377,6 +377,15 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: #888888;
+}
+
+.liq-caliber-hint {
+  font-size: 9px;
+  font-weight: 500;
+  color: #aaaaaa;
+  margin-left: 4px;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .liq-stat-value {
