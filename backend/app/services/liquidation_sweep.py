@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -109,6 +109,10 @@ async def _liquidate_one_user(
                     "liquidation_sweep_deadlock_skipped_this_round",
                     extra={"user_id": uid, "error": str(e)[:200]},
                 )
+                # 用 cooldown 防 log spam：1s tick 下，pathological 对手方
+                # 持续跟该 user 锁竞争会每秒打一条 warning。bump cooldown 让
+                # 30min 内不再尝试，给运维时间介入。
+                _recently_attempted[uid] = now
                 return "deadlock"
             logger.exception(
                 "liquidation_sweep_user_dbapi_error", extra={"user_id": uid}
@@ -145,11 +149,12 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
         if "loan_daily_rate" not in cfg:
             logger.error("liquidation_sweep_no_daily_rate")
             return {"skipped": "no_daily_rate"}
+        # 精确捕获 parse 失败的异常类型，避免吞掉编程 bug (review I1)
         try:
             hard_thr = Decimal(cfg["liquidation_hard_threshold"])
             soft_thr = Decimal(cfg["liquidation_soft_threshold"])
             rate = Decimal(cfg["loan_daily_rate"])
-        except (KeyError, Exception):
+        except (KeyError, InvalidOperation, ValueError):
             logger.exception("liquidation_sweep_config_parse_failed")
             return {"skipped": "config_parse_failed"}
 
@@ -228,6 +233,8 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
     warned = len(over_soft)
     errors = 0
     deadlocks = 0
+    recovered = 0   # lock 后 margin 已恢复，放过（监控 stage 1 stale read 率）
+    skipped = 0     # HALT race / debt=0 / 其他守卫跳过
 
     if over_hard:
         sem = asyncio.Semaphore(3)
@@ -248,7 +255,10 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                 deadlocks += 1
             elif r == "error":
                 errors += 1
-            # "skipped" / "recovered" 不计
+            elif r == "recovered":
+                recovered += 1
+            elif r == "skipped":
+                skipped += 1
 
     duration_ms = int((time.monotonic() - start_ts) * 1000)
     result = {
@@ -256,6 +266,8 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
         "soft_warning_count": warned,
         "errors": errors,
         "deadlocks": deadlocks,
+        "recovered_count": recovered,  # stage 1 stale read 监控信号
+        "skipped_count": skipped,       # HALT race / 其他守卫跳过监控
         "sweep_duration_ms": duration_ms,
     }
     logger.info("liquidation_sweep_done", extra=result)
