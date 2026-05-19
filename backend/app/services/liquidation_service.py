@@ -20,12 +20,13 @@ from app.models.base import (
     Transaction, TransactionType, User,
 )
 from app.services import loan_service
-from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
+from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_outcomes_for_market
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import _get_sell_fee_rate  # 复用 LCV 统一 fee
 
 _logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
+ONE = Decimal("1")
 
 
 async def liquidate_user(
@@ -47,16 +48,12 @@ async def liquidate_user(
     if user.debt <= ZERO:
         raise ValueError("liquidate_user requires user.debt > 0")
 
-    # 0. pre-snapshot（在任何改动之前快照）
+    # 0. pre-snapshot 之前先拉 positions + lock outcomes，让 pre_hv 用同一份数据
+    #    inline 算（省一次独立的 compute_users_holdings_value 调用 + 其 3-4 个 query）
     pre_cash = user.cash
     pre_debt = user.debt
-    pre_hv = (
-        await compute_users_holdings_value(session, user_ids=[user.id])
-    ).get(user.id, ZERO)
-    pre_nw = pre_cash - pre_debt + pre_hv
-    pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
 
-    # 1. 拉所有持仓（加载 outcome + outcome.market，for status check）
+    # 1. 拉所有持仓（加载 outcome + outcome.market）+ FOR UPDATE 锁 position 行
     pos_res = await session.execute(
         select(Position)
         .options(selectinload(Position.outcome).selectinload(Outcome.market))
@@ -66,21 +63,58 @@ async def liquidate_user(
     )
     positions = pos_res.scalars().all()
 
-    total_proceeds = ZERO
-    sold_count = 0
-
-    # 按 market 分组：同 user 在同 market 多个 outcome 持仓时只锁一次 outcomes，
-    # 省 N-1 个 SELECT FOR UPDATE。锁顺序：调用方已 lock user → 这里 lock outcomes
-    # (按 market_id 升序，跟 lock_outcomes_for_market 一致)。
+    # 按 market 分组：同 user 在同 market 多个 outcome 持仓时只锁一次 outcomes
     positions_by_market: dict[int, list[Position]] = {}
     for pos in positions:
         positions_by_market.setdefault(pos.outcome.market_id, []).append(pos)
 
-    # 锁顺序说明（保留 Step 3 之前的注释）：market.py BUY/SELL 用 market → outcomes → user，
-    # 本函数被调用时调用方已 lock user，然后我们逐 market 拿 outcomes 锁 →
-    # 顺序变成 user → outcomes。跟 market.py 的 user 位置不同 → 理论上存在 deadlock
-    # 环形。缓解策略：在 sweep 层 catch DBAPI DeadlockError + 跳过该用户下一轮处理。
-    for market_id in sorted(positions_by_market.keys()):  # 排序避免跨 user 锁序不一致
+    # 2. 一次性锁所有相关 market 的 outcomes（按 market_id 升序避死锁），用 lock
+    #    后的最新 outcomes 状态算 pre_hv（LCV 口径，等价于 compute_users_holdings_value
+    #    但省去 N+1 query；fee_factor 同源避免口径分裂）
+    outcomes_by_market: dict[int, list[Outcome]] = {}
+    sorted_market_ids = sorted(positions_by_market.keys())
+    for market_id in sorted_market_ids:
+        market = positions_by_market[market_id][0].outcome.market
+        if market.status != MarketStatus.TRADING:
+            continue
+        outcomes_by_market[market_id] = await lock_outcomes_for_market(session, market_id)
+
+    # 3. inline 算 pre_hv（LCV）：用刚 lock 的 outcomes 数据，不再单独跑
+    #    compute_users_holdings_value（省 3-4 个 query）。HALT 市场持仓不计入
+    #    （与 services.wealth LCV 函数同语义）。
+    fee_factor = ONE - _get_sell_fee_rate()
+    pre_hv = ZERO
+    for pos in positions:
+        market = pos.outcome.market
+        if market.status != MarketStatus.TRADING:
+            continue
+        outs = outcomes_by_market.get(market.id)
+        if not outs:
+            continue
+        idx = next((i for i, o in enumerate(outs) if o.id == pos.outcome_id), None)
+        if idx is None:
+            continue
+        b = float(market.liquidity_b)
+        shares_list = [float(o.total_shares) for o in outs]
+        old_cost = calculate_lmsr_cost(shares_list, b)
+        after = list(shares_list)
+        after[idx] -= float(pos.amount)
+        new_cost = calculate_lmsr_cost(after, b)
+        gross = quantize_cost(old_cost - new_cost)
+        pre_hv += quantize_cost(gross * fee_factor)
+
+    pre_nw = pre_cash - pre_debt + pre_hv
+    pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
+
+    total_proceeds = ZERO
+    sold_count = 0
+
+    # 锁顺序说明：market.py BUY/SELL 用 market → outcomes → user，本函数被调用时
+    # 调用方已 lock user → 这里 lock outcomes → 顺序 user → outcomes。跟 market.py
+    # 的 user 位置不同 → 理论上存在 deadlock 环形。缓解：sweep 层 catch DBAPI
+    # DeadlockError + 跳过该用户下一轮。
+    # 4. 循环卖出（复用已 lock 的 outcomes_by_market）
+    for market_id in sorted_market_ids:
         pos_group = positions_by_market[market_id]
         # 用第一个 position 的 market 引用（同 market_id 共享 market 对象）
         market = pos_group[0].outcome.market
@@ -97,8 +131,8 @@ async def liquidate_user(
                 )
             continue
 
-        # 每 market 只锁一次 outcomes
-        all_outcomes = await lock_outcomes_for_market(session, market.id)
+        # outcomes 已在阶段 2 lock 过，直接复用
+        all_outcomes = outcomes_by_market[market.id]
         b = float(market.liquidity_b)
         outcomes_by_id = {o.id: (i, o) for i, o in enumerate(all_outcomes)}
 
