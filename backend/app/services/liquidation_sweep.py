@@ -36,6 +36,23 @@ _scheduler: Optional[AsyncIOScheduler] = None
 _JOB_ID = "liquidation_sweep_tick"
 
 
+def _empty_sweep_result(duration_ms: int = 0) -> dict:
+    """正常路径的完整字段集 helper —— "无候选用户"等早返回必须用这个，避免字段
+    缺失让 ELK/Prometheus exporter 报错或漏指标 (review I-1)。
+
+    跟 sweep 主流程末尾的 result dict 字段集 1:1 对应。
+    """
+    return {
+        "triggered_count": 0,
+        "soft_warning_count": 0,
+        "errors": 0,
+        "deadlocks": 0,
+        "recovered_count": 0,
+        "skipped_count": 0,
+        "sweep_duration_ms": duration_ms,
+    }
+
+
 def _is_deadlock_error(exc: Exception) -> bool:
     """识别 Postgres / SQLite deadlock 类异常。"""
     if isinstance(exc, DBAPIError):
@@ -187,11 +204,7 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
 
         if not candidate_rows:
             duration_ms = int((time.monotonic() - start_ts) * 1000)
-            return {
-                "triggered_count": 0, "soft_warning_count": 0,
-                "errors": 0, "deadlocks": 0,
-                "sweep_duration_ms": duration_ms,
-            }
+            return _empty_sweep_result(duration_ms)
 
         # 过滤掉 cooldown 内的用户，剩余的批量算 holdings_value
         active_rows = [

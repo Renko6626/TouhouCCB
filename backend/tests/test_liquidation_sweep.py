@@ -195,6 +195,30 @@ async def test_sweep_skips_user_with_halt_holdings(client):
 
 
 @pytest.mark.asyncio
+async def test_sweep_empty_candidates_returns_full_field_set(client):
+    """无候选用户的早返回路径必须返回完整字段集 (review I-1)。
+
+    防止下游 ELK/Prometheus exporter 因字段缺失报错或漏指标。所有正常路径
+    的返回 dict 字段集必须 1:1 一致。
+    """
+    await _enable_liquidation()
+    # 当前测试 DB 没有任何 debt>0 用户 → 无候选 → 早返回
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+
+    expected_keys = {
+        "triggered_count", "soft_warning_count", "errors", "deadlocks",
+        "recovered_count", "skipped_count", "sweep_duration_ms",
+    }
+    assert set(result.keys()) == expected_keys, (
+        f"empty-candidate 早返回字段集不完整: 缺 {expected_keys - set(result.keys())}, "
+        f"多 {set(result.keys()) - expected_keys}"
+    )
+    assert result["triggered_count"] == 0
+    assert result["recovered_count"] == 0
+    assert result["skipped_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_sweep_triggers_user_with_only_trading_holdings(client):
     """对照测试：只有 TRADING 持仓的用户 margin 危险时仍正常强平。
 
