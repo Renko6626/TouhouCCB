@@ -1,14 +1,15 @@
 """Loan 玩家接口。所有 handler 为 loan_service 薄封装。"""
 from __future__ import annotations
 import logging
+from datetime import timezone
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.database import get_async_session
 from app.core.users import current_active_user
-from app.models.base import User, Position, Outcome, Market, MarketStatus
+from app.models.base import User, Position, Outcome, Market, MarketStatus, LiquidationEvent
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.lmsr import get_current_price
@@ -141,3 +142,41 @@ async def repay(
         max_borrow=loan_service.compute_max_borrow(u, hv, k),
         effective=effective,
     )
+
+
+@router.get("/recent-liquidations", summary="最近强平记录（公开，首页展示）")
+async def recent_liquidations(
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """匿名可访问。教育警示用。"""
+    stmt = (
+        select(LiquidationEvent, User.username)
+        .join(User, User.id == LiquidationEvent.user_id)
+        .order_by(LiquidationEvent.triggered_at.desc())
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "id": int(ev.id),
+            "username": username,
+            "triggered_at": (
+                ev.triggered_at.replace(tzinfo=timezone.utc)
+                if ev.triggered_at.tzinfo is None else ev.triggered_at
+            ).isoformat(),
+            "pre_cash": float(ev.pre_cash),
+            "pre_debt": float(ev.pre_debt),
+            "pre_holdings_value": float(ev.pre_holdings_value),
+            "pre_net_worth": float(ev.pre_net_worth),
+            "pre_margin_ratio": float(ev.pre_margin_ratio)
+                if ev.pre_margin_ratio is not None else None,
+            "total_proceeds": float(ev.total_proceeds),
+            "repaid_amount": float(ev.repaid_amount),
+            "remaining_debt": float(ev.remaining_debt),
+            "post_cash": float(ev.post_cash),
+            "fully_liquidated": ev.remaining_debt == Decimal("0"),
+            "trigger_source": ev.trigger_source,
+        }
+        for ev, username in rows
+    ]

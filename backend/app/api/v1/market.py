@@ -37,6 +37,12 @@ from app.services.lmsr import (
 )
 from app.services.wealth import compute_users_holdings_value
 from app.services.candle_writer import compute_candle_rows, upsert_candles
+from app.services.market_locks import (
+    lock_market as _lock_market,
+    lock_user as _lock_user,
+    lock_outcomes_for_market as _lock_outcomes_for_market,
+    lock_outcome as _lock_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,52 +94,6 @@ def _quote_cache_gc_if_full() -> None:
 # -----------------------------
 # Helpers
 # -----------------------------
-
-async def _lock_market(db: AsyncSession, market_id: int) -> Market:
-    """锁住市场行，保证 status 等状态机不会被并发改乱。"""
-    res = await db.execute(
-        select(Market).where(Market.id == market_id).with_for_update()
-    )
-    market = res.scalars().first()
-    if not market:
-        raise HTTPException(status_code=404, detail="市场不存在")
-    return market
-
-
-async def _lock_user(db: AsyncSession, user_id: int) -> User:
-    """锁住用户行，保证 cash 扣减不会被并发穿透。"""
-    res = await db.execute(
-        select(User).where(User.id == user_id).with_for_update()
-    )
-    user = res.scalars().first()
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return user
-
-
-async def _lock_outcomes_for_market(db: AsyncSession, market_id: int) -> List[Outcome]:
-    """锁住该市场所有 outcome 行（total_shares 是 LMSR 状态）。"""
-    res = await db.execute(
-        select(Outcome)
-        .where(Outcome.market_id == market_id)
-        .order_by(Outcome.id)
-        .with_for_update()
-    )
-    outcomes = res.scalars().all()
-    if not outcomes:
-        raise HTTPException(status_code=404, detail="市场选项不存在（数据异常）")
-    return outcomes
-
-
-async def _lock_outcome(db: AsyncSession, outcome_id: int) -> Outcome:
-    """锁住单个 outcome 行，返回对应记录。"""
-    res = await db.execute(
-        select(Outcome).where(Outcome.id == outcome_id).with_for_update()
-    )
-    outcome = res.scalars().first()
-    if not outcome:
-        raise HTTPException(status_code=404, detail="选项不存在")
-    return outcome
 
 
 async def _get_prices_24h_ago(db: AsyncSession, outcome_ids: List[int]) -> Dict[int, float]:

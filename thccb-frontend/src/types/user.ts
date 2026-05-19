@@ -19,6 +19,9 @@ export interface UserSummary {
   unrealized_pnl: number
   net_worth: number
   rank: string
+  margin_ratio: number | null
+  margin_status: 'healthy' | 'warning' | 'danger'
+  last_liquidated_at: string | null
 }
 
 export interface Holding {
@@ -40,7 +43,7 @@ export interface Transaction {
   market_id?: number | null
   market_title?: string | null
   outcome_label?: string | null
-  type: 'buy' | 'sell' | 'settle' | 'settle_lose'
+  type: 'buy' | 'sell' | 'settle' | 'settle_lose' | 'liquidate'
   shares: number
   price: number
   gross: number

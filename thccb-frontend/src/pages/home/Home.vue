@@ -8,6 +8,8 @@ import { NButton } from 'naive-ui'
 import MarketCard from '@/components/market/MarketCard.vue'
 import Movers from '@/components/home/Movers.vue'
 import RecentTrades from '@/components/home/RecentTrades.vue'
+import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
+import RecentLiquidationsPanel from '@/components/home/RecentLiquidationsPanel.vue'
 
 const router = useRouter()
 const marketStore = useMarketStore()
@@ -72,6 +74,9 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
 <template>
   <div class="home-page">
+
+    <!-- ── 保证金警告横幅（warning/danger 时可见） ── -->
+    <MarginCallBanner />
 
     <!-- ── 英雄区：登录后展示持仓浮盈；未登录展示品牌介绍 ── -->
     <section
@@ -201,6 +206,11 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
     <!-- ── 实时成交（轮询 5s） ── -->
     <section class="section">
       <RecentTrades />
+    </section>
+
+    <!-- ── 翻车现场（强制平仓公开记录） ── -->
+    <section class="section">
+      <RecentLiquidationsPanel />
     </section>
 
     <!-- ── 平台特色（仅未登录用户展示，避免对老用户重复说明） ── -->

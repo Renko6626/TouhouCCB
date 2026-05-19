@@ -21,6 +21,7 @@ from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
+from app.services.wealth import compute_users_holdings_value
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
@@ -48,46 +49,33 @@ async def get_user_summary(
     pos_res = await db.execute(pos_stmt)
     positions: List[Position] = pos_res.scalars().all()
 
-    holdings_value = ZERO
     total_cost_basis = ZERO
-
-    # 批量查出所有相关市场的 outcomes，避免 N+1
-    market_ids = list({pos.outcome.market_id for pos in positions})
-    outcomes_by_market: Dict[int, List[Outcome]] = {}
-    if market_ids:
-        all_outcomes_res = await db.execute(
-            select(Outcome)
-            .where(Outcome.market_id.in_(market_ids))
-            .order_by(Outcome.market_id, Outcome.id)
-        )
-        for o in all_outcomes_res.scalars().all():
-            outcomes_by_market.setdefault(o.market_id, []).append(o)
-
     for pos in positions:
-        outcome: Outcome = pos.outcome
-        market: Market = outcome.market
-        all_outcomes = outcomes_by_market.get(market.id, [])
-
-        shares_list = [float(o.total_shares) for o in all_outcomes]
-        idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
-        if idx is None:
-            continue
-
-        # 用 LMSR 成本差计算真实清算价值（含滑点），并扣除卖出手续费，与实际可得现金口径一致
-        b = float(market.liquidity_b)
-        old_cost = calculate_lmsr_cost(shares_list, b)
-        after_sell = list(shares_list)
-        after_sell[idx] -= float(pos.amount)
-        new_cost = calculate_lmsr_cost(after_sell, b)
-        gross = quantize_cost(old_cost - new_cost)
-        liquidation_value = quantize_cost(gross * (ONE - SELL_FEE_RATE))
-
-        holdings_value += liquidation_value
         total_cost_basis += pos.cost_basis
+
+    # 持仓清算价值：LMSR 卖出 gross × (1 - SELL_FEE_RATE)，与 sweep/leaderboard 同口径
+    holdings_value = (
+        await compute_users_holdings_value(db, user_ids=[user.id])
+    ).get(user.id, ZERO)
 
     net_worth = user.cash - user.debt + holdings_value
     unrealized_pnl = holdings_value - total_cost_basis
     rank = rank_title(net_worth)
+
+    # Margin classification
+    margin_ratio = None
+    margin_status = "healthy"
+    if user.debt > ZERO:
+        margin_ratio = (net_worth / user.debt).quantize(Decimal("0.000001"))
+        try:
+            hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
+            soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
+        except Exception:
+            hard, soft = Decimal("0.2"), Decimal("0.5")
+        if margin_ratio < hard:
+            margin_status = "danger"
+        elif margin_ratio < soft:
+            margin_status = "warning"
 
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
@@ -97,6 +85,9 @@ async def get_user_summary(
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
         "rank": rank,
+        "margin_ratio": margin_ratio,
+        "margin_status": margin_status,
+        "last_liquidated_at": user.last_liquidated_at,
     }
 
 

@@ -21,6 +21,10 @@ _WHITELIST = {
     "loan_leverage_k": "decimal",
     "loan_daily_rate": "decimal",
     "loan_sweep_interval_sec": "int",
+    "liquidation_enabled": "bool",
+    "liquidation_sweep_interval_sec": "int",
+    "liquidation_hard_threshold": "decimal",
+    "liquidation_soft_threshold": "decimal",
 }
 
 

@@ -13,7 +13,7 @@ const userStore = useUserStore()
 const loading = ref(false)
 const loadError = ref('')
 const redemptionItems = ref<MyRedemptionItem[]>([])
-const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle'>('all')
+const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle' | 'liquidate'>('all')
 const timeRangeFilter = ref<'all' | '7d' | '30d' | '90d'>('all')
 const pageSize = ref<50 | 100 | 200>(100)
 
@@ -22,6 +22,7 @@ const tradeTypeOptions: SelectOption[] = [
   { label: '买入', value: 'buy' },
   { label: '卖出', value: 'sell' },
   { label: '结算', value: 'settle' },
+  { label: '强制平仓', value: 'liquidate' },
 ]
 
 const timeRangeOptions: SelectOption[] = [
@@ -91,6 +92,10 @@ const columns: DataTableColumns<Transaction> = [
         sell: '卖出',
         settle: '结算',
         settle_lose: '结算',
+        liquidate: '强制平仓',
+      }
+      if (row.type === 'liquidate') {
+        return h('span', { class: 'tx-type-liquidate' }, '强制平仓')
       }
       const style: Record<string, any> = {
         display: 'inline-block',
@@ -242,7 +247,15 @@ const redemptionTotal = computed(() =>
 
     <!-- 表格 -->
     <div v-else-if="filteredTransactions.length > 0">
-      <NDataTable :columns="columns" :data="filteredTransactions" :loading="loading" :bordered="true" size="small" :scroll-x="900" />
+      <NDataTable
+        :columns="columns"
+        :data="filteredTransactions"
+        :loading="loading"
+        :bordered="true"
+        size="small"
+        :scroll-x="900"
+        :row-class-name="(row: Transaction) => row.type === 'liquidate' ? 'tx-liquidate-row' : ''"
+      />
     </div>
 
     <!-- 空状态 -->
@@ -271,4 +284,24 @@ const redemptionTotal = computed(() =>
   letter-spacing: 0.06em; margin-right: 8px;
 }
 .summary-count { font-size: 16px; }
+
+/* 强制平仓行 — 红底 */
+:global(.tx-liquidate-row) {
+  background: rgba(220, 38, 38, 0.08) !important;
+}
+:global(.tx-liquidate-row:hover) td {
+  background: rgba(220, 38, 38, 0.13) !important;
+}
+
+/* 强制平仓 badge */
+.tx-type-liquidate {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border: 1.5px solid #000;
+}
 </style>
