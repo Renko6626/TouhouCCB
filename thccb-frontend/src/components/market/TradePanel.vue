@@ -268,8 +268,10 @@ const actionHint = computed<string>(() => {
           class="close-position-btn"
           @click="closePosition"
           :disabled="props.userHolding.amount <= 0"
+          :title="`卖出 ${props.userHolding.amount.toLocaleString()} 份，预计可得（含 LMSR 滑点+扣手续费，最终以下单 quote 为准）`"
         >
           一键平仓
+          <span class="close-position-est">≈ 金 {{ props.userHolding.market_value.toFixed(2) }}</span>
         </button>
       </div>
     </div>
@@ -517,7 +519,11 @@ const actionHint = computed<string>(() => {
 /* 一键平仓按钮 */
 .close-position-btn {
   flex-shrink: 0;
-  padding: 8px 12px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -526,6 +532,19 @@ const actionHint = computed<string>(() => {
   color: #000;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
+  line-height: 1.1;
+}
+
+.close-position-est {
+  font-size: 10px;
+  font-weight: 600;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.close-position-btn:hover:not(:disabled) .close-position-est {
+  color: #ccc;
 }
 
 .close-position-btn:hover:not(:disabled) {
