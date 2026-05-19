@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel
@@ -27,6 +28,9 @@ class UserSummary(BaseModel):
     unrealized_pnl: Money     # holdings_value - total_cost_basis
     net_worth: Money
     rank: str
+    margin_ratio: Optional[Decimal] = None
+    margin_status: str = "healthy"
+    last_liquidated_at: Optional[datetime] = None
 
 
 class TransactionRead(BaseModel):

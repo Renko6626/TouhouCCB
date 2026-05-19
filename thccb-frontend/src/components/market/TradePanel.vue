@@ -146,6 +146,7 @@ const summaryPnlSign = computed(() => {
 const disabledReason = computed(() => {
   if (isSubmitting.value) return '提交中…'
   if (marketStore.tradeLoading) return '处理中…'
+  if (props.tradeType === 'buy' && buyDisabledByDanger.value) return '净值/借款 < 0.2，禁止买入直到补仓或被强平'
   if (!props.selectedOutcomeId) return '请先选择预测结果'
   if (props.shares <= 0) return '请输入份额'
   if (props.shares > props.maxShares) return '超过份额上限'
@@ -160,6 +161,9 @@ const closePosition = () => {
   emit('update:tradeType', 'sell')
   emit('update:shares', props.userHolding.amount)
 }
+
+// danger 状态：净值/借款 < 0.2，禁止买入
+const buyDisabledByDanger = computed(() => userStore.summary?.margin_status === 'danger')
 
 // 操作类型提示
 const actionHint = computed<string>(() => {
@@ -205,6 +209,8 @@ const actionHint = computed<string>(() => {
     <div class="type-switch">
       <button
         :class="['type-btn', props.tradeType === 'buy' && 'type-btn--active-buy']"
+        :disabled="buyDisabledByDanger"
+        :title="buyDisabledByDanger ? '净值/借款 < 0.2，禁止买入直到补仓或被强平' : undefined"
         @click="emit('update:tradeType', 'buy')"
       >买入</button>
       <button
@@ -338,7 +344,7 @@ const actionHint = computed<string>(() => {
     <NButton
       type="primary"
       :loading="marketStore.tradeLoading"
-      :disabled="isSubmitting || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
+      :disabled="isSubmitting || (props.tradeType === 'buy' && buyDisabledByDanger) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
       @click="executeTrade"
       class="exec-btn"
       :title="disabledReason"

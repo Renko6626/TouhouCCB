@@ -43,6 +43,30 @@ export const loanApi = {
   },
 }
 
+export interface LiquidationEvent {
+  id: number
+  user_id: number
+  username: string
+  triggered_at: string
+  pre_cash: number
+  pre_debt: number
+  pre_holdings_value: number
+  pre_net_worth: number
+  /** null when debt was zero at snapshot time */
+  pre_margin_ratio: number | null
+  sold_positions_count: number
+  total_proceeds: number
+  repaid_amount: number
+  remaining_debt: number
+  post_cash: number
+  trigger_source: string
+  fully_liquidated: boolean
+}
+
+export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEvent[]> {
+  return api.get<LiquidationEvent[]>('/api/v1/loan/recent-liquidations', { params: { limit } })
+}
+
 // ===== Admin =====
 
 export const adminSiteConfigApi = {
