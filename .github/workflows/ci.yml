@@ -139,6 +139,8 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_CLIENT_TOKEN_SECRET: ${{ secrets.VITE_CLIENT_TOKEN_SECRET }}
 
       # 上传 dist/ 供 deploy job 使用
       - name: Upload dist artifact
