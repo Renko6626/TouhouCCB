@@ -1,19 +1,219 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
-  NTable, NInput, NButton, NSpin, NAlert, useMessage,
-  NInputNumber, NDivider, NSelect, NSwitch, NTooltip,
+  NTable, NInput, NButton, NSpin, NAlert, useMessage, useDialog,
+  NInputNumber, NDivider, NSelect, NSwitch, NTooltip, NTag,
   type SelectOption,
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import { adminApi, type UserListItem } from '@/api/admin'
 import { getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
+// ─── 杠杆预设套餐 ─────────────────────────────────────────────────────────
+// 一次性 update 6 个配套 site_config keys，避免 admin 手动逐项调时漏配。
+// 数学约束（已验证不会"借满即死"）：
+//   - 1/k > hard_threshold (借满 margin > 触发线)
+//   - k × hard < 0.5 (留 LMSR 买入滑点 buffer)
+//   - target > hard (partial 收敛有空间)
+//   - emergency < hard × 0.5 (紧急救援线足够低)
+
+type PresetKey = 'conservative' | 'moderate' | 'aggressive' | 'extreme'
+
+interface Preset {
+  name: string
+  label: string  // 含 emoji 的展示名
+  warn: string
+  values: Record<string, string>  // site_config key → value
+}
+
+const PRESETS: Record<PresetKey, Preset> = {
+  conservative: {
+    name: 'conservative',
+    label: '🟢 保守 (1x)',
+    warn: '借满需 LCV 跌 80% 才触发，最稳。适合默认 / 新手期。',
+    values: {
+      loan_leverage_k: '1.0',
+      loan_daily_rate: '0.01',
+      liquidation_hard_threshold: '0.2',
+      liquidation_target_margin: '0.3',
+      liquidation_emergency_threshold: '0.05',
+      liquidation_partial_pct: '0.1',
+    },
+  },
+  moderate: {
+    name: 'moderate',
+    label: '🟡 中等 (2x)',
+    warn: '借满需 LCV 跌 55% 触发，戏剧性 + 安全度平衡。推荐活动日开局。',
+    values: {
+      loan_leverage_k: '2.0',
+      loan_daily_rate: '0.01',
+      liquidation_hard_threshold: '0.2',
+      liquidation_target_margin: '0.3',
+      liquidation_emergency_threshold: '0.05',
+      liquidation_partial_pct: '0.05',
+    },
+  },
+  aggressive: {
+    name: 'aggressive',
+    label: '🟠 激进 (3x)',
+    warn: '借满需 LCV 跌 30% 触发，强 cascade 风险。建议同步降 daily_rate 到 0.008。',
+    values: {
+      loan_leverage_k: '3.0',
+      loan_daily_rate: '0.008',
+      liquidation_hard_threshold: '0.15',
+      liquidation_target_margin: '0.25',
+      liquidation_emergency_threshold: '0.03',
+      liquidation_partial_pct: '0.04',
+    },
+  },
+  extreme: {
+    name: 'extreme',
+    label: '🔴 极限 (5x)',
+    warn: '借满需 LCV 跌 12% 触发，极敏感 + 死户激增。需配套做 admin 豁免 endpoint！',
+    values: {
+      loan_leverage_k: '5.0',
+      loan_daily_rate: '0.005',
+      liquidation_hard_threshold: '0.1',
+      liquidation_target_margin: '0.15',
+      liquidation_emergency_threshold: '0.02',
+      liquidation_partial_pct: '0.03',
+    },
+  },
+}
+
+const PRESET_KEYS_TRACKED = Object.keys(PRESETS.conservative.values)
+
 const configs = ref<SiteConfigItem[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const drafts = ref<Record<string, string>>({})
 const msg = useMessage()
+const dialog = useDialog()
+
+// 当前生效套餐检测：6 个 key 全部匹配 PRESETS[name].values 则视为该套餐
+// 否则为 null（自定义）
+const currentPresetKey = computed<PresetKey | null>(() => {
+  if (configs.value.length === 0) return null
+  for (const [k, p] of Object.entries(PRESETS) as [PresetKey, Preset][]) {
+    const allMatch = Object.entries(p.values).every(([key, val]) => {
+      const cfg = configs.value.find(c => c.key === key)
+      // 数值字符串比较：归一化避免 "0.10" vs "0.1" 误判
+      return cfg && normalizeDecimal(cfg.value) === normalizeDecimal(val)
+    })
+    if (allMatch) return k
+  }
+  return null
+})
+
+function normalizeDecimal(v: string): string {
+  // 字符串 → number → 字符串，去掉尾零差异
+  const n = Number(v)
+  if (Number.isNaN(n)) return v
+  return String(n)
+}
+
+// 套餐应用：sequential PUT，不动后端
+const applying = ref(false)
+
+async function applyPreset(presetKey: PresetKey) {
+  const preset = PRESETS[presetKey]
+
+  // 算出真正会改的字段（避免 0 改动也弹确认）
+  const diffs = Object.entries(preset.values).map(([key, newVal]) => {
+    const cur = configs.value.find(c => c.key === key)
+    return {
+      key,
+      label: getConfigMeta(key).label,
+      oldVal: cur?.value ?? '?',
+      newVal,
+      changed: !cur || normalizeDecimal(cur.value) !== normalizeDecimal(newVal),
+    }
+  })
+
+  const changedCount = diffs.filter(d => d.changed).length
+  if (changedCount === 0) {
+    msg.info(`当前已经是 "${preset.label}" 套餐，无改动`)
+    return
+  }
+
+  // 弹 NDialog 显示 diff 表 + 警告 + 确认按钮
+  dialog.warning({
+    title: `应用套餐: ${preset.label}`,
+    content: () => buildDiffContent(diffs, preset.warn),
+    positiveText: `确认应用 (${changedCount} 项改动)`,
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      await doApply(presetKey, preset)
+    },
+  })
+}
+
+async function doApply(presetKey: PresetKey, preset: Preset) {
+  applying.value = true
+  let succeeded = 0
+  let failed = 0
+  const failedKeys: string[] = []
+  for (const [key, value] of Object.entries(preset.values)) {
+    try {
+      await adminSiteConfigApi.update(key, value)
+      succeeded++
+    } catch (e: unknown) {
+      failed++
+      failedKeys.push(key)
+      const detail = (e as { data?: { detail?: string }; message?: string })?.data?.detail
+        ?? (e as { message?: string })?.message
+        ?? '未知错误'
+      console.error(`apply preset ${presetKey} - ${key} failed:`, detail)
+    }
+  }
+  applying.value = false
+
+  if (failed === 0) {
+    msg.success(`套餐 "${preset.label}" 已应用 (${succeeded} 项)`)
+  } else {
+    msg.warning(`部分失败：${succeeded}/${succeeded + failed} 成功，失败 keys: ${failedKeys.join(', ')}`)
+  }
+  await load()
+}
+
+// 用 vnode 在 NDialog content slot 渲染 diff 表 + 警告
+function buildDiffContent(
+  diffs: Array<{ key: string; label: string; oldVal: string; newVal: string; changed: boolean }>,
+  warn: string,
+) {
+  return h('div', { style: 'font-size: 13px;' }, [
+    h('table', { style: 'width: 100%; border-collapse: collapse; margin-bottom: 12px;' }, [
+      h('thead', null, h('tr', null, [
+        h('th', { style: 'text-align:left; border-bottom: 2px solid #000; padding: 4px 8px;' }, '参数'),
+        h('th', { style: 'text-align:left; border-bottom: 2px solid #000; padding: 4px 8px;' }, '现值'),
+        h('th', { style: 'text-align:left; border-bottom: 2px solid #000; padding: 4px 8px;' }, '新值'),
+      ])),
+      h('tbody', null, diffs.map(d =>
+        h('tr', null, [
+          h('td', {
+            style: `padding: 4px 8px; border-bottom: 1px solid #eee; ${d.changed ? 'font-weight: 600;' : 'color: #999;'}`,
+          }, [
+            d.label,
+            h('br'),
+            h('code', { style: 'font-size: 10px; color: #999;' }, d.key),
+          ]),
+          h('td', {
+            style: `padding: 4px 8px; border-bottom: 1px solid #eee; font-variant-numeric: tabular-nums; ${d.changed ? 'color: #888;' : ''}`,
+          }, d.oldVal),
+          h('td', {
+            style: `padding: 4px 8px; border-bottom: 1px solid #eee; font-variant-numeric: tabular-nums; ${d.changed ? 'color: #cc0000; font-weight: 700;' : 'color: #999;'}`,
+          }, d.changed ? `→ ${d.newVal}` : '不变'),
+        ]),
+      )),
+    ]),
+    h('div', {
+      style: 'padding: 10px 12px; background: #fff5e5; border: 2px solid #aa6600; color: #553300; font-size: 12px; line-height: 1.5;',
+    }, [
+      h('strong', null, '⚠️ 提醒：'),
+      ' ' + warn,
+    ]),
+  ])
+}
 
 // 用户列表（用于下拉）
 const userList = ref<UserListItem[]>([])
@@ -133,6 +333,61 @@ onMounted(async () => {
   <div class="admin-site-config">
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" />
+
+      <!-- ── 杠杆预设套餐 ────────────────────────────────────────────── -->
+      <section class="panel preset-panel">
+        <div class="preset-head">
+          <h2>杠杆预设套餐</h2>
+          <span class="preset-sub">一键调整 6 个相关参数（k / hard / target / emergency / partial_pct / daily_rate），避免漏配自爆</span>
+        </div>
+
+        <div class="preset-current">
+          <span class="preset-label">当前生效：</span>
+          <NTag v-if="currentPresetKey" type="success" size="small">
+            {{ PRESETS[currentPresetKey].label }}
+          </NTag>
+          <NTag v-else type="warning" size="small">自定义（不匹配任何预设）</NTag>
+        </div>
+
+        <div class="preset-buttons">
+          <NButton
+            v-for="(p, key) in PRESETS"
+            :key="key"
+            :type="currentPresetKey === key ? 'primary' : 'default'"
+            :loading="applying"
+            :disabled="applying"
+            size="medium"
+            @click="applyPreset(key as PresetKey)"
+          >
+            {{ p.label }}
+          </NButton>
+        </div>
+
+        <details class="preset-details">
+          <summary>查看 4 个套餐完整数值</summary>
+          <NTable :bordered="true" :single-line="false" size="small">
+            <thead>
+              <tr>
+                <th>参数</th>
+                <th v-for="(p, key) in PRESETS" :key="key">{{ p.label }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="key in PRESET_KEYS_TRACKED" :key="key">
+                <td>
+                  <span class="preset-row-label">{{ getConfigMeta(key).label }}</span>
+                  <code class="preset-row-key">{{ key }}</code>
+                </td>
+                <td v-for="(p, pk) in PRESETS" :key="pk" class="preset-cell">
+                  {{ p.values[key] }}
+                </td>
+              </tr>
+            </tbody>
+          </NTable>
+        </details>
+      </section>
+
+      <NDivider />
 
       <section class="panel">
         <h2>站点配置</h2>
@@ -374,5 +629,75 @@ code {
   font-size: 12px;
   color: #666;
   margin-top: 8px;
+}
+
+/* ── 杠杆预设套餐 panel ──────────────────────────────────────── */
+.preset-panel {
+  background: #fafafa;
+  border-color: #000;
+}
+.preset-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.preset-sub {
+  font-size: 11px;
+  color: #888;
+  letter-spacing: 0.02em;
+}
+.preset-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.preset-label {
+  font-weight: 600;
+  color: #000;
+}
+.preset-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.preset-details {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.preset-details summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  padding: 6px 10px;
+  background: #f0f0f0;
+  border: 1.5px solid #000;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+.preset-details summary:hover {
+  background: #e8e8e8;
+}
+.preset-row-label {
+  font-weight: 600;
+}
+.preset-row-key {
+  display: block;
+  font-family: monospace;
+  font-size: 10px;
+  color: #999;
+  margin-top: 2px;
+}
+.preset-cell {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: center;
 }
 </style>
