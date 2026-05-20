@@ -175,12 +175,26 @@ async def liquidate_user(
                 )
                 continue
 
+            # 算 sell_amount 按 mode（spec § Mode 决策）
+            if mode == "emergency":
+                sell_amount = pos.amount
+            else:  # partial
+                sell_amount = (pos.amount * partial_pct).quantize(Decimal("0.000001"))
+
+            if sell_amount <= ZERO:
+                # partial 时 amount × pct 量化后为 0 → 跳过本 position（不报错）
+                continue
+
+            # partial 算出来 ≥ amount → 退化全卖（边界保护，发生在 LMSR 算 proceeds 之前）
+            if sell_amount >= pos.amount:
+                sell_amount = pos.amount
+
             # 每 position 用"最新的 outcomes 状态"算 LMSR：同 market 多 outcome
             # 先后被清算时，shares_list 反映前面已卖的状态（path-independent，总
             # proceeds 不变，但单笔 attribution 跟串行顺序一致）。
             old_q = [float(o.total_shares) for o in all_outcomes]
             new_q = list(old_q)
-            new_q[idx] -= float(pos.amount)
+            new_q[idx] -= float(sell_amount)
 
             old_cost, old_prices = calculate_lmsr_with_prices(old_q, b)
             new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
@@ -197,20 +211,29 @@ async def liquidate_user(
                 )
                 continue  # skip position; spec § 3 says SKIP not DELETE
 
-            # 应用变更：更新用户现金、outcome 份额、删除持仓
+            # 应用变更：现金 + outcome 份额 + 持仓
             user.cash += proceeds
-            all_outcomes[idx].total_shares -= pos.amount
-            await session.delete(pos)
+            all_outcomes[idx].total_shares -= sell_amount
 
-            # 记 LIQUIDATE Transaction（与 SELL 格式一致）
+            if sell_amount >= pos.amount:
+                # 全卖 (emergency 或 partial 边界)
+                await session.delete(pos)
+            else:
+                # partial 卖：cost_basis 按比例减少（保持 avg_price 不变，跟
+                # market.py sell 同语义；数学上 cost_basis × (1 - partial_pct)）
+                cost_reduced = (pos.cost_basis * partial_pct).quantize(Decimal("0.000001"))
+                pos.amount -= sell_amount
+                pos.cost_basis -= cost_reduced
+
+            # 记 LIQUIDATE Transaction（与 SELL 格式一致；按 sell_amount 算）
             avg_price = (
-                quantize_price(proceeds / pos.amount) if pos.amount > ZERO else ZERO
+                quantize_price(proceeds / sell_amount) if sell_amount > ZERO else ZERO
             )
             tx = Transaction(
                 user_id=user.id,
                 outcome_id=pos.outcome_id,
                 type=TransactionType.LIQUIDATE,
-                shares=pos.amount,
+                shares=sell_amount,
                 cost=-proceeds,         # 与 SELL 同口径：收入为负成本
                 price=avg_price,
                 pre_market_price=quantize_price(old_prices[idx]),
