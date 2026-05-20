@@ -9,10 +9,10 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.base import (
     LiquidationEvent, Market, MarketStatus, Outcome,
-    Position, User,
+    Position, SiteConfig, User,
 )
 from app.services.market_locks import lock_user
-from app.services import liquidation_service
+from app.services import liquidation_service, liquidation_sweep, site_config
 
 
 async def _setup_user(*, cash, debt, share_amount, market_total_shares):
@@ -189,3 +189,96 @@ async def test_partial_sell_amount_quantized_to_6_digits(client):
         # position 不应被删（partial skip）
         assert len(rows) == 1
         assert rows[0].amount == Decimal("0.000005")  # 没动
+
+
+# ─── T7: sweep 集成测 ─────────────────────────────────────────────────────────
+
+async def _seed_sweep_site_config(*, partial_pct: str = "0.5"):
+    """sweep 跑前 INSERT 全部需要的 site_config 行（setup_db 清掉之后）。
+
+    partial_pct 测试默认 0.5（收敛快）；测 emergency 路径时无所谓。
+    """
+    async with async_session_maker() as s:
+        async with s.begin():
+            for k, v, t in [
+                ("liquidation_enabled", "true", "bool"),
+                ("liquidation_hard_threshold", "0.2", "decimal"),
+                ("liquidation_soft_threshold", "0.5", "decimal"),
+                ("liquidation_sweep_interval_sec", "600", "int"),
+                ("loan_daily_rate", "0.001", "decimal"),
+                ("liquidation_partial_pct", partial_pct, "decimal"),
+                ("liquidation_target_margin", "0.30", "decimal"),
+                ("liquidation_emergency_threshold", "0.05", "decimal"),
+            ]:
+                s.add(SiteConfig(key=k, value=v, value_type=t))
+    site_config.clear_cache()
+
+
+@pytest.mark.asyncio
+async def test_sweep_partial_then_converges_after_multiple_ticks(client):
+    """多 tick partial → debt 减少 + 所有 events mode='partial'。
+
+    setup: cash=0, debt=180, share=200, market=200 (单 outcome LMSR LCV≈200)
+      → NW=20, margin=20/180=0.111 ∈ [0.05, 0.20) → partial 路径 ✓
+    partial_pct=0.1（小幅，避免一波就把 debt 还清，强制多 tick 收敛）。
+    每 tick: sell 10% of shares → 还债 → margin 缓慢上升直到 ≥ hard_threshold。
+    """
+    await _seed_sweep_site_config(partial_pct="0.1")
+    liquidation_sweep._recently_attempted.clear()
+
+    uid, mid, oid = await _setup_user(
+        cash=0, debt=180, share_amount=200, market_total_shares=200,
+    )
+
+    result1 = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result1["triggered_count"] >= 1, f"第 1 tick 应触发: {result1}"
+
+    async with async_session_maker() as db:
+        events = (await db.execute(
+            select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
+        )).scalars().all()
+        assert len(events) == 1, f"第 1 tick 应写 1 event, 实际 {len(events)}"
+        assert events[0].mode == "partial", f"应 partial, 实际 {events[0].mode}"
+
+    # 多 tick 直到收敛 (清 cooldown + 进程缓存)
+    for _ in range(5):
+        liquidation_sweep._recently_attempted.clear()
+        site_config.clear_cache()
+        await liquidation_sweep.run_liquidation_sweep_once()
+
+    async with async_session_maker() as db:
+        u = await db.get(User, uid)
+        assert u.debt < Decimal("300"), f"debt 应减少, 实际 {u.debt}"
+
+        events = (await db.execute(
+            select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
+        )).scalars().all()
+        assert len(events) >= 2, f"至少 2 波 partial, 实际 {len(events)}"
+        modes = [e.mode for e in events]
+        assert all(m == "partial" for m in modes), (
+            f"全部应 partial, 实际 {modes}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_emergency_mode_written_when_severe(client):
+    """user margin << emergency_threshold → mode='emergency' 写入 event."""
+    await _seed_sweep_site_config(partial_pct="0.1")
+    liquidation_sweep._recently_attempted.clear()
+
+    # cash=0, debt=1000, share=10 → LCV≈10, NW=-990, margin=-0.99 << 0.05 → emergency
+    uid, mid, oid = await _setup_user(
+        cash=0, debt=1000, share_amount=10, market_total_shares=10,
+    )
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result["triggered_count"] >= 1, f"应触发: {result}"
+
+    async with async_session_maker() as db:
+        events = (await db.execute(
+            select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
+        )).scalars().all()
+        assert len(events) >= 1
+        assert events[0].mode == "emergency", (
+            f"应 emergency, 实际 {events[0].mode}"
+        )
