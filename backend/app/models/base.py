@@ -283,6 +283,7 @@ class LiquidationEvent(SQLModel, table=True):
     post_cash: Decimal = Field(sa_type=Numeric(16, 6))
 
     trigger_source: str  # "scheduler" | "admin_manual"
+    mode: str = Field(default="emergency", max_length=20)
 
 
 class BotSuspicion(SQLModel, table=True):
