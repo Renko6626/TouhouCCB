@@ -69,6 +69,20 @@ export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEv
   return api.get<LiquidationEvent[]>('/api/v1/loan/recent-liquidations', { params: { limit } })
 }
 
+export interface LiquidationPolicy {
+  enabled: boolean
+  hard_threshold: number       // margin < 这个值触发强平
+  soft_threshold: number       // 软警告线
+  partial_pct: number          // partial 模式每次卖出仓位比例 (0.10 = 10%)
+  target_margin: number        // partial 多 tick 收敛目标
+  emergency_threshold: number  // margin < 这个值升级紧急全平
+  sweep_interval_sec: number   // sweep 扫描频率（秒）
+}
+
+export async function fetchLiquidationPolicy(): Promise<LiquidationPolicy> {
+  return api.get<LiquidationPolicy>('/api/v1/loan/liquidation-policy')
+}
+
 // ===== Admin =====
 
 export const adminSiteConfigApi = {

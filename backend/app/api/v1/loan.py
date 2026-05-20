@@ -169,3 +169,26 @@ async def recent_liquidations(
         }
         for ev, username in rows
     ]
+
+
+@router.get("/liquidation-policy", summary="当前强制平仓策略（公开，贷款页说明用）")
+async def liquidation_policy(
+    db: AsyncSession = Depends(get_async_session),
+):
+    """匿名可访问。前端教育/说明展示用，实时读 site_config 让 admin 调整立刻反映。"""
+    enabled = await site_config.get_bool(db, "liquidation_enabled")
+    hard_thr = await site_config.get_decimal(db, "liquidation_hard_threshold")
+    soft_thr = await site_config.get_decimal(db, "liquidation_soft_threshold")
+    partial_pct = await site_config.get_decimal(db, "liquidation_partial_pct")
+    target_margin = await site_config.get_decimal(db, "liquidation_target_margin")
+    emergency_thr = await site_config.get_decimal(db, "liquidation_emergency_threshold")
+    interval = await site_config.get_int(db, "liquidation_sweep_interval_sec")
+    return {
+        "enabled": enabled,
+        "hard_threshold": float(hard_thr),
+        "soft_threshold": float(soft_thr),
+        "partial_pct": float(partial_pct),
+        "target_margin": float(target_margin),
+        "emergency_threshold": float(emergency_thr),
+        "sweep_interval_sec": int(interval),
+    }
