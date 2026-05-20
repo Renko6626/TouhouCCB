@@ -92,12 +92,16 @@ fi
 log "[2/5] Pulling latest backend image..."
 docker compose pull backend || rollback
 
-# ── 3. 起 postgres + 跑 alembic 迁移 ──
-# 用 `docker compose run --rm --no-deps backend alembic upgrade head` 起一个临时容器跑迁移，
-# 这样不跟主 backend 容器 lifespan（init_db + auto_migrate）并发抢同一张表的 DDL 锁。
-# 时机：在 backend 重启之前，保证 backend 启动时 schema 已就绪、不会因新加列报 5xx。
-# 失败回滚：alembic 失败 = 镜像新版与 prod schema 不兼容，必须停下，rollback 保留旧 backend。
-log "[3/5] Starting postgres and applying alembic migrations..."
+# ── 3. 起 postgres + 准备 schema ──
+# 历史背景：alembic baseline migration `6ea6f84ae44e` 是 stamp-only ("baseline empty
+# stamp existing dbs")，假设 schema 已经存在 (历史上 init_db.create_all 先建过表)。
+# 直接在空 PG 上跑 `alembic upgrade head` 会在第二个 migration 翻车——它 ALTER TABLE
+# transaction 但 baseline 没建表。所以 deploy 必须自适应：
+#   - 空 PG → 用 init_db.py 建 schema (SQLModel.metadata.create_all) + 自动 stamp head
+#   - 已有 PG → 正常 alembic upgrade head 跑增量 migration
+# init_db.py 有 input("YES") 交互，echo + -T 绕过；它在生产模式跳过示例数据。
+# 失败回滚：任一路径失败 = schema 状态不可知，rollback 保留旧 backend。
+log "[3/5] Starting postgres and preparing schema..."
 docker compose up -d postgres
 for i in $(seq 1 15); do
     if docker compose exec -T postgres pg_isready -U thccb >/dev/null 2>&1; then
@@ -107,9 +111,24 @@ for i in $(seq 1 15); do
     sleep 1
     [ "$i" = "15" ] && rollback
 done
-if ! docker compose run --rm --no-deps backend alembic upgrade head; then
-    log "alembic upgrade head failed"
-    rollback
+
+# 检测 schema 是否已存在 (用 'user' 表作 sentinel)
+SCHEMA_EXISTS=$(docker compose exec -T postgres psql -U thccb -d thccb -tAc \
+    "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='user' LIMIT 1;" \
+    2>/dev/null || echo "")
+
+if [ -z "$SCHEMA_EXISTS" ]; then
+    log "  Empty DB detected → bootstrapping schema via init_db.py (auto stamp head)"
+    if ! echo "YES" | docker compose run --rm --no-deps -T backend python init_db.py; then
+        log "init_db.py failed"
+        rollback
+    fi
+else
+    log "  Existing schema detected → running alembic upgrade head"
+    if ! docker compose run --rm --no-deps backend alembic upgrade head; then
+        log "alembic upgrade head failed"
+        rollback
+    fi
 fi
 
 # ── 4. 重启 backend ──
