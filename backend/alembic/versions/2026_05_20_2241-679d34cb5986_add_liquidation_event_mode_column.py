@@ -21,7 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column(
-        'liquidation_event',
+        'liquidation_events',
         sa.Column(
             'mode',
             sqlmodel.sql.sqltypes.AutoString(length=20),
@@ -32,4 +32,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column('liquidation_event', 'mode')
+    op.drop_column('liquidation_events', 'mode')
