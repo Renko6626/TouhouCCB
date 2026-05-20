@@ -115,6 +115,9 @@ async def _liquidate_one_user(
                     ev = await liquidation_service.liquidate_user(
                         session, user, daily_rate=rate,
                         trigger_source=trigger_source,
+                        partial_pct=Decimal("1.0"),       # T4 temp: 退化为全卖, T6 改读 site_config
+                        target_margin=Decimal("0.3"),
+                        emergency_threshold=Decimal("0.05"),
                     )
                     if (ev.sold_positions_count == 0
                             and ev.repaid_amount == 0):

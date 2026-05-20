@@ -35,8 +35,18 @@ async def liquidate_user(
     *,
     daily_rate: Decimal,
     trigger_source: str,
+    partial_pct: Decimal,
+    target_margin: Decimal,
+    emergency_threshold: Decimal,
 ) -> LiquidationEvent:
     """全平 user 持仓 + 最大化还债 + 写 LiquidationEvent。
+
+    Mode 决策 (spec docs/superpowers/specs/2026-05-20-partial-liquidation-design.md):
+    - pre_margin < emergency_threshold → mode='emergency'，全平所有 position
+    - 否则 → mode='partial'，每 position 按 partial_pct 卖（Task 5 实现）
+
+    注意 Task 4 内 partial 卖出逻辑还没实施，所以传 partial_pct=1.0 让 sell_amount
+    退化到 pos.amount (= 全卖 = 兼容原 emergency 行为)。Task 5 才加 partial 分支。
 
     前提：
     - 调用方已 lock user 行 (SELECT FOR UPDATE)
@@ -109,6 +119,21 @@ async def liquidate_user(
     # 有微小数值差 (~1 LSB)。pre_margin 仅写入 LiquidationEvent 作审计快照，
     # 不参与门槛判定，差异可忽略。详见 review M4。
     pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
+
+    # Mode 決策（spec § Mode 决策）
+    if pre_margin is not None and pre_margin < emergency_threshold:
+        mode = "emergency"
+    else:
+        mode = "partial"
+    _logger.info(
+        "liquidate_user_mode",
+        extra={
+            "user_id": user.id, "mode": mode,
+            "pre_margin": float(pre_margin) if pre_margin is not None else None,
+            "emergency_threshold": float(emergency_threshold),
+            "target_margin": float(target_margin),
+        },
+    )
 
     total_proceeds = ZERO
     sold_count = 0
@@ -239,6 +264,7 @@ async def liquidate_user(
             remaining_debt=user.debt,
             post_cash=user.cash,
             trigger_source=trigger_source,
+            mode=mode,
         )
 
     user.last_liquidated_at = datetime.now(timezone.utc)
@@ -258,6 +284,7 @@ async def liquidate_user(
         remaining_debt=user.debt,
         post_cash=user.cash,
         trigger_source=trigger_source,
+        mode=mode,
     )
     session.add(ev)
     await session.flush()  # 保证 ev.id 可用

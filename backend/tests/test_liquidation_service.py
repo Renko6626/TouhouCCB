@@ -64,6 +64,9 @@ async def test_liquidate_user_happy_path_full_repay(client):
             user = await lock_user(db, user_id)
             event = await liquidation_service.liquidate_user(
                 db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
+                partial_pct=Decimal("1.0"),
+                target_margin=Decimal("0.3"),
+                emergency_threshold=Decimal("0.05"),
             )
 
     async with async_session_maker() as db:
@@ -109,6 +112,9 @@ async def test_liquidate_user_partial_repay_remaining_debt(client):
             user = await lock_user(db, user_id)
             event = await liquidation_service.liquidate_user(
                 db, user, daily_rate=Decimal("0.01"), trigger_source="admin_manual",
+                partial_pct=Decimal("1.0"),
+                target_margin=Decimal("0.3"),
+                emergency_threshold=Decimal("0.05"),
             )
 
     async with async_session_maker() as db:
@@ -145,6 +151,9 @@ async def test_liquidate_user_skips_settled_market(client):
             user = await lock_user(db, user_id)
             event = await liquidation_service.liquidate_user(
                 db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
+                partial_pct=Decimal("1.0"),
+                target_margin=Decimal("0.3"),
+                emergency_threshold=Decimal("0.05"),
             )
         # 函数返回 noop event 对象但未 add 到 session
         assert event.sold_positions_count == 0
@@ -189,6 +198,9 @@ async def test_liquidate_user_noop_no_timestamp_no_event(client):
             user = await lock_user(db, user_id)
             event = await liquidation_service.liquidate_user(
                 db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
+                partial_pct=Decimal("1.0"),
+                target_margin=Decimal("0.3"),
+                emergency_threshold=Decimal("0.05"),
             )
         assert event.sold_positions_count == 0
         assert event.repaid_amount == Decimal("0")
@@ -201,3 +213,30 @@ async def test_liquidate_user_noop_no_timestamp_no_event(client):
             select(LiquidationEvent).where(LiquidationEvent.user_id == user_id)
         )).scalars().all()
         assert len(ev_rows) == 0, "no-op: 不应写入 LiquidationEvent"
+
+
+@pytest.mark.asyncio
+async def test_liquidate_user_writes_emergency_mode_when_below_threshold(client):
+    """pre_margin < emergency_threshold → LiquidationEvent.mode='emergency'。
+
+    cash=10, debt=500, positions=[("A", 50, 100)]
+    pre_nw = cash - debt + hv (hv << debt) → pre_margin << 0.05 → mode='emergency'
+    """
+    async with async_session_maker() as db:
+        u, _, _ = await _setup_user_with_positions(
+            db, cash=10, debt=500,
+            positions=[("A", 50, 100)],
+        )
+        uid = u.id
+
+    async with async_session_maker() as db:
+        async with db.begin():
+            user = await lock_user(db, uid)
+            ev = await liquidation_service.liquidate_user(
+                db, user, daily_rate=Decimal("0.001"),
+                trigger_source="scheduler",
+                partial_pct=Decimal("1.0"),
+                target_margin=Decimal("0.3"),
+                emergency_threshold=Decimal("0.05"),
+            )
+            assert ev.mode == "emergency", f"期望 mode='emergency', got '{ev.mode}'"
