@@ -71,6 +71,9 @@ async def _liquidate_one_user(
     trigger_source: str,
     now: float,
     sem: asyncio.Semaphore,
+    partial_pct: Decimal,
+    target_margin: Decimal,
+    emergency_threshold: Decimal,
 ) -> str:
     """阶段 2 内单用户强平 worker，给 asyncio.gather 调用。
 
@@ -115,9 +118,9 @@ async def _liquidate_one_user(
                     ev = await liquidation_service.liquidate_user(
                         session, user, daily_rate=rate,
                         trigger_source=trigger_source,
-                        partial_pct=Decimal("1.0"),       # T4 temp: 退化为全卖, T6 改读 site_config
-                        target_margin=Decimal("0.3"),
-                        emergency_threshold=Decimal("0.05"),
+                        partial_pct=partial_pct,
+                        target_margin=target_margin,
+                        emergency_threshold=emergency_threshold,
                     )
                     if (ev.sold_positions_count == 0
                             and ev.repaid_amount == 0):
@@ -159,6 +162,9 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                 "liquidation_hard_threshold",
                 "liquidation_soft_threshold",
                 "loan_daily_rate",
+                "liquidation_partial_pct",          # 新
+                "liquidation_target_margin",        # 新
+                "liquidation_emergency_threshold",  # 新
             ])
         except Exception:
             logger.exception("liquidation_sweep_config_load_failed")
@@ -174,6 +180,9 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
             hard_thr = Decimal(cfg["liquidation_hard_threshold"])
             soft_thr = Decimal(cfg["liquidation_soft_threshold"])
             rate = Decimal(cfg["loan_daily_rate"])
+            partial_pct = Decimal(cfg["liquidation_partial_pct"])
+            target_margin = Decimal(cfg["liquidation_target_margin"])
+            emergency_threshold = Decimal(cfg["liquidation_emergency_threshold"])
         except (KeyError, InvalidOperation, ValueError):
             logger.exception("liquidation_sweep_config_parse_failed")
             return {"skipped": "config_parse_failed"}
@@ -259,6 +268,9 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
                 _liquidate_one_user(
                     uid=uid, hard_thr=hard_thr, rate=rate,
                     trigger_source=trigger_source, now=now, sem=sem,
+                    partial_pct=partial_pct,
+                    target_margin=target_margin,
+                    emergency_threshold=emergency_threshold,
                 )
                 for uid in over_hard
             ],

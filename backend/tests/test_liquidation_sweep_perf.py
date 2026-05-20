@@ -37,11 +37,14 @@ async def _setup_perf_scenario():
     """100 用户 × 3 positions × 5 markets，10 个用户 margin < 0.2 (会触发强平)。"""
     async with async_session_maker() as s:
         async with s.begin():
-            # 4 个 site_config 行（sweep 启动会一次性 get_many）
+            # 7 个 site_config 行（sweep 启动会一次性 get_many）
             s.add(SiteConfig(key="liquidation_enabled", value="true", value_type="bool"))
             s.add(SiteConfig(key="liquidation_hard_threshold", value="0.2", value_type="decimal"))
             s.add(SiteConfig(key="liquidation_soft_threshold", value="0.5", value_type="decimal"))
             s.add(SiteConfig(key="loan_daily_rate", value="0.001", value_type="decimal"))
+            s.add(SiteConfig(key="liquidation_partial_pct", value="0.10", value_type="decimal"))
+            s.add(SiteConfig(key="liquidation_target_margin", value="0.30", value_type="decimal"))
+            s.add(SiteConfig(key="liquidation_emergency_threshold", value="0.05", value_type="decimal"))
 
             # 5 个 TRADING market
             markets = []

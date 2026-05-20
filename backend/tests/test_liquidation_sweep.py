@@ -41,6 +41,9 @@ async def _seed_base_config(setup_db):
             s.add(SiteConfig(key="liquidation_soft_threshold", value="0.5", value_type="decimal"))
             s.add(SiteConfig(key="loan_daily_rate", value="0.01", value_type="decimal"))
             s.add(SiteConfig(key="liquidation_sweep_interval_sec", value="600", value_type="int"))
+            s.add(SiteConfig(key="liquidation_partial_pct", value="0.10", value_type="decimal"))
+            s.add(SiteConfig(key="liquidation_target_margin", value="0.30", value_type="decimal"))
+            s.add(SiteConfig(key="liquidation_emergency_threshold", value="0.05", value_type="decimal"))
 
 
 async def _enable_liquidation():

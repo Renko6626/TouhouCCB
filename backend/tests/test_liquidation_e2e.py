@@ -64,6 +64,9 @@ async def test_full_liquidation_sweep_e2e(client):
             db.add(SiteConfig(key="liquidation_soft_threshold", value="0.5",   value_type="decimal"))
             db.add(SiteConfig(key="loan_daily_rate",            value="0.01",  value_type="decimal"))
             db.add(SiteConfig(key="liquidation_sweep_interval_sec", value="600", value_type="int"))
+            db.add(SiteConfig(key="liquidation_partial_pct",          value="1.0",  value_type="decimal"))
+            db.add(SiteConfig(key="liquidation_target_margin",        value="0.30", value_type="decimal"))
+            db.add(SiteConfig(key="liquidation_emergency_threshold",  value="0.05", value_type="decimal"))
 
     # ── 2. 建 market + outcomes ──────────────────────────────────────────────
     async with async_session_maker() as db:
