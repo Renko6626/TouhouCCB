@@ -18,6 +18,7 @@ class TransactionType(str, Enum):
     SELL = "sell"
     SETTLE = "settle"
     SETTLE_LOSE = "settle_lose"
+    LIQUIDATE = "liquidate"   # 新增：强制平仓
 
 
 class User(SQLModel, table=True):
@@ -53,6 +54,12 @@ class User(SQLModel, table=True):
 
     # 免责声明知情同意时间戳；为 null 表示用户尚未在 TosModal 勾选同意
     tos_accepted_at: Optional[datetime] = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),
+    )
+
+    # 上次强制平仓时间；前端 MarginCallBanner 用于判断"刚被强平了"
+    last_liquidated_at: Optional[datetime] = Field(
         default=None,
         sa_type=DateTime(timezone=True),
     )
@@ -248,3 +255,52 @@ class SiteConfig(SQLModel, table=True):
         sa_type=DateTime(timezone=True),
     )
     updated_by: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class LiquidationEvent(SQLModel, table=True):
+    """每次强制平仓事件的快照记录。给"翻车现场墙"公示用，跟 LIQUIDATE
+    type 的 Transaction（细粒度卖出）是 1-to-N 关系。"""
+    __tablename__ = "liquidation_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    triggered_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, index=True)
+    )
+
+    pre_cash: Decimal = Field(sa_type=Numeric(16, 6))
+    pre_debt: Decimal = Field(sa_type=Numeric(16, 6))
+    pre_holdings_value: Decimal = Field(sa_type=Numeric(16, 6))
+    pre_net_worth: Decimal = Field(sa_type=Numeric(16, 6))
+    pre_margin_ratio: Optional[Decimal] = Field(
+        default=None, sa_type=Numeric(10, 6),
+    )
+
+    sold_positions_count: int
+    total_proceeds: Decimal = Field(sa_type=Numeric(16, 6))
+    repaid_amount: Decimal = Field(sa_type=Numeric(16, 6))
+    remaining_debt: Decimal = Field(sa_type=Numeric(16, 6))
+    post_cash: Decimal = Field(sa_type=Numeric(16, 6))
+
+    trigger_source: str  # "scheduler" | "admin_manual"
+    mode: str = Field(default="emergency", max_length=20)
+
+
+class BotSuspicion(SQLModel, table=True):
+    __tablename__ = "bot_suspicion"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    triggered_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+        index=True,
+    )
+    signals: str = Field(max_length=200)
+    metrics: str = Field(max_length=500, default="{}")
+    window_start: datetime = Field(sa_type=DateTime(timezone=True))
+    window_end: datetime = Field(sa_type=DateTime(timezone=True))
+    review_status: str = Field(default="pending", max_length=20)
+    reviewed_by: Optional[int] = Field(default=None, foreign_key="user.id")
+    reviewed_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    review_note: Optional[str] = Field(default=None, max_length=500)

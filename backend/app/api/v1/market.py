@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
 from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -35,8 +35,16 @@ from app.services.lmsr import (
     quantize_cost,
     quantize_price,
 )
-from app.services.wealth import compute_users_holdings_value
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
 from app.services.candle_writer import compute_candle_rows, upsert_candles
+from app.services.market_locks import (
+    lock_market as _lock_market,
+    lock_user as _lock_user,
+    lock_outcomes_for_market as _lock_outcomes_for_market,
+    lock_outcome as _lock_outcome,
+)
+from app.services import site_config
+from app.services.anti_bot import verify_client_token, parse_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -88,52 +96,6 @@ def _quote_cache_gc_if_full() -> None:
 # -----------------------------
 # Helpers
 # -----------------------------
-
-async def _lock_market(db: AsyncSession, market_id: int) -> Market:
-    """锁住市场行，保证 status 等状态机不会被并发改乱。"""
-    res = await db.execute(
-        select(Market).where(Market.id == market_id).with_for_update()
-    )
-    market = res.scalars().first()
-    if not market:
-        raise HTTPException(status_code=404, detail="市场不存在")
-    return market
-
-
-async def _lock_user(db: AsyncSession, user_id: int) -> User:
-    """锁住用户行，保证 cash 扣减不会被并发穿透。"""
-    res = await db.execute(
-        select(User).where(User.id == user_id).with_for_update()
-    )
-    user = res.scalars().first()
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    return user
-
-
-async def _lock_outcomes_for_market(db: AsyncSession, market_id: int) -> List[Outcome]:
-    """锁住该市场所有 outcome 行（total_shares 是 LMSR 状态）。"""
-    res = await db.execute(
-        select(Outcome)
-        .where(Outcome.market_id == market_id)
-        .order_by(Outcome.id)
-        .with_for_update()
-    )
-    outcomes = res.scalars().all()
-    if not outcomes:
-        raise HTTPException(status_code=404, detail="市场选项不存在（数据异常）")
-    return outcomes
-
-
-async def _lock_outcome(db: AsyncSession, outcome_id: int) -> Outcome:
-    """锁住单个 outcome 行，返回对应记录。"""
-    res = await db.execute(
-        select(Outcome).where(Outcome.id == outcome_id).with_for_update()
-    )
-    outcome = res.scalars().first()
-    if not outcome:
-        raise HTTPException(status_code=404, detail="选项不存在")
-    return outcome
 
 
 async def _get_prices_24h_ago(db: AsyncSession, outcome_ids: List[int]) -> Dict[int, float]:
@@ -448,10 +410,44 @@ async def get_market_detail(
 # 交易接口（登录用户）
 # ==========================================
 
+
+async def verify_anti_bot(
+    request: Request,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+) -> User:
+    """L2 anti-bot 验证 + L3 白名单。
+
+    1. activity_mode_enabled=false → 通过 (默认 / 平时)
+    2. user 在 quant_whitelist_user_ids → 通过 (自己 quant 例外)
+    3. 否则验 HMAC X-Client-Token + X-Client-TS，失败 403
+
+    详见 spec docs/superpowers/specs/2026-05-20-anti-bot-design.md。
+    """
+    if not await site_config.get_bool(db, "activity_mode_enabled"):
+        return user
+
+    try:
+        whitelist_csv = await site_config.get_str(db, "quant_whitelist_user_ids")
+    except Exception:
+        whitelist_csv = ""
+    if user.id in parse_whitelist(whitelist_csv):
+        return user
+
+    token = request.headers.get("X-Client-Token")
+    ts = request.headers.get("X-Client-TS")
+    if not token or not ts:
+        raise HTTPException(403, detail="anti-bot 验证缺失（活动期间禁止脚本访问）")
+
+    if not verify_client_token(token, ts, user.id):
+        raise HTTPException(403, detail="anti-bot 验证失败")
+    return user
+
+
 @router.post("/buy", response_model=TradeResponse, summary="买入胜券")
 async def buy_shares(
     req: TradeRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     shares_d = quantize_cost(req.shares)
@@ -606,7 +602,7 @@ async def buy_shares(
 @router.post("/sell", response_model=TradeResponse, summary="卖出胜券")
 async def sell_shares(
     req: TradeRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     shares_d = quantize_cost(req.shares)
@@ -925,7 +921,7 @@ async def resolve_market(
 @router.post("/quote", response_model=QuoteResponse, summary="下单预估（不真实成交）")
 async def quote_trade(
     req: QuoteRequest,
-    user: User = Depends(current_active_user),
+    user: User = Depends(verify_anti_bot),
     db: AsyncSession = Depends(get_async_session),
 ):
     # ── 缓存命中 fast path ──
@@ -1068,15 +1064,15 @@ async def leaderboard(
     db: AsyncSession = Depends(get_async_session),
 ):
     if mode == "net_worth":
-        # 与 /user/summary、/admin/wealth 同口径：net_worth = cash - debt + 持仓 LMSR 清算价
-        # 数据库无法直接 ORDER BY 持仓估值（需 LMSR 全市场上下文），应用层算完再排。
+        # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
+        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观，
+        # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
         users = (await db.execute(select(User))).scalars().all()
         if not users:
             return []
-        holdings = await compute_users_holdings_value(
+        holdings = await compute_users_holdings_value_mtm(
             db,
             user_ids=[u.id for u in users],
-            sell_fee_rate=SELL_FEE_RATE,
         )
         scored = [
             (u, u.cash - u.debt + holdings.get(u.id, ZERO))

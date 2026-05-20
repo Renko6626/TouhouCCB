@@ -56,9 +56,46 @@ async def get_bool(session: AsyncSession, key: str) -> bool:
     return (await _get_raw(session, key)).lower() in ("true", "1", "yes")
 
 
+async def get_str(session: AsyncSession, key: str) -> str:
+    return await _get_raw(session, key)
+
+
 async def get_all(session: AsyncSession) -> list[SiteConfig]:
     result = await session.execute(select(SiteConfig).order_by(SiteConfig.key))
     return list(result.scalars().all())
+
+
+async def get_many(session: AsyncSession, keys: list[str]) -> dict[str, str]:
+    """批量取 raw value，省 N 次串行 query。
+
+    流程：
+    1. cache 命中的 key 直接取
+    2. 未命中的所有 key 用一次 `WHERE key IN (...)` 拉
+    3. 全部填回 cache
+
+    返回 {key: raw_value_str}。**缺失的 key 不在返回 dict 里**（与单 key 版本
+    抛 SiteConfigError 的行为不同——批量场景由调用方决定哪些 key 是 required）。
+    调用方需要 .get(k) 或 .get(k, default) 取值。
+
+    sweep / 批量决策场景用，避免阶段 A 4 次串行 query。
+    """
+    now = time.monotonic()
+    result: dict[str, str] = {}
+    missing: list[str] = []
+    for key in keys:
+        entry = _cache.get(key)
+        if entry is not None and now < entry[1]:
+            result[key] = entry[0]
+        else:
+            missing.append(key)
+    if missing:
+        rows = (await session.execute(
+            select(SiteConfig).where(SiteConfig.key.in_(missing))
+        )).scalars().all()
+        for row in rows:
+            _cache[row.key] = (row.value, now + _CACHE_TTL)
+            result[row.key] = row.value
+    return result
 
 
 async def set_value(

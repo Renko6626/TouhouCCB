@@ -26,12 +26,29 @@ function onRefreshFailed(err: any) {
 }
 
 // 请求拦截器 - 添加认证令牌
-instance.interceptors.request.use((config) => {
+instance.interceptors.request.use(async (config) => {
   const authStore = useAuthStore()
   const token = authStore.accessToken
 
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+
+  // Anti-bot L2: /market/{buy,sell,quote} 加 X-Client-Token + X-Client-TS
+  // activity_mode=false (默认) 时后端不验；始终发，避免分支
+  if (config.url?.match(/\/api\/v1\/market\/(buy|sell|quote)/)) {
+    // dynamic import 避免循环依赖 (api → store → api)
+    const { useAuthStore: useAuthStoreDynamic } = await import('@/stores/auth')
+    const authStoreDynamic = useAuthStoreDynamic()
+    const uid = authStoreDynamic.user?.id
+    if (uid) {
+      const { generateClientToken } = await import('@/utils/clientToken')
+      const { token: clientToken, ts } = await generateClientToken(uid)
+      if (clientToken) {
+        config.headers['X-Client-Token'] = clientToken
+        config.headers['X-Client-TS'] = String(ts)
+      }
+    }
   }
 
   return config

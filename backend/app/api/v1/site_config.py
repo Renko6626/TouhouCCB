@@ -11,7 +11,7 @@ from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.schemas.loan import SiteConfigItem, SiteConfigUpdate
-from app.services import site_config, loan_sweep
+from app.services import site_config, loan_sweep, liquidation_sweep
 
 router = APIRouter()
 logger = logging.getLogger("thccb.site_config")
@@ -21,6 +21,24 @@ _WHITELIST = {
     "loan_leverage_k": "decimal",
     "loan_daily_rate": "decimal",
     "loan_sweep_interval_sec": "int",
+    "liquidation_enabled": "bool",
+    "liquidation_sweep_interval_sec": "int",
+    "liquidation_hard_threshold": "decimal",
+    "liquidation_soft_threshold": "decimal",
+    "activity_mode_enabled": "bool",
+    "quant_whitelist_user_ids": "string",
+    "bot_detection_enabled": "bool",
+    "bot_detection_interval_sec": "int",
+    "bot_detection_window_sec": "int",
+    "bot_freq_threshold": "int",
+    "bot_late_night_threshold": "int",
+    "bot_interval_stddev_ms_threshold": "int",
+    "bot_fast_follow_trigger_cost": "decimal",
+    "bot_fast_follow_latency_ms": "int",
+    "bot_fast_follow_count_threshold": "int",
+    "liquidation_partial_pct": "decimal",
+    "liquidation_target_margin": "decimal",
+    "liquidation_emergency_threshold": "decimal",
 }
 
 
@@ -36,6 +54,8 @@ def _validate(key: str, value: str) -> None:
             raise HTTPException(status_code=400, detail="int 解析失败")
         if key == "loan_sweep_interval_sec" and not (10 <= v <= 3600):
             raise HTTPException(status_code=400, detail="sweep 间隔必须在 [10, 3600] 秒")
+        if key == "liquidation_sweep_interval_sec" and not (5 <= v <= 7200):
+            raise HTTPException(status_code=400, detail="liquidation sweep 间隔必须在 [5, 7200] 秒")
     elif t == "decimal":
         try:
             v = Decimal(value)
@@ -78,6 +98,11 @@ async def update_config(
             await loan_sweep.reschedule(int(req.value))
         except Exception:
             logger.exception("reschedule failed")
+    elif key == "liquidation_sweep_interval_sec":
+        try:
+            await liquidation_sweep.reschedule(int(req.value))
+        except Exception:
+            logger.exception("liquidation reschedule failed")
 
     return SiteConfigItem(
         key=row.key, value=row.value, value_type=row.value_type,

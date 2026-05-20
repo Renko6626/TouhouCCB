@@ -12,7 +12,18 @@ from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
 from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
-from app.services.loan_sweep import start_scheduler, stop_scheduler
+from app.services.loan_sweep import (
+    start_scheduler as start_loan_scheduler,
+    stop_scheduler as stop_loan_scheduler,
+)
+from app.services.liquidation_sweep import (
+    start_scheduler as start_liquidation_scheduler,
+    stop_scheduler as stop_liquidation_scheduler,
+)
+from app.services.bot_detection import (
+    start_scheduler as start_bot_detection_scheduler,
+    stop_scheduler as stop_bot_detection_scheduler,
+)
 from app.services.loan_migrate import auto_migrate
 
 from dotenv import load_dotenv
@@ -48,7 +59,7 @@ def _set_no_store_for_api(path: str, response):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 建表 → LoanV1 幂等补列/种默认配置 → 挂载 admin → 启动 loan sweep
+    # startup: 建表 → LoanV1 幂等补列/种默认配置 → 挂载 admin → 启动 loan/liquidation sweep
     await init_db()
     await auto_migrate()
     setup_admin(app, engine)
@@ -59,10 +70,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
         logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
-    await start_scheduler()
+    await start_loan_scheduler()
+    await start_liquidation_scheduler()
+    await start_bot_detection_scheduler()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
-    await stop_scheduler()
+    # 启动顺序 loan → liquidation → bot_detection，停止时反序
+    await stop_bot_detection_scheduler()
+    await stop_liquidation_scheduler()
+    await stop_loan_scheduler()
     await engine.dispose()
 
 
@@ -224,6 +240,9 @@ app.include_router(danmuku_api.router, prefix="/api/v1/danmuku", tags=["Danmuku"
 
 from app.api.v1 import admin_stats as admin_stats_api
 app.include_router(admin_stats_api.router, prefix="/api/v1/admin/stats", tags=["AdminStats"])
+
+from app.api.v1 import admin_liquidation as admin_liquidation_api
+app.include_router(admin_liquidation_api.router, prefix="/api/v1/admin/liquidation", tags=["AdminLiquidation"])
 
 
 @app.get("/")

@@ -17,6 +17,9 @@ class LoanQuotaResponse(BaseModel):
     enabled: bool
     cash: Decimal
     debt: Decimal
+    # 注意：本字段是 LCV 口径（含 LMSR 滑点 + 扣 sell_fee），与 /user/summary.net_worth
+    # 的 MTM 口径不同！borrow/repay 路径走保守口径，避免 MTM 虚高估值导致过度杠杆。
+    # 详见 docs/holdings-value-semantics.md。
     net_worth: Decimal
     leverage_k: Decimal
     daily_rate: Decimal

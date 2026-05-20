@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   NTable, NInput, NButton, NSpin, NAlert, useMessage,
-  NInputNumber, NDivider, NSelect, type SelectOption,
+  NInputNumber, NDivider, NSelect, NSwitch, NTooltip,
+  type SelectOption,
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import { adminApi, type UserListItem } from '@/api/admin'
+import { getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
 const configs = ref<SiteConfigItem[]>([])
 const loading = ref(false)
@@ -55,6 +57,33 @@ async function save(key: string) {
   } catch (e: any) {
     msg.error(e?.message ?? '更新失败')
   }
+}
+
+// bool 类型直接 toggle 立即保存（不走 draft），UX 更顺
+async function toggleBool(c: SiteConfigItem) {
+  const next = c.value === 'true' ? 'false' : 'true'
+  drafts.value[c.key] = next
+  await save(c.key)
+}
+
+// 把 configs 按 group 分组
+const configsByGroup = computed<Record<ConfigGroup, SiteConfigItem[]>>(() => {
+  const groups: Record<ConfigGroup, SiteConfigItem[]> = {
+    loan: [], liquidation: [], anti_bot: [], general: [],
+  }
+  for (const c of configs.value) {
+    const meta = getConfigMeta(c.key)
+    groups[meta.group].push(c)
+  }
+  // 每组内部按 key 字母排序，UI 稳定
+  for (const g in groups) {
+    groups[g as ConfigGroup].sort((a, b) => a.key.localeCompare(b.key))
+  }
+  return groups
+})
+
+function shouldChangeFromDraft(c: SiteConfigItem): boolean {
+  return drafts.value[c.key] !== c.value
 }
 
 async function loadUsers() {
@@ -107,28 +136,83 @@ onMounted(async () => {
 
       <section class="panel">
         <h2>站点配置</h2>
-        <NTable :bordered="true" :single-line="false" size="small">
-          <thead>
-            <tr>
-              <th>Key</th>
-              <th>类型</th>
-              <th>当前值</th>
-              <th>更新时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="c in configs" :key="c.key">
-              <td><code>{{ c.key }}</code></td>
-              <td>{{ c.value_type }}</td>
-              <td><NInput v-model:value="drafts[c.key]" size="small" /></td>
-              <td class="ts">{{ new Date(c.updated_at).toLocaleString() }}</td>
-              <td>
-                <NButton size="small" type="primary" @click="save(c.key)">保存</NButton>
-              </td>
-            </tr>
-          </tbody>
-        </NTable>
+
+        <div
+          v-for="group in groupOrder()"
+          :key="group"
+          class="config-group"
+        >
+          <template v-if="configsByGroup[group].length > 0">
+            <h3 class="group-title">{{ groupLabel(group) }} <span class="group-count">({{ configsByGroup[group].length }})</span></h3>
+
+            <NTable :bordered="true" :single-line="false" size="small">
+              <thead>
+                <tr>
+                  <th class="col-key">配置项</th>
+                  <th class="col-value">值</th>
+                  <th class="col-ts">更新时间</th>
+                  <th class="col-action">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in configsByGroup[group]" :key="c.key">
+                  <td>
+                    <div class="config-label-cell">
+                      <span class="config-label">{{ getConfigMeta(c.key).label }}</span>
+                      <NTooltip v-if="getConfigMeta(c.key).description" trigger="hover" :style="{ maxWidth: '320px' }">
+                        <template #trigger>
+                          <span class="config-help">ⓘ</span>
+                        </template>
+                        {{ getConfigMeta(c.key).description }}
+                      </NTooltip>
+                      <code class="config-key-mono">{{ c.key }}</code>
+                    </div>
+                  </td>
+                  <td>
+                    <!-- bool 用 Switch 立即保存 -->
+                    <template v-if="c.value_type === 'bool'">
+                      <NSwitch
+                        :value="c.value === 'true'"
+                        @update:value="toggleBool(c)"
+                        size="small"
+                      />
+                      <span class="value-text-bool">{{ c.value === 'true' ? '启用' : '关闭' }}</span>
+                    </template>
+
+                    <!-- int / decimal 用 NInputNumber，按需选 step -->
+                    <template v-else-if="c.value_type === 'int' || c.value_type === 'decimal'">
+                      <NInputNumber
+                        :value="Number(drafts[c.key])"
+                        @update:value="(v) => drafts[c.key] = v === null ? '' : String(v)"
+                        size="small"
+                        :precision="c.value_type === 'int' ? 0 : undefined"
+                        style="width: 160px"
+                      />
+                      <span v-if="getConfigMeta(c.key).unit" class="config-unit">{{ getConfigMeta(c.key).unit }}</span>
+                    </template>
+
+                    <!-- string 默认 -->
+                    <template v-else>
+                      <NInput v-model:value="drafts[c.key]" size="small" />
+                    </template>
+                  </td>
+                  <td class="ts">{{ new Date(c.updated_at).toLocaleString() }}</td>
+                  <td>
+                    <!-- bool 已用 toggle 立即保存，不需要按钮 -->
+                    <NButton
+                      v-if="c.value_type !== 'bool'"
+                      size="small"
+                      type="primary"
+                      :disabled="!shouldChangeFromDraft(c)"
+                      @click="save(c.key)"
+                    >保存</NButton>
+                    <span v-else class="ts">—</span>
+                  </td>
+                </tr>
+              </tbody>
+            </NTable>
+          </template>
+        </div>
       </section>
 
       <NDivider />
@@ -210,6 +294,68 @@ onMounted(async () => {
   color: #666;
   white-space: nowrap;
 }
+/* ── 配置项分组 ── */
+.config-group {
+  margin-bottom: 24px;
+}
+.config-group:last-child {
+  margin-bottom: 0;
+}
+.group-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 16px 0 8px;
+  padding: 6px 10px;
+  background: #f5f5f5;
+  border-left: 4px solid #000;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.group-count {
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.config-label-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.config-label {
+  font-weight: 600;
+  color: #000;
+}
+.config-help {
+  color: #888;
+  cursor: help;
+  font-size: 14px;
+  user-select: none;
+}
+.config-key-mono {
+  font-family: monospace;
+  font-size: 10px;
+  color: #999;
+  margin-left: 4px;
+}
+.config-unit {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #666;
+}
+.value-text-bool {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #666;
+}
+/* 列宽 */
+.col-key { width: 30%; }
+.col-value { width: 35%; }
+.col-ts { width: 20%; }
+.col-action { width: 15%; }
 h2, h3 {
   margin: 0 0 8px 0;
 }

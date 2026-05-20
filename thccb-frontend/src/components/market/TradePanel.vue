@@ -121,12 +121,25 @@ const pnlPercent = computed(() => {
   return (h.unrealized_pnl / h.cost_basis) * 100
 })
 
-// 卖出均价：amount × 卖出均价 = market_value（含 LMSR 滑点的真实可得每份均价）
-// 与"均价 (cost_basis/amount)"配合使用，使 amount × (卖出均价 - 均价) ≡ 浮盈
+// 卖出均价 = market_value / amount，即"全部卖出可得的平均每份价格（含 LMSR 滑点 + 扣 sell_fee）"
+// 注意：和"均价 (cost_basis/amount)"配合，amount × (卖出均价 - 均价) ≡ unrealized_pnl_liquidation
+// 而 holding box 显示的"浮盈"现在是 MTM 口径（与顶部资产栏统一），所以这两个数不直接相等。
+// MTM 浮盈 用 current_price（瞬时价）算；LCV 浮盈 用 market_value（含滑点）算。
 const sellAvgPrice = computed(() => {
   const h = props.userHolding
   if (!h || h.amount <= 0) return null
   return h.market_value / h.amount
+})
+
+// LCV 浮盈：用于 tooltip 副显示，告诉用户"实际变现你能拿多少"
+const pnlLcv = computed(() => props.userHolding?.unrealized_pnl_liquidation ?? 0)
+
+// 账面市值 (MTM) = amount × current_price，按瞬时价的持仓估值
+// 跟 market_value (LCV) 对照让用户看到滑点损耗
+const holdingMtmValue = computed(() => {
+  const h = props.userHolding
+  if (!h || h.amount <= 0) return null
+  return h.amount * h.current_price
 })
 
 // 整体浮盈方向（用于资产栏第 4 格着色）
@@ -146,6 +159,7 @@ const summaryPnlSign = computed(() => {
 const disabledReason = computed(() => {
   if (isSubmitting.value) return '提交中…'
   if (marketStore.tradeLoading) return '处理中…'
+  if (props.tradeType === 'buy' && buyDisabledByDanger.value) return '净值/借款 < 0.2，禁止买入直到补仓或被强平'
   if (!props.selectedOutcomeId) return '请先选择预测结果'
   if (props.shares <= 0) return '请输入份额'
   if (props.shares > props.maxShares) return '超过份额上限'
@@ -160,6 +174,9 @@ const closePosition = () => {
   emit('update:tradeType', 'sell')
   emit('update:shares', props.userHolding.amount)
 }
+
+// danger 状态：净值/借款 < 0.2，禁止买入
+const buyDisabledByDanger = computed(() => userStore.summary?.margin_status === 'danger')
 
 // 操作类型提示
 const actionHint = computed<string>(() => {
@@ -205,6 +222,8 @@ const actionHint = computed<string>(() => {
     <div class="type-switch">
       <button
         :class="['type-btn', props.tradeType === 'buy' && 'type-btn--active-buy']"
+        :disabled="buyDisabledByDanger"
+        :title="buyDisabledByDanger ? '净值/借款 < 0.2，禁止买入直到补仓或被强平' : undefined"
         @click="emit('update:tradeType', 'buy')"
       >买入</button>
       <button
@@ -225,22 +244,40 @@ const actionHint = computed<string>(() => {
 
     <!-- 当前选项的持仓 + 浮盈（仅持有时显示） -->
     <div v-if="hasHolding && props.userHolding" class="holding-box" :class="`holding-box--${pnlDirection}`">
+      <!-- 行 1：我现在有什么（数量 + 瞬时价 + 账面市值 MTM） -->
       <div class="holding-meta">
         <div class="holding-cell">
           <span class="holding-label">持仓</span>
           <span class="holding-value">{{ props.userHolding.amount.toLocaleString() }} 份</span>
         </div>
         <div class="holding-cell">
-          <span class="holding-label">均价</span>
+          <span class="holding-label" title="LMSR 瞬时单价（再买/再卖第 1 份的边际价）">现价</span>
+          <span class="holding-value">金 {{ props.userHolding.current_price.toFixed(4) }}</span>
+        </div>
+        <div class="holding-cell">
+          <span class="holding-label" title="账面市值 = 持仓 × 瞬时价（MTM 口径，不含全卖滑点）">账面市值</span>
+          <span class="holding-value">金 {{ holdingMtmValue !== null ? holdingMtmValue.toFixed(2) : '—' }}</span>
+        </div>
+      </div>
+      <!-- 行 2：买卖对照（买入均价 + 卖出均价，让用户看到滑点） -->
+      <div class="holding-meta">
+        <div class="holding-cell">
+          <span class="holding-label" title="买入加权均价 = 成本 / 持仓数量">买入均价</span>
           <span class="holding-value">金 {{ props.userHolding.avg_price.toFixed(4) }}</span>
         </div>
         <div class="holding-cell">
-          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点）">卖出均价</span>
+          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点 + 扣手续费，跟现价的差额就是滑点损耗）">卖出均价</span>
           <span class="holding-value">金 {{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
+        </div>
+        <div class="holding-cell">
+          <!-- 占位让 grid 对齐；如果想之后塞"滑点 -X" 可以替换 -->
         </div>
       </div>
       <div class="holding-pnl-row">
-        <div class="holding-pnl">
+        <div
+          class="holding-pnl"
+          :title="`账面浮盈（按瞬时价）${pnlSign}金${Math.abs(props.userHolding.unrealized_pnl).toFixed(2)}\n立即变现浮盈（含滑点）${pnlLcv >= 0 ? '+' : '−'}金${Math.abs(pnlLcv).toFixed(2)}`"
+        >
           <span class="holding-pnl-label">浮盈</span>
           <span class="holding-pnl-value" :class="`pnl-${pnlDirection}`">
             {{ pnlSign }}金 {{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}
@@ -254,8 +291,10 @@ const actionHint = computed<string>(() => {
           class="close-position-btn"
           @click="closePosition"
           :disabled="props.userHolding.amount <= 0"
+          :title="`卖出 ${props.userHolding.amount.toLocaleString()} 份，预计可得（含 LMSR 滑点+扣手续费，最终以下单 quote 为准）`"
         >
           一键平仓
+          <span class="close-position-est">≈ 金 {{ props.userHolding.market_value.toFixed(2) }}</span>
         </button>
       </div>
     </div>
@@ -338,7 +377,7 @@ const actionHint = computed<string>(() => {
     <NButton
       type="primary"
       :loading="marketStore.tradeLoading"
-      :disabled="isSubmitting || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
+      :disabled="isSubmitting || (props.tradeType === 'buy' && buyDisabledByDanger) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
       @click="executeTrade"
       class="exec-btn"
       :title="disabledReason"
@@ -503,7 +542,11 @@ const actionHint = computed<string>(() => {
 /* 一键平仓按钮 */
 .close-position-btn {
   flex-shrink: 0;
-  padding: 8px 12px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -512,6 +555,19 @@ const actionHint = computed<string>(() => {
   color: #000;
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
+  line-height: 1.1;
+}
+
+.close-position-est {
+  font-size: 10px;
+  font-weight: 600;
+  color: #666;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.close-position-btn:hover:not(:disabled) .close-position-est {
+  color: #ccc;
 }
 
 .close-position-btn:hover:not(:disabled) {

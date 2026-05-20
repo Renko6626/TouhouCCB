@@ -14,13 +14,14 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
-from app.models.base import User, Position, Transaction, Outcome, Market
+from app.models.base import User, Position, Transaction, Outcome, Market, MarketStatus
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
+from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm, user_has_halt_holdings
 
 _loan_admin_logger = logging.getLogger("thccb.loan_admin")
 
@@ -48,55 +49,66 @@ async def get_user_summary(
     pos_res = await db.execute(pos_stmt)
     positions: List[Position] = pos_res.scalars().all()
 
-    holdings_value = ZERO
     total_cost_basis = ZERO
-
-    # 批量查出所有相关市场的 outcomes，避免 N+1
-    market_ids = list({pos.outcome.market_id for pos in positions})
-    outcomes_by_market: Dict[int, List[Outcome]] = {}
-    if market_ids:
-        all_outcomes_res = await db.execute(
-            select(Outcome)
-            .where(Outcome.market_id.in_(market_ids))
-            .order_by(Outcome.market_id, Outcome.id)
-        )
-        for o in all_outcomes_res.scalars().all():
-            outcomes_by_market.setdefault(o.market_id, []).append(o)
-
     for pos in positions:
-        outcome: Outcome = pos.outcome
-        market: Market = outcome.market
-        all_outcomes = outcomes_by_market.get(market.id, [])
-
-        shares_list = [float(o.total_shares) for o in all_outcomes]
-        idx = next((i for i, o in enumerate(all_outcomes) if o.id == outcome.id), None)
-        if idx is None:
-            continue
-
-        # 用 LMSR 成本差计算真实清算价值（含滑点），并扣除卖出手续费，与实际可得现金口径一致
-        b = float(market.liquidity_b)
-        old_cost = calculate_lmsr_cost(shares_list, b)
-        after_sell = list(shares_list)
-        after_sell[idx] -= float(pos.amount)
-        new_cost = calculate_lmsr_cost(after_sell, b)
-        gross = quantize_cost(old_cost - new_cost)
-        liquidation_value = quantize_cost(gross * (ONE - SELL_FEE_RATE))
-
-        holdings_value += liquidation_value
         total_cost_basis += pos.cost_basis
 
-    net_worth = user.cash - user.debt + holdings_value
-    unrealized_pnl = holdings_value - total_cost_basis
+    # 双口径估值：MTM (主显示) + LCV (强平/借款保守口径)
+    # 详见 docs/holdings-value-semantics.md
+    holdings_mtm = (
+        await compute_users_holdings_value_mtm(db, user_ids=[user.id])
+    ).get(user.id, ZERO)
+    holdings_lcv = (
+        await compute_users_holdings_value(db, user_ids=[user.id])
+    ).get(user.id, ZERO)
+
+    # net_worth (主显示/排名)用 MTM；net_worth_liquidation 用 LCV (margin 用)
+    net_worth = user.cash - user.debt + holdings_mtm
+    net_worth_lcv = user.cash - user.debt + holdings_lcv
+    unrealized_pnl = holdings_mtm - total_cost_basis        # MTM 主显示
+    unrealized_pnl_lcv = holdings_lcv - total_cost_basis    # LCV 保守口径
     rank = rank_title(net_worth)
+
+    # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
+    # site_config 缺失时 fallback 默认值，跟 sweep / liquidate 用同一套约定
+    try:
+        hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
+        soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
+    except Exception:
+        hard, soft = Decimal("0.2"), Decimal("0.5")
+
+    # Margin classification — 用保守 LCV 口径，避免大仓位用户被 MTM 估值误导成"安全"
+    margin_ratio = None
+    margin_status = "healthy"
+    if user.debt > ZERO:
+        margin_ratio = (net_worth_lcv / user.debt).quantize(Decimal("0.000001"))
+        if margin_ratio < hard:
+            margin_status = "danger"
+        elif margin_ratio < soft:
+            margin_status = "warning"
+
+    # 流动性危机保护标志：HALT 市场有持仓时 sweep 会跳过强平。前端应据此
+    # 把 danger 红 banner 替换成 info 蓝 banner，避免"看到红色但实际不会被强平"
+    # 的体感困惑（review I3）。
+    liquidation_protected = await user_has_halt_holdings(db, user.id)
 
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
-        "holdings_value": holdings_value.quantize(Decimal("0.01")),
+        "holdings_value": holdings_mtm.quantize(Decimal("0.01")),
+        "holdings_value_liquidation": holdings_lcv.quantize(Decimal("0.01")),
         "total_cost_basis": total_cost_basis.quantize(Decimal("0.01")),
         "unrealized_pnl": unrealized_pnl.quantize(Decimal("0.01")),
+        "unrealized_pnl_liquidation": unrealized_pnl_lcv.quantize(Decimal("0.01")),
         "net_worth": net_worth.quantize(Decimal("0.01")),
+        "net_worth_liquidation": net_worth_lcv.quantize(Decimal("0.01")),
         "rank": rank,
+        "margin_ratio": margin_ratio,
+        "margin_status": margin_status,
+        "last_liquidated_at": user.last_liquidated_at,
+        "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
+        "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
+        "liquidation_protected": liquidation_protected,
     }
 
 
@@ -151,6 +163,19 @@ async def get_my_holdings(
 
         avg_price = quantize_price(pos.cost_basis / pos.amount) if pos.amount > ZERO else ZERO
 
+        # 双口径浮盈，跟 /user/summary 镜像：
+        #   MTM 主显示 不过滤 HALT（账面估值按瞬时价正常算，避免临时 HALT 让账面归零）
+        #   LCV 副字段 在 HALT 时 = -cost_basis（不可变现 → "立即变现"价值为 0
+        #     → 立即变现浮盈 = 0 - cost_basis）。同时 market_value 也置 0
+        #     表达"现在卖不出去"
+        mtm_value = (pos.amount * price_d).quantize(Decimal("0.000001"))
+        unrealized_pnl_mtm = mtm_value - pos.cost_basis
+        if market.status != MarketStatus.TRADING:
+            market_value = ZERO
+            unrealized_pnl_lcv = -pos.cost_basis
+        else:
+            unrealized_pnl_lcv = market_value - pos.cost_basis
+
         results.append(
             HoldingRead(
                 outcome_id=pos.outcome_id,
@@ -162,7 +187,8 @@ async def get_my_holdings(
                 avg_price=avg_price,
                 current_price=price_d,
                 market_value=market_value.quantize(Decimal("0.01")),
-                unrealized_pnl=(market_value - pos.cost_basis).quantize(Decimal("0.01")),
+                unrealized_pnl=unrealized_pnl_mtm.quantize(Decimal("0.01")),
+                unrealized_pnl_liquidation=unrealized_pnl_lcv.quantize(Decimal("0.01")),
             )
         )
     return results

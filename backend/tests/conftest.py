@@ -35,15 +35,25 @@ from app.services.site_config import clear_cache
 
 @pytest.fixture(scope="session", autouse=True)
 def _disable_scheduler():
-    """禁用 APScheduler：start_scheduler / stop_scheduler 在 app.main 命名空间内替成 no-op。
+    """禁用 APScheduler：loan_sweep + liquidation_sweep + bot_detection 都 no-op。
 
-    main.py:14 是 `from app.services.loan_sweep import start_scheduler, stop_scheduler`，
-    所以要 patch `app.main.start_scheduler`（已绑定的本地名），patch 原始模块无效。
+    main.py 通过别名导入：
+    - start_loan_scheduler / stop_loan_scheduler
+    - start_liquidation_scheduler / stop_liquidation_scheduler
+    - start_bot_detection_scheduler / stop_bot_detection_scheduler
+    所以要 patch 这些绑定在 app.main 命名空间的本地名，patch 原始模块无效。
     """
     async def _noop():
         return None
 
-    with patch("app.main.start_scheduler", _noop), patch("app.main.stop_scheduler", _noop):
+    with (
+        patch("app.main.start_loan_scheduler", _noop),
+        patch("app.main.stop_loan_scheduler", _noop),
+        patch("app.main.start_liquidation_scheduler", _noop),
+        patch("app.main.stop_liquidation_scheduler", _noop),
+        patch("app.main.start_bot_detection_scheduler", _noop),
+        patch("app.main.stop_bot_detection_scheduler", _noop),
+    ):
         yield
 
 
@@ -69,3 +79,22 @@ async def setup_db():
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
     yield
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _dispose_engine_after_session():
+    """所有测试结束后 dispose engine 的 connection pool，避免 pytest 进程不退出。
+
+    不加这个 → 不用 `client` fixture 的纯 unit 测（如 test_loan_service.py、
+    test_wealth_mtm.py）跑完所有 case 后，aiosqlite connection 仍被 engine pool
+    hold 着，pytest 进程 hang 在 connection cleanup，曾经被 timeout 杀掉
+    (exit 124)。
+
+    用 `client` fixture 的测试不会有这问题，因为 LifespanManager shutdown 会调
+    `main.lifespan` 里的 `await engine.dispose()`。但 unit 测试根本没跑 lifespan，
+    engine 留挂。这个 session-scope teardown 兜底所有测试结束后清理。
+
+    教训详见 docs/schema-conventions.md 后续补充 + memory feedback。
+    """
+    yield
+    await engine.dispose()

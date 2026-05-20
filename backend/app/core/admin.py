@@ -7,7 +7,7 @@ from starlette.requests import Request
 
 from app.core.config import settings
 from app.core.database import async_session_maker
-from app.models.base import User, Market, Outcome, Position, Transaction
+from app.models.base import BotSuspicion, User, Market, Outcome, Position, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,23 @@ class TransactionAdmin(ModelView, model=Transaction):
     icon = "fa-solid fa-receipt"
 
 
+class BotSuspicionAdmin(ModelView, model=BotSuspicion):
+    name = "Bot 嫌疑"
+    name_plural = "Bot 嫌疑记录"
+    icon = "fa-solid fa-robot"
+    column_list = [
+        BotSuspicion.id, BotSuspicion.user_id, BotSuspicion.triggered_at,
+        BotSuspicion.signals, BotSuspicion.review_status,
+    ]
+    column_searchable_list = [BotSuspicion.user_id, BotSuspicion.signals]
+    column_sortable_list = [BotSuspicion.triggered_at, BotSuspicion.user_id]
+    column_default_sort = [(BotSuspicion.triggered_at, True)]
+    form_columns = [
+        BotSuspicion.review_status, BotSuspicion.review_note,
+        BotSuspicion.reviewed_by, BotSuspicion.reviewed_at,
+    ]
+
+
 def setup_admin(app, engine):
     authentication_backend = AdminAuth(secret_key=settings.ADMIN_SECRET_KEY)
     admin = Admin(
@@ -109,3 +126,4 @@ def setup_admin(app, engine):
     admin.add_view(OutcomeAdmin)
     admin.add_view(PositionAdmin)
     admin.add_view(TransactionAdmin)
+    admin.add_view(BotSuspicionAdmin)
