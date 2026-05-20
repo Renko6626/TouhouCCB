@@ -9,7 +9,7 @@
 from __future__ import annotations
 import logging
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -180,10 +180,15 @@ async def liquidate_user(
             if mode == "emergency":
                 sell_amount = pos.amount
             else:  # partial
-                sell_amount = (pos.amount * partial_pct).quantize(Decimal("0.000001"))
+                # 向上取整到整数 shares (玩家体感"卖 X 股不是 0.5 股")。
+                # 小数持仓 (pos.amount < 1) 经 ceil 必 >= 1 → 下面 clamp 触发全卖，
+                # 把零碎小数持仓一波清掉。
+                sell_amount = (pos.amount * partial_pct).quantize(
+                    Decimal("1"), rounding=ROUND_CEILING
+                )
 
             if sell_amount <= ZERO:
-                # partial 时 amount × pct 量化后为 0 → 跳过本 position（不报错）
+                # 仅在 pos.amount=0 (上层 amount>0 filter 已挡) 或 partial_pct<=0 时发生
                 continue
 
             # partial 算出来 ≥ amount → 退化全卖（边界保护，发生在 LMSR 算 proceeds 之前）

@@ -161,17 +161,14 @@ async def test_emergency_mode_when_pre_margin_below_threshold(client):
 
 
 @pytest.mark.asyncio
-async def test_partial_sell_amount_quantized_to_6_digits(client):
-    """partial_pct × amount 量化到 6 位小数；过小被跳过不报错。"""
-    # amount=0.000005, partial_pct=0.1 → 0.0000005，量化到 6 位 = 0 → skip
-    # 但 user.debt 需要 > 0 才会跑 liquidate_user.
-    # margin 算法依赖 LCV: 太小 LCV 趋近 0
-    # cash=10, debt=100 → margin = (10 + LCV - 100) / 100
-    # LCV(0.000005 shares) ≈ 0 → margin ≈ -0.9 → emergency 路径
-    # 我们想让 partial 路径走到 sell_amount = 0 → 需要 mode=partial
-    # 改 cash=200, debt=100, shares=0.000005 → LCV≈0 → margin ≈ 1.0 不触发?
-    # 但 liquidate_user 不直接判 should-trigger，调用方判 hard_thr
-    # 我们直接调 liquidate_user，传 emergency_thr=0 让一定走 partial
+async def test_partial_ceil_forces_full_sell_on_fractional_position(client):
+    """小数持仓在 partial 模式下被 ceil 取整后超过 pos.amount → 触发全卖边界清掉。
+
+    旧逻辑 (quantize 6 位): amount=0.000005 × 0.1 = 0.0000005 → 量化 6 位 = 0 → skip
+    新逻辑 (ROUND_CEILING 整数): ceil(0.0000005) = 1 > 0.000005 → clamp 到 pos.amount → 全卖
+    设计意图：partial_pct 算出来的 sell_amount 取整到整数股 (玩家体感"卖 X 股不是 0.5 股")，
+    零碎小数持仓一波清掉，避免长期挂着。
+    """
     uid, mid, oid = await _setup_user(
         cash=10, debt=100,
         share_amount=Decimal("0.000005"),
@@ -186,19 +183,17 @@ async def test_partial_sell_amount_quantized_to_6_digits(client):
                 trigger_source="scheduler",
                 partial_pct=Decimal("0.1"),
                 target_margin=Decimal("0.3"),
-                emergency_threshold=Decimal("-999"),  # 强制 partial mode
+                emergency_threshold=Decimal("-999"),  # 强制走 partial 路径
             )
         assert ev.mode == "partial"
-        # sell_amount 量化 0 → skip
-        assert ev.sold_positions_count == 0
+        # ceil 后 sell_amount=1 >> pos.amount=0.000005 → clamp 到 pos.amount → 全卖
+        assert ev.sold_positions_count == 1
 
     async with async_session_maker() as db:
         rows = (await db.execute(
             select(Position).where(Position.user_id == uid)
         )).scalars().all()
-        # position 不应被删（partial skip）
-        assert len(rows) == 1
-        assert rows[0].amount == Decimal("0.000005")  # 没动
+        assert len(rows) == 0, "小数持仓被 ceil 强制全卖，应删除 position"
 
 
 # ─── T7: sweep 集成测 ─────────────────────────────────────────────────────────

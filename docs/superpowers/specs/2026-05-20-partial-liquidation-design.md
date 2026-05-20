@@ -138,10 +138,14 @@ async def liquidate_user(
             if mode == "emergency":
                 sell_amount = pos.amount
             else:
-                sell_amount = (pos.amount * partial_pct).quantize(Decimal("0.000001"))
+                # partial: 向上取整到整数股 (玩家体感"卖 X 股不是 0.5 股")。
+                # 零碎小数持仓 ceil 后 >= 1 → 触发下面 clamp 全卖，自然清掉。
+                sell_amount = (pos.amount * partial_pct).quantize(
+                    Decimal("1"), rounding=ROUND_CEILING
+                )
             
             if sell_amount <= ZERO:
-                continue  # 防数值边界
+                continue  # 防数值边界 (实际仅 pos.amount=0 时发生)
             
             # LMSR proceeds (现有算法)
             old_cost = calculate_lmsr_cost(shares_list, b)
