@@ -118,18 +118,19 @@ async def liquidate_user(
     # stage 2 重算的 margin_now (用 compute_users_holdings_value 不锁 outcomes)
     # 有微小数值差 (~1 LSB)。pre_margin 仅写入 LiquidationEvent 作审计快照，
     # 不参与门槛判定，差异可忽略。详见 review M4。
-    pre_margin = (pre_nw / pre_debt) if pre_debt > ZERO else None
+    # user.debt > 0 已在入口断言，pre_debt 必 > 0，所以 pre_margin 永远是 Decimal
+    pre_margin = pre_nw / pre_debt
 
-    # Mode 決策（spec § Mode 决策）
-    if pre_margin is not None and pre_margin < emergency_threshold:
-        mode = "emergency"
-    else:
-        mode = "partial"
+    # Mode 决策（spec § Mode 决策）
+    mode = "emergency" if pre_margin < emergency_threshold else "partial"
+    # 注意：target_margin 当前仅 log/audit 输出，不参与判定（spec § sweep tick 传参）。
+    # 未来"卖到 margin 达到 target_margin 就停"的优化会读取它；现在 partial 模式
+    # 一次只卖 partial_pct 比例，下个 tick 再判。
     _logger.info(
         "liquidate_user_mode",
         extra={
             "user_id": user.id, "mode": mode,
-            "pre_margin": float(pre_margin) if pre_margin is not None else None,
+            "pre_margin": float(pre_margin),
             "emergency_threshold": float(emergency_threshold),
             "target_margin": float(target_margin),
         },
@@ -219,9 +220,10 @@ async def liquidate_user(
                 # 全卖 (emergency 或 partial 边界)
                 await session.delete(pos)
             else:
-                # partial 卖：cost_basis 按比例减少（保持 avg_price 不变，跟
-                # market.py sell 同语义；数学上 cost_basis × (1 - partial_pct)）
-                cost_reduced = (pos.cost_basis * partial_pct).quantize(Decimal("0.000001"))
+                # partial 卖：用"真实卖出比例" sell_amount/pos.amount 减 cost_basis，
+                # 严格保持 avg_price = cost_basis / amount 不变 (review I-3 修；
+                # 之前用 partial_pct 在 sell_amount quantize 后会引入 sub-LSB 漂移)。
+                cost_reduced = (pos.cost_basis * sell_amount / pos.amount).quantize(Decimal("0.000001"))
                 pos.amount -= sell_amount
                 pos.cost_basis -= cost_reduced
 

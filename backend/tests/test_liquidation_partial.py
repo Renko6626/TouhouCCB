@@ -97,9 +97,15 @@ async def test_partial_50pct_sells_half_and_updates_cost_basis(client):
 
 @pytest.mark.asyncio
 async def test_partial_full_pct_acts_like_emergency_all_in(client):
-    """partial_pct=1.0 → 退化为全平 (position 被删除)。"""
+    """partial_pct=1.0 在 partial mode 路径下退化为全卖 (即 spec § Rollback 承诺)。
+
+    review I-1 修：必须用 margin > emergency_threshold 的 setup（否则走 emergency
+    全卖路径，无法证明 partial_pct=1.0 fall-through 真的工作）。
+    setup: cash=200, debt=150, share=100 → margin=1.0 → mode='partial' → partial_pct=1.0
+    → sell_amount = pos.amount × 1.0 = pos.amount → sell_amount >= pos.amount → delete。
+    """
     uid, mid, oid = await _setup_user(
-        cash=100, debt=300, share_amount=100, market_total_shares=100,
+        cash=200, debt=150, share_amount=100, market_total_shares=100,
     )
 
     async with async_session_maker() as db:
@@ -112,12 +118,16 @@ async def test_partial_full_pct_acts_like_emergency_all_in(client):
                 target_margin=Decimal("0.3"),
                 emergency_threshold=Decimal("0.05"),
             )
+        # 关键：必须是 partial mode 走到的全卖，不是 emergency 路径
+        assert ev.mode == "partial", (
+            f"setup margin>>emergency_threshold 应走 partial, 实际 {ev.mode}"
+        )
 
     async with async_session_maker() as db:
         rows = (await db.execute(
             select(Position).where(Position.user_id == uid)
         )).scalars().all()
-        assert len(rows) == 0, "partial_pct=1.0 应等同 emergency 删除 position"
+        assert len(rows) == 0, "partial_pct=1.0 应等同全卖删除 position"
 
 
 @pytest.mark.asyncio
@@ -248,7 +258,7 @@ async def test_sweep_partial_then_converges_after_multiple_ticks(client):
 
     async with async_session_maker() as db:
         u = await db.get(User, uid)
-        assert u.debt < Decimal("300"), f"debt 应减少, 实际 {u.debt}"
+        assert u.debt < Decimal("180"), f"debt 应减少, 实际 {u.debt}"
 
         events = (await db.execute(
             select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
@@ -258,6 +268,16 @@ async def test_sweep_partial_then_converges_after_multiple_ticks(client):
         assert all(m == "partial" for m in modes), (
             f"全部应 partial, 实际 {modes}"
         )
+
+    # review I-2: 真正验证收敛——多 tick 后 margin 应 ≥ hard_threshold (0.2)，
+    # 再跑一次 sweep 应 triggered_count==0 (用户已脱离 hard 门槛)。
+    liquidation_sweep._recently_attempted.clear()
+    site_config.clear_cache()
+    final_result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert final_result["triggered_count"] == 0, (
+        f"6 ticks partial 之后应已收敛过 hard_threshold, "
+        f"但 sweep 还在触发: {final_result}"
+    )
 
 
 @pytest.mark.asyncio

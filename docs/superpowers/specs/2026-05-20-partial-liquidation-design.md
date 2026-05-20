@@ -162,8 +162,11 @@ async def liquidate_user(
                 await session.delete(pos)
             else:
                 # partial 卖
-                # cost_basis 按比例减少（avg_price 不变，符合平均成本法）
-                cost_reduced = (pos.cost_basis * partial_pct).quantize(Decimal("0.000001"))
+                # cost_basis 按"真实卖出比例" sell_amount/pos.amount 减少，
+                # 严格保持 avg_price = cost_basis/amount 不变（平均成本法）。
+                # 注：用 sell_amount/pos.amount 而非 partial_pct，避免 sell_amount
+                # 被 quantize 后引入的 sub-LSB 漂移（review I-3）。
+                cost_reduced = (pos.cost_basis * sell_amount / pos.amount).quantize(Decimal("0.000001"))
                 pos.amount -= sell_amount
                 pos.cost_basis -= cost_reduced
             
@@ -224,10 +227,15 @@ ev = await liquidation_service.liquidate_user(
 
 ### Cost basis 处理
 
-partial 卖时：
-- `new_cost_basis = old_cost_basis × (1 - partial_pct)`
-- `new_amount = old_amount × (1 - partial_pct)`
-- 因此 `avg_price = cost_basis / amount` **不变**（平均成本法）
+partial 卖时（设 `r = sell_amount / pos.amount`，即真实卖出比例，理论上 ≈ partial_pct
+但 sell_amount 经 quantize 后会有 sub-LSB 偏差）：
+- `new_amount = old_amount - sell_amount = old_amount × (1 - r)`
+- `new_cost_basis = old_cost_basis - old_cost_basis × r = old_cost_basis × (1 - r)`
+- 因此 `avg_price = cost_basis / amount` **严格不变**（平均成本法）
+
+注：实现里 `cost_reduced = (pos.cost_basis * sell_amount / pos.amount).quantize(...)`
+而**不是** `pos.cost_basis * partial_pct`，原因就是用 partial_pct 在 sell_amount
+quantize 后会让 avg_price 漂移（review I-3）。
 
 这跟用户主动 `/market/sell` 部分卖出的语义一致（看 market.py:sell_outcome），
 所以"被 partial 强平"vs"主动卖出"在 cost_basis / avg_price 视角下等价。
