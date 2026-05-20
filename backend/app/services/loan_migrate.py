@@ -29,6 +29,10 @@ DEFAULT_CONFIGS = [
     ("liquidation_sweep_interval_sec", "600", "int"),   # 10 min
     ("liquidation_hard_threshold", "0.2", "decimal"),
     ("liquidation_soft_threshold", "0.5", "decimal"),
+    # ── Partial Liquidation (spec docs/superpowers/specs/2026-05-20-partial-liquidation-design.md) ──
+    ("liquidation_partial_pct", "0.10", "decimal"),
+    ("liquidation_target_margin", "0.30", "decimal"),
+    ("liquidation_emergency_threshold", "0.05", "decimal"),
     # ── Anti-bot (spec 2026-05-20-anti-bot-design.md) ──
     ("activity_mode_enabled", "false", "bool"),
     ("quant_whitelist_user_ids", "", "string"),

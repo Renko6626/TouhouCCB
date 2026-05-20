@@ -36,6 +36,9 @@ _WHITELIST = {
     "bot_fast_follow_trigger_cost": "decimal",
     "bot_fast_follow_latency_ms": "int",
     "bot_fast_follow_count_threshold": "int",
+    "liquidation_partial_pct": "decimal",
+    "liquidation_target_margin": "decimal",
+    "liquidation_emergency_threshold": "decimal",
 }
 
 
