@@ -61,6 +61,8 @@ export interface LiquidationEvent {
   post_cash: number
   trigger_source: string
   fully_liquidated: boolean
+  /** 'emergency' = margin 跌破紧急线全平; 'partial' = 渐进按比例平仓 */
+  mode: 'emergency' | 'partial'
 }
 
 export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEvent[]> {

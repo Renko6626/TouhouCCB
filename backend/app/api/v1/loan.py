@@ -165,6 +165,7 @@ async def recent_liquidations(
             "post_cash": float(ev.post_cash),
             "fully_liquidated": ev.remaining_debt == Decimal("0"),
             "trigger_source": ev.trigger_source,
+            "mode": ev.mode,
         }
         for ev, username in rows
     ]

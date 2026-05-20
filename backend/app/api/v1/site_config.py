@@ -11,7 +11,7 @@ from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.schemas.loan import SiteConfigItem, SiteConfigUpdate
-from app.services import site_config, loan_sweep
+from app.services import site_config, loan_sweep, liquidation_sweep
 
 router = APIRouter()
 logger = logging.getLogger("thccb.site_config")
@@ -54,6 +54,8 @@ def _validate(key: str, value: str) -> None:
             raise HTTPException(status_code=400, detail="int 解析失败")
         if key == "loan_sweep_interval_sec" and not (10 <= v <= 3600):
             raise HTTPException(status_code=400, detail="sweep 间隔必须在 [10, 3600] 秒")
+        if key == "liquidation_sweep_interval_sec" and not (5 <= v <= 7200):
+            raise HTTPException(status_code=400, detail="liquidation sweep 间隔必须在 [5, 7200] 秒")
     elif t == "decimal":
         try:
             v = Decimal(value)
@@ -96,6 +98,11 @@ async def update_config(
             await loan_sweep.reschedule(int(req.value))
         except Exception:
             logger.exception("reschedule failed")
+    elif key == "liquidation_sweep_interval_sec":
+        try:
+            await liquidation_sweep.reschedule(int(req.value))
+        except Exception:
+            logger.exception("liquidation reschedule failed")
 
     return SiteConfigItem(
         key=row.key, value=row.value, value_type=row.value_type,

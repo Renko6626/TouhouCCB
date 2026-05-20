@@ -320,7 +320,7 @@ async def start_scheduler() -> None:
             )
         except Exception:
             interval = 600
-    interval = max(60, min(7200, interval))
+    interval = max(5, min(7200, interval))
     _scheduler = AsyncIOScheduler(timezone="UTC")
     _scheduler.add_job(
         _tick_safe, "interval", seconds=interval,
@@ -341,7 +341,7 @@ async def reschedule(interval_sec: int) -> None:
     global _scheduler
     if _scheduler is None:
         return
-    interval = max(60, min(7200, interval_sec))
+    interval = max(5, min(7200, interval_sec))
     _scheduler.reschedule_job(
         _JOB_ID, trigger="interval", seconds=interval,
     )

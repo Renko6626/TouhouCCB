@@ -90,6 +90,12 @@ onBeforeUnmount(() => {
             <span class="liq-username">{{ ev.username }}</span>
           </div>
           <div class="liq-meta">
+            <span
+              class="liq-tag"
+              :class="ev.mode === 'emergency' ? 'liq-tag-emergency' : 'liq-tag-mode-partial'"
+            >
+              {{ ev.mode === 'emergency' ? '紧急全平' : '渐进平仓' }}
+            </span>
             <span v-if="!ev.fully_liquidated" class="liq-tag liq-tag-partial">债务未还清</span>
             <span class="liq-tag liq-tag-source">
               {{ ev.trigger_source === 'scheduler' ? '自动触发' : '手动触发' }}
@@ -325,6 +331,18 @@ onBeforeUnmount(() => {
   color: #880000;
   border-color: #880000;
   background: #fff0f0;
+}
+
+.liq-tag-emergency {
+  color: #cc0000;
+  border-color: #cc0000;
+  background: #ffe5e5;
+}
+
+.liq-tag-mode-partial {
+  color: #aa6600;
+  border-color: #aa6600;
+  background: #fff5e5;
 }
 
 .liq-tag-source {
