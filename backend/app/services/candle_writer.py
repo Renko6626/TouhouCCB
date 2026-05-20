@@ -40,6 +40,7 @@ def _bucket_start(ts: datetime, step_seconds: int) -> datetime:
 def compute_candle_rows(
     traded_outcome_id: int,
     outcome_ids: Sequence[int],
+    pre_prices: Sequence[float],
     new_prices: Sequence[float],
     traded_shares: Decimal,
     ts: datetime,
@@ -49,16 +50,22 @@ def compute_candle_rows(
     - 每个 outcome × 每个 interval = 一行
     - 被直接交易的 outcome 行 volume_shares=traded_shares, n_trades=1
     - 联动行 volume_shares=0, n_trades=0
-    - 首次 INSERT 时 O=H=L=C=该 outcome 的新价；后续 UPSERT 用 ON CONFLICT 合并。
+    - 首次 INSERT 时 O=pre_price, C=post_price, H/L = max/min(pre, post)；
+      后续 UPSERT 用 ON CONFLICT 合并（open 保留首次值，所以 bucket 第一笔的
+      pre_price 永远等于上 bucket 最后一笔的 post_price → 相邻 K 线首尾相连）。
     """
-    if len(outcome_ids) != len(new_prices):
+    if len(outcome_ids) != len(new_prices) or len(outcome_ids) != len(pre_prices):
         raise ValueError(
-            f"outcome_ids ({len(outcome_ids)}) 与 new_prices ({len(new_prices)}) 长度必须一致"
+            f"outcome_ids ({len(outcome_ids)}) / pre_prices ({len(pre_prices)}) "
+            f"/ new_prices ({len(new_prices)}) 长度必须一致"
         )
 
     rows: List[dict] = []
-    for oid, price in zip(outcome_ids, new_prices):
-        price_d = Decimal(str(price))
+    for oid, pre, post in zip(outcome_ids, pre_prices, new_prices):
+        pre_d = Decimal(str(pre))
+        post_d = Decimal(str(post))
+        high_d = max(pre_d, post_d)
+        low_d = min(pre_d, post_d)
         is_traded = (oid == traded_outcome_id)
         v = traded_shares if is_traded else Decimal("0")
         n = 1 if is_traded else 0
@@ -68,13 +75,13 @@ def compute_candle_rows(
                 "outcome_id":   oid,
                 "interval":     interval,
                 "bucket_start": bucket,
-                "open_price":   price_d,
-                "high_price":   price_d,
-                "low_price":    price_d,
-                "close_price":  price_d,
+                "open_price":   pre_d,
+                "high_price":   high_d,
+                "low_price":    low_d,
+                "close_price":  post_d,
                 "volume_shares": v,
                 "n_trades":      n,
-                "updated_at":    ts,  # 显式填，避免 SQLAlchemy core insert() 跳过 SQLModel default_factory
+                "updated_at":    ts,
             })
     return rows
 
@@ -153,26 +160,33 @@ async def backfill_one_market(db: AsyncSession, market_id: int) -> int:
         .order_by(Transaction.timestamp.asc())
     )).scalars().all()
 
+    # pre_prices 推算：本笔的 pre = 上一笔同 market 的 post。第一笔的 pre = 初始 1/N
+    # (LMSR 起始 q=[0..0] 时所有 outcome 等价)。这要求 Transaction 按 timestamp 升序遍历。
+    n = len(outcome_ids)
+    prev_post: List[float] = [1.0 / n] * n
+
     n_processed = 0
     for tx in txs:
         # 优先用 market_prices_post 快照；缺失时 fallback
         if tx.market_prices_post and len(tx.market_prices_post) == len(outcome_ids):
             new_prices = [float(p) for p in tx.market_prices_post]
         else:
-            # fallback: 用 tx.post_market_price 当被交易 outcome 价，其他 outcome 用 1/N
-            # 这是退化路径，生产前应先跑 backfill_market_prices_post 保证 snapshot 齐全
+            # fallback: 用 tx.post_market_price 当被交易 outcome 价，其他 outcome 用 prev_post
+            # 退化路径精度差，生产前应先跑 backfill_market_prices_post 保证 snapshot 齐全
             new_prices = [
                 float(tx.post_market_price) if oid == tx.outcome_id
-                else 1.0 / len(outcome_ids) for oid in outcome_ids
+                else prev_post[i] for i, oid in enumerate(outcome_ids)
             ]
         rows = compute_candle_rows(
             traded_outcome_id=tx.outcome_id,
             outcome_ids=outcome_ids,
+            pre_prices=prev_post,
             new_prices=new_prices,
             traded_shares=tx.shares,
             ts=tx.timestamp,
         )
         await upsert_candles(db, rows)
+        prev_post = new_prices
         n_processed += 1
 
     return n_processed

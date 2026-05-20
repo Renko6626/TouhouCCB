@@ -557,6 +557,7 @@ async def buy_shares(
         candle_rows = compute_candle_rows(
             traded_outcome_id=outcome.id,
             outcome_ids=[o.id for o in all_outcomes],
+            pre_prices=old_prices,
             new_prices=new_prices,
             traded_shares=shares_d,
             ts=tx.timestamp if tx.timestamp else datetime.now(timezone.utc),
@@ -719,6 +720,7 @@ async def sell_shares(
         candle_rows = compute_candle_rows(
             traded_outcome_id=outcome.id,
             outcome_ids=[o.id for o in all_outcomes],
+            pre_prices=old_prices,
             new_prices=new_prices,
             traded_shares=shares_d,
             ts=tx.timestamp if tx.timestamp else datetime.now(timezone.utc),
