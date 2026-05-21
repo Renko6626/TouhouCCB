@@ -4,6 +4,7 @@ import { RouterView } from 'vue-router'
 import { NConfigProvider, NNotificationProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useNotificationStore } from '@/stores/notification'
+import BannedDialog from '@/components/global/BannedDialog.vue'
 
 // 使用通知store
 const notificationStore = useNotificationStore()
@@ -115,6 +116,9 @@ const industrialThemeOverrides = {
                 </button>
               </div>
             </div>
+
+            <!-- 全局封号弹窗 (axios 拦截 USER_BANNED 触发 window event) -->
+            <BannedDialog />
 
             <!-- 主应用内容 -->
             <RouterView v-if="!globalError" v-slot="{ Component }">

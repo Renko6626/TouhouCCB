@@ -62,6 +62,20 @@ instance.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
+    // 403 + detail USER_BANNED → 触发全局封号弹窗 (BannedDialog 监听这个事件)
+    // 后端 core/users.py + auth.py 用此 marker 区分"被封"vs"无效凭证"
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.detail === 'USER_BANNED'
+    ) {
+      window.dispatchEvent(new CustomEvent('user-banned'))
+      return Promise.reject({
+        message: '账号已被封禁',
+        status: 403,
+        data: error.response?.data,
+      })
+    }
+
     // 401 且不是 refresh 请求本身，尝试用 refresh token 续期
     if (
       error.response?.status === 401 &&

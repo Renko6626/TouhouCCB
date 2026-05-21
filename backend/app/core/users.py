@@ -81,9 +81,14 @@ async def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token structure")
 
     user = await db.get(User, user_id)
-    if not user or not user.is_active:
-        logger.warning("Auth failed: user_id=%s not found or inactive", user_id)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    if not user:
+        logger.warning("Auth failed: user_id=%s not found", user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if not user.is_active:
+        # 用 403 + marker 让前端区分"未登录"(401, 会走 refresh) 跟"被封号"(403, 弹窗)。
+        # 前端 axios interceptor 检测 detail == "USER_BANNED" 触发全局封号弹窗。
+        logger.warning("Auth failed: user_id=%s banned (is_active=false)", user_id)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_BANNED")
     return user
 
 

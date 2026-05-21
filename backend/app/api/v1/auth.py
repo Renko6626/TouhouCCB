@@ -190,7 +190,8 @@ async def oauth_callback(
             if is_first_user:
                 logger.info("First user registered as admin: %s (id=%s)", username, user.id)
     elif not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
+        # 用统一 marker, 跟 core/users.py:get_current_user 一致, 让前端弹窗
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_BANNED")
 
     # 校验成功，清掉一次性 cookie（防被重放）
     response.delete_cookie(_STATE_COOKIE, path=_COOKIE_PATH)
@@ -214,8 +215,10 @@ async def refresh_access_token(
 ):
     user_id = verify_refresh_token(body.refresh_token)
     user = await db.get(User, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_BANNED")
     return {
         "access_token": create_access_token(user.id),
         "token_type": "bearer",
