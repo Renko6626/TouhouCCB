@@ -386,6 +386,94 @@ async def set_user_admin(
     }
 
 
+# ── 封号 / 解封（仅管理员） ─────────────────
+# 复用 is_active 字段 (FastAPI Users 标准)：被封 user 访问任何 protected
+# endpoint 自动 401 (current_active_user Depends 内部 check is_active)。
+# JWT 仍 valid 但失效。Casdoor SSO 登录不受影响（仍能登录但看不到业务页）。
+# 安全围栏：
+#  - 不能封自己 (防 admin 失误把自己锁出 admin panel)
+#  - 封管理员前先确认不是最后一个活跃管理员
+
+class BanUserRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500, description="封号原因（选填，写入 log 审计）")
+    related_suspicion_id: Optional[int] = Field(default=None, description="关联的 BotSuspicion ID（选填）")
+
+
+@router.patch("/{user_id}/ban", summary="封号（仅管理员）")
+async def ban_user(
+    user_id: int,
+    req: BanUserRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="不能封禁自己")
+
+    async with managed_transaction(db):
+        target = (await db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        # 封管理员前先确认不是最后一个活跃管理员
+        if target.is_superuser and target.is_active:
+            count_stmt = select(func.count()).select_from(User).where(
+                User.is_superuser == True,  # noqa: E712
+                User.is_active == True,    # noqa: E712
+            )
+            active_admin_count = int((await db.execute(count_stmt)).scalar_one())
+            if active_admin_count <= 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="不能封禁最后一个活跃管理员（先取消管理员权限或先提升另一人）",
+                )
+
+        was_active = target.is_active
+        target.is_active = False
+
+    logger.warning(
+        "ADMIN_BAN_USER admin_id=%s target_user_id=%s target_username=%s "
+        "was_active=%s reason=%s related_suspicion_id=%s",
+        admin.id, user_id, target.username,
+        was_active, req.reason or "<none>", req.related_suspicion_id,
+    )
+    return {
+        "user_id": user_id,
+        "username": target.username,
+        "is_active": False,
+        "changed": was_active,
+    }
+
+
+@router.patch("/{user_id}/unban", summary="解封（仅管理员）")
+async def unban_user(
+    user_id: int,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    async with managed_transaction(db):
+        target = (await db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+
+        was_active = target.is_active
+        target.is_active = True
+
+    logger.warning(
+        "ADMIN_UNBAN_USER admin_id=%s target_user_id=%s target_username=%s was_active=%s",
+        admin.id, user_id, target.username, was_active,
+    )
+    return {
+        "user_id": user_id,
+        "username": target.username,
+        "is_active": True,
+        "changed": not was_active,
+    }
+
+
 # ── 批量调整现金（仅管理员） ─────────────────
 # 安全围栏：
 # 1. dry_run 必须先调一次拿到匹配预览，前端二次确认后再 dry_run=false 执行

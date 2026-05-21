@@ -42,6 +42,7 @@ const adminItems = [
   { label: '站点配置', path: '/admin/site-config', icon: 'i-mdi-tune' },
   { label: '资产统计', path: '/admin/wealth-stats', icon: 'i-mdi-chart-bar' },
   { label: '批量发钱', path: '/admin/batch-adjust-cash', icon: 'i-mdi-cash-multiple' },
+  { label: 'Bot 预警 & 封号', path: '/admin/bot-review-ban', icon: 'i-mdi-shield-alert-outline' },
   { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline' },
   { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant' },
 ]

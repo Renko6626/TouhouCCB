@@ -132,4 +132,61 @@ export const adminApi = {
       { is_admin: isAdmin },
     )
   },
+
+  // ── 封号 / 解封 + Bot 预警审核 ────────────────────────────────────
+  async banUser(userId: number, reason?: string, relatedSuspicionId?: number) {
+    return api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(
+      `/api/v1/user/${userId}/ban`,
+      { reason: reason || null, related_suspicion_id: relatedSuspicionId ?? null },
+    )
+  },
+
+  async unbanUser(userId: number) {
+    return api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(
+      `/api/v1/user/${userId}/unban`,
+    )
+  },
+
+  async listBotSuspicions(status: 'pending' | 'reviewed' | 'all' = 'pending', limit: number = 100): Promise<BotSuspicionItem[]> {
+    return api.get<BotSuspicionItem[]>('/api/v1/admin/bot/suspicions', { params: { status, limit } })
+  },
+
+  async reviewSuspicion(suspicionId: number, status: 'confirmed_bot' | 'false_positive' | 'pending', note?: string) {
+    return api.patch(`/api/v1/admin/bot/suspicions/${suspicionId}/review`, { status, note: note || null })
+  },
+
+  async listBannedUsers(limit: number = 200): Promise<BannedUserItem[]> {
+    return api.get<BannedUserItem[]>('/api/v1/admin/bot/banned-users', { params: { limit } })
+  },
+
+  async botStats(): Promise<BotStats> {
+    return api.get<BotStats>('/api/v1/admin/bot/stats')
+  },
+}
+
+export interface BotSuspicionItem {
+  id: number
+  user_id: number
+  username: string
+  user_is_active: boolean
+  triggered_at: string
+  signals: string
+  metrics: string
+  window_start: string
+  window_end: string
+  review_status: string
+  reviewed_by: number | null
+  reviewed_at: string | null
+  review_note: string | null
+}
+
+export interface BannedUserItem {
+  user_id: number
+  username: string
+  casdoor_id: string | null
+}
+
+export interface BotStats {
+  pending_suspicions: number
+  banned_users: number
 }

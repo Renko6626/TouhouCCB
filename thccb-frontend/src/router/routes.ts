@@ -161,6 +161,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '资产统计', requiresAuth: true, requiresAdmin: true },
       },
       {
+        path: 'admin/bot-review-ban',
+        name: 'admin-bot-review-ban',
+        component: () => import('@/pages/admin/BotReviewBan.vue'),
+        meta: { title: 'Bot 预警 & 封号', requiresAuth: true, requiresAdmin: true },
+      },
+      {
         path: 'admin/redemption/partners',
         name: 'admin-redemption-partners',
         component: () => import('@/pages/admin/RedemptionPartners.vue'),

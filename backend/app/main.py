@@ -244,6 +244,9 @@ app.include_router(admin_stats_api.router, prefix="/api/v1/admin/stats", tags=["
 from app.api.v1 import admin_liquidation as admin_liquidation_api
 app.include_router(admin_liquidation_api.router, prefix="/api/v1/admin/liquidation", tags=["AdminLiquidation"])
 
+from app.api.v1 import admin_bot as admin_bot_api
+app.include_router(admin_bot_api.router, prefix="/api/v1/admin/bot", tags=["AdminBot"])
+
 
 @app.get("/")
 async def root():
