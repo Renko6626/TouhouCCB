@@ -162,6 +162,8 @@ class LeaderboardItem(BaseModel):
     # spending 模式额外填充：累计兑换消费 & 当前债务
     spent_total: Money | None = None
     debt: Money | None = None
+    # 当前佩戴的称号；未佩戴则 null（chip 渲染用）
+    equipped_title: TitleChipRead | None = None
 
 
 class RecentTradeRead(BaseModel):

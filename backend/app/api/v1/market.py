@@ -1145,7 +1145,7 @@ async def leaderboard(
 ):
     if mode == "net_worth":
         # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
-        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观，
+        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观,
         # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
         users = (await db.execute(select(User))).scalars().all()
         if not users:
@@ -1159,14 +1159,33 @@ async def leaderboard(
             for u in users
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[:limit]
+        # 批量取 equipped title chip：只查 top N 的 equipped_title_id,避免 N+1
+        title_ids = {u.equipped_title_id for u, _ in top if u.equipped_title_id}
+        title_map: Dict[int, _TitleModel] = {}
+        if title_ids:
+            rows = (await db.execute(
+                select(_TitleModel).where(_TitleModel.id.in_(title_ids))
+            )).scalars().all()
+            title_map = {t.id: t for t in rows}
         return [
             LeaderboardItem(
                 user_id=u.id,
                 username=u.username,
                 net_worth=nw.quantize(Decimal("0.01")),
                 rank=rank_title(nw),
+                equipped_title=(
+                    {
+                        "id": title_map[u.equipped_title_id].id,
+                        "name": title_map[u.equipped_title_id].name,
+                        "color": title_map[u.equipped_title_id].color,
+                        "icon": title_map[u.equipped_title_id].icon,
+                    }
+                    if u.equipped_title_id and u.equipped_title_id in title_map
+                    else None
+                ),
             )
-            for u, nw in scored[:limit]
+            for u, nw in top
         ]
 
     if mode == "spending":
@@ -1204,9 +1223,14 @@ async def leaderboard(
                 User.debt,
                 spent_expr.label("spent_total"),
                 score_expr.label("score"),
+                _TitleModel.id.label("title_id"),
+                _TitleModel.name.label("title_name"),
+                _TitleModel.color.label("title_color"),
+                _TitleModel.icon.label("title_icon"),
             )
             .outerjoin(rt_subq, rt_subq.c.user_id == User.id)
             .outerjoin(de_subq, de_subq.c.user_id == User.id)
+            .outerjoin(_TitleModel, _TitleModel.id == User.equipped_title_id)
             .order_by(score_expr.desc())
             .limit(limit)
         )
@@ -1221,6 +1245,16 @@ async def leaderboard(
             # 负债的用户上来；过滤 spent > 0 让榜单只展示有过实际消费的）
             if spent <= 0:
                 continue
+            equipped = (
+                {
+                    "id": r.title_id,
+                    "name": r.title_name,
+                    "color": r.title_color,
+                    "icon": r.title_icon,
+                }
+                if r.title_id is not None
+                else None
+            )
             items.append(LeaderboardItem(
                 user_id=r.id,
                 username=r.username,
@@ -1228,6 +1262,7 @@ async def leaderboard(
                 rank=rank_title(score),
                 spent_total=spent.quantize(Decimal("0.01")),
                 debt=debt.quantize(Decimal("0.01")),
+                equipped_title=equipped,
             ))
         return items
 
