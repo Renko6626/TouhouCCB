@@ -1,4 +1,5 @@
 // 市场相关类型定义
+import type { TitleChip } from '@/api/title'
 
 export interface Market {
   id: number
@@ -45,6 +46,9 @@ export interface MarketListItem {
   outcomes: Outcome[]
   trade_count?: number
   last_trade_at?: string | null
+  // Title gating (Task 11/13)：required_titles 空表示无门槛；user_can_trade 后端默认 true
+  required_titles?: TitleChip[]
+  user_can_trade?: boolean
 }
 
 export interface MarketDetail {
@@ -61,6 +65,9 @@ export interface MarketDetail {
   settled_by_user_id?: number
   outcomes: OutcomeQuote[]
   last_trade_at?: string
+  // Title gating (Task 11/13)：required_titles 空表示无门槛；user_can_trade 后端默认 true
+  required_titles?: TitleChip[]
+  user_can_trade?: boolean
 }
 
 // 市场创建请求类型

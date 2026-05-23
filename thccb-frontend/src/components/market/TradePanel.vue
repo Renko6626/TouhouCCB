@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useMarketStore } from '@/stores/market'
 import type { MarketDetail, OutcomeQuote, QuoteResponse, Holding } from '@/types/api'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   market: MarketDetail | null
   selectedOutcomeId: number | null
   tradeType: 'buy' | 'sell'
@@ -19,7 +19,11 @@ const props = defineProps<{
   quoteExceedsCash: boolean
   // 最大滑点（万分之一），undefined 时由父组件默认值兜底（默认 100=1%）
   maxSlippageBps: number
-}>()
+  // 称号准入门槛通过状态（Task 11/13/19）：默认 true 兼容旧调用方
+  userCanTrade?: boolean
+}>(), {
+  userCanTrade: true,
+})
 
 const emit = defineEmits<{
   'update:selectedOutcomeId': [value: number | null]
@@ -64,6 +68,7 @@ const isSubmitting = ref(false)
 
 const executeTrade = async () => {
   if (!props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash) return
+  if (props.tradeType === 'buy' && !props.userCanTrade) return
   if (isSubmitting.value) return
   isSubmitting.value = true
   try {
@@ -159,6 +164,7 @@ const summaryPnlSign = computed(() => {
 const disabledReason = computed(() => {
   if (isSubmitting.value) return '提交中…'
   if (marketStore.tradeLoading) return '处理中…'
+  if (props.tradeType === 'buy' && !props.userCanTrade) return '此市场需要特定称号才能买入'
   if (props.tradeType === 'buy' && buyDisabledByDanger.value) return '净值/借款 < 0.2，禁止买入直到补仓或被强平'
   if (!props.selectedOutcomeId) return '请先选择预测结果'
   if (props.shares <= 0) return '请输入份额'
@@ -222,8 +228,8 @@ const actionHint = computed<string>(() => {
     <div class="type-switch">
       <button
         :class="['type-btn', props.tradeType === 'buy' && 'type-btn--active-buy']"
-        :disabled="buyDisabledByDanger"
-        :title="buyDisabledByDanger ? '净值/借款 < 0.2，禁止买入直到补仓或被强平' : undefined"
+        :disabled="buyDisabledByDanger || !props.userCanTrade"
+        :title="!props.userCanTrade ? '此市场需要特定称号才能买入' : (buyDisabledByDanger ? '净值/借款 < 0.2，禁止买入直到补仓或被强平' : undefined)"
         @click="emit('update:tradeType', 'buy')"
       >买入</button>
       <button
@@ -377,7 +383,7 @@ const actionHint = computed<string>(() => {
     <NButton
       type="primary"
       :loading="marketStore.tradeLoading"
-      :disabled="isSubmitting || (props.tradeType === 'buy' && buyDisabledByDanger) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
+      :disabled="isSubmitting || (props.tradeType === 'buy' && (buyDisabledByDanger || !props.userCanTrade)) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
       @click="executeTrade"
       class="exec-btn"
       :title="disabledReason"

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import type { MarketListItem } from '@/types/api'
 import { formatRelativeTime } from '@/utils/formatter'
+import RequiredTitlesBadge from '@/components/title/RequiredTitlesBadge.vue'
 
 const props = defineProps<{
   market: MarketListItem
@@ -76,6 +77,14 @@ const lastTradeLabel = computed(() =>
         <span v-for="tag in props.market.tags" :key="tag" class="market-tag">{{ tag }}</span>
       </div>
       <span v-if="closesAtLabel" class="closes-at-label">{{ closesAtLabel }}</span>
+    </div>
+
+    <!-- 称号准入门槛（Task 11/13） -->
+    <div v-if="props.market.required_titles && props.market.required_titles.length" class="card-required-row">
+      <RequiredTitlesBadge
+        :titles="props.market.required_titles"
+        :can-trade="props.market.user_can_trade ?? true"
+      />
     </div>
 
     <!-- 描述 -->
@@ -234,6 +243,10 @@ const lastTradeLabel = computed(() =>
   color: #555;
   letter-spacing: 0.02em;
   white-space: nowrap;
+}
+
+.card-required-row {
+  padding: 6px 16px 0;
 }
 
 /* 描述 */

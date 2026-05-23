@@ -12,6 +12,7 @@ import OutcomeCard from '@/components/market/OutcomeCard.vue'
 import PriceChart from '@/components/chart/PriceChart.vue'
 import CandleChart from '@/components/chart/CandleChart.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
+import TitleChip from '@/components/title/TitleChip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -350,6 +351,24 @@ const relTime = (iso: string): string => {
 
     <!-- 交易界面 -->
     <div v-else-if="marketStore.currentMarket" class="space-y-6">
+      <!-- ── 称号准入门槛横幅（Task 11/13/19） ── -->
+      <div
+        v-if="marketStore.currentMarket.required_titles?.length && !marketStore.currentMarket.user_can_trade"
+        class="title-gate-banner"
+      >
+        <div class="title-gate-banner-main">
+          <span class="title-gate-icon" aria-hidden="true">⚠️</span>
+          <strong class="title-gate-strong">此市场仅限以下称号交易：</strong>
+          <TitleChip
+            v-for="t in marketStore.currentMarket.required_titles"
+            :key="t.id"
+            :title="t"
+            size="sm"
+          />
+        </div>
+        <p class="title-gate-sub">你可继续浏览价格与图表，但下单会被拒绝。</p>
+      </div>
+
       <!-- 市场概要栏 -->
       <div class="market-summary-bar">
         <div class="summary-main">
@@ -469,6 +488,7 @@ const relTime = (iso: string): string => {
             :user-holding="userHolding"
             :quote-exceeds-cash="quoteExceedsCash"
             :max-slippage-bps="maxSlippageBps"
+            :user-can-trade="marketStore.currentMarket.user_can_trade ?? true"
             @update:selected-outcome-id="selectedOutcomeId = $event"
             @update:trade-type="tradeType = $event"
             @update:shares="shares = $event"
@@ -551,6 +571,41 @@ const relTime = (iso: string): string => {
 .trading-view-page {
   max-width: 1400px;
   margin: 0 auto;
+}
+
+/* ── 称号准入门槛横幅 ── */
+.title-gate-banner {
+  border: 4px solid #f5a623;
+  background: #fff8e1;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.title-gate-banner-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.title-gate-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.title-gate-strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: #000;
+  letter-spacing: 0.04em;
+}
+
+.title-gate-sub {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #555;
+  line-height: 1.5;
 }
 
 /* ── 最近成交列表 ── */

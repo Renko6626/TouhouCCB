@@ -5,6 +5,7 @@ import { NConfigProvider, NNotificationProvider, NDialogProvider, NLoadingBarPro
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useNotificationStore } from '@/stores/notification'
 import BannedDialog from '@/components/global/BannedDialog.vue'
+import MarketGateToast from '@/components/global/MarketGateToast.vue'
 
 // 使用通知store
 const notificationStore = useNotificationStore()
@@ -119,6 +120,9 @@ const industrialThemeOverrides = {
 
             <!-- 全局封号弹窗 (axios 拦截 USER_BANNED 触发 window event) -->
             <BannedDialog />
+
+            <!-- 称号准入门槛 toast (axios 拦截 MARKET_TITLE_REQUIRED 触发 window event) -->
+            <MarketGateToast />
 
             <!-- 主应用内容 -->
             <RouterView v-if="!globalError" v-slot="{ Component }">
