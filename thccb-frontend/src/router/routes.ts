@@ -78,6 +78,12 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/pages/user/MyRedemptions.vue'),
         meta: { title: '我的兑换', requiresAuth: true, requiresVerified: true },
       },
+      {
+        path: 'redeem-title',
+        name: 'redeem-title',
+        component: () => import('@/pages/redeem/RedeemTitle.vue'),
+        meta: { title: '称号兑换', requiresAuth: true, requiresVerified: true },
+      },
 
       // 弹幕系统兑换
       {
@@ -183,6 +189,24 @@ export const routes: RouteRecordRaw[] = [
         name: 'admin-redemption-import',
         component: () => import('@/pages/admin/RedemptionImport.vue'),
         meta: { title: '导入兑换码', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/users',
+        name: 'admin-users',
+        component: () => import('@/pages/admin/UserManage.vue'),
+        meta: { title: '用户管理', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/titles',
+        name: 'admin-titles',
+        component: () => import('@/pages/admin/TitleCatalog.vue'),
+        meta: { title: '称号目录', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/title-codes',
+        name: 'admin-title-codes',
+        component: () => import('@/pages/admin/TitleCodeBatches.vue'),
+        meta: { title: '称号激活码', requiresAuth: true, requiresAdmin: true },
       },
 
       // 404 也走主布局，方便用户从导航返回

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { fetchRecentLiquidations, type LiquidationEvent } from '@/api/loan'
+import TitleChip from '@/components/title/TitleChip.vue'
 
 const events = ref<LiquidationEvent[]>([])
 const loading = ref(false)
@@ -88,6 +89,7 @@ onBeforeUnmount(() => {
           <div class="liq-user">
             <span class="liq-skull">☠</span>
             <span class="liq-username">{{ ev.username }}</span>
+            <TitleChip v-if="ev.equipped_title" :title="ev.equipped_title" size="sm" />
           </div>
           <div class="liq-meta">
             <span

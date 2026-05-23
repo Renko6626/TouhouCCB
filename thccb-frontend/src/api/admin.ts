@@ -1,4 +1,5 @@
 import api from './index'
+import type { TitleRead } from './title'
 
 export interface UserListItem {
   id: number
@@ -189,4 +190,67 @@ export interface BannedUserItem {
 export interface BotStats {
   pending_suspicions: number
   banned_users: number
+}
+
+// Title catalog admin (used by MarketManage's "required titles" picker; also reused in Tasks 21-23)
+export interface TitleBatchItem {
+  id: number
+  title_id: number
+  title_name: string
+  name: string
+  description: string
+  total: number
+  used: number
+  created_at: string
+}
+
+export interface UserTitleItem {
+  title: TitleRead
+  granted_at: string
+  source: string
+  granted_by_admin_id: number | null
+}
+
+export interface AdminUserSummary {
+  user_id: number
+  username: string
+  email: string
+  cash: number
+  debt: number
+  is_active: boolean
+  is_superuser: boolean
+  equipped_title_id: number | null
+}
+
+export const adminTitleApi = {
+  listTitles: () => api.get<TitleRead[]>('/api/v1/admin/titles'),
+  createTitle: (body: { name: string; description?: string; color?: string; icon?: string; sort_order?: number }) =>
+    api.post<TitleRead>('/api/v1/admin/titles', body),
+  updateTitle: (id: number, body: Partial<TitleRead>) =>
+    api.patch<TitleRead>(`/api/v1/admin/titles/${id}`, body),
+
+  listBatches: () => api.get<TitleBatchItem[]>('/api/v1/admin/title-batches'),
+  createBatch: (body: { title_id: number; name: string; description?: string }) =>
+    api.post<TitleBatchItem>('/api/v1/admin/title-batches', body),
+  importCodes: (batch_id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ inserted: number }>(
+      `/api/v1/admin/title-batches/${batch_id}/import-codes`,
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+  },
+
+  listUserTitles: (uid: number) => api.get<UserTitleItem[]>(`/api/v1/admin/users/${uid}/titles`),
+  grantTitle: (uid: number, title_id: number) =>
+    api.post(`/api/v1/admin/users/${uid}/titles`, { title_id }),
+  revokeTitle: (uid: number, tid: number) =>
+    api.delete(`/api/v1/admin/users/${uid}/titles/${tid}`),
+  userSummary: (uid: number) => api.get<AdminUserSummary>(`/api/v1/admin/users/${uid}/summary`),
+
+  getMarketRequired: (mid: number) =>
+    api.get<number[]>(`/api/v1/admin/markets/${mid}/required-titles`),
+  putMarketRequired: (mid: number, title_ids: number[]) =>
+    api.put(`/api/v1/admin/markets/${mid}/required-titles`, { title_ids }),
 }

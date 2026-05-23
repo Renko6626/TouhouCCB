@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
 import { NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
+import TitleChip from '@/components/title/TitleChip.vue'
 
 interface Props {
   collapsed: boolean
@@ -18,6 +19,7 @@ const authStore = useAuthStore()
 const userStore = useUserStore()
 
 const debtAmount = computed(() => Number(userStore.summary?.debt ?? 0))
+const equippedTitle = computed(() => userStore.summary?.equipped_title ?? null)
 
 const userOptions = computed<DropdownOption[]>(() => {
   const options: DropdownOption[] = [
@@ -87,6 +89,7 @@ const handleUserMenuClick = (key: string) => {
               {{ authStore.user?.username?.charAt(0).toUpperCase() || 'U' }}
             </div>
             <span class="user-name">{{ authStore.user?.username || '用户' }}</span>
+            <TitleChip v-if="equippedTitle" :title="equippedTitle" size="sm" />
             <i class="i-mdi-chevron-down text-xs"></i>
           </div>
         </NDropdown>

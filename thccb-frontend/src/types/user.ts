@@ -1,5 +1,7 @@
 // 用户相关类型定义
 
+import type { TitleChip } from '@/api/title'
+
 export interface User {
   id: number
   email: string
@@ -36,6 +38,8 @@ export interface UserSummary {
   margin_soft_threshold: number
   /** HALT 市场有持仓 → sweep 跳过强平。前端把 danger 换成 info 保护态 */
   liquidation_protected: boolean
+  /** Task 13: 当前佩戴的称号 chip（用于 header/排行榜/翻车墙等处展示） */
+  equipped_title?: TitleChip | null
 }
 
 export interface Holding {
@@ -82,4 +86,6 @@ export interface LeaderboardItem {
   // spending 模式额外字段
   spent_total?: number | null
   debt?: number | null
+  // Task 14：当前佩戴的称号 chip（用于排行榜行内展示）
+  equipped_title?: TitleChip | null
 }

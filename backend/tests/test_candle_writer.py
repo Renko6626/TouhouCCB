@@ -46,6 +46,7 @@ def test_compute_candle_rows_two_outcomes():
     rows = compute_candle_rows(
         traded_outcome_id=traded_oid,
         outcome_ids=outcome_ids,
+        pre_prices=new_prices,  # 单测 pre=post → O=H=L=C 不变，断言一致
         new_prices=new_prices,
         traded_shares=shares,
         ts=ts,
@@ -75,6 +76,7 @@ def test_compute_candle_rows_bucket_alignment():
     rows = compute_candle_rows(
         traded_outcome_id=1,
         outcome_ids=[1],
+        pre_prices=[0.5],
         new_prices=[0.5],
         traded_shares=Decimal("1"),
         ts=ts,
@@ -95,6 +97,7 @@ async def test_upsert_single_row_then_read(client):
         rows = compute_candle_rows(
             traded_outcome_id=oids[0],
             outcome_ids=oids,
+            pre_prices=[0.5],
             new_prices=[0.5],
             traded_shares=Decimal("3"),
             ts=ts,
@@ -120,9 +123,9 @@ async def test_upsert_same_bucket_merges_ohlc(client):
     ts = datetime(2026, 5, 17, 12, 34, 0, tzinfo=timezone.utc)
 
     async with async_session_maker() as s:
-        rows1 = compute_candle_rows(oids[0], oids, [0.5], Decimal("2"), ts)
+        rows1 = compute_candle_rows(oids[0], oids, [0.5], [0.5], Decimal("2"), ts)
         await upsert_candles(s, rows1)
-        rows2 = compute_candle_rows(oids[0], oids, [0.7], Decimal("3"), ts)
+        rows2 = compute_candle_rows(oids[0], oids, [0.7], [0.7], Decimal("3"), ts)
         await upsert_candles(s, rows2)
         await s.commit()
 
@@ -148,8 +151,8 @@ async def test_upsert_low_price_collapses_correctly(client):
     ts = datetime(2026, 5, 17, 12, 34, 0, tzinfo=timezone.utc)
 
     async with async_session_maker() as s:
-        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.5], Decimal("1"), ts))
-        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.3], Decimal("1"), ts))
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.5], [0.5], Decimal("1"), ts))
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.3], [0.3], Decimal("1"), ts))
         await s.commit()
 
         row = (await s.execute(
@@ -186,7 +189,7 @@ async def test_upsert_populates_updated_at(client):
 
     async with async_session_maker() as s:
         # 首次 INSERT
-        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.5], Decimal("1"), ts))
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.5], [0.5], Decimal("1"), ts))
         await s.commit()
         row = (await s.execute(
             select(OutcomeCandle).where(OutcomeCandle.outcome_id == oids[0]).limit(1)
@@ -196,7 +199,7 @@ async def test_upsert_populates_updated_at(client):
 
     async with async_session_maker() as s:
         # 同 bucket 第二次（走 ON CONFLICT DO UPDATE）
-        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.6], Decimal("2"), ts))
+        await upsert_candles(s, compute_candle_rows(oids[0], oids, [0.6], [0.6], Decimal("2"), ts))
         await s.commit()
         row = (await s.execute(
             select(OutcomeCandle).where(OutcomeCandle.outcome_id == oids[0]).limit(1)

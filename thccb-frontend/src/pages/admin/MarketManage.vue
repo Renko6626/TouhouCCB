@@ -20,7 +20,8 @@ import {
 import type { MarketDetail, MarketListItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 import { marketApi } from '@/api/market'
-import { adminApi, type UserListItem } from '@/api/admin'
+import { adminApi, adminTitleApi, type UserListItem } from '@/api/admin'
+import type { TitleRead } from '@/api/title'
 import { useAuthStore } from '@/stores/auth'
 
 const message = useMessage()
@@ -50,9 +51,57 @@ const createForm = ref({
   outcomes: [makeOutcome('是'), makeOutcome('否')],
   closes_at: null as number | null,  // NDatePicker 返回 timestamp
   tagsInput: '',  // 逗号分隔输入
+  requiredTitleIds: [] as number[],  // 称号门槛（空 = 任何人可交易）
 })
 const creating = ref(false)
 const createError = ref('')
+
+// 称号门槛 - 创建表单 & 单市场编辑共享 options
+const titleOptions = ref<{ label: string; value: number }[]>([])
+
+async function loadTitleOptions() {
+  try {
+    const titles = await adminTitleApi.listTitles()
+    titleOptions.value = titles
+      .filter((t: TitleRead) => t.is_active)
+      .map((t: TitleRead) => ({ label: t.name, value: t.id }))
+  } catch {
+    // 不阻塞主流程，多选下拉留空
+  }
+}
+
+// 单市场「设置门槛」模态
+const showGatingModal = ref(false)
+const gatingMarketId = ref<number | null>(null)
+const gatingMarketTitle = ref('')
+const gatingSelectedIds = ref<number[]>([])
+const gatingLoading = ref(false)
+
+async function openGatingModal(row: MarketListItem) {
+  gatingMarketId.value = row.id
+  gatingMarketTitle.value = row.title
+  gatingSelectedIds.value = []
+  try {
+    gatingSelectedIds.value = await adminTitleApi.getMarketRequired(row.id)
+  } catch {
+    gatingSelectedIds.value = []
+  }
+  showGatingModal.value = true
+}
+
+async function saveGating() {
+  if (!gatingMarketId.value) return
+  gatingLoading.value = true
+  try {
+    await adminTitleApi.putMarketRequired(gatingMarketId.value, gatingSelectedIds.value)
+    message.success('已保存称号门槛')
+    showGatingModal.value = false
+  } catch (e) {
+    message.error((e as { message?: string })?.message || '保存失败')
+  } finally {
+    gatingLoading.value = false
+  }
+}
 
 const settleMarketId = ref<number | null>(null)
 const settleMarketTitle = ref('')
@@ -253,7 +302,15 @@ const loadMarkets = async () => {
 }
 
 const resetCreateForm = () => {
-  createForm.value = { title: '', description: '', liquidity_b: 100, outcomes: [makeOutcome('是'), makeOutcome('否')], closes_at: null, tagsInput: '' }
+  createForm.value = {
+    title: '',
+    description: '',
+    liquidity_b: 100,
+    outcomes: [makeOutcome('是'), makeOutcome('否')],
+    closes_at: null,
+    tagsInput: '',
+    requiredTitleIds: [],
+  }
   createError.value = ''
 }
 
@@ -280,6 +337,17 @@ const handleCreateSubmit = async () => {
       closes_at,
     })
     if (!result.success) throw new Error(result.error || '创建失败')
+
+    // 创建成功后，如配置了称号门槛，调 PUT 写入；失败不阻断主流程
+    const newMarketId = result.data?.market_id
+    if (newMarketId && createForm.value.requiredTitleIds.length > 0) {
+      try {
+        await adminTitleApi.putMarketRequired(newMarketId, createForm.value.requiredTitleIds)
+      } catch (e) {
+        message.warning((e as { message?: string })?.message || '市场已创建，但称号门槛保存失败')
+      }
+    }
+
     showCreateModal.value = false
     resetCreateForm()
     message.success('市场创建成功')
@@ -428,12 +496,13 @@ const columns: DataTableColumns<MarketListItem> = [
   {
     title: '操作',
     key: 'actions',
-    width: 260,
+    width: 360,
     render: (row) =>
-      h(NSpace, {}, {
+      h(NSpace, { size: 6 }, {
         default: () => [
           h(NButton, { size: 'small', onClick: () => closeMarket(row) }, { default: () => '熔断' }),
           h(NButton, { size: 'small', onClick: () => closeAndSettle(row) }, { default: () => '熔断并结算' }),
+          h(NButton, { size: 'small', onClick: () => openGatingModal(row) }, { default: () => '设置门槛' }),
         ],
       }),
   },
@@ -443,6 +512,7 @@ onMounted(() => {
   loadMarkets()
   loadUsers()
   loadAllMarkets()
+  loadTitleOptions()
 })
 </script>
 
@@ -565,6 +635,17 @@ onMounted(() => {
             <NButton size="small" :disabled="creating" @click="createForm.outcomes.push(makeOutcome(''))">添加选项</NButton>
           </div>
         </NFormItem>
+        <NFormItem label="需要的称号 (空 = 任何人可交易)">
+          <NSelect
+            v-model:value="createForm.requiredTitleIds"
+            :options="titleOptions"
+            multiple
+            placeholder="选择需要的称号 (留空则任何人可交易)"
+            clearable
+            :disabled="creating"
+            style="width:100%"
+          />
+        </NFormItem>
         <div v-if="createError" class="form-error">{{ createError }}</div>
       </NForm>
       <template #footer>
@@ -592,6 +673,34 @@ onMounted(() => {
         <div class="modal-footer">
           <NButton @click="showSettleModal = false">取消</NButton>
           <NButton type="primary" :loading="settling" @click="submitSettle">确认结算</NButton>
+        </div>
+      </template>
+    </NModal>
+
+    <!-- 设置称号门槛 -->
+    <NModal
+      v-model:show="showGatingModal"
+      preset="card"
+      :title="`市场 #${gatingMarketId} 的称号门槛`"
+      style="width:90%;max-width:500px"
+    >
+      <p class="settle-label">市场：{{ gatingMarketTitle }}（ID: {{ gatingMarketId }}）</p>
+      <NForm>
+        <NFormItem label="需要的称号 (留空则任何人可交易)">
+          <NSelect
+            v-model:value="gatingSelectedIds"
+            :options="titleOptions"
+            multiple
+            placeholder="选择需要的称号"
+            clearable
+            style="width:100%"
+          />
+        </NFormItem>
+      </NForm>
+      <template #footer>
+        <div class="modal-footer">
+          <NButton @click="showGatingModal = false">取消</NButton>
+          <NButton type="primary" :loading="gatingLoading" @click="saveGating">保存</NButton>
         </div>
       </template>
     </NModal>

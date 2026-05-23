@@ -12,6 +12,7 @@ from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
 from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
+from app.models import title as _title_models  # noqa: F401 触发 metadata 注册
 from app.services.loan_sweep import (
     start_scheduler as start_loan_scheduler,
     stop_scheduler as stop_loan_scheduler,
@@ -154,6 +155,11 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
                 .order_by(Transaction.timestamp.asc())
             )).scalars().all()
 
+            # 滚动 prev_post_by_oid，每笔 tx 用上一笔的 post 当 pre_prices
+            # （K-line fix `14bfd35` 要求 bucket 首笔 pre = 上 bucket 末笔 post 实现首尾相连）
+            prev_post_by_oid: dict[int, float] = {
+                oid: 1.0 / len(outcome_ids) for oid in outcome_ids
+            }
             for tx in txs:
                 if tx.market_prices_post and len(tx.market_prices_post) == len(outcome_ids):
                     new_prices = [float(p) for p in tx.market_prices_post]
@@ -162,14 +168,18 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
                         float(tx.post_market_price) if oid == tx.outcome_id
                         else 1.0 / len(outcome_ids) for oid in outcome_ids
                     ]
+                pre_prices = [prev_post_by_oid[oid] for oid in outcome_ids]
                 rows = compute_candle_rows(
                     traded_outcome_id=tx.outcome_id,
                     outcome_ids=outcome_ids,
+                    pre_prices=pre_prices,
                     new_prices=new_prices,
                     traded_shares=tx.shares,
                     ts=tx.timestamp,
                 )
                 await upsert_candles(s, rows)
+                for oid, p in zip(outcome_ids, new_prices):
+                    prev_post_by_oid[oid] = p
             await s.commit()
 
 
@@ -246,6 +256,12 @@ app.include_router(admin_liquidation_api.router, prefix="/api/v1/admin/liquidati
 
 from app.api.v1 import admin_bot as admin_bot_api
 app.include_router(admin_bot_api.router, prefix="/api/v1/admin/bot", tags=["AdminBot"])
+
+from app.api.v1 import admin_title as admin_title_api
+app.include_router(admin_title_api.router, prefix="/api/v1/admin", tags=["AdminTitle"])
+
+from app.api.v1 import title as title_api
+app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])
 
 
 @app.get("/")

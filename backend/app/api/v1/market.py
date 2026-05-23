@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status, Query
 from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+import jwt
+from app.core.config import settings
 from app.services.realtime import BROKER
 from app.services.rank import rank_title
 from app.core.database import get_async_session, managed_transaction
@@ -45,6 +47,30 @@ from app.services.market_locks import (
 )
 from app.services import site_config
 from app.services.anti_bot import verify_client_token, parse_whitelist
+from app.services.market_title_gating import assert_user_can_trade_market
+from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
+
+
+async def _optional_current_user_id(
+    authorization: Optional[str] = Header(default=None),
+) -> Optional[int]:
+    """从 Authorization header 解出 user_id；解不出/无 token 返回 None。
+
+    用于 market detail/list 这种公开但携 token 时要展示 user_can_trade 的端点。
+    严格按 current_active_user 同一套 secret/algorithm 解码；不报 401（不要求登录）。
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("type") == "refresh":
+            return None
+        return int(payload["sub"])
+    except Exception:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +318,27 @@ async def list_markets(
                 "last_trade_at": row.last_trade_at,
             }
 
+    # Title 系统（Task 13）：批量查每个 market 的 required_titles chip
+    required_by_market: Dict[int, List[Dict[str, Any]]] = {}
+    if market_ids:
+        mrt_rows = (await db.execute(
+            select(
+                MarketRequiredTitle.market_id,
+                _TitleModel.id,
+                _TitleModel.name,
+                _TitleModel.color,
+                _TitleModel.icon,
+                _TitleModel.sort_order,
+            )
+            .join(_TitleModel, MarketRequiredTitle.title_id == _TitleModel.id)
+            .where(MarketRequiredTitle.market_id.in_(market_ids))
+            .order_by(_TitleModel.sort_order.asc(), _TitleModel.id.asc())
+        )).all()
+        for row in mrt_rows:
+            required_by_market.setdefault(row[0], []).append(
+                {"id": row[1], "name": row[2], "color": row[3], "icon": row[4]}
+            )
+
     output = []
     for m in markets:
         outcomes = list(m.outcomes)
@@ -310,6 +357,7 @@ async def list_markets(
             "outcomes": _build_prices_from_shares(outcomes, shares_list, float(m.liquidity_b), prices_24h),
             "trade_count": act.get("trade_count", 0),
             "last_trade_at": last_ts.isoformat() if last_ts else None,
+            "required_titles": required_by_market.get(m.id, []),
         })
     return output
 
@@ -318,6 +366,7 @@ async def list_markets(
 async def get_market_detail(
     market_id: int,
     db: AsyncSession = Depends(get_async_session),
+    current_user_id: Optional[int] = Depends(_optional_current_user_id),
 ):
     market = await db.get(Market, market_id)
     if not market:
@@ -387,6 +436,30 @@ async def get_market_detail(
     tx_res = await db.execute(tx_stmt)
     last_trade_at = tx_res.scalar_one_or_none()
 
+    # Title 系统（Task 13）：required_titles chip + 当前 user 是否能交易
+    required_title_rows = (await db.execute(
+        select(_TitleModel)
+        .join(MarketRequiredTitle, MarketRequiredTitle.title_id == _TitleModel.id)
+        .where(MarketRequiredTitle.market_id == market.id)
+        .order_by(_TitleModel.sort_order.asc(), _TitleModel.id.asc())
+    )).scalars().all()
+    required_titles_chips = [
+        {"id": t.id, "name": t.name, "color": t.color, "icon": t.icon}
+        for t in required_title_rows
+    ]
+    if not required_titles_chips:
+        user_can_trade = True
+    elif current_user_id is None:
+        user_can_trade = False
+    else:
+        has = (await db.execute(
+            select(_UserTitleModel.title_id).where(
+                _UserTitleModel.user_id == current_user_id,
+                _UserTitleModel.title_id.in_([rt["id"] for rt in required_titles_chips]),
+            )
+        )).scalars().first()
+        user_can_trade = has is not None
+
     return MarketDetailRead(
         id=int(market.id),
         title=str(market.title),
@@ -403,6 +476,8 @@ async def get_market_detail(
 
         outcomes=out_reads,
         last_trade_at=last_trade_at,
+        required_titles=required_titles_chips,
+        user_can_trade=user_can_trade,
     )
 
 
@@ -472,6 +547,9 @@ async def buy_shares(
         outcome = all_outcomes[target_idx]
 
         locked_user = await _lock_user(db, int(user.id))
+
+        # 市场 title 门槛：必须在 lock 后 / LMSR 计价前 check（防 TOCTOU）
+        await assert_user_can_trade_market(db, int(user.id), int(market.id))
 
         # LMSR 用 float 计算
         b = float(market.liquidity_b)
@@ -1067,7 +1145,7 @@ async def leaderboard(
 ):
     if mode == "net_worth":
         # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
-        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观，
+        # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观,
         # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
         users = (await db.execute(select(User))).scalars().all()
         if not users:
@@ -1081,14 +1159,33 @@ async def leaderboard(
             for u in users
         ]
         scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[:limit]
+        # 批量取 equipped title chip：只查 top N 的 equipped_title_id,避免 N+1
+        title_ids = {u.equipped_title_id for u, _ in top if u.equipped_title_id}
+        title_map: Dict[int, _TitleModel] = {}
+        if title_ids:
+            rows = (await db.execute(
+                select(_TitleModel).where(_TitleModel.id.in_(title_ids))
+            )).scalars().all()
+            title_map = {t.id: t for t in rows}
         return [
             LeaderboardItem(
                 user_id=u.id,
                 username=u.username,
                 net_worth=nw.quantize(Decimal("0.01")),
                 rank=rank_title(nw),
+                equipped_title=(
+                    {
+                        "id": title_map[u.equipped_title_id].id,
+                        "name": title_map[u.equipped_title_id].name,
+                        "color": title_map[u.equipped_title_id].color,
+                        "icon": title_map[u.equipped_title_id].icon,
+                    }
+                    if u.equipped_title_id and u.equipped_title_id in title_map
+                    else None
+                ),
             )
-            for u, nw in scored[:limit]
+            for u, nw in top
         ]
 
     if mode == "spending":
@@ -1126,9 +1223,14 @@ async def leaderboard(
                 User.debt,
                 spent_expr.label("spent_total"),
                 score_expr.label("score"),
+                _TitleModel.id.label("title_id"),
+                _TitleModel.name.label("title_name"),
+                _TitleModel.color.label("title_color"),
+                _TitleModel.icon.label("title_icon"),
             )
             .outerjoin(rt_subq, rt_subq.c.user_id == User.id)
             .outerjoin(de_subq, de_subq.c.user_id == User.id)
+            .outerjoin(_TitleModel, _TitleModel.id == User.equipped_title_id)
             .order_by(score_expr.desc())
             .limit(limit)
         )
@@ -1143,6 +1245,16 @@ async def leaderboard(
             # 负债的用户上来；过滤 spent > 0 让榜单只展示有过实际消费的）
             if spent <= 0:
                 continue
+            equipped = (
+                {
+                    "id": r.title_id,
+                    "name": r.title_name,
+                    "color": r.title_color,
+                    "icon": r.title_icon,
+                }
+                if r.title_id is not None
+                else None
+            )
             items.append(LeaderboardItem(
                 user_id=r.id,
                 username=r.username,
@@ -1150,6 +1262,7 @@ async def leaderboard(
                 rank=rank_title(score),
                 spent_total=spent.quantize(Decimal("0.01")),
                 debt=debt.quantize(Decimal("0.01")),
+                equipped_title=equipped,
             ))
         return items
 

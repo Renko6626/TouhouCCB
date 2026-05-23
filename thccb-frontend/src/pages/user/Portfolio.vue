@@ -14,6 +14,7 @@ import type { DataTableColumns } from 'naive-ui'
 import type { Holding } from '@/types/api'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import MarginStatusCard from '@/components/user/MarginStatusCard.vue'
+import MyTitlesPanel from '@/components/title/MyTitlesPanel.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -262,6 +263,11 @@ const holdingsByMarketArray = computed(() => {
           <NButton size="small" @click="router.push('/market/leaderboard')">排行榜</NButton>
           <NButton size="small" @click="router.push('/user/transactions')">交易记录</NButton>
         </div>
+      </div>
+
+      <!-- 我的称号 -->
+      <div class="mt-6">
+        <MyTitlesPanel />
       </div>
     </div>
 

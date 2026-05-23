@@ -10,6 +10,7 @@ from sqlmodel import select
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, LiquidationEvent
+from app.models.title import Title as _Title
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
@@ -139,8 +140,9 @@ async def recent_liquidations(
 ):
     """匿名可访问。教育警示用。"""
     stmt = (
-        select(LiquidationEvent, User.username)
+        select(LiquidationEvent, User.id, User.username, _Title)
         .join(User, User.id == LiquidationEvent.user_id)
+        .outerjoin(_Title, _Title.id == User.equipped_title_id)
         .order_by(LiquidationEvent.triggered_at.desc())
         .limit(limit)
     )
@@ -148,7 +150,12 @@ async def recent_liquidations(
     return [
         {
             "id": int(ev.id),
+            "user_id": int(user_id),
             "username": username,
+            "equipped_title": (
+                {"id": t.id, "name": t.name, "color": t.color, "icon": t.icon}
+                if t is not None else None
+            ),
             "triggered_at": (
                 ev.triggered_at.replace(tzinfo=timezone.utc)
                 if ev.triggered_at.tzinfo is None else ev.triggered_at
@@ -167,7 +174,7 @@ async def recent_liquidations(
             "trigger_source": ev.trigger_source,
             "mode": ev.mode,
         }
-        for ev, username in rows
+        for ev, user_id, username, t in rows
     ]
 
 

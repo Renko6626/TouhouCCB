@@ -76,6 +76,21 @@ instance.interceptors.response.use(
       })
     }
 
+    // 403 + detail MARKET_TITLE_REQUIRED → 触发全局事件供 toast 监听
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.detail === 'MARKET_TITLE_REQUIRED'
+    ) {
+      window.dispatchEvent(new CustomEvent('market-title-required', {
+        detail: error.response.data,
+      }))
+      return Promise.reject({
+        message: '此市场需要特定称号',
+        status: 403,
+        data: error.response?.data,
+      })
+    }
+
     // 401 且不是 refresh 请求本身，尝试用 refresh token 续期
     if (
       error.response?.status === 401 &&

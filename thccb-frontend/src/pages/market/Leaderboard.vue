@@ -3,6 +3,7 @@ import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NAlert, NButton, NDataTable, NInputNumber, NSpin, NTag, NEmpty, type DataTableColumns } from 'naive-ui'
 import type { LeaderboardItem, LeaderboardMode } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
+import TitleChip from '@/components/title/TitleChip.vue'
 
 const marketStore = useMarketStore()
 const limit = ref(20)
@@ -45,7 +46,19 @@ const columns = computed<DataTableColumns<LeaderboardItem>>(() => {
       render: (_row, index) =>
         h('span', { style: rankBadgeStyle(index + 1) }, `#${index + 1}`),
     },
-    { title: '用户', key: 'username' },
+    {
+      title: '用户', key: 'username',
+      render: (row) => h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
+        [
+          h('span', row.username),
+          row.equipped_title
+            ? h(TitleChip, { title: row.equipped_title, size: 'sm' })
+            : null,
+        ],
+      ),
+    },
   ]
   if (mode.value === 'spending') {
     base.push(
