@@ -8,7 +8,7 @@ from app.core.users import current_active_user
 from app.models.base import User
 from app.models.title import Title
 from app.schemas.title import (
-    TitleRead, TitleChipRead, MyTitlesResponse, MyTitleItem,
+    TitleRead, TitleChipRead, MyTitlesResponse, MyTitleItem, EquipRequest,
 )
 from app.services import title_service
 
@@ -64,3 +64,13 @@ async def user_equipped(
 ):
     t = await title_service.get_equipped_chip(db, user_id)
     return _to_chip(t) if t else None
+
+
+@router.post("/me/equip", summary="佩戴 / 取下称号")
+async def equip(
+    req: EquipRequest,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    await title_service.equip_title(db, user.id, req.title_id)
+    return {"equipped_title_id": req.title_id}

@@ -91,3 +91,30 @@ async def get_equipped_chip(db: AsyncSession, user_id: int):
 
 async def list_active_catalog(db: AsyncSession) -> List[Title]:
     return await list_titles(db, include_inactive=False)
+
+
+async def equip_title(db: AsyncSession, user_id: int, title_id: Optional[int]) -> None:
+    """切换用户佩戴的 title。title_id=None → 取下。
+
+    安全约束：title_id 非 None 时，必须确认用户已持有该 title。
+    """
+    from app.models.base import User
+    from app.models.title import UserTitle
+    u = await db.get(User, user_id)
+    if u is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if title_id is None:
+        u.equipped_title_id = None
+        db.add(u)
+        await db.commit()
+        return
+    own = (await db.execute(
+        select(UserTitle).where(
+            UserTitle.user_id == user_id, UserTitle.title_id == title_id,
+        )
+    )).scalar_one_or_none()
+    if own is None:
+        raise HTTPException(status_code=403, detail="你未持有此称号")
+    u.equipped_title_id = title_id
+    db.add(u)
+    await db.commit()
