@@ -20,6 +20,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 # 导入所有 model 模块，确保 SQLModel.metadata 包含所有表
 import app.models.base  # noqa: F401, E402
 import app.models.redemption  # noqa: F401, E402
+import app.models.title  # noqa: F401, E402
 from app.core.config import settings  # noqa: E402
 
 config = context.config
@@ -60,8 +61,13 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        # sqlite 不支持 ALTER constraint，必须开 render_as_batch 让 alembic 走
+        # copy-and-move 策略。pg/mysql 走原生 ALTER，保持现状。
+        is_sqlite = connection.dialect.name == "sqlite"
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=is_sqlite,
         )
 
         with context.begin_transaction():
