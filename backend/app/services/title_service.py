@@ -118,3 +118,50 @@ async def equip_title(db: AsyncSession, user_id: int, title_id: Optional[int]) -
     u.equipped_title_id = title_id
     db.add(u)
     await db.commit()
+
+
+async def grant_user_title(
+    db: AsyncSession, user_id: int, title_id: int, admin_id: int,
+) -> None:
+    from app.models.base import User
+    from app.models.title import UserTitle
+    u = await db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="user not found")
+    t = await db.get(Title, title_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="title not found")
+    if not t.is_active:
+        raise HTTPException(status_code=400, detail="该称号已软删，不能授予")
+    existing = (await db.execute(
+        select(UserTitle).where(
+            UserTitle.user_id == user_id, UserTitle.title_id == title_id,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return  # 幂等
+    db.add(UserTitle(
+        user_id=user_id, title_id=title_id,
+        granted_by_admin_id=admin_id, source="admin",
+    ))
+    await db.commit()
+
+
+async def revoke_user_title(
+    db: AsyncSession, user_id: int, title_id: int,
+) -> None:
+    from app.models.base import User
+    from app.models.title import UserTitle
+    ut = (await db.execute(
+        select(UserTitle).where(
+            UserTitle.user_id == user_id, UserTitle.title_id == title_id,
+        )
+    )).scalar_one_or_none()
+    if not ut:
+        raise HTTPException(status_code=404, detail="该用户未持有此称号")
+    u = await db.get(User, user_id)
+    if u and u.equipped_title_id == title_id:
+        u.equipped_title_id = None
+        db.add(u)
+    await db.delete(ut)
+    await db.commit()

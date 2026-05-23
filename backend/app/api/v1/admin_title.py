@@ -13,6 +13,7 @@ from app.models.title import Title
 from app.schemas.title import (
     TitleRead, TitleCreateRequest, TitleUpdateRequest,
     BatchCreateRequest, BatchRead, CSVImportResponse,
+    UserTitleGrantRequest, UserTitleListItem,
 )
 from app.services import title_service, title_code_service
 
@@ -97,3 +98,64 @@ async def import_codes(
     codes = title_code_service.parse_csv_codes(raw)
     inserted = await title_code_service.import_codes_to_batch(db, batch_id, codes)
     return CSVImportResponse(inserted=inserted)
+
+
+@router.get("/users/{user_id}/titles", response_model=List[UserTitleListItem],
+            summary="列出用户的全部 title")
+async def admin_list_user_titles(
+    user_id: int,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    rows = await title_service.list_my_titles(db, user_id)
+    return [
+        UserTitleListItem(
+            title=_to_title_read(t),
+            granted_at=ut.granted_at,
+            source=ut.source,
+            granted_by_admin_id=ut.granted_by_admin_id,
+        ) for ut, t in rows
+    ]
+
+
+@router.post("/users/{user_id}/titles", summary="授予 title")
+async def admin_grant_title(
+    user_id: int,
+    req: UserTitleGrantRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    await title_service.grant_user_title(db, user_id, req.title_id, admin.id)
+    return {"user_id": user_id, "title_id": req.title_id}
+
+
+@router.delete("/users/{user_id}/titles/{title_id}", summary="撤销 title")
+async def admin_revoke_title(
+    user_id: int, title_id: int,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    await title_service.revoke_user_title(db, user_id, title_id)
+    return {"user_id": user_id, "title_id": title_id, "revoked": True}
+
+
+@router.get("/users/{user_id}/summary", summary="资产快照（admin 查任意用户）")
+async def admin_user_summary(
+    user_id: int,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """Admin 查任意用户。最小实现：只返回 user 表基础字段。"""
+    u = await db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="user not found")
+    return {
+        "user_id": u.id,
+        "username": u.username,
+        "email": u.email,
+        "cash": float(u.cash),
+        "debt": float(u.debt),
+        "is_active": u.is_active,
+        "is_superuser": u.is_superuser,
+        "equipped_title_id": u.equipped_title_id,
+    }
