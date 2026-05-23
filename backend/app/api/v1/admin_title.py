@@ -197,6 +197,7 @@ async def admin_user_summary(
     u = await db.get(User, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
+    equipped_t = await title_service.get_equipped_chip(db, user_id)
     return {
         "user_id": u.id,
         "username": u.username,
@@ -206,4 +207,9 @@ async def admin_user_summary(
         "is_active": u.is_active,
         "is_superuser": u.is_superuser,
         "equipped_title_id": u.equipped_title_id,
+        "equipped_title": (
+            {"id": equipped_t.id, "name": equipped_t.name,
+             "color": equipped_t.color, "icon": equipped_t.icon}
+            if equipped_t else None
+        ),
     }

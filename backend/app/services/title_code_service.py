@@ -128,8 +128,8 @@ async def redeem_code(db: AsyncSession, user_id: int, code_string: str) -> Title
     if code_row is None or code_row.status != "available":
         raise HTTPException(status_code=403, detail="激活码无效")
     batch = await db.get(TitleCodeBatch, code_row.batch_id)
-    title = await db.get(Title, batch.title_id)
-    if not title.is_active:
+    title = await db.get(Title, batch.title_id) if batch else None
+    if title is None or not title.is_active:
         raise HTTPException(status_code=403, detail="激活码无效")
     already = (await db.execute(
         select(UserTitle).where(

@@ -49,7 +49,6 @@ async def my_titles(
 
 @router.get("/catalog", response_model=List[TitleRead], summary="公开 title catalog")
 async def public_catalog(
-    user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
     titles = await title_service.list_active_catalog(db)
