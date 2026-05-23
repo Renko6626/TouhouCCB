@@ -154,6 +154,11 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
                 .order_by(Transaction.timestamp.asc())
             )).scalars().all()
 
+            # 滚动 prev_post_by_oid，每笔 tx 用上一笔的 post 当 pre_prices
+            # （K-line fix `14bfd35` 要求 bucket 首笔 pre = 上 bucket 末笔 post 实现首尾相连）
+            prev_post_by_oid: dict[int, float] = {
+                oid: 1.0 / len(outcome_ids) for oid in outcome_ids
+            }
             for tx in txs:
                 if tx.market_prices_post and len(tx.market_prices_post) == len(outcome_ids):
                     new_prices = [float(p) for p in tx.market_prices_post]
@@ -162,14 +167,18 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
                         float(tx.post_market_price) if oid == tx.outcome_id
                         else 1.0 / len(outcome_ids) for oid in outcome_ids
                     ]
+                pre_prices = [prev_post_by_oid[oid] for oid in outcome_ids]
                 rows = compute_candle_rows(
                     traded_outcome_id=tx.outcome_id,
                     outcome_ids=outcome_ids,
+                    pre_prices=pre_prices,
                     new_prices=new_prices,
                     traded_shares=tx.shares,
                     ts=tx.timestamp,
                 )
                 await upsert_candles(s, rows)
+                for oid, p in zip(outcome_ids, new_prices):
+                    prev_post_by_oid[oid] = p
             await s.commit()
 
 

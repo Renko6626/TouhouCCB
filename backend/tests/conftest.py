@@ -70,14 +70,26 @@ async def client():
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
-    """每个测试前 drop+create 全部表，clear site_config 缓存。
+    """每个测试前 drop+create 全部表，clear site_config 缓存，seed 全站默认配置。
     function-scope 保留测试间数据隔离；与 module-scope client 配合，因为 lifespan startup
     后的 DB 状态对测试无意义（测试自己 seed）。
+
+    seed 默认 activity_mode_enabled=false：candle/market 测试经过 verify_anti_bot
+    会读这个 key，缺失会抛 SiteConfigError 500。测试可以在自己 fixture 里覆盖
+    （UPDATE SET value='true'），不会冲突。
     """
+    from app.models.base import SiteConfig
+    from app.core.database import async_session_maker
+
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
+    async with async_session_maker() as s:
+        async with s.begin():
+            s.add(SiteConfig(
+                key="activity_mode_enabled", value="false", value_type="bool",
+            ))
     yield
 
 
