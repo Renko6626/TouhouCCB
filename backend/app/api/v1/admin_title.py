@@ -4,16 +4,18 @@
 """
 from typing import List
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from sqlalchemy import select, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.core.users import current_superuser
-from app.models.base import User
-from app.models.title import Title
+from app.models.base import User, Market
+from app.models.title import Title, MarketRequiredTitle
 from app.schemas.title import (
     TitleRead, TitleCreateRequest, TitleUpdateRequest,
     BatchCreateRequest, BatchRead, CSVImportResponse,
     UserTitleGrantRequest, UserTitleListItem,
+    MarketRequiredTitlesPutRequest,
 )
 from app.services import title_service, title_code_service
 
@@ -137,6 +139,52 @@ async def admin_revoke_title(
 ):
     await title_service.revoke_user_title(db, user_id, title_id)
     return {"user_id": user_id, "title_id": title_id, "revoked": True}
+
+
+@router.get("/markets/{market_id}/required-titles", response_model=List[int],
+            summary="某市场当前的 required title id 列表")
+async def get_market_required_titles(
+    market_id: int,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    m = await db.get(Market, market_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="market not found")
+    rows = (await db.execute(
+        select(MarketRequiredTitle.title_id).where(
+            MarketRequiredTitle.market_id == market_id,
+        )
+    )).scalars().all()
+    return list(rows)
+
+
+@router.put("/markets/{market_id}/required-titles",
+            summary="覆写某市场的 required title 列表")
+async def put_market_required_titles(
+    market_id: int,
+    req: MarketRequiredTitlesPutRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    m = await db.get(Market, market_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="market not found")
+    unique_ids = set(req.title_ids)
+    if unique_ids:
+        found = (await db.execute(
+            select(Title.id).where(Title.id.in_(unique_ids))
+        )).scalars().all()
+        if len(found) != len(unique_ids):
+            raise HTTPException(status_code=400, detail="部分 title_id 不存在")
+    # Atomic: delete-all + insert-all in single transaction
+    await db.execute(sa_delete(MarketRequiredTitle).where(
+        MarketRequiredTitle.market_id == market_id,
+    ))
+    for tid in unique_ids:
+        db.add(MarketRequiredTitle(market_id=market_id, title_id=tid))
+    await db.commit()
+    return {"market_id": market_id, "title_ids": list(unique_ids)}
 
 
 @router.get("/users/{user_id}/summary", summary="资产快照（admin 查任意用户）")
