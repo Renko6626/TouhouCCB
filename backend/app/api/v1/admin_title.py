@@ -12,8 +12,9 @@ from app.models.base import User
 from app.models.title import Title
 from app.schemas.title import (
     TitleRead, TitleCreateRequest, TitleUpdateRequest,
+    BatchCreateRequest, BatchRead,
 )
-from app.services import title_service
+from app.services import title_service, title_code_service
 
 router = APIRouter()
 
@@ -54,3 +55,29 @@ async def update_title(
 ):
     t = await title_service.update_title(db, title_id, req)
     return _to_title_read(t)
+
+
+@router.get("/title-batches", response_model=List[BatchRead], summary="列出 batch")
+async def list_title_batches(
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    rows = await title_code_service.list_batches_with_counts(db)
+    return [BatchRead(**r) for r in rows]
+
+
+@router.post("/title-batches", response_model=BatchRead, summary="新建 batch")
+async def create_title_batch(
+    req: BatchCreateRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    b = await title_code_service.create_batch(
+        db, req.title_id, req.name, req.description, admin.id,
+    )
+    t = await db.get(Title, b.title_id)
+    return BatchRead(
+        id=b.id, title_id=b.title_id, title_name=t.name,
+        name=b.name, description=b.description,
+        total=0, used=0, created_at=b.created_at,
+    )
