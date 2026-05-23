@@ -32,6 +32,7 @@ const navItems: NavEntry[] = [
     children: [
       { label: '激活码兑换', path: '/redemption', icon: 'i-mdi-ticket-outline', activeIcon: 'i-mdi-ticket' },
       { label: '弹幕兑换', path: '/danmuku/exchange', icon: 'i-mdi-message-text-outline', activeIcon: 'i-mdi-message-text' },
+      { label: '称号兑换', path: '/redeem-title', icon: 'i-mdi-medal-outline', activeIcon: 'i-mdi-medal' },
     ],
   },
   { label: '我的兑换', path: '/my/redemptions', icon: 'i-mdi-ticket-confirmation-outline', activeIcon: 'i-mdi-ticket-confirmation' },
@@ -45,6 +46,9 @@ const adminItems = [
   { label: 'Bot 预警 & 封号', path: '/admin/bot-review-ban', icon: 'i-mdi-shield-alert-outline' },
   { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline' },
   { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant' },
+  { label: '用户管理', path: '/admin/users', icon: 'i-mdi-account-group-outline' },
+  { label: '称号目录', path: '/admin/titles', icon: 'i-mdi-medal-outline' },
+  { label: '称号激活码', path: '/admin/title-codes', icon: 'i-mdi-ticket-account' },
 ]
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
