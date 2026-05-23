@@ -1,4 +1,5 @@
 import api from './index'
+import type { TitleChip } from './title'
 
 // ===== Types =====
 
@@ -63,6 +64,8 @@ export interface LiquidationEvent {
   fully_liquidated: boolean
   /** 'emergency' = margin 跌破紧急线全平; 'partial' = 渐进按比例平仓 */
   mode: 'emergency' | 'partial'
+  /** Task 14：当前佩戴的称号 chip（用于翻车墙行内展示） */
+  equipped_title?: TitleChip | null
 }
 
 export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEvent[]> {
