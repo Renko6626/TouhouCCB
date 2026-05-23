@@ -9,8 +9,9 @@ from app.models.base import User
 from app.models.title import Title
 from app.schemas.title import (
     TitleRead, TitleChipRead, MyTitlesResponse, MyTitleItem, EquipRequest,
+    RedeemRequest, RedeemResponse,
 )
-from app.services import title_service
+from app.services import title_service, title_code_service
 
 router = APIRouter()
 
@@ -74,3 +75,13 @@ async def equip(
 ):
     await title_service.equip_title(db, user.id, req.title_id)
     return {"equipped_title_id": req.title_id}
+
+
+@router.post("/redeem", response_model=RedeemResponse, summary="兑换激活码")
+async def redeem(
+    req: RedeemRequest,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    t = await title_code_service.redeem_code(db, user.id, req.code)
+    return RedeemResponse(title=_to_full(t))

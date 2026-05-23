@@ -3,12 +3,13 @@
 包含 batch 创建 / 列表 / CSV 解析校验 / 兑换 — Task 7-9 逐步填充。
 """
 import re
+from datetime import datetime, timezone
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from fastapi import HTTPException
 
-from app.models.title import Title, TitleCodeBatch, TitleCode
+from app.models.title import Title, TitleCodeBatch, TitleCode, UserTitle
 
 _CODE_RE = re.compile(r"^[A-Za-z0-9\-_]{4,64}$")
 CSV_HARDCAP = 5000
@@ -110,3 +111,41 @@ async def import_codes_to_batch(
         db.add(TitleCode(batch_id=batch_id, code_string=c, status="available"))
     await db.commit()
     return len(codes)
+
+
+async def redeem_code(db: AsyncSession, user_id: int, code_string: str) -> Title:
+    """
+    用户兑换激活码。事务内：
+      1. 找 code（不存在 / 已用 → 403 invalid，统一措辞，防探测）
+      2. 找 batch → 找 title（is_active 必须 true，否则 403）
+      3. 若用户已持有 title → 403 own，code 不消耗
+      4. INSERT user_title (source='code') + UPDATE code 标 used
+    """
+    # 同事务行锁 code，防并发双兑
+    code_row = (await db.execute(
+        select(TitleCode).where(TitleCode.code_string == code_string).with_for_update()
+    )).scalar_one_or_none()
+    if code_row is None or code_row.status != "available":
+        raise HTTPException(status_code=403, detail="激活码无效")
+    batch = await db.get(TitleCodeBatch, code_row.batch_id)
+    title = await db.get(Title, batch.title_id)
+    if not title.is_active:
+        raise HTTPException(status_code=403, detail="激活码无效")
+    already = (await db.execute(
+        select(UserTitle).where(
+            UserTitle.user_id == user_id, UserTitle.title_id == title.id,
+        )
+    )).scalar_one_or_none()
+    if already:
+        raise HTTPException(status_code=403, detail="你已拥有此称号")
+    now = datetime.now(timezone.utc)
+    db.add(UserTitle(
+        user_id=user_id, title_id=title.id,
+        granted_at=now, source="code",
+    ))
+    code_row.status = "used"
+    code_row.used_by_user_id = user_id
+    code_row.used_at = now
+    db.add(code_row)
+    await db.commit()
+    return title
