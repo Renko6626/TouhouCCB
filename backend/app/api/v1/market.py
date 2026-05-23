@@ -45,6 +45,7 @@ from app.services.market_locks import (
 )
 from app.services import site_config
 from app.services.anti_bot import verify_client_token, parse_whitelist
+from app.services.market_title_gating import assert_user_can_trade_market
 
 logger = logging.getLogger(__name__)
 
@@ -472,6 +473,9 @@ async def buy_shares(
         outcome = all_outcomes[target_idx]
 
         locked_user = await _lock_user(db, int(user.id))
+
+        # 市场 title 门槛：必须在 lock 后 / LMSR 计价前 check（防 TOCTOU）
+        await assert_user_can_trade_market(db, int(user.id), int(market.id))
 
         # LMSR 用 float 计算
         b = float(market.liquidity_b)
