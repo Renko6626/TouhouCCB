@@ -64,6 +64,12 @@ class User(SQLModel, table=True):
         sa_type=DateTime(timezone=True),
     )
 
+    # 当前佩戴的 title；ondelete=SET NULL 兜底（title 硬删 / 撤销时自动清）
+    equipped_title_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(ForeignKey("title.id", ondelete="SET NULL"), nullable=True),
+    )
+
     # 关系映射
     # ── lazy="raise_on_sql"（perf）──
     # 这两个反向集合在 hot path（buy/sell 的 _lock_user）里从不被使用，
