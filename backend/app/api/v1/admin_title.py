@@ -3,7 +3,7 @@
 挂载位置见 app/main.py: prefix="/api/v1/admin"
 """
 from typing import List
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -12,7 +12,7 @@ from app.models.base import User
 from app.models.title import Title
 from app.schemas.title import (
     TitleRead, TitleCreateRequest, TitleUpdateRequest,
-    BatchCreateRequest, BatchRead,
+    BatchCreateRequest, BatchRead, CSVImportResponse,
 )
 from app.services import title_service, title_code_service
 
@@ -81,3 +81,19 @@ async def create_title_batch(
         name=b.name, description=b.description,
         total=0, used=0, created_at=b.created_at,
     )
+
+
+@router.post("/title-batches/{batch_id}/import-codes",
+             response_model=CSVImportResponse, summary="CSV 导入激活码到批次")
+async def import_codes(
+    batch_id: int,
+    file: UploadFile = File(...),
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    raw = await file.read()
+    if len(raw) > 1 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="CSV 文件超过 1MB 上限")
+    codes = title_code_service.parse_csv_codes(raw)
+    inserted = await title_code_service.import_codes_to_batch(db, batch_id, codes)
+    return CSVImportResponse(inserted=inserted)

@@ -56,3 +56,57 @@ async def list_batches_with_counts(db: AsyncSession) -> List[dict]:
             "created_at": b.created_at,
         })
     return rows
+
+
+def parse_csv_codes(raw_bytes: bytes) -> List[str]:
+    """解析单列 CSV（一行一个 code，可带表头）。整批 reject on any invalid。"""
+    try:
+        text = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="CSV 必须是 UTF-8 编码")
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if lines and lines[0].lower() in ("code", "codes", "code_string"):
+        lines = lines[1:]
+    if len(lines) == 0:
+        raise HTTPException(status_code=400, detail="CSV 不含任何 code")
+    if len(lines) > CSV_HARDCAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"CSV 行数 {len(lines)} 超过单批上限 {CSV_HARDCAP}",
+        )
+    seen = set()
+    for idx, code in enumerate(lines, 1):
+        if not _CODE_RE.match(code):
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {idx} 行 code '{code}' 格式不合法（仅 A-Z a-z 0-9 - _，长度 4-64）",
+            )
+        if code in seen:
+            raise HTTPException(
+                status_code=400,
+                detail=f"第 {idx} 行 code '{code}' 在文件内重复",
+            )
+        seen.add(code)
+    return lines
+
+
+async def import_codes_to_batch(
+    db: AsyncSession, batch_id: int, codes: List[str],
+) -> int:
+    """整批插入 codes 到 batch。任一与库内已有冲突 → 整批 reject。"""
+    b = await db.get(TitleCodeBatch, batch_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="batch not found")
+    existing = list((await db.execute(
+        select(TitleCode.code_string).where(TitleCode.code_string.in_(codes))
+    )).scalars().all())
+    if existing:
+        sample = existing[:5]
+        raise HTTPException(
+            status_code=400,
+            detail=f"以下 code 已存在于库中: {sample} 等 {len(existing)} 个",
+        )
+    for c in codes:
+        db.add(TitleCode(batch_id=batch_id, code_string=c, status="available"))
+    await db.commit()
+    return len(codes)
