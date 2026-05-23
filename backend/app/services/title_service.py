@@ -60,3 +60,34 @@ async def get_title_or_404(db: AsyncSession, title_id: int) -> Title:
     if not t:
         raise HTTPException(status_code=404, detail="title not found")
     return t
+
+
+async def list_my_titles(db: AsyncSession, user_id: int):
+    """返回某用户的全部 title (UserTitle, Title) tuple，按 sort_order asc。
+
+    显式 join 避免 raise_on_sql 反向集合触发。
+    """
+    from app.models.title import UserTitle
+    stmt = (
+        select(UserTitle, Title)
+        .join(Title, UserTitle.title_id == Title.id)
+        .where(UserTitle.user_id == user_id)
+        .order_by(Title.sort_order.asc(), Title.id.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return rows
+
+
+async def get_equipped_chip(db: AsyncSession, user_id: int):
+    """读某用户当前佩戴的 title（chip 视图）。无佩戴返回 None。"""
+    from app.models.base import User
+    stmt = (
+        select(Title)
+        .join(User, User.equipped_title_id == Title.id)
+        .where(User.id == user_id)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def list_active_catalog(db: AsyncSession) -> List[Title]:
+    return await list_titles(db, include_inactive=False)
