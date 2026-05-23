@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import List, Dict, Any, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status, Query
 from sqlalchemy import select, and_, func, literal_column
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+import jwt
+from app.core.config import settings
 from app.services.realtime import BROKER
 from app.services.rank import rank_title
 from app.core.database import get_async_session, managed_transaction
@@ -46,6 +48,29 @@ from app.services.market_locks import (
 from app.services import site_config
 from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_title_gating import assert_user_can_trade_market
+from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
+
+
+async def _optional_current_user_id(
+    authorization: Optional[str] = Header(default=None),
+) -> Optional[int]:
+    """从 Authorization header 解出 user_id；解不出/无 token 返回 None。
+
+    用于 market detail/list 这种公开但携 token 时要展示 user_can_trade 的端点。
+    严格按 current_active_user 同一套 secret/algorithm 解码；不报 401（不要求登录）。
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("type") == "refresh":
+            return None
+        return int(payload["sub"])
+    except Exception:
+        return None
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +318,27 @@ async def list_markets(
                 "last_trade_at": row.last_trade_at,
             }
 
+    # Title 系统（Task 13）：批量查每个 market 的 required_titles chip
+    required_by_market: Dict[int, List[Dict[str, Any]]] = {}
+    if market_ids:
+        mrt_rows = (await db.execute(
+            select(
+                MarketRequiredTitle.market_id,
+                _TitleModel.id,
+                _TitleModel.name,
+                _TitleModel.color,
+                _TitleModel.icon,
+                _TitleModel.sort_order,
+            )
+            .join(_TitleModel, MarketRequiredTitle.title_id == _TitleModel.id)
+            .where(MarketRequiredTitle.market_id.in_(market_ids))
+            .order_by(_TitleModel.sort_order.asc(), _TitleModel.id.asc())
+        )).all()
+        for row in mrt_rows:
+            required_by_market.setdefault(row[0], []).append(
+                {"id": row[1], "name": row[2], "color": row[3], "icon": row[4]}
+            )
+
     output = []
     for m in markets:
         outcomes = list(m.outcomes)
@@ -311,6 +357,7 @@ async def list_markets(
             "outcomes": _build_prices_from_shares(outcomes, shares_list, float(m.liquidity_b), prices_24h),
             "trade_count": act.get("trade_count", 0),
             "last_trade_at": last_ts.isoformat() if last_ts else None,
+            "required_titles": required_by_market.get(m.id, []),
         })
     return output
 
@@ -319,6 +366,7 @@ async def list_markets(
 async def get_market_detail(
     market_id: int,
     db: AsyncSession = Depends(get_async_session),
+    current_user_id: Optional[int] = Depends(_optional_current_user_id),
 ):
     market = await db.get(Market, market_id)
     if not market:
@@ -388,6 +436,30 @@ async def get_market_detail(
     tx_res = await db.execute(tx_stmt)
     last_trade_at = tx_res.scalar_one_or_none()
 
+    # Title 系统（Task 13）：required_titles chip + 当前 user 是否能交易
+    required_title_rows = (await db.execute(
+        select(_TitleModel)
+        .join(MarketRequiredTitle, MarketRequiredTitle.title_id == _TitleModel.id)
+        .where(MarketRequiredTitle.market_id == market.id)
+        .order_by(_TitleModel.sort_order.asc(), _TitleModel.id.asc())
+    )).scalars().all()
+    required_titles_chips = [
+        {"id": t.id, "name": t.name, "color": t.color, "icon": t.icon}
+        for t in required_title_rows
+    ]
+    if not required_titles_chips:
+        user_can_trade = True
+    elif current_user_id is None:
+        user_can_trade = False
+    else:
+        has = (await db.execute(
+            select(_UserTitleModel.title_id).where(
+                _UserTitleModel.user_id == current_user_id,
+                _UserTitleModel.title_id.in_([rt["id"] for rt in required_titles_chips]),
+            )
+        )).scalars().first()
+        user_can_trade = has is not None
+
     return MarketDetailRead(
         id=int(market.id),
         title=str(market.title),
@@ -404,6 +476,8 @@ async def get_market_detail(
 
         outcomes=out_reads,
         last_trade_at=last_trade_at,
+        required_titles=required_titles_chips,
+        user_can_trade=user_can_trade,
     )
 
 

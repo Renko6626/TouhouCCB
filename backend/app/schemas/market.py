@@ -5,6 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from app.schemas.base import Money, Price
+from app.schemas.title import TitleChipRead
 
 
 class MarketCreate(BaseModel):
@@ -34,6 +35,8 @@ class MarketListItem(BaseModel):
     outcomes: List[OutcomePriceRead]
     trade_count: Optional[int] = 0
     last_trade_at: Optional[datetime] = None
+    # Title 系统：required_titles 简化 chip 列表（空 = 无门槛）
+    required_titles: List[TitleChipRead] = []
 
 
 class TradeRequest(BaseModel):
@@ -114,6 +117,11 @@ class MarketDetailRead(BaseModel):
 
     outcomes: List[OutcomeQuoteRead]
     last_trade_at: Optional[datetime] = None
+
+    # Title 系统：market 的 required_titles 名单（chip 视图）+ 当前 user 是否能交易
+    # 未登录或无 token 时 user_can_trade 按"有无门槛"判断（无门槛 → True，有门槛 → False）
+    required_titles: List[TitleChipRead] = []
+    user_can_trade: bool = True
 
 
 class QuoteRequest(BaseModel):

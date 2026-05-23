@@ -1,10 +1,11 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
 from app.schemas.base import Money, Price
+from app.schemas.title import TitleChipRead
 
 
 class HoldingRead(BaseModel):
@@ -52,6 +53,23 @@ class UserSummary(BaseModel):
     margin_soft_threshold: Money = Decimal("0.5")
     # 用户在 HALT 市场有持仓 → sweep 会跳过强平。前端把 danger banner 换成 info 状态。
     liquidation_protected: bool = False
+    # Title 系统：当前佩戴的 title (chip) + 全部持有 title 列表（前端 chip 渲染 + MyTitlesPanel）
+    equipped_title: Optional[TitleChipRead] = None
+    all_titles: List["UserSummaryTitleItem"] = []
+
+
+class UserSummaryTitleItem(BaseModel):
+    """UserSummary.all_titles 项 — 比 chip 多带 description/sort_order，
+    给前端 MyTitlesPanel 列表渲染使用。"""
+    id: int
+    name: str
+    color: str
+    icon: str
+    description: str
+    sort_order: int
+
+
+UserSummary.model_rebuild()
 
 
 class TransactionRead(BaseModel):

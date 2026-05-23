@@ -92,6 +92,11 @@ async def get_user_summary(
     # 的体感困惑（review I3）。
     liquidation_protected = await user_has_halt_holdings(db, user.id)
 
+    # Title 信息（Task 13）：当前佩戴 + 全部持有列表
+    from app.services import title_service as _title_service
+    equipped_t = await _title_service.get_equipped_chip(db, user.id)
+    my_title_rows = await _title_service.list_my_titles(db, user.id)
+
     return {
         "cash": user.cash.quantize(Decimal("0.01")),
         "debt": user.debt.quantize(Decimal("0.01")),
@@ -109,6 +114,16 @@ async def get_user_summary(
         "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
         "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
         "liquidation_protected": liquidation_protected,
+        "equipped_title": (
+            {"id": equipped_t.id, "name": equipped_t.name,
+             "color": equipped_t.color, "icon": equipped_t.icon}
+            if equipped_t else None
+        ),
+        "all_titles": [
+            {"id": t.id, "name": t.name, "color": t.color, "icon": t.icon,
+             "description": t.description, "sort_order": t.sort_order}
+            for _ut, t in my_title_rows
+        ],
     }
 
 
