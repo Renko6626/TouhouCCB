@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
 import { useUserStore } from '@/stores/user'
 import { useAuthStore } from '@/stores/auth'
-import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, useMessage } from 'naive-ui'
+import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, NModal, useMessage } from 'naive-ui'
 import { useMarketRealtime, MarketRealtimeKey } from '@/composables/useMarketRealtime'
 import TradePanel from '@/components/market/TradePanel.vue'
 import MarketStatus from '@/components/market/MarketStatus.vue'
@@ -98,6 +98,26 @@ const loadUserData = async () => {
     ])
   }
 }
+
+// 称号准入门槛 — 不达标用户首次进入市场弹窗引导到兑换页
+const showGateModal = ref(false)
+function goToRedeem() {
+  showGateModal.value = false
+  router.push('/redeem-title')
+}
+watch(
+  () => [
+    marketStore.currentMarket?.id,
+    marketStore.currentMarket?.user_can_trade,
+    marketStore.currentMarket?.required_titles?.length,
+  ],
+  ([, canTrade, requiredCount]) => {
+    if (requiredCount && !canTrade && authStore.isAuthenticated) {
+      showGateModal.value = true
+    }
+  },
+  { immediate: false },
+)
 
 // 初始化加载（SSE 连接由 useMarketRealtime 内部 watch(marketIdForSSE) 自动建立）
 onMounted(() => {
@@ -366,7 +386,10 @@ const relTime = (iso: string): string => {
             size="sm"
           />
         </div>
-        <p class="title-gate-sub">你可继续浏览价格与图表，但下单会被拒绝。</p>
+        <p class="title-gate-sub">
+          你可继续浏览价格与图表，但下单会被拒绝。
+          <a class="title-gate-link" @click="showGateModal = true">查看详情</a>
+        </p>
       </div>
 
       <!-- 市场概要栏 -->
@@ -564,6 +587,38 @@ const relTime = (iso: string): string => {
         </template>
       </NEmpty>
     </div>
+
+    <!-- ── 称号门槛弹窗（首次进入不达标市场自动弹出，引导兑换） ── -->
+    <NModal v-model:show="showGateModal" :mask-closable="false">
+      <div class="gate-modal">
+        <div class="gate-modal-header">
+          <span class="gate-modal-icon">⚠️</span>
+          <span class="gate-modal-title">需要特定称号</span>
+        </div>
+        <div class="gate-modal-body">
+          <p class="gate-modal-main">
+            此市场仅限<strong>持有以下称号的用户</strong>下单交易：
+          </p>
+          <div class="gate-modal-titles">
+            <TitleChip
+              v-for="t in marketStore.currentMarket?.required_titles ?? []"
+              :key="t.id"
+              :title="t"
+            />
+          </div>
+          <p class="gate-modal-sub">
+            你<strong>尚未拥有</strong>任何一项所需称号。可使用管理员发放的<strong>激活码</strong>兑换。
+          </p>
+          <p class="gate-modal-hint">
+            仍可浏览价格 / 图表，但买入下单会被拒绝；如果已持有该市场的份额，卖出仍然可用。
+          </p>
+        </div>
+        <div class="gate-modal-footer">
+          <NButton @click="showGateModal = false">继续浏览</NButton>
+          <NButton type="primary" @click="goToRedeem">去兑换激活码 →</NButton>
+        </div>
+      </div>
+    </NModal>
   </div>
 </template>
 
@@ -606,6 +661,94 @@ const relTime = (iso: string): string => {
   font-size: 12px;
   color: #555;
   line-height: 1.5;
+}
+
+.title-gate-link {
+  margin-left: 6px;
+  color: #000;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 700;
+}
+.title-gate-link:hover {
+  color: #b25c00;
+}
+
+/* ── 称号门槛弹窗 ── */
+.gate-modal {
+  background: #fff;
+  border: 4px solid #f5a623;
+  box-shadow: 8px 8px 0 #000;
+  width: 480px;
+  max-width: calc(100vw - 32px);
+}
+
+.gate-modal-header {
+  background: #f5a623;
+  color: #000;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 4px solid #000;
+}
+
+.gate-modal-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.gate-modal-title {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+}
+
+.gate-modal-body {
+  padding: 18px 20px;
+}
+
+.gate-modal-main {
+  font-size: 14px;
+  font-weight: 700;
+  color: #000;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.gate-modal-titles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 2px solid #000;
+  background: #fafafa;
+  margin-bottom: 14px;
+}
+
+.gate-modal-sub {
+  font-size: 13px;
+  color: #333;
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.gate-modal-hint {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+  padding: 8px 10px;
+  background: #f5f5f5;
+  border-left: 4px solid #888;
+  line-height: 1.5;
+}
+
+.gate-modal-footer {
+  padding: 12px 20px 16px;
+  border-top: 2px solid #000;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* ── 最近成交列表 ── */
