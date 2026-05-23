@@ -166,6 +166,7 @@ async def recent_liquidations(
             "pre_net_worth": float(ev.pre_net_worth),
             "pre_margin_ratio": float(ev.pre_margin_ratio)
                 if ev.pre_margin_ratio is not None else None,
+            "sold_positions_count": int(ev.sold_positions_count),
             "total_proceeds": float(ev.total_proceeds),
             "repaid_amount": float(ev.repaid_amount),
             "remaining_debt": float(ev.remaining_debt),
