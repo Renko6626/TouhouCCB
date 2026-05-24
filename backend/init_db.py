@@ -13,6 +13,7 @@ from app.core.database import engine, async_session_maker
 from app.core.config import settings
 from app.models.base import Market, Outcome, MarketStatus
 from app.models import redemption as _redemption_models  # noqa: F401  注册兑换码/弹幕表到 SQLModel.metadata
+from app.models import title as _title_models  # noqa: F401  注册称号系统表到 SQLModel.metadata
 
 
 def get_alembic_head() -> str:
