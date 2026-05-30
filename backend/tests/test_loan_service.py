@@ -80,7 +80,7 @@ async def _create_user_in_db(**kwargs) -> int:
 async def test_increase_debt_grant_cash_true():
     uid = await _create_user_in_db(cash=Decimal("100"), debt=Decimal("0"))
     async with async_session_maker() as s:
-        u = await increase_debt(s, uid, Decimal("50"), grant_cash=True, daily_rate=Decimal("0.01"))
+        u = await increase_debt(s, uid, Decimal("50"), grant_cash=True, daily_rate=Decimal("0.01"), source="borrow")
         await s.commit()
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
@@ -99,7 +99,7 @@ async def test_increase_debt_accrues_existing_debt():
         last_accrued=now - timedelta(days=1),
     )
     async with async_session_maker() as s:
-        await increase_debt(s, uid, Decimal("100"), grant_cash=True, daily_rate=Decimal("0.01"))
+        await increase_debt(s, uid, Decimal("100"), grant_cash=True, daily_rate=Decimal("0.01"), source="borrow")
         await s.commit()
     async with async_session_maker() as s:
         u = await s.get(User, uid)
@@ -112,7 +112,7 @@ async def test_increase_debt_accrues_existing_debt():
 async def test_decrease_debt_consume_cash_true_partial():
     uid = await _create_user_in_db(cash=Decimal("200"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
     async with async_session_maker() as s:
-        u, eff = await decrease_debt(s, uid, Decimal("30"), consume_cash=True, daily_rate=Decimal("0.01"))
+        u, eff = await decrease_debt(s, uid, Decimal("30"), consume_cash=True, daily_rate=Decimal("0.01"), source="repay")
         await s.commit()
     assert eff == Decimal("30") or eff == Decimal("30.000000")
     async with async_session_maker() as s:
@@ -127,7 +127,7 @@ async def test_decrease_debt_consume_cash_true_partial():
 async def test_decrease_debt_overpay_clamps_and_clears_timestamp():
     uid = await _create_user_in_db(cash=Decimal("1000"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
     async with async_session_maker() as s:
-        u, eff = await decrease_debt(s, uid, Decimal("9999"), consume_cash=True, daily_rate=Decimal("0.01"))
+        u, eff = await decrease_debt(s, uid, Decimal("9999"), consume_cash=True, daily_rate=Decimal("0.01"), source="repay")
         await s.commit()
     # effective 约等于 debt（微秒级 accrue 可能让它略大于 100）
     assert abs(eff - Decimal("100")) < Decimal("0.001")
@@ -143,7 +143,7 @@ async def test_decrease_debt_overpay_clamps_and_clears_timestamp():
 async def test_decrease_debt_forgive_no_cash_change():
     uid = await _create_user_in_db(cash=Decimal("200"), debt=Decimal("100"), last_accrued=datetime.now(timezone.utc))
     async with async_session_maker() as s:
-        u, eff = await decrease_debt(s, uid, Decimal("40"), consume_cash=False, daily_rate=Decimal("0.01"))
+        u, eff = await decrease_debt(s, uid, Decimal("40"), consume_cash=False, daily_rate=Decimal("0.01"), source="admin_forgive_debt")
         await s.commit()
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
@@ -184,6 +184,7 @@ async def test_decrease_debt_consume_cash_capped_by_cash_under_compounding():
     async with async_session_maker() as s:
         u, eff = await decrease_debt(
             s, uid, Decimal("3000"), consume_cash=True, daily_rate=Decimal("0.01"),
+            source="repay",
         )
         await s.commit()
     async with async_session_maker() as s:
@@ -201,7 +202,7 @@ async def test_decrease_debt_amount_exceeds_debt_caps_at_debt():
     """用户输入 3000 还款，但只欠 1000：cash 只扣 1000，不会扣 3000。"""
     uid = await _create_user_in_db(cash=Decimal("5000"), debt=Decimal("1000"), last_accrued=datetime.now(timezone.utc))
     async with async_session_maker() as s:
-        u, eff = await decrease_debt(s, uid, Decimal("3000"), consume_cash=True, daily_rate=Decimal("0.01"))
+        u, eff = await decrease_debt(s, uid, Decimal("3000"), consume_cash=True, daily_rate=Decimal("0.01"), source="repay")
         await s.commit()
     async with async_session_maker() as s:
         u2 = await s.get(User, uid)
