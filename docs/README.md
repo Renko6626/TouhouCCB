@@ -96,25 +96,31 @@ npm install && npm run dev
 
 ## 页面路由
 
-（以 `thccb-frontend/src/router/index.ts` 为准）
+（以 `thccb-frontend/src/router/routes.ts` 为准）
 
 | 路由 | 页面 | 权限 |
 |------|------|------|
 | `/` | 首页 | 公开 |
-| `/login` | → 跳转 Casdoor 登录 | 公开 |
+| `/auth/login` | → 跳转 Casdoor 登录 | 公开 |
+| `/auth/register` | → 跳转 Casdoor 注册 | 公开 |
 | `/auth/callback` | OAuth 回调处理 | 公开 |
-| `/market` | 市场列表 | 已认证 |
-| `/market/:id` | 市场详情 / 交易 | 已认证 |
-| `/leaderboard` | 财富 / 消费排行榜 | 已认证 |
-| `/portfolio` | 资产持仓 | 已认证 |
-| `/transactions` | 交易记录 | 已认证 |
-| `/redeem` | 兑换码 | 已认证 |
+| `/market/list` | 市场列表 | 已认证 |
+| `/market/:id/trade` | 交易视图 | 已认证 |
+| `/market/leaderboard` | 财富 / 消费排行榜 | 已认证 |
+| `/user/portfolio` | 资产持仓 | 已认证 |
+| `/user/transactions` | 交易记录 | 已认证 |
 | `/loan` | 保证金借贷 | 已认证 |
-| `/titles` | 称号 | 已认证 |
-| `/profile` | 我的 | 已认证 |
-| `/admin` | 管理后台 | 管理员 |
-| `/admin/redemption` | 兑换码管理 | 管理员 |
-| `/admin/bot` | 反作弊 | 管理员 |
+| `/redemption` | 兑换码商店 | 已认证 |
+| `/my/redemptions` | 我的兑换码 | 已认证 |
+| `/redeem-title` | 称号兑换 | 已认证 |
+| `/danmuku/exchange` | 弹幕兑换 | 已认证 |
+| `/admin/market-manage` | 市场管理 | 管理员 |
+| `/admin/users` | 用户管理 | 管理员 |
+| `/admin/site-config` | 站点配置 | 管理员 |
+| `/admin/wealth-stats` | 资产统计 | 管理员 |
+| `/admin/bot-review-ban` | 反作弊审核 | 管理员 |
+| `/admin/titles` · `/admin/title-codes` | 称号 / 称号码管理 | 管理员 |
+| `/admin/redemption/partners` · `/admin/redemption/batches` | 兑换码合作方 / 批次 | 管理员 |
 
 ## 图表架构
 

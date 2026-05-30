@@ -70,20 +70,25 @@
 ### GET `/user/summary` — 资产概览
 
 同时返回两套口径（详见 `docs/holdings-value-semantics.md`）：
-- `holdings_value` / `net_worth`：LMSR 清算价值（LCV，含卖出滑点），用于风控。
-- `holdings_value_mtm` / `net_worth_mtm`：瞬时市价口径（MTM），用于展示。
+- 无后缀字段（`holdings_value` / `net_worth` / `unrealized_pnl`）= **MTM 口径**（瞬时市价 × 数量，不含滑点），用于展示与排名。
+- `*_liquidation` 字段 = **LCV 口径**（LMSR 全部卖出清算价，含滑点 + 扣 sell_fee），强平 / 借款额度按此算，通常 ≤ MTM。
 
 ```json
 {
   "cash": 150.25,
   "debt": 0.00,
-  "holdings_value": 89.75,
-  "holdings_value_mtm": 92.10,
+  "holdings_value": 92.10,
+  "holdings_value_liquidation": 89.75,
   "total_cost_basis": 70.00,
-  "unrealized_pnl": 19.75,
-  "net_worth": 240.00,
-  "net_worth_mtm": 242.35,
-  "rank": "人里居民"
+  "unrealized_pnl": 22.10,
+  "unrealized_pnl_liquidation": 19.75,
+  "net_worth": 242.35,
+  "net_worth_liquidation": 240.00,
+  "rank": "人里居民",
+  "margin_ratio": null,
+  "margin_status": "healthy",
+  "equipped_title": null,
+  "all_titles": []
 }
 ```
 
@@ -126,31 +131,11 @@
 
 `type` 值: `buy` | `sell` | `settle` | `settle_lose`
 
-### GET `/user/wealth-leaderboard` — 财富排行榜
+### PATCH `/user/me/username` — 修改昵称
 
-按净值（LCV 口径）排序，含每位用户的自动判定称号（见规则书）。
-
-### GET `/user/consume-leaderboard` — 消费排行榜
-
-按累计兑换消费排序。
-
-### GET `/user/profile/{user_id}` — 用户公开主页
-
-返回某用户的公开资料（净值、佩戴称号等）。
-
-### GET `/user/loan-status` — 当前借贷状态
-
-返回当前用户的现金 / 债务 / 保证金概览（借贷页用）。
-
-### GET `/user/me/titles` — 我的称号
-
-当前用户已拥有的称号与当前佩戴。
-
-### GET `/user/me/danmuku-exchanges` — 我的弹幕兑换记录
+> 财富 / 消费排行榜见 §3 市场的 `GET /market/leaderboard`；我的称号见 §9 `GET /title/me`。
 
 ### GET `/user/list` — 用户列表（仅管理员）
-
-### GET `/user/admin/{user_id}` — 用户详情（仅管理员）
 
 ### POST `/user/{user_id}/adjust-cash` — 调整用户现金（仅管理员）
 
@@ -160,7 +145,15 @@
 
 正数加钱，负数扣钱。操作后现金不能为负。
 
-### POST `/user/{user_id}/set-titles` — 设置用户称号（仅管理员）
+### POST `/user/batch-adjust-cash` — 批量调整现金（仅管理员）
+
+### PATCH `/user/{user_id}/admin` — 设置 / 取消管理员（仅管理员）
+
+### PATCH `/user/{user_id}/ban` · PATCH `/user/{user_id}/unban` — 封号 / 解封（仅管理员）
+
+### POST `/user/{user_id}/force-loan` — 强制放贷（仅管理员）
+
+### POST `/user/{user_id}/forgive-debt` — 免除债务（仅管理员）
 
 ---
 
@@ -202,9 +195,13 @@
 
 ### GET `/market/recent-trades` — 跨市场最近成交（首页用）
 
-> 财富 / 消费排行榜不在 market 下，见 `GET /user/wealth-leaderboard`、`GET /user/consume-leaderboard`。
+### GET `/market/movers` — 涨跌榜（按时间窗口）
 
-### GET `/market/{id}/movers` — 选项涨跌幅排行（仅管理员）
+**查询参数**: `window`（如 `1h` / `24h`）、`limit`
+
+### GET `/market/leaderboard` — 财富 / 消费排行榜
+
+**查询参数**: `limit`（默认 20）、`mode`（`net_worth` = 按 cash-debt+持仓 / `spending` = 按兑换消费-当前债务）。按 MTM 口径排序，返回含每位用户的自动判定称号（见规则书）。
 
 ### POST `/market/create` — 创建市场（仅管理员）
 
@@ -219,25 +216,19 @@
 }
 ```
 
-### POST `/market/{id}/halt` — 熔断 / 暂停交易（仅管理员）
+### POST `/market/{id}/close` — 熔断 / 暂停交易（仅管理员）
 
-买卖按钮变灰，市场进入 HALT 状态。
+无请求体。市场进入 HALT 状态（**不结算**），买卖按钮变灰。
 
 ### POST `/market/{id}/resume` — 恢复交易（仅管理员）
 
-### POST `/market/{id}/close` — 结束市场并结算（仅管理员）
+### POST `/market/{id}/resolve` — 结算市场（仅管理员）
 
 ```json
-{ "winning_outcome_id": 1 }
+{ "winning_outcome_id": 1, "payout_per_share": 1.0 }
 ```
 
-### POST `/market/{id}/settle` — 结算市场（仅管理员）
-
-```json
-{ "winning_outcome_id": 1 }
-```
-
-赢家仓位按 1.00 元/张兑付现金（创建 `settle` 交易），亏损仓位份额归零（创建 `settle_lose` 交易），结算后清理 Position。
+`payout_per_share` 默认 `1.0`（范围 0–1）。赢家仓位按该比例兑付现金（创建 `settle` 交易），亏损仓位份额归零（创建 `settle_lose` 交易），结算后清理 Position。已结算市场再调返回 409。
 
 ---
 
@@ -285,30 +276,29 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 ```json
 {
+  "enabled": true,
   "cash": 100.00,
   "debt": 0.00,
   "net_worth": 100.00,
-  "holdings_lcv": 0.00,
   "leverage_k": 5,
-  "max_total_debt": 400.00,
-  "available_to_borrow": 400.00,
   "daily_rate": 0.01,
-  "maintenance_margin": 0.10,
-  "current_margin": null,
-  "liquidation_price_distance": null
+  "max_borrow": 400.00,
+  "last_accrued_at": null
 }
 ```
+
+> `net_worth` 为 **LCV 口径**（含 LMSR 滑点 + 扣 sell_fee），比 `/user/summary.net_worth`（MTM）更保守，借款额度按此算，避免虚高估值过度杠杆。
 
 ### POST `/loan/borrow` — 借款
 
 ```json
 { "amount": 100.00 }
 ```
-响应：`{ "cash", "debt", "net_worth", "message" }`。
+响应：`{ "cash", "debt", "max_borrow", "effective" }`（`effective` 仅 repay 有意义）。
 
 ### POST `/loan/repay` — 还款
 
-同 borrow 格式。
+同 borrow 格式。`amount` 超过真实债务或现金时，服务层会封顶，实际生效值见响应 `effective`。
 
 ### GET `/loan/liquidation-policy` — 强平规则（公开只读）
 
@@ -318,27 +308,28 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 ## 7. 兑换码 (Redemption)
 
-### POST `/redemption/redeem` — 兑换码换现金
-
-```json
-{ "code": "XXXX-XXXX" }
-```
-响应：`{ "success", "amount", "new_balance", "message" }`。
-
-### POST `/redemption/purchase` — 用现金购买第三方兑换码
-
-```json
-{ "batch_id": 1, "quantity": 1 }
-```
-响应：`{ "success", "codes": [...], "total_cost", "new_balance", "message" }`。
+用站内现金购买合作方发放的兑换码（周边 / 优惠码等），拿到 code 后到合作方处使用。
 
 ### GET `/redemption/batches` — 可购买的批次列表
 
 ### GET `/redemption/batches/{batch_id}` — 批次详情
 
-### GET `/redemption/my-codes` — 我购买的兑换码
+### POST `/redemption/purchase` — 用现金购买兑换码
 
-### GET `/redemption/my-codes/{code_id}` — 单个兑换码详情
+```json
+{ "batch_id": 1 }
+```
+每次购买一个码，响应：`{ "code_id", "code_string", "batch_name", "partner_name", "partner_website_url", "paid_amount", "cash_after" }`。
+
+### GET `/redemption/my` — 我购买的兑换码
+
+### GET `/redemption/my/{code_id}` — 单个兑换码详情（含 `code_string`）
+
+### POST `/redemption/my/{code_id}/mark-used` — 标记已用 / 取消标记
+
+```json
+{ "used": true }
+```
 
 ---
 
@@ -347,9 +338,11 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 ### POST `/danmuku/exchange` — 现金兑换弹幕额度
 
 ```json
-{ "amount": 10.00 }
+{ "qq_user_id": "10001", "room_id": "弹幕群", "yuan": 0, "huo": 10 }
 ```
-响应：`{ "code", "amount", "new_balance", "message" }`（与朋友的 danmuku 服务端约定 HMAC 签名）。
+扣减站内 cash = `yuan + huo`（1:1）。响应：`{ "id", "code_string", "yuan", "huo", "amount", "cash_after", "timestamp" }`（与朋友的 danmuku 服务端约定 HMAC 签名）。
+
+### GET `/danmuku/my` — 我的弹幕兑换记录
 
 ---
 
@@ -369,22 +362,28 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 { "code": "XXXX" }
 ```
 
-### POST `/title/equip` — 佩戴 / 卸下称号
+### POST `/title/me/equip` — 佩戴 / 卸下称号
 
 ```json
 { "title_id": 3 }
 ```
 `title_id` 为 `null` 表示卸下。
 
+### GET `/title/users/{user_id}/equipped` — 查看某用户当前佩戴的称号（chip）
+
 ---
 
 ## 10. 站点配置 (Site Config)
 
-### GET `/site-config` — 获取站点配置（公开只读）
+借贷利率、强平阈值、活动模式（反作弊总开关）等运行时参数，挂在 `/api/v1/admin` 前缀下。
 
-### PUT `/site-config` — 更新站点配置（仅管理员）
+### GET `/admin/site-config` — 读取全部站点配置（仅管理员）
 
-借贷利率、强平阈值、活动模式（反作弊总开关）等运行时参数。
+### PUT `/admin/site-config/{key}` — 更新单项配置（仅管理员）
+
+```json
+{ "value": "0.01" }
+```
 
 ---
 
@@ -393,24 +392,26 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 均需管理员权限。完整请求/响应见各路由源码。
 
 **兑换码** `/admin/redemption`
-- `GET /partners`、`POST /partners`
-- `GET /batches`、`POST /batches`（CSV 导入）
-- `GET /batches/{batch_id}/codes`
-- `DELETE /batches/{batch_id}`（作废整个批次）
+- `GET /partners`、`POST /partners`、`PATCH /partners/{partner_id}`
+- `GET /batches`、`POST /batches`、`PATCH /batches/{batch_id}`
+- `POST /batches/{batch_id}/import/preview`、`POST /batches/{batch_id}/import/commit`（CSV 导入：先预览后提交）
 
-**称号** `/admin/title`
+**称号** `/admin`（admin_title）
 - `GET /titles`、`POST /titles`、`PATCH /titles/{title_id}`
-- `POST /titles/{title_id}/codes`（批量生成兑换码）、`GET /titles/{title_id}/codes`
-- `GET /market-gating`、`POST /markets/{market_id}/required-title`（市场称号门槛）
+- `GET /title-batches`、`POST /title-batches`、`POST /title-batches/{batch_id}/import-codes`（批量导入兑换码）
+- `GET /users/{user_id}/titles`、`POST /users/{user_id}/titles`、`DELETE /users/{user_id}/titles/{title_id}`
+- `GET /markets/{market_id}/required-titles`、`PUT /markets/{market_id}/required-titles`（市场称号门槛）
+- `GET /users/{user_id}/summary`（查任意用户资产快照）
 
 **统计** `/admin/stats`
-- `GET /`（财富 / 活跃总览）、`GET /timeseries`、`GET /distribution`
+- `GET /wealth`（平台资产分布）
 
 **强平** `/admin/liquidation`
-- `GET /preview`（预览将被强平的用户）、`POST /run`（手动触发扫描）
+- `POST /run-now`（立即跑一次强平 sweep）
 
 **反作弊** `/admin/bot`
-- `GET /suspicions`、`POST /ban`、`POST /unban`、`GET /stats`
+- `GET /suspicions`、`PATCH /suspicions/{suspicion_id}/review`、`GET /banned-users`、`GET /stats`
+- 封号 / 解封走 `PATCH /user/{user_id}/ban`、`/unban`
 
 ---
 
