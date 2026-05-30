@@ -69,10 +69,12 @@ def test_upgrade_downgrade_roundtrip():
             user_table.foreign_keys.discard(fk)
         user_table._columns.remove(removed_col)
 
-    # 白名单 keep_tables（剔除 title 相关 5 张表）
+    # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry）
+    # ledger_entry 由其后续 migration b2cd21122925 建，before-state 不应预先 create_all，
+    # 否则 upgrade head 跑到 ledger migration 会 "table already exists"。
     keep_tables = [
         t for name, t in SQLModel.metadata.tables.items()
-        if name not in title_table_names
+        if name not in title_table_names and name != "ledger_entry"
     ]
 
     # 2) 保存原 settings，临时 rebind 到 tempfile DB URL
@@ -97,8 +99,10 @@ def test_upgrade_downgrade_roundtrip():
         user_cols = {c["name"] for c in insp.get_columns("user")}
         assert "equipped_title_id" in user_cols
 
-        # 4) downgrade -1 → 新表 + 新列消失
-        command.downgrade(cfg, "-1")
+        # 4) downgrade 到 title migration 之前的 baseline → title 表 + 列消失
+        # （head 现在是 ledger migration b2cd21122925，downgrade 到 679d34cb5986 会
+        #  依次回退 ledger + title 两个 migration；不能再用 "-1"，那只回退 ledger。）
+        command.downgrade(cfg, "679d34cb5986")
         insp = inspect(sync_engine)
         names = set(insp.get_table_names())
         for t in title_table_names:
