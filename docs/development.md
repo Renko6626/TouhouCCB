@@ -2,7 +2,7 @@
 
 ## 技术栈约束（硬约束）
 
-- 前端必须使用：Vue 3 + TypeScript + Naive UI + UnoCSS + Pinia + Axios
+- 前端必须使用：Vue 3 + TypeScript + Naive UI + UnoCSS + Pinia + Axios + lightweight-charts（K 线）/ ECharts（走势图）
 - 不引入与当前栈冲突的新框架
 - 所有接口交互经过 `src/api/` 封装
 - 页面状态放 `stores/` 或 `composables/`，避免散落在页面中

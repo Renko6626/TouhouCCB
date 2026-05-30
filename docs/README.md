@@ -26,7 +26,7 @@ TouhouCCB/
 ├── backend/
 │   ├── Dockerfile
 │   ├── app/
-│   │   ├── api/v1/           # 路由 (auth, market, user, chart, stream)
+│   │   ├── api/v1/           # 路由 (auth/user/market/chart/stream/loan/title/redemption/danmuku/site-config + admin_*)
 │   │   ├── models/           # SQLModel 数据模型
 │   │   ├── schemas/          # Pydantic 请求/响应 schema
 │   │   ├── core/             # 配置、数据库、OIDC 客户端
@@ -85,23 +85,36 @@ npm install && npm run dev
 | 实时推送 | ✅ | SSE 连接，断线自动降级轮询 |
 | 持仓管理 | ✅ | LMSR 清算价值（含滑点），按市场分组 |
 | 交易历史 | ✅ | 按类型/时间筛选 |
-| 财富排行榜 | ✅ | 含称号系统 |
+| 财富/消费排行榜 | ✅ | 含按净值自动判定的称号 |
+| 保证金借贷 | ✅ | 杠杆买入、按日计息、维持保证金 |
+| 强制平仓 | ✅ | 后台定时扫描，跌破维持保证金自动平仓（HALT 期间豁免） |
+| 称号系统 | ✅ | 兑换码解锁、可佩戴、可作市场准入门槛 |
+| 兑换码 | ✅ | 现金兑换码 + 合作方批量发码（CSV 导入） |
+| 弹幕兑换 | ✅ | 现金兑换弹幕额度（HMAC 签名对接） |
+| 反作弊 | ✅ | X-Client-Token 校验 + 行为信号检测 + 封禁 |
 | 管理后台 | ✅ | 创建/熔断/结算市场，用户管理，调整现金 |
 
 ## 页面路由
 
+（以 `thccb-frontend/src/router/index.ts` 为准）
+
 | 路由 | 页面 | 权限 |
 |------|------|------|
 | `/` | 首页 | 公开 |
-| `/auth/login` | → 跳转 Casdoor 登录 | 公开 |
-| `/auth/register` | → 跳转 Casdoor 注册 | 公开 |
+| `/login` | → 跳转 Casdoor 登录 | 公开 |
 | `/auth/callback` | OAuth 回调处理 | 公开 |
-| `/market/list` | 市场列表 | 已认证 |
-| `/market/:id/trade` | 交易视图 | 已认证 |
-| `/market/leaderboard` | 财富排行榜 | 已认证 |
-| `/user/portfolio` | 资产持仓 | 已认证 |
-| `/user/transactions` | 交易记录 | 已认证 |
-| `/admin/market-manage` | 管理后台 | 管理员 |
+| `/market` | 市场列表 | 已认证 |
+| `/market/:id` | 市场详情 / 交易 | 已认证 |
+| `/leaderboard` | 财富 / 消费排行榜 | 已认证 |
+| `/portfolio` | 资产持仓 | 已认证 |
+| `/transactions` | 交易记录 | 已认证 |
+| `/redeem` | 兑换码 | 已认证 |
+| `/loan` | 保证金借贷 | 已认证 |
+| `/titles` | 称号 | 已认证 |
+| `/profile` | 我的 | 已认证 |
+| `/admin` | 管理后台 | 管理员 |
+| `/admin/redemption` | 兑换码管理 | 管理员 |
+| `/admin/bot` | 反作弊 | 管理员 |
 
 ## 图表架构
 
@@ -109,10 +122,15 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 
 ## 称号系统
 
+全站按 `net_worth` 单一口径定档，阈值集中在 `backend/app/services/rank.py`（财富榜 / 消费榜的分桶见 `backend/app/services/wealth_stats.py`，与此一致）。
+
 | 净值 | 称号 |
 |------|------|
-| > 50000 | 大天狗的座上宾 |
-| > 10000 | 守矢神社的 VIP |
-| > 2000 | 命莲寺的赞助者 |
-| > 500 | 人间之里的小商贩 |
-| 其他 | 初入幻想乡的无名氏 |
+| > 30000 | ZUN |
+| > 10000 | 炒炒币大亨 |
+| > 3000 | 妖怪操盘手 |
+| > 1000 | 天狗交易员 |
+| > 300 | 人里居民 |
+| ≤ 300 | 人类灵(已爆仓) |
+
+> 此处是「按净值自动判定」的称号（rank）。另有一套可佩戴的**称号系统**（兑换码解锁 / 市场准入门槛），见 `docs/api.md` 的「称号」一节。
