@@ -29,9 +29,9 @@
 ```
 
 - **nginx** — 宿主机运行，反向代理 + 静态文件 + HTTPS + 速率限制
-- **Docker** — 后端运行在容器中，镜像由 CI 构建并推送到 阿里云 ACR
+- **Docker** — 后端运行在容器中，镜像由 CI 构建并**双推 GHCR + 阿里云 ACR**（GHCR 当备份；生产服务器从阿里云 ACR 北京区 pull，国内拉取快 10x+）
 - **前端** — CI 中 `npm run build`，产物 rsync 到服务器，nginx 直接 serve
-- **GitHub Actions** — push main 时：构建镜像 → 推 阿里云 ACR → rsync 前端 → SSH 部署 → 健康检查
+- **GitHub Actions** — push main 时：构建镜像 → 双推 GHCR + ACR → rsync 前端 → SSH 部署 → 健康检查
 
 ---
 
@@ -67,17 +67,16 @@ git clone https://github.com/你的用户名/TouhouCCB.git
 cd TouhouCCB
 ```
 
-### 1.3 登录 阿里云 ACR（如果仓库是 private）
+### 1.3 登录阿里云 ACR（生产 pull 用）
+
+`docker-compose.yml` 的后端镜像指向阿里云 ACR（北京区），服务器需要先登录才能 pull：
 
 ```bash
-# 在 GitHub 创建 Personal Access Token (PAT)：
-#   Settings → Developer settings → Tokens → Generate new token
-#   勾选 read:packages 权限
-
-echo "你的PAT" | docker login ghcr.io -u 你的GitHub用户名 --password-stdin
+# 阿里云控制台 → 容器镜像服务 ACR → 访问凭证，获取用户名与固定密码
+echo "你的ACR密码" | docker login crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com -u 你的ACR用户名 --password-stdin
 ```
 
-> 如果仓库是 public，跳过此步，阿里云 ACR 镜像可直接拉取。
+> 若把 ACR 仓库设为公开，可跳过此步直接 pull。GHCR 镜像仅作 CI 侧备份，生产服务器不需要登录 GHCR。
 
 ---
 
@@ -213,7 +212,7 @@ docker compose exec backend python init_db.py
 
 > 不需要手动创建管理员——**第一个通过 SSO 登录的用户自动成为管理员（superuser）**。
 >
-> 之后的部署不需要再跑 init_db.py。容器启动时 `create_all` 是幂等的。
+> 之后的部署不需要再手动跑 init_db.py。容器启动（CMD）只跑 uvicorn，不建表；schema 由 `deploy.sh` 自动处理：空库走 init_db.py 建表 + stamp alembic head，已有库走 `alembic upgrade head`（详见 `docs/migrations.md`）。
 
 ### 4.4 构建前端（首次手动）
 
@@ -274,11 +273,15 @@ deploy.sh 自动完成：
 
 ```
 [0/4] 环境校验 — 检查 .env、Docker
-[1/4] 备份数据库 — 复制到 backups/，保留最近 10 个
-[2/4] 拉取新镜像 — docker compose pull
-[3/4] 重启容器 — docker compose up -d（8 秒优雅停机）
-[4/4] 健康检查 — 6 次重试，失败自动回滚到旧镜像
+[1/4] 备份数据库 — pg_dump（SQLite 直接复制）到 backups/
+[2/5] 拉取新镜像 — docker compose pull
+[3/5] 起 postgres + 准备 schema — 空库跑 init_db.py（建表 + stamp head）；
+       已有库跑 alembic upgrade head
+[4/5] 启动后端 — docker compose up -d（8 秒优雅停机）
+[5/5] 健康检查 — 重试，失败自动回滚到上一组容器
 ```
+
+> 步骤编号沿用脚本里的真实日志（备份段标 `[x/4]`、迁移后改标 `[x/5]`，是脚本里的历史遗留，不影响流程）。
 
 ### 5.3 回滚
 
@@ -324,7 +327,7 @@ push main
   ├── Backend Check & Build
   │   ├── py_compile 语法检查
   │   ├── import check（所有模块能加载）
-  │   └── Docker build → push ghcr.io/.../thccb-backend:latest
+  │   └── Docker build → 双推 ghcr.io/.../thccb-backend + ACR/renko/thccb-backend
   │
   └── Frontend Check & Build
       ├── vue-tsc 类型检查
@@ -338,7 +341,7 @@ push main
   └── SSH: curl 健康检查
 ```
 
-CI/CD 用到的凭证全部存在 GitHub Secrets 里（加密存储），代码和日志中不可见。你需要配置 3 个 Secret + 1 个权限。下面逐步说明。
+CI/CD 用到的凭证全部存在 GitHub Secrets 里（加密存储），代码和日志中不可见。你需要配置 **6 个 Secret + 1 个权限**：3 个部署用（`DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_KEY`）+ 3 个阿里云 ACR 推送用（`ACR_REGISTRY` / `ACR_USERNAME` / `ACR_PASSWORD`）。GHCR 推送复用内置 `GITHUB_TOKEN`，无需额外 secret。下面逐步说明。
 
 ### 6.2 在服务器上准备
 
@@ -439,9 +442,27 @@ Secret:                        ← 粘贴 6.2.1 步复制的私钥完整内容
 
 点击 **Add secret**。
 
-添加完成后，页面应该显示 3 个 secret：
+**Secret 4–6：阿里云 ACR 推送凭证**
+
+CI 把镜像同时推到阿里云 ACR（生产 pull 用），需要这三个：
 
 ```
+Name:   ACR_REGISTRY
+Secret: crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com
+
+Name:   ACR_USERNAME
+Secret: 你的阿里云 ACR 用户名
+
+Name:   ACR_PASSWORD
+Secret: 你的阿里云 ACR 访问凭证密码
+```
+
+添加完成后，页面应该显示 6 个 secret：
+
+```
+ACR_PASSWORD   Updated just now
+ACR_REGISTRY   Updated just now
+ACR_USERNAME   Updated just now
 DEPLOY_HOST    Updated just now
 DEPLOY_KEY     Updated just now
 DEPLOY_USER    Updated just now
@@ -449,9 +470,9 @@ DEPLOY_USER    Updated just now
 
 > Secret 的值添加后就不可查看了（只能覆盖更新），这是正常的安全设计。
 
-#### 第三步：配置 Workflow 权限（允许推送 Docker 镜像）
+#### 第三步：配置 Workflow 权限（允许推送 GHCR 备份镜像）
 
-CI 需要把 Docker 镜像推送到 GitHub Container Registry（阿里云 ACR），需要给 workflow 写权限：
+CI 把备份镜像推送到 GitHub Container Registry（GHCR），需要给 workflow 写权限：
 
 1. 还是在 **Settings** 页面
 2. 左侧菜单找到 **Actions** → **General**
@@ -468,30 +489,17 @@ Settings
                     ☐ Read repository contents and packages permissions
 ```
 
-> 这让 CI 中的 `GITHUB_TOKEN` 有权限推送镜像到 ghcr.io。不需要手动创建 PAT。
+> 这让 CI 中的 `GITHUB_TOKEN` 有权限推送备份镜像到 ghcr.io。不需要手动创建 PAT。
 
-#### 第四步：如果仓库是 Private，配置 阿里云 ACR 包可见性
+#### 第四步：服务器登录阿里云 ACR（生产 pull 用）
 
-如果你的仓库是 **private**，推送后的 Docker 镜像默认也是 private，服务器 pull 时需要认证。
-
-有两种方式（选一种）：
-
-**方式 A：在服务器上 docker login（推荐，简单）**
+生产服务器从阿里云 ACR pull 镜像（见 1.3），若 ACR 仓库为私有则需先登录：
 
 ```bash
-# 在 GitHub 创建 Personal Access Token：
-#   github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)
-#   点 Generate new token (classic)
-#   勾选 read:packages
-#   生成后复制 token
-
-# 在服务器上登录
-echo "ghp_你的token" | docker login ghcr.io -u Renko6626 --password-stdin
+echo "你的ACR密码" | docker login crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com -u 你的ACR用户名 --password-stdin
 ```
 
-**方式 B：把仓库改为 Public**
-
-如果项目本身是开源的，直接把仓库设为 Public 即可，阿里云 ACR 镜像自动可公开拉取。
+> GHCR 镜像只是备份，生产链路不依赖它；服务器不需要登录 GHCR。把 ACR 仓库设为公开则可省去此步。
 
 ### 6.4 验证 CI/CD
 
@@ -510,7 +518,7 @@ git push origin main
 ```
 应该看到一个运行中的 workflow，包含 3 个 job：
 
-✅ Backend Check & Build     ← 编译检查 + Docker 镜像构建推送
+✅ Backend Check & Build     ← 编译检查 + Docker 镜像构建 + 双推 GHCR/ACR
 ✅ Frontend Check & Build    ← TypeScript 检查 + 构建 + 上传产物
 ✅ Deploy                     ← rsync 前端 + SSH 部署 + 健康检查
 ```
@@ -528,12 +536,13 @@ git push origin main
   [ ] sudo 免密已配置（nginx -t 和 systemctl reload）
   [ ] .env 已配置（cp .env.example .env 并填好）
   [ ] docker compose up -d 能正常启动
-  [ ] 如果 private 仓库：已 docker login ghcr.io
+  [ ] 如果 ACR 仓库私有：服务器已 docker login 阿里云 ACR
 
 GitHub 端：
   [ ] Secret: DEPLOY_HOST（服务器公网 IP）
   [ ] Secret: DEPLOY_USER（部署用户名）
   [ ] Secret: DEPLOY_KEY（SSH 私钥完整内容）
+  [ ] Secret: ACR_REGISTRY / ACR_USERNAME / ACR_PASSWORD（阿里云 ACR 推送）
   [ ] Settings → Actions → General → Workflow permissions → Read and write
   [ ] push main 后 Actions 页面 3 个 job 全绿
 ```
