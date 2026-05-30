@@ -7,7 +7,7 @@
 > **Related**:
 > - `docs/superpowers/specs/2026-05-18-forced-liquidation-design.md` (原 all-in 强平)
 > - `docs/holdings-value-semantics.md` (MTM/LCV 双口径)
-> - `docs/liquidation-perf-options-2026-05-18.md` (perf 优化档)
+> - `docs/archive/liquidation-perf-options-2026-05-18.md` (perf 优化档，已归档)
 
 ## Goal
 

@@ -121,7 +121,6 @@ npm install && npm run dev
 | `/admin/bot-review-ban` | 反作弊审核 | 管理员 |
 | `/admin/titles` · `/admin/title-codes` | 称号 / 称号码管理 | 管理员 |
 | `/admin/redemption/partners` · `/admin/redemption/batches` | 兑换码合作方 / 批次 | 管理员 |
-
 ## 图表架构
 
 K 线和走势图的数据不是只查目标选项的交易记录，而是查**整个市场所有选项的交易**，逐笔重放 shares 状态，计算目标选项的瞬时价格。这是因为 LMSR 中交易任何选项都会改变所有选项的价格。
@@ -140,3 +139,22 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | ≤ 300 | 人类灵(已爆仓) |
 
 > 此处是「按净值自动判定」的称号（rank）。另有一套可佩戴的**称号系统**（兑换码解锁 / 市场准入门槛），见 `docs/api.md` 的「称号」一节。
+
+## 文档导航
+
+| 文档 | 用途 |
+|------|------|
+| `docs/api.md` | 后端 REST API 规范（按代码核对） |
+| `docs/development.md` | 开发工作流与技术栈约束 |
+| `docs/deploy.md` | 部署：Docker Compose / CI-CD / nginx / 回滚 |
+| `docs/migrations.md` | Alembic 数据库迁移工作流 |
+| `docs/schema-conventions.md` | 数据库字段 / Decimal 序列化约定 |
+| `docs/holdings-value-semantics.md` | 持仓估值双口径（MTM 展示 / LCV 风控） |
+| `docs/rules-raw.md` | 游戏规则书（Markdown，另有 `docs/latex/rulebook.pdf` 印刷版） |
+| `docs/style.md` | 前端工业风设计系统 |
+| `docs/tos.md` | 用户服务条款 |
+| `docs/ralph-log.md` | 开发迭代日志（历史记录） |
+| `docs/superpowers/specs/`、`plans/` | 各功能设计稿与实施计划（历史） |
+| `docs/archive/` | 已归档的代码审查 / 安全审计 / 性能调研快照 |
+
+> 量化交易机器人的文档另见 `quant/README.md` 与 `quant/docs/`。
