@@ -19,6 +19,7 @@ from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
 from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
+from app.services import ledger_service as _ledger_service
 from app.services.rank import rank_title
 from app.schemas.loan import ForceLoanRequest, ForgiveDebtRequest
 from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm, user_has_halt_holdings
@@ -329,6 +330,12 @@ async def adjust_user_cash(
             raise HTTPException(status_code=400, detail=f"操作后现金为 {new_cash}，不能为负")
 
         user.cash = new_cash
+        _ledger_service.record_entry(
+            db, user=user, entry_type="admin_adjust_cash",
+            cash_delta=req.amount, debt_delta=Decimal("0"),
+            daily_rate=None,
+            operator_user_id=admin.id, reason=req.reason,
+        )
 
     logger.info(
         "ADJUST_CASH admin_id=%s user_id=%s amount=%s reason=%s new_cash=%s",
