@@ -2,11 +2,13 @@
 from __future__ import annotations
 from decimal import Decimal
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.base import User
+from app.services import ledger_service
 
 
 _QUANT = Decimal("0.000001")
@@ -53,9 +55,14 @@ async def increase_debt(
     *,
     grant_cash: bool,
     daily_rate: Decimal,
+    source: str,
+    operator_user_id: Optional[int] = None,
+    reason: Optional[str] = None,
 ) -> User:
     """SELECT FOR UPDATE user → accrue → debt += amount；grant_cash=True 时 cash += amount。
     调用方负责 commit。amount 必须 > 0，否则 ValueError。
+
+    source: ledger entry_type（"borrow" / "admin_force_loan"）。
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
@@ -72,6 +79,14 @@ async def increase_debt(
     # 防御性兜底：debt/cash 不应出现负值
     if u.debt < 0 or u.cash < 0:
         raise LoanServiceError(f"invariant violated post-increase: debt={u.debt} cash={u.cash}")
+    ledger_service.record_entry(
+        session, user=u, entry_type=source,
+        cash_delta=(amount if grant_cash else Decimal("0")),
+        debt_delta=amount,
+        daily_rate=daily_rate,
+        operator_user_id=operator_user_id,
+        reason=reason,
+    )
     session.add(u)
     return u
 
@@ -129,12 +144,16 @@ async def decrease_debt(
     *,
     consume_cash: bool,
     daily_rate: Decimal,
+    source: str,
+    operator_user_id: Optional[int] = None,
+    reason: Optional[str] = None,
 ) -> tuple[User, Decimal]:
-    """SELECT FOR UPDATE user → accrue → effective 扣减。
+    """SELECT FOR UPDATE user → accrue → effective 扣减 → 写 ledger。
 
     原 API，调用方传 user_id，内部 lock。需要避免 lock 的 hot path 用
     decrease_debt_locked。
 
+    source: ledger entry_type（"repay" / "admin_forgive_debt"）。
     返回 (user, effective_amount)。
     """
     if amount <= 0:
@@ -146,6 +165,15 @@ async def decrease_debt(
         session, u, amount,
         consume_cash=consume_cash, daily_rate=daily_rate,
     )
+    if effective > 0:
+        ledger_service.record_entry(
+            session, user=u, entry_type=source,
+            cash_delta=(-effective if consume_cash else Decimal("0")),
+            debt_delta=-effective,
+            daily_rate=daily_rate,
+            operator_user_id=operator_user_id,
+            reason=reason,
+        )
     return u, effective
 
 
