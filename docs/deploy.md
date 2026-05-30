@@ -29,9 +29,9 @@
 ```
 
 - **nginx** — 宿主机运行，反向代理 + 静态文件 + HTTPS + 速率限制
-- **Docker** — 后端运行在容器中，镜像由 CI 构建并推送到 GHCR
+- **Docker** — 后端运行在容器中，镜像由 CI 构建并推送到 阿里云 ACR
 - **前端** — CI 中 `npm run build`，产物 rsync 到服务器，nginx 直接 serve
-- **GitHub Actions** — push main 时：构建镜像 → 推 GHCR → rsync 前端 → SSH 部署 → 健康检查
+- **GitHub Actions** — push main 时：构建镜像 → 推 阿里云 ACR → rsync 前端 → SSH 部署 → 健康检查
 
 ---
 
@@ -67,7 +67,7 @@ git clone https://github.com/你的用户名/TouhouCCB.git
 cd TouhouCCB
 ```
 
-### 1.3 登录 GHCR（如果仓库是 private）
+### 1.3 登录 阿里云 ACR（如果仓库是 private）
 
 ```bash
 # 在 GitHub 创建 Personal Access Token (PAT)：
@@ -77,7 +77,7 @@ cd TouhouCCB
 echo "你的PAT" | docker login ghcr.io -u 你的GitHub用户名 --password-stdin
 ```
 
-> 如果仓库是 public，跳过此步，GHCR 镜像可直接拉取。
+> 如果仓库是 public，跳过此步，阿里云 ACR 镜像可直接拉取。
 
 ---
 
@@ -254,7 +254,7 @@ push 到 main 后，GitHub Actions 自动完成一切：
 
 ```
 push main
-  → CI 构建 Docker 镜像，推送到 GHCR
+  → CI 构建 Docker 镜像，推送到 阿里云 ACR
   → CI 构建前端 dist/，rsync 到服务器
   → SSH 执行 deploy.sh：
       备份数据库 → docker compose pull → up -d → 健康检查
@@ -284,12 +284,12 @@ deploy.sh 自动完成：
 
 ```bash
 # 查看可用的历史镜像 tag
-docker images ghcr.io/renko6626/thccb-backend
+docker images crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend
 
 # 回滚到指定版本
 docker compose pull   # 如果需要先拉旧镜像
 # 或者直接用本地缓存的旧镜像：
-docker tag ghcr.io/renko6626/thccb-backend:<旧sha> ghcr.io/renko6626/thccb-backend:latest
+docker tag crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:<旧sha> crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:latest
 docker compose up -d
 ```
 
@@ -451,7 +451,7 @@ DEPLOY_USER    Updated just now
 
 #### 第三步：配置 Workflow 权限（允许推送 Docker 镜像）
 
-CI 需要把 Docker 镜像推送到 GitHub Container Registry（GHCR），需要给 workflow 写权限：
+CI 需要把 Docker 镜像推送到 GitHub Container Registry（阿里云 ACR），需要给 workflow 写权限：
 
 1. 还是在 **Settings** 页面
 2. 左侧菜单找到 **Actions** → **General**
@@ -470,7 +470,7 @@ Settings
 
 > 这让 CI 中的 `GITHUB_TOKEN` 有权限推送镜像到 ghcr.io。不需要手动创建 PAT。
 
-#### 第四步：如果仓库是 Private，配置 GHCR 包可见性
+#### 第四步：如果仓库是 Private，配置 阿里云 ACR 包可见性
 
 如果你的仓库是 **private**，推送后的 Docker 镜像默认也是 private，服务器 pull 时需要认证。
 
@@ -491,7 +491,7 @@ echo "ghp_你的token" | docker login ghcr.io -u Renko6626 --password-stdin
 
 **方式 B：把仓库改为 Public**
 
-如果项目本身是开源的，直接把仓库设为 Public 即可，GHCR 镜像自动可公开拉取。
+如果项目本身是开源的，直接把仓库设为 Public 即可，阿里云 ACR 镜像自动可公开拉取。
 
 ### 6.4 验证 CI/CD
 
