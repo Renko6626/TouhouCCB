@@ -679,6 +679,7 @@ async def force_loan(
     try:
         u = await _loan_service.increase_debt(
             db, user_id, Decimal(req.amount), grant_cash=True, daily_rate=rate,
+            source="admin_force_loan", operator_user_id=admin.id, reason=req.reason,
         )
     except (ValueError, _loan_service.LoanServiceError) as e:
         await db.rollback()
@@ -710,6 +711,7 @@ async def forgive_debt(
     try:
         u, effective = await _loan_service.decrease_debt(
             db, user_id, Decimal(req.amount), consume_cash=False, daily_rate=rate,
+            source="admin_forgive_debt", operator_user_id=admin.id, reason=req.reason,
         )
     except (ValueError, _loan_service.LoanServiceError) as e:
         await db.rollback()
