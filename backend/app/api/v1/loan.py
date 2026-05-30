@@ -80,6 +80,7 @@ async def borrow(
 
     u = await loan_service.increase_debt(
         db, user.id, amount, grant_cash=True, daily_rate=rate,
+        source="borrow", operator_user_id=None,
     )
     await db.commit()
     await db.refresh(u)
@@ -114,6 +115,7 @@ async def repay(
     try:
         u, effective = await loan_service.decrease_debt(
             db, user.id, amount, consume_cash=True, daily_rate=rate,
+            source="repay", operator_user_id=None,
         )
     except (ValueError, loan_service.LoanServiceError) as e:
         await db.rollback()
