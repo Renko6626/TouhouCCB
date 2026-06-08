@@ -143,9 +143,13 @@ cp .env.example .env
 # 运行环境
 APP_ENV=production
 
-# 容器 UID/GID（改成你的 id -u / id -g）
+# 容器 UID/GID（改成你的 id -u / id -g；不设会默认 1000，可能与已有数据卷属主不符）
 UID=1000
 GID=1000
+
+# 后端镜像（生产从 registry 拉镜像部署时**必须填**，否则 deploy.sh 拉取失败回滚）
+# 值 = 你的 registry 地址 + /<namespace>/thccb-backend:latest
+BACKEND_IMAGE=registry.example.com/your-namespace/thccb-backend:latest
 
 # 安全密钥
 SECRET_KEY=用下面的命令生成
@@ -159,6 +163,10 @@ PG_PASSWORD=你的强密码
 CASDOOR_ENDPOINT=https://你的casdoor地址
 CASDOOR_CLIENT_ID=你的client-id
 CASDOOR_CLIENT_SECRET=你的client-secret
+
+# 弹幕兑换密钥（启用弹幕功能时必填，与 danmuku 服务端约定一致；
+# 不设会用 config.py 占位默认值，与合作方不一致会导致兑换验签失败）
+DANMUKU_SECRET_KEY=与-danmuku-服务端约定的随机串
 
 # 前端 URL（用于 OAuth redirect_uri 回调）
 FRONTEND_URL=https://thccb.你的域名.com
@@ -290,6 +298,17 @@ curl -I https://thccb.你的域名.com/
 ---
 
 ## 五、后续部署
+
+> ⚠️ **升级既有部署前必查服务器 `.env`**（这些项缺失会让自动部署失败或改变行为）：
+>
+> | 变量 | 不设的后果 | 该怎么填 |
+> |------|-----------|---------|
+> | `BACKEND_IMAGE` | `deploy.sh` 的 `docker compose pull backend` 拉不到镜像 → **部署失败回滚** | registry 镜像完整地址（见 2.1） |
+> | `DANMUKU_SECRET_KEY` | 用 config 占位默认值，与 danmuku 合作方不一致 → 弹幕兑换验签失败 | 与合作方约定的值（启用弹幕时必填） |
+> | `UID` / `GID` | 默认 1000，可能与已有 `backend/data` 卷属主不符 → 权限错乱 | 服务器实际 `id -u` / `id -g` |
+>
+> 这些是把镜像/密钥/路径从硬编码改为可配置后的代价：**灵活了，但首次升级要补齐**。
+> CI 侧（GitHub Secrets：`VITE_*` / `ACR_*` / `DEPLOY_*` / `ACR_NAMESPACE`）见第六节。
 
 ### 5.1 自动部署（推荐）
 
