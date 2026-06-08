@@ -29,9 +29,11 @@ lerna-debug.log*
 .env
 .env.*
 !.env.example
-!thccb-frontend/.env.production
+!*.env.example
+!thccb-frontend/.env.production.example
 
 backend/.env
+thccb-frontend/.env.production
 thccb-frontend/.env.local
 thccb-frontend/.env.*.local
 
@@ -96,3 +98,14 @@ quant/__pycache__/
 quant/**/__pycache__/
 quant/*.db*
 quant/.pytest_cache/
+
+# ------------------------------
+# 运行时数据 / 散落产物（防误提交敏感数据）
+# ------------------------------
+*.csv
+*.xlsx
+/danmuku.py
+/texput.log
+loadtest/*.json
+loadtest/results/
+backend/data/
