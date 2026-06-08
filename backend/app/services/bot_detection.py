@@ -1,7 +1,5 @@
 """Anti-bot L4: 行为监控信号算法 + scheduler。
 
-详见 docs/superpowers/specs/2026-05-20-anti-bot-design.md。
-
 本文件分两部分：
 1. 信号算法（pure functions，Task 9 + Task 10）
 2. scheduler + 主循环（Task 11 + Task 12 实施）

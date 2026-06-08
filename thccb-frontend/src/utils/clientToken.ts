@@ -6,8 +6,6 @@
  *
  * SECRET 通过 vite build-time env 注入 (VITE_CLIENT_TOKEN_SECRET)，
  * 嵌进 bundle。activity_mode=false 时后端不验，前端发了也无害。
- *
- * 详见 docs/superpowers/specs/2026-05-20-anti-bot-design.md
  */
 export async function generateClientToken(
   uid: number,

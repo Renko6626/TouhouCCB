@@ -496,8 +496,6 @@ async def verify_anti_bot(
     1. activity_mode_enabled=false → 通过 (默认 / 平时)
     2. user 在 quant_whitelist_user_ids → 通过 (自己 quant 例外)
     3. 否则验 HMAC X-Client-Token + X-Client-TS，失败 403
-
-    详见 spec docs/superpowers/specs/2026-05-20-anti-bot-design.md。
     """
     if not await site_config.get_bool(db, "activity_mode_enabled"):
         return user
@@ -631,7 +629,7 @@ async def buy_shares(
         )
         db.add(tx)
 
-        # ★ candle 物化表 UPSERT（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）
+        # ★ candle 物化表 UPSERT
         candle_rows = compute_candle_rows(
             traded_outcome_id=outcome.id,
             outcome_ids=[o.id for o in all_outcomes],
@@ -794,7 +792,7 @@ async def sell_shares(
         )
         db.add(tx)
 
-        # ★ candle 物化表 UPSERT（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）
+        # ★ candle 物化表 UPSERT
         candle_rows = compute_candle_rows(
             traded_outcome_id=outcome.id,
             outcome_ids=[o.id for o in all_outcomes],

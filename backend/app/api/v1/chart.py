@@ -312,7 +312,7 @@ async def get_candles(
     db: AsyncSession = Depends(get_async_session),
 ):
     """直接查 outcome_candle 物化表 + rollup + fill。
-    告别 5000 笔逐笔重放硬上限（spec docs/superpowers/specs/2026-05-17-candle-cache-design.md）。
+    告别 5000 笔逐笔重放硬上限。
     """
     if str(interval) not in INTERVAL_ROUTE:
         raise HTTPException(status_code=400, detail="不支持的 interval")

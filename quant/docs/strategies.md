@@ -176,8 +176,7 @@ tick:
 
 ### Config 字段
 
-完整字段见 `quant/config.example.yaml` 和 spec
-`docs/superpowers/specs/2026-05-17-volatility-harvest-design.md`。
+完整字段见 `quant/config.example.yaml`。
 
 关键参数：
 

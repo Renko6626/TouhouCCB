@@ -41,7 +41,7 @@ async def liquidate_user(
 ) -> LiquidationEvent:
     """全平 user 持仓 + 最大化还债 + 写 LiquidationEvent。
 
-    Mode 决策 (spec docs/superpowers/specs/2026-05-20-partial-liquidation-design.md):
+    Mode 决策:
     - pre_margin < emergency_threshold → mode='emergency'，全平所有 position
     - 否则 → mode='partial'，每 position 按 partial_pct 卖（Task 5 实现）
 

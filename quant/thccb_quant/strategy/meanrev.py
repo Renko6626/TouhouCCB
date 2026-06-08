@@ -1,4 +1,4 @@
-"""MeanRev 策略。spec docs/superpowers/specs/2026-05-18-meanrev-strategy-design.md。
+"""MeanRev 策略。
 
 设计语义：
 - 二元市场（恰好 2 outcomes）logit + EMA 跟踪 outcome A 的中心价

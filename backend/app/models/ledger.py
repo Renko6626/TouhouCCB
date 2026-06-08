@@ -2,7 +2,7 @@
 
 补齐借/还/管理员调账这些原本无历史记录的 cash/debt 变动。
 利息不在此表（确定性可由公式 + 快照重算）；buy/sell/结算/强平/兑换/弹幕
-各有自己的表，也不在此。详见 docs/superpowers/specs/2026-05-30-loan-ledger-design.md。
+各有自己的表，也不在此。
 """
 from __future__ import annotations
 from datetime import datetime, timezone

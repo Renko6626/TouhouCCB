@@ -1,4 +1,4 @@
-"""VolatilityHarvest 策略。spec docs/superpowers/specs/2026-05-17-volatility-harvest-design.md。
+"""VolatilityHarvest 策略。
 
 设计语义：
 - 在 logit 价格空间维护滑窗中位数 + MAD 作为鲁棒的中心 / 离散度估计

@@ -2,8 +2,6 @@
 
 设计：纯函数模块，无 DB / 无 IO（除 settings）。verify_client_token 用 HMAC-SHA256
 + 30s 时间窗 + hmac.compare_digest 防 timing attack。
-
-详见 docs/superpowers/specs/2026-05-20-anti-bot-design.md。
 """
 from __future__ import annotations
 import hashlib
