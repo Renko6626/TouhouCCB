@@ -1,5 +1,7 @@
 # 强制平仓 sweep 性能优化清单
 
+> 📁 **历史归档**：特定时间点快照，仅作历史参考，**不保证与当前代码一致**；文中引用的设计稿/分支可能已随开源整理移除。查现状请看 `docs/` 下的活文档。
+
 > 状态：调研档案，未实施。明天开 perf 分支照此实现。
 > 触发条件：`feat/forced-liquidation` 合 main 之后单开 `perf/liquidation-sweep-batched`。
 

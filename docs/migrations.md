@@ -72,10 +72,14 @@ sync 驱动需要单独装（生产 Postgres 环境需要 `psycopg2` / `psycopg2
 
 ## 与 init_db.py 的关系
 
-`backend/init_db.py` 仍然存在，用于「从零起一个空 DB」（dev 重建场景）。
-它走 `create_all`，绕过 alembic。
+`backend/init_db.py` 走 `SQLModel.metadata.create_all` 一次性建出当前全部表，并自动
+`alembic stamp head`（绕过逐个 migration）。用于**从零起一个空库**。
 
-生产环境**不要**用 `init_db.py`，用 `alembic upgrade head` 接管。
+部署脚本 `deploy/deploy.sh` 据此自适应（以 `user` 表是否存在为判据）：
 
-长期目标：把 init_db.py 也改成走 alembic（一步到位 upgrade head），
-但需要确认所有环境都 stamp 完了再改。
+- **空库** → 跑 `init_db.py` 建表 + stamp head
+- **已有库** → 跑 `alembic upgrade head` 应用增量 migration
+
+所以无论 dev 还是 prod，空库首次都经 `init_db.py` 建 schema；此后的 schema 变更一律走
+alembic。手动起空库时 `init_db.py` 有 `YES` 交互确认（CI / deploy.sh 用
+`echo YES | ... -T` 绕过）。

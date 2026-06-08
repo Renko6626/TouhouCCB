@@ -82,6 +82,14 @@ echo "你的ACR密码" | docker login your-registry.example.com -u 你的ACR用�
 
 ## 二、环境变量配置
 
+> ⚠️ **前置依赖：Casdoor SSO**
+> 本项目用 Casdoor 做登录认证，生产模式（`APP_ENV=production`）下缺 Casdoor 配置会拒绝启动。
+> 部署前需要先有一个可用的 Casdoor 实例（自建或托管），拿到 endpoint / client_id /
+> client_secret / org / app 五项。完整的「Casdoor 自建 + 一键全栈 compose」指引正在完善中；
+> 当前请参考 Casdoor 官方文档 <https://casdoor.org> 自建实例，并在其中新建 organization 与
+> application，把本站回调地址 `https://<你的域名>/auth/callback` 加入 application 的
+> redirect URLs 白名单。
+
 ### 2.1 项目 `.env`（唯一配置文件）
 
 整个项目只需要**一个 `.env` 文件**，放在项目根目录：
@@ -99,9 +107,9 @@ cp .env.example .env
 # 运行环境
 APP_ENV=production
 
-# 容器 UID/GID（用 id -u && id -g 查看）
-UID=1007
-GID=1008
+# 容器 UID/GID（改成你的 id -u / id -g）
+UID=1000
+GID=1000
 
 # 安全密钥
 SECRET_KEY=用下面的命令生成
@@ -133,7 +141,7 @@ CORS_ORIGINS=https://thccb.你的域名.com
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-### 2.3 前端生产环境变量
+### 2.2 前端生产环境变量
 
 ```bash
 cat > thccb-frontend/.env.production <<'EOF'
@@ -152,7 +160,7 @@ EOF
 
 ### 3.1 修改域名
 
-编辑 `deploy/nginx.conf`，把 `thccb.example.com` 改成你的域名。
+编辑 `deploy/nginx.conf`，把 `your-instance.example.com` 改成你的域名。
 
 ### 3.2 启用站点
 
@@ -646,27 +654,7 @@ docker image prune -f   # 清理悬空镜像
 
 ---
 
-## 八、从旧版（PM2）迁移
-
-如果你之前使用 PM2 部署，切换步骤：
-
-```bash
-# 1. 确认 Docker 版本部署正常
-docker compose ps   # 应该显示 healthy
-
-# 2. 停止并移除 PM2 进程
-pm2 delete thccb-backend
-pm2 save
-
-# 3. 清理旧文件（可选）
-rm -rf backend/venv
-# 如果服务器不再需要 Node（前端已由 CI 构建）：
-# sudo npm uninstall -g pm2
-```
-
----
-
-## 九、项目文件结构
+## 八、项目文件结构
 
 ```
 TouhouCCB/
@@ -692,50 +680,3 @@ TouhouCCB/
     └── deploy.md                # 本文档
 ```
 
----
-
-## 十、LoanV1 上线步骤（2026-04-24）
-
-**前提**：已合并分支 `ralph/2026-04-24-loan-spec`（或其后续 impl 分支）到 main。
-
-### 1. 停服或低流量窗口，运行幂等迁移脚本
-
-脚本会：
-- 给 `"user"` 表加 `debt_last_accrued_at` 列（nullable）
-- 创建 `siteconfig` 表 + 唯一索引
-- 插入 4 条默认配置（`loan_enabled=true` / `loan_leverage_k=1.0` / `loan_daily_rate=0.01` / `loan_sweep_interval_sec=60`）
-- 兜底把现有 `debt > 0` 但 `last_accrued_at` 为空的用户标为 `NOW()`
-
-全部操作幂等，可安全重跑。
-
-```bash
-# 在服务器上，进入 backend 容器（或本地 venv）
-docker compose exec backend python -m scripts.migrate_loan_v1
-# 期望输出：migrate_loan_v1: done
-```
-
-### 2. 重启后端容器以注册 APS sweep
-
-```bash
-docker compose restart backend
-```
-
-启动日志应出现 `loan sweep started interval=60s`（或当前配置值）。
-
-### 3. 校验
-
-```bash
-# 普通用户
-curl -H "Authorization: Bearer <token>" https://.../api/v1/loan/quota
-# 应返回 {"enabled": true, "cash": ..., "debt": ..., "max_borrow": ..., ...}
-
-# 超管
-curl -H "Authorization: Bearer <admin_token>" https://.../api/v1/admin/site-config
-# 应返回 4 条 loan_* 配置
-```
-
-### 4. 回滚
-
-- **代码层**：`git revert` 对应 merge commit；重部署
-- **数据层**：迁移脚本加的列/表**无需回滚**——空 `debt_last_accrued_at` 列无害；`siteconfig` 表闲置；现存 `debt` 字段读写路径在旧代码里已存在（`cash - debt`）
-- **风险**：若上线后发现利率误配，`PUT /admin/site-config/loan_daily_rate` 即可热修；不用重启

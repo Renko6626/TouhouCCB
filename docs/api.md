@@ -252,7 +252,7 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 返回 `[{ t, o, h, l, c, v, n }, ...]`
 
 - `o` (open) = bucket 内第一笔交易前的市场价；`c` (close) = bucket 内最后一笔交易后的市场价
-- 数据直接读 `outcome_candle` 物化表（物化缓存，告别 5000 笔逐笔重放上限；见 `docs/superpowers/specs/2026-05-17-candle-cache-design.md`）
+- 数据直接读 `outcome_candle` 物化表（物化缓存，告别 5000 笔逐笔重放上限）
 
 ---
 

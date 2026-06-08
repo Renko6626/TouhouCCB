@@ -142,10 +142,8 @@ except (KeyError, InvalidOperation, ValueError):
 - skip reason 写明具体哪个 key 缺（不是笼统 `"config_parse_failed"`）
 - 跟"value 解析失败"分两种错误码
 
-详见 round-2 review I-2 follow-up。
-
 ## 历史相关
 
 - [`dfb4a4d`](https://github.com/Renko6626/TouhouCCB/commit/dfb4a4d) — Money fix 起源
 - `docs/holdings-value-semantics.md` — 双口径分工详解
-- `docs/liquidation-perf-options-2026-05-18.md` — perf 改造档案
+- `docs/archive/liquidation-perf-options-2026-05-18.md` — perf 改造档案
