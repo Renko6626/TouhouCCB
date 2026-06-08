@@ -49,10 +49,13 @@ TouhouCCB/
 ### 生产部署（Docker Compose）
 
 ```bash
-cp .env.example .env          # 编辑填入实际配置
-docker compose up -d           # 启动 PostgreSQL + 后端
-docker compose exec backend python init_db.py  # 首次初始化数据库
+cp .env.example .env          # 编辑填入实际配置（含 Casdoor，详见 deploy.md）
+docker compose up -d --build   # 构建并启动 PostgreSQL + 后端
+docker compose exec backend python init_db.py  # 首次初始化数据库（按提示输入 YES）
 ```
+
+> 生产环境推荐用 `bash deploy/deploy.sh`，会自动处理 schema（空库建表 + stamp、已有库走
+> alembic 增量），无需手动 init_db。完整流程见 [docs/deploy.md](deploy.md)。
 
 第一个通过 SSO 登录的用户自动成为管理员。
 
@@ -144,8 +147,10 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 
 | 文档 | 用途 |
 |------|------|
+| `CONTRIBUTING.md`（仓库根） | 贡献指南：代码规范、ORM 守则、提交与验证流程 |
+| `docs/architecture.md` | 系统架构总览：分层、核心概念、数据流 |
 | `docs/api.md` | 后端 REST API 规范（按代码核对） |
-| `docs/development.md` | 开发工作流与技术栈约束 |
+| `docs/development.md` | 本地开发环境搭建与技术栈约束 |
 | `docs/deploy.md` | 部署：Docker Compose / CI-CD / nginx / 回滚 |
 | `docs/migrations.md` | Alembic 数据库迁移工作流 |
 | `docs/schema-conventions.md` | 数据库字段 / Decimal 序列化约定 |
@@ -153,8 +158,6 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | `docs/rules-raw.md` | 游戏规则书（Markdown，另有 `docs/latex/rulebook.pdf` 印刷版） |
 | `docs/style.md` | 前端工业风设计系统 |
 | `docs/tos.md` | 用户服务条款 |
-| `docs/ralph-log.md` | 开发迭代日志（历史记录） |
-| `docs/superpowers/specs/`、`plans/` | 各功能设计稿与实施计划（历史） |
-| `docs/archive/` | 已归档的代码审查 / 安全审计 / 性能调研快照 |
+| `docs/archive/` | 已归档的代码审查 / 安全审计 / 性能调研快照（历史，不保证与现状一致） |
 
 > 量化交易机器人的文档另见 `quant/README.md` 与 `quant/docs/`。

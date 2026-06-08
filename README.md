@@ -60,6 +60,7 @@ loadtest/        k6 压测脚本
 
 | 文档 | 内容 |
 |------|------|
+| [docs/architecture.md](./docs/architecture.md) | 系统架构总览 |
 | [docs/deploy.md](./docs/deploy.md) | 生产部署 |
 | [docs/development.md](./docs/development.md) | 本地开发环境 |
 | [docs/api.md](./docs/api.md) | API 说明 |
