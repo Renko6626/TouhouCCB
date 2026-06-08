@@ -134,7 +134,25 @@ alembic upgrade head
 Casdoor 是本项目的唯一登录入口（OAuth 2.0 OIDC）。
 
 **不配置时**：`APP_ENV=development` 下后端会打印一条 warning 并正常启动，
-`/api/v1/auth/login` 等 OAuth 端点不可用，但其他 API（市场列表、行情等）可以正常调用。
+Casdoor OAuth 登录不可用，但其他 API（市场列表、行情等）可正常调用。本地要登录调试，
+用下面的 **dev mock 登录**，无需搭 Casdoor。
+
+### dev mock 登录（仅本地）
+
+非生产环境提供一个免凭据登录入口，方便不配 Casdoor 也能登录调试：
+
+- **前端**：开发模式（`npm run dev`）下，登录页会出现「DEV 登录」表单，填个用户名点登录即可
+  （首个登录的用户自动成为超管，余额 = `initial_balance`）。
+- **后端接口**：`POST /api/v1/auth/dev-login`，body `{"username": "dev"}`，返回与 OAuth 回调
+  同结构的 token：
+
+  ```bash
+  curl -X POST http://localhost:8004/api/v1/auth/dev-login \
+    -H 'Content-Type: application/json' -d '{"username":"dev"}'
+  ```
+
+> ⚠️ 该接口在 `APP_ENV=production` 下一律返回 **404**（防 auth bypass 泄漏到生产）。
+> 切勿移除 `backend/app/api/v1/auth.py::dev_login` 里的 `is_production` guard。
 
 **需要完整登录流程时**：需要自建或复用一个 Casdoor 实例，在 `.env` 填入：
 

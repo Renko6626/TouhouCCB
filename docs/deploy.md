@@ -82,13 +82,49 @@ echo "你的ACR密码" | docker login your-registry.example.com -u 你的ACR用�
 
 ## 二、环境变量配置
 
-> ⚠️ **前置依赖：Casdoor SSO**
-> 本项目用 Casdoor 做登录认证，生产模式（`APP_ENV=production`）下缺 Casdoor 配置会拒绝启动。
-> 部署前需要先有一个可用的 Casdoor 实例（自建或托管），拿到 endpoint / client_id /
-> client_secret / org / app 五项。完整的「Casdoor 自建 + 一键全栈 compose」指引正在完善中；
-> 当前请参考 Casdoor 官方文档 <https://casdoor.org> 自建实例，并在其中新建 organization 与
-> application，把本站回调地址 `https://<你的域名>/auth/callback` 加入 application 的
-> redirect URLs 白名单。
+### 2.0 前置：自建 Casdoor SSO
+
+本项目用 [Casdoor](https://casdoor.org) 做登录认证，**生产模式（`APP_ENV=production`）下缺
+Casdoor 配置会拒绝启动**。部署前需先有一个可用的 Casdoor 实例，并拿到 5 项配置：
+endpoint / client_id / client_secret / org / app。
+
+> 本项目不自带 Casdoor 一键 compose——Casdoor 是独立服务，自建步骤如下（也可用托管实例，跳到 2.0.3）。
+> 本地开发若只想调试业务、不想搭 Casdoor，可用 dev mock 登录（见 `docs/development.md`），无需本节。
+
+### 2.0.1 起一个 Casdoor 实例
+
+最简单用官方镜像（生产请按 Casdoor 文档配置自己的数据库与 `app.conf`）：
+
+```bash
+docker run -d --name casdoor -p 8000:8000 casbin/casdoor:latest
+# 浏览器打开 http://<服务器IP>:8000，默认管理员 admin / 123（首登后务必改密码）
+# 生产建议给 Casdoor 也挂 nginx + HTTPS 独立域名，如 https://auth.your-domain.com
+```
+
+### 2.0.2 建 organization 与 application
+
+在 Casdoor 后台：
+
+1. **Organizations** → 新建一个组织（记下名字，对应 `VITE_CASDOOR_ORG`）。也可用内置 `built-in`。
+2. **Applications** → 新建应用：
+   - 记下 **Name**（对应 `VITE_CASDOOR_APP`）、所属 Organization。
+   - **Redirect URLs** 加入本站回调地址，必须与前端域名严格一致：
+     `https://<你的域名>/auth/callback`（本地开发再加 `http://localhost:5173/auth/callback`）。
+   - 勾选需要的登录方式（密码 / OAuth 等）。
+   - 保存后获取该应用的 **Client ID** 与 **Client Secret**。
+
+### 2.0.3 拿到 5 项配置
+
+| 配置项 | 来源 | 用于 |
+|--------|------|------|
+| endpoint | Casdoor 实例地址，如 `https://auth.your-domain.com` | 后端 `CASDOOR_ENDPOINT` + 前端 `VITE_CASDOOR_URL` |
+| client_id | 应用 Client ID | 后端 `CASDOOR_CLIENT_ID` + 前端 `VITE_CASDOOR_CLIENT_ID` |
+| client_secret | 应用 Client Secret | 后端 `CASDOOR_CLIENT_SECRET`（**仅后端**，勿入前端） |
+| org | Organization 名 | 前端 `VITE_CASDOOR_ORG` |
+| app | Application 名 | 前端 `VITE_CASDOOR_APP` |
+
+> 后端通过 `<endpoint>/.well-known/openid-configuration` 自动发现端点，无需手填各 URL。
+> 回调地址不在白名单 → Casdoor 拒绝重定向、登录失败；这是最常见的配置坑。
 
 ### 2.1 项目 `.env`（唯一配置文件）
 
