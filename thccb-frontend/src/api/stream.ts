@@ -25,7 +25,7 @@ export class MarketStream {
   // 连接到市场实时数据流（用户初始化）
   connect(marketId: number) {
     if (this.eventSource && this.marketId === marketId) {
-      console.log(`Already connected to market ${marketId}`)
+      if (import.meta.env.DEV) console.log(`Already connected to market ${marketId}`)
       return
     }
     // 切到新市场：重置重连计数
@@ -45,7 +45,7 @@ export class MarketStream {
     try {
       this.eventSource = new EventSource(url)
       this.setupEventHandlers()
-      console.log(`Opening market stream: ${marketId}`)
+      if (import.meta.env.DEV) console.log(`Opening market stream: ${marketId}`)
     } catch (error) {
       console.error('Failed to open market stream:', error)
       this.handleError(error)
@@ -129,14 +129,14 @@ export class MarketStream {
         // 期间用户 disconnect / 切换市场 / 已重连 → 放弃这次定时重连
         if (this.reconnectGen !== targetGen) return
         if (this.marketId !== targetMarketId) return
-        console.log(`Reconnecting... attempt ${this.reconnectAttempts}`)
+        if (import.meta.env.DEV) console.log(`Reconnecting... attempt ${this.reconnectAttempts}`)
         this._openConnection(targetMarketId)
       }, delay)
     }
 
     // 处理打开事件
     this.eventSource.onopen = () => {
-      console.log('EventSource connection opened')
+      if (import.meta.env.DEV) console.log('EventSource connection opened')
       this.reconnectAttempts = 0
       this.emit('open', { market_id: this.marketId })
     }
@@ -152,7 +152,7 @@ export class MarketStream {
     // 如果是ping事件，可以忽略或处理心跳
     if (type === 'ping') {
       // 心跳包，可以更新连接状态
-      console.debug('Received ping event')
+      if (import.meta.env.DEV) console.debug('Received ping event')
     }
   }
 
@@ -195,7 +195,7 @@ export class MarketStream {
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
-      console.log('Disconnected from market stream')
+      if (import.meta.env.DEV) console.log('Disconnected from market stream')
     }
     this.marketId = null
     // 主动断开 = 干净状态，复位重连计数（防止下次连新市场带着旧计数）
