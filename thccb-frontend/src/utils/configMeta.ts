@@ -12,6 +12,7 @@ export type ConfigGroup =
   | 'loan'
   | 'liquidation'
   | 'anti_bot'
+  | 'economy'
   | 'general'
 
 export interface ConfigMeta {
@@ -135,14 +136,29 @@ const META: Record<string, ConfigMeta> = {
     description: '窗口内 fast_follow 事件次数超过此值 → 触发信号',
     unit: '次',
   },
+
+  // ── 经济参数 ─────────────────────────────────────────────────────
+  sell_fee_rate: {
+    group: 'economy',
+    label: '卖出手续费率',
+    description: '卖出时按成交 gross 收取的手续费比例，0 表示免费。范围 [0, 0.2)。买入不收费',
+    unit: '比例',
+  },
+  initial_balance: {
+    group: 'economy',
+    label: '新用户初始余额',
+    description: '新用户首次 SSO 登录注册时获得的初始现金。仅影响新注册用户，不改动存量用户',
+    unit: '金',
+  },
 }
 
-const GROUP_ORDER: ConfigGroup[] = ['loan', 'liquidation', 'anti_bot', 'general']
+const GROUP_ORDER: ConfigGroup[] = ['loan', 'liquidation', 'anti_bot', 'economy', 'general']
 
 const GROUP_LABELS: Record<ConfigGroup, string> = {
   loan: '借款系统',
   liquidation: '强制平仓',
   anti_bot: '反脚本',
+  economy: '经济参数',
   general: '其他',
 }
 
@@ -151,6 +167,7 @@ function inferGroup(key: string): ConfigGroup {
   if (key.startsWith('loan_')) return 'loan'
   if (key.startsWith('liquidation_')) return 'liquidation'
   if (key.startsWith('bot_') || key === 'activity_mode_enabled' || key === 'quant_whitelist_user_ids') return 'anti_bot'
+  if (key === 'sell_fee_rate' || key === 'initial_balance') return 'economy'
   return 'general'
 }
 
