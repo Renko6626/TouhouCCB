@@ -206,6 +206,64 @@ async def oauth_callback(
     }
 
 
+class DevLoginRequest(BaseModel):
+    username: str = "dev"
+
+
+@router.post("/dev-login", summary="本地开发 mock 登录（生产环境 404）")
+async def dev_login(
+    body: DevLoginRequest,
+    db: AsyncSession = Depends(get_async_session),
+):
+    """⚠️ 仅本地开发：不校验任何凭据，按 username 直接签发本站 JWT，方便贡献者不配
+    Casdoor 也能登录调试。复用真实注册语义（首用户自动超管、cash=initial_balance）。
+
+    生产环境（APP_ENV=production）一律返回 404——这是防 auth bypass 泄漏到生产的
+    命门 guard，**切勿移除或放宽**。
+    """
+    if settings.is_production:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    username = (body.username or "dev").strip() or "dev"
+    casdoor_id = f"dev:{username}"
+    result = await db.execute(select(User).where(User.casdoor_id == casdoor_id))
+    user: Optional[User] = result.scalars().first()
+
+    if not user:
+        async with managed_transaction(db):
+            user_count = await db.execute(select(func.count()).select_from(User))
+            is_first_user = user_count.scalar_one() == 0
+            uname = username
+            suffix = 0
+            while True:
+                exists = await db.execute(select(User).where(User.username == uname))
+                if not exists.scalars().first():
+                    break
+                suffix += 1
+                uname = f"{username}_{suffix}"
+            user = User(
+                casdoor_id=casdoor_id,
+                username=uname,
+                email=f"{username}@dev.local",
+                cash=await site_config.get_decimal_or(
+                    db, "initial_balance", Decimal(str(settings.INITIAL_BALANCE))),
+                debt=Decimal("0"),
+                is_active=True,
+                is_superuser=is_first_user,
+            )
+            db.add(user)
+            await db.flush()
+        logger.warning("DEV-LOGIN used username=%s id=%s — 仅应出现在非生产环境", uname, user.id)
+    elif not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_BANNED")
+
+    return {
+        "access_token": create_access_token(user.id),
+        "refresh_token": create_refresh_token(user.id),
+        "token_type": "bearer",
+    }
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

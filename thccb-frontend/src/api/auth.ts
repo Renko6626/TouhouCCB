@@ -14,6 +14,11 @@ export const authApi = {
     return api.post('/api/v1/auth/refresh', { refresh_token })
   },
 
+  // 仅本地开发：mock 登录（后端在生产环境返回 404）
+  async devLogin(username: string): Promise<{ access_token: string; refresh_token: string }> {
+    return api.post('/api/v1/auth/dev-login', { username })
+  },
+
   async getCurrentUser(): Promise<User> {
     return api.get<User>('/api/v1/auth/me')
   },

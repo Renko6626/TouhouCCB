@@ -55,6 +55,16 @@ export const useAuthStore = defineStore('auth', () => {
     await fetchCurrentUser()
   }
 
+  // 仅本地开发：用 mock 登录拿 token（后端生产 404）
+  const loginWithDev = async (username: string) => {
+    const { access_token, refresh_token } = await authApi.devLogin(username)
+    accessToken.value = access_token
+    refreshToken.value = refresh_token
+    localStorage.setItem('access_token', access_token)
+    localStorage.setItem('refresh_token', refresh_token)
+    await fetchCurrentUser()
+  }
+
   let isLoggingOut = false
 
   const logout = () => {
@@ -100,6 +110,7 @@ export const useAuthStore = defineStore('auth', () => {
     needsTos,
     fetchCurrentUser,
     loginWithCallback,
+    loginWithDev,
     logout,
     checkAuth,
     acceptTos,
