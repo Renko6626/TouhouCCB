@@ -5,15 +5,17 @@
 
 ## ⚠️ 仍需所有者本人处理（代码无法代办）
 
-1. **rotate 弹幕 HMAC 密钥**：`DANMUKU_SECRET_KEY="114514"` 曾出现在 git 历史（commit `f0759f0`）。
-   需通知弹幕服务合作方更换该共享密钥。**在该密钥 rotate + 历史重写完成前，仓库不得 public。**
+1. **rotate 弹幕 HMAC 密钥**：旧密钥 `114514`（含同学真名）曾出现在 git 历史（commit `f0759f0`）。
+   新共享密钥定为 `114514`（已写入 config.py 默认值）——**需通知弹幕服务合作方把他们那边的
+   SECRET_KEY 也改成 `114514`**，否则双方验签不一致、兑换码失效。旧码（用 114514 签的）会失效。
+   **在历史重写完成前，仓库不得 public**（历史里仍有同学真名）。
 2. **确认个人信息**：git 历史含两个个人邮箱（PKU 学号邮箱 + QQ 邮箱）。如介意公开需额外处理。
 3. **确认 `17.csv` 性质**：疑为未使用的真实兑换码（工作区，未入历史）。本批已 gitignore，未删除你的本地副本。
 4. **favicon.ico 来源**：报告标记来源不明，开源前自行确认授权。
 5. ~~**GitHub Secrets**~~ ✅ 已于 2026-06-08 用 `gh secret set` 配好：
    `VITE_API_BASE_URL` `VITE_APP_TITLE` `VITE_CASDOOR_URL` `VITE_CASDOOR_CLIENT_ID`
    `VITE_CASDOOR_ORG` `VITE_CASDOOR_APP` `ACR_NAMESPACE`（值取自本地 .env.production + docker-compose）。
-   注：`VITE_APP_TITLE` 用的是 prod 实际值「东方财富杯」，与 README/PROJECT_NAME 的「东方炒炒币」不一致，待所有者确认统一。
+   注：`VITE_APP_TITLE` 已于 2026-06-08 按所有者确认改为权威标题「东方炒炒币」（与 README/PROJECT_NAME 一致）。
 6. **force-push 决定**：历史重写后推送到 live main = force-push + 触发 prod 部署。本批不自动 push，等所有者拍板。
 
 ## PR1 — 可公开闸门
@@ -23,10 +25,11 @@
 - 新增 `thccb-frontend/.env.production.example`
 - `.gitignore` 硬化：移除 `!thccb-frontend/.env.production` 白名单；新增 `*.csv` `*.xlsx` `/danmuku.py` `loadtest/*.json` `texput.log` 等规则
 - `git rm --cached thccb-frontend/.env.production`（停止追踪，保留本地文件）
-- `backend/app/core/config.py:64` `DANMUKU_SECRET_KEY` 默认值 `"114514"` → `""`
+- `backend/app/core/config.py` `DANMUKU_SECRET_KEY` 默认值 `"114514"`（含同学真名）
+  → `"114514"`（占位 meme 值，无 PII）；`.env.example` 对应行注释化以让默认值生效
 - 删除 `danmuku.py`（未追踪的破损片段，含明文密钥）
 - **git 历史重写（最后执行，前置 backup bundle）**：用 git-filter-repo 从全历史移除
-  `thccb-frontend/.env.production` 与 `114514` 字符串。详见文末「历史重写」节。
+  `thccb-frontend/.env.production`，并把 `114514` 替换为 `114514`。详见文末「历史重写」节。
 
 ## PR2 — 去私有化 + CI 安全网
 
@@ -83,8 +86,8 @@ git status            # 必须 clean
 # 1. 备份（关键，唯一回滚手段）
 git bundle create ../TouhouCCB-backup-20260608.bundle --all
 
-# 2. 替换规则文件
-printf '114514==>REDACTED\n' > /tmp/thccb-replacements.txt
+# 2. 替换规则文件（换成无害占位值，连同学真名一起从历史抹掉）
+printf '114514==>114514\n' > /tmp/thccb-replacements.txt
 
 # 3. 重写全历史：删 .env.production 文件 + 抹掉密钥字符串
 git filter-repo --force \

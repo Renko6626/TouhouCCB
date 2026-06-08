@@ -59,9 +59,9 @@ class Settings(BaseSettings):
     ADMIN_SECRET_KEY: str = Field(default="")
 
     # 弹幕系统兑换 HMAC 签名密钥（与外部 danmuku 服务端约定共享，可选功能）。
-    # 留空则弹幕兑换签名不可用；启用时在 .env 设置，并与 danmuku 服务端保持一致。
+    # 默认值仅为占位 dev 值；生产请在 .env 覆盖为自己的随机串，并与 danmuku 服务端保持一致。
     # 密钥变更后历史码在 danmuku 侧验签失败（已发出的旧码会失效，避免频繁轮换）。
-    DANMUKU_SECRET_KEY: str = Field(default="")
+    DANMUKU_SECRET_KEY: str = Field(default="114514")
 
     # Anti-bot HMAC SECRET
     # 后端验证 X-Client-Token 用；activity_mode_enabled=false 时不验，留空也可
