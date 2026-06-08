@@ -218,10 +218,13 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
             duration_ms = int((time.monotonic() - start_ts) * 1000)
             return _empty_sweep_result(duration_ms)
 
-        # 过滤掉 cooldown 内的用户，剩余的批量算 holdings_value
+        # 过滤掉 cooldown 内的用户，剩余的批量算 holdings_value。
+        # 默认用 -inf 而非 0.0：从未被强平的用户必须无条件通过——否则在刚开机
+        # （time.monotonic() < _STUCK_COOLDOWN_SEC）的主机上 `0.0 + 1800 <= now` 会判
+        # False，把所有用户误过滤掉，sweep 形同失效（开机 30 分钟内强平不工作）。
         active_rows = [
             r for r in candidate_rows
-            if _recently_attempted.get(r.id, 0.0) + _STUCK_COOLDOWN_SEC <= now
+            if _recently_attempted.get(r.id, float("-inf")) + _STUCK_COOLDOWN_SEC <= now
         ]
         active_uids = [r.id for r in active_rows]
 

@@ -122,6 +122,22 @@ async def test_sweep_triggers_user_below_hard_threshold(client):
 
 
 @pytest.mark.asyncio
+async def test_sweep_triggers_on_freshly_booted_host(client, monkeypatch):
+    """回归：刚开机主机 time.monotonic() 很小（< _STUCK_COOLDOWN_SEC）时，
+    从未被强平的用户不应被 cooldown 过滤误杀（曾因 default 0.0 + 1800 <= now 判 False）。"""
+    await _enable_liquidation()
+    async with async_session_maker() as db:
+        await _seed_user(db, cash=0, debt=500, hv_via_position=("A", 50))
+
+    # 模拟新开机：monotonic 远小于 1800s cooldown
+    monkeypatch.setattr(liquidation_sweep.time, "monotonic", lambda: 100.0)
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result["triggered_count"] == 1, (
+        f"新开机主机(monotonic={result.get('sweep_duration_ms')}) 不应误过滤用户: {result}")
+
+
+@pytest.mark.asyncio
 async def test_sweep_recently_attempted_cache_skips(client):
     """已扫过但没产生进展（资不抵债 cash=0+hv=0）的 user 30 min 内不重扫。"""
     await _enable_liquidation()
