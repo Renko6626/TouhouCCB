@@ -11,8 +11,8 @@ from decimal import Decimal
 
 
 def rank_title(net_worth: Decimal) -> str:
-    # 阈值锚定新用户起始资金（INITIAL_BALANCE=500）：起始档"初入幻想乡"含起始
-    # 资金；需要至少把净值翻倍才能升到下一档，避免新号一注册就解锁称号。
+    # 固定的一组净值档位（与可配置的初始余额 site_config.initial_balance 无强绑定）。
+    # 最低档"人类灵(已爆仓)"含 ≤300 净值，避免新号一注册就解锁高称号。
     if net_worth > 30000: return "ZUN"
     if net_worth > 10000: return "炒炒币大亨"
     if net_worth > 3000:  return "妖怪操盘手"

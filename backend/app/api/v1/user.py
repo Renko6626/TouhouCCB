@@ -17,7 +17,6 @@ from app.core.users import current_active_user, current_superuser
 from app.models.base import User, Position, Transaction, Outcome, Market, MarketStatus
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost, quantize_price
-from app.api.v1.market import SELL_FEE_RATE
 from app.services import site_config as _site_config, loan_service as _loan_service
 from app.services import ledger_service as _ledger_service
 from app.services.rank import rank_title
@@ -154,6 +153,7 @@ async def get_my_holdings(
         for o in all_outcomes_res.scalars().all():
             outcomes_by_market.setdefault(o.market_id, []).append(o)
 
+    sell_fee_rate = await _site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
     results: List[HoldingRead] = []
     for pos in positions:
         outcome: Outcome = pos.outcome
@@ -172,7 +172,7 @@ async def get_my_holdings(
             after_sell[idx] -= float(pos.amount)
             new_cost = calculate_lmsr_cost(after_sell, b)
             gross = quantize_cost(old_cost - new_cost)
-            market_value = quantize_cost(gross * (ONE - SELL_FEE_RATE))
+            market_value = quantize_cost(gross * (ONE - sell_fee_rate))
         else:
             price_d = ZERO
             market_value = ZERO

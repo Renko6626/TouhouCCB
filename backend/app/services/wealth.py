@@ -31,23 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.base import Market, MarketStatus, Outcome, Position
+from app.services import site_config
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
-
-# 延迟导入避免循环依赖：services 层不能在模块级 import api 层。
-# _get_sell_fee_rate() 在首次调用时读取并缓存。
-_CACHED_SELL_FEE_RATE: Optional[Decimal] = None
-
-
-def _get_sell_fee_rate() -> Decimal:
-    global _CACHED_SELL_FEE_RATE
-    if _CACHED_SELL_FEE_RATE is None:
-        from app.api.v1.market import SELL_FEE_RATE  # noqa: PLC0415
-        _CACHED_SELL_FEE_RATE = SELL_FEE_RATE
-    return _CACHED_SELL_FEE_RATE
-
 
 _SENTINEL = object()
 
@@ -67,11 +55,11 @@ async def compute_users_holdings_value(
     user_ids=[...] → 只算这部分用户（leaderboard 用）。
     返回 dict 只包含**至少有一笔有效持仓**的 user_id；其他 user_id 调用方按 0 处理。
 
-    sell_fee_rate 默认为项目 SELL_FEE_RATE（"立即清算口径"，即可变现净值）。
-    如需 gross/不扣费口径，调用方显式传 sell_fee_rate=Decimal("0")。
+    sell_fee_rate 默认读 site_config 的 `sell_fee_rate`（admin 可热配，缺失回落 0），
+    即"立即清算口径"可变现净值。如需 gross/不扣费口径，调用方显式传 sell_fee_rate=Decimal("0")。
     """
     if sell_fee_rate is _SENTINEL:  # type: ignore[comparison-overlap]
-        sell_fee_rate = _get_sell_fee_rate()
+        sell_fee_rate = await site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
     user_ids_list: Optional[List[int]] = None
     if user_ids is not None:
         user_ids_list = list(user_ids)

@@ -43,7 +43,9 @@ class User(SQLModel, table=True):
     is_superuser: bool = Field(default=False, nullable=False)
 
     # 游戏业务属性 — Decimal(16,6)
-    cash: Decimal = Field(default=Decimal("500"), sa_type=Numeric(16, 6))
+    # 默认 0：仅 User() 不显式传 cash 时的兜底；新用户实际初始余额由注册流程按
+    # site_config.initial_balance 显式赋值（见 api/v1/auth.py）。
+    cash: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
     debt: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
 
     # LoanV1 — 上次利息结算时间；debt=0 时为 None

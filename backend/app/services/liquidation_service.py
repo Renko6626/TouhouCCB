@@ -22,7 +22,7 @@ from app.models.base import (
 from app.services import loan_service
 from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_outcomes_for_market
-from app.services.wealth import _get_sell_fee_rate  # 复用 LCV 统一 fee
+from app.services import site_config  # LCV fee 口径统一从 site_config 读
 
 _logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
@@ -92,7 +92,7 @@ async def liquidate_user(
     # 3. inline 算 pre_hv（LCV）：用刚 lock 的 outcomes 数据，不再单独跑
     #    compute_users_holdings_value（省 3-4 个 query）。HALT 市场持仓不计入
     #    （与 services.wealth LCV 函数同语义）。
-    fee_factor = ONE - _get_sell_fee_rate()
+    fee_factor = ONE - await site_config.get_decimal_or(session, "sell_fee_rate", ZERO)
     pre_hv = ZERO
     for pos in positions:
         market = pos.outcome.market

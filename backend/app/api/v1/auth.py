@@ -20,6 +20,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.services import site_config
 from app.core.database import get_async_session, managed_transaction
 from app.core.oidc import OIDCClient
 from app.core.users import create_access_token, create_refresh_token, verify_refresh_token, current_active_user
@@ -179,7 +180,8 @@ async def oauth_callback(
                 casdoor_id=casdoor_id,
                 username=username,
                 email=email,
-                cash=Decimal(str(settings.INITIAL_BALANCE)),
+                cash=await site_config.get_decimal_or(
+                    db, "initial_balance", Decimal(str(settings.INITIAL_BALANCE))),
                 debt=Decimal("0"),
                 is_active=True,
                 is_superuser=is_first_user,

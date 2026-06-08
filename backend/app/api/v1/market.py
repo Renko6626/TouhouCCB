@@ -76,7 +76,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-SELL_FEE_RATE = Decimal("0")
 ZERO = Decimal("0")
 
 # ── 滑点保护（P1）──
@@ -732,12 +731,14 @@ async def sell_shares(
         if proceeds < ZERO:
             proceeds = ZERO
 
-        fee = (proceeds * SELL_FEE_RATE).quantize(Decimal("0.000001"))
+        sell_fee_rate = await site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
+        fee = (proceeds * sell_fee_rate).quantize(Decimal("0.000001"))
         net = proceeds - fee
 
         # ── 滑点保护（P1）──
-        # 以"成交前边际价 × 份额"为期望收入（不含费），对比实际到手 net。
-        # 客户端 min_proceeds 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
+        # 以"成交前边际价 × 份额"为期望收入。bps 自动护栏衡量**纯价格冲击**，故比
+        # gross（proceeds，未扣费）；卖出手续费是确定性扣减、用户在报价里已见，不计入滑点。
+        # 客户端 min_proceeds 是用户对**到手净额**的显式底线，仍比 net。
         marginal_price_before_sell = Decimal(str(old_prices[target_idx]))
         expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
         if req.min_proceeds is not None and net < req.min_proceeds:
@@ -752,7 +753,7 @@ async def sell_shares(
             slippage_floor_sell = (
                 expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
             ).quantize(Decimal("0.000001"))
-            if net < slippage_floor_sell:
+            if proceeds < slippage_floor_sell:
                 raise HTTPException(
                     status_code=400,
                     detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
@@ -1052,7 +1053,8 @@ async def quote_trade(
         new_q[idx] -= shares_f
         new_cost, new_prices = calculate_lmsr_with_prices(new_q, b)
         gross = quantize_cost(old_cost - new_cost)
-        fee = (gross * SELL_FEE_RATE).quantize(Decimal("0.000001"))
+        sell_fee_rate = await site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
+        fee = (gross * sell_fee_rate).quantize(Decimal("0.000001"))
         net = gross - fee
 
     avg_price = quantize_price(gross / shares_d) if shares_d > ZERO else ZERO

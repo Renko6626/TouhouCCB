@@ -39,6 +39,9 @@ _WHITELIST = {
     "liquidation_partial_pct": "decimal",
     "liquidation_target_margin": "decimal",
     "liquidation_emergency_threshold": "decimal",
+    # 经济参数（admin 热配）
+    "sell_fee_rate": "decimal",
+    "initial_balance": "decimal",
 }
 
 
@@ -65,6 +68,10 @@ def _validate(key: str, value: str) -> None:
             raise HTTPException(status_code=400, detail="日利率必须在 (0, 1)")
         if key == "loan_leverage_k" and not (Decimal("0") < v <= Decimal("10")):
             raise HTTPException(status_code=400, detail="杠杆倍数必须在 (0, 10]")
+        if key == "sell_fee_rate" and not (Decimal("0") <= v < Decimal("0.2")):
+            raise HTTPException(status_code=400, detail="卖出手续费率必须在 [0, 0.2)")
+        if key == "initial_balance" and not (Decimal("0") <= v <= Decimal("1000000")):
+            raise HTTPException(status_code=400, detail="初始余额必须在 [0, 1000000]")
 
 
 @router.get("/site-config", response_model=List[SiteConfigItem])

@@ -48,6 +48,18 @@ async def get_decimal(session: AsyncSession, key: str) -> Decimal:
     return Decimal(await _get_raw(session, key))
 
 
+async def get_decimal_or(session: AsyncSession, key: str, default: Decimal) -> Decimal:
+    """读 decimal；key 不存在时返回 default（不抛 SiteConfigError）。
+
+    用于「有硬编码安全默认」的可配置项（如 sell_fee_rate / initial_balance）：
+    冷启动 / 未 seed 时回落默认，避免读配置抛错中断 hot path 或注册。
+    """
+    try:
+        return await get_decimal(session, key)
+    except SiteConfigError:
+        return default
+
+
 async def get_int(session: AsyncSession, key: str) -> int:
     return int(await _get_raw(session, key))
 

@@ -16,6 +16,7 @@ import logging
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.core.config import settings
 
 logger = logging.getLogger("thccb.loan_migrate")
 
@@ -45,6 +46,9 @@ DEFAULT_CONFIGS = [
     ("bot_fast_follow_trigger_cost", "500.0", "decimal"),
     ("bot_fast_follow_latency_ms", "1000", "int"),
     ("bot_fast_follow_count_threshold", "3", "int"),
+    # ── 经济参数（admin 热配）──
+    ("sell_fee_rate", "0", "decimal"),                         # 卖出手续费率，默认 0
+    ("initial_balance", str(settings.INITIAL_BALANCE), "decimal"),  # 新用户初始余额
 ]
 
 

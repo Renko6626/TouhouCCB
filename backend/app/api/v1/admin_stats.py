@@ -14,7 +14,6 @@ from app.core.users import current_superuser
 from app.models.base import User
 from app.services.wealth import compute_users_holdings_value
 from app.services.wealth_stats import compute_wealth_distribution
-from app.api.v1.market import SELL_FEE_RATE
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -44,7 +43,6 @@ async def wealth_stats(
     holdings_by_user = await compute_users_holdings_value(
         db,
         user_ids=[u.id for u in users],
-        sell_fee_rate=SELL_FEE_RATE,
     )
 
     net_worths: List[float] = []
