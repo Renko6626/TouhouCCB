@@ -58,12 +58,12 @@ class Settings(BaseSettings):
     # 管理后台（登录复用本站 JWT，不需要独立密码）
     ADMIN_SECRET_KEY: str = Field(default="")
 
-    # 弹幕系统兑换 HMAC 签名密钥（与朋友的 danmuku 服务端约定共享）。
-    # 默认值与原 danmuku.py 一致便于 dev；生产请在 .env 覆盖，密钥变更后历史码
-    # 在 danmuku 侧验签失败（用户已收到的旧码会失效，所以避免频繁轮换）。
-    DANMUKU_SECRET_KEY: str = Field(default="114514")
+    # 弹幕系统兑换 HMAC 签名密钥（与外部 danmuku 服务端约定共享，可选功能）。
+    # 留空则弹幕兑换签名不可用；启用时在 .env 设置，并与 danmuku 服务端保持一致。
+    # 密钥变更后历史码在 danmuku 侧验签失败（已发出的旧码会失效，避免频繁轮换）。
+    DANMUKU_SECRET_KEY: str = Field(default="")
 
-    # Anti-bot HMAC SECRET (spec docs/superpowers/specs/2026-05-20-anti-bot-design.md)
+    # Anti-bot HMAC SECRET
     # 后端验证 X-Client-Token 用；activity_mode_enabled=false 时不验，留空也可
     # 生产 .env 设 32-byte random hex；前端 vite build 注入 VITE_CLIENT_TOKEN_SECRET
     CLIENT_TOKEN_SECRET: str = Field(default="")
