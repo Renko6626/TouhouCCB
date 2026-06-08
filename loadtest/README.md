@@ -5,7 +5,7 @@
 | 模式 | k6 运行位置 | BASE_URL | 结果质量 | 适合场景 |
 |------|------------|----------|----------|----------|
 | **同机**（旧） | prod 服务器 | `http://127.0.0.1:8004` | 偏悲观（CPU 争抢） | 快速验证逻辑 |
-| **远程**（推荐） | 你的本机/另一台机 | `https://thccb.secret-sealing.club` | 真实（经 nginx+TLS） | 容量规划 |
+| **远程**（推荐） | 你的本机/另一台机 | `https://your-instance.example.com` | 真实（经 nginx+TLS） | 容量规划 |
 
 同机压测：k6 + uvicorn + postgres 抢同一对 CPU 核心，延迟虚高、吞吐虚低。远程压测消除这个干扰，结果反映后端真实极限。
 
@@ -34,13 +34,13 @@ sudo apt-get update && sudo apt-get install -y k6
 
 ## 远程 k6 方案（推荐）
 
-**前置条件**：k6 运行机能 SSH 到 prod + 能访问 `https://thccb.secret-sealing.club`。
+**前置条件**：k6 运行机能 SSH 到 prod + 能访问 `https://your-instance.example.com`。
 
 > **开发服务器即是 k6 runner**：如果你从开发机打流量到生产，codebase 已经在
-> `/data/sunyunbo/www/TouhouCCB`，`scenarios/` 不用传。只需：
+> `/path/to/TouhouCCB`，`scenarios/` 不用传。只需：
 > 1. prod 上跑 seed + mint → 开发机上 `PROD=deploy@<prod-ip> ./loadtest/seed/pull_tokens.sh`
-> 2. prod nginx geo 白名单加 `162.105.151.134/32`（开发机公网 IPv4）
-> 3. 开发机上 `export BASE_URL=https://thccb.secret-sealing.club` 再跑 k6
+> 2. prod nginx geo 白名单加 `<your-k6-machine-ip>`（开发机公网 IPv4）
+> 3. 开发机上 `export BASE_URL=https://your-instance.example.com` 再跑 k6
 
 ### Step 1 — prod 上：备份 + seed
 
@@ -98,7 +98,7 @@ sudo nginx -t && sudo systemctl reload nginx
 # SSH 到远程机（或在本机终端）
 cd ~/thccb-loadtest
 
-export BASE_URL=https://thccb.secret-sealing.club
+export BASE_URL=https://your-instance.example.com
 export HOT_MARKET_ID=23
 export HOT_OUTCOME_YES=72
 export HOT_OUTCOME_NO=73

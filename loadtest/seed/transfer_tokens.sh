@@ -43,7 +43,7 @@ echo "传输完成。在远程机器 $REMOTE 上运行："
 echo
 echo "  ssh $REMOTE"
 echo "  cd $REMOTE_DIR"
-echo "  export BASE_URL=https://thccb.secret-sealing.club"
+echo "  export BASE_URL=https://your-instance.example.com"
 echo "  export HOT_MARKET_ID=<填 id>"
 echo "  export HOT_OUTCOME_YES=<填 id>"
 echo "  export HOT_OUTCOME_NO=<填 id>"

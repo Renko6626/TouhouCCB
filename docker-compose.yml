@@ -23,9 +23,12 @@ services:
         max-file: "3"
 
   backend:
-    # 走阿里云 ACR（北京区）：国内服务器 docker pull 走内网/CDN 比 ghcr.io 快 10x+。
-    # GHCR 仍由 CI 双推作备份，要切回改这行 image 即可（账号、镜像名相同）。
-    image: crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:latest
+    # 默认从本地 ./backend 构建镜像，开箱即用。
+    # 若想用预构建镜像（如自己的 registry / GHCR），设置环境变量 BACKEND_IMAGE 即可，
+    # 例：BACKEND_IMAGE=ghcr.io/<你的用户名>/thccb-backend:latest docker compose up -d
+    image: ${BACKEND_IMAGE:-thccb-backend:latest}
+    build:
+      context: ./backend
     container_name: thccb-backend
     restart: unless-stopped
     depends_on:
@@ -39,8 +42,8 @@ services:
       - ./backups:/app/backups
     environment:
       - PYTHONPATH=.
-    # 容器内用户 UID:GID 与宿主机一致
-    user: "${UID:-1007}:${GID:-1008}"
+    # 容器内用户 UID:GID 与宿主机一致（在 .env 设为你的 `id -u`:`id -g`，否则挂载卷可能权限错乱）
+    user: "${UID:-1000}:${GID:-1000}"
     # 优雅停机：给 uvicorn 时间排空 SSE 长连接
     stop_grace_period: 8s
     logging:

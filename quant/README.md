@@ -1,7 +1,6 @@
 # thccb-quant
 
-TouhouCCB 量化交易脚本（实盘小额）。spec：
-`docs/superpowers/specs/2026-05-17-quant-trader-design.md`。
+TouhouCCB 的配套量化交易 bot（实盘小额）。需要一个运行中的 TouhouCCB 后端实例。
 
 ## 起步
 
@@ -20,7 +19,7 @@ python -m thccb_quant                  # 实盘（或下面的 run.sh 包装）
 
 ## Token 获取
 
-浏览器登 thccb.com → F12 → Network → 找任意 `/api/v1/*` 请求 → 复制
+浏览器登录你的实例 → F12 → Network → 找任意 `/api/v1/*` 请求 → 复制
 `Authorization: Bearer <access>` 的 access token；refresh token 在
 登录回调响应里。填到 `.env`：
 
@@ -39,7 +38,7 @@ Refresh token 寿命 7 天，**到期需手动重新从浏览器拿**（后端
 **一行启动**（实盘真账号下单，清残留 + tmux + watchdog）：
 
 ```bash
-cd /data/sunyunbo/www/TouhouCCB/quant && \
+cd /path/to/TouhouCCB/quant && \
 rm -f state/KILL state/quant.db state/quant.db-* logs/*.jsonl && \
 tmux new -d -s quant 'bash run.sh' && \
 sleep 3 && pgrep -af 'python -m thccb_quant' || echo "trader 未起，看 tmux attach -t quant"
@@ -55,7 +54,7 @@ sleep 3 && pgrep -af 'python -m thccb_quant' || echo "trader 未起，看 tmux a
 **开机自启**（用户 crontab，无需 sudo）：
 
 ```cron
-@reboot tmux new -d -s quant 'bash /data/sunyunbo/www/TouhouCCB/quant/run.sh' >> /data/sunyunbo/www/TouhouCCB/quant/logs/cron.log 2>&1
+@reboot tmux new -d -s quant 'bash /path/to/TouhouCCB/quant/run.sh' >> /path/to/TouhouCCB/quant/logs/cron.log 2>&1
 ```
 
 ## 监控运行中的 trader
@@ -65,19 +64,19 @@ sleep 3 && pgrep -af 'python -m thccb_quant' || echo "trader 未起，看 tmux a
 tmux attach -t quant
 
 # 实时跟策略事件（jq 过滤）
-tail -f /data/sunyunbo/www/TouhouCCB/quant/logs/system.jsonl \
+tail -f /path/to/TouhouCCB/quant/logs/system.jsonl \
   | jq 'select(.event | startswith("volharvest_") or startswith("order_"))'
 
 # 查最近下单
-sqlite3 /data/sunyunbo/www/TouhouCCB/quant/state/quant.db \
+sqlite3 /path/to/TouhouCCB/quant/state/quant.db \
   "SELECT ts, strategy, side, shares, price, status FROM orders ORDER BY id DESC LIMIT 10"
 
 # 查最近决策（含 skip + reason）
-sqlite3 /data/sunyunbo/www/TouhouCCB/quant/state/quant.db \
+sqlite3 /path/to/TouhouCCB/quant/state/quant.db \
   "SELECT ts, strategy, action, substr(reason,1,40) FROM decisions ORDER BY id DESC LIMIT 20"
 
 # 真实账号当前持仓 + 现金（脱钩策略内部状态）
-cd /data/sunyunbo/www/TouhouCCB/quant && source .venv/bin/activate && python -c "
+cd /path/to/TouhouCCB/quant && source .venv/bin/activate && python -c "
 import asyncio, httpx; from dotenv import dotenv_values
 env=dotenv_values('.env')
 async def go():
@@ -95,7 +94,7 @@ asyncio.run(go())
 
 ```bash
 # 优雅停（推荐）：trader 跑完当前 SSE event 退出，watchdog 也退
-touch /data/sunyunbo/www/TouhouCCB/quant/state/KILL
+touch /path/to/TouhouCCB/quant/state/KILL
 
 # 硬停（兜底，可能吃当前正在下单的请求）
 tmux kill-session -t quant
@@ -115,7 +114,7 @@ tmux kill-session -t quant
 - **`dca`** —— 定投，定时按 CNY 金额买入直到总预算耗尽。详见 `docs/strategies.md`
 - **`grid`** —— 网格，区间内涨卖跌买。详见 `docs/strategies.md`
 - **`volharvest`** —— 波动率收割（SSE 驱动 + logit 空间 mean reversion）。
-  详见 `docs/strategies.md` 和 `docs/superpowers/specs/2026-05-17-volatility-harvest-design.md`
+  详见 `docs/strategies.md`
 
 ## 加新策略
 

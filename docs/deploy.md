@@ -73,7 +73,7 @@ cd TouhouCCB
 
 ```bash
 # 阿里云控制台 → 容器镜像服务 ACR → 访问凭证，获取用户名与固定密码
-echo "你的ACR密码" | docker login crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com -u 你的ACR用户名 --password-stdin
+echo "你的ACR密码" | docker login your-registry.example.com -u 你的ACR用户名 --password-stdin
 ```
 
 > 若把 ACR 仓库设为公开，可跳过此步直接 pull。GHCR 镜像仅作 CI 侧备份，生产服务器不需要登录 GHCR。
@@ -287,12 +287,12 @@ deploy.sh 自动完成：
 
 ```bash
 # 查看可用的历史镜像 tag
-docker images crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend
+docker images your-registry.example.com/your-namespace/thccb-backend
 
 # 回滚到指定版本
 docker compose pull   # 如果需要先拉旧镜像
 # 或者直接用本地缓存的旧镜像：
-docker tag crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:<旧sha> crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com/renko/thccb-backend:latest
+docker tag your-registry.example.com/your-namespace/thccb-backend:<旧sha> your-registry.example.com/your-namespace/thccb-backend:latest
 docker compose up -d
 ```
 
@@ -327,7 +327,7 @@ push main
   ├── Backend Check & Build
   │   ├── py_compile 语法检查
   │   ├── import check（所有模块能加载）
-  │   └── Docker build → 双推 ghcr.io/.../thccb-backend + ACR/renko/thccb-backend
+  │   └── Docker build → 双推 ghcr.io/.../thccb-backend + ACR/your-namespace/thccb-backend
   │
   └── Frontend Check & Build
       ├── vue-tsc 类型检查
@@ -448,7 +448,7 @@ CI 把镜像同时推到阿里云 ACR（生产 pull 用），需要这三个：
 
 ```
 Name:   ACR_REGISTRY
-Secret: crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com
+Secret: your-registry.example.com
 
 Name:   ACR_USERNAME
 Secret: 你的阿里云 ACR 用户名
@@ -496,7 +496,7 @@ Settings
 生产服务器从阿里云 ACR pull 镜像（见 1.3），若 ACR 仓库为私有则需先登录：
 
 ```bash
-echo "你的ACR密码" | docker login crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com -u 你的ACR用户名 --password-stdin
+echo "你的ACR密码" | docker login your-registry.example.com -u 你的ACR用户名 --password-stdin
 ```
 
 > GHCR 镜像只是备份，生产链路不依赖它；服务器不需要登录 GHCR。把 ACR 仓库设为公开则可省去此步。

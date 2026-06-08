@@ -7,7 +7,7 @@ description: Use when adding a new strategy class to the thccb-quant trading bot
 
 ## Overview
 
-thccb-quant 是 `/data/sunyunbo/www/TouhouCCB/quant/` 下的实盘 LMSR 量化交易脚本。
+thccb-quant 是 `/path/to/TouhouCCB/quant/` 下的实盘 LMSR 量化交易脚本。
 新策略 = 继承 `Strategy` ABC，可选 `tick()`（polling）和 `on_sse_event()`
 （实时事件）两个输入通道。
 
