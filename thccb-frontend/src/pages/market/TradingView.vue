@@ -13,6 +13,7 @@ import PriceChart from '@/components/chart/PriceChart.vue'
 import CandleChart from '@/components/chart/CandleChart.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import TitleChip from '@/components/title/TitleChip.vue'
+import type { QuoteResponse, ChartInterval } from '@/types/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,7 +41,6 @@ const selectedOutcomeId = ref<number | null>(null)
 const shares = ref(1)
 // 最大滑点：默认 1%（100 bps）；服务端 hardcap=1000 bps
 const maxSlippageBps = ref(100)
-import type { QuoteResponse, ChartInterval } from '@/types/api'
 const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
 const candleInterval = ref<ChartInterval>('1m')

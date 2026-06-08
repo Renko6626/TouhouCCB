@@ -13,7 +13,6 @@ export class MarketStream {
   private listeners: Map<string, Set<(data: any) => void>> = new Map()
 
   constructor() {
-    // 初始化监听器映射
     this.listeners.set('open', new Set())
     this.listeners.set('snapshot', new Set())
     this.listeners.set('trade', new Set())
@@ -22,7 +21,6 @@ export class MarketStream {
     this.listeners.set('error', new Set())
   }
 
-  // 连接到市场实时数据流（用户初始化）
   connect(marketId: number) {
     if (this.eventSource && this.marketId === marketId) {
       if (import.meta.env.DEV) console.log(`Already connected to market ${marketId}`)
@@ -63,7 +61,6 @@ export class MarketStream {
     )
   }
 
-  // 设置事件处理器
   private setupEventHandlers() {
     if (!this.eventSource) return
 
@@ -87,20 +84,18 @@ export class MarketStream {
       this.handleEvent({ ...parsed, type: eventType })
     }
 
-    // 处理命名事件（后端使用 event: trade / market_status / snapshot / ping）
+    // 后端使用命名 SSE event: trade / market_status / snapshot / ping
     this.eventSource.addEventListener('snapshot', handleNamedEvent('snapshot'))
     this.eventSource.addEventListener('trade', handleNamedEvent('trade'))
     this.eventSource.addEventListener('market_status', handleNamedEvent('market_status'))
     this.eventSource.addEventListener('ping', handleNamedEvent('ping'))
 
-    // 处理消息事件
     this.eventSource.onmessage = (event) => {
       const data = parsePayload(event.data)
       if (!data) return
       this.handleEvent(data)
     }
 
-    // 处理错误事件
     this.eventSource.onerror = (error) => {
       console.error('EventSource error:', error)
       this.handleError(error)
@@ -134,7 +129,6 @@ export class MarketStream {
       }, delay)
     }
 
-    // 处理打开事件
     this.eventSource.onopen = () => {
       if (import.meta.env.DEV) console.log('EventSource connection opened')
       this.reconnectAttempts = 0
@@ -142,26 +136,14 @@ export class MarketStream {
     }
   }
 
-  // 处理事件
   private handleEvent(event: MarketEvent) {
-    const { type } = event
-    
-    // 触发对应类型的监听器
-    this.emit(type, event)
-    
-    // 如果是ping事件，可以忽略或处理心跳
-    if (type === 'ping') {
-      // 心跳包，可以更新连接状态
-      if (import.meta.env.DEV) console.debug('Received ping event')
-    }
+    this.emit(event.type, event)
   }
 
-  // 处理错误
   private handleError(error: any) {
     this.emit('error', { type: 'connection_error', error })
   }
 
-  // 添加事件监听器
   on(eventType: string, callback: (data: any) => void) {
     if (!this.listeners.has(eventType)) {
       this.listeners.set(eventType, new Set())
@@ -169,14 +151,12 @@ export class MarketStream {
     this.listeners.get(eventType)!.add(callback)
   }
 
-  // 移除事件监听器
   off(eventType: string, callback: (data: any) => void) {
     if (this.listeners.has(eventType)) {
       this.listeners.get(eventType)!.delete(callback)
     }
   }
 
-  // 触发事件
   private emit(eventType: string, data: any) {
     if (this.listeners.has(eventType)) {
       this.listeners.get(eventType)!.forEach(callback => {
@@ -189,7 +169,6 @@ export class MarketStream {
     }
   }
 
-  // 断开连接（用户主动）
   disconnect() {
     this.reconnectGen++  // 让所有已调度的重连 setTimeout 失效
     if (this.eventSource) {
@@ -202,17 +181,14 @@ export class MarketStream {
     this.reconnectAttempts = 0
   }
 
-  // 获取当前连接状态
   get isConnected(): boolean {
     return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN
   }
 
-  // 获取当前市场ID
   get currentMarketId(): number | null {
     return this.marketId
   }
 
-  // 获取重连尝试次数
   get reconnectCount(): number {
     return this.reconnectAttempts
   }

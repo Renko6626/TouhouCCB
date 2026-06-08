@@ -416,22 +416,14 @@ async def get_market_detail(
             )
         )
 
-    # last_trade_at
-    if hasattr(Transaction, "market_id"):
-        tx_stmt = (
-            select(Transaction.timestamp)
-            .where(Transaction.market_id == market.id)
-            .order_by(Transaction.timestamp.desc())
-            .limit(1)
-        )
-    else:
-        tx_stmt = (
-            select(Transaction.timestamp)
-            .join(Outcome, Transaction.outcome_id == Outcome.id)
-            .where(Outcome.market_id == market.id)
-            .order_by(Transaction.timestamp.desc())
-            .limit(1)
-        )
+    # last_trade_at（Transaction 无 market_id，经 Outcome join 到 market）
+    tx_stmt = (
+        select(Transaction.timestamp)
+        .join(Outcome, Transaction.outcome_id == Outcome.id)
+        .where(Outcome.market_id == market.id)
+        .order_by(Transaction.timestamp.desc())
+        .limit(1)
+    )
     tx_res = await db.execute(tx_stmt)
     last_trade_at = tx_res.scalar_one_or_none()
 
@@ -501,7 +493,7 @@ async def verify_anti_bot(
 
     try:
         whitelist_csv = await site_config.get_str(db, "quant_whitelist_user_ids")
-    except Exception:
+    except site_config.SiteConfigError:
         whitelist_csv = ""
     if user.id in parse_whitelist(whitelist_csv):
         return user

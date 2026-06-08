@@ -7,12 +7,10 @@ import type {
 } from '@/types/api'
 
 export const userApi = {
-  // 获取资产概览
   async getSummary(): Promise<UserSummary> {
     return api.get<UserSummary>('/api/v1/user/summary')
   },
 
-  // 获取持仓明细
   async getHoldings(): Promise<Holding[]> {
     return api.get<Holding[]>('/api/v1/user/holdings')
   },
@@ -22,7 +20,6 @@ export const userApi = {
     return api.get<Transaction[]>('/api/v1/user/transactions', { params: { limit } })
   },
 
-  // 修改自己的昵称
   async updateUsername(username: string): Promise<{ username: string; changed: boolean }> {
     return api.patch<{ username: string; changed: boolean }>('/api/v1/user/me/username', { username })
   },

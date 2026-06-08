@@ -378,6 +378,7 @@ class VolatilityHarvest(Strategy):
             shares_abs = max_trade_int
             clip_reason = "clipped"
         delta = shares_abs if delta > 0 else -shares_abs
+        clipped_target = self._holding + delta  # clip 后的目标持仓（broker 改 holding 前捕获）
 
         # trend guard：连续 N 笔同向 → 拦逆势加仓
         if (
@@ -444,7 +445,7 @@ class VolatilityHarvest(Strategy):
             median_logit=median_logit, mad=mad_logit,
             threshold=threshold, deviation=deviation,
             excess=excess, raw_target=str(raw_target),
-            clipped_target=str(raw_target), delta=str(delta),
+            clipped_target=str(clipped_target), delta=str(delta),
             side=side, reason=clip_reason,
             current_holding=str(self._holding),
             window_len=len(self._window),

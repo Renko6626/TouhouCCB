@@ -5,14 +5,12 @@ import { userApi } from '@/api/user'
 import { useAuthStore } from '@/stores/auth'
 
 export const useUserStore = defineStore('user', () => {
-  // 状态
   const summary = ref<UserSummary | null>(null)
   const holdings = ref<Holding[]>([])
   const transactions = ref<Transaction[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  // 计算属性
   const totalHoldingsValue = computed(() => summary.value?.holdings_value ?? 0)
 
   const holdingsByMarket = computed(() => {
@@ -25,10 +23,6 @@ export const useUserStore = defineStore('user', () => {
     })
     return map
   })
-
-  const recentTransactions = computed(() => 
-    transactions.value.slice(0, 10) // 最近10条交易记录
-  )
 
   // Actions — manageLoading 参数控制是否由单个函数管理 loading 状态
   // 当被 fetchAllUserData 并发调用时传 false，避免 loading 在并发中反复切换
@@ -126,31 +120,16 @@ export const useUserStore = defineStore('user', () => {
     error.value = null
   }
 
-  // 监听交易操作，更新持仓
-  const updateAfterTrade = async (outcomeId: number, sharesChange: number) => {
-    // 重新获取持仓数据
-    await fetchHoldings()
-    
-    // 如果summary存在，也更新summary
-    if (summary.value) {
-      await fetchSummary()
-    }
-  }
-
   return {
-    // 状态
     summary,
     holdings,
     transactions,
     loading,
     error,
-    
-    // 计算属性
+
     totalHoldingsValue,
     holdingsByMarket,
-    recentTransactions,
-    
-    // Actions
+
     fetchSummary,
     fetchHoldings,
     fetchTransactions,
@@ -159,6 +138,5 @@ export const useUserStore = defineStore('user', () => {
     getHoldingsByMarket,
     clearData,
     clearError,
-    updateAfterTrade,
   }
 })

@@ -71,11 +71,8 @@ async def get_user_summary(
 
     # 阈值统一作为公共字段返回（不论 debt 是否 > 0），让前端可动态显示
     # site_config 缺失时 fallback 默认值，跟 sweep / liquidate 用同一套约定
-    try:
-        hard = await _site_config.get_decimal(db, "liquidation_hard_threshold")
-        soft = await _site_config.get_decimal(db, "liquidation_soft_threshold")
-    except Exception:
-        hard, soft = Decimal("0.2"), Decimal("0.5")
+    hard = await _site_config.get_decimal_or(db, "liquidation_hard_threshold", Decimal("0.2"))
+    soft = await _site_config.get_decimal_or(db, "liquidation_soft_threshold", Decimal("0.5"))
 
     # Margin classification — 用保守 LCV 口径，避免大仓位用户被 MTM 估值误导成"安全"
     margin_ratio = None

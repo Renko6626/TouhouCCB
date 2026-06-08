@@ -8,7 +8,6 @@ import { marketApi } from '@/api/market'
 const MAX_MARKET_TRADES = 100
 
 export const useMarketStore = defineStore('market', () => {
-  // 状态
   const markets = ref<MarketListItem[]>([])
   const currentMarket = ref<MarketDetail | null>(null)
   const marketTrades = ref<MarketTrade[]>([])
@@ -18,24 +17,10 @@ export const useMarketStore = defineStore('market', () => {
   const tradeLoading = ref(false)
   const tradeError = ref<string | null>(null)
 
-  // 计算属性
-  const activeMarkets = computed(() => 
+  const activeMarkets = computed(() =>
     markets.value.filter(m => m.status === 'trading')
   )
-  
-  const haltedMarkets = computed(() => 
-    markets.value.filter(m => m.status === 'halt')
-  )
-  
-  const settledMarkets = computed(() => 
-    markets.value.filter(m => m.status === 'settled')
-  )
 
-  const currentMarketOutcomes = computed(() => 
-    currentMarket.value?.outcomes || []
-  )
-
-  // Actions
   const fetchMarkets = async (params?: { keyword?: string; tag?: string; include_halt?: boolean; include_settled?: boolean }) => {
     loading.value = true
     error.value = null
@@ -292,7 +277,6 @@ export const useMarketStore = defineStore('market', () => {
   }
 
   return {
-    // 状态
     markets,
     currentMarket,
     marketTrades,
@@ -301,14 +285,9 @@ export const useMarketStore = defineStore('market', () => {
     error,
     tradeLoading,
     tradeError,
-    
-    // 计算属性
+
     activeMarkets,
-    haltedMarkets,
-    settledMarkets,
-    currentMarketOutcomes,
-    
-    // Actions
+
     fetchMarkets,
     fetchMarketDetail,
     fetchMarketTrades,

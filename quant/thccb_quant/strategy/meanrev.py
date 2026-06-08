@@ -9,6 +9,7 @@
 """
 import json
 import math
+import time
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 
@@ -219,9 +220,8 @@ class MeanRevStrategy(Strategy):
         )
         in_deadband = abs(deviation) < self._threshold_logit
         # WebUI 用：记录这次 signal 的快照，让外部能看到"最近一次策略视角"
-        import time as _time
         self._last_signal = {
-            "ts": _time.time(),
+            "ts": time.time(),
             "price_a": price_a,
             "deviation": deviation,
             "size_multiplier": size_multiplier,
@@ -332,9 +332,8 @@ class MeanRevStrategy(Strategy):
         # new_cash=0（dryrun 不模拟现金），用 cost 增量在 live + dry-run 都正确：
         # BUY: resp.cost > 0 （付出），cash 减；SELL: resp.cost < 0（收回），cash 加。
         self._cash -= resp.cost
-        import time as _time
         self._last_trade = {
-            "ts": _time.time(),
+            "ts": time.time(),
             "side": "buy",
             "outcome_id": outcome_id,
             "shares": str(resp.shares),
@@ -378,9 +377,8 @@ class MeanRevStrategy(Strategy):
         self._holding[outcome_id] -= resp.shares
         # 见 _do_buy 同处注释：cash -= cost 在 BUY/SELL 都正确
         self._cash -= resp.cost
-        import time as _time
         self._last_trade = {
-            "ts": _time.time(),
+            "ts": time.time(),
             "side": "sell",
             "outcome_id": outcome_id,
             "shares": str(resp.shares),

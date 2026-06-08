@@ -23,7 +23,6 @@ export const marketApi = {
     return api.get<MarketListItem[]>('/api/v1/market/list', { params })
   },
 
-  // 获取市场详情
   async getMarketDetail(marketId: number): Promise<MarketDetail> {
     return api.get<MarketDetail>(`/api/v1/market/${marketId}`)
   },
@@ -33,7 +32,6 @@ export const marketApi = {
     return api.post<MarketCreateResponse>('/api/v1/market/create', data)
   },
 
-  // 买入胜券
   async buy(
     outcomeId: number,
     shares: number,
@@ -49,7 +47,6 @@ export const marketApi = {
     return api.post<TradeResponse>('/api/v1/market/buy', request)
   },
 
-  // 卖出胜券
   async sell(
     outcomeId: number,
     shares: number,
@@ -65,7 +62,6 @@ export const marketApi = {
     return api.post<TradeResponse>('/api/v1/market/sell', request)
   },
 
-  // 下单预估
   async quote(request: QuoteRequest): Promise<QuoteResponse> {
     return api.post<QuoteResponse>('/api/v1/market/quote', request)
   },
@@ -88,7 +84,6 @@ export const marketApi = {
     })
   },
 
-  // 获取市场成交记录
   async getMarketTrades(marketId: number, limit: number = 50): Promise<MarketTrade[]> {
     return api.get<MarketTrade[]>(`/api/v1/market/${marketId}/trades`, {
       params: { limit }
