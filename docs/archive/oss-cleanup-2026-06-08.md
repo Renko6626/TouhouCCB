@@ -33,15 +33,15 @@
 
 ## PR2 — 去私有化 + CI 安全网
 
-私有标识符 → 占位符映射：
-| 原值 | 占位符 |
+私有标识符 → 占位符映射（原值已脱敏，避免本归档文档自身泄漏）：
+| 原值（类别） | 占位符 |
 |------|--------|
-| `thccb.secret-sealing.club` | `your-instance.example.com` |
-| `auth.fantasyguide.cn` | `your-casdoor.example.com` |
-| `crpi-bug4nt14ryr5n8sw.cn-beijing.personal.cr.aliyuncs.com` | `your-registry.example.com` |
-| ACR namespace `renko` | `your-namespace` |
-| `/data/sunyunbo/www/TouhouCCB` | `/path/to/TouhouCCB` |
-| 真实 k6 机 IP `162.105.151.134` 等 | `<your-k6-machine-ip>` |
+| 〈生产站域名〉 | `your-instance.example.com` |
+| 〈Casdoor 域名〉 | `your-casdoor.example.com` |
+| 〈阿里云 ACR 镜像地址〉 | `your-registry.example.com` |
+| 〈ACR namespace〉 | `your-namespace` |
+| 〈服务器项目绝对路径〉 | `/path/to/TouhouCCB` |
+| 〈真实 k6 压测机 IP〉 | `<your-k6-machine-ip>` |
 
 改动文件：`docker-compose.yml`、`.github/workflows/ci.yml`、`deploy/nginx.conf`、`.env.example`、
 `docs/deploy.md`、`loadtest/{README.md,scenarios/.env.example,seed/*.sh}`、

@@ -191,7 +191,7 @@ Expected: 生成 `uv.lock`
 
 - [ ] **Step 2：确认 .gitignore 未忽略它**
 
-Run: `cd /data/sunyunbo/www/TouhouCCB && git check-ignore quant/uv.lock`
+Run: `cd <repo-root> && git check-ignore quant/uv.lock`
 Expected: 无输出（未被忽略；若被忽略需在根 .gitignore 加 `!quant/uv.lock`）
 
 - [ ] **Step 3：Commit**
