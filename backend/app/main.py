@@ -48,6 +48,8 @@ _LOG_SKIP_PREFIXES = (
     # 业务性动作（创建/结算/调整现金等）都走 /api/v1/market/* 和 /api/v1/user/*/adjust-cash
     # 等业务端点，会被正常记录，不依赖 admin 路径。
     "/api/v1/admin",
+    # 阶段 4：不可变历史段，nginx 缓存回源为主，量大且无审计价值
+    "/history/",
 )
 
 
@@ -265,6 +267,9 @@ app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
+
+from app.api.v1 import history as history_api
+app.include_router(history_api.router, prefix="/history", tags=["History"])  # 不在 /api/v1 下：绕开 no-store 中间件（见 history.py 模块注释）
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
 
