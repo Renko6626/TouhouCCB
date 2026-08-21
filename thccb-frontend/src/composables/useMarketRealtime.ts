@@ -2,6 +2,7 @@ import { ref, onBeforeUnmount, watch, type InjectionKey, type Ref } from 'vue'
 import { MarketStream } from '@/api/stream'
 import type { MarketEvent, MarketStatusEventData, TickFrameData, TradeEventData } from '@/types/stream'
 import { reportServerBuild } from '@/composables/useBuildVersion'
+import type { HistoryTailMap } from '@/api/history'
 
 type TradePayload = TradeEventData['trade']
 
@@ -31,6 +32,8 @@ export interface UseMarketRealtimeReturn {
   outcomesOrder: Ref<number[]>
   // 收到首个 tick 帧后置 true；此后 legacy trade/market_status 只参与 seq 连续性、不再更新状态
   tickSeen: Ref<boolean>
+  // snapshot 首包携带的历史尾巴（最后封存边界 → now），图表初始化用（阶段 4）
+  historyTail: Ref<HistoryTailMap | null>
 }
 
 // provide/inject 注入 key —— TradingView 调 useMarketRealtime + provide，
@@ -62,6 +65,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   const latestTick = ref<TickFrameData | null>(null)
   const outcomesOrderRef = ref<number[]>([])
   const tickSeen = ref(false)
+  const historyTail = ref<HistoryTailMap | null>(null)
   let lastFrameStatus: string | null = null
 
   // 内部状态：上一次成功处理的 event seq。0 表示尚未通过 snapshot 锚定
@@ -98,6 +102,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
       fireGap(lastSeq + 1, evt.seq)
     }
     lastSeq = evt.seq ?? 0
+    historyTail.value = (evt.data as { history_tail?: HistoryTailMap }).history_tail ?? null
     snapshotToken.value += 1
     reportServerBuild(snap.frontend_build)
   }
@@ -212,6 +217,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
         tickSeen.value = false
         lastFrameStatus = null
         outcomesOrderRef.value = []
+        historyTail.value = null
       }
       if (id !== null && id !== undefined) {
         stream.connect(id)
@@ -242,5 +248,6 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     latestTick,
     outcomesOrder: outcomesOrderRef,
     tickSeen,
+    historyTail,
   }
 }
