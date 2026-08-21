@@ -13,6 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Optional
 
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.database import async_session_maker
@@ -63,6 +64,17 @@ async def _load_one(session, market: Market) -> MarketState:
     )
 
 
+@dataclass
+class OpOutcome:
+    """op 执行结果。op 内部完成 DB 事务；consumer 在 op 返回后统一 apply 内存。"""
+    response: Any
+    new_q_dec: Optional[list[Decimal]] = None
+    new_prices: Optional[list[float]] = None
+    new_status: Optional[MarketStatus] = None
+    candle_rows: list[dict] = field(default_factory=list)
+    publishes: list[tuple[str, dict]] = field(default_factory=list)
+
+
 class MarketWriter:
     QUEUE_MAXSIZE = 256      # 满则 429（spec § 4.3 第一道背压）
     SUBMIT_TIMEOUT = 10.0    # 等结果超时 → 503（spec § 4.3 第二道背压）
@@ -72,6 +84,7 @@ class MarketWriter:
         self._queues: dict[int, asyncio.Queue] = {}
         self._tasks: dict[int, asyncio.Task] = {}
         self._market_by_outcome: dict[int, int] = {}
+        self._ops: dict[type, Any] = {}
         self._enabled = False
 
     @property
@@ -150,11 +163,77 @@ class MarketWriter:
                 self._consume(st.market_id), name=f"market-writer-{st.market_id}"
             )
 
+    def register_op(self, cmd_type: type, op) -> None:
+        self._ops[cmd_type] = op
+
+    async def submit(self, cmd) -> Any:
+        market_id = cmd.market_id
+        q = self._queues.get(market_id)
+        st = self._states.get(market_id)
+        if q is None or st is None:
+            raise HTTPException(status_code=400, detail="市场当前不可交易")
+        if st.unavailable:
+            raise HTTPException(status_code=503, detail="市场状态异常，暂停服务，请稍后重试")
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
+        try:
+            q.put_nowait((cmd, fut))
+        except asyncio.QueueFull:
+            raise HTTPException(status_code=429, detail="交易过于繁忙，请稍后重试")
+        try:
+            return await asyncio.wait_for(fut, timeout=self.SUBMIT_TIMEOUT)
+        except asyncio.TimeoutError:
+            # 命令可能仍在 DB 里执行——结果未知，绝不能说"失败"（spec § 4.3）
+            raise HTTPException(status_code=503, detail="服务繁忙，本次操作结果未知，请刷新后确认")
+
     async def _consume(self, market_id: int) -> None:
-        # Task 3 实现完整命令循环；骨架阶段仅挂起等待
+        from app.services.realtime import BROKER   # 局部 import 避免环
         q = self._queues[market_id]
         while True:
-            await q.get()
+            cmd, fut = await q.get()
+            st = self._states[market_id]
+            try:
+                if st.unavailable:
+                    raise HTTPException(status_code=503, detail="市场状态异常，暂停服务")
+                op = self._ops[type(cmd)]
+                outcome: OpOutcome = await op(st, cmd)
+                # ── commit 已成功（op 返回即视为已 commit）→ apply 内存（spec § 4.4）──
+                if outcome.new_q_dec is not None:
+                    st.q_dec = outcome.new_q_dec
+                    st.q = [float(x) for x in st.q_dec]
+                    if outcome.new_prices is not None:
+                        st.prices = outcome.new_prices
+                    else:
+                        _, st.prices = calculate_lmsr_with_prices(st.q, st.b)
+                if outcome.new_status is not None:
+                    st.status = outcome.new_status
+                if outcome.candle_rows:
+                    self._merge_candles(outcome.candle_rows)
+                for event_type, data in outcome.publishes:
+                    await BROKER.publish(market_id, event_type, data)
+                if not fut.done():
+                    fut.set_result(outcome.response)
+            except HTTPException as e:
+                # 业务拒绝：op 保证此时事务已回滚 / 未开启，内存零变更
+                if not fut.done():
+                    fut.set_exception(e)
+            except asyncio.CancelledError:
+                if not fut.done():
+                    fut.set_exception(HTTPException(status_code=503, detail="服务关闭中"))
+                raise
+            except Exception:
+                # 非预期异常：无法区分 commit 前后 → 一律从镜像重读自愈（spec § 4.4）
+                logger.critical(
+                    "market_writer op crashed, reloading state: market_id=%d cmd=%s",
+                    market_id, type(cmd).__name__, exc_info=True,
+                )
+                if not fut.done():
+                    fut.set_exception(HTTPException(
+                        status_code=500, detail="交易处理异常，结果未知，请刷新后确认"))
+                await self.reload_state(market_id)
+
+    def _merge_candles(self, rows: list[dict]) -> None:
+        # Task 4 接上 CANDLE_FLUSHER.merge(rows)；当前占位 no-op
+        pass
 
 
 WRITER = MarketWriter()
