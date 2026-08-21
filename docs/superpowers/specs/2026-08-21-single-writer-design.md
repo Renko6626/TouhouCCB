@@ -438,6 +438,7 @@ location /history/ {
 | DB 卡死时请求堆积、背压失效 | § 4.3：handler 等 fut 加 10 s 超时 → 503，与队列满 429 双道背压 |
 | 不完整历史段被 immutable 固化 | § 7.2 三道防线：进行中段 404、ring 窗口内从 ring 供数、超窗段确认 flush 高水位后才 200 |
 | 阶段 3 部署瞬间旧 tab 拿到砍过的 summary 响应 | 阶段 2 先上线 build 版本自刷机制（§ 8） |
+| SQLAdmin 面板直接改 `Market.liquidity_b/status/closes_at` 或 `Outcome.total_shares`，writer 内存看不到（成交侧与估值侧用两个 b；手工修数会被下一笔绝对值 SET 覆盖） | **flag 开启后禁止在 admin 面板编辑市场/选项字段；确需修改必须改完立即重启后端**。更硬的防线（`MarketAdmin`/`OutcomeAdmin` 设 `can_edit=False`）动红线文件 `core/admin.py`，留待用户决定 |
 
 ## 10. 不在本次范围
 
