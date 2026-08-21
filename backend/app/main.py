@@ -74,9 +74,25 @@ async def lifespan(app: FastAPI):
     await start_loan_scheduler()
     await start_liquidation_scheduler()
     await start_bot_detection_scheduler()
+    # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
+    from app.core.database import async_session_maker
+    from app.services import site_config as _site_config
+    from app.services.market_writer import WRITER
+    from app.services.candle_flusher import CANDLE_FLUSHER
+    async with async_session_maker() as _s:
+        _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
+    if _sw:
+        await WRITER.start()
+        await CANDLE_FLUSHER.start()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
     # 启动顺序 loan → liquidation → bot_detection，停止时反序
+    # writer 先停（断新增命令）、flusher 再停（做最终 flush），避免停 flusher 时
+    # writer 仍在往 _pending 塞数据
+    from app.services.market_writer import WRITER as _writer
+    from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
+    await _writer.stop()
+    await _flusher.stop()
     await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()

@@ -68,6 +68,14 @@ async def get_bool(session: AsyncSession, key: str) -> bool:
     return (await _get_raw(session, key)).lower() in ("true", "1", "yes")
 
 
+async def get_bool_or(session: AsyncSession, key: str, default: bool) -> bool:
+    """读 bool；key 不存在时返回 default（不抛 SiteConfigError）。"""
+    try:
+        return await get_bool(session, key)
+    except SiteConfigError:
+        return default
+
+
 async def get_str(session: AsyncSession, key: str) -> str:
     return await _get_raw(session, key)
 

@@ -80,6 +80,14 @@ async def setup_db():
     """
     from app.models.base import SiteConfig
     from app.core.database import async_session_maker
+    from app.services.market_writer import WRITER
+    from app.services.candle_flusher import CANDLE_FLUSHER
+
+    # 防上一测试的 writer/flusher 状态泄漏：module-scope lifespan 意味着 lifespan
+    # 只在 module 首测启动、且当时 flag 缺失 → writer 默认不启，测试用 writer_on
+    # fixture 显式启
+    await WRITER.stop()
+    CANDLE_FLUSHER._pending.clear()
 
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)

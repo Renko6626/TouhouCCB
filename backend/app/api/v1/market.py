@@ -220,6 +220,11 @@ async def create_market(
         db.add(Outcome(market_id=new_market.id, label=label, total_shares=ZERO))
 
     await db.commit()
+
+    from app.services.market_writer import WRITER
+    if WRITER.enabled:
+        await WRITER.register_market(int(new_market.id))
+
     return {
         "status": "success",
         "market_id": new_market.id,

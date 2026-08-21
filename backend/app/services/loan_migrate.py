@@ -49,6 +49,8 @@ DEFAULT_CONFIGS = [
     # ── 经济参数（admin 热配）──
     ("sell_fee_rate", "0", "decimal"),                         # 卖出手续费率，默认 0
     ("initial_balance", str(settings.INITIAL_BALANCE), "decimal"),  # 新用户初始余额
+    # ── 单写者重构（spec 2026-08-21）──
+    ("single_writer_enabled", "false", "bool"),   # 翻转需重启进程（启动时读一次）
 ]
 
 
