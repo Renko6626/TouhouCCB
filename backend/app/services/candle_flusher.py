@@ -48,6 +48,17 @@ class CandleFlusher:
     def pending_count(self) -> int:
         return len(self._pending)
 
+    def oldest_pending_bucket(self):
+        """pending 里最老的 bucket_start；空返回 None。
+
+        /history/ 防线 3 用作 flush 高水位：某段末尾 <= 本值（或本值为 None）
+        才允许从 DB 吐该段——防"封存边界刚过、5s 批次未落库"的窗口把不完整段
+        以 immutable 固化（spec § 7.2 防线 3）。
+        """
+        if not self._pending:
+            return None
+        return min(row["bucket_start"] for row in self._pending.values())
+
     def merge(self, rows: list[dict]) -> None:
         for row in rows:
             k = _key(row)

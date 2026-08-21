@@ -97,3 +97,16 @@ async def test_flush_failure_remerges(monkeypatch):
     assert merged["open_price"] == Decimal("0.5")
     assert merged["close_price"] == Decimal("0.7")
     assert merged["volume_shares"] == Decimal("3")
+
+
+def test_oldest_pending_bucket_none_when_empty():
+    assert CANDLE_FLUSHER.oldest_pending_bucket() is None
+
+
+def test_oldest_pending_bucket_returns_min_bucket_start():
+    from datetime import datetime, timezone
+    early = datetime(2026, 8, 21, 0, 0, 0, tzinfo=timezone.utc)
+    late = datetime(2026, 8, 21, 0, 10, 0, tzinfo=timezone.utc)
+    CANDLE_FLUSHER.merge([_row(1, bucket=late)])
+    CANDLE_FLUSHER.merge([_row(1, bucket=early)])
+    assert CANDLE_FLUSHER.oldest_pending_bucket() == early
