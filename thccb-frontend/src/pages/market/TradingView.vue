@@ -13,7 +13,8 @@ import PriceChart from '@/components/chart/PriceChart.vue'
 import CandleChart from '@/components/chart/CandleChart.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import TitleChip from '@/components/title/TitleChip.vue'
-import type { QuoteResponse, ChartInterval } from '@/types/api'
+import type { ChartInterval, QuoteResponse } from '@/types/api'
+import { buyCost, sellProceeds } from '@/utils/lmsr'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,7 +42,6 @@ const selectedOutcomeId = ref<number | null>(null)
 const shares = ref(1)
 // 最大滑点：默认 1%（100 bps）；服务端 hardcap=1000 bps
 const maxSlippageBps = ref(100)
-const quoteResult = ref<QuoteResponse | null>(null)
 const activeChartType = ref<'price' | 'candle'>('candle')
 const candleInterval = ref<ChartInterval>('1m')
 const candleIntervalOptions = [
@@ -146,10 +146,6 @@ onBeforeUnmount(() => {
     clearTimeout(realtimeRefreshTimer)
     realtimeRefreshTimer = null
   }
-  if (quoteTimer) {
-    clearTimeout(quoteTimer)
-    quoteTimer = null
-  }
   if (tradePanelObserver) {
     tradePanelObserver.disconnect()
     tradePanelObserver = null
@@ -173,19 +169,6 @@ const scheduleRealtimeRefresh = () => {
   }, 300)
 }
 
-// ── SSE 丢包兜底（perf）──
-// trade 事件走增量更新（不 refetch）后，理论上 marketTrades / 价格永远跟服务端一致。
-// 但 SSE 队列满被踢、网络断线重连前的间隙可能丢消息。每 60s 至多触发一次静默
-// fetchMarketTrades 做 sanity 校准。不重要的失败不打扰用户。
-const SANITY_REFRESH_INTERVAL_MS = 60_000
-let lastSanityRefreshAt = 0
-const maybeSanityRefresh = () => {
-  if (!marketId.value) return
-  if (Date.now() - lastSanityRefreshAt < SANITY_REFRESH_INTERVAL_MS) return
-  lastSanityRefreshAt = Date.now()
-  marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
-}
-
 // ── SSE 驱动的本地状态更新（不再 refetch）──
 // 每条 trade → 增量 append 到 marketTrades + 用 market_prices_post 全量 patch outcomes 当前价
 watch(realtime.latestTrade, (trade) => {
@@ -198,7 +181,6 @@ watch(realtime.latestTrade, (trade) => {
     // 老后端没带 market_prices_post → 退化只 patch 被交易那个
     marketStore.patchOutcomePriceFromTrade(trade.outcome_id, trade.post_market_price)
   }
-  maybeSanityRefresh()
 })
 
 // ── tick 帧驱动的本地状态更新（阶段 2）──
@@ -213,8 +195,10 @@ watch(realtime.latestTick, (frame) => {
   }
   if (frame.prices.length) {
     marketStore.patchAllPricesFromTrade(frame.prices)   // 帧价格与 market_prices_post 同序（id 升序）
+    // 本地估值（Portfolio/Home/TradePanel 的 holdings/net_worth）用的 priceContext
+    // 只由 summary 全量重建，这里续写当前市场，保持数字不陈旧。
+    userStore.patchMarketPrices(marketId.value, frame.prices)
   }
-  if (frame.trades.length) maybeSanityRefresh()
 })
 
 // market_status 变化（halt/settled）→ 重拉 market detail 让 UI 状态机更新
@@ -228,6 +212,7 @@ watch(realtime.latestMarketStatus, (status) => {
 watch(realtime.gapToken, () => {
   if (realtime.gapToken.value > 0 && marketId.value) {
     marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
+    userStore.fetchSummary().catch(() => {})
   }
 })
 
@@ -276,26 +261,32 @@ const quoteExceedsCash = computed(() => {
   return quoteResult.value.net > userStore.summary.cash
 })
 
-// 获取交易报价
-const getQuote = async () => {
-  if (!selectedOutcomeId.value || shares.value <= 0) {
-    quoteResult.value = null
-    return
+// 本地报价预览（spec §6.1/§6.3）：闭式公式 + 当前价 + b + sell_fee_rate。
+// 永远是预览，成交以 writer 返回为准；滑点保护仍由服务端执行。
+const quoteResult = computed<QuoteResponse | null>(() => {
+  const oid = selectedOutcomeId.value
+  const mkt = marketStore.currentMarket
+  const n = shares.value
+  if (!oid || !mkt || n <= 0) return null
+  const outcome = mkt.outcomes.find(o => o.id === oid)
+  if (!outcome) return null
+  // 优先 SSE 实时价（tick 帧续写），回退 REST 详情价
+  const p = realtime.pricesByOutcome.value.get(oid) ?? outcome.current_price
+  if (p <= 0) return null
+  const b = mkt.liquidity_b
+  if (tradeType.value === 'buy') {
+    const gross = buyCost(p, n, b)
+    if (gross <= 0) return null
+    return { outcome_id: oid, side: 'buy', shares: n,
+             avg_price: gross / n, gross, fee: 0, net: gross }
   }
-
-  try {
-    const result = await marketStore.getQuote(
-      selectedOutcomeId.value,
-      shares.value,
-      tradeType.value
-    )
-    if (result?.data) {
-      quoteResult.value = result.data
-    }
-  } catch (error) {
-    quoteResult.value = null
-  }
-}
+  const gross = sellProceeds(p, n, b)
+  if (gross <= 0) return null
+  const feeRate = userStore.summary?.sell_fee_rate ?? 0
+  const fee = gross * feeRate
+  return { outcome_id: oid, side: 'sell', shares: n,
+           avg_price: gross / n, gross, fee, net: gross - fee }
+})
 
 // 计算交易后现金
 const estimatedNewCash = computed(() => {
@@ -306,26 +297,14 @@ const estimatedNewCash = computed(() => {
     : userStore.summary.cash + Math.abs(netCost)
 })
 
-// 防抖获取报价，避免输入时连续发请求
-let quoteTimer: ReturnType<typeof setTimeout> | null = null
-const debouncedGetQuote = () => {
-  if (quoteTimer) clearTimeout(quoteTimer)
-  quoteTimer = setTimeout(() => getQuote(), 400)
-}
-
-// 监听交易参数变化
-watch([tradeType, selectedOutcomeId, shares], () => {
-  debouncedGetQuote()
-}, { immediate: true })
-
-// 执行交易（tradeLoading 由 marketStore 统一管理）
-// maxSlippageBps = -1 是 TradePanel 里 SLIPPAGE_UNLIMITED sentinel，
-// 转成 acceptAnySlippage=true 让后端跳过 bps 检查（平仓 / 大额建仓场景）
+// 执行交易：成交后本地 apply（spec §6.4），不再 refetch 市场/用户数据。
+// pay 从现金差推导——new_cash 是 6dp 全精度，比 2dp 的 cost 字段精确。
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
 
   const acceptAnySlippage = maxSlippageBps.value === -1
   const effectiveBps = acceptAnySlippage ? undefined : maxSlippageBps.value
+  const prevCash = userStore.summary?.cash ?? null
 
   try {
     const result = tradeType.value === 'buy'
@@ -336,18 +315,23 @@ const executeTrade = async () => {
       message.error(result.error || '交易失败，请重试')
       return
     }
-
     message.success(`${tradeType.value === 'buy' ? '买入' : '卖出'}成功`)
 
-    // 刷新数据
-    await Promise.all([
-      loadMarketData(),
-      loadUserData()
-    ])
+    if (result.data && prevCash !== null && marketStore.currentMarket) {
+      userStore.applyTradeFill({
+        side: tradeType.value,
+        outcomeId: selectedOutcomeId.value,
+        marketId: marketStore.currentMarket.id,
+        shares: result.data.shares,
+        pay: Math.abs(prevCash - result.data.new_cash),
+        newCash: result.data.new_cash,
+        outcomeLabel: selectedOutcome.value?.label,
+        marketTitle: marketStore.currentMarket.title,
+      })
+    }
 
-    // 重置表单
+    // 重置表单（quoteResult 是 computed，自动跟随）
     shares.value = 1
-    quoteResult.value = null
   } catch (err: any) {
     message.error(err?.message || '交易失败，请重试')
   }

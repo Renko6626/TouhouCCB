@@ -4,8 +4,6 @@ import type {
   MarketDetail,
   TradeRequest,
   TradeResponse,
-  QuoteRequest,
-  QuoteResponse,
   MarketTrade,
   LeaderboardItem,
   MarketCreateResponse,
@@ -60,10 +58,6 @@ export const marketApi = {
       request.max_slippage_bps = maxSlippageBps
     }
     return api.post<TradeResponse>('/api/v1/market/sell', request)
-  },
-
-  async quote(request: QuoteRequest): Promise<QuoteResponse> {
-    return api.post<QuoteResponse>('/api/v1/market/quote', request)
   },
 
   // 关闭市场交易（仅管理员）
