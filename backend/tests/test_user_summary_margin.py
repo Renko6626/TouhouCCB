@@ -1,4 +1,4 @@
-"""/user/summary 新增 margin_ratio + margin_status + last_liquidated_at."""
+"""/user/summary margin_status + last_liquidated_at（阶段 3：margin_ratio/net_worth/rank 已下放客户端，服务端只权威判 margin_status）。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -46,19 +46,17 @@ async def _seed_liquidation_config(hard="0.2", soft="0.5"):
 
 @pytest.mark.asyncio
 async def test_user_summary_healthy_no_debt(client):
-    """debt=0 时 margin_ratio=None, margin_status='healthy', last_liquidated_at=None。"""
+    """debt=0 时 margin_status='healthy', last_liquidated_at=None（无 LMSR 开销）。"""
     _, h = await _make_user(cash=Decimal("1000"), debt=Decimal("0"))
     r = await client.get("/api/v1/user/summary", headers=h)
     assert r.status_code == 200, r.text
     body = r.json()
 
-    # Original fields still present
+    # 阶段 3 契约字段
     assert "cash" in body
-    assert "net_worth" in body
-    assert "rank" in body
+    assert "net_worth" not in body
+    assert "rank" not in body
 
-    # New fields
-    assert body["margin_ratio"] is None
     assert body["margin_status"] == "healthy"
     assert body["last_liquidated_at"] is None
 
@@ -76,13 +74,7 @@ async def test_user_summary_warning_status(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_ratio"] is not None
     # ratio = (400 - 1000) / 1000 = -0.6 → danger (< 0.2)
-    # Need net_worth > debt * hard and net_worth < debt * soft
-    # So actually re-examine: net_worth = cash - debt + holdings = 400 - 1000 + 0 = -600
-    # -600 / 1000 = -0.6 < 0.2 → danger
-    # Fix: use positive net_worth between thresholds
-    # cash=1300, debt=1000 → net_worth=300 → ratio=300/1000=0.3 → 0.2 < 0.3 < 0.5 → warning
     assert body["margin_status"] in ("healthy", "warning", "danger")
 
 
@@ -96,9 +88,6 @@ async def test_user_summary_warning_status_correct(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_ratio"] is not None
-    ratio = Decimal(str(body["margin_ratio"]))
-    assert ratio == Decimal("0.300000")
     assert body["margin_status"] == "warning"
 
 
@@ -112,9 +101,6 @@ async def test_user_summary_danger_status(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_ratio"] is not None
-    ratio = Decimal(str(body["margin_ratio"]))
-    assert ratio == Decimal("0.100000")
     assert body["margin_status"] == "danger"
 
 
@@ -128,9 +114,6 @@ async def test_user_summary_healthy_with_debt(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_ratio"] is not None
-    ratio = Decimal(str(body["margin_ratio"]))
-    assert ratio == Decimal("1.000000")
     assert body["margin_status"] == "healthy"
 
 
@@ -158,5 +141,4 @@ async def test_user_summary_fallback_thresholds_when_no_config(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_ratio"] is not None
     assert body["margin_status"] == "warning"
