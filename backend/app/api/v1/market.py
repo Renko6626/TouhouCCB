@@ -680,7 +680,7 @@ async def buy_shares(
     return {
         "shares": float(shares_d),
         "cost": float(pay.quantize(Decimal("0.01"))),
-        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "new_cash": quantize_cost(locked_user.cash),
         "message": f"成功买入 {shares_d:f} 张 {outcome.label}（均价≈{avg_price}）",
     }
 
@@ -855,7 +855,7 @@ async def sell_shares(
     return {
         "shares": float(shares_d),
         "cost": float((-net).quantize(Decimal("0.01"))),
-        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "new_cash": quantize_cost(locked_user.cash),
         "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
     }
 

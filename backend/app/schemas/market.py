@@ -72,7 +72,9 @@ class TradeRequest(BaseModel):
 class TradeResponse(BaseModel):
     shares: float
     cost: float
-    new_cash: float
+    # 6dp 全精度（Money serialize→float）：阶段 3 起是客户端本地 apply 的
+    # cash 基线，2dp 舍入会每笔累积最多 0.005 漂移（spec §6.4 配套修正）
+    new_cash: Money
     message: str
 
 

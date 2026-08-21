@@ -171,7 +171,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
         response={
             "shares": float(shares_d),
             "cost": float(pay.quantize(Decimal("0.01"))),
-            "new_cash": float(new_cash.quantize(Decimal("0.01"))),
+            "new_cash": quantize_cost(new_cash),
             "message": f"成功买入 {shares_d:f} 张 {label}（均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
@@ -295,7 +295,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
         response={
             "shares": float(shares_d),
             "cost": float((-net).quantize(Decimal("0.01"))),
-            "new_cash": float(new_cash.quantize(Decimal("0.01"))),
+            "new_cash": quantize_cost(new_cash),
             "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
