@@ -18,6 +18,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.models.base import Market, MarketStatus, Outcome
+from app.services.history_ring import RING_SPEC, HistoryRing
 from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services import tick_broadcaster as _tick
 
@@ -36,6 +37,7 @@ class MarketState:
     status: MarketStatus
     closes_at: Optional[datetime]
     unavailable: bool = False     # 自愈失败后置 True：该市场一律 503（spec § 4.4 异常策略）
+    rings: dict[int, "HistoryRing"] = field(default_factory=dict)  # outcome_id → 环形缓冲（spec § 7.1）
 
 
 def _derive(q_dec: list[Decimal], b: float) -> tuple[list[float], list[float]]:
@@ -51,6 +53,36 @@ async def _load_one(session, market: Market) -> MarketState:
     )).scalars().all()
     q_dec = [quantize_cost(o.total_shares) for o in outs]
     q, prices = _derive(q_dec, float(market.liquidity_b))
+    # ── ring 回灌（spec § 7.1）：从镜像 OutcomeCandle 读回各档窗口内的桶 ──
+    # 依赖 lifespan 顺序：_resync_recent_candles 先于 WRITER.start() 执行，
+    # 崩溃丢失的 ≤5s candle 已被重放修复，镜像此刻可信。
+    import time as _time
+    from app.models.base import OutcomeCandle
+    now_epoch = int(_time.time())
+    max_window = max(t.window for t in RING_SPEC.values())
+    from datetime import datetime as _dt, timezone as _tz
+    cutoff = _dt.fromtimestamp(now_epoch - max_window, tz=_tz.utc)
+    rings: dict[int, HistoryRing] = {int(o.id): HistoryRing() for o in outs}
+    candle_rows = (await session.execute(
+        select(OutcomeCandle).where(
+            OutcomeCandle.outcome_id.in_([int(o.id) for o in outs]),
+            OutcomeCandle.interval.in_(list(RING_SPEC.keys())),
+            OutcomeCandle.bucket_start >= cutoff,
+        )
+    )).scalars().all()
+    for c in candle_rows:
+        bs = c.bucket_start if c.bucket_start.tzinfo else c.bucket_start.replace(tzinfo=_tz.utc)
+        tier = RING_SPEC[c.interval]
+        if int(bs.timestamp()) < now_epoch - tier.window:
+            continue   # 该档窗口外（cutoff 用的是最长窗口 90d，短档要再过滤）
+        rings[int(c.outcome_id)].merge_row({
+            "outcome_id": int(c.outcome_id), "interval": c.interval,
+            "bucket_start": bs,
+            "open_price": c.open_price, "high_price": c.high_price,
+            "low_price": c.low_price, "close_price": c.close_price,
+            "volume_shares": c.volume_shares, "n_trades": c.n_trades,
+            "updated_at": c.updated_at,
+        })
     return MarketState(
         market_id=int(market.id),
         b=float(market.liquidity_b),
@@ -61,6 +93,7 @@ async def _load_one(session, market: Market) -> MarketState:
         prices=prices,
         status=market.status,
         closes_at=market.closes_at,
+        rings=rings,
     )
 
 
@@ -147,6 +180,7 @@ class MarketWriter:
             st = self._states[market_id]
             st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
             st.status, st.closes_at = st_new.status, st_new.closes_at
+            st.rings = st_new.rings   # 自愈同样从镜像重建 ring（resync 保证镜像可信）
             st.unavailable = False
             logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
         except Exception:
@@ -221,6 +255,11 @@ class MarketWriter:
                     st.status = outcome.new_status
                 if outcome.candle_rows:
                     self._merge_candles(outcome.candle_rows)
+                    # ring 与 flusher 吃同一份行——两者永远一致（spec § 7.5）
+                    for row in outcome.candle_rows:
+                        ring = st.rings.get(int(row["outcome_id"]))
+                        if ring is not None:
+                            ring.merge_row(row)
                 # ── tick 帧投喂（spec § 5.1）──
                 prices_8dp = [float(quantize_price(p)) for p in st.prices]
                 if outcome.tick_trade is not None:

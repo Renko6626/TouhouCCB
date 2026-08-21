@@ -66,6 +66,8 @@ async def lifespan(app: FastAPI):
     setup_admin(app, engine)
     # ── candle 表 race-window 兜底扫（spec § 6.3）──
     # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
+    # ★ 顺序依赖（阶段 4）：必须先于 WRITER.start()——writer 启动时从
+    #   OutcomeCandle 回灌 HistoryRing，resync 先跑保证崩溃丢失的 ≤5s 已修复。
     try:
         await _resync_recent_candles()
     except Exception as e:
