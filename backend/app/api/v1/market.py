@@ -681,6 +681,28 @@ async def sell_shares(
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import SellCmd
+    if WRITER.enabled:
+        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
+        if mid is None:
+            row = await db.execute(
+                select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+            if row.scalars().first() is None:
+                raise HTTPException(status_code=404, detail="选项不存在")
+            # outcome 存在但市场不在 writer（启动前已 SETTLED）→ 与老路径同文案
+            raise HTTPException(status_code=400, detail="市场当前不可交易")
+        return await WRITER.submit(SellCmd(
+            market_id=mid,
+            outcome_id=int(req.outcome_id),
+            user_id=int(user.id),
+            username=user.username,
+            shares=shares_d,
+            min_proceeds=req.min_proceeds,
+            max_slippage_bps=req.max_slippage_bps,
+            accept_any_slippage=req.accept_any_slippage,
+        ))
+
     async with managed_transaction(db):
         # ── 锁顺序（P1 follow-up）──
         # 先无锁读取 outcome 的 market_id，避免提前持有行锁。

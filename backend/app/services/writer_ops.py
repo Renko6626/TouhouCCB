@@ -182,6 +182,133 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
     )
 
 
+@dataclass
+class SellCmd:
+    market_id: int
+    outcome_id: int
+    user_id: int
+    username: str
+    shares: Decimal
+    min_proceeds: Optional[Decimal]
+    max_slippage_bps: Optional[int]
+    accept_any_slippage: bool
+
+
+async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
+    """与 op_buy 结构对称。
+
+    **与老路径的已知行为差**：老路径先查持仓再算 LMSR；writer 路径滑点/总量
+    守卫在内存先算（Step 1，零 IO）、持仓在 DB 事务里查（Step 2）——任何
+    「持仓不足 **且**（滑点超限 或 市场总量不足）」的双违规请求，都会先收到
+    内存阶段的错误而不是持仓错误。这在单一交易者市场里尤其容易碰到：卖出量
+    超过自己全部持仓时，市场总量与持仓数值恒等（持仓 ≤ 总量的不变式），
+    「总量不足」会抢在「持仓不足」之前触发。单违规行为完全一致。
+    """
+    # 1. 内存定价与校验
+    _require_trading_state(state)
+    idx = _target_idx(state, cmd.outcome_id)
+    shares_d = quantize_cost(cmd.shares)
+    if shares_d <= ZERO:
+        raise HTTPException(status_code=422, detail="shares 必须为正数")
+    if state.q[idx] < float(shares_d):
+        raise HTTPException(status_code=400, detail="市场总份额不足（异常状态）")
+
+    old_q, b = state.q, state.b
+    new_q = list(old_q)
+    new_q[idx] -= float(shares_d)
+    old_cost_f, old_prices = calculate_lmsr_with_prices(old_q, b)
+    new_cost_f, new_prices = calculate_lmsr_with_prices(new_q, b)
+    proceeds = quantize_cost(old_cost_f - new_cost_f)
+    if proceeds < ZERO:
+        proceeds = ZERO
+
+    new_q_dec = list(state.q_dec)
+    new_q_dec[idx] = quantize_cost(new_q_dec[idx] - shares_d)
+
+    marginal_price = Decimal(str(old_prices[idx]))
+    expected_proceeds = (marginal_price * shares_d).quantize(Decimal("0.000001"))
+    avg_price = quantize_price(proceeds / shares_d) if shares_d > ZERO else ZERO
+    pre_mp = quantize_price(old_prices[idx])
+    post_mp = quantize_price(new_prices[idx])
+
+    # 2. DB 事务：fee 率读取 + 滑点（fee 依赖 site_config，在事务 session 上读，60s 缓存）
+    async with async_session_maker() as session:
+        async with session.begin():
+            sell_fee_rate = await site_config.get_decimal_or(session, "sell_fee_rate", ZERO)
+            fee = (proceeds * sell_fee_rate).quantize(Decimal("0.000001"))
+            net = proceeds - fee
+            check_sell_slippage(proceeds, net, expected_proceeds, marginal_price,
+                                cmd.min_proceeds, cmd.max_slippage_bps,
+                                cmd.accept_any_slippage)
+
+            locked_user = await lock_user(session, cmd.user_id)
+            pos = (await session.execute(
+                select(Position)
+                .where(Position.user_id == cmd.user_id,
+                       Position.outcome_id == int(cmd.outcome_id))
+                .with_for_update()
+            )).scalars().first()
+            if not pos or pos.amount < shares_d:
+                raise HTTPException(status_code=400, detail="持仓不足")
+
+            locked_user.cash += net
+            if pos.amount > ZERO:
+                sold_ratio = shares_d / pos.amount
+                pos.cost_basis -= (pos.cost_basis * sold_ratio).quantize(Decimal("0.000001"))
+            pos.amount -= shares_d
+            if pos.amount <= ZERO:
+                pos.cost_basis = ZERO
+
+            tx = Transaction(
+                user_id=cmd.user_id, outcome_id=int(cmd.outcome_id),
+                type=TransactionType.SELL, shares=shares_d, cost=-net,
+                price=avg_price, pre_market_price=pre_mp, post_market_price=post_mp,
+                gross=proceeds, fee=fee, market_prices_post=list(new_prices),
+            )
+            session.add(tx)
+            await session.execute(
+                sa_update(Outcome).where(Outcome.id == int(cmd.outcome_id))
+                .values(total_shares=new_q_dec[idx])
+            )
+        new_cash = locked_user.cash
+
+    ts = tx.timestamp if tx.timestamp else datetime.now(timezone.utc)
+    candle_rows = compute_candle_rows(
+        traded_outcome_id=int(cmd.outcome_id), outcome_ids=state.outcome_ids,
+        pre_prices=old_prices, new_prices=new_prices, traded_shares=shares_d, ts=ts,
+    )
+    logger.info(
+        "SELL(writer) user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s "
+        "net=%s avg_price=%s new_cash=%s",
+        cmd.user_id, cmd.outcome_id, state.market_id, shares_d, proceeds, fee, net,
+        avg_price, new_cash,
+    )
+    return OpOutcome(
+        response={
+            "shares": float(shares_d),
+            "cost": float((-net).quantize(Decimal("0.01"))),
+            "new_cash": float(new_cash.quantize(Decimal("0.01"))),
+            "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
+        },
+        new_q_dec=new_q_dec,
+        new_prices=new_prices,
+        candle_rows=candle_rows,
+        publishes=[(
+            "trade",
+            {"trade": {
+                "id": int(tx.id), "type": TransactionType.SELL,
+                "outcome_id": int(cmd.outcome_id), "username": cmd.username,
+                "shares": float(shares_d), "price": float(avg_price),
+                "gross": float(proceeds), "fee": float(fee),
+                "post_market_price": float(post_mp),
+                "market_prices_post": [float(p) for p in new_prices],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }},
+        )],
+    )
+
+
 def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(BuyCmd, op_buy)
-    # Task 7-9 在此追加注册 SellCmd / ResolveCmd / CloseCmd / ResumeCmd / LiquidateMarketCmd
+    writer.register_op(SellCmd, op_sell)
+    # Task 8-9 在此追加注册 ResolveCmd / CloseCmd / ResumeCmd / LiquidateMarketCmd
