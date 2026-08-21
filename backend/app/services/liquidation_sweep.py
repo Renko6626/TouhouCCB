@@ -110,7 +110,8 @@ async def _liquidate_one_user(
                 ev = await liquidation_service.liquidate_user_split(
                     uid, daily_rate=rate, trigger_source=trigger_source,
                     partial_pct=partial_pct, target_margin=target_margin,
-                    emergency_threshold=emergency_threshold)
+                    emergency_threshold=emergency_threshold,
+                    hard_threshold=hard_thr)
                 if ev is None:
                     _recently_attempted[uid] = now
                 return "triggered"

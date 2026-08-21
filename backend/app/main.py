@@ -86,16 +86,19 @@ async def lifespan(app: FastAPI):
         await CANDLE_FLUSHER.start()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
-    # 启动顺序 loan → liquidation → bot_detection，停止时反序
-    # writer 先停（断新增命令）、flusher 再停（做最终 flush），避免停 flusher 时
+    # 启动顺序 loan → liquidation → bot_detection，停止时反序。
+    # 调度器（含 liquidation sweep）必须先于 writer/flusher 停——反过来，在途 sweep
+    # 会读到 WRITER.enabled=False 落回老路径，或在阶段 B 全部 submit 失败后写出
+    # sold_positions_count=0 的假 LiquidationEvent（final review IMP-4）。
+    # writer 再停（断新增命令）、flusher 最后停（做最终 flush），避免停 flusher 时
     # writer 仍在往 _pending 塞数据
+    await stop_bot_detection_scheduler()
+    await stop_liquidation_scheduler()
+    await stop_loan_scheduler()
     from app.services.market_writer import WRITER as _writer
     from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
     await _writer.stop()
     await _flusher.stop()
-    await stop_bot_detection_scheduler()
-    await stop_liquidation_scheduler()
-    await stop_loan_scheduler()
     await engine.dispose()
 
 

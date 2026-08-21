@@ -149,7 +149,12 @@ class MarketWriter:
             st.unavailable = False
             logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
         except Exception:
-            self._states[market_id].unavailable = True
+            # .get() 防 KeyError：stop() 可能已清空 _states；KeyError 穿出会静默
+            # 杀死 consumer task，让该市场所有后续请求硬等 10s 后 503 且无日志
+            # （final review MIN-3）
+            st = self._states.get(market_id)
+            if st is not None:
+                st.unavailable = True
             logger.critical(
                 "market_writer reload FAILED, market %d marked unavailable", market_id,
                 exc_info=True,
@@ -192,6 +197,11 @@ class MarketWriter:
         q = self._queues[market_id]
         while True:
             cmd, fut = await q.get()
+            if fut.done():
+                # 调用方已超时/放弃（submit 的 wait_for cancel 了 future）——不再执行。
+                # 否则 DB 卡顿期积压的命令会在几十秒后按完全不同的价格无保护成交
+                # （accept_any_slippage 的平仓单没有任何护栏，final review IMP-1）。
+                continue
             st = self._states[market_id]
             try:
                 if st.unavailable:

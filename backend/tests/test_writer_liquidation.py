@@ -57,7 +57,8 @@ async def _give_position(uid, oid, amount, cost):
 
 ARGS = dict(daily_rate=Decimal("0.001"), trigger_source="test",
             partial_pct=Decimal("1"), target_margin=Decimal("0.5"),
-            emergency_threshold=Decimal("0.1"))
+            emergency_threshold=Decimal("0.1"),
+            hard_threshold=Decimal("1.0"))
 
 
 @pytest.mark.asyncio
@@ -90,20 +91,56 @@ async def test_split_liquidation_two_markets_writes_one_summary_event():
 
 
 @pytest.mark.asyncio
-async def test_split_liquidation_halt_market_skipped_others_sold():
+async def test_split_liquidation_user_with_halt_holdings_skipped_entirely():
+    """阶段 A 锁内复检：持有任何 HALT 仓的用户整体放过（与老路径 sweep 守卫同语义）。"""
+    from app.models.base import LiquidationEvent
+    from app.services.liquidation_service import liquidate_user_split
     m1, o1 = await _seed_market(shares=("0", "0"))
     m2, o2 = await _seed_market(shares=("0", "0"), status=MarketStatus.HALT)
     uid = await _seed_debtor()
     await _give_position(uid, o1[0], "20", "10")
     await _give_position(uid, o2[0], "20", "10")
     await WRITER.start()
-    from app.services.liquidation_service import liquidate_user_split
     ev = await liquidate_user_split(uid, **ARGS)
-    assert ev.sold_positions_count == 1                # HALT 市场跳过，其余照卖
+    assert ev is None
+    async with async_session_maker() as s:
+        remaining = (await s.execute(select(Position))).scalars().all()
+        assert len(remaining) == 2                     # 一张仓都没动
+        assert (await s.execute(select(LiquidationEvent))).scalars().first() is None
+
+
+@pytest.mark.asyncio
+async def test_split_liquidation_recheck_margin_recovered_returns_none():
+    """阶段 A 锁内复检：判定窗口里用户已自救（margin ≥ hard）→ 整体放过（IMP-3 修复）。"""
+    from app.models.base import LiquidationEvent
+    from app.services.liquidation_service import liquidate_user_split
+    m1, o1 = await _seed_market(shares=("0", "0"))
+    uid = await _seed_debtor(cash="1000", debt="50")   # margin ≈ 19 >> hard=1.0
+    await _give_position(uid, o1[0], "20", "10")
+    await WRITER.start()
+    ev = await liquidate_user_split(uid, **ARGS)
+    assert ev is None
+    async with async_session_maker() as s:
+        remaining = (await s.execute(select(Position))).scalars().all()
+        assert len(remaining) == 1                     # 仓位原封不动
+        assert (await s.execute(select(LiquidationEvent))).scalars().first() is None
+        assert (await s.get(User, uid)).last_liquidated_at is None
+
+
+@pytest.mark.asyncio
+async def test_op_liquidate_market_halt_returns_empty():
+    """op 级 HALT 防御（阶段 A 通过后、阶段 B 执行前市场被熔断的 race 兜底）。"""
+    from app.services.writer_ops import LiquidateMarketCmd
+    m1, o1 = await _seed_market(shares=("0", "0"), status=MarketStatus.HALT)
+    uid = await _seed_debtor()
+    await _give_position(uid, o1[0], "20", "10")
+    await WRITER.start()
+    r = await WRITER.submit(LiquidateMarketCmd(
+        market_id=m1, user_id=uid, mode="emergency", partial_pct=Decimal("1")))
+    assert r == {"sold_count": 0, "total_proceeds": Decimal("0")}
     async with async_session_maker() as s:
         remaining = (await s.execute(select(Position))).scalars().all()
         assert len(remaining) == 1
-        assert remaining[0].outcome_id == o2[0]
 
 
 @pytest.mark.asyncio

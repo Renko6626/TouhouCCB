@@ -255,3 +255,41 @@ async def test_sweep_triggers_user_with_only_trading_holdings(client):
         f"纯 TRADING 持仓用户应被正常强平，但被跳过了: {result}"
     )
     assert isinstance(result["sweep_duration_ms"], int)
+
+
+@pytest.mark.asyncio
+async def test_sweep_writer_branch_liquidates_via_writer(client):
+    """flag 开启时 sweep 走 WRITER.enabled 分支的端到端覆盖（final review IMP-3 配套）。
+
+    断言：危险用户经 writer 被强平（LIQUIDATE 落库 + 汇总 event + writer 内存推进）。
+    这是全分支唯一只在生产 flag 开启时才执行的代码路径，必须有 pytest 覆盖。
+    """
+    from app.models.base import Transaction, TransactionType
+    from app.services.market_writer import WRITER
+
+    await _enable_liquidation()
+    async with async_session_maker() as db:
+        uid = await _seed_user(db, cash=0, debt=500, hv_via_position=("A", 50))
+
+    await WRITER.start()
+    try:
+        result = await liquidation_sweep.run_liquidation_sweep_once()
+        assert result["triggered_count"] == 1, f"expected 1 trigger, got {result}"
+        async with async_session_maker() as db:
+            events = (await db.execute(
+                select(LiquidationEvent).where(LiquidationEvent.user_id == uid)
+            )).scalars().all()
+            assert len(events) == 1
+            assert events[0].sold_positions_count == 1
+            liq_tx = (await db.execute(
+                select(Transaction).where(Transaction.type == TransactionType.LIQUIDATE)
+            )).scalars().all()
+            assert len(liq_tx) == 1
+            # writer 内存与镜像同步（仓位 50 已卖光，回到布景时的底仓 50）
+            pos_left = (await db.execute(
+                select(Position).where(Position.user_id == uid)
+            )).scalars().all()
+            assert pos_left == []
+    finally:
+        await WRITER.stop()
+

@@ -341,6 +341,7 @@ async def liquidate_user_split(
     partial_pct: Decimal,
     target_margin: Decimal,
     emergency_threshold: Decimal,
+    hard_threshold: Decimal,
 ):
     """writer 路径的强平编排器（spec § 4.6）：逐市场独立提交，最后汇总。
 
@@ -348,30 +349,46 @@ async def liquidate_user_split(
     - 不再全或无——某市场失败只损失该市场的清算，其余照常
     - pre_* 快照用 compute_users_holdings_value（审计口径，允许 ~1 LSB 差）
     - LiquidationEvent 在全部子命令返回后统一写一条
-    返回 None 表示 noop（无卖出且无还款），不写 event。
+    返回 None 表示 noop（无卖出且无还款、或复检发现已恢复/持有 HALT 仓），不写 event。
     """
     from fastapi import HTTPException
     from app.core.database import async_session_maker
     from app.services.market_writer import WRITER
-    from app.services.wealth import compute_users_holdings_value
+    from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
     from app.services.writer_ops import LiquidateMarketCmd
 
-    # ── 阶段 A：快照 + mode 决策（短事务，锁完即放）──
+    # ── 阶段 A：锁内复检 + 快照 + mode 决策（短事务，锁完即放）──
     async with async_session_maker() as session:
         async with session.begin():
             user = await lock_user_ref(session, uid)
             if user.debt <= ZERO:
                 return None
+            # 复检（final review IMP-3）：sweep 的守卫事务在调用本函数前已释放
+            # user 锁，判定与执行之间存在窗口——用户可能已自救（卖仓/还债/充值）
+            # 或市场刚被熔断。老路径判定与卖仓同锁零窗口；这里必须在本把 user 锁
+            # 内重查 halt 持仓与 margin，恢复即放过，才能对齐老路径语义。
+            if await user_has_halt_holdings(session, uid):
+                _logger.info(
+                    "liquidation_split_recheck_halt_holdings_skip",
+                    extra={"user_id": uid},
+                )
+                return None
             pre_cash, pre_debt = user.cash, user.debt
             pre_hv = (await compute_users_holdings_value(
                 session, user_ids=[uid])).get(uid, ZERO)
+            pre_nw = pre_cash - pre_debt + pre_hv
+            pre_margin = pre_nw / pre_debt
+            if pre_margin >= hard_threshold:
+                _logger.info(
+                    "liquidation_split_recheck_recovered_skip",
+                    extra={"user_id": uid, "margin_now": float(pre_margin)},
+                )
+                return None
             market_ids = sorted(set((await session.execute(
                 select(Outcome.market_id)
                 .join(Position, Position.outcome_id == Outcome.id)
                 .where(Position.user_id == uid, Position.amount > 0)
             )).scalars().all()))
-    pre_nw = pre_cash - pre_debt + pre_hv
-    pre_margin = pre_nw / pre_debt
     mode = "emergency" if pre_margin < emergency_threshold else "partial"
 
     # ── 阶段 B：逐市场提交（尽力而为）──
