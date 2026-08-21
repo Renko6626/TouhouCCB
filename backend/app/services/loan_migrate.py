@@ -51,6 +51,7 @@ DEFAULT_CONFIGS = [
     ("initial_balance", str(settings.INITIAL_BALANCE), "decimal"),  # 新用户初始余额
     # ── 单写者重构（spec 2026-08-21）──
     ("single_writer_enabled", "false", "bool"),   # 翻转需重启进程（启动时读一次）
+    ("legacy_trade_events", "true", "bool"),      # 阶段 2 双发老 SSE 事件；bot 迁移完关掉，阶段 5 删
 ]
 
 
