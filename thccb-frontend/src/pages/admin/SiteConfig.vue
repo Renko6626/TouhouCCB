@@ -251,7 +251,7 @@ async function load() {
 
 async function save(key: string) {
   try {
-    await adminSiteConfigApi.update(key, drafts.value[key])
+    await adminSiteConfigApi.update(key, drafts.value[key] ?? '')
     msg.success(`${key} 已更新`)
     await load()
   } catch (e: any) {
