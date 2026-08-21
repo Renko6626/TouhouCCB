@@ -78,6 +78,8 @@ class MarketState:
     rings: dict[int, HistoryRing]   # outcome_id → 环形缓冲（每 outcome 一份，见 § 7）
 ```
 
+> **实现时补注**：`seq` 字段实现时取消——帧序号由 BROKER 的 per-market 计数器统一分配（见 § 5.3 补注），`MarketState` 不自带 seq。
+
 启动（`lifespan`）时从 DB 一次读入全部 `TRADING` / `HALT` 市场；`SETTLED` 不载入（不可交易）。
 
 ### 4.2 writer 粒度：per-market
@@ -190,6 +192,8 @@ for sub in subs:
 
 `seq` 语义从"每笔成交 +1"变成"**每帧 +1**"。`subscribe()` 的 anchor 原子性、snapshot 锚定、前端 `useMarketRealtime.ts` 的 gap 检测、`api/stream.ts` 的重连逻辑**全部不变**。
 
+> **实现时补注**：迁移期语义——tick 帧与 legacy `trade`/`market_status` 事件共用同一 per-market seq 计数器，seq = 每事件 +1；`legacy_trade_events` 关闭后只剩 tick 帧，自然退化为"每帧 +1"。选择共用计数器的原因：quant bot 的解析器对未知事件类型也做 seq 连续性检查，独立计数器会让未迁移的 bot 持续误判 gap 重连。
+
 ### 5.4 quant bot 迁移
 
 `quant/docs/sse-contract.md` 明确写了"主站改这些字段 = 破坏 bot"。
@@ -200,6 +204,8 @@ for sub in subs:
 - 老 `trade` + `market_status` 事件保留，由 `site_config.legacy_trade_events` 热开关统一控制
 
 老事件仍是每订阅者序列化，但届时只剩 bot 订阅，量级完全不同。bot 改完后关掉开关，阶段 5 删代码。同步更新 `quant/docs/sse-contract.md`。
+
+> **实现时补注**：bot 已于阶段 2 内建 tick 适配器（帧→合成逐笔事件，策略零改动），关闭双发开关不再受 bot 迁移进度约束；关开关的时机由用户在生产观察后决定。
 
 ---
 
