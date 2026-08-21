@@ -10,7 +10,7 @@ const shouldShow = computed(() => {
   return s != null && Number(s.debt) > 0
 })
 
-const ratio = computed(() => summary.value?.margin_ratio ?? null)
+const ratio = computed(() => userStore.marginRatioEstimate)
 const baseStatus = computed(() => summary.value?.margin_status ?? 'healthy')
 const protectedByHalt = computed(() => summary.value?.liquidation_protected ?? false)
 // HALT 保护优先：danger/warning + HALT 持仓 → 显示保护态而非危险
@@ -20,8 +20,8 @@ const status = computed(() =>
 const hardThr = computed(() => summary.value?.margin_hard_threshold ?? 0.2)
 const softThr = computed(() => summary.value?.margin_soft_threshold ?? 0.5)
 // net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
-const netWorth = computed(() => Number(summary.value?.net_worth ?? 0))
-const netWorthLcv = computed(() => Number(summary.value?.net_worth_liquidation ?? 0))
+const netWorth = computed(() => userStore.netWorth)
+const netWorthLcv = computed(() => userStore.netWorthLcv)
 const debt = computed(() => Number(summary.value?.debt ?? 0))
 // 两口径差距（LMSR 滑点 + 手续费的损耗）
 const slippageGap = computed(() => netWorth.value - netWorthLcv.value)

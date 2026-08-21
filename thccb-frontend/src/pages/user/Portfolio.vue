@@ -211,23 +211,23 @@ const holdingsByMarketArray = computed(() => {
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓成本</span>
-          <span class="asset-value">金 {{ userStore.summary.total_cost_basis.toFixed(2) }}</span>
+          <span class="asset-value">金 {{ userStore.totalCostBasis.toFixed(2) }}</span>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓市值</span>
-          <span class="asset-value">金 {{ userStore.summary.holdings_value.toFixed(2) }}</span>
+          <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
         </div>
         <div class="asset-card" title="账面浮盈：按 LMSR 瞬时价 × 持仓数量计（不含全卖滑点）">
           <span class="asset-label">浮动盈亏</span>
-          <span class="asset-value" :style="{ color: pnlColor(userStore.summary.unrealized_pnl) }">
-            {{ pnlSign(userStore.summary.unrealized_pnl) }}金 {{ userStore.summary.unrealized_pnl.toFixed(2) }}
+          <span class="asset-value" :style="{ color: pnlColor(userStore.unrealizedPnl) }">
+            {{ pnlSign(userStore.unrealizedPnl) }}金 {{ userStore.unrealizedPnl.toFixed(2) }}
           </span>
           <span
-            v-if="Math.abs(userStore.summary.unrealized_pnl - userStore.summary.unrealized_pnl_liquidation) > 0.01"
+            v-if="Math.abs(userStore.unrealizedPnl - userStore.unrealizedPnlLcv) > 0.01"
             class="asset-sub"
             :title="`立即变现浮盈 = 全部卖出可得 - 成本（含 LMSR 滑点 + 扣手续费）`"
           >
-            立即变现 {{ pnlSign(userStore.summary.unrealized_pnl_liquidation) }}金 {{ userStore.summary.unrealized_pnl_liquidation.toFixed(2) }}
+            立即变现 {{ pnlSign(userStore.unrealizedPnlLcv) }}金 {{ userStore.unrealizedPnlLcv.toFixed(2) }}
           </span>
         </div>
         <div
@@ -242,7 +242,7 @@ const holdingsByMarketArray = computed(() => {
         </div>
         <div class="asset-card asset-card-highlight asset-card-wide">
           <span class="asset-label">净资产</span>
-          <span class="asset-value asset-value-net">金 {{ userStore.summary.net_worth.toFixed(2) }}</span>
+          <span class="asset-value asset-value-net">金 {{ userStore.netWorth.toFixed(2) }}</span>
         </div>
       </div>
 
@@ -257,7 +257,7 @@ const holdingsByMarketArray = computed(() => {
             <button type="button" class="account-edit-btn" @click="openNameEditor" title="修改昵称">✎</button>
           </span>
           <span class="rank-divider">·</span>
-          <span class="rank-text">{{ userStore.summary.rank }}</span>
+          <span class="rank-text">{{ userStore.rankTitle }}</span>
         </div>
         <div class="rank-actions">
           <NButton size="small" @click="router.push('/market/leaderboard')">排行榜</NButton>

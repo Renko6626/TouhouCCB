@@ -54,7 +54,7 @@ const stats = computed(() => [
 ])
 
 // 盈亏相关
-const pnl = computed(() => userStore.summary?.unrealized_pnl ?? 0)
+const pnl = computed(() => userStore.unrealizedPnl)
 const pnlDirection = computed<'up' | 'down' | 'flat'>(() => {
   if (pnl.value > 0) return 'up'
   if (pnl.value < 0) return 'down'
@@ -64,7 +64,7 @@ const pnlSign = computed(() => pnl.value > 0 ? '+' : pnl.value < 0 ? '−' : '')
 const pnlAbs = computed(() => Math.abs(pnl.value))
 
 const pnlPercent = computed(() => {
-  const cost = userStore.summary?.total_cost_basis ?? 0
+  const cost = userStore.totalCostBasis
   if (cost <= 0) return null
   return (pnl.value / cost) * 100
 })
@@ -87,14 +87,14 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
         <!-- 登录后：盈亏视图 -->
         <template v-if="showPnlHero">
           <div class="hero-eyebrow">
-            <span>浮动盈亏 · {{ userStore.summary!.rank }}</span>
+            <span>浮动盈亏 · {{ userStore.rankTitle }}</span>
           </div>
           <div class="pnl-number" :class="`pnl-${pnlDirection}`">
             <span class="pnl-sign">{{ pnlSign }}</span>金 {{ pnlAbs.toFixed(2) }}
           </div>
           <div v-if="pnlPercent !== null" class="pnl-percent" :class="`pnl-${pnlDirection}`">
             {{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%
-            <span class="pnl-percent-base">基于 金 {{ userStore.summary!.total_cost_basis.toFixed(2) }} 持仓成本</span>
+            <span class="pnl-percent-base">基于 金 {{ userStore.totalCostBasis.toFixed(2) }} 持仓成本</span>
           </div>
           <div v-else class="pnl-percent pnl-flat">
             暂无持仓，去市场开启第一笔预测
@@ -107,7 +107,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">持仓市值</span>
-              <span class="pnl-stat-value">金 {{ userStore.summary!.holdings_value.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
             </div>
             <div v-if="Number(userStore.summary!.debt) > 0" class="pnl-stat pnl-stat-debt">
               <span class="pnl-stat-label">负债</span>
@@ -115,7 +115,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">净资产</span>
-              <span class="pnl-stat-value">金 {{ userStore.summary!.net_worth.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.netWorth.toFixed(2) }}</span>
             </div>
           </div>
 

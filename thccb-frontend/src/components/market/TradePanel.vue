@@ -149,14 +149,14 @@ const holdingMtmValue = computed(() => {
 
 // 整体浮盈方向（用于资产栏第 4 格着色）
 const summaryPnlDirection = computed<'up' | 'down' | 'flat'>(() => {
-  const v = userStore.summary?.unrealized_pnl ?? 0
+  const v = userStore.unrealizedPnl
   if (v > 0) return 'up'
   if (v < 0) return 'down'
   return 'flat'
 })
 
 const summaryPnlSign = computed(() => {
-  const v = userStore.summary?.unrealized_pnl ?? 0
+  const v = userStore.unrealizedPnl
   return v > 0 ? '+' : v < 0 ? '−' : ''
 })
 
@@ -206,12 +206,12 @@ const actionHint = computed<string>(() => {
       </div>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
-        <span class="asset-value">金 {{ userStore.summary.holdings_value.toFixed(2) }}</span>
+        <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
       </div>
       <div class="asset-item">
         <span class="asset-label">浮盈</span>
         <span class="asset-value" :class="`asset-pnl-${summaryPnlDirection}`">
-          {{ summaryPnlSign }}金 {{ Math.abs(userStore.summary.unrealized_pnl).toFixed(2) }}
+          {{ summaryPnlSign }}金 {{ Math.abs(userStore.unrealizedPnl).toFixed(2) }}
         </span>
       </div>
       <div v-if="Number(userStore.summary.debt) > 0" class="asset-item">
@@ -220,7 +220,7 @@ const actionHint = computed<string>(() => {
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
-        <span class="asset-value asset-value--highlight">金 {{ userStore.summary.net_worth.toFixed(2) }}</span>
+        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth.toFixed(2) }}</span>
       </div>
     </div>
 
