@@ -2,7 +2,7 @@
 
 - 日期：2026-08-21
 - 分支：`perf/2026-08-21-single-writer`
-- 状态：设计已确认，待出实施计划
+- 状态：设计已确认（2026-08-21 二审修补 7 处：广播缺口 ×2、数值不动点、阶段矛盾、封存竞态、锁论证、精度口径），待出实施计划
 
 ---
 
@@ -75,7 +75,7 @@ class MarketState:
     prices: list[float]         # 由 q 导出并缓存，免去每次重算 exp
     status: MarketStatus
     seq: int                    # 帧序号
-    ring: HistoryRing           # 见 § 7
+    rings: dict[int, HistoryRing]   # outcome_id → 环形缓冲（每 outcome 一份，见 § 7）
 ```
 
 启动（`lifespan`）时从 DB 一次读入全部 `TRADING` / `HALT` 市场；`SETTLED` 不载入（不可交易）。
@@ -105,20 +105,30 @@ writer    1. 内存定价 ΔC = C(q + Δe_i) − C(q)，算新价格向量     �
           5. fut.set_result(...) → handler 返回
 ```
 
+**handler 侧两道背压，缺一不可**：
+
+- 入队时：`put_nowait` 队列满 → 立即 429。管的是"命令太多"。
+- 等结果时：`await asyncio.wait_for(fut, timeout=10)` 超时 → 503。管的是"writer 停摆"（DB 卡死、事务挂起）。没有这道，DB 一卡所有请求堆在 futures 上直到 60 s 网关超时，429 背压完全失效。超时后该命令可能仍在 DB 里执行，响应措辞必须是"结果未知，请刷新确认"，不是"失败"。
+
 ### 4.4 关键正确性约束
 
 **内存 q 的变更必须发生在 DB commit 之后。** 第 1 步算的是影子值，第 4 步才提交。这样 DB 失败不可能让内存和 DB 分裂 —— 这是本方案能安全上线的支点。
 
-**崩溃恢复**：内存 q 可从 `outcome.total_shares` 直接读回（DB 镜像在每笔 commit 里同步更新）。未 commit 的命令对应的客户端收到错误，零静默丢失。
+**6 位量化是内存与镜像共同的不动点。** 现状每笔交易从 DB 重读 6dp 的 `total_shares`，量化天然对齐；改成内存常驻后，若内存走 float 增量累加、镜像走 Decimal 6dp 累加，两条路径会逐笔产生 ulp 级漂移——重启从镜像读回时价格微跳，"无损恢复"不再严格成立。所以第 4 步的规则是：**commit 后不做 `q[i] += Δ`，而是把镜像的量化结果回写内存**——`q[i] = float(quantize_cost(new_total))`（`lmsr.py` 内核本来就是 float + 边界量化，这不引入新精度语义）。由此内存 q 与 `outcome.total_shares` 在任意时刻逐字节一致，重启恢复是精确的。
+
+**崩溃恢复**：内存 q 从 `outcome.total_shares` 直接读回（镜像在每笔 commit 里同步更新，且按上条与内存值恒等）。未 commit 的命令对应的客户端收到错误，零静默丢失。
+
+**writer task 异常策略**：若在 commit 成功之后、内存 apply 之前抛出非预期异常，内存已陈旧。writer 的 consumer loop 外层捕获非预期异常时：记 critical 日志 → 从镜像重读该市场 q 自愈 → 继续消费；重读失败则将该市场标记不可用（后续命令直接 503），绝不带着可能陈旧的 q 继续定价。
 
 ### 4.5 锁的去向
 
 `services/market_locks.py` 的四把 `SELECT FOR UPDATE`：
 
-- `lock_market` / `lock_outcomes_for_market` → **删除**。内存拥有 q，DB 那列只是镜像，不需要串行化保护。
-- `lock_user` / position 行锁 → **保留但永不竞争**。单写者串行，同一用户不可能有两笔同时在飞。
+- `lock_market` / `lock_outcomes_for_market` → **新路径不再使用**（物理删除在阶段 5，见 § 8）。内存拥有 q，DB 那列只是镜像，不需要串行化保护。
+- `lock_user` / position 行锁 → **保留，且仍会竞争——这是正确性依赖，不是摆设**。writer 是 per-market 的：同一用户在两个市场可以同时各有一笔在飞（quant bot 正是这种用户）；另有 5 条 cash 写路径在 writer 之外（§ 4.7）。跨市场、跨路径的 cash 串行化正是靠这把 user 行锁完成的。**不要因为"单写者了"就顺手删它。**
+- 死锁分析：所有事务都按 `user → position` 单向拿锁（market/outcome 锁退出后不再有跨市场的多行锁链），无环，无死锁。
 
-文件顶部那段锁序约定注释整段删除。
+文件顶部那段四级锁序约定注释在阶段 5 随锁一起删，替换为上面这条 `user → position` 两级约定。
 
 ### 4.6 已决：liquidation 拆成 per-market 独立提交
 
@@ -152,8 +162,10 @@ frame = {
     "market_id": mid,
     "seq": s,
     "t": ts,
-    "prices": [...],          # 全 outcome 当前价，按 outcome_ids 顺序
+    "status": "TRADING",      # 市场状态，恒有；变更（halt/settle/resume）本身置 dirty
+    "prices": [...],          # 全 outcome 当前价，按 outcome_ids 顺序，8 位小数（见下）
     "trades": [{...}, ...],   # 本帧窗口内的成交，逐笔不丢
+    "settlement": {...},      # 仅 SETTLED 帧携带：winning_outcome_id, settled_at
 }
 blob = json.dumps(frame, ensure_ascii=False).encode()   # 整个进程只调一次
 for sub in subs:
@@ -162,7 +174,11 @@ for sub in subs:
 
 `api/v1/stream.py` 的 generator 改成直接 `yield blob`。**这是当前"每订阅者各序列化一次"缺陷的根治**：500 订阅者从 500 次 `json.dumps` 变成 1 次。
 
-无成交的市场不发帧，靠现有 25 s ping 保活。帧率恒定，带宽跟实际活跃度走。
+**`market_status` 事件并入 tick 帧。** 现状 halt / settle / resume 各发一个独立的 `market_status` 事件（`market.py` 三处 publish）；新管线里**状态变更 = 置 dirty**，下一帧带着新 `status`（settle 帧附 `settlement`）出去，占用正常帧 seq，gap 检测天然覆盖。终态 tick 是唯一的市场数据帧；`ping` 保活帧不变。迁移期老 `market_status` 事件与老 `trade` 事件走同一个 `legacy_trade_events` 开关双发（§ 5.4）。
+
+**帧内 `prices` 是 8 位小数量化值**（`quantize_price` 的输出）——这就是服务端的权威价格精度，不是有损压缩。客户端一切计算的输入精度以此为准（§ 6.2）。
+
+无成交且状态无变更的市场不发帧，靠现有 25 s ping 保活。帧率恒定，带宽跟实际活跃度走。
 
 ### 5.2 队列语义
 
@@ -181,7 +197,7 @@ for sub in subs:
 **双发是限期迁移手段，不是 D3 排除掉的"长期双通道"。** 终态只有 `tick` 一种帧；下面的开关在阶段 5 连同代码一起删除。迁移期**双发**：
 
 - 新 `tick` 帧（前端和迁移后的 bot 吃这个）
-- 老 `trade` 事件保留，由 `site_config.legacy_trade_events` 热开关控制
+- 老 `trade` + `market_status` 事件保留，由 `site_config.legacy_trade_events` 热开关统一控制
 
 老事件仍是每订阅者序列化，但届时只剩 bot 订阅，量级完全不同。bot 改完后关掉开关，阶段 5 删代码。同步更新 `quant/docs/sse-contract.md`。
 
@@ -213,7 +229,7 @@ LCV_j = −b · log1p( p_j · expm1(−amount_j / b) ) × (1 − sell_fee_rate)
 
 1. **用 `log1p` / `expm1`，不用 `log` / `exp`。** 小额交易时 `Δ/b` 极小，`exp(x) − 1` 会丢掉大部分有效位。6 位份额精度下 1 份对 `b=100` 就是 `Δ/b = 0.01`，朴素写法直接掉 2–3 位有效数字。
 2. **`Δ/b > 700` 走渐近分支** `ΔC → Δ + b·ln(p_i)`，否则 `expm1` 溢出成 `Infinity`。正常交易碰不到，恶意输入能碰到。
-3. **与服务端的偏差 ~1e-15 相对误差是已知且接受的。** 服务端从 `q` 算（`services/lmsr.py`），客户端从 `p` 算，数学等价但浮点路径不同。价格精度 8 位（1e-8），差 7 个数量级。**这不是 bug，不要当 bug 报。**
+3. **与服务端的偏差分两层，都是已知且接受的。** (a) 数学层：同为全精度输入时，客户端从 `p` 算与服务端从 `q` 算（`services/lmsr.py`）数学等价，浮点路径不同带来 ~1e-15 相对误差。(b) 线上层：客户端的实际输入是帧内 8 位量化的 `p`（§ 5.1），预览偏差由输入量化主导，量级 ~1e-7 相对误差——仍远小于服务端 6 位资金量化（绝对 1e-6）在典型成交额上的粒度。**两层都不是 bug，不要当 bug 报**；成交以 writer 返回为准（§ 6.3），预览偏差不会变成资金误差。
 
 ### 6.3 权威边界
 
@@ -246,6 +262,11 @@ equipped_title, all_titles
 
 **调用时机**：登录 1 次 + 手动刷新 + gap reconcile。**成交后不再调用** —— buy 响应已返回 `new_cash`，前端本地 apply（`amount += shares`、`cost_basis += pay`）。这直接删掉 `TradingView.vue` 现在每次成交后的 4 个 REST 往返。
 
+两条配套修正：
+
+- **buy / sell 响应的 `new_cash` 改为 6 位全精度 Money**。现状是 `quantize(0.01)` + float（`market.py:665,829`），当年只是展示用；现在它成了客户端 cash 基线，2dp 舍入会每笔累积最多 0.005 的漂移。改法遵守既有 Schema Decimal 规则（Money 序列化）。
+- **admin `adjust-cash` / `batch-adjust-cash` 改别人余额后，目标用户前端 cash 陈旧到下次 summary 调用为止（登录 / 手动刷新 / gap reconcile）。这是已知且接受的**：调账是罕见管理操作，不为它保留轮询。管理员调账后口头知会用户刷新即可。
+
 `services/wealth.py` 的两个函数**保留** —— 强平 sweep、`/admin/wealth`、排行榜仍需要服务端权威口径。只是不再进 `/user/summary` 的请求路径。`docs/holdings-value-semantics.md` 需同步更新"谁在算 MTM / LCV"这一节。
 
 ### 6.5 quote 端点
@@ -254,23 +275,30 @@ equipped_title, all_titles
 
 ### 6.6 前端改动面
 
-`utils/lmsr.ts`（新增，闭式公式单一实现）+ golden case 单测（同输入与后端 `services/lmsr.py` 对拍，断言相对误差 < 1e-12）。
+`utils/lmsr.ts`（新增，闭式公式单一实现）+ golden case 单测，与 § 6.2 第 3 条的两层偏差一一对应：
+
+- **数学层**：喂全精度 `p`，与后端 `services/lmsr.py` 对拍，断言相对误差 < 1e-12；
+- **线上层**：喂 8 位量化后的 `p`（模拟真实线上输入），断言相对误差 < 1e-6。
+
+只写第一层的话，测试喂的输入和生产喂的输入不是同一个东西。
 
 受影响：`pages/user/Portfolio.vue`、`components/user/MarginStatusCard.vue`、`components/market/TradePanel.vue`、`pages/market/TradingView.vue`、`components/layout/AppHeader.vue`、`stores/user.ts`、`stores/market.ts`、`types/`。
 
 `stores/` 是 `CLAUDE.md` 的高敏感区，本节是整个重构改动面最大的一节。
 
-### 6.7 删除的轮询
+### 6.7 轮询处置
 
-| 位置 | 现状 |
-|---|---|
-| `components/home/RecentTrades.vue` | 5 s |
-| `components/home/Movers.vue` | 30 s |
-| `components/home/RecentLiquidationsPanel.vue` | 60 s |
-| `pages/market/TradingView.vue` sanity refresh | 60 s |
-| `pages/market/TradingView.vue` 成交后 | `loadMarketData()` + `loadUserData()` = 4 个 REST 往返 |
+| 位置 | 现状 | 处置 |
+|---|---|---|
+| `pages/market/TradingView.vue` sanity refresh | 60 s | **删**，tick 帧取代 |
+| `pages/market/TradingView.vue` 成交后 | `loadMarketData()` + `loadUserData()` = 4 个 REST 往返 | **删**，本地 apply（§ 6.4） |
+| `components/home/RecentTrades.vue` | 5 s | **保留** |
+| `components/home/Movers.vue` | 30 s | **保留** |
+| `components/home/RecentLiquidationsPanel.vue` | 60 s | **保留** |
 
-全部由广播帧取代。`gapToken` 触发的 reconcile 保留（那是正确性机制，不是轮询）。
+**首页三处轮询保留的原因**：SSE 订阅是 per-market 的（`stream.py` `/market/{market_id}`），这三个组件是跨全站视图，tick 帧覆盖不了；给每个市场开一条 SSE 不现实（HTTP/1.1 同域连接上限 6 条），且 liquidation 目前没有任何 SSE 事件。阶段 1 之后这些读接口不再被锁竞争拖累，轮询很便宜。**全局 home 聚合频道（broadcaster 顺带聚合全站成交 + movers + 强平事件）留作未来增量，不进本次范围**（§ 10）。
+
+`gapToken` 触发的 reconcile 保留（那是正确性机制，不是轮询）。
 
 ---
 
@@ -300,6 +328,12 @@ GET /history/o/{outcome_id}/{interval}/{segment_epoch}.json
 
 URL 含段起点，内容永不变化，`immutable` 真实成立。不在 `/api/v1/` 下，所以 `main.py` 那个无条件打 `no-store` 的中间件（`_set_no_store_for_api`）碰不到它。
 
+**封存竞态防线——错一个 200 会被 nginx 钉 30 天、浏览器钉 1 年**：
+
+1. 未到封存边界的段：**404**。尾巴数据只走 SSE snapshot（§ 7.3），`/history/` 永不吐进行中的段。
+2. 段在 ring 窗口内：**一律从 ring 供数**，不读 DB。ring 是 writer 实时写的，跨过封存边界即完整，无需等 flusher。
+3. 段超出 ring 窗口、需从 DB 读：必须确认该段时间范围的 flush 已完成（flusher 高水位 ≥ 段末尾）才发 200，否则 404。防的是"边界刚过、flusher 5 s 批次未落库、恰好又不在 ring 里"的窗口把不完整段固化。
+
 ### 7.3 尾巴走 SSE snapshot
 
 最后封存边界 → now 之间的数据（最多一个段长）由 **SSE snapshot 首包携带**。零额外请求，且与后续帧共享同一条 `seq`，现成的 gap 检测直接覆盖。
@@ -308,7 +342,7 @@ URL 含段起点，内容永不变化，`immutable` 真实成立。不在 `/api/
 
 ### 7.4 数据来源与红线
 
-`OutcomeCandle` 物化表**仍是权威**（K 线永远是服务端聚合的，客户端不自行从流里聚合）。段第一次被请求时从 DB 读一次进内存 LRU，之后零 DB；叠 nginx `proxy_cache` 后回源次数 ≈ 段数，与在线人数无关。
+`OutcomeCandle` 物化表**仍是权威**（K 线永远是服务端聚合的，客户端不自行从流里聚合）。ring 窗口内的段直接从 ring 供数；更老的段第一次被请求时从 DB 读一次进内存 LRU（受 § 7.2 防线 3 约束），之后零 DB；叠 nginx `proxy_cache` 后回源次数 ≈ 段数，与在线人数无关。
 
 ### 7.5 candle 写入移出 hot path
 
@@ -318,7 +352,7 @@ URL 含段起点，内容永不变化，`immutable` 真实成立。不在 `/api/
 
 **hot path 的 DB 语句数从 `N×4 + 4` 降到 `4`。**
 
-崩溃最多丢 5 秒的 K 线精度，用现成的 `main.py::_resync_recent_candles` 从 Transaction 表重放补齐 —— 那套逻辑已幂等，只需调整窗口参数。
+崩溃最多丢 5 秒的 K 线精度，用现成的 `main.py::_resync_recent_candles` 从 Transaction 表重放补齐 —— 那套逻辑已幂等，只需调整窗口参数。**重放必须确定性**（同一批 Transaction 重放出逐字节相同的 OHLCV）：崩溃前该段可能已从 ring 以 immutable 发出去过，修复后的 DB 内容若与之不同，就违反了 immutable 承诺。实施时给 resync 补一个确定性断言测试。
 
 ### 7.6 nginx 改动
 
@@ -353,16 +387,17 @@ location /history/ {
 
 - 新增 `backend/app/services/market_writer.py`：`MarketState` + per-market queue + writer task
 - buy / sell / resolve / close / resume / liquidation 全改走 writer
-- 删 `market_locks.py` 的 market / outcome 锁
+- `market_locks.py` **一行不动**——旧路径还要靠它裸奔期兜底；物理删除在阶段 5
 - candle 写入移出 hot path → flusher（§ 7.5）
-- `site_config` 开关 `single_writer_enabled`，新旧路径并存一个版本周期
+- `site_config` 开关 `single_writer_enabled`，新旧路径并存一个版本周期。**开关翻转需重启进程生效**（关→开必须在无在途旧路径事务时重读 q 入内存，热翻转会漏掉翻转瞬间旧路径已 commit 未入内存的变更；重启从镜像读回天然正确，且回滚场景本来就伴随重启）
 - **验收**：pytest 全绿 + 白名单重跑 k6，buy p50 从 36 s 掉到 20 ms 以内
 
 ### 阶段 2 · 定频广播帧（契约变更，双发兼容）
 
-- broadcaster task + `tick` 帧
-- 老 `trade` 事件由 `site_config.legacy_trade_events` 控制保留
+- broadcaster task + `tick` 帧（含 `status` 并入，§ 5.1）
+- 老 `trade` + `market_status` 事件由 `site_config.legacy_trade_events` 控制保留
 - 前端改吃 tick 帧
+- **前端加 build 版本自刷机制**（SSE snapshot 携带后端启动时注入的前端 build hash，不匹配则提示/强制刷新）——这是阶段 3 的前置：阶段 3 删 summary 字段时，部署瞬间已打开的旧 tab 拿到砍过的响应会 NaN/炸，靠这个机制把旧 tab 赶去刷新。本阶段先上线机制本身
 - `quant` bot 改造 + `quant/docs/sse-contract.md` 更新（可并行做）
 
 ### 阶段 3 · 客户端计算 + summary 降级（改动面最大）
@@ -370,7 +405,7 @@ location /history/ {
 - `utils/lmsr.ts` + golden case 单测先行
 - `/user/summary` 与 `/user/holdings` 瘦身
 - 前端本地算 MTM / LCV / 浮盈 / 成交预览
-- 删 quote 调用、删成交后 4 个往返、删 § 6.7 四处轮询
+- 删 quote 调用、删成交后 4 个往返、删 TradingView 两处轮询（首页三处保留，§ 6.7）
 
 ### 阶段 4 · 历史包 + nginx
 
@@ -380,7 +415,7 @@ location /history/ {
 
 ### 阶段 5 · 清理
 
-关双发、删旧路径、删 feature flag、删 `_QUOTE_CACHE` 与 `market_locks.py` 残余。
+关双发（`trade` + `market_status`）、删旧买卖路径、删 feature flag、删 `_QUOTE_CACHE`、删 `market_locks.py` 的 market / outcome 锁与四级锁序注释（换成 `user → position` 两级约定，§ 4.5）。
 
 ### 每阶段必跑
 
@@ -399,11 +434,15 @@ location /history/ {
 | liquidation 语义从"全或无"变为"逐市场提交" | § 4.6 已论证；`LiquidationEvent` 改为汇总记录，公示墙展示不变 |
 | quant bot 契约破坏 | 双发 + `site_config` 热开关，bot 迁移完成后才关 |
 | candle 落盘延迟 5 s，崩溃丢失 K 线精度 | `_resync_recent_candles` 从 Transaction 表重放补齐，已幂等 |
-| 内存 q 与 DB 镜像分裂 | § 4.4：commit 之后才 apply 内存；重启从 `outcome.total_shares` 读回 |
+| 内存 q 与 DB 镜像分裂 | § 4.4：commit 之后才 apply 内存，且 apply 值取镜像量化结果（6dp 不动点）；writer 异常自愈从镜像重读；重启从 `outcome.total_shares` 读回 |
+| DB 卡死时请求堆积、背压失效 | § 4.3：handler 等 fut 加 10 s 超时 → 503，与队列满 429 双道背压 |
+| 不完整历史段被 immutable 固化 | § 7.2 三道防线：进行中段 404、ring 窗口内从 ring 供数、超窗段确认 flush 高水位后才 200 |
+| 阶段 3 部署瞬间旧 tab 拿到砍过的 summary 响应 | 阶段 2 先上线 build 版本自刷机制（§ 8） |
 
 ## 10. 不在本次范围
 
 - **group commit / 批量落盘**：D2 已排除，见 § 3。Phase 1 的 300–1000 tps 足够。
+- **全局 home 聚合频道**：首页三处跨市场轮询本次保留（§ 6.7）；broadcaster 顺带聚合全站成交 + movers + 强平事件的 home 频道留作未来增量。
 - **Redis pubsub / 多进程**：单进程是本设计的前提，不是待解决的债。
 - **交易手续费**：现状 buy/sell fee 全 0 硬编码，属独立待决事项，本次不动。
 - **依赖主版本升级、新框架 / 新 UI 库**：`CLAUDE.md` 栈约束。
