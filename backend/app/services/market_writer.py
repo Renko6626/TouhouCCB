@@ -232,8 +232,8 @@ class MarketWriter:
                 await self.reload_state(market_id)
 
     def _merge_candles(self, rows: list[dict]) -> None:
-        # Task 4 接上 CANDLE_FLUSHER.merge(rows)；当前占位 no-op
-        pass
+        from app.services.candle_flusher import CANDLE_FLUSHER
+        CANDLE_FLUSHER.merge(rows)
 
 
 WRITER = MarketWriter()
