@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 import pytest_asyncio
@@ -19,6 +20,14 @@ from app.services.realtime import (
     MarketEventBroker,
     Subscriber,
 )
+
+
+def _parse_sse(blob: bytes) -> dict:
+    """把 publish 投递的 SSE bytes 解析回 payload dict。"""
+    text = blob.decode("utf-8")
+    assert text.endswith("\n\n")
+    data_line = next(l for l in text.split("\n") if l.startswith("data: "))
+    return json.loads(data_line[len("data: "):])
 
 
 # Override conftest 的 autouse setup_db：broker 是纯内存模块，不需要 DB 初始化。
@@ -60,9 +69,10 @@ async def test_subscribe_anchor_reflects_current_seq():
         assert anchor == 3, f"anchor 应该是当前 seq=3, got {anchor}"
         # 现在 publish 第 4 笔，应该是新订阅者收到的第一个 event 且 seq=4
         await b.publish(1, "trade", {"i": 4})
-        evt = await asyncio.wait_for(sub.q.get(), timeout=1.0)
-        assert evt.seq == 4, "新 event seq 必须 > anchor"
-        assert evt.seq > anchor
+        blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
+        payload = _parse_sse(blob)
+        assert payload["seq"] == 4, "新 event seq 必须 > anchor"
+        assert payload["seq"] > anchor
     finally:
         await b.unsubscribe(1, sub)
 
@@ -92,8 +102,8 @@ async def test_subscribe_anchor_atomicity_under_concurrent_publish():
     # 取 q 内所有 event 的 seq
     seqs_seen = []
     while not sub.q.empty():
-        evt = sub.q.get_nowait()
-        seqs_seen.append(evt.seq)
+        blob = sub.q.get_nowait()
+        seqs_seen.append(_parse_sse(blob)["seq"])
 
     # 关键断言：所有进 q 的 event seq 都 > anchor
     assert all(s > anchor for s in seqs_seen), \
@@ -110,13 +120,31 @@ async def test_publish_to_subscriber_queue():
     sub, _ = await b.subscribe(1)
     try:
         await b.publish(1, "trade", {"x": 1})
-        evt = await asyncio.wait_for(sub.q.get(), timeout=1.0)
-        assert evt.type == "trade"
-        assert evt.market_id == 1
-        assert evt.data == {"x": 1}
-        assert evt.seq == 1
+        blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
+        payload = _parse_sse(blob)
+        assert payload["type"] == "trade"
+        assert payload["market_id"] == 1
+        assert payload["data"] == {"x": 1}
+        assert payload["seq"] == 1
     finally:
         await b.unsubscribe(1, sub)
+
+
+@pytest.mark.asyncio
+async def test_publish_serializes_once_across_subscribers():
+    """3 个订阅者收到的必须是同一个 bytes 对象（identity），证明只序列化一次。"""
+    b = MarketEventBroker()
+    subs = [await b.subscribe(1) for _ in range(3)]
+    await b.publish(1, "trade", {"x": 1})
+    blobs = [s.q.get_nowait() for s, _ in subs]
+    assert all(isinstance(bl, bytes) for bl in blobs)
+    assert blobs[0] is blobs[1] is blobs[2]
+    payload = _parse_sse(blobs[0])
+    assert payload["type"] == "trade"
+    assert payload["data"] == {"x": 1}
+    assert payload["seq"] == 1
+    for s, _ in subs:
+        await b.unsubscribe(1, s)
 
 
 @pytest.mark.asyncio
@@ -129,8 +157,8 @@ async def test_publish_increments_seq_but_ping_does_not():
         await b.publish(1, "ping", {})
         seqs = []
         for _ in range(3):
-            evt = await asyncio.wait_for(sub.q.get(), timeout=1.0)
-            seqs.append(evt.seq)
+            blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
+            seqs.append(_parse_sse(blob)["seq"])
         # 两笔 trade seq 递增，ping 复用上一笔 seq
         assert seqs == [1, 2, 2]
     finally:

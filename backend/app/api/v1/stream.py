@@ -178,8 +178,8 @@ async def stream_market(market_id: int, request: Request):
                     break
 
                 if get_task in done:
-                    evt: MarketEvent = get_task.result()
-                    yield sse_pack(evt).encode("utf-8")
+                    blob: bytes = get_task.result()
+                    yield blob
                 else:
                     # 25s 无 event：取消 get_task，发 ping 防代理超时
                     get_task.cancel()
