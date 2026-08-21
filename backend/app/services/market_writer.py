@@ -108,6 +108,8 @@ class MarketWriter:
             for m in markets:
                 st = await _load_one(s, m)
                 self._install(st)
+        from app.services.writer_ops import register_all_ops   # 局部 import 避免环
+        register_all_ops(self)
         self._enabled = True
         logger.info("market_writer started: %d markets loaded", len(self._states))
 
