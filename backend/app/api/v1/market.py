@@ -46,6 +46,7 @@ from app.services.market_locks import (
     lock_outcome as _lock_outcome,
 )
 from app.services import site_config
+from app.services import tick_broadcaster as _tick
 from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_title_gating import assert_user_can_trade_market
 from app.services.trade_checks import check_buy_slippage, check_sell_slippage
@@ -250,11 +251,13 @@ async def close_market(
         if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
         market.status = MarketStatus.HALT
-    await BROKER.publish(
-        market_id,
-        "market_status",
-        {"status": MarketStatus.HALT}
-    )
+    _tick.TICK_BROADCASTER.feed_status(market_id, MarketStatus.HALT)
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market_id,
+            "market_status",
+            {"status": MarketStatus.HALT}
+        )
     return {"message": f"市场 {market.title} 已停止交易（熔断）"}
 
 
@@ -651,27 +654,28 @@ async def buy_shares(
     )
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
-    # market_prices_post: 全市场所有 outcome 的 post 价快照（按 outcome.id 升序），
-    # 让前端在 LMSR 跨选项价格联动场景下能 O(1) patch 所有 outcome 当前价 + 推图表。
-    await BROKER.publish(
-        market.id,
-        "trade",
-        {
-            "trade": {
-                "id": int(tx.id),
-                "type": TransactionType.BUY,
-                "outcome_id": int(outcome.id),
-                "username": user.username,
-                "shares": float(shares_d),
-                "price": float(avg_price),
-                "gross": float(pay),
-                "fee": 0.0,
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        }
+    # market_prices_post: 全市场所有 outcome 的 post 价快照（按 outcome.id 升序）
+    trade_payload = {
+        "id": int(tx.id),
+        "type": TransactionType.BUY,
+        "outcome_id": int(outcome.id),
+        "username": user.username,
+        "shares": float(shares_d),
+        "price": float(avg_price),
+        "gross": float(pay),
+        "fee": 0.0,
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    _tick.TICK_BROADCASTER.feed_trade(
+        int(market.id),
+        [float(quantize_price(p)) for p in new_prices],
+        trade_payload,
+        market.status,
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
@@ -826,25 +830,27 @@ async def sell_shares(
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
     # market_prices_post 见 buy_shares 同位置注释
-    await BROKER.publish(
-        market.id,
-        "trade",
-        {
-            "trade": {
-                "id": int(tx.id),
-                "type": TransactionType.SELL,
-                "outcome_id": int(outcome.id),
-                "username": user.username,
-                "shares": float(shares_d),
-                "price": float(avg_price),
-                "gross": float(proceeds),
-                "fee": float(fee),
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        }
+    trade_payload = {
+        "id": int(tx.id),
+        "type": TransactionType.SELL,
+        "outcome_id": int(outcome.id),
+        "username": user.username,
+        "shares": float(shares_d),
+        "price": float(avg_price),
+        "gross": float(proceeds),
+        "fee": float(fee),
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    _tick.TICK_BROADCASTER.feed_trade(
+        int(market.id),
+        [float(quantize_price(p)) for p in new_prices],
+        trade_payload,
+        market.status,
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
@@ -1000,15 +1006,20 @@ async def resolve_market(
         market.id, winning.id, payout_unit, total_payout, settled_positions, admin.id,
     )
 
-    await BROKER.publish(
-        market.id,
-        "market_status",
-        {
-            "status": MarketStatus.SETTLED,
-            "winning_outcome_id": int(winning.id),
-            "settled_at": now.isoformat(),
-        }
+    _tick.TICK_BROADCASTER.feed_status(
+        market.id, MarketStatus.SETTLED,
+        settlement={"winning_outcome_id": int(winning.id), "settled_at": now.isoformat()},
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market.id,
+            "market_status",
+            {
+                "status": MarketStatus.SETTLED,
+                "winning_outcome_id": int(winning.id),
+                "settled_at": now.isoformat(),
+            }
+        )
 
     return SettleResult(
         market_id=market.id,
@@ -1157,11 +1168,13 @@ async def resume_market(
             raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
         market.status = MarketStatus.TRADING
 
-    await BROKER.publish(
-        market.id,
-        "market_status",
-        {"status": MarketStatus.TRADING}
-    )
+    _tick.TICK_BROADCASTER.feed_status(market.id, MarketStatus.TRADING)
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market.id,
+            "market_status",
+            {"status": MarketStatus.TRADING}
+        )
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 
