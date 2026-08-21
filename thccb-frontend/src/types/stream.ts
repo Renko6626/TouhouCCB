@@ -1,7 +1,7 @@
 // 实时流事件类型定义
 
 export interface MarketEvent {
-  type: 'snapshot' | 'trade' | 'market_status' | 'ping'
+  type: 'snapshot' | 'trade' | 'market_status' | 'ping' | 'tick'
   market_id: number
   ts: string
   data: any
@@ -34,4 +34,17 @@ export interface MarketStatusEventData {
   status: 'trading' | 'halt' | 'settled'
   winning_outcome_id?: number
   settled_at?: string
+}
+
+// 8 Hz 定频帧（阶段 2）：价格向量 + 帧窗口内逐笔成交 + 市场状态。
+// 迁移期与老 trade/market_status 事件共用同一 seq 计数器（每事件 +1）；
+// legacy_trade_events 关掉后退化为"每帧 +1"。
+export interface TickFrameData {
+  status: 'trading' | 'halt' | 'settled'
+  /** 全 outcome 当前价，按 outcome.id 升序，8 位小数（服务端权威精度） */
+  prices: number[]
+  /** 帧窗口内逐笔成交，形状与老 trade 事件的 data.trade 逐字段一致；可为空数组 */
+  trades: TradeEventData['trade'][]
+  /** 仅 settled 帧携带 */
+  settlement?: { winning_outcome_id: number; settled_at: string }
 }

@@ -1,10 +1,14 @@
 import { ref, onBeforeUnmount, watch, type InjectionKey, type Ref } from 'vue'
 import { MarketStream } from '@/api/stream'
-import type { MarketEvent, MarketStatusEventData, TradeEventData } from '@/types/stream'
+import type { MarketEvent, MarketStatusEventData, TickFrameData, TradeEventData } from '@/types/stream'
+import { reportServerBuild } from '@/composables/useBuildVersion'
 
 type TradePayload = TradeEventData['trade']
 
 interface SnapshotData {
+  status?: string
+  // build 版本自刷机制（阶段 2）：后端 snapshot 携带自己的 build sha，供比对
+  frontend_build?: string
   outcomes: Array<{ id: number; current_price: number }>
 }
 
@@ -21,6 +25,12 @@ export interface UseMarketRealtimeReturn {
   snapshotToken: Ref<number>
   // seq 不连续时递增（含重连 snapshot 检测出的"断线期间未收到"）；charts watch 它做 silent refetch
   gapToken: Ref<number>
+  // 最新一帧 8Hz tick 帧（阶段 2）：价格向量+帧窗口内逐笔成交+状态。消费方 watch 此值增量更新
+  latestTick: Ref<TickFrameData | null>
+  // outcome.id 升序数组，供消费方把 tick 帧的价格/market_prices_post 索引换回 outcomeId
+  outcomesOrder: Ref<number[]>
+  // 收到首个 tick 帧后置 true；此后 legacy trade/market_status 只参与 seq 连续性、不再更新状态
+  tickSeen: Ref<boolean>
 }
 
 // provide/inject 注入 key —— TradingView 调 useMarketRealtime + provide，
@@ -49,6 +59,10 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   const latestMarketStatus = ref<MarketStatusEventData | null>(null)
   const snapshotToken = ref(0)
   const gapToken = ref(0)
+  const latestTick = ref<TickFrameData | null>(null)
+  const outcomesOrderRef = ref<number[]>([])
+  const tickSeen = ref(false)
+  let lastFrameStatus: string | null = null
 
   // 内部状态：上一次成功处理的 event seq。0 表示尚未通过 snapshot 锚定
   let lastSeq = 0
@@ -70,6 +84,8 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     // 按 id 升序 outcomesOrder，确保和后端 market_prices_post 顺序一致
     const sorted = [...snap.outcomes].sort((a, b) => a.id - b.id)
     outcomesOrder = sorted.map(o => o.id)
+    outcomesOrderRef.value = outcomesOrder
+    lastFrameStatus = snap.status ?? null
 
     const next = new Map<number, number>()
     for (const o of snap.outcomes) {
@@ -83,6 +99,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     }
     lastSeq = evt.seq ?? 0
     snapshotToken.value += 1
+    reportServerBuild(snap.frontend_build)
   }
 
   // 检测 inline gap（trade / market_status 期间序号断档）
@@ -95,8 +112,35 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     lastSeq = evt.seq
   }
 
+  const handleTick = (evt: MarketEvent) => {
+    tickSeen.value = true
+    checkInlineGap(evt)
+    const frame = evt.data as TickFrameData
+
+    // 价格向量全量 patch（帧价格是服务端 8dp 权威值；空数组 = 老路径纯状态帧，跳过）
+    if (frame.prices.length && frame.prices.length === outcomesOrder.length) {
+      const next = new Map<number, number>()
+      for (let i = 0; i < outcomesOrder.length; i++) {
+        next.set(outcomesOrder[i]!, frame.prices[i]!)
+      }
+      pricesByOutcome.value = next
+    }
+
+    // 状态变更并入帧（spec § 5.1）：变化时喂给既有 latestMarketStatus 消费方
+    if (frame.status !== lastFrameStatus) {
+      lastFrameStatus = frame.status
+      latestMarketStatus.value = {
+        status: frame.status,
+        ...(frame.settlement ?? {}),
+      } as MarketStatusEventData
+    }
+
+    latestTick.value = frame
+  }
+
   const handleTrade = (evt: MarketEvent) => {
     checkInlineGap(evt)
+    if (tickSeen.value) return   // tick 帧已接管状态更新；老事件只参与 seq 连续性（双发防重）
     const payload = (evt.data as TradeEventData).trade
 
     // 用 market_prices_post 全量 patch 所有 outcome 价（含未被交易的，LMSR 联动）
@@ -119,6 +163,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
 
   const handleMarketStatus = (evt: MarketEvent) => {
     checkInlineGap(evt)
+    if (tickSeen.value) return   // tick 帧已接管状态更新；老事件只参与 seq 连续性（双发防重）
     latestMarketStatus.value = evt.data as MarketStatusEventData
   }
 
@@ -131,6 +176,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   stream.on('snapshot', handleSnapshot)
   stream.on('trade', handleTrade)
   stream.on('market_status', handleMarketStatus)
+  stream.on('tick', handleTick)
   stream.on('error', handleError)
 
   // 监听 tab visibility：浏览器后台 throttle 会让 SSE 推送堆积或被代理 idle 掐断。
@@ -162,6 +208,10 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
         pricesByOutcome.value = new Map()
         latestTrade.value = null
         latestMarketStatus.value = null
+        latestTick.value = null
+        tickSeen.value = false
+        lastFrameStatus = null
+        outcomesOrderRef.value = []
       }
       if (id !== null && id !== undefined) {
         stream.connect(id)
@@ -175,6 +225,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     stream.off('snapshot', handleSnapshot)
     stream.off('trade', handleTrade)
     stream.off('market_status', handleMarketStatus)
+    stream.off('tick', handleTick)
     stream.off('error', handleError)
     stream.disconnect()
     document.removeEventListener('visibilitychange', handleVisibility)
@@ -188,5 +239,8 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     latestMarketStatus,
     snapshotToken,
     gapToken,
+    latestTick,
+    outcomesOrder: outcomesOrderRef,
+    tickSeen,
   }
 }
