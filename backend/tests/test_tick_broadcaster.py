@@ -103,7 +103,10 @@ async def test_tick_shares_seq_counter_with_legacy_events():
 
 
 @pytest.mark.asyncio
-async def test_legacy_flag_seeded_default_true():
+async def test_flags_seeded_final_defaults():
+    """终态种子（2026-08-22 起）：writer 默认开、legacy 双发默认关。
+    键缺失时代码 fallback 仍是 legacy=True / writer=False（保守 + 保留双发路径可测），
+    生产行为以 auto_migrate 种子为准。"""
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
@@ -111,6 +114,7 @@ async def test_legacy_flag_seeded_default_true():
     from app.services import site_config
     site_config.clear_cache()
     await auto_migrate()
-    assert await legacy_events_enabled() is True
+    assert await legacy_events_enabled() is False
     async with async_session_maker() as s:
-        assert await site_config.get_str(s, "legacy_trade_events") == "true"
+        assert await site_config.get_str(s, "legacy_trade_events") == "false"
+        assert await site_config.get_str(s, "single_writer_enabled") == "true"
