@@ -13,12 +13,13 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import and_, select, update as sa_update
 
 from app.core.database import async_session_maker
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
+from app.schemas.market import SettleResult
 from app.services.candle_writer import compute_candle_rows
 from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_user
@@ -308,7 +309,217 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
     )
 
 
+@dataclass
+class CloseCmd:
+    market_id: int
+
+
+@dataclass
+class ResumeCmd:
+    market_id: int
+
+
+async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
+    if state.status == MarketStatus.SETTLED:
+        raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
+    async with async_session_maker() as session:
+        async with session.begin():
+            market = await session.get(Market, cmd.market_id)
+            market.status = MarketStatus.HALT
+        title = market.title
+    return OpOutcome(
+        response={"message": f"市场 {title} 已停止交易（熔断）"},
+        new_status=MarketStatus.HALT,
+        publishes=[("market_status", {"status": MarketStatus.HALT})],
+    )
+
+
+async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
+    if state.status == MarketStatus.SETTLED:
+        raise HTTPException(status_code=400, detail="市场已结算，无法恢复交易")
+    if state.status != MarketStatus.HALT:
+        raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
+    async with async_session_maker() as session:
+        async with session.begin():
+            market = await session.get(Market, cmd.market_id)
+            market.status = MarketStatus.TRADING
+        title = market.title
+    return OpOutcome(
+        response={"message": f"市场 {title} 已恢复交易"},
+        new_status=MarketStatus.TRADING,
+        publishes=[("market_status", {"status": MarketStatus.TRADING})],
+    )
+
+
+@dataclass
+class ResolveCmd:
+    market_id: int
+    winning_outcome_id: int
+    payout: Decimal
+    admin_id: int
+
+
+async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
+    """移植自 market.py::resolve_market 事务体（结算数学逐字照抄，不重写）。
+
+    market 行不再 `SELECT ... FOR UPDATE`——writer 串行执行本身就是该市场的
+    序列化保护（spec § 4.5）。position 行锁保留（防与 sell 等并发路径碰撞，
+    零成本照抄）；user 行 `FOR UPDATE` 保留（跨路径 cash 串行化依赖）。
+    结算不改变份额总量，故 `new_q_dec=None`。
+    """
+    payout_unit = quantize_cost(cmd.payout)
+    if payout_unit < ZERO:
+        raise HTTPException(status_code=422, detail="payout 必须 >= 0")
+
+    async with async_session_maker() as session:
+        async with session.begin():
+            market = await session.get(Market, cmd.market_id)
+            if not market:
+                raise HTTPException(status_code=404, detail="市场不存在")
+
+            if market.status == MarketStatus.SETTLED:
+                if market.winning_outcome_id is None or market.settled_at is None:
+                    raise HTTPException(status_code=500, detail="市场已结算但结算字段缺失（数据异常）")
+                return OpOutcome(
+                    response=SettleResult(
+                        market_id=market.id,
+                        status=market.status,
+                        winning_outcome_id=int(market.winning_outcome_id),
+                        settled_at=market.settled_at,
+                        total_payout=ZERO,
+                        settled_positions=0,
+                    ),
+                )
+
+            o_res = await session.execute(
+                select(Outcome)
+                .where(Outcome.market_id == market.id)
+                .order_by(Outcome.id.asc())
+            )
+            outcomes = o_res.scalars().all()
+            if len(outcomes) < 2:
+                raise HTTPException(status_code=400, detail="市场选项数量异常")
+
+            winning = next((o for o in outcomes if o.id == cmd.winning_outcome_id), None)
+            if not winning:
+                raise HTTPException(status_code=400, detail="winning_outcome_id 不属于该市场")
+
+            is_winner = {o.id: (o.id == winning.id) for o in outcomes}
+
+            p_stmt = (
+                select(Position)
+                .join(Outcome, Position.outcome_id == Outcome.id)
+                .where(
+                    and_(
+                        Outcome.market_id == market.id,
+                        Position.amount > 0,
+                    )
+                )
+                .with_for_update()
+            )
+            p_res = await session.execute(p_stmt)
+            positions = p_res.scalars().all()
+
+            # Decimal 计算兑付
+            payout_by_user: dict[int, Decimal] = {}
+            settled_positions = 0
+
+            for pos in positions:
+                if pos.amount <= ZERO:
+                    continue
+                settled_positions += 1
+
+                if is_winner.get(pos.outcome_id, False):
+                    payout_amt = pos.amount * payout_unit
+                    if payout_amt > ZERO:
+                        payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
+                else:
+                    # 亏损仓位：记录 settle_lose 交易（图表 shares 重放需要）
+                    session.add(Transaction(
+                        user_id=pos.user_id,
+                        outcome_id=pos.outcome_id,
+                        type=TransactionType.SETTLE_LOSE,
+                        shares=pos.amount,
+                        gross=ZERO,
+                        fee=ZERO,
+                        price=ZERO,
+                        pre_market_price=ZERO,
+                        post_market_price=ZERO,
+                        cost=ZERO,
+                    ))
+
+                await session.delete(pos)
+
+            total_payout = ZERO
+            now = datetime.now(timezone.utc)
+
+            for uid, pay in payout_by_user.items():
+                if pay <= ZERO:
+                    continue
+
+                u_res = await session.execute(
+                    select(User).where(User.id == uid).with_for_update()
+                )
+                u = u_res.scalars().first()
+                if not u:
+                    raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
+
+                u.cash += pay
+                total_payout += pay
+
+                session.add(Transaction(
+                    user_id=u.id,
+                    outcome_id=winning.id,
+                    type=TransactionType.SETTLE,
+                    shares=ZERO,
+                    gross=pay,
+                    fee=ZERO,
+                    price=payout_unit,
+                    cost=-pay,
+                    timestamp=now,
+                ))
+
+            for o in outcomes:
+                o.payout = payout_unit if o.id == winning.id else ZERO
+
+            market.status = MarketStatus.SETTLED
+            market.winning_outcome_id = winning.id
+            market.settled_at = now
+            market.settled_by_user_id = cmd.admin_id
+        # ── commit 已成功——事务外读缓存属性（expire_on_commit=False）──
+        title = market.title
+        winning_id = int(market.winning_outcome_id)
+        settled_at = market.settled_at
+
+    logger.info(
+        "RESOLVE(writer) market_id=%s winning_outcome_id=%s payout=%s total_payout=%s "
+        "settled_positions=%s admin_id=%s",
+        cmd.market_id, winning_id, payout_unit, total_payout, settled_positions, cmd.admin_id,
+    )
+
+    return OpOutcome(
+        response=SettleResult(
+            market_id=cmd.market_id,
+            status=MarketStatus.SETTLED,
+            winning_outcome_id=winning_id,
+            settled_at=settled_at,
+            total_payout=total_payout,
+            settled_positions=int(settled_positions),
+        ),
+        new_q_dec=None,
+        new_status=MarketStatus.SETTLED,
+        publishes=[("market_status", {
+            "status": MarketStatus.SETTLED,
+            "winning_outcome_id": winning_id,
+            "settled_at": settled_at.isoformat(),
+        })],
+    )
+
+
 def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(BuyCmd, op_buy)
     writer.register_op(SellCmd, op_sell)
-    # Task 8-9 在此追加注册 ResolveCmd / CloseCmd / ResumeCmd / LiquidateMarketCmd
+    writer.register_op(CloseCmd, op_close)
+    writer.register_op(ResumeCmd, op_resume)
+    writer.register_op(ResolveCmd, op_resolve)
+    # Task 9 在此追加注册 LiquidateMarketCmd

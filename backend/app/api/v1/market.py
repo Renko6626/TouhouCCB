@@ -235,6 +235,11 @@ async def close_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import CloseCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(CloseCmd(market_id=market_id))
+
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
         if market.status == MarketStatus.SETTLED:
@@ -856,6 +861,14 @@ async def resolve_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import ResolveCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(ResolveCmd(
+            market_id=market_id, winning_outcome_id=req.winning_outcome_id,
+            payout=req.payout, admin_id=int(admin.id),
+        ))
+
     payout_unit = quantize_cost(req.payout)
     if payout_unit < ZERO:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
@@ -1126,6 +1139,11 @@ async def resume_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import ResumeCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(ResumeCmd(market_id=market_id))
+
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
         if market.status == MarketStatus.SETTLED:
