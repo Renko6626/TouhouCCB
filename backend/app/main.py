@@ -84,20 +84,26 @@ async def lifespan(app: FastAPI):
     if _sw:
         await WRITER.start()
         await CANDLE_FLUSHER.start()
+    # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动 ──
+    from app.services.tick_broadcaster import TICK_BROADCASTER
+    await TICK_BROADCASTER.start()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
     # 启动顺序 loan → liquidation → bot_detection，停止时反序。
     # 调度器（含 liquidation sweep）必须先于 writer/flusher 停——反过来，在途 sweep
     # 会读到 WRITER.enabled=False 落回老路径，或在阶段 B 全部 submit 失败后写出
     # sold_positions_count=0 的假 LiquidationEvent（final review IMP-4）。
-    # writer 再停（断新增命令）、flusher 最后停（做最终 flush），避免停 flusher 时
-    # writer 仍在往 _pending 塞数据
+    # writer 再停（断新增命令）→ broadcaster 再停（此时 writer/老路径都不再 feed，
+    # 做最后一次 flush 把残帧发给订阅者）→ flusher 最后停（做最终 flush），避免停
+    # flusher 时 writer 仍在往 _pending 塞数据
     await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()
     from app.services.market_writer import WRITER as _writer
     from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
+    from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
     await _writer.stop()
+    await _tick_b.stop()      # writer 已停无新 feed；最后一次 flush 把残帧发给订阅者
     await _flusher.stop()
     await engine.dispose()
 

@@ -51,7 +51,10 @@ class MarketEventBroker:
     """
 
     MAX_SUBSCRIBERS_PER_MARKET = 500
-    QUEUE_MAXSIZE = 2000
+    # 定频帧后队列深度 == "落后几帧"：32 帧 ≈ 4 s 落后容忍（spec § 5.2）。
+    # 迁移期（legacy_trade_events 开）队列里混有老事件，踢出判定比 4 s 更严格；
+    # 阶段 5 关双发后回归纯帧语义。慢消费者踢出 + kicked 机制原样保留。
+    QUEUE_MAXSIZE = 32
 
     def __init__(self) -> None:
         self._topics: Dict[int, set[Subscriber]] = {}
