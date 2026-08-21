@@ -48,6 +48,7 @@ from app.services.market_locks import (
 from app.services import site_config
 from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_title_gating import assert_user_can_trade_market
+from app.services.trade_checks import check_buy_slippage, check_sell_slippage
 from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
 
 
@@ -77,11 +78,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ZERO = Decimal("0")
-
-# ── 滑点保护（P1）──
-# 客户端未给 max_cost/min_proceeds 时用百分比兜底；服务端用 hardcap 截断不信任客户端。
-DEFAULT_SLIPPAGE_BPS = 500   # 5%
-HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
 
 # ── Quote 进程内 TTL 缓存（perf）──
 # quote 是无锁纯读 + LMSR 纯计算，前端用户每改一次数量就调一次，QPS 极高。
@@ -560,24 +556,10 @@ async def buy_shares(
         # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
         marginal_price_before_buy = Decimal(str(old_prices[target_idx]))
         expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
-        if req.max_cost is not None and pay > req.max_cost:
-            raise HTTPException(
-                status_code=400,
-                detail=f"成交成本 {pay} 超过 max_cost 限制 {req.max_cost}，滑点过大请刷新报价",
-            )
-        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓场景），跳过 bps 检查。
-        # max_cost 上面已经检查过——若用户传了绝对上限仍然有效，作为最后防线。
-        if not req.accept_any_slippage:
-            client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-            effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
-            slippage_limit_buy = (
-                expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
-            ).quantize(Decimal("0.000001"))
-            if pay > slippage_limit_buy:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
-                )
+        check_buy_slippage(
+            pay, expected_pay, marginal_price_before_buy,
+            req.max_cost, req.max_slippage_bps, req.accept_any_slippage,
+        )
 
         if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
@@ -733,23 +715,10 @@ async def sell_shares(
         # 客户端 min_proceeds 是用户对**到手净额**的显式底线，仍比 net。
         marginal_price_before_sell = Decimal(str(old_prices[target_idx]))
         expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
-        if req.min_proceeds is not None and net < req.min_proceeds:
-            raise HTTPException(
-                status_code=400,
-                detail=f"成交收入 {net} 低于 min_proceeds 限制 {req.min_proceeds}，滑点过大请刷新报价",
-            )
-        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓）；min_proceeds 仍为最后防线
-        if not req.accept_any_slippage:
-            client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-            effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
-            slippage_floor_sell = (
-                expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
-            ).quantize(Decimal("0.000001"))
-            if proceeds < slippage_floor_sell:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
-                )
+        check_sell_slippage(
+            proceeds, net, expected_proceeds, marginal_price_before_sell,
+            req.min_proceeds, req.max_slippage_bps, req.accept_any_slippage,
+        )
 
         # Decimal 精确运算
         locked_user.cash += net
