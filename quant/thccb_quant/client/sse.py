@@ -23,7 +23,7 @@ BACKOFF_SECS = [0.5, 1.0, 2.0, 5.0, 10.0]
 
 @dataclass
 class SseEvent:
-    type: Literal["snapshot", "trade", "market_status", "ping"]
+    type: Literal["snapshot", "trade", "market_status", "ping", "tick"]
     seq: int
     data: dict
 
