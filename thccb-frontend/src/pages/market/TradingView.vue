@@ -201,6 +201,22 @@ watch(realtime.latestTrade, (trade) => {
   maybeSanityRefresh()
 })
 
+// ── tick 帧驱动的本地状态更新（阶段 2）──
+// 一帧可含多笔成交，逐笔 append；帧价格向量整体 patch（服务端 8dp 权威值）。
+// 老 latestTrade watcher 保留作为「新前端+老后端」部署窗口的降级路径：
+// tickSeen 后 latestTrade 不再更新，它自然沉默。
+watch(realtime.latestTick, (frame) => {
+  if (!frame) return
+  if (marketStore.tradeLoading) return  // 自己刚下单尚未完成，避免冲突
+  for (const t of frame.trades) {
+    marketStore.appendTradeFromSSE(t)
+  }
+  if (frame.prices.length) {
+    marketStore.patchAllPricesFromTrade(frame.prices)   // 帧价格与 market_prices_post 同序（id 升序）
+  }
+  if (frame.trades.length) maybeSanityRefresh()
+})
+
 // market_status 变化（halt/settled）→ 重拉 market detail 让 UI 状态机更新
 watch(realtime.latestMarketStatus, (status) => {
   if (!status) return

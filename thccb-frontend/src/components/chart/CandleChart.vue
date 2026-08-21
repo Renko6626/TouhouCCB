@@ -406,6 +406,20 @@ if (realtime) {
     applyTrade(price, sharesForThisChart, tsMs, isDirectTrade)
   })
 
+  watch(realtime.latestTick, (frame) => {
+    if (!frame) return
+    const order = realtime.outcomesOrder.value
+    const idx = order.indexOf(props.outcomeId)
+    for (const t of frame.trades) {
+      const price = idx >= 0 && t.market_prices_post?.length === order.length
+        ? t.market_prices_post[idx]!
+        : (t.outcome_id === props.outcomeId ? t.post_market_price : undefined)
+      if (price === undefined) continue
+      const isDirectTrade = t.outcome_id === props.outcomeId
+      applyTrade(price, isDirectTrade ? t.shares : 0, new Date(t.timestamp).getTime(), isDirectTrade)
+    }
+  })
+
   watch(realtime.gapToken, () => {
     if (realtime.gapToken.value > 0) loadFull()
   })

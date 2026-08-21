@@ -307,6 +307,21 @@ if (realtime) {
     appendPoint(price, tsMs)
   })
 
+  // tick 帧：一帧多笔逐笔 append（用每笔的 market_prices_post 取本 outcome 的成交后价，
+  // 保证帧内多笔的中间点不丢；latestTrade watcher 在 tick 模式下自然沉默，见 TradingView 注释）
+  watch(realtime.latestTick, (frame) => {
+    if (!frame) return
+    const order = realtime.outcomesOrder.value
+    const idx = order.indexOf(props.outcomeId)
+    for (const t of frame.trades) {
+      const price = idx >= 0 && t.market_prices_post?.length === order.length
+        ? t.market_prices_post[idx]!
+        : (t.outcome_id === props.outcomeId ? t.post_market_price : undefined)
+      if (price === undefined) continue
+      appendPoint(price, new Date(t.timestamp).getTime())
+    }
+  })
+
   // gap 检测：seq 不连续 → silent reload 当前可见区段
   watch(realtime.gapToken, () => {
     if (realtime.gapToken.value > 0) loadFull()
