@@ -14,8 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import async_session_maker
-from app.models.base import Market, Outcome
+from app.models.base import Market, Outcome, OutcomeCandle
+from app.services.history_ring import RING_SPEC, HistoryRing, seal_boundary
 from app.services.lmsr import get_current_price, quantize_price
+from app.services.market_writer import WRITER
 from app.services.realtime import BROKER, IP_LIMITER, MarketEvent, Subscriber, sse_pack
 
 # SSE 最大连接持续时间（秒）
@@ -61,6 +63,48 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=timezone.utc)
 
+    # ── 尾巴（spec § 7.3）：最后封存边界 → now，随 snapshot 首包下发 ──
+    # 与后续 tick 帧共享同一条 seq 流（snapshot 锚点原子性不变），gap 检测
+    # 天然覆盖"尾巴 → 实时"的接缝；/history/ 永不吐进行中的段（防线 1）。
+    import time as _time
+    now_epoch = int(_time.time())
+    history_tail: dict = {}
+    st = WRITER.get_state(int(market.id)) if WRITER.enabled else None
+    if st is not None:
+        for o in outcomes:
+            ring = st.rings.get(int(o.id))
+            if ring is not None:
+                history_tail[str(o.id)] = {
+                    iv: ring.tail(iv, now_epoch) for iv in RING_SPEC
+                }
+    if not history_tail:
+        # writer off（旧路径）：从 DB 组装。每档一次范围查询（snapshot 本就
+        # 是 per-connection DB 读，这里 4 次小查询可接受；writer on 时零 DB）。
+        oid_list = [int(o.id) for o in outcomes]
+        rings = {oid: HistoryRing() for oid in oid_list}
+        for iv in RING_SPEC:
+            boundary = seal_boundary(iv, now_epoch)
+            rows = (await db.execute(
+                select(OutcomeCandle).where(
+                    OutcomeCandle.outcome_id.in_(oid_list),
+                    OutcomeCandle.interval == iv,
+                    OutcomeCandle.bucket_start >= datetime.fromtimestamp(boundary, timezone.utc),
+                )
+            )).scalars().all()
+            for c in rows:
+                bs = c.bucket_start if c.bucket_start.tzinfo else c.bucket_start.replace(tzinfo=timezone.utc)
+                rings[int(c.outcome_id)].merge_row({
+                    "outcome_id": int(c.outcome_id), "interval": c.interval, "bucket_start": bs,
+                    "open_price": c.open_price, "high_price": c.high_price,
+                    "low_price": c.low_price, "close_price": c.close_price,
+                    "volume_shares": c.volume_shares, "n_trades": c.n_trades,
+                    "updated_at": c.updated_at,
+                })
+        history_tail = {
+            str(oid): {iv: rings[oid].tail(iv, now_epoch) for iv in RING_SPEC}
+            for oid in oid_list
+        }
+
     return {
         "id": int(market.id),
         "title": str(market.title),
@@ -74,6 +118,7 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
         # build 版本自刷机制：前端比对自己的 VITE_BUILD_SHA，不一致提示刷新（阶段 2）
         "frontend_build": os.environ.get("APP_BUILD_SHA", ""),
         "outcomes": out_reads,
+        "history_tail": history_tail,
     }
 
 
