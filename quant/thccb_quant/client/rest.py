@@ -73,18 +73,16 @@ class HoldingRead(BaseModel):
     market_title: str
     amount: Decimal
     cost_basis: Decimal
-    avg_price: Decimal
-    current_price: Decimal
-    market_value: Decimal
-    unrealized_pnl: Decimal
+    # 阶段 3 起主站不再返回估值列（avg_price/current_price/market_value/
+    # unrealized_pnl）——bot 从未消费它们，需要现价时用 SSE 价格视图
 
 
 class UserSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
     cash: Decimal
     debt: Decimal
-    holdings_value: Decimal
-    net_worth: Decimal
+    # 阶段 3 起主站不再返回 holdings_value/net_worth（客户端本地算）；
+    # bot 只用 cash（meanrev bootstrap），如需净值自行由持仓+价格推
 
 
 class PartialTrade(BaseModel):
