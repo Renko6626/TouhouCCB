@@ -516,10 +516,112 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
     )
 
 
+@dataclass
+class LiquidateMarketCmd:
+    market_id: int
+    user_id: int
+    mode: str                 # "emergency" | "partial"
+    partial_pct: Decimal
+
+
+async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> OpOutcome:
+    """单市场强平（spec § 4.6）：卖光/按比例卖该 user 在该市场的全部持仓。
+
+    与 op_sell 的关键差异：不检查滑点（强平不受用户设的滑点保护约束），
+    不收手续费（与老路径 liquidate_user 同语义）；LIQUIDATE 交易不写 candle
+    （现状核实：liquidation_service 从不调 compute_candle_rows，K 线只记 BUY/SELL）。
+    """
+    from decimal import ROUND_CEILING
+    if state.status != MarketStatus.TRADING:
+        # HALT/SETTLED 市场不强平（与老路径 skip 语义一致），空结果不算错误
+        return OpOutcome(response={"sold_count": 0, "total_proceeds": ZERO})
+
+    new_q_dec = list(state.q_dec)
+    q_work = list(state.q)          # 同市场多仓位串行清算的滚动 q
+    total_proceeds = ZERO
+    sold_count = 0
+
+    async with async_session_maker() as session:
+        async with session.begin():
+            locked_user = await lock_user(session, cmd.user_id)
+            positions = (await session.execute(
+                select(Position)
+                .join(Outcome, Position.outcome_id == Outcome.id)
+                .where(Position.user_id == cmd.user_id,
+                       Position.amount > 0,
+                       Outcome.market_id == cmd.market_id)
+                .order_by(Position.id.asc())
+                .with_for_update()
+            )).scalars().all()
+            if not positions:
+                return OpOutcome(response={"sold_count": 0, "total_proceeds": ZERO})
+
+            for pos in positions:
+                idx = _target_idx(state, pos.outcome_id)
+                # sell_amount 按 mode（移植 liquidation_service.py:180-196，逐字）
+                if cmd.mode == "emergency":
+                    sell_amount = pos.amount
+                else:
+                    sell_amount = (pos.amount * cmd.partial_pct).quantize(
+                        Decimal("1"), rounding=ROUND_CEILING)
+                if sell_amount <= ZERO:
+                    continue
+                if sell_amount >= pos.amount:
+                    sell_amount = pos.amount
+
+                old_q = list(q_work)
+                nq = list(old_q)
+                nq[idx] -= float(sell_amount)
+                old_cost, old_prices = calculate_lmsr_with_prices(old_q, state.b)
+                new_cost, new_prices = calculate_lmsr_with_prices(nq, state.b)
+                proceeds = quantize_cost(old_cost - new_cost)
+                if proceeds < ZERO:
+                    logger.error("liquidation_negative_proceeds(writer) user=%s pos=%s",
+                                 cmd.user_id, pos.id)
+                    continue    # skip not delete（老路径同语义）
+
+                locked_user.cash += proceeds
+                new_q_dec[idx] = quantize_cost(new_q_dec[idx] - sell_amount)
+                q_work = nq
+                if sell_amount >= pos.amount:
+                    await session.delete(pos)
+                else:
+                    cost_reduced = (pos.cost_basis * sell_amount / pos.amount
+                                    ).quantize(Decimal("0.000001"))
+                    pos.amount -= sell_amount
+                    pos.cost_basis -= cost_reduced
+
+                avg_price = quantize_price(proceeds / sell_amount) if sell_amount > ZERO else ZERO
+                session.add(Transaction(
+                    user_id=cmd.user_id, outcome_id=pos.outcome_id,
+                    type=TransactionType.LIQUIDATE, shares=sell_amount,
+                    cost=-proceeds, price=avg_price,
+                    pre_market_price=quantize_price(old_prices[idx]),
+                    post_market_price=quantize_price(new_prices[idx]),
+                    gross=proceeds, fee=ZERO,
+                    market_prices_post=list(new_prices),
+                ))
+                total_proceeds += proceeds
+                sold_count += 1
+
+            # 镜像批量 SET（每个动过的 outcome 一条 UPDATE）
+            for i, oid in enumerate(state.outcome_ids):
+                if new_q_dec[i] != state.q_dec[i]:
+                    await session.execute(
+                        sa_update(Outcome).where(Outcome.id == oid)
+                        .values(total_shares=new_q_dec[i]))
+
+    return OpOutcome(
+        response={"sold_count": sold_count, "total_proceeds": total_proceeds},
+        new_q_dec=new_q_dec if sold_count else None,
+        # 强平今天不发 SSE（与现状一致）
+    )
+
+
 def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(BuyCmd, op_buy)
     writer.register_op(SellCmd, op_sell)
     writer.register_op(CloseCmd, op_close)
     writer.register_op(ResumeCmd, op_resume)
     writer.register_op(ResolveCmd, op_resolve)
-    # Task 9 在此追加注册 LiquidateMarketCmd
+    writer.register_op(LiquidateMarketCmd, op_liquidate_market)

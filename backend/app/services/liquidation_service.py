@@ -21,7 +21,7 @@ from app.models.base import (
 )
 from app.services import loan_service
 from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, quantize_cost, quantize_price
-from app.services.market_locks import lock_outcomes_for_market
+from app.services.market_locks import lock_outcomes_for_market, lock_user as lock_user_ref
 from app.services import site_config  # LCV fee 口径统一从 site_config 读
 
 _logger = logging.getLogger(__name__)
@@ -329,5 +329,101 @@ async def liquidate_user(
             "remaining_debt": str(user.debt),
             "trigger_source": trigger_source,
         },
+    )
+    return ev
+
+
+async def liquidate_user_split(
+    uid: int,
+    *,
+    daily_rate: Decimal,
+    trigger_source: str,
+    partial_pct: Decimal,
+    target_margin: Decimal,
+    emergency_threshold: Decimal,
+):
+    """writer 路径的强平编排器（spec § 4.6）：逐市场独立提交，最后汇总。
+
+    与老路径 liquidate_user 的差异：
+    - 不再全或无——某市场失败只损失该市场的清算，其余照常
+    - pre_* 快照用 compute_users_holdings_value（审计口径，允许 ~1 LSB 差）
+    - LiquidationEvent 在全部子命令返回后统一写一条
+    返回 None 表示 noop（无卖出且无还款），不写 event。
+    """
+    from fastapi import HTTPException
+    from app.core.database import async_session_maker
+    from app.services.market_writer import WRITER
+    from app.services.wealth import compute_users_holdings_value
+    from app.services.writer_ops import LiquidateMarketCmd
+
+    # ── 阶段 A：快照 + mode 决策（短事务，锁完即放）──
+    async with async_session_maker() as session:
+        async with session.begin():
+            user = await lock_user_ref(session, uid)
+            if user.debt <= ZERO:
+                return None
+            pre_cash, pre_debt = user.cash, user.debt
+            pre_hv = (await compute_users_holdings_value(
+                session, user_ids=[uid])).get(uid, ZERO)
+            market_ids = sorted(set((await session.execute(
+                select(Outcome.market_id)
+                .join(Position, Position.outcome_id == Outcome.id)
+                .where(Position.user_id == uid, Position.amount > 0)
+            )).scalars().all()))
+    pre_nw = pre_cash - pre_debt + pre_hv
+    pre_margin = pre_nw / pre_debt
+    mode = "emergency" if pre_margin < emergency_threshold else "partial"
+
+    # ── 阶段 B：逐市场提交（尽力而为）──
+    total_proceeds = ZERO
+    sold_count = 0
+    for mid in market_ids:
+        if WRITER.get_state(mid) is None:
+            continue
+        try:
+            r = await WRITER.submit(LiquidateMarketCmd(
+                market_id=mid, user_id=uid, mode=mode, partial_pct=partial_pct))
+            total_proceeds += r["total_proceeds"]
+            sold_count += r["sold_count"]
+        except HTTPException as e:
+            _logger.warning(
+                "liquidation_market_cmd_failed user=%s market=%s status=%s detail=%s",
+                uid, mid, e.status_code, e.detail)
+
+    # ── 阶段 C：还债 + 汇总 event（独立事务）──
+    async with async_session_maker() as session:
+        async with session.begin():
+            user = await lock_user_ref(session, uid)
+            repaid = ZERO
+            if user.cash > ZERO and user.debt > ZERO:
+                repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
+                if repay_amount > ZERO:
+                    repaid = await loan_service.decrease_debt_locked(
+                        session, user, repay_amount,
+                        consume_cash=True, daily_rate=daily_rate)
+            if sold_count == 0 and repaid == ZERO:
+                return None
+            user.last_liquidated_at = datetime.now(timezone.utc)
+            ev = LiquidationEvent(
+                user_id=uid,
+                triggered_at=datetime.now(timezone.utc),
+                pre_cash=pre_cash, pre_debt=pre_debt,
+                pre_holdings_value=pre_hv, pre_net_worth=pre_nw,
+                pre_margin_ratio=pre_margin,
+                sold_positions_count=sold_count,
+                total_proceeds=total_proceeds,
+                repaid_amount=repaid,
+                remaining_debt=user.debt,
+                post_cash=user.cash,
+                trigger_source=trigger_source,
+                mode=mode,
+            )
+            session.add(ev)
+            await session.flush()
+    _logger.warning(
+        "user_liquidated(split)",
+        extra={"user_id": uid, "sold_positions": sold_count,
+               "total_proceeds": str(total_proceeds), "repaid": str(repaid),
+               "remaining_debt": str(user.debt), "trigger_source": trigger_source},
     )
     return ev
