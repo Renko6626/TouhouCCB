@@ -18,7 +18,8 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.models.base import Market, MarketStatus, Outcome
-from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost
+from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
+from app.services import tick_broadcaster as _tick
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,6 @@ class MarketState:
     prices: list[float]           # 由 q 导出并缓存
     status: MarketStatus
     closes_at: Optional[datetime]
-    seq: int = 0                  # 帧序号，阶段 2（定频广播）才使用
     unavailable: bool = False     # 自愈失败后置 True：该市场一律 503（spec § 4.4 异常策略）
 
 
@@ -69,10 +69,11 @@ class OpOutcome:
     """op 执行结果。op 内部完成 DB 事务；consumer 在 op 返回后统一 apply 内存。"""
     response: Any
     new_q_dec: Optional[list[Decimal]] = None
-    new_prices: Optional[list[float]] = None
     new_status: Optional[MarketStatus] = None
     candle_rows: list[dict] = field(default_factory=list)
     publishes: list[tuple[str, dict]] = field(default_factory=list)
+    tick_trade: Optional[dict] = None        # 本笔成交 payload（与 legacy trade 事件同一 dict）
+    tick_settlement: Optional[dict] = None   # 仅 resolve：{"winning_outcome_id", "settled_at"}
 
 
 class MarketWriter:
@@ -212,16 +213,29 @@ class MarketWriter:
                 if outcome.new_q_dec is not None:
                     st.q_dec = outcome.new_q_dec
                     st.q = [float(x) for x in st.q_dec]
-                    if outcome.new_prices is not None:
-                        st.prices = outcome.new_prices
-                    else:
-                        _, st.prices = calculate_lmsr_with_prices(st.q, st.b)
+                    # MIN-1：prices 恒从量化后的 q 重新导出，保证 prices == f(q)。
+                    # 阶段 2 起 prices 进 tick 帧，若沿用 op 浮点直加算出的 new_prices，
+                    # 重启/自愈从镜像重读后帧价格会出现末位跳变
+                    _, st.prices = calculate_lmsr_with_prices(st.q, st.b)
                 if outcome.new_status is not None:
                     st.status = outcome.new_status
                 if outcome.candle_rows:
                     self._merge_candles(outcome.candle_rows)
-                for event_type, data in outcome.publishes:
-                    await BROKER.publish(market_id, event_type, data)
+                # ── tick 帧投喂（spec § 5.1）──
+                prices_8dp = [float(quantize_price(p)) for p in st.prices]
+                if outcome.tick_trade is not None:
+                    _tick.TICK_BROADCASTER.feed_trade(
+                        market_id, prices_8dp, outcome.tick_trade, st.status)
+                elif outcome.new_status is not None:
+                    _tick.TICK_BROADCASTER.feed_status(
+                        market_id, st.status, outcome.tick_settlement, prices=prices_8dp)
+                elif outcome.new_q_dec is not None:
+                    # 强平：q 变了但没有成交事件 → 空 trades 帧推新价格
+                    _tick.TICK_BROADCASTER.feed_prices(market_id, prices_8dp, st.status)
+                # ── 老事件双发（legacy_trade_events；阶段 5 删）──
+                if outcome.publishes and await _tick.legacy_events_enabled():
+                    for event_type, data in outcome.publishes:
+                        await BROKER.publish(market_id, event_type, data)
                 if not fut.done():
                     fut.set_result(outcome.response)
             except HTTPException as e:

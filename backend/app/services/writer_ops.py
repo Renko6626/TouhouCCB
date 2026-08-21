@@ -154,6 +154,19 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
         cmd.user_id, cmd.outcome_id, state.market_id, shares_d, pay, avg_price,
         pre_mp, post_mp, new_cash,
     )
+    trade_payload = {
+        "id": int(tx.id),
+        "type": TransactionType.BUY,
+        "outcome_id": int(cmd.outcome_id),
+        "username": cmd.username,
+        "shares": float(shares_d),
+        "price": float(avg_price),
+        "gross": float(pay),
+        "fee": 0.0,
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
     return OpOutcome(
         response={
             "shares": float(shares_d),
@@ -162,24 +175,9 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
             "message": f"成功买入 {shares_d:f} 张 {label}（均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
-        new_prices=new_prices,
         candle_rows=candle_rows,
-        publishes=[(
-            "trade",
-            {"trade": {
-                "id": int(tx.id),
-                "type": TransactionType.BUY,
-                "outcome_id": int(cmd.outcome_id),
-                "username": cmd.username,
-                "shares": float(shares_d),
-                "price": float(avg_price),
-                "gross": float(pay),
-                "fee": 0.0,
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }},
-        )],
+        tick_trade=trade_payload,
+        publishes=[("trade", {"trade": trade_payload})],
     )
 
 
@@ -284,6 +282,15 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
         cmd.user_id, cmd.outcome_id, state.market_id, shares_d, proceeds, fee, net,
         avg_price, new_cash,
     )
+    trade_payload = {
+        "id": int(tx.id), "type": TransactionType.SELL,
+        "outcome_id": int(cmd.outcome_id), "username": cmd.username,
+        "shares": float(shares_d), "price": float(avg_price),
+        "gross": float(proceeds), "fee": float(fee),
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
     return OpOutcome(
         response={
             "shares": float(shares_d),
@@ -292,20 +299,9 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
             "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
-        new_prices=new_prices,
         candle_rows=candle_rows,
-        publishes=[(
-            "trade",
-            {"trade": {
-                "id": int(tx.id), "type": TransactionType.SELL,
-                "outcome_id": int(cmd.outcome_id), "username": cmd.username,
-                "shares": float(shares_d), "price": float(avg_price),
-                "gross": float(proceeds), "fee": float(fee),
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }},
-        )],
+        tick_trade=trade_payload,
+        publishes=[("trade", {"trade": trade_payload})],
     )
 
 
@@ -508,6 +504,8 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
         ),
         new_q_dec=None,
         new_status=MarketStatus.SETTLED,
+        tick_settlement={"winning_outcome_id": winning_id,
+                         "settled_at": settled_at.isoformat()},
         publishes=[("market_status", {
             "status": MarketStatus.SETTLED,
             "winning_outcome_id": winning_id,
@@ -534,6 +532,10 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
     from decimal import ROUND_CEILING
     if state.status != MarketStatus.TRADING:
         # HALT/SETTLED 市场不强平（与老路径 skip 语义一致），空结果不算错误
+        logger.warning(
+            "liquidation_skip_non_trading_market(writer) user_id=%s market_id=%s status=%s",
+            cmd.user_id, cmd.market_id, state.status,
+        )
         return OpOutcome(response={"sold_count": 0, "total_proceeds": ZERO})
 
     new_q_dec = list(state.q_dec)

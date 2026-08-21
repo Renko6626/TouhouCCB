@@ -390,6 +390,11 @@ async def liquidate_user_split(
                 .where(Position.user_id == uid, Position.amount > 0)
             )).scalars().all()))
     mode = "emergency" if pre_margin < emergency_threshold else "partial"
+    _logger.info(
+        "liquidate_user_mode(writer) user_id=%s mode=%s partial_pct=%s pre_margin_ratio=%s "
+        "hard=%s emergency_threshold=%s target_margin=%s",
+        uid, mode, partial_pct, pre_margin, hard_threshold, emergency_threshold, target_margin,
+    )
 
     # ── 阶段 B：逐市场提交（尽力而为）──
     total_proceeds = ZERO
