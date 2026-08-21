@@ -46,8 +46,10 @@ from app.services.market_locks import (
     lock_outcome as _lock_outcome,
 )
 from app.services import site_config
+from app.services import tick_broadcaster as _tick
 from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_title_gating import assert_user_can_trade_market
+from app.services.trade_checks import check_buy_slippage, check_sell_slippage
 from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
 
 
@@ -77,11 +79,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ZERO = Decimal("0")
-
-# ── 滑点保护（P1）──
-# 客户端未给 max_cost/min_proceeds 时用百分比兜底；服务端用 hardcap 截断不信任客户端。
-DEFAULT_SLIPPAGE_BPS = 500   # 5%
-HARDCAP_SLIPPAGE_BPS = 1000  # 10%，再大也截掉
 
 # ── Quote 进程内 TTL 缓存（perf）──
 # quote 是无锁纯读 + LMSR 纯计算，前端用户每改一次数量就调一次，QPS 极高。
@@ -224,6 +221,11 @@ async def create_market(
         db.add(Outcome(market_id=new_market.id, label=label, total_shares=ZERO))
 
     await db.commit()
+
+    from app.services.market_writer import WRITER
+    if WRITER.enabled:
+        await WRITER.register_market(int(new_market.id))
+
     return {
         "status": "success",
         "market_id": new_market.id,
@@ -239,16 +241,23 @@ async def close_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import CloseCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(CloseCmd(market_id=market_id))
+
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
         if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
         market.status = MarketStatus.HALT
-    await BROKER.publish(
-        market_id,
-        "market_status",
-        {"status": MarketStatus.HALT}
-    )
+    _tick.TICK_BROADCASTER.feed_status(market_id, MarketStatus.HALT)
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market_id,
+            "market_status",
+            {"status": MarketStatus.HALT}
+        )
     return {"message": f"市场 {market.title} 已停止交易（熔断）"}
 
 
@@ -518,6 +527,28 @@ async def buy_shares(
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
 
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import BuyCmd
+    if WRITER.enabled:
+        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
+        if mid is None:
+            row = await db.execute(
+                select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+            if row.scalars().first() is None:
+                raise HTTPException(status_code=404, detail="选项不存在")
+            # outcome 存在但市场不在 writer（启动前已 SETTLED）→ 与老路径同文案
+            raise HTTPException(status_code=400, detail="市场当前不可交易")
+        return await WRITER.submit(BuyCmd(
+            market_id=mid,
+            outcome_id=int(req.outcome_id),
+            user_id=int(user.id),
+            username=user.username,
+            shares=shares_d,
+            max_cost=req.max_cost,
+            max_slippage_bps=req.max_slippage_bps,
+            accept_any_slippage=req.accept_any_slippage,
+        ))
+
     async with managed_transaction(db):
         # ── 锁顺序（P1 follow-up）──
         # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
@@ -560,24 +591,10 @@ async def buy_shares(
         # 客户端 max_cost 优先；否则用 bps（默认 500，服务端 hardcap=1000 截断）。
         marginal_price_before_buy = Decimal(str(old_prices[target_idx]))
         expected_pay = (marginal_price_before_buy * shares_d).quantize(Decimal("0.000001"))
-        if req.max_cost is not None and pay > req.max_cost:
-            raise HTTPException(
-                status_code=400,
-                detail=f"成交成本 {pay} 超过 max_cost 限制 {req.max_cost}，滑点过大请刷新报价",
-            )
-        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓场景），跳过 bps 检查。
-        # max_cost 上面已经检查过——若用户传了绝对上限仍然有效，作为最后防线。
-        if not req.accept_any_slippage:
-            client_bps_buy = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-            effective_bps_buy = min(client_bps_buy, HARDCAP_SLIPPAGE_BPS)
-            slippage_limit_buy = (
-                expected_pay * Decimal(10000 + effective_bps_buy) / Decimal(10000)
-            ).quantize(Decimal("0.000001"))
-            if pay > slippage_limit_buy:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"滑点超过 {effective_bps_buy / 100}%（边际价 {marginal_price_before_buy}），请刷新报价",
-                )
+        check_buy_slippage(
+            pay, expected_pay, marginal_price_before_buy,
+            req.max_cost, req.max_slippage_bps, req.accept_any_slippage,
+        )
 
         if locked_user.cash < pay:
             raise HTTPException(status_code=400, detail="现金不足")
@@ -637,32 +654,33 @@ async def buy_shares(
     )
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
-    # market_prices_post: 全市场所有 outcome 的 post 价快照（按 outcome.id 升序），
-    # 让前端在 LMSR 跨选项价格联动场景下能 O(1) patch 所有 outcome 当前价 + 推图表。
-    await BROKER.publish(
-        market.id,
-        "trade",
-        {
-            "trade": {
-                "id": int(tx.id),
-                "type": TransactionType.BUY,
-                "outcome_id": int(outcome.id),
-                "username": user.username,
-                "shares": float(shares_d),
-                "price": float(avg_price),
-                "gross": float(pay),
-                "fee": 0.0,
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        }
+    # market_prices_post: 全市场所有 outcome 的 post 价快照（按 outcome.id 升序）
+    trade_payload = {
+        "id": int(tx.id),
+        "type": TransactionType.BUY,
+        "outcome_id": int(outcome.id),
+        "username": user.username,
+        "shares": float(shares_d),
+        "price": float(avg_price),
+        "gross": float(pay),
+        "fee": 0.0,
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    _tick.TICK_BROADCASTER.feed_trade(
+        int(market.id),
+        [float(quantize_price(p)) for p in new_prices],
+        trade_payload,
+        market.status,
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
         "cost": float(pay.quantize(Decimal("0.01"))),
-        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "new_cash": quantize_cost(locked_user.cash),
         "message": f"成功买入 {shares_d:f} 张 {outcome.label}（均价≈{avg_price}）",
     }
 
@@ -676,6 +694,28 @@ async def sell_shares(
     shares_d = quantize_cost(req.shares)
     if shares_d <= ZERO:
         raise HTTPException(status_code=422, detail="shares 必须为正数")
+
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import SellCmd
+    if WRITER.enabled:
+        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
+        if mid is None:
+            row = await db.execute(
+                select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
+            if row.scalars().first() is None:
+                raise HTTPException(status_code=404, detail="选项不存在")
+            # outcome 存在但市场不在 writer（启动前已 SETTLED）→ 与老路径同文案
+            raise HTTPException(status_code=400, detail="市场当前不可交易")
+        return await WRITER.submit(SellCmd(
+            market_id=mid,
+            outcome_id=int(req.outcome_id),
+            user_id=int(user.id),
+            username=user.username,
+            shares=shares_d,
+            min_proceeds=req.min_proceeds,
+            max_slippage_bps=req.max_slippage_bps,
+            accept_any_slippage=req.accept_any_slippage,
+        ))
 
     async with managed_transaction(db):
         # ── 锁顺序（P1 follow-up）──
@@ -733,23 +773,10 @@ async def sell_shares(
         # 客户端 min_proceeds 是用户对**到手净额**的显式底线，仍比 net。
         marginal_price_before_sell = Decimal(str(old_prices[target_idx]))
         expected_proceeds = (marginal_price_before_sell * shares_d).quantize(Decimal("0.000001"))
-        if req.min_proceeds is not None and net < req.min_proceeds:
-            raise HTTPException(
-                status_code=400,
-                detail=f"成交收入 {net} 低于 min_proceeds 限制 {req.min_proceeds}，滑点过大请刷新报价",
-            )
-        # accept_any_slippage: 用户明确接受任意滑点（平仓 / 大额建仓）；min_proceeds 仍为最后防线
-        if not req.accept_any_slippage:
-            client_bps_sell = req.max_slippage_bps if req.max_slippage_bps is not None else DEFAULT_SLIPPAGE_BPS
-            effective_bps_sell = min(client_bps_sell, HARDCAP_SLIPPAGE_BPS)
-            slippage_floor_sell = (
-                expected_proceeds * Decimal(10000 - effective_bps_sell) / Decimal(10000)
-            ).quantize(Decimal("0.000001"))
-            if proceeds < slippage_floor_sell:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"滑点超过 {effective_bps_sell / 100}%（边际价 {marginal_price_before_sell}），请刷新报价",
-                )
+        check_sell_slippage(
+            proceeds, net, expected_proceeds, marginal_price_before_sell,
+            req.min_proceeds, req.max_slippage_bps, req.accept_any_slippage,
+        )
 
         # Decimal 精确运算
         locked_user.cash += net
@@ -803,30 +830,32 @@ async def sell_shares(
 
     # SSE payload 包含足够字段让前端增量更新 marketTrades + 价格，无需 refetch
     # market_prices_post 见 buy_shares 同位置注释
-    await BROKER.publish(
-        market.id,
-        "trade",
-        {
-            "trade": {
-                "id": int(tx.id),
-                "type": TransactionType.SELL,
-                "outcome_id": int(outcome.id),
-                "username": user.username,
-                "shares": float(shares_d),
-                "price": float(avg_price),
-                "gross": float(proceeds),
-                "fee": float(fee),
-                "post_market_price": float(post_mp),
-                "market_prices_post": [float(p) for p in new_prices],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        }
+    trade_payload = {
+        "id": int(tx.id),
+        "type": TransactionType.SELL,
+        "outcome_id": int(outcome.id),
+        "username": user.username,
+        "shares": float(shares_d),
+        "price": float(avg_price),
+        "gross": float(proceeds),
+        "fee": float(fee),
+        "post_market_price": float(post_mp),
+        "market_prices_post": [float(p) for p in new_prices],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    _tick.TICK_BROADCASTER.feed_trade(
+        int(market.id),
+        [float(quantize_price(p)) for p in new_prices],
+        trade_payload,
+        market.status,
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
         "cost": float((-net).quantize(Decimal("0.01"))),
-        "new_cash": float(locked_user.cash.quantize(Decimal("0.01"))),
+        "new_cash": quantize_cost(locked_user.cash),
         "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
     }
 
@@ -843,6 +872,14 @@ async def resolve_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import ResolveCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(ResolveCmd(
+            market_id=market_id, winning_outcome_id=req.winning_outcome_id,
+            payout=req.payout, admin_id=int(admin.id),
+        ))
+
     payout_unit = quantize_cost(req.payout)
     if payout_unit < ZERO:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
@@ -969,15 +1006,20 @@ async def resolve_market(
         market.id, winning.id, payout_unit, total_payout, settled_positions, admin.id,
     )
 
-    await BROKER.publish(
-        market.id,
-        "market_status",
-        {
-            "status": MarketStatus.SETTLED,
-            "winning_outcome_id": int(winning.id),
-            "settled_at": now.isoformat(),
-        }
+    _tick.TICK_BROADCASTER.feed_status(
+        market.id, MarketStatus.SETTLED,
+        settlement={"winning_outcome_id": int(winning.id), "settled_at": now.isoformat()},
     )
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market.id,
+            "market_status",
+            {
+                "status": MarketStatus.SETTLED,
+                "winning_outcome_id": int(winning.id),
+                "settled_at": now.isoformat(),
+            }
+        )
 
     return SettleResult(
         market_id=market.id,
@@ -1113,6 +1155,11 @@ async def resume_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    from app.services.market_writer import WRITER
+    from app.services.writer_ops import ResumeCmd
+    if WRITER.enabled and WRITER.get_state(market_id) is not None:
+        return await WRITER.submit(ResumeCmd(market_id=market_id))
+
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
         if market.status == MarketStatus.SETTLED:
@@ -1121,11 +1168,13 @@ async def resume_market(
             raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
         market.status = MarketStatus.TRADING
 
-    await BROKER.publish(
-        market.id,
-        "market_status",
-        {"status": MarketStatus.TRADING}
-    )
+    _tick.TICK_BROADCASTER.feed_status(market.id, MarketStatus.TRADING)
+    if await site_config.get_bool_or(db, "legacy_trade_events", True):
+        await BROKER.publish(
+            market.id,
+            "market_status",
+            {"status": MarketStatus.TRADING}
+        )
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 

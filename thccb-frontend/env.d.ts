@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_CASDOOR_ORG?: string
   readonly VITE_CASDOOR_APP?: string
   readonly VITE_CLIENT_TOKEN_SECRET?: string
+  readonly VITE_BUILD_SHA?: string
 }
 
 interface ImportMeta {

@@ -111,13 +111,39 @@ MTM 可能很大。盲目按 LCV margin 强平 → 用户的 TRADING 持仓被�
 后端：
 - `services/wealth.py::compute_users_holdings_value()` → LCV
 - `services/wealth.py::compute_users_holdings_value_mtm()` → MTM
-- `api/v1/user.py::get_user_summary()` → 同时返回两套
+- `api/v1/user.py::get_user_summary()` → 仅当 `debt > 0` 时调 LCV 算 `margin_status`（阶段 3 起不再把 MTM/LCV 数值本身下发，见下节）
 - `api/v1/loan.py::_holdings_value()` → LCV（薄封装，统一走 services.wealth）
 - `api/v1/market.py::leaderboard()` → MTM
 
 前端：
-- `types/user.ts::UserSummary` 同时含 `holdings_value` (MTM) + `holdings_value_liquidation` (LCV)
+- `types/user.ts::UserSummary` 阶段 3 起不再含 `holdings_value` / `net_worth` 等派生字段，改用
+  `utils/lmsr.ts` + `utils/valuation.ts` + `stores/user.ts` 的 priceContext 本地推算
 - `components/user/MarginStatusCard.vue` 公式拆解明确用 LCV，标注 MTM 差距让用户看到滑点
+
+## 谁在算：阶段 3 起的服务端/客户端分工
+
+阶段 3（spec 2026-08-21 §6.4）把 `/user/summary`、`/user/holdings` 的估值列
+（`holdings_value` / `net_worth` / `unrealized_pnl` / `rank` / `margin_ratio` 等）
+整体下放到前端本地算，后端不再在这两个高频轮询端点里跑全仓 LMSR：
+
+- **服务端仍算**（权威口径，`services/wealth.py` 不变）：
+  - 强平 sweep 判定（`liquidation_sweep.py`）
+  - `/admin/wealth`
+  - `/market/leaderboard` 排序（MTM）
+  - `/user/summary` 的 `margin_status`——且仅在 `debt > 0` 时才跑一次 LCV，
+    无债用户零 LMSR 开销
+- **客户端现算**（阶段 3 起，仅用于显示）：
+  - `/user/summary`、`/user/holdings` 不再返回 MTM/LCV/净值/浮盈/rank，只给
+    `cash`（6dp，客户端本地 apply 成交后的 cash 基线）、`positions`（数量/成本）、
+    `rank_thresholds`（阈值表，供前端本地映射称号）
+  - 前端 `utils/lmsr.ts`（闭式 LMSR 公式）+ `utils/valuation.ts` + `stores/user.ts`
+    的 priceContext 本地推算 MTM/LCV/净值/浮盈/rank；HALT 语义与 `wealth.py` 镜像
+    （MTM 照算不过滤 HALT；LCV 在 HALT 时不计入，且"立即变现浮盈" = -cost_basis）
+
+客户端估值是**显示口径**（价格可能轻微陈旧于服务端最新成交、且不做 6dp 资金量化），
+真正的权威判定——强平是否触发、借款额度是多少——永远走服务端 `services/wealth.py`
+（spec §6.3）。前端页面若需要"绝对准确"的净值（如借款申请前的最终确认），应
+直接调后端权威接口，不能只信本地估算。
 
 ## 维护规则
 

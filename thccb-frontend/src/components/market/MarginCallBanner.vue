@@ -5,7 +5,7 @@ import { useUserStore } from '@/stores/user'
 const userStore = useUserStore()
 
 const status = computed(() => userStore.summary?.margin_status ?? 'healthy')
-const ratio = computed(() => userStore.summary?.margin_ratio)
+const ratio = computed(() => userStore.marginRatioEstimate)
 const hardThr = computed(() => userStore.summary?.margin_hard_threshold ?? 0.2)
 const softThr = computed(() => userStore.summary?.margin_soft_threshold ?? 0.5)
 const lastLiquidatedAt = computed(() => userStore.summary?.last_liquidated_at)

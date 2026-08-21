@@ -49,6 +49,11 @@ DEFAULT_CONFIGS = [
     # ── 经济参数（admin 热配）──
     ("sell_fee_rate", "0", "decimal"),                         # 卖出手续费率，默认 0
     ("initial_balance", str(settings.INITIAL_BALANCE), "decimal"),  # 新用户初始余额
+    # ── 单写者重构（spec 2026-08-21）──
+    # 终态默认（2026-08-22：二期未开、无在线用户，跳过灰度直接上终态；
+    # 已有 DB 行不受种子影响，翻转仍按各自语义：writer 需重启，legacy 热生效）
+    ("single_writer_enabled", "true", "bool"),    # 翻转需重启进程（启动时读一次）
+    ("legacy_trade_events", "false", "bool"),     # 老 SSE 事件双发关闭（bot 已内建 tick 适配）；阶段 5 删
 ]
 
 

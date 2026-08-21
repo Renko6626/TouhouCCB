@@ -48,6 +48,8 @@ _LOG_SKIP_PREFIXES = (
     # 业务性动作（创建/结算/调整现金等）都走 /api/v1/market/* 和 /api/v1/user/*/adjust-cash
     # 等业务端点，会被正常记录，不依赖 admin 路径。
     "/api/v1/admin",
+    # 阶段 4：不可变历史段，nginx 缓存回源为主，量大且无审计价值
+    "/history/",
 )
 
 
@@ -66,6 +68,8 @@ async def lifespan(app: FastAPI):
     setup_admin(app, engine)
     # ── candle 表 race-window 兜底扫（spec § 6.3）──
     # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
+    # ★ 顺序依赖（阶段 4）：必须先于 WRITER.start()——writer 启动时从
+    #   OutcomeCandle 回灌 HistoryRing，resync 先跑保证崩溃丢失的 ≤5s 已修复。
     try:
         await _resync_recent_candles()
     except Exception as e:
@@ -74,12 +78,37 @@ async def lifespan(app: FastAPI):
     await start_loan_scheduler()
     await start_liquidation_scheduler()
     await start_bot_detection_scheduler()
+    # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
+    from app.core.database import async_session_maker
+    from app.services import site_config as _site_config
+    from app.services.market_writer import WRITER
+    from app.services.candle_flusher import CANDLE_FLUSHER
+    async with async_session_maker() as _s:
+        _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
+    if _sw:
+        await WRITER.start()
+        await CANDLE_FLUSHER.start()
+    # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动 ──
+    from app.services.tick_broadcaster import TICK_BROADCASTER
+    await TICK_BROADCASTER.start()
     yield
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
-    # 启动顺序 loan → liquidation → bot_detection，停止时反序
+    # 启动顺序 loan → liquidation → bot_detection，停止时反序。
+    # 调度器（含 liquidation sweep）必须先于 writer/flusher 停——反过来，在途 sweep
+    # 会读到 WRITER.enabled=False 落回老路径，或在阶段 B 全部 submit 失败后写出
+    # sold_positions_count=0 的假 LiquidationEvent（final review IMP-4）。
+    # writer 再停（断新增命令）→ broadcaster 再停（此时 writer/老路径都不再 feed，
+    # 做最后一次 flush 把残帧发给订阅者）→ flusher 最后停（做最终 flush），避免停
+    # flusher 时 writer 仍在往 _pending 塞数据
     await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()
+    from app.services.market_writer import WRITER as _writer
+    from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
+    from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
+    await _writer.stop()
+    await _tick_b.stop()      # writer 已停无新 feed；最后一次 flush 把残帧发给订阅者
+    await _flusher.stop()
     await engine.dispose()
 
 
@@ -238,6 +267,9 @@ app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
+
+from app.api.v1 import history as history_api
+app.include_router(history_api.router, prefix="/history", tags=["History"])  # 不在 /api/v1 下：绕开 no-store 中间件（见 history.py 模块注释）
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
 

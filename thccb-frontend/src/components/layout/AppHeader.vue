@@ -6,6 +6,8 @@ import { useUserStore } from '@/stores/user'
 import { NDropdown } from 'naive-ui'
 import type { DropdownOption } from 'naive-ui'
 import TitleChip from '@/components/title/TitleChip.vue'
+import { buildMismatch } from '@/composables/useBuildVersion'
+const refreshPage = () => location.reload()
 
 interface Props {
   collapsed: boolean
@@ -96,6 +98,15 @@ const handleUserMenuClick = (key: string) => {
       </template>
     </div>
   </div>
+
+  <!-- build 版本自刷横幅（阶段 2）：检查只在建立 SSE（进交易页/断线重连/切后台回来）时发生，
+       停留在 Portfolio 等无 SSE 页面的旧 tab 拿不到提示——阶段 3 的 NaN 兜底主要保护交易页，可接受。 -->
+  <Teleport to="body">
+    <div v-if="buildMismatch" class="build-refresh-bar">
+      <span>站点已更新——当前页面运行的是旧版本，继续操作可能出错</span>
+      <button type="button" class="build-refresh-btn" @click="refreshPage">立即刷新</button>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -253,4 +264,32 @@ const handleUserMenuClick = (key: string) => {
   .user-name { display: none; }
   .debt-badge { font-size: 11px; padding: 2px 6px; }
 }
+
+/* build 版本自刷横幅 */
+.build-refresh-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: #000;
+  color: #fff;
+  border-bottom: 3px solid #f5a623;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.build-refresh-btn {
+  padding: 4px 14px;
+  border: 2px solid #fff;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.build-refresh-btn:hover { background: #f5a623; border-color: #f5a623; }
 </style>

@@ -88,6 +88,34 @@ async def _liquidate_one_user(
     """
     async with sem:
         try:
+            from app.services.market_writer import WRITER
+            if WRITER.enabled:
+                # margin 判定仍在这里做（复用既有 stage-2 语义），判定通过才编排强平
+                async with async_session_maker() as session:
+                    async with session.begin():
+                        user = await lock_user(session, uid)
+                        if user.debt <= Decimal("0"):
+                            return "skipped"
+                        if await user_has_halt_holdings(session, uid):
+                            logger.info("sweep_skip_user_with_halt_holdings",
+                                        extra={"user_id": uid, "stage": "stage2_race_guard"})
+                            return "skipped"
+                        hv_now = (await compute_users_holdings_value(
+                            session, user_ids=[uid])).get(uid, Decimal("0"))
+                        margin_now = (user.cash - user.debt + hv_now) / user.debt
+                        if margin_now >= hard_thr:
+                            logger.info("sweep_skip_recovered",
+                                        extra={"user_id": uid, "margin_now": float(margin_now)})
+                            return "recovered"
+                ev = await liquidation_service.liquidate_user_split(
+                    uid, daily_rate=rate, trigger_source=trigger_source,
+                    partial_pct=partial_pct, target_margin=target_margin,
+                    emergency_threshold=emergency_threshold,
+                    hard_threshold=hard_thr)
+                if ev is None:
+                    _recently_attempted[uid] = now
+                return "triggered"
+            # ↓ 老路径原逻辑，一行不动
             async with async_session_maker() as session:
                 async with session.begin():
                     user = await lock_user(session, uid)

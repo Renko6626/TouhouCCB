@@ -14,7 +14,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { chartApi } from '@/api/chart'
+import { loadHistoryCandles } from '@/composables/useCandleHistory'
 import type { Candle, ChartInterval } from '@/types/api'
 import { getPalette, withAlpha } from '@/utils/palette'
 import { MarketRealtimeKey } from '@/composables/useMarketRealtime'
@@ -83,11 +83,6 @@ const visibleLookbackSeconds = computed(() =>
 const toUtcTimestamp = (iso: string): UTCTimestamp =>
   Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp
 
-const getLimitByWindow = () => {
-  const step = stepSeconds.value
-  return Math.max(50, Math.ceil((lookbackMinutes.value * 60) / step) + 8)
-}
-
 // ── 增量 MA 计算：仅用最近 MA_PERIOD-1 个已闭合 close + 当前 forming close
 const computeFormingMa = (): number | null => {
   if (!currentCandle) return null
@@ -128,21 +123,11 @@ const loadFull = async () => {
   loading.value = true
   error.value = null
   try {
-    const now = new Date()
-    const lookbackMs = Math.max(5, lookbackMinutes.value) * 60 * 1000
-    const fromTs = new Date(now.getTime() - lookbackMs).toISOString()
-    const toTs = now.toISOString()
-    const resp = await chartApi.getCandles(
-      props.outcomeId, props.interval, fromTs, toTs,
-      true, getLimitByWindow(),
+    const raw = await loadHistoryCandles(
+      props.outcomeId, props.interval, Math.max(5, lookbackMinutes.value),
+      realtime?.historyTail?.value ?? null,
     )
-    if (!resp || !resp.candles) {
-      candleCount.value = 0
-      return
-    }
-    const candles = [...resp.candles].sort((a, b) =>
-      toUtcTimestamp(a.t) - toUtcTimestamp(b.t),
-    )
+    const candles = [...raw].sort((a, b) => toUtcTimestamp(a.t) - toUtcTimestamp(b.t))
     candleCount.value = candles.length
 
     await nextTick()
@@ -404,6 +389,20 @@ if (realtime) {
     const isDirectTrade = trade.outcome_id === props.outcomeId
     const sharesForThisChart = isDirectTrade ? trade.shares : 0
     applyTrade(price, sharesForThisChart, tsMs, isDirectTrade)
+  })
+
+  watch(realtime.latestTick, (frame) => {
+    if (!frame) return
+    const order = realtime.outcomesOrder.value
+    const idx = order.indexOf(props.outcomeId)
+    for (const t of frame.trades) {
+      const price = idx >= 0 && t.market_prices_post?.length === order.length
+        ? t.market_prices_post[idx]!
+        : (t.outcome_id === props.outcomeId ? t.post_market_price : undefined)
+      if (price === undefined) continue
+      const isDirectTrade = t.outcome_id === props.outcomeId
+      applyTrade(price, isDirectTrade ? t.shares : 0, new Date(t.timestamp).getTime(), isDirectTrade)
+    }
   })
 
   watch(realtime.gapToken, () => {

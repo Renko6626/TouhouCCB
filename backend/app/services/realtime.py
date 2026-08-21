@@ -29,6 +29,10 @@ class MarketEvent:
 class Subscriber:
     """每个 SSE 连接对应一个 Subscriber。包含事件队列 + kicked 信号。
 
+    q 内元素是 publish() 打包好的 SSE wire 格式 bytes（`sse_pack(evt).encode()`），
+    不是 MarketEvent 对象——同一条事件只序列化一次，N 个订阅者共享同一个 bytes
+    对象，generator 直接转发（阶段 0 性能重构）。
+
     kicked = publish() 检测到这个 queue 满（慢消费者）后会被 set；
     stream.py gen() 在 wait_for queue 或 kicked 任一就绪时即退出，
     避免 generator 卡在死队列上空转（旧 bug：踢出 subs 后 generator 仍
@@ -47,7 +51,10 @@ class MarketEventBroker:
     """
 
     MAX_SUBSCRIBERS_PER_MARKET = 500
-    QUEUE_MAXSIZE = 2000
+    # 定频帧后队列深度 == "落后几帧"：32 帧 ≈ 4 s 落后容忍（spec § 5.2）。
+    # 迁移期（legacy_trade_events 开）队列里混有老事件，踢出判定比 4 s 更严格；
+    # 阶段 5 关双发后回归纯帧语义。慢消费者踢出 + kicked 机制原样保留。
+    QUEUE_MAXSIZE = 32
 
     def __init__(self) -> None:
         self._topics: Dict[int, set[Subscriber]] = {}
@@ -125,10 +132,12 @@ class MarketEventBroker:
             seq=seq,
         )
 
+        blob = sse_pack(evt).encode("utf-8")   # ★ 整个进程只序列化一次（spec § 8 阶段 0）
+
         dead_subs = []
         for sub in subs:
             try:
-                sub.q.put_nowait(evt)
+                sub.q.put_nowait(blob)
             except asyncio.QueueFull:
                 dead_subs.append(sub)
                 _logger.warning(f"SSE queue full for market {market_id}, removing slow consumer")

@@ -38,6 +38,8 @@ class SseSubscriber:
         # 诊断计数：trade event 因 trade_id 重复被跳过的总次数。
         # 突然涨 = backend SSE race 或 重连风暴异常；正常 << 1/分钟。
         self._dedup_skipped_count = 0
+        self._last_status: dict[int, str] = {}
+        self._tick_dedup_count = 0
 
     @property
     def last_event_handled_ts(self) -> float:
@@ -48,6 +50,12 @@ class SseSubscriber:
     def dedup_skipped_count(self) -> int:
         """累计 dedup 触发次数；WebUI 用以监控 SSE 流是否健康。"""
         return self._dedup_skipped_count
+
+    @property
+    def tick_dedup_count(self) -> int:
+        """帧内成交与 legacy 事件重复被跳过的次数（双发期设计内常态，与
+        dedup_skipped_count 的异常告警语义分开）。"""
+        return self._tick_dedup_count
 
     async def run(self) -> None:
         await self._preload_partial_trades()
@@ -112,10 +120,13 @@ class SseSubscriber:
                                market_id=market_id,
                                status=event.data.get("status"))
                 await self._dispatch(market_id, event)
+            elif event.type == "tick":
+                await self._handle_tick(market_id, event)
             elif event.type == "snapshot":
                 self._log.info("sse_snapshot_bootstrapped",
                                market_id=market_id, seq=event.seq,
                                gap_recover=event.data.get("gap_recover", False))
+                self._last_status[market_id] = str(event.data.get("status", ""))
             elif event.type == "ping":
                 # ping 不 dispatch（策略不需要）；进 finally 块刷 _last_event_handled_ts
                 # 让冷市场 25s 一次的 ping 也算 alive proof，避免被 WebUI 误标 stalled
@@ -124,6 +135,29 @@ class SseSubscriber:
         finally:
             # liveness watchdog 依赖该 ts：无论 event 类型 / dispatch 成败都得推进
             self._last_event_handled_ts = time.monotonic()
+
+    async def _handle_tick(self, market_id: int, event: SseEvent) -> None:
+        """tick 帧适配器（主站阶段 2）：帧 → 合成逐笔 trade / market_status 事件，
+        喂给既有 dispatch，策略层零改动。双发期与 legacy 事件的重复靠
+        log_trade 的 trade_id 去重，静默跳过。"""
+        frame = event.data or {}
+        for t in frame.get("trades", []):
+            payload = {"trade": t}
+            is_new = await self._store.log_trade(market_id=market_id, payload=payload)
+            if not is_new:
+                self._tick_dedup_count += 1
+                continue
+            await self._dispatch(market_id, SseEvent(type="trade", seq=event.seq, data=payload))
+        status = frame.get("status")
+        prev = self._last_status.get(market_id)
+        if status and status != prev:
+            self._last_status[market_id] = status
+            if prev:   # snapshot 未到过（prev 为空）不合成，等 bootstrap
+                data = {"status": status}
+                if frame.get("settlement"):
+                    data.update(frame["settlement"])
+                await self._dispatch(market_id, SseEvent(type="market_status",
+                                                         seq=event.seq, data=data))
 
     async def _dispatch(self, market_id: int, event: SseEvent) -> None:
         for s in self._strategies:

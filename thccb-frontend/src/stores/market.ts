@@ -136,11 +136,6 @@ export const useMarketStore = defineStore('market', () => {
     try {
       const result = await marketApi.buy(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
 
-      // 如果当前有市场详情，重新获取以更新价格
-      if (currentMarket.value) {
-        await fetchMarketDetail(currentMarket.value.id)
-      }
-
       return { success: true, data: result }
     } catch (err: any) {
       tradeError.value = friendlySlippageMsg(err.message || '买入失败')
@@ -157,11 +152,6 @@ export const useMarketStore = defineStore('market', () => {
     try {
       const result = await marketApi.sell(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
 
-      // 如果当前有市场详情，重新获取以更新价格
-      if (currentMarket.value) {
-        await fetchMarketDetail(currentMarket.value.id)
-      }
-
       return { success: true, data: result }
     } catch (err: any) {
       tradeError.value = friendlySlippageMsg(err.message || '卖出失败')
@@ -169,20 +159,6 @@ export const useMarketStore = defineStore('market', () => {
       return { success: false, error: tradeError.value }
     } finally {
       tradeLoading.value = false
-    }
-  }
-
-  const getQuote = async (outcomeId: number, shares: number, side: 'buy' | 'sell') => {
-    try {
-      const quote = await marketApi.quote({
-        outcome_id: outcomeId,
-        shares,
-        side
-      })
-      return { success: true, data: quote }
-    } catch (err: any) {
-      console.error('获取报价失败:', err)
-      return { success: false, error: err.message || '获取报价失败' }
     }
   }
 
@@ -297,7 +273,6 @@ export const useMarketStore = defineStore('market', () => {
     patchAllPricesFromTrade,
     buyShares,
     sellShares,
-    getQuote,
     createMarket,
     closeMarket,
     resumeMarket,

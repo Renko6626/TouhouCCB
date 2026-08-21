@@ -251,7 +251,7 @@ async function load() {
 
 async function save(key: string) {
   try {
-    await adminSiteConfigApi.update(key, drafts.value[key])
+    await adminSiteConfigApi.update(key, drafts.value[key] ?? '')
     msg.success(`${key} 已更新`)
     await load()
   } catch (e: any) {
@@ -269,7 +269,7 @@ async function toggleBool(c: SiteConfigItem) {
 // 把 configs 按 group 分组
 const configsByGroup = computed<Record<ConfigGroup, SiteConfigItem[]>>(() => {
   const groups: Record<ConfigGroup, SiteConfigItem[]> = {
-    loan: [], liquidation: [], anti_bot: [], general: [],
+    loan: [], liquidation: [], anti_bot: [], economy: [], general: [],
   }
   for (const c of configs.value) {
     const meta = getConfigMeta(c.key)

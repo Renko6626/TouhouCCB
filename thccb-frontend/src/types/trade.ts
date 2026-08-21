@@ -32,8 +32,10 @@ export interface QuoteResponse {
   gross: number            // 总金额（不含手续费）
   fee: number              // 手续费
   net: number              // 净金额
-  after_prices: Outcome[]
-  
+  // 阶段 3 起 QuoteResponse 由前端本地构造（utils/lmsr 预览），不再来自
+  // /market/quote；after_prices 本地不算，置空。后端端点保留给 bot。
+  after_prices?: Outcome[]
+
   // 计算属性（用于显示，与TradeResponse保持一致）
   price_per_share?: number // 前端计算，等于 avg_price
   cost?: number            // 前端计算，等于 net
