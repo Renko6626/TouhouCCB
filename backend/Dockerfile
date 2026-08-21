@@ -26,6 +26,11 @@ RUN mkdir -p data && chown appuser:appuser data
 
 USER appuser
 
+# 前端 build 版本自刷机制（spec § 8 阶段 2）：CI 把 github.sha 烧进环境，
+# snapshot 下发给前端比对。本地构建默认 "dev"（前端侧空值/dev 不触发提示）。
+ARG BUILD_SHA=dev
+ENV APP_BUILD_SHA=$BUILD_SHA
+
 EXPOSE 8004
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \

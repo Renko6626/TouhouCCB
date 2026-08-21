@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -70,6 +71,8 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
         "winning_outcome_id": getattr(market, "winning_outcome_id", None),
         "settled_at": getattr(market, "settled_at", None).isoformat() if getattr(market, "settled_at", None) else None,
         "settled_by_user_id": getattr(market, "settled_by_user_id", None),
+        # build 版本自刷机制：前端比对自己的 VITE_BUILD_SHA，不一致提示刷新（阶段 2）
+        "frontend_build": os.environ.get("APP_BUILD_SHA", ""),
         "outcomes": out_reads,
     }
 
