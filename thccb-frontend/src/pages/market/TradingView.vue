@@ -173,7 +173,9 @@ const scheduleRealtimeRefresh = () => {
 // 每条 trade → 增量 append 到 marketTrades + 用 market_prices_post 全量 patch outcomes 当前价
 watch(realtime.latestTrade, (trade) => {
   if (!trade) return
-  if (marketStore.tradeLoading) return  // 自己刚下单尚未完成，避免冲突
+  // 不再跳过 tradeLoading 窗口：成交后已无 refetch 可冲突（阶段 3 本地 apply），
+  // 自己那笔的事件靠 appendTradeFromSSE 的 trade.id 去重；跳过反而会把自己
+  // 下单引发的价格变动丢掉，安静市场上要等下一笔别人交易才能纠正。
   marketStore.appendTradeFromSSE(trade)
   if (trade.market_prices_post) {
     marketStore.patchAllPricesFromTrade(trade.market_prices_post)
@@ -189,7 +191,8 @@ watch(realtime.latestTrade, (trade) => {
 // tickSeen 后 latestTrade 不再更新，它自然沉默。
 watch(realtime.latestTick, (frame) => {
   if (!frame) return
-  if (marketStore.tradeLoading) return  // 自己刚下单尚未完成，避免冲突
+  // 同上：tradeLoading 窗口内的帧不能丢（自己下单的帧常在响应返回前后 125ms 内
+  // 到达），trade.id 去重保证不会双记
   for (const t of frame.trades) {
     marketStore.appendTradeFromSSE(t)
   }
@@ -204,7 +207,8 @@ watch(realtime.latestTick, (frame) => {
 // market_status 变化（halt/settled）→ 重拉 market detail 让 UI 状态机更新
 watch(realtime.latestMarketStatus, (status) => {
   if (!status) return
-  if (marketStore.tradeLoading) return
+  // 不跳过 tradeLoading 窗口：latestMarketStatus 只在状态变化时更新一次，
+  // 此处 return 会让该次变化永久丢失（watcher 不会为同值重触发）
   scheduleRealtimeRefresh()
 })
 
