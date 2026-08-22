@@ -21,8 +21,11 @@ const props = withDefaults(defineProps<{
   maxSlippageBps: number
   // 称号准入门槛通过状态（Task 11/13/19）：默认 true 兼容旧调用方
   userCanTrade?: boolean
+  /** SSE 行情是否在线；离线时本地报价基于冻结价，提示用户（审计 M12） */
+  realtimeConnected?: boolean
 }>(), {
   userCanTrade: true,
+  realtimeConnected: true,
 })
 
 const emit = defineEmits<{
@@ -364,6 +367,9 @@ const actionHint = computed<string>(() => {
       </div>
       <div v-if="props.quoteExceedsCash" class="quote-warn">
         余额不足，请减少份额
+      </div>
+      <div v-if="!props.realtimeConnected" class="quote-warn">
+        行情未连接，报价可能已过期；成交价偏离此报价超过滑点上限会被拒绝
       </div>
     </div>
 

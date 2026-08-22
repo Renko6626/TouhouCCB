@@ -76,7 +76,7 @@ async def test_e2e_buy_sell_via_api_uses_writer(client, writer_on):
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert set(body.keys()) == {"shares", "cost", "new_cash", "message"}
+    assert set(body.keys()) == {"shares", "cost", "new_cash", "pay", "message"}
 
     # 2. WRITER 内存状态已推进（证明走的是 writer 而不是老路径）
     st = WRITER.get_state(mid)

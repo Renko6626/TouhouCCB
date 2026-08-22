@@ -146,10 +146,12 @@ const initChart = () => {
 }
 
 // 全量加载（初始 / 切换 outcome+interval / gap reconcile / 重连）
+let loadGen = 0
 const loadFull = async () => {
   if (!props.outcomeId) return
   loading.value = true
   error.value = null
+  const gen = ++loadGen
   try {
     const lookbackMin = LOOKBACK_MINUTES_MAP[props.interval]
     const now = new Date()
@@ -157,7 +159,9 @@ const loadFull = async () => {
     const candles = await loadHistoryCandles(
       props.outcomeId, props.interval, lookbackMin,
       realtime?.historyTail?.value ?? null,
+      realtime?.historyTailAtSec?.value ?? null,
     )
+    if (gen !== loadGen) return   // 期间又触发了新的 loadFull（切 outcome/interval），丢弃旧响应（审计 L21）
     if (!candles.length) { pointCount.value = 0; return }
     pointCount.value = candles.length
     firstPrice.value = candles[0]?.c ?? null
@@ -198,7 +202,7 @@ const loadFull = async () => {
     lastWrittenTs = 0
     if (areaSeries) areaSeries.setData([])
   } finally {
-    loading.value = false
+    if (gen === loadGen) loading.value = false
   }
 }
 
@@ -298,6 +302,8 @@ if (realtime) {
     const order = realtime.outcomesOrder.value
     const idx = order.indexOf(props.outcomeId)
     for (const t of frame.trades) {
+      // 已包含在 snapshot 尾巴里的成交不再叠加（审计 M4）
+      if (t.id <= realtime.historyTailThroughTradeId.value) continue
       const price = idx >= 0 && t.market_prices_post?.length === order.length
         ? t.market_prices_post[idx]!
         : (t.outcome_id === props.outcomeId ? t.post_market_price : undefined)

@@ -288,12 +288,14 @@ async def liquidate_user(
     #    decrease_debt 内部 SELECT 读到，新版直接操作已 lock 的 user 对象）。
     repaid = ZERO
     if user.cash > ZERO and user.debt > ZERO:
+        debt_before = user.debt
+        now = loan_service._compat_now(user)
+        loan_service.accrue_interest(user, daily_rate, now)   # 先结息再算还款额（不留灰尘债）
         repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
         if repay_amount > ZERO:
-            debt_before = user.debt
             repaid = await loan_service.decrease_debt_locked(
                 session, user, repay_amount,
-                consume_cash=True, daily_rate=daily_rate,
+                consume_cash=True, daily_rate=daily_rate, now=now,
             )
             # decrease_debt_locked 已直接更新 user 对象，无需手动同步
             audit_service.record_liquidation_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
@@ -446,6 +448,10 @@ async def liquidate_user_split(
             total_proceeds += r["total_proceeds"]
             sold_count += r["sold_count"]
             repaid_b += r.get("repaid", ZERO)
+            # 债已清就停：继续卖剩余市场只是让用户白吃滑点、丢头寸（审计 M3）
+            if r.get("debt_after", ZERO) <= ZERO:
+                _logger.info("liquidation_debt_cleared_early_stop user=%s after market=%s", uid, mid)
+                break
         except HTTPException as e:
             _logger.warning(
                 "liquidation_market_cmd_failed user=%s market=%s status=%s detail=%s",
@@ -457,12 +463,14 @@ async def liquidate_user_split(
             user = await lock_user_ref(session, uid)
             repaid = repaid_b
             if user.cash > ZERO and user.debt > ZERO:
+                debt_before = user.debt
+                now = loan_service._compat_now(user)
+                loan_service.accrue_interest(user, daily_rate, now)   # 先结息再算还款额
                 repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
                 if repay_amount > ZERO:
-                    debt_before = user.debt
                     repaid_c = await loan_service.decrease_debt_locked(
                         session, user, repay_amount,
-                        consume_cash=True, daily_rate=daily_rate)
+                        consume_cash=True, daily_rate=daily_rate, now=now)
                     audit_service.record_liquidation_repay(session, user, repaid_c, debt_before, daily_rate, trigger_source)
                     repaid += repaid_c
             if sold_count == 0 and repaid == ZERO:

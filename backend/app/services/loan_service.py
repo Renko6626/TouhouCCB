@@ -81,7 +81,7 @@ async def increase_debt(
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
-    stmt = select(User).where(User.id == user_id).with_for_update()
+    stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
     now = _compat_now(u)
@@ -116,8 +116,13 @@ async def decrease_debt_locked(
     *,
     consume_cash: bool,
     daily_rate: Decimal,
+    now: Optional[datetime] = None,
 ) -> Decimal:
     """对已 lock 的 user 对象做 decrease_debt 核心算法，**不 SELECT FOR UPDATE**。
+
+    now：调用方若已自行 accrue_interest 过，必须把同一个 now 传进来——否则两次
+    结息相差的毫秒在大额债务下会产生 6dp 非零增量，留下 ~1e-5「灰尘债」且
+    ledger debt_delta 与快照不等（审计 M2）。
 
     调用方负责：
     - user 已被 lock_user / SELECT FOR UPDATE 拿到
@@ -134,7 +139,8 @@ async def decrease_debt_locked(
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
-    now = _compat_now(user)
+    if now is None:
+        now = _compat_now(user)
     accrue_interest(user, daily_rate, now)
     effective = min(amount, user.debt).quantize(_QUANT)
     if consume_cash:
@@ -176,7 +182,7 @@ async def decrease_debt(
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
-    stmt = select(User).where(User.id == user_id).with_for_update()
+    stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
     debt_before = u.debt

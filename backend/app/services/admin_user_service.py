@@ -39,7 +39,7 @@ def _money(v: Decimal) -> float:
 
 async def _lock_user(db: AsyncSession, user_id: int) -> User:
     u = (await db.execute(
-        select(User).where(User.id == user_id).with_for_update()
+        select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     )).scalar_one_or_none()
     if u is None:
         raise AdminUserError(404, "用户不存在")
@@ -215,7 +215,7 @@ async def _preview_users(db: AsyncSession, f: UserFilter) -> List[User]:
 
 
 async def _lock_users(db: AsyncSession, f: UserFilter) -> List[User]:
-    users = (await db.execute(build_user_filter_stmt(f).with_for_update())).scalars().all()
+    users = (await db.execute(build_user_filter_stmt(f).with_for_update().execution_options(populate_existing=True))).scalars().all()
     if len(users) > BATCH_HARDCAP:
         raise AdminUserError(400, f"加锁后匹配 {len(users)} > 上限，操作中止")
     return users
@@ -323,13 +323,15 @@ async def amnesty(
             cash_before, debt_before = u.cash, u.debt
             forgiven = Decimal("0")
             if forgive_debt and u.debt > 0:
-                # 先显式结息，再按结息后的全额清零（decrease_debt_locked 内部再次
-                # accrue 是同一时刻的 no-op）
-                loan_service.accrue_interest(u, rate, loan_service._compat_now(u))
+                # 先显式结息，再按结息后的全额清零。同一个 now 传给 decrease_debt_locked，
+                # 其内部再次 accrue 才是真正的 no-op（不同 now 会留灰尘债，审计 M2）
+                now = loan_service._compat_now(u)
+                loan_service.accrue_interest(u, rate, now)
                 interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
                 forgiven = await loan_service.decrease_debt_locked(
-                    db, u, u.debt, consume_cash=False, daily_rate=rate,
+                    db, u, u.debt, consume_cash=False, daily_rate=rate, now=now,
                 )
+                assert u.debt == 0 and u.debt_last_accrued_at is None
             else:
                 interest = Decimal("0")
             cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))

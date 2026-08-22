@@ -4,6 +4,7 @@ import type {
   MarketDetail,
   TradeRequest,
   TradeResponse,
+  TradeLimit,
   MarketTrade,
   LeaderboardItem,
   MarketCreateResponse,
@@ -14,6 +15,11 @@ import type {
   Mover,
   MoverWindow,
 } from '@/types/api'
+
+// buy/sell 超时要盖过后端 writer 的排队上限（SUBMIT_TIMEOUT=10s）+ 网络余量：
+// 全局 10s 与后端同长，高峰排队 >10s 时前端先报「失败」而服务端随后成交，
+// 用户重试就双倍加仓（无幂等键，审计 M11）。
+const TRADE_TIMEOUT_MS = 20000
 
 export const marketApi = {
   // 获取所有活跃市场（支持搜索和过滤）
@@ -35,6 +41,7 @@ export const marketApi = {
     shares: number,
     maxSlippageBps?: number,
     acceptAnySlippage: boolean = false,
+    limit?: TradeLimit,
   ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
     if (acceptAnySlippage) {
@@ -42,7 +49,8 @@ export const marketApi = {
     } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
-    return api.post<TradeResponse>('/api/v1/market/buy', request)
+    if (limit?.max_cost !== undefined) request.max_cost = limit.max_cost
+    return api.post<TradeResponse>('/api/v1/market/buy', request, { timeout: TRADE_TIMEOUT_MS })
   },
 
   async sell(
@@ -50,6 +58,7 @@ export const marketApi = {
     shares: number,
     maxSlippageBps?: number,
     acceptAnySlippage: boolean = false,
+    limit?: TradeLimit,
   ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
     if (acceptAnySlippage) {
@@ -57,7 +66,8 @@ export const marketApi = {
     } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
-    return api.post<TradeResponse>('/api/v1/market/sell', request)
+    if (limit?.min_proceeds !== undefined) request.min_proceeds = limit.min_proceeds
+    return api.post<TradeResponse>('/api/v1/market/sell', request, { timeout: TRADE_TIMEOUT_MS })
   },
 
   // 关闭市场交易（仅管理员）

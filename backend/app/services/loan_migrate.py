@@ -26,6 +26,7 @@ DEFAULT_CONFIGS = [
     ("loan_leverage_k", "1.0", "decimal"),
     ("loan_daily_rate", "0.01", "decimal"),
     ("loan_sweep_interval_sec", "60", "int"),
+    ("loan_sweep_min_accrual_sec", "3600", "int"),   # 定时结息折叠窗口（审计 M1）
     ("liquidation_enabled", "false", "bool"),   # 默认关，灰度开启
     ("liquidation_sweep_interval_sec", "600", "int"),   # 10 min
     ("liquidation_hard_threshold", "0.2", "decimal"),

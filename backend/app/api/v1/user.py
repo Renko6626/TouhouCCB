@@ -206,7 +206,7 @@ async def update_my_username(
     async with managed_transaction(db):
         # 行锁自己，避免并发改名导致最终落不到唯一索引（虽然 DB 也会兜底）
         locked = (await db.execute(
-            select(User).where(User.id == user.id).with_for_update()
+            select(User).where(User.id == user.id).with_for_update().execution_options(populate_existing=True)
         )).scalar_one()
 
         # unique 校验：另一行用了这个 username？

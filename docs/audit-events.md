@@ -24,7 +24,7 @@
 | `market_create` / `market_close` / `market_resume` / `market_settle` | 市场生命周期 | create: title, liquidity_b, outcomes；settle: winning_outcome_id, payout_unit, total_payout | market |
 | `loan_borrow` / `loan_repay` | 用户借还 | cash_delta, debt_delta, daily_rate, **interest_accrued**（本次操作前隐式结进 debt 的利息） | user |
 | `admin_adjust_cash` / `admin_force_loan` / `admin_forgive_debt` / `admin_amnesty` | 管理员资金操作（经 `ledger_service.record_entry` 自动发） | 同上 + reason；operator_user_id | user |
-| `interest_accrual` | **定时结息 sweep**（`loan_sweep.run_sweep_once`，每个被结息用户一条，`source=scheduler`）；还款/免债量化为 0 但已结息时也发一条（`source=<op>_noop`） | debt_before, debt_after, interest, daily_rate, elapsed_sec, source | user |
+| `interest_accrual` | **定时结息 sweep**（`loan_sweep.run_sweep_once`，`source=scheduler`）。sweep 每 60s 跑，但对「距上次结息不足 `loan_sweep_min_accrual_sec`（默认 3600s）」的用户跳过，所以每个债务人**最多每小时一条**，而不是每分钟一条；还款/免债量化为 0 但已结息时也发一条（`source=<op>_noop`） | debt_before, debt_after, interest, daily_rate, elapsed_sec, source | user |
 | `liquidation_repay` | 强平后自动还债（不走 ledger，这里单独记） | repaid, interest_accrued, trigger_source | user |
 | `liquidation` | 强平汇总（= `LiquidationEvent` 全字段，`ref_id` 指向它） | pre_*/post_* | user |
 | `admin_set_role` / `admin_ban` / `admin_unban` | 账号管理 | before/after, reason | — |
@@ -36,6 +36,20 @@
 
 **利息**：显式结息只有 sweep 的 `interest_accrual`；借/还/强平/大赦路径里顺带结的利息随各自事件的
 `interest_accrued` 字段进账，`debt_after = debt_before + interest_accrued + debt_delta`。
+
+**从事件重建 debt 时别假设结息是等间隔的。** 利息是闭式复利 `debt × (1+r)^(Δt/86400)`，
+`Δt` = 本事件时刻 − `debt_last_accrued_at`，任何改债路径都在自己的时刻精确结到秒；定时 sweep 只是
+「兜底刷新」，且被折叠成每小时一条（见上表）。因此：
+
+- 两个事件之间 debt 没有变化是正常的——不代表那段时间没计息，利息会在下一个触碰该用户债务的
+  事件里一次性体现（`interest` / `interest_accrued` 字段）。
+- 重放者只需按事件顺序 fold：`debt = debt_before + interest(_accrued) + debt_delta`，不需要也不应该自己
+  按 60s 补插利息。想校验某条事件的 `interest` 是否正确，用 `elapsed_sec`（sweep 事件）或
+  上一条事件快照的 `debt_last_accrued_at` 与本事件时间戳代入公式即可。
+- 想知道 T 时刻（两事件之间）的「应计债务」：取 T 之前最近一条事件快照的 `debt` /
+  `debt_last_accrued_at`，再用公式推到 T——`audit_export.py --at` 输出的是**快照值**（最近一次实际
+  结息后的账面债），不含这段未结利息。
+- 2026-08-23 之前（折叠上线前）sweep 每分钟给每个债务人写一条，历史数据密度不同属正常。
 
 Decimal 一律以字符串存 JSON（不丢 6/8 位精度）；时间 ISO 字符串。
 

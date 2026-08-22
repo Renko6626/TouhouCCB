@@ -38,6 +38,10 @@ class MarketState:
     closes_at: Optional[datetime]
     unavailable: bool = False     # 自愈失败后置 True：该市场一律 503（spec § 4.4 异常策略）
     rings: dict[int, "HistoryRing"] = field(default_factory=dict)  # outcome_id → 环形缓冲（spec § 7.1）
+    # 已合并进 ring 的最后一笔成交 id（单写者 → 单调递增）。snapshot 随 history_tail 下发，
+    # 前端对 tick 帧里 id ≤ 它的成交跳过 K 线 applyTrade——subscribe 取 anchor 与读 ring
+    # 之间完成的成交会同时出现在尾巴和队列里，否则 forming 桶 volume 翻倍（审计 M4）
+    last_ring_trade_id: int = 0
 
 
 def _derive(q_dec: list[Decimal], b: float) -> tuple[list[float], list[float]]:
@@ -172,6 +176,13 @@ class MarketWriter:
     async def reload_state(self, market_id: int) -> None:
         """自愈：从 DB 镜像重读 q / status。失败则标记 unavailable。"""
         try:
+            # ring 要从 OutcomeCandle 镜像重建，而 flusher 里 ≤5s 未落库的行不会再回到
+            # 新 ring——不先 flush，ring 与 DB 永久分叉，且 /history/ 防线 2 读 ring 的
+            # 窗口段会被 nginx 30d immutable 缓存固化（审计 M5）。flush 失败会回炉并
+            # 返回 0，此时仍继续重建（与旧行为相同），只是会少那几笔。
+            from app.services.candle_flusher import CANDLE_FLUSHER
+            if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
+                logger.error("reload_state: candle flush failed, ring may miss pending rows")
             async with async_session_maker() as s:
                 m = await s.get(Market, market_id)
                 if m is None:
@@ -260,6 +271,8 @@ class MarketWriter:
                         ring = st.rings.get(int(row["outcome_id"]))
                         if ring is not None:
                             ring.merge_row(row)
+                    if outcome.tick_trade is not None:
+                        st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
                 # ── tick 帧投喂（spec § 5.1）──
                 prices_8dp = [float(quantize_price(p)) for p in st.prices]
                 if outcome.tick_trade is not None:

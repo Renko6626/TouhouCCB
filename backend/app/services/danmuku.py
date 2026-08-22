@@ -90,7 +90,7 @@ async def exchange(
         raise ExchangeError("INVALID_AMOUNT", "yuan 与 huo 至少一项为正")
 
     # 行锁 user 防止并发兑换穿透余额
-    user_stmt = select(User).where(User.id == user_id).with_for_update()
+    user_stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     user = (await session.execute(user_stmt)).scalar_one()
 
     if user.cash < amount:

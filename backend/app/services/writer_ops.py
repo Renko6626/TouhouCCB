@@ -181,6 +181,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
             "shares": float(shares_d),
             "cost": float(pay.quantize(Decimal("0.01"))),
             "new_cash": quantize_cost(new_cash),
+            "pay": quantize_cost(pay),
             "message": f"成功买入 {shares_d:f} 张 {label}（均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
@@ -312,6 +313,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
             "shares": float(shares_d),
             "cost": float((-net).quantize(Decimal("0.01"))),
             "new_cash": quantize_cost(new_cash),
+            "pay": quantize_cost(net),
             "message": f"卖出成功，获得 {net}（手续费 {fee}，均价≈{avg_price}）",
         },
         new_q_dec=new_q_dec,
@@ -485,31 +487,39 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
 
             total_payout = ZERO
 
-            # settle_lose 审计：user 资金不变，仓位归零；快照取当前 user 行
+            # 一次性按 user_id 升序锁全部涉及用户（输家 ∪ 赢家）：
+            # - 逐用户 FOR UPDATE 是 N 次往返；两市场并发结算时按持仓顺序取锁可互相死锁（审计 L11）
+            # - populate_existing：请求 session 里可能已有陈旧 User（管理员自己也持仓）
+            all_uids = sorted({uid for _, uid in lose_txs} | {uid for uid, pay in payout_by_user.items() if pay > ZERO})
+            users_by_id: dict[int, User] = {}
+            if all_uids:
+                users_by_id = {int(u.id): u for u in (await session.execute(
+                    select(User).where(User.id.in_(all_uids)).order_by(User.id)
+                    .with_for_update().execution_options(populate_existing=True)
+                )).scalars().all()}
+
+            # settle_lose 事件必须在赢家加钱**之前**记：同一用户既输又赢时，
+            # settle_lose.user_after.cash 不能含 payout（audit replay 会抓）
+            await session.flush()
             for lose_tx, lose_uid in lose_txs:
-                lu = (await session.execute(
-                    select(User).where(User.id == lose_uid).with_for_update())).scalars().first()
+                lu = users_by_id.get(int(lose_uid))
                 if lu is not None:
                     await audit_service.record_trade(
                         session, tx=lose_tx, user=lu, position=None,
                         market_id=cmd.market_id, market_after=None,
-                        extra={"path": "writer"}, operator_user_id=cmd.admin_id,
+                        extra={"path": "writer"}, operator_user_id=cmd.admin_id, flush=False,
                     )
 
-            for uid, pay in payout_by_user.items():
+            win_txs: list[tuple[Transaction, User]] = []
+            for uid in sorted(payout_by_user):
+                pay = payout_by_user[uid]
                 if pay <= ZERO:
                     continue
-
-                u_res = await session.execute(
-                    select(User).where(User.id == uid).with_for_update()
-                )
-                u = u_res.scalars().first()
+                u = users_by_id.get(int(uid))
                 if not u:
                     raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
-
                 u.cash += pay
                 total_payout += pay
-
                 win_tx = Transaction(
                     user_id=u.id,
                     outcome_id=winning.id,
@@ -522,11 +532,16 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                     timestamp=now,
                 )
                 session.add(win_tx)
+                win_txs.append((win_tx, u))
+
+            # 单次 flush 给全部 settle_win 赋 id，再批量追加事件（不逐条 flush，审计 P4）
+            await session.flush()
+            for win_tx, u in win_txs:
                 await audit_service.record_trade(
                     session, tx=win_tx, user=u, position=None,
                     market_id=cmd.market_id, market_after=None,
                     extra={"payout_unit": payout_unit, "path": "writer"},
-                    operator_user_id=cmd.admin_id,
+                    operator_user_id=cmd.admin_id, flush=False,
                 )
 
             for o in outcomes:
@@ -693,18 +708,23 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
             # 回款立即还债（user 行已锁、同事务）：堵住 B→C 之间被花掉的窗口
             repaid = ZERO
             if sold_count and locked_user.cash > ZERO and locked_user.debt > ZERO:
+                from app.services import loan_service   # 局部 import 避免环
+                # 先结息再算还款额：否则 min(cash, 结息前 debt) 会留下结息增量的灰尘债，
+                # 即使现金足够清偿（审计 M3 附带发现）
+                debt_before = locked_user.debt
+                now = loan_service._compat_now(locked_user)
+                loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
                 repay_amount = min(locked_user.cash, locked_user.debt).quantize(Decimal("0.000001"))
                 if repay_amount > ZERO:
-                    from app.services import loan_service   # 局部 import 避免环
-                    debt_before = locked_user.debt
                     repaid = await loan_service.decrease_debt_locked(
                         session, locked_user, repay_amount,
-                        consume_cash=True, daily_rate=cmd.daily_rate)
+                        consume_cash=True, daily_rate=cmd.daily_rate, now=now)
                     audit_service.record_liquidation_repay(
                         session, locked_user, repaid, debt_before, cmd.daily_rate, cmd.trigger_source)
 
     return OpOutcome(
-        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid},
+        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid,
+                  "debt_after": locked_user.debt},
         new_q_dec=new_q_dec if sold_count else None,
         # 强平今天不发 SSE（与现状一致）
     )

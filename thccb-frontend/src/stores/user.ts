@@ -83,11 +83,18 @@ export const useUserStore = defineStore('user', () => {
     priceContext.value = new Map(priceContext.value)  // 换引用触发 computed
   }
 
+  // 本地 apply 版本号：applyTradeFill 每次 +1。fetchSummary/fetchHoldings 发出请求前
+  // 记下版本，响应回来时若版本已变（在途期间用户成交了），说明服务端生成这份响应时
+  // 还没包含那笔成交——直接丢弃，否则会把本地 apply 后的 cash/positions 回滚到成交前
+  // 且与 holdings 分叉（审计 M10）。
+  let localApplyVersion = 0
+
   // ── fetch actions（manageLoading 语义与旧版一致） ──
   const fetchSummary = async (manageLoading = true) => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return null
     if (manageLoading) { loading.value = true; error.value = null }
+    const version = localApplyVersion
     try {
       // priceContext 与 summary 并行刷新；价格上下文失败不阻断 summary
       const [s] = await Promise.all([
@@ -95,6 +102,10 @@ export const useUserStore = defineStore('user', () => {
         refreshPriceContext().catch(err =>
           console.error('刷新价格上下文失败:', err)),
       ])
+      if (version !== localApplyVersion) {
+        console.warn('[user] summary 响应晚于本地成交，丢弃过期响应')
+        return summary.value
+      }
       summary.value = s
       return s
     } catch (err: any) {
@@ -110,8 +121,14 @@ export const useUserStore = defineStore('user', () => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return []
     if (manageLoading) { loading.value = true; error.value = null }
+    const version = localApplyVersion
     try {
-      holdingsRaw.value = await userApi.getHoldings()
+      const h = await userApi.getHoldings()
+      if (version !== localApplyVersion) {
+        console.warn('[user] holdings 响应晚于本地成交，丢弃过期响应')
+        return holdingsRaw.value
+      }
+      holdingsRaw.value = h
       return holdingsRaw.value
     } catch (err: any) {
       error.value = err.message || '获取持仓明细失败'
@@ -165,7 +182,7 @@ export const useUserStore = defineStore('user', () => {
     outcomeId: number
     marketId: number
     shares: number
-    /** buy=实付 / sell=到手净额；调用方用 |旧 cash − new_cash| 推导（6dp 精确） */
+    /** buy=实付 / sell=到手净额；后端 TradeResponse.pay（6dp 精确） */
     pay: number
     newCash: number
     outcomeLabel?: string
@@ -173,6 +190,7 @@ export const useUserStore = defineStore('user', () => {
   }) => {
     const s = summary.value
     if (!s) return
+    localApplyVersion += 1
     s.cash = args.newCash
     const fill = { side: args.side, outcomeId: args.outcomeId,
                    shares: args.shares, pay: args.pay }
@@ -180,13 +198,18 @@ export const useUserStore = defineStore('user', () => {
       s.positions.push({ outcome_id: args.outcomeId, market_id: args.marketId,
                          amount: args.shares, cost_basis: args.pay })
     }
-    if (!applyFillToRows(holdingsRaw.value, fill)
-        && args.outcomeLabel !== undefined && args.marketTitle !== undefined) {
-      holdingsRaw.value.push({
-        market_id: args.marketId, market_title: args.marketTitle,
-        outcome_id: args.outcomeId, outcome_label: args.outcomeLabel,
-        amount: args.shares, cost_basis: args.pay,
-      })
+    if (!applyFillToRows(holdingsRaw.value, fill)) {
+      if (args.outcomeLabel !== undefined && args.marketTitle !== undefined) {
+        holdingsRaw.value.push({
+          market_id: args.marketId, market_title: args.marketTitle,
+          outcome_id: args.outcomeId, outcome_label: args.outcomeLabel,
+          amount: args.shares, cost_basis: args.pay,
+        })
+      } else {
+        // 缺 label 无法本地建行：静默不 push 会让 holdings 与 positions 分叉，
+        // 卖出 maxShares=0 直到刷新（审计 L20）——退化为重拉一次
+        fetchHoldings(false).catch(() => {})
+      }
     }
   }
 

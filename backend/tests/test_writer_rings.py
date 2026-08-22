@@ -110,3 +110,23 @@ async def test_reload_state_rebuilds_rings_from_mirror():
     ring = WRITER.get_state(mid).rings[oids[0]]
     seg = ring.get_segment("1m", epoch - epoch % 3600)
     assert round(0.9 * 1e8) in seg["c"]
+
+
+@pytest.mark.asyncio
+async def test_reload_state_flushes_pending_candles_first():
+    """审计 M5：reload 前 flusher 里 ≤5s 未落库的行必须先进 DB，否则新 ring 少这几笔。"""
+    from app.services.candle_flusher import CANDLE_FLUSHER
+    mid, oids = await _seed_market(shares=("0", "0"))
+    uid = await _seed_user()
+    await WRITER.start()
+    await WRITER.submit(BuyCmd(
+        market_id=mid, outcome_id=oids[0], user_id=uid, username="alice",
+        shares=Decimal("10"), max_cost=None, max_slippage_bps=None,
+        accept_any_slippage=True,
+    ))
+    assert CANDLE_FLUSHER._pending, "成交行应先停在 flusher（测试环境 flusher 未启动）"
+    now = int(time.time())
+    await WRITER.reload_state(mid)
+    assert not CANDLE_FLUSHER._pending
+    t = WRITER.get_state(mid).rings[oids[0]].tail("10s", now)
+    assert sum(t["v"]) == 10.0, "重建后的 ring 丢了在途成交"

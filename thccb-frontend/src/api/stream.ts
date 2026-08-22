@@ -4,8 +4,11 @@ export class MarketStream {
   private eventSource: EventSource | null = null
   private marketId: number | null = null
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
-  private reconnectDelay = 1000
+  // 无限重连 + 指数退避（1s, 2s, 4s … 封顶 30s）+ jitter。
+  // 此前上限 5 次 / 累计约 15s：每次 push main 部署（stop_grace 8s + 重启 + alembic）
+  // 都超过这个窗口，所有在线用户从此行情冻结、本地报价用旧价，且没有任何再触发路径。
+  private reconnectBaseDelay = 1000
+  private reconnectMaxDelay = 30000
   // 重连 generation token —— 每次 connect/disconnect/_openConnection 递增。
   // setTimeout 重连 fire 时对比 token，如果期间状态变了就放弃这次重连，
   // 防止"setTimeout 还没 fire，用户已经 disconnect + reconnect"造成的双 EventSource。
@@ -110,17 +113,16 @@ export class MarketStream {
         this.eventSource = null
       }
 
-      if (this.marketId === null || this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error('Max reconnection attempts reached')
-        this.emit('error', { type: 'max_reconnect_attempts', message: 'Max reconnection attempts reached' })
-        return
-      }
+      if (this.marketId === null) return
 
       this.reconnectAttempts++
       const targetMarketId = this.marketId
       const targetGen = this.reconnectGen
       // jitter ±30%：防止 N 个客户端同时断开后同步重连打 backend（thundering herd）
-      const base = this.reconnectDelay * this.reconnectAttempts
+      const base = Math.min(
+        this.reconnectBaseDelay * 2 ** (this.reconnectAttempts - 1),
+        this.reconnectMaxDelay,
+      )
       const delay = base * (0.7 + Math.random() * 0.6)
       setTimeout(() => {
         // 期间用户 disconnect / 切换市场 / 已重连 → 放弃这次定时重连
@@ -169,6 +171,14 @@ export class MarketStream {
         }
       })
     }
+  }
+
+  /** 断线状态下立即重连（跳过退避）——给 tab 回前台 / navigator online 事件用。
+   *  已连接或从未 connect 过则 no-op。 */
+  reconnectNow() {
+    if (this.marketId === null || this.eventSource !== null) return
+    this.reconnectAttempts = 0
+    this._openConnection(this.marketId)
   }
 
   disconnect() {

@@ -69,8 +69,10 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
     import time as _time
     now_epoch = int(_time.time())
     history_tail: dict = {}
+    history_tail_through_trade_id = 0
     st = WRITER.get_state(int(market.id)) if WRITER.enabled else None
     if st is not None:
+        history_tail_through_trade_id = st.last_ring_trade_id
         for o in outcomes:
             ring = st.rings.get(int(o.id))
             if ring is not None:
@@ -119,6 +121,8 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
         "frontend_build": os.environ.get("APP_BUILD_SHA", ""),
         "outcomes": out_reads,
         "history_tail": history_tail,
+        # 尾巴已覆盖到的最后成交 id；tick 帧里 id ≤ 此值的成交不要再 applyTrade 进 K 线
+        "history_tail_through_trade_id": history_tail_through_trade_id,
     }
 
 

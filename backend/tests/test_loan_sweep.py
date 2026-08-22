@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from app.core.database import async_session_maker
 from app.models.base import User, SiteConfig
 from app.services.loan_sweep import run_sweep_once
+from sqlalchemy import select
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -66,3 +67,20 @@ async def test_sweep_multiple_users_independent():
         u2 = await s.get(User, uid2)
     assert u1.debt > Decimal("100.5") and u1.debt < Decimal("101.5")
     assert u2.debt == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_recently_accrued_users():
+    """审计 M1：距上次结息不足 loan_sweep_min_accrual_sec（默认 3600）的用户本 tick 跳过，
+    不写 interest_accrual 事件；超过窗口的照常结息。"""
+    from app.models.audit import AuditEvent
+    now = datetime.now(timezone.utc)
+    recent = await _seed_user(debt="1000", last_accrued=now - timedelta(minutes=5))
+    stale = await _seed_user(debt="1000", last_accrued=now - timedelta(hours=2))
+    touched = await run_sweep_once()
+    assert touched == 1
+    async with async_session_maker() as s:
+        assert (await s.get(User, recent)).debt == Decimal("1000")
+        assert (await s.get(User, stale)).debt > Decimal("1000")
+        evs = (await s.execute(select(AuditEvent).where(AuditEvent.event_type == "interest_accrual"))).scalars().all()
+        assert [e.user_id for e in evs] == [stale]
