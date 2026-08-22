@@ -38,6 +38,13 @@ async def run_sweep_once() -> int:
         logger.debug("sweep skip: rate<=0")
         return 0
 
+    # 定时结息的折叠窗口：距上次结息不足该秒数的用户本 tick 跳过。
+    # 利息是按 (1+r)^(Δt/天) 复利的闭式公式，借/还/强平路径都会在自己的时刻精确
+    # 结到秒，定时 sweep 只是让展示的 debt 不陈旧——没必要每 60s 给每个债务人
+    # 写一条 interest_accrual 审计事件（200 债务人 ≈ 29 万行/天，审计 M1）。
+    async with async_session_maker() as session:
+        min_gap_sec = await site_config.get_int_or(session, "loan_sweep_min_accrual_sec", 3600)
+
     touched = 0
     async with async_session_maker() as session:
         result = await session.execute(select(User.id).where(User.debt > 0))
@@ -53,6 +60,8 @@ async def run_sweep_once() -> int:
                 before = u.debt
                 before_at = u.debt_last_accrued_at
                 now = _compat_now(u)
+                if before_at is not None and (now - before_at).total_seconds() < min_gap_sec:
+                    continue
                 accrue_interest(u, rate, now)
                 if u.debt != before:
                     session.add(u)
