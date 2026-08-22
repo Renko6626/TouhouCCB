@@ -169,3 +169,18 @@ async def market_snapshot_from_db(
         outcome_ids=[int(o.id) for o in outs], q=q_dec, b=float(market.liquidity_b),
         prices=prices, status=status if status is not None else market.status,
     )
+
+
+def record_liquidation_repay(session: AsyncSession, user: User, repaid: Decimal,
+                             debt_before: Decimal, daily_rate: Decimal, trigger_source: str) -> None:
+    """强平后的自动还债（decrease_debt_locked 不写 ledger，审计在这里补）。
+    debt_before 取 decrease_debt_locked 调用前的值，用于反推隐式结息。"""
+    if repaid <= 0:
+        return
+    interest = (user.debt + repaid - debt_before).quantize(Decimal("0.000001"))
+    record(
+        session, "liquidation_repay", user_id=user.id,
+        payload={"repaid": repaid, "interest_accrued": interest, "daily_rate": daily_rate,
+                 "trigger_source": trigger_source},
+        user_after=user_snapshot(user),
+    )

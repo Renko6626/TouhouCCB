@@ -23,14 +23,16 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.base import Market, MarketStatus, Outcome, Position
+from app.services.market_open import market_is_open
 from app.services import site_config
 from app.services.lmsr import calculate_lmsr_cost, get_current_price, quantize_cost
 
@@ -102,7 +104,7 @@ async def compute_users_holdings_value(
             # 只算可交易市场的持仓：HALT 市场的份额无法立即变现，
             # 不应计入抵押估值/margin。这与 liquidation_service.py 的"跳过非
             # TRADING 市场"约定一致，避免 fake collateral 风险。
-            if market.status != MarketStatus.TRADING:
+            if not market_is_open(market.status, market.closes_at):
                 continue
             ctx_outcomes = outcomes_by_market.get(market.id, [])
             if not ctx_outcomes:
@@ -132,9 +134,9 @@ async def user_has_halt_holdings(db: AsyncSession, user_id: int) -> bool:
     - liquidation_sweep 阶段 1 预筛掉这些用户，避免无谓 lock_user
     - /user/summary 返回 liquidation_protected 标志，UI 显示"保护中"而非"危险"
 
-    显式过滤 `== MarketStatus.HALT`（非 `!= TRADING`）：SETTLED 市场上的 position
-    在结算时已被删除（market.py:821），且未来如果引入 PAUSED/MAINTENANCE 等中间
-    状态，不应自动获得强平豁免。
+    过滤 HALT **或** TRADING-已过 closes_at（不能卖 = 与 HALT 同义，见 market_open.py）。
+    不用 `!= TRADING`：SETTLED 市场上的 position 在结算时已被删除，且未来若引入
+    PAUSED/MAINTENANCE 等中间状态，不应自动获得强平豁免。
     """
     stmt = (
         select(Position.id)
@@ -143,7 +145,13 @@ async def user_has_halt_holdings(db: AsyncSession, user_id: int) -> bool:
         .where(
             Position.user_id == user_id,
             Position.amount > 0,
-            Market.status == MarketStatus.HALT,
+            or_(
+                Market.status == MarketStatus.HALT,
+                # TRADING 但已过 closes_at：用户不能卖，与 HALT 同等对待（market_open.py）
+                and_(Market.status == MarketStatus.TRADING,
+                     Market.closes_at.is_not(None),
+                     Market.closes_at <= datetime.now(timezone.utc)),
+            ),
         )
         .limit(1)
     )
