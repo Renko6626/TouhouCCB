@@ -192,7 +192,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
       <div v-else class="empty-markets">
         <p class="empty-title">博丽神社香火稀疏</p>
         <p class="empty-sub">当前没有活跃市场</p>
-        <NButton v-if="authStore.isAdmin" type="primary" @click="router.push('/admin/market-manage')">
+        <NButton v-if="authStore.isAdmin" type="primary" @click="router.push('/admin/markets')">
           创建市场
         </NButton>
       </div>

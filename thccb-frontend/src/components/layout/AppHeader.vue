@@ -41,7 +41,7 @@ const handleUserMenuClick = (key: string) => {
   switch (key) {
     case 'portfolio': router.push('/user/portfolio'); break
     case 'transactions': router.push('/user/transactions'); break
-    case 'admin': router.push('/admin/market-manage'); break
+    case 'admin': router.push('/admin/markets'); break
     case 'logout':
       authStore.logout()
       router.push('/auth/login')

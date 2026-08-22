@@ -95,12 +95,6 @@ export const adminSiteConfigApi = {
   async update(key: string, value: string): Promise<SiteConfigItem> {
     return api.put<SiteConfigItem>(`/api/v1/admin/site-config/${key}`, { value })
   },
-  async forceLoan(userId: number, amount: string, reason: string): Promise<any> {
-    return api.post(`/api/v1/user/${userId}/force-loan`, { amount, reason })
-  },
-  async forgiveDebt(userId: number, amount: string, reason: string): Promise<any> {
-    return api.post(`/api/v1/user/${userId}/forgive-debt`, { amount, reason })
-  },
 }
 
 export default loanApi

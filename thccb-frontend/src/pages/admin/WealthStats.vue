@@ -21,6 +21,25 @@ async function load() {
 
 onMounted(load)
 
+// 强平 sweep 手动触发：跟 scheduler 同逻辑，不绕过阈值
+const sweepRunning = ref(false)
+const sweepResult = ref('')
+async function runSweep() {
+  if (sweepRunning.value) return
+  if (!confirm('立即跑一次强制平仓 sweep？这会对所有保证金不足的用户真实执行强平。')) return
+  sweepRunning.value = true
+  sweepResult.value = ''
+  try {
+    const r = await adminApi.runLiquidationNow()
+    sweepResult.value = JSON.stringify(r)
+    await load()
+  } catch (e) {
+    sweepResult.value = extractErrorMessage(e, '执行失败')
+  } finally {
+    sweepRunning.value = false
+  }
+}
+
 const maxBracketCount = computed(() => {
   if (!stats.value || !stats.value.brackets.length) return 0
   return Math.max(...stats.value.brackets.map(b => b.count))
@@ -52,10 +71,16 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
         <h1 class="page-title">平台资产统计</h1>
         <p class="page-sub">所有 active 用户的 net_worth = cash + 持仓清算价 - debt</p>
       </div>
-      <button class="btn-refresh" :disabled="loading" @click="load">
-        {{ loading ? '加载中…' : '刷新' }}
-      </button>
+      <div class="header-actions">
+        <button class="btn-refresh" :disabled="loading" @click="load">
+          {{ loading ? '加载中…' : '刷新' }}
+        </button>
+        <button class="btn-refresh btn-danger" :disabled="sweepRunning" @click="runSweep">
+          {{ sweepRunning ? '强平中…' : '立即跑强平 sweep' }}
+        </button>
+      </div>
     </header>
+    <p v-if="sweepResult" class="sweep-result"><span class="tag">SWEEP</span>{{ sweepResult }}</p>
 
     <div v-if="error" class="error-row">
       <span class="warning-tag">错误</span>{{ error }}
@@ -221,6 +246,31 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
   cursor: pointer;
   box-shadow: 4px 4px 0 #aaa;
   font-family: inherit;
+}
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-danger {
+  background: #000;
+  color: #fff;
+  box-shadow: 4px 4px 0 #444;
+}
+.sweep-result {
+  margin: -6px 0 14px;
+  font-size: 12px;
+  font-family: ui-monospace, monospace;
+  word-break: break-all;
+}
+.sweep-result .tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  background: #000;
+  color: #fff;
+  font-weight: 800;
+  font-size: 10px;
 }
 .btn-refresh:disabled {
   background: #eee;

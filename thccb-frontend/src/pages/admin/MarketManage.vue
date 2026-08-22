@@ -20,14 +20,12 @@ import {
 import type { MarketDetail, MarketListItem } from '@/types/api'
 import { useMarketStore } from '@/stores/market'
 import { marketApi } from '@/api/market'
-import { adminApi, adminTitleApi, type UserListItem } from '@/api/admin'
+import { adminTitleApi } from '@/api/admin'
 import type { TitleRead } from '@/api/title'
-import { useAuthStore } from '@/stores/auth'
 
 const message = useMessage()
 const dialog = useDialog()
 const marketStore = useMarketStore()
-const authStore = useAuthStore()
 
 const loading = ref(false)
 const searchQuery = ref('')
@@ -35,8 +33,7 @@ const searchQuery = ref('')
 // 统计概览
 const statsCards = computed(() => [
   { label: '交易中市场', value: marketStore.markets.length },
-  { label: '注册用户', value: userList.value.length },
-  { label: '管理员', value: userList.value.filter(u => u.is_superuser).length },
+  { label: '全部市场（含熔断/结算）', value: allMarkets.value.length },
 ])
 const showCreateModal = ref(false)
 const showSettleModal = ref(false)
@@ -109,124 +106,6 @@ const settleOutcomes = ref<Array<{ id: number; label: string }>>([])
 const settleWinningOutcomeId = ref<number | null>(null)
 const settling = ref(false)
 
-// 用户管理
-const userList = ref<UserListItem[]>([])
-const userLoading = ref(false)
-const cashForm = ref({ userId: null as number | null, amount: 0, reason: '' })
-const cashRunning = ref(false)
-
-const loadUsers = async () => {
-  userLoading.value = true
-  try {
-    userList.value = await adminApi.listUsers()
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : '加载用户列表失败')
-  } finally {
-    userLoading.value = false
-  }
-}
-
-const submitAdjustCash = async () => {
-  if (!cashForm.value.userId) { message.error('请选择用户'); return }
-  if (cashForm.value.amount === 0) { message.error('金额不能为 0'); return }
-
-  const action = cashForm.value.amount > 0 ? '加钱' : '扣钱'
-  const confirmed = await new Promise<boolean>((resolve) => {
-    dialog.warning({
-      title: `确认${action}`,
-      content: `确认给用户 #${cashForm.value.userId} ${action} 金 ${Math.abs(cashForm.value.amount)}？`,
-      positiveText: '确认',
-      negativeText: '取消',
-      onPositiveClick: () => resolve(true),
-      onNegativeClick: () => resolve(false),
-    })
-  })
-  if (!confirmed) return
-
-  cashRunning.value = true
-  try {
-    const result = await adminApi.adjustCash(cashForm.value.userId, cashForm.value.amount, cashForm.value.reason)
-    message.success(`${action}成功：${result.username} 当前现金 金 ${result.new_cash}`)
-    cashForm.value = { userId: null, amount: 0, reason: '' }
-    await loadUsers()
-  } catch (error: any) {
-    message.error(error?.message || `${action}失败`)
-  } finally {
-    cashRunning.value = false
-  }
-}
-
-const adminToggleRunning = ref(false)
-
-async function toggleAdmin(row: UserListItem) {
-  if (adminToggleRunning.value) return
-  if (row.id === authStore.user?.id) {
-    message.warning('不能修改自己的管理员权限')
-    return
-  }
-  const targetIsAdmin = !row.is_superuser
-  const action = targetIsAdmin ? '提升为管理员' : '取消管理员'
-  const verb = targetIsAdmin ? '提升' : '取消'
-  await new Promise<void>((resolve) => {
-    dialog.warning({
-      title: `${action}`,
-      content: `确定${verb} ${row.username}（#${row.id}）的管理员权限？`,
-      positiveText: `确认${verb}`,
-      negativeText: '取消',
-      onPositiveClick: async () => {
-        adminToggleRunning.value = true
-        try {
-          const res = await adminApi.setUserAdmin(row.id, targetIsAdmin)
-          if (res.changed) {
-            message.success(`已${verb}：${row.username}`)
-          } else {
-            message.info('用户状态未变更')
-          }
-          await loadUsers()
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : `${verb}失败`)
-        } finally {
-          adminToggleRunning.value = false
-          resolve()
-        }
-      },
-      onNegativeClick: () => resolve(),
-    })
-  })
-}
-
-const userColumns: DataTableColumns<UserListItem> = [
-  { title: 'ID', key: 'id', width: 60 },
-  { title: '用户名', key: 'username' },
-  { title: '现金', key: 'cash', width: 120, render: (row) => `金 ${row.cash.toFixed(2)}` },
-  { title: '负债', key: 'debt', width: 100, render: (row) => `金 ${row.debt.toFixed(2)}` },
-  {
-    title: '角色', key: 'is_superuser', width: 80,
-    render: (row) => h(NTag, { type: row.is_superuser ? 'warning' : 'default', size: 'small' }, { default: () => row.is_superuser ? '管理员' : '用户' }),
-  },
-  {
-    title: '操作', key: 'actions', width: 220,
-    render: (row) => {
-      const isSelf = row.id === authStore.user?.id
-      return h(NSpace, { size: 6 }, {
-        default: () => [
-          h(NButton, {
-            size: 'small',
-            onClick: () => { cashForm.value.userId = row.id },
-          }, { default: () => '调整现金' }),
-          h(NButton, {
-            size: 'small',
-            type: row.is_superuser ? 'default' : 'primary',
-            disabled: isSelf || adminToggleRunning.value,
-            title: isSelf ? '不能修改自己' : undefined,
-            onClick: () => toggleAdmin(row),
-          }, { default: () => row.is_superuser ? '取消管理员' : '提升管理员' }),
-        ],
-      })
-    },
-  },
-]
-
 const directOps = ref({
   marketId: null as number | null,
   winningOutcomeId: null as number | null,
@@ -247,13 +126,6 @@ const allMarketOptions = computed<SelectOption[]>(() =>
 
 const directOutcomeOptions = computed<SelectOption[]>(() =>
   directOutcomes.value.map(o => ({ label: `#${o.id}  ${o.label}`, value: o.id })),
-)
-
-const userOptions = computed<SelectOption[]>(() =>
-  userList.value.map(u => ({
-    label: `#${u.id}  ${u.username}  (现金 金 ${u.cash.toFixed(2)})`,
-    value: u.id,
-  })),
 )
 
 const settleOutcomeOptions = computed<SelectOption[]>(() =>
@@ -510,7 +382,6 @@ const columns: DataTableColumns<MarketListItem> = [
 
 onMounted(() => {
   loadMarkets()
-  loadUsers()
   loadAllMarkets()
   loadTitleOptions()
 })
@@ -578,27 +449,6 @@ onMounted(() => {
         <NButton :loading="directRunning" :disabled="!directOps.marketId || !directOps.winningOutcomeId" @click="directSettle">结算</NButton>
         <NButton size="small" @click="loadAllMarkets">刷新</NButton>
       </div>
-    </div>
-
-    <!-- 用户管理 -->
-    <div class="content-panel">
-      <div class="panel-heading">用户管理 — 调整现金（点表格行的「调整现金」按钮预填）</div>
-      <div class="row-gap" style="margin-bottom:12px;">
-        <NSelect
-          v-model:value="cashForm.userId"
-          :options="userOptions"
-          placeholder="选择用户"
-          filterable
-          clearable
-          size="small"
-          style="min-width:280px;flex:1;max-width:420px"
-        />
-        <NInputNumber v-model:value="cashForm.amount" placeholder="金额（正=加，负=扣）" style="width:200px" size="small" />
-        <NInput v-model:value="cashForm.reason" placeholder="原因（可选）" style="width:160px" size="small" />
-        <NButton size="small" :loading="cashRunning" :disabled="!cashForm.userId" @click="submitAdjustCash">执行</NButton>
-        <NButton size="small" :loading="userLoading" @click="loadUsers">刷新</NButton>
-      </div>
-      <NDataTable :columns="userColumns" :data="userList" :loading="userLoading" :bordered="false" size="small" :max-height="300" />
     </div>
 
     <!-- 创建市场弹窗 -->
