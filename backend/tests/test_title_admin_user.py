@@ -87,7 +87,7 @@ async def test_admin_grant_inactive_title_rejected(client):
 @pytest.mark.asyncio
 async def test_admin_user_summary(client):
     uid, _, h = await _mk()
-    r = await client.get(f"/api/v1/admin/users/{uid}/summary", headers=h)
+    r = await client.get(f"/api/v1/admin/users/{uid}", headers=h)
     assert r.status_code == 200
     body = r.json()
     assert "cash" in body
@@ -97,5 +97,5 @@ async def test_admin_user_summary(client):
 @pytest.mark.asyncio
 async def test_admin_user_summary_404(client):
     uid, _, h = await _mk()
-    r = await client.get("/api/v1/admin/users/999999/summary", headers=h)
+    r = await client.get("/api/v1/admin/users/999999", headers=h)
     assert r.status_code == 404

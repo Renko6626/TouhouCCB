@@ -61,7 +61,7 @@ async def test_dry_run_returns_preview(client, admin_headers):
     u2 = await _seed_user(cash=Decimal("200"))
 
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"user_id_min": u1, "user_id_max": u2},
@@ -88,7 +88,7 @@ async def test_execute_writes(client, admin_headers):
     u2 = await _seed_user(cash=Decimal("200"))
 
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"user_id_min": u1, "user_id_max": u2},
@@ -114,7 +114,7 @@ async def test_deduct_skips_when_would_go_negative(client, admin_headers):
 
     # 扣 100：rich 够扣，poor 不够 → poor 跳过
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"user_id_min": rich, "user_id_max": poor},
@@ -140,7 +140,7 @@ async def test_filter_cash_range(client, admin_headers):
 
     # 只发 cash 在 [100, 300) 的用户（mid 命中）
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"cash_min": "100", "cash_max": "299", "user_id_min": low, "user_id_max": high},
@@ -164,7 +164,7 @@ async def test_excludes_superuser_by_default(client, admin_headers):
     super_id = await _seed_user(cash=Decimal("100"), is_superuser=True)
 
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"user_id_min": min(normal, super_id), "user_id_max": max(normal, super_id)},
@@ -184,7 +184,7 @@ async def test_excludes_superuser_by_default(client, admin_headers):
 @pytest.mark.asyncio
 async def test_zero_amount_rejected(client, admin_headers):
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={"filter": {}, "amount": "0", "reason": "test", "dry_run": True},
     )
@@ -194,7 +194,7 @@ async def test_zero_amount_rejected(client, admin_headers):
 @pytest.mark.asyncio
 async def test_normal_user_forbidden(client, normal_headers):
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=normal_headers,
         json={"filter": {}, "amount": "10", "reason": "test", "dry_run": True},
     )
@@ -204,7 +204,7 @@ async def test_normal_user_forbidden(client, normal_headers):
 @pytest.mark.asyncio
 async def test_unauthenticated_rejected(client):
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         json={"filter": {}, "amount": "10", "reason": "test", "dry_run": True},
     )
     # users 模块通常返 401（无 token）或 422（schema 校验）；这里只要不是 200
@@ -214,7 +214,7 @@ async def test_unauthenticated_rejected(client):
 @pytest.mark.asyncio
 async def test_no_match_returns_empty(client, admin_headers):
     resp = await client.post(
-        "/api/v1/user/batch-adjust-cash",
+        "/api/v1/admin/users/batch/adjust-cash",
         headers=admin_headers,
         json={
             "filter": {"user_id_min": 999999, "user_id_max": 999999},

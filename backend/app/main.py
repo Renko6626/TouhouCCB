@@ -292,6 +292,9 @@ app.include_router(admin_bot_api.router, prefix="/api/v1/admin/bot", tags=["Admi
 from app.api.v1 import admin_title as admin_title_api
 app.include_router(admin_title_api.router, prefix="/api/v1/admin", tags=["AdminTitle"])
 
+from app.api.v1 import admin_users as admin_users_api
+app.include_router(admin_users_api.router, prefix="/api/v1/admin/users", tags=["AdminUsers"])
+
 from app.api.v1 import title as title_api
 app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])
 

@@ -45,7 +45,7 @@ async def test_adjust_cash_writes_ledger(client_ctx):
     from sqlalchemy import select
 
     ac, maker, u1_id, admin_id = client_ctx
-    r = await ac.post(f"/api/v1/user/{u1_id}/adjust-cash",
+    r = await ac.post(f"/api/v1/admin/users/{u1_id}/cash",
                       json={"amount": "100", "reason": "活动奖励"})
     assert r.status_code == 200
 
