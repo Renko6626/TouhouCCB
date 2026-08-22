@@ -1001,7 +1001,8 @@ async def resolve_market(
         total_payout = ZERO
 
         for lose_tx, lose_uid in lose_txs:
-            lu = (await db.execute(select(User).where(User.id == lose_uid))).scalars().first()
+            lu = (await db.execute(
+                select(User).where(User.id == lose_uid).with_for_update())).scalars().first()
             if lu is not None:
                 await audit_service.record_trade(
                     db, tx=lose_tx, user=lu, position=None, market_id=int(market.id),

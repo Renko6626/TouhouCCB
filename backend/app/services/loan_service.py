@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.base import User
-from app.services import ledger_service
+from app.services import audit_service, ledger_service
 
 
 _QUANT = Decimal("0.000001")
@@ -81,7 +81,7 @@ async def increase_debt(
     # 防御性兜底：debt/cash 不应出现负值
     if u.debt < 0 or u.cash < 0:
         raise LoanServiceError(f"invariant violated post-increase: debt={u.debt} cash={u.cash}")
-    ledger_service.record_entry(
+    await ledger_service.record_entry(
         session, user=u, entry_type=source,
         cash_delta=(amount if grant_cash else Decimal("0")),
         debt_delta=amount,
@@ -165,6 +165,7 @@ async def decrease_debt(
     result = await session.execute(stmt)
     u = result.scalar_one()
     debt_before = u.debt
+    before_at = u.debt_last_accrued_at
     effective = await decrease_debt_locked(
         session, u, amount,
         consume_cash=consume_cash, daily_rate=daily_rate,
@@ -172,7 +173,7 @@ async def decrease_debt(
     # debt_after = debt_before + interest − effective → 反推隐式结息，精确到 6dp
     interest = (u.debt + effective - debt_before).quantize(_QUANT)
     if effective > 0:
-        ledger_service.record_entry(
+        await ledger_service.record_entry(
             session, user=u, entry_type=source,
             cash_delta=(-effective if consume_cash else Decimal("0")),
             debt_delta=-effective,
@@ -180,6 +181,17 @@ async def decrease_debt(
             operator_user_id=operator_user_id,
             reason=reason,
             interest_accrued=interest,
+        )
+    elif interest != 0:
+        # 本次没还上（effective 量化为 0）但结息已改写 u.debt 并会随调用方 commit——
+        # 不能让这笔利息变动没有事件，否则折叠器从此对不上
+        audit_service.record(
+            session, "interest_accrual", user_id=u.id,
+            payload={"debt_before": debt_before, "debt_after": u.debt, "interest": interest,
+                     "daily_rate": daily_rate, "source": f"{source}_noop",
+                     "elapsed_sec": (u.debt_last_accrued_at - before_at).total_seconds()
+                     if before_at and u.debt_last_accrued_at else None},
+            user_after=audit_service.user_snapshot(u),
         )
     return u, effective
 

@@ -59,7 +59,7 @@ async def adjust_cash(
         if new_cash < 0:
             raise AdminUserError(400, f"操作后现金为 {new_cash}，不能为负")
         u.cash = new_cash
-        ledger_service.record_entry(
+        await ledger_service.record_entry(
             db, user=u, entry_type="admin_adjust_cash",
             cash_delta=amount, debt_delta=Decimal("0"), daily_rate=None,
             operator_user_id=admin_id, reason=reason,
@@ -262,7 +262,7 @@ async def batch_adjust_cash(
                 continue
             before = u.cash
             u.cash = new_cash
-            ledger_service.record_entry(
+            await ledger_service.record_entry(
                 db, user=u, entry_type="admin_adjust_cash",
                 cash_delta=amount, debt_delta=Decimal("0"), daily_rate=None,
                 operator_user_id=admin_id, reason=reason,
@@ -334,7 +334,7 @@ async def amnesty(
                 interest = Decimal("0")
             cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
             u.cash = reset_cash_to
-            ledger_service.record_entry(
+            await ledger_service.record_entry(
                 db, user=u, entry_type="admin_amnesty",
                 cash_delta=cash_delta, debt_delta=-forgiven,
                 daily_rate=rate if forgiven > 0 else None,

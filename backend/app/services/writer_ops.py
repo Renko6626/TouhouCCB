@@ -487,7 +487,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
             # settle_lose 审计：user 资金不变，仓位归零；快照取当前 user 行
             for lose_tx, lose_uid in lose_txs:
                 lu = (await session.execute(
-                    select(User).where(User.id == lose_uid))).scalars().first()
+                    select(User).where(User.id == lose_uid).with_for_update())).scalars().first()
                 if lu is not None:
                     await audit_service.record_trade(
                         session, tx=lose_tx, user=lu, position=None,

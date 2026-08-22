@@ -24,7 +24,7 @@ _AUDIT_TYPE = {
 }
 
 
-def record_entry(
+async def record_entry(
     session: AsyncSession,
     *,
     user: User,
@@ -36,7 +36,7 @@ def record_entry(
     reason: Optional[str] = None,
     interest_accrued: Decimal = Decimal("0"),
 ) -> LedgerEntry:
-    """构造并 add 一条 LedgerEntry，并同步追加一条同事务的 audit_event。不 commit（调用方负责）。
+    """构造并 add 一条 LedgerEntry（flush 取 id），并追加一条同事务的 audit_event。不 commit（调用方负责）。
 
     快照（cash_after/debt_after/debt_last_accrued_at_after）从 user 对象当前值读，
     因此必须在 user 资金已变动之后调用。
@@ -59,11 +59,12 @@ def record_entry(
         reason=reason,
     )
     session.add(entry)
+    await session.flush()   # 拿 entry.id 作审计事件的 ref_id
     audit_service.record(
         session, _AUDIT_TYPE[entry_type],
         user_id=user.id,
         operator_user_id=operator_user_id,
-        ref_table="ledger_entry",
+        ref_table="ledger_entry", ref_id=entry.id,
         payload={
             "cash_delta": cash_delta,
             "debt_delta": debt_delta,

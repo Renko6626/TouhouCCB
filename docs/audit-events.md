@@ -24,7 +24,7 @@
 | `market_create` / `market_close` / `market_resume` / `market_settle` | 市场生命周期 | create: title, liquidity_b, outcomes；settle: winning_outcome_id, payout_unit, total_payout | market |
 | `loan_borrow` / `loan_repay` | 用户借还 | cash_delta, debt_delta, daily_rate, **interest_accrued**（本次操作前隐式结进 debt 的利息） | user |
 | `admin_adjust_cash` / `admin_force_loan` / `admin_forgive_debt` / `admin_amnesty` | 管理员资金操作（经 `ledger_service.record_entry` 自动发） | 同上 + reason；operator_user_id | user |
-| `interest_accrual` | **定时结息 sweep**（`loan_sweep.run_sweep_once`，每个被结息用户一条） | debt_before, debt_after, interest, daily_rate, elapsed_sec | user |
+| `interest_accrual` | **定时结息 sweep**（`loan_sweep.run_sweep_once`，每个被结息用户一条，`source=scheduler`）；还款/免债量化为 0 但已结息时也发一条（`source=<op>_noop`） | debt_before, debt_after, interest, daily_rate, elapsed_sec, source | user |
 | `liquidation_repay` | 强平后自动还债（不走 ledger，这里单独记） | repaid, interest_accrued, trigger_source | user |
 | `liquidation` | 强平汇总（= `LiquidationEvent` 全字段，`ref_id` 指向它） | pre_*/post_* | user |
 | `admin_set_role` / `admin_ban` / `admin_unban` | 账号管理 | before/after, reason | — |

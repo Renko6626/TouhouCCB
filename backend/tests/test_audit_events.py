@@ -320,3 +320,26 @@ async def test_fold_detects_tampered_snapshot(client):
     _, snap, mism, live = await _fold_and_verify()
     assert any(m.field == "cash" and m.entity == f"user:{uid}" for m in mism)
     assert any(m.entity == f"user:{uid}" for m in live)
+
+
+@pytest.mark.asyncio
+async def test_repay_noop_still_records_interest_accrual(client):
+    """还款量化为 0（cash=0）但结息已改写 debt → 必须有 interest_accrual 事件，折叠仍自洽。"""
+    from app.services import loan_service
+    async with async_session_maker() as s:
+        u = User(username="noop", casdoor_id="c_noop", cash=Decimal("0"), debt=Decimal("100"),
+                 debt_last_accrued_at=datetime.now(timezone.utc) - timedelta(days=1))
+        s.add(u); await s.flush()
+        audit_service.record(s, "user_register", user_id=u.id, user_after=audit_service.user_snapshot(u))
+        await s.commit(); uid = u.id
+    async with async_session_maker() as s:
+        async with s.begin():
+            _, eff = await loan_service.decrease_debt(
+                s, uid, Decimal("10"), consume_cash=True, daily_rate=Decimal("0.10"), source="repay")
+    assert eff == 0
+    evs = await _events(user_id=uid)
+    assert [e.event_type for e in evs] == ["user_register", "interest_accrual"]
+    assert evs[-1].payload["source"] == "repay_noop" and Decimal(evs[-1].payload["interest"]) > 0
+    _, snap, mism, live = await _fold_and_verify()
+    assert mism == [] and live == []
+    assert snap.users[uid].debt > Decimal("100")
