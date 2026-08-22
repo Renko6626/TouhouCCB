@@ -69,12 +69,12 @@ def test_upgrade_downgrade_roundtrip():
             user_table.foreign_keys.discard(fk)
         user_table._columns.remove(removed_col)
 
-    # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry）
-    # ledger_entry 由其后续 migration b2cd21122925 建，before-state 不应预先 create_all，
-    # 否则 upgrade head 跑到 ledger migration 会 "table already exists"。
+    # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry + audit_event）
+    # ledger_entry / audit_event 由其后续 migration（b2cd21122925 / a7c3e9d1f402）建，
+    # before-state 不应预先 create_all，否则 upgrade head 会 "table already exists"。
     keep_tables = [
         t for name, t in SQLModel.metadata.tables.items()
-        if name not in title_table_names and name != "ledger_entry"
+        if name not in title_table_names and name not in ("ledger_entry", "audit_event")
     ]
 
     # 2) 保存原 settings，临时 rebind 到 tempfile DB URL
