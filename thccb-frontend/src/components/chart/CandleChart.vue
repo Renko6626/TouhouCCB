@@ -396,6 +396,8 @@ if (realtime) {
     const order = realtime.outcomesOrder.value
     const idx = order.indexOf(props.outcomeId)
     for (const t of frame.trades) {
+      // 已包含在 snapshot 尾巴里的成交不再叠加（审计 M4）
+      if (t.id <= realtime.historyTailThroughTradeId.value) continue
       const price = idx >= 0 && t.market_prices_post?.length === order.length
         ? t.market_prices_post[idx]!
         : (t.outcome_id === props.outcomeId ? t.post_market_price : undefined)

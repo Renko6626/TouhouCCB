@@ -34,6 +34,9 @@ export interface UseMarketRealtimeReturn {
   tickSeen: Ref<boolean>
   // snapshot 首包携带的历史尾巴（最后封存边界 → now），图表初始化用（阶段 4）
   historyTail: Ref<HistoryTailMap | null>
+  // 尾巴已覆盖到的最后成交 id：subscribe 取 anchor 与读 ring 之间成交的会同时出现在
+  // 尾巴和 tick 队列里，图表对 id ≤ 此值的成交跳过 applyTrade（审计 M4）
+  historyTailThroughTradeId: Ref<number>
 }
 
 // provide/inject 注入 key —— TradingView 调 useMarketRealtime + provide，
@@ -66,6 +69,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   const outcomesOrderRef = ref<number[]>([])
   const tickSeen = ref(false)
   const historyTail = ref<HistoryTailMap | null>(null)
+  const historyTailThroughTradeId = ref(0)
   let lastFrameStatus: string | null = null
 
   // 内部状态：上一次成功处理的 event seq。0 表示尚未通过 snapshot 锚定
@@ -105,6 +109,8 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     }
     lastSeq = evt.seq ?? 0
     historyTail.value = (evt.data as { history_tail?: HistoryTailMap }).history_tail ?? null
+    historyTailThroughTradeId.value =
+      (evt.data as { history_tail_through_trade_id?: number }).history_tail_through_trade_id ?? 0
     snapshotToken.value += 1
     reportServerBuild(snap.frontend_build)
   }
@@ -224,6 +230,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
         lastFrameStatus = null
         outcomesOrderRef.value = []
         historyTail.value = null
+        historyTailThroughTradeId.value = 0
       }
       if (id !== null && id !== undefined) {
         stream.connect(id)
@@ -256,5 +263,6 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     outcomesOrder: outcomesOrderRef,
     tickSeen,
     historyTail,
+    historyTailThroughTradeId,
   }
 }

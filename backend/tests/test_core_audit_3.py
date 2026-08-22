@@ -268,3 +268,41 @@ async def test_quote_matches_fill_and_respects_closes_at(client):
         assert r.status_code == 400
     finally:
         await WRITER.stop()
+
+
+# ── M4 snapshot 携带尾巴已覆盖到的最后成交 id ─────────────────────────────
+@pytest.mark.asyncio
+async def test_snapshot_reports_history_tail_through_trade_id(client):
+    from sqlalchemy import text
+    from app.services.site_config import clear_cache
+    from app.services.market_writer import WRITER
+    from app.api.v1.stream import _build_snapshot
+    from tests.test_writer_e2e import _dev_login, _create_market
+
+    async with async_session_maker() as s:
+        await s.execute(text(
+            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
+            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
+            "ON CONFLICT (key) DO UPDATE SET value='true'"))
+        await s.commit()
+    clear_cache()
+    await WRITER.start()
+    try:
+        admin_h = await _dev_login(client, "admin_m4")
+        mid, oids = await _create_market(client, admin_h, "m4")
+        user_h = await _dev_login(client, "user_m4")
+        async with async_session_maker() as s:
+            assert (await _build_snapshot(s, mid))["history_tail_through_trade_id"] == 0
+        for _ in range(2):
+            r = await client.post("/api/v1/market/buy", headers=user_h,
+                                  json={"outcome_id": oids[0], "shares": "1", "accept_any_slippage": True})
+            assert r.status_code == 200, r.text
+        from app.models.base import Transaction
+        from sqlalchemy import func
+        async with async_session_maker() as s:
+            last_id = (await s.execute(select(func.max(Transaction.id)))).scalar_one()
+            snap = await _build_snapshot(s, mid)
+        assert snap["history_tail_through_trade_id"] == last_id
+        assert sum(snap["history_tail"][str(oids[0])]["10s"]["v"]) == 2.0
+    finally:
+        await WRITER.stop()
