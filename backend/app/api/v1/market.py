@@ -1259,12 +1259,33 @@ async def resume_market(
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 
+# ── Leaderboard 进程内 TTL 缓存（审计 P2）──
+# net_worth 模式每次请求全量 User + 全量 Position + 全量 Outcome + 逐仓 LMSR，匿名可访问、
+# 无限速，是最容易被刷的 CPU 热点。排行榜本就不承诺实时，10s 内复用同一结果。
+_LEADERBOARD_CACHE_TTL = 10.0
+_LEADERBOARD_CACHE: Dict[Tuple[str, int], Tuple[Any, float]] = {}
+
+
+def clear_leaderboard_cache() -> None:
+    _LEADERBOARD_CACHE.clear()
+
+
 @router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富/消费排行榜")
 async def leaderboard(
     limit: int = Query(20, ge=1, le=100),
     mode: str = Query("net_worth", description="net_worth=cash-debt+持仓 LMSR 清算价；spending=兑换消费总额-当前债务"),
     db: AsyncSession = Depends(get_async_session),
 ):
+    key = (mode, limit)
+    hit = _LEADERBOARD_CACHE.get(key)
+    if hit is not None and hit[1] > time.monotonic():
+        return hit[0]
+    result = await _leaderboard_uncached(limit, mode, db)
+    _LEADERBOARD_CACHE[key] = (result, time.monotonic() + _LEADERBOARD_CACHE_TTL)
+    return result
+
+
+async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
     if mode == "net_worth":
         # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
         # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观,

@@ -93,6 +93,8 @@ async def setup_db():
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
+    from app.api.v1.market import clear_leaderboard_cache
+    clear_leaderboard_cache()
     async with async_session_maker() as s:
         async with s.begin():
             s.add(SiteConfig(
