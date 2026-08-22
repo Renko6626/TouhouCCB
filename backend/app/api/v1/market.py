@@ -579,7 +579,7 @@ async def buy_shares(
     async with managed_transaction(db):
         # ── 锁顺序（P1 follow-up）──
         # 先无锁读取 outcome 的 market_id，避免提前持有行锁。
-        # 再按 market → all_outcomes → user 统一顺序加锁，消除跨 outcome 环形等待。
+        # 再按 market → user → all_outcomes 统一顺序加锁，消除跨 outcome 环形等待。
         mid_row = await db.execute(select(Outcome.market_id).where(Outcome.id == int(req.outcome_id)))
         market_id_val = mid_row.scalars().first()
         if market_id_val is None:
@@ -587,13 +587,16 @@ async def buy_shares(
         market = await _lock_market(db, market_id_val)
         _require_trading(market)
 
+        # 锁序 market → user → outcomes → position（market_locks.py 约定）。user 必须在
+        # outcomes 之前：legacy 强平是 user → positions → outcomes，此前这里先锁 outcomes
+        # 再锁 user，与强平互逆可死锁（审计 M7）
+        locked_user = await _lock_user(db, int(user.id))
+
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
         outcome = all_outcomes[target_idx]
-
-        locked_user = await _lock_user(db, int(user.id))
 
         # 市场 title 门槛：必须在 lock 后 / LMSR 计价前 check（防 TOCTOU）
         await assert_user_can_trade_market(db, int(user.id), int(market.id))
@@ -765,13 +768,16 @@ async def sell_shares(
         market = await _lock_market(db, market_id_val)
         _require_trading(market)
 
+        # 锁序 market → user → outcomes → position（market_locks.py 约定）。user 必须在
+        # outcomes 之前：legacy 强平是 user → positions → outcomes，此前这里先锁 outcomes
+        # 再锁 user，与强平互逆可死锁（审计 M7）
+        locked_user = await _lock_user(db, int(user.id))
+
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
         if target_idx is None:
             raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
         outcome = all_outcomes[target_idx]
-
-        locked_user = await _lock_user(db, int(user.id))
 
         # Position 行锁放在最后（与 BUY 路径一致）
         pos_res = await db.execute(

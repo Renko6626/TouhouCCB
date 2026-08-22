@@ -6,7 +6,8 @@
 3. 该 market 的全部 outcome 行（按 id ASC）
 4. position 行（如需要）
 
-所有调用方按这个顺序拿锁。
+所有调用方按这个顺序拿锁。legacy 强平（liquidation_service.liquidate_user）不锁 market，
+从 user 开始：user → positions → outcomes，与上面的相对顺序一致。
 
 所有 FOR UPDATE 都带 `populate_existing=True`：请求级 session 通常已经通过
 `get_current_user` 把 User 装进 identity map，SQLAlchemy 默认**不会**用锁后查到的
