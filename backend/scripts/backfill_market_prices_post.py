@@ -21,7 +21,7 @@ import json
 import os
 import sys
 import time
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 from sqlalchemy import select, text
@@ -38,12 +38,14 @@ def _vectorized_replay_snapshots(
     oid_to_idx: dict,
     n_outcomes: int,
     b: float,
+    initial_shares: Optional[List[float]] = None,
 ) -> tuple[List[int], np.ndarray]:
     """
     给定一个市场的全部 (tx_id, outcome_id, type, shares) 行（按 timestamp 升序），
     返回 (tx_ids, snapshots) where snapshots[k] = 第 k 笔交易后的全市场 post 价 (N,)。
 
-    initial_shares 固定 [0, 0, ..., 0]（市场创建时各 outcome.total_shares 默认 0）。
+    initial_shares：起手份额；None 则全 0。建市场可带先验（initial_prices → q_i=b·ln p_i），
+    调用方应按 chart.py 的做法从当前 outcome.total_shares 反推全部交易得到起手值。
     settle_lose 当 sell 处理（减 shares），跟 chart._replay_numpy 一致。
     """
     indices: List[int] = []
@@ -72,8 +74,9 @@ def _vectorized_replay_snapshots(
     deltas_matrix[np.arange(T), np.asarray(indices, dtype=np.int64)] = deltas_list
 
     shares_evolution = np.empty((T + 1, n_outcomes), dtype=np.float64)
-    shares_evolution[0] = 0.0
+    shares_evolution[0] = 0.0 if initial_shares is None else np.asarray(initial_shares, dtype=np.float64)
     np.cumsum(deltas_matrix, axis=0, out=shares_evolution[1:])
+    shares_evolution[1:] += shares_evolution[0]   # cumsum 不含起手值，显式加上
     # 第 k 笔 post 状态 = shares_evolution[k+1]
     post_states = shares_evolution[1:]
 
@@ -124,7 +127,19 @@ async def backfill_market(
 
     # 重放
     replay_rows = [(r[0], r[1], r[2], r[3]) for r in rows]
-    tx_ids, snapshots = _vectorized_replay_snapshots(replay_rows, oid_to_idx, n_outcomes, b)
+    # 起手份额：从当前 total_shares 反向回退全部交易（与 chart._fetch_initial_shares_and_replay 一致），
+    # 这样带先验初始 q 的市场也能正确重放，而不是假设从 0 开始
+    initial_shares = [float(o.total_shares) for o in outcomes]
+    for _tx_id, tx_oid, tx_type, tx_shares in replay_rows:
+        idx = oid_to_idx.get(tx_oid)
+        if idx is None:
+            continue
+        if tx_type in ("buy", "settle"):
+            initial_shares[idx] -= float(tx_shares)
+        elif tx_type in ("sell", "settle_lose"):
+            initial_shares[idx] += float(tx_shares)
+    initial_shares = [max(0.0, x) for x in initial_shares]
+    tx_ids, snapshots = _vectorized_replay_snapshots(replay_rows, oid_to_idx, n_outcomes, b, initial_shares)
 
     # 只填 buy/sell（settle/settle_lose 留 NULL）+ 只填原本 NULL 的行
     existing_state = {r[0]: (r[2], r[4]) for r in rows}  # tx_id -> (type, current_snapshot)
