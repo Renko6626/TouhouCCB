@@ -185,31 +185,3 @@ async def put_market_required_titles(
         db.add(MarketRequiredTitle(market_id=market_id, title_id=tid))
     await db.commit()
     return {"market_id": market_id, "title_ids": list(unique_ids)}
-
-
-@router.get("/users/{user_id}/summary", summary="资产快照（admin 查任意用户）")
-async def admin_user_summary(
-    user_id: int,
-    admin: User = Depends(current_superuser),
-    db: AsyncSession = Depends(get_async_session),
-):
-    """Admin 查任意用户。最小实现：只返回 user 表基础字段。"""
-    u = await db.get(User, user_id)
-    if not u:
-        raise HTTPException(status_code=404, detail="user not found")
-    equipped_t = await title_service.get_equipped_chip(db, user_id)
-    return {
-        "user_id": u.id,
-        "username": u.username,
-        "email": u.email,
-        "cash": float(u.cash),
-        "debt": float(u.debt),
-        "is_active": u.is_active,
-        "is_superuser": u.is_superuser,
-        "equipped_title_id": u.equipped_title_id,
-        "equipped_title": (
-            {"id": equipped_t.id, "name": equipped_t.name,
-             "color": equipped_t.color, "icon": equipped_t.icon}
-            if equipped_t else None
-        ),
-    }

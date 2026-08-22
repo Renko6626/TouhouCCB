@@ -37,7 +37,7 @@ async def _make_user(cash=Decimal("0"), debt=Decimal("0"), superuser=False):
 async def test_force_loan_requires_superuser(client):
     target_uid, _ = await _make_user()
     _, h = await _make_user(superuser=False)
-    r = await client.post(f"/api/v1/user/{target_uid}/force-loan",
+    r = await client.post(f"/api/v1/admin/users/{target_uid}/loan",
                           json={"amount": "100", "reason": "test"}, headers=h)
     assert r.status_code in (401, 403)
 
@@ -46,7 +46,7 @@ async def test_force_loan_requires_superuser(client):
 async def test_force_loan_grants_cash_and_debt(client):
     target_uid, _ = await _make_user(cash=Decimal("50"))
     _, h = await _make_user(superuser=True)
-    r = await client.post(f"/api/v1/user/{target_uid}/force-loan",
+    r = await client.post(f"/api/v1/admin/users/{target_uid}/loan",
                           json={"amount": "500", "reason": "活动奖励"}, headers=h)
     assert r.status_code == 200, r.text
     async with async_session_maker() as s:
@@ -65,7 +65,7 @@ async def test_force_loan_blocked_when_disabled(client):
             s.add(row)
     target_uid, _ = await _make_user()
     _, h = await _make_user(superuser=True)
-    r = await client.post(f"/api/v1/user/{target_uid}/force-loan",
+    r = await client.post(f"/api/v1/admin/users/{target_uid}/loan",
                           json={"amount": "100", "reason": "x"}, headers=h)
     assert r.status_code == 403
 
@@ -79,7 +79,7 @@ async def test_forgive_debt_reduces_debt_no_cash_change(client):
             u.debt_last_accrued_at = datetime.now(timezone.utc)
             s.add(u)
     _, h = await _make_user(superuser=True)
-    r = await client.post(f"/api/v1/user/{target_uid}/forgive-debt",
+    r = await client.post(f"/api/v1/admin/users/{target_uid}/forgive-debt",
                           json={"amount": "80", "reason": "compensation"}, headers=h)
     assert r.status_code == 200
     async with async_session_maker() as s:
@@ -98,7 +98,7 @@ async def test_forgive_overpay_clears_debt(client):
             u.debt_last_accrued_at = datetime.now(timezone.utc)
             s.add(u)
     _, h = await _make_user(superuser=True)
-    r = await client.post(f"/api/v1/user/{target_uid}/forgive-debt",
+    r = await client.post(f"/api/v1/admin/users/{target_uid}/forgive-debt",
                           json={"amount": "9999", "reason": "full wipe"}, headers=h)
     assert r.status_code == 200
     async with async_session_maker() as s:

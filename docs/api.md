@@ -135,25 +135,7 @@
 
 > 财富 / 消费排行榜见 §3 市场的 `GET /market/leaderboard`；我的称号见 §9 `GET /title/me`。
 
-### GET `/user/list` — 用户列表（仅管理员）
-
-### POST `/user/{user_id}/adjust-cash` — 调整用户现金（仅管理员）
-
-```json
-{ "amount": 100.00, "reason": "活动奖励" }
-```
-
-正数加钱，负数扣钱。操作后现金不能为负。
-
-### POST `/user/batch-adjust-cash` — 批量调整现金（仅管理员）
-
-### PATCH `/user/{user_id}/admin` — 设置 / 取消管理员（仅管理员）
-
-### PATCH `/user/{user_id}/ban` · PATCH `/user/{user_id}/unban` — 封号 / 解封（仅管理员）
-
-### POST `/user/{user_id}/force-loan` — 强制放贷（仅管理员）
-
-### POST `/user/{user_id}/forgive-debt` — 免除债务（仅管理员）
+> 管理员对用户的操作（列表 / 快照 / 调现金 / 放贷免债 / 封禁 / 管理员 / 批量）已统一到 §10 的 `/admin/users`。
 
 ---
 
@@ -401,7 +383,16 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 - `GET /title-batches`、`POST /title-batches`、`POST /title-batches/{batch_id}/import-codes`（批量导入兑换码）
 - `GET /users/{user_id}/titles`、`POST /users/{user_id}/titles`、`DELETE /users/{user_id}/titles/{title_id}`
 - `GET /markets/{market_id}/required-titles`、`PUT /markets/{market_id}/required-titles`（市场称号门槛）
-- `GET /users/{user_id}/summary`（查任意用户资产快照）
+
+**用户 / 资金 / 贷款 / 账号** `/admin/users`（admin_users，逻辑在 `services/admin_user_service.py`）
+- `GET /`（用户列表，最多 200）、`GET /{user_id}`（资产快照 + 装备称号）
+- `POST /{user_id}/cash` `{amount, reason}`（正加负扣，不能扣成负；写 `admin_adjust_cash` 流水）
+- `POST /{user_id}/loan`、`POST /{user_id}/forgive-debt` `{amount, reason}`（强制放贷 / 免债，免债先结息，超额自动截断）
+- `PATCH /{user_id}/role` `{is_admin}`（不能改自己、不能取消最后一个管理员）
+- `PATCH /{user_id}/ban` `{reason?, related_suspicion_id?}`、`PATCH /{user_id}/unban`
+- `POST /batch/adjust-cash` `{filter, amount, reason, dry_run}`（先 dry_run 预览再执行；单批上限 500；操作后为负的用户跳过）
+- `POST /batch/amnesty` `{filter, reset_cash_to?, forgive_debt, reason, dry_run}` — **大赦天下**：匹配用户债务清零（先结息）+ 现金设为 `reset_cash_to`（默认 `site_config.initial_balance`，高于目标的同样降下来）；持仓不动；每人一条 `admin_amnesty` 流水
+- `filter` 字段：`user_id_min/max`、`cash_min/max`、`debt_min/max`、`is_active`、`include_superuser`（默认 false）
 
 **统计** `/admin/stats`
 - `GET /wealth`（平台资产分布）
@@ -411,7 +402,7 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 **反作弊** `/admin/bot`
 - `GET /suspicions`、`PATCH /suspicions/{suspicion_id}/review`、`GET /banned-users`、`GET /stats`
-- 封号 / 解封走 `PATCH /user/{user_id}/ban`、`/unban`
+- 封号 / 解封走 `/admin/users/{user_id}/ban`、`/unban`
 
 ---
 

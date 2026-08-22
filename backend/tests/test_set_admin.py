@@ -33,7 +33,7 @@ async def test_promote_normal_user(client):
     _, admin_h = await _seed_user(is_superuser=True)
     target_id, _ = await _seed_user()
     resp = await client.patch(
-        f"/api/v1/user/{target_id}/admin",
+        f"/api/v1/admin/users/{target_id}/role",
         headers=admin_h,
         json={"is_admin": True},
     )
@@ -51,7 +51,7 @@ async def test_demote_other_admin(client):
     _, admin_h = await _seed_user(is_superuser=True)
     target_id, _ = await _seed_user(is_superuser=True)  # 第二个管理员
     resp = await client.patch(
-        f"/api/v1/user/{target_id}/admin",
+        f"/api/v1/admin/users/{target_id}/role",
         headers=admin_h,
         json={"is_admin": False},
     )
@@ -65,7 +65,7 @@ async def test_demote_other_admin(client):
 async def test_cannot_modify_self(client):
     admin_id, admin_h = await _seed_user(is_superuser=True)
     resp = await client.patch(
-        f"/api/v1/user/{admin_id}/admin",
+        f"/api/v1/admin/users/{admin_id}/role",
         headers=admin_h,
         json={"is_admin": False},
     )
@@ -82,7 +82,7 @@ async def test_cannot_demote_last_admin(client):
     other_id, _ = await _seed_user(is_superuser=True)
     # 先降级另一个 admin → 现在只剩 1 个 admin（admin_h 的发起者）
     resp1 = await client.patch(
-        f"/api/v1/user/{other_id}/admin",
+        f"/api/v1/admin/users/{other_id}/role",
         headers=admin_h,
         json={"is_admin": False},
     )
@@ -116,7 +116,7 @@ async def test_idempotent_no_change(client):
     target_id, _ = await _seed_user(is_superuser=False)
     # 把非 admin 用户设为非 admin → idempotent
     resp = await client.patch(
-        f"/api/v1/user/{target_id}/admin",
+        f"/api/v1/admin/users/{target_id}/role",
         headers=admin_h,
         json={"is_admin": False},
     )
@@ -128,7 +128,7 @@ async def test_idempotent_no_change(client):
 async def test_target_not_found(client):
     _, admin_h = await _seed_user(is_superuser=True)
     resp = await client.patch(
-        "/api/v1/user/999999/admin",
+        "/api/v1/admin/users/999999/role",
         headers=admin_h,
         json={"is_admin": True},
     )
@@ -140,7 +140,7 @@ async def test_normal_user_forbidden(client):
     _, normal_h = await _seed_user(is_superuser=False)
     target_id, _ = await _seed_user(is_superuser=False)
     resp = await client.patch(
-        f"/api/v1/user/{target_id}/admin",
+        f"/api/v1/admin/users/{target_id}/role",
         headers=normal_h,
         json={"is_admin": True},
     )
@@ -151,7 +151,7 @@ async def test_normal_user_forbidden(client):
 async def test_unauthenticated_rejected(client):
     target_id, _ = await _seed_user()
     resp = await client.patch(
-        f"/api/v1/user/{target_id}/admin",
+        f"/api/v1/admin/users/{target_id}/role",
         json={"is_admin": True},
     )
     assert resp.status_code in (401, 403)

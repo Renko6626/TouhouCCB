@@ -38,20 +38,43 @@ const navItems: NavEntry[] = [
   { label: '我的兑换', path: '/my/redemptions', icon: 'i-mdi-ticket-confirmation-outline', activeIcon: 'i-mdi-ticket-confirmation' },
 ]
 
-const adminItems = [
-  { label: '管理后台', path: '/admin/market-manage', icon: 'i-mdi-cog-outline' },
-  { label: '站点配置', path: '/admin/site-config', icon: 'i-mdi-tune' },
-  { label: '资产统计', path: '/admin/wealth-stats', icon: 'i-mdi-chart-bar' },
-  { label: '批量发钱', path: '/admin/batch-adjust-cash', icon: 'i-mdi-cash-multiple' },
-  { label: 'Bot 预警 & 封号', path: '/admin/bot-review-ban', icon: 'i-mdi-shield-alert-outline' },
-  { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline' },
-  { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant' },
-  { label: '用户管理', path: '/admin/users', icon: 'i-mdi-account-group-outline' },
-  { label: '称号目录', path: '/admin/titles', icon: 'i-mdi-medal-outline' },
-  { label: '称号激活码', path: '/admin/title-codes', icon: 'i-mdi-ticket-account' },
+// 管理区同样复用 NavEntry 分组结构；激活态按「最长前缀」判定，
+// 否则 /admin/users 会同时点亮 /admin/users/batch。
+const adminItems: NavEntry[] = [
+  {
+    label: '用户与资金', icon: 'i-mdi-account-cash-outline', activeIcon: 'i-mdi-account-cash',
+    children: [
+      { label: '用户管理', path: '/admin/users', icon: 'i-mdi-account-group-outline', activeIcon: 'i-mdi-account-group' },
+      { label: '批量操作', path: '/admin/users/batch', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
+    ],
+  },
+  { label: '市场管理', path: '/admin/markets', icon: 'i-mdi-chart-box-outline', activeIcon: 'i-mdi-chart-box' },
+  {
+    label: '风控', icon: 'i-mdi-shield-outline', activeIcon: 'i-mdi-shield',
+    children: [
+      { label: 'Bot 预警', path: '/admin/bot', icon: 'i-mdi-shield-alert-outline', activeIcon: 'i-mdi-shield-alert' },
+      { label: '资产统计 / 强平', path: '/admin/wealth-stats', icon: 'i-mdi-chart-bar', activeIcon: 'i-mdi-chart-bar' },
+    ],
+  },
+  {
+    label: '兑换与称号', icon: 'i-mdi-gift-outline', activeIcon: 'i-mdi-gift',
+    children: [
+      { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline', activeIcon: 'i-mdi-handshake' },
+      { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant', activeIcon: 'i-mdi-package-variant' },
+      { label: '称号目录', path: '/admin/titles', icon: 'i-mdi-medal-outline', activeIcon: 'i-mdi-medal' },
+      { label: '称号激活码', path: '/admin/title-codes', icon: 'i-mdi-ticket-account', activeIcon: 'i-mdi-ticket-account' },
+    ],
+  },
+  { label: '站点配置', path: '/admin/site-config', icon: 'i-mdi-tune', activeIcon: 'i-mdi-tune' },
 ]
+const adminPaths = adminItems.flatMap(e => (isGroup(e) ? e.children.map(c => c.path) : [e.path]))
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
+const isAdminActive = (path: string) => {
+  if (!isActive(path)) return false
+  // 有更长的管理路径也匹配当前路由 → 让位给它
+  return !adminPaths.some(p => p !== path && p.startsWith(path + '/') && isActive(p))
+}
 
 const navigate = (path: string) => router.push(path)
 </script>
@@ -96,16 +119,33 @@ const navigate = (path: string) => router.push(path)
     <div v-if="authStore.isAdmin" class="sidebar-admin">
       <div v-if="!props.collapsed" class="admin-label">管理</div>
       <nav class="sidebar-nav">
-        <button
-          v-for="item in adminItems"
-          :key="item.path"
-          :class="['nav-item nav-item-admin', { active: isActive(item.path) }]"
-          @click="navigate(item.path)"
-          :title="props.collapsed ? item.label : undefined"
-        >
-          <i :class="[item.icon, 'nav-icon']"></i>
-          <span v-if="!props.collapsed" class="nav-label">{{ item.label }}</span>
-        </button>
+        <template v-for="(item, idx) in adminItems" :key="isGroup(item) ? `ag-${idx}-${item.label}` : item.path">
+          <template v-if="isGroup(item)">
+            <div v-if="!props.collapsed" class="nav-group-label">
+              <i :class="[item.icon, 'nav-group-icon']"></i>
+              <span>{{ item.label }}</span>
+            </div>
+            <button
+              v-for="child in item.children"
+              :key="child.path"
+              :class="['nav-item nav-item-admin nav-item-child', { active: isAdminActive(child.path) }]"
+              @click="navigate(child.path)"
+              :title="props.collapsed ? `${item.label} · ${child.label}` : undefined"
+            >
+              <i :class="[isAdminActive(child.path) ? child.activeIcon : child.icon, 'nav-icon']"></i>
+              <span v-if="!props.collapsed" class="nav-label">{{ child.label }}</span>
+            </button>
+          </template>
+          <button
+            v-else
+            :class="['nav-item nav-item-admin', { active: isAdminActive(item.path) }]"
+            @click="navigate(item.path)"
+            :title="props.collapsed ? item.label : undefined"
+          >
+            <i :class="[isAdminActive(item.path) ? item.activeIcon : item.icon, 'nav-icon']"></i>
+            <span v-if="!props.collapsed" class="nav-label">{{ item.label }}</span>
+          </button>
+        </template>
       </nav>
     </div>
   </div>

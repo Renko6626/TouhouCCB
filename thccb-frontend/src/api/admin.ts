@@ -80,6 +80,63 @@ export interface BatchAdjustExecuteResponse {
 
 export type BatchAdjustResponse = BatchAdjustDryRunResponse | BatchAdjustExecuteResponse
 
+export interface LoanOpResult {
+  user_id: number
+  cash: number
+  debt: number
+  effective?: number
+}
+
+// ── 大赦天下 ──────────────────────────────────
+export interface AmnestyRequest {
+  filter: BatchAdjustFilter
+  reset_cash_to?: number | string | null
+  forgive_debt: boolean
+  reason: string
+  dry_run: boolean
+}
+
+export interface AmnestyRow {
+  id: number
+  username: string
+  cash_before: number
+  cash_after: number
+  debt_before: number
+  debt_after: number
+}
+
+export interface AmnestyDryRunResponse {
+  dry_run: true
+  matched_count: number
+  reset_cash_to: number
+  forgive_debt: boolean
+  total_cash_delta: number
+  total_debt_forgiven: number
+  matched_users: AmnestyRow[]
+}
+
+export interface AmnestyUpdatedItem {
+  user_id: number
+  username: string
+  cash_before: number
+  cash_after: number
+  debt_before: number
+  debt_after: number
+  debt_forgiven: number
+}
+
+export interface AmnestyExecuteResponse {
+  dry_run: false
+  updated_count: number
+  reset_cash_to: number
+  forgive_debt: boolean
+  total_cash_delta: number
+  total_debt_forgiven: number
+  updated: AmnestyUpdatedItem[]
+}
+
+export type AmnestyResponse = AmnestyDryRunResponse | AmnestyExecuteResponse
+
 export interface WealthBracket {
   label: string
   lower: number | null
@@ -110,21 +167,44 @@ export interface WealthStats {
   brackets: WealthBracket[]
 }
 
+// 管理员 · 用户 / 资金 / 贷款 / 账号（后端 /api/v1/admin/users，见 admin_users.py）
+const U = '/api/v1/admin/users'
+
+export const adminUsersApi = {
+  list: () => api.get<UserListItem[]>(U),
+  get: (userId: number) => api.get<AdminUserSummary>(`${U}/${userId}`),
+
+  adjustCash: (userId: number, amount: number | string, reason: string) =>
+    api.post<AdjustCashResult>(`${U}/${userId}/cash`, { amount, reason }),
+  forceLoan: (userId: number, amount: number | string, reason: string) =>
+    api.post<LoanOpResult>(`${U}/${userId}/loan`, { amount, reason }),
+  forgiveDebt: (userId: number, amount: number | string, reason: string) =>
+    api.post<LoanOpResult>(`${U}/${userId}/forgive-debt`, { amount, reason }),
+
+  setRole: (userId: number, isAdmin: boolean) =>
+    api.patch<{ user_id: number; username: string; is_admin: boolean; changed: boolean }>(
+      `${U}/${userId}/role`, { is_admin: isAdmin },
+    ),
+  ban: (userId: number, reason?: string, relatedSuspicionId?: number) =>
+    api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(
+      `${U}/${userId}/ban`, { reason: reason || null, related_suspicion_id: relatedSuspicionId ?? null },
+    ),
+  unban: (userId: number) =>
+    api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(`${U}/${userId}/unban`),
+
+  batchAdjustCash: (req: BatchAdjustRequest) => api.post<BatchAdjustResponse>(`${U}/batch/adjust-cash`, req),
+  amnesty: (req: AmnestyRequest) => api.post<AmnestyResponse>(`${U}/batch/amnesty`, req),
+}
+
+// 管理员 · 风控 / 统计
 export const adminApi = {
-  async listUsers(): Promise<UserListItem[]> {
-    return api.get<UserListItem[]>('/api/v1/user/list')
-  },
-
-  async adjustCash(userId: number, amount: number, reason: string = ''): Promise<AdjustCashResult> {
-    return api.post<AdjustCashResult>(`/api/v1/user/${userId}/adjust-cash`, { amount, reason })
-  },
-
-  async batchAdjustCash(req: BatchAdjustRequest): Promise<BatchAdjustResponse> {
-    return api.post<BatchAdjustResponse>('/api/v1/user/batch-adjust-cash', req)
-  },
-
   async wealthStats(): Promise<WealthStats> {
     return api.get<WealthStats>('/api/v1/admin/stats/wealth')
+  },
+
+  /** 立即跑一次强平 sweep（后端 admin_liquidation.py） */
+  async runLiquidationNow(): Promise<LiquidationRunResult> {
+    return api.post<LiquidationRunResult>('/api/v1/admin/liquidation/run-now')
   },
 
   async setUserAdmin(userId: number, isAdmin: boolean): Promise<{ user_id: number; username: string; is_admin: boolean; changed: boolean }> {
@@ -134,20 +214,7 @@ export const adminApi = {
     )
   },
 
-  // ── 封号 / 解封 + Bot 预警审核 ────────────────────────────────────
-  async banUser(userId: number, reason?: string, relatedSuspicionId?: number) {
-    return api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(
-      `/api/v1/user/${userId}/ban`,
-      { reason: reason || null, related_suspicion_id: relatedSuspicionId ?? null },
-    )
-  },
-
-  async unbanUser(userId: number) {
-    return api.patch<{ user_id: number; username: string; is_active: boolean; changed: boolean }>(
-      `/api/v1/user/${userId}/unban`,
-    )
-  },
-
+  // ── Bot 预警审核 ──
   async listBotSuspicions(status: 'pending' | 'reviewed' | 'all' = 'pending', limit: number = 100): Promise<BotSuspicionItem[]> {
     return api.get<BotSuspicionItem[]>('/api/v1/admin/bot/suspicions', { params: { status, limit } })
   },
@@ -163,6 +230,10 @@ export const adminApi = {
   async botStats(): Promise<BotStats> {
     return api.get<BotStats>('/api/v1/admin/bot/stats')
   },
+}
+
+export interface LiquidationRunResult {
+  [key: string]: unknown
 }
 
 export interface BotSuspicionItem {
@@ -217,9 +288,11 @@ export interface AdminUserSummary {
   email: string
   cash: number
   debt: number
+  debt_last_accrued_at: string | null
   is_active: boolean
   is_superuser: boolean
   equipped_title_id: number | null
+  equipped_title: { id: number; name: string; color: string; icon: string } | null
 }
 
 export const adminTitleApi = {
@@ -247,7 +320,6 @@ export const adminTitleApi = {
     api.post(`/api/v1/admin/users/${uid}/titles`, { title_id }),
   revokeTitle: (uid: number, tid: number) =>
     api.delete(`/api/v1/admin/users/${uid}/titles/${tid}`),
-  userSummary: (uid: number) => api.get<AdminUserSummary>(`/api/v1/admin/users/${uid}/summary`),
 
   getMarketRequired: (mid: number) =>
     api.get<number[]>(`/api/v1/admin/markets/${mid}/required-titles`),

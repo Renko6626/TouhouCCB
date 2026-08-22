@@ -132,17 +132,17 @@ export const routes: RouteRecordRaw[] = [
       // 管理员路由
       {
         path: 'admin',
-        redirect: '/admin/market-manage',
+        redirect: '/admin/users',
       },
+      // 旧路径兼容（书签 / 外链）
+      { path: 'admin/market-manage', redirect: '/admin/markets' },
+      { path: 'admin/batch-adjust-cash', redirect: '/admin/users/batch' },
+      { path: 'admin/bot-review-ban', redirect: '/admin/bot' },
       {
-        path: 'admin/market-manage',
-        name: 'market-manage',
+        path: 'admin/markets',
+        name: 'admin-markets',
         component: () => import('@/pages/admin/MarketManage.vue'),
-        meta: {
-          title: '管理后台',
-          requiresAuth: true,
-          requiresAdmin: true
-        }
+        meta: { title: '市场管理', requiresAuth: true, requiresAdmin: true },
       },
       {
         path: 'admin/site-config',
@@ -155,10 +155,10 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: 'admin/batch-adjust-cash',
-        name: 'admin-batch-adjust-cash',
-        component: () => import('@/pages/admin/BatchAdjustCash.vue'),
-        meta: { title: '批量调整现金', requiresAuth: true, requiresAdmin: true },
+        path: 'admin/users/batch',
+        name: 'admin-users-batch',
+        component: () => import('@/pages/admin/BatchOps.vue'),
+        meta: { title: '批量操作', requiresAuth: true, requiresAdmin: true },
       },
       {
         path: 'admin/wealth-stats',
@@ -167,10 +167,10 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '资产统计', requiresAuth: true, requiresAdmin: true },
       },
       {
-        path: 'admin/bot-review-ban',
-        name: 'admin-bot-review-ban',
+        path: 'admin/bot',
+        name: 'admin-bot',
         component: () => import('@/pages/admin/BotReviewBan.vue'),
-        meta: { title: 'Bot 预警 & 封号', requiresAuth: true, requiresAdmin: true },
+        meta: { title: 'Bot 预警', requiresAuth: true, requiresAdmin: true },
       },
       {
         path: 'admin/redemption/partners',

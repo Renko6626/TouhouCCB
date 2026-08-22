@@ -20,6 +20,7 @@ LEDGER_ENTRY_TYPES = frozenset({
     "admin_adjust_cash",   # 管理员调现金
     "admin_force_loan",    # 管理员强制放贷
     "admin_forgive_debt",  # 管理员免债
+    "admin_amnesty",       # 管理员「大赦天下」批量重置（清债 + 现金还原）
 })
 
 

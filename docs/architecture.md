@@ -162,7 +162,7 @@ C(q) = b · ln(Σ exp(q_i / b))
 
 `LedgerEntry`（`models/ledger.py`）记录 cash/debt 发生变动的流水，用于事后追溯：
 
-- **覆盖场景**：`borrow`（借款）、`repay`（还款）、`admin_adjust_cash`（调整现金）、`admin_force_loan`（强制放贷）、`admin_forgive_debt`（免债）
+- **覆盖场景**：`borrow`（借款）、`repay`（还款）、`admin_adjust_cash`（调整现金）、`admin_force_loan`（强制放贷）、`admin_forgive_debt`（免债）、`admin_amnesty`（大赦天下：批量清债 + 现金还原，一人一条，cash_delta 与 debt_delta 同时非零）
 - **不覆盖**：buy/sell/结算/强平/兑换/弹幕（各有自己的 `Transaction` / `LiquidationEvent` / 兑换 Event 表记录）；利息（可由公式 + 快照重算）
 - 写入由 `services/ledger_service.py` 的 `record_entry` 完成，与资金变动**同一事务**提交，调用方须确保 `user.cash`/`user.debt` 已更新为操作后的值
 

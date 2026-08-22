@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
-  NButton, NInput, NInputNumber, NTable, NTag, NSpin, NAlert,
+  NButton, NTable, NTag, NSpin, NAlert,
   NSelect, NDivider, useMessage, useDialog,
   type SelectOption,
 } from 'naive-ui'
 import {
-  adminApi,
+  adminApi, adminUsersApi,
   type BotSuspicionItem, type BannedUserItem, type BotStats,
 } from '@/api/admin'
 
@@ -27,8 +27,6 @@ const filterOptions: SelectOption[] = [
 ]
 
 // 手动封号表单
-const manualUserId = ref<number | null>(null)
-const manualReason = ref<string>('')
 
 async function refresh() {
   loading.value = true
@@ -69,7 +67,7 @@ async function confirmBotAndBan(s: BotSuspicionItem) {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await adminApi.banUser(s.user_id, reasonRef.v || undefined, s.id)
+        await adminUsersApi.ban(s.user_id, reasonRef.v || undefined, s.id)
         await adminApi.reviewSuspicion(s.id, 'confirmed_bot', reasonRef.v || undefined)
         msg.success(`已封号 ${s.username} (user_id=${s.user_id}) 并标记 confirmed_bot`)
         await refresh()
@@ -101,7 +99,7 @@ async function banOnly(s: BotSuspicionItem) {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await adminApi.banUser(s.user_id, reasonRef.v || undefined, s.id)
+        await adminUsersApi.ban(s.user_id, reasonRef.v || undefined, s.id)
         msg.success(`已封号 ${s.username}`)
         await refresh()
       } catch (e: unknown) {
@@ -120,35 +118,8 @@ async function unban(userId: number, username: string) {
     negativeText: '取消',
     onPositiveClick: async () => {
       try {
-        await adminApi.unbanUser(userId)
+        await adminUsersApi.unban(userId)
         msg.success(`已解封 ${username}`)
-        await refresh()
-      } catch (e: unknown) {
-        msg.error((e as { data?: { detail?: string }; message?: string })?.data?.detail ?? '失败')
-      }
-    },
-  })
-}
-
-// ── 手动封号 (无 suspicion 关联) ──
-async function manualBan() {
-  if (!manualUserId.value) {
-    msg.error('请输入 user_id')
-    return
-  }
-  const uid = manualUserId.value
-  const reason = manualReason.value
-  dialog.warning({
-    title: `手动封号 user_id=${uid}`,
-    content: `理由: ${reason || '<未填>'}。该操作不关联任何 BotSuspicion，会写 backend 日志审计。`,
-    positiveText: '确认封号',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      try {
-        const r = await adminApi.banUser(uid, reason || undefined)
-        msg.success(`已封号 ${r.username} (user_id=${uid})`)
-        manualUserId.value = null
-        manualReason.value = ''
         await refresh()
       } catch (e: unknown) {
         msg.error((e as { data?: { detail?: string }; message?: string })?.data?.detail ?? '失败')
@@ -284,29 +255,6 @@ const bannedCount = computed(() => stats.value?.banned_users ?? '—')
           </tbody>
         </NTable>
         <div v-else class="empty-hint">当前筛选下无 Bot 预警记录</div>
-      </section>
-
-      <NDivider />
-
-      <!-- 手动封号 -->
-      <section class="panel">
-        <h2>手动封号 / 解封</h2>
-        <p class="hint">无 BotSuspicion 关联场景（你自己排查发现的恶意账号）。封后写 backend log 审计。</p>
-        <div class="row">
-          <NInputNumber
-            v-model:value="manualUserId"
-            placeholder="user_id"
-            :precision="0"
-            :min="1"
-            style="width: 160px"
-          />
-          <NInput
-            v-model:value="manualReason"
-            placeholder="封号原因（选填）"
-            style="flex: 1; max-width: 480px"
-          />
-          <NButton type="error" :disabled="!manualUserId" @click="manualBan">封号</NButton>
-        </div>
       </section>
 
       <NDivider />
