@@ -17,6 +17,7 @@ from app.core.database import async_session_maker
 from app.models.base import User
 from app.services.loan_service import accrue_interest, _compat_now
 from app.services import site_config
+from app.services import audit_service
 
 
 logger = logging.getLogger("thccb.loan_sweep")
@@ -50,10 +51,25 @@ async def run_sweep_once() -> int:
                 )
                 u = result.scalar_one()
                 before = u.debt
-                accrue_interest(u, rate, _compat_now(u))
+                before_at = u.debt_last_accrued_at
+                now = _compat_now(u)
+                accrue_interest(u, rate, now)
                 if u.debt != before:
                     session.add(u)
                     touched += 1
+                    audit_service.record(
+                        session, "interest_accrual",
+                        user_id=u.id,
+                        payload={
+                            "debt_before": before,
+                            "debt_after": u.debt,
+                            "interest": (u.debt - before),
+                            "daily_rate": rate,
+                            "elapsed_sec": (now - before_at).total_seconds() if before_at else None,
+                            "source": "scheduler",
+                        },
+                        user_after=audit_service.user_snapshot(u),
+                    )
     if touched:
         logger.info("sweep tick: touched=%s", touched)
     return touched

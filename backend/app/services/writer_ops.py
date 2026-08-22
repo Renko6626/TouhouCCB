@@ -27,6 +27,7 @@ from app.services.market_title_gating import assert_user_can_trade_market
 from app.services.market_writer import MarketState, MarketWriter, OpOutcome
 from app.services.trade_checks import check_buy_slippage, check_sell_slippage
 from app.services import site_config
+from app.services import audit_service
 
 logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
@@ -134,6 +135,13 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
                 sa_update(Outcome)
                 .where(Outcome.id == int(cmd.outcome_id))
                 .values(total_shares=new_q_dec[idx])
+            )
+            await audit_service.record_trade(
+                session, tx=tx, user=locked_user, position=pos, market_id=state.market_id,
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=state.outcome_ids, q=new_q_dec, b=b,
+                    prices=new_prices, status=state.status),
+                extra={"fee_rate": "0", "path": "writer"},
             )
         new_cash = locked_user.cash   # expire_on_commit=False，commit 后可读
 
@@ -269,6 +277,13 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
                 sa_update(Outcome).where(Outcome.id == int(cmd.outcome_id))
                 .values(total_shares=new_q_dec[idx])
             )
+            await audit_service.record_trade(
+                session, tx=tx, user=locked_user, position=pos, market_id=state.market_id,
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=state.outcome_ids, q=new_q_dec, b=b,
+                    prices=new_prices, status=state.status),
+                extra={"fee_rate": sell_fee_rate, "path": "writer"},
+            )
         new_cash = locked_user.cash
 
     ts = tx.timestamp if tx.timestamp else datetime.now(timezone.utc)
@@ -308,11 +323,13 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
 @dataclass
 class CloseCmd:
     market_id: int
+    admin_id: Optional[int] = None
 
 
 @dataclass
 class ResumeCmd:
     market_id: int
+    admin_id: Optional[int] = None
 
 
 async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
@@ -322,6 +339,13 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
         async with session.begin():
             market = await session.get(Market, cmd.market_id)
             market.status = MarketStatus.HALT
+            audit_service.record(
+                session, "market_close", market_id=cmd.market_id,
+                operator_user_id=cmd.admin_id,
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=state.outcome_ids, q=state.q_dec, b=state.b,
+                    prices=state.prices, status=MarketStatus.HALT),
+            )
         title = market.title
     return OpOutcome(
         response={"message": f"市场 {title} 已停止交易（熔断）"},
@@ -339,6 +363,13 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
         async with session.begin():
             market = await session.get(Market, cmd.market_id)
             market.status = MarketStatus.TRADING
+            audit_service.record(
+                session, "market_resume", market_id=cmd.market_id,
+                operator_user_id=cmd.admin_id,
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=state.outcome_ids, q=state.q_dec, b=state.b,
+                    prices=state.prices, status=MarketStatus.TRADING),
+            )
         title = market.title
     return OpOutcome(
         response={"message": f"市场 {title} 已恢复交易"},
@@ -419,6 +450,8 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
             # Decimal 计算兑付
             payout_by_user: dict[int, Decimal] = {}
             settled_positions = 0
+            lose_txs: list[tuple[Transaction, int]] = []
+            now = datetime.now(timezone.utc)
 
             for pos in positions:
                 if pos.amount <= ZERO:
@@ -431,7 +464,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                         payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
                 else:
                     # 亏损仓位：记录 settle_lose 交易（图表 shares 重放需要）
-                    session.add(Transaction(
+                    lose_tx = Transaction(
                         user_id=pos.user_id,
                         outcome_id=pos.outcome_id,
                         type=TransactionType.SETTLE_LOSE,
@@ -442,12 +475,25 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                         pre_market_price=ZERO,
                         post_market_price=ZERO,
                         cost=ZERO,
-                    ))
+                        timestamp=now,
+                    )
+                    session.add(lose_tx)
+                    lose_txs.append((lose_tx, pos.user_id))
 
                 await session.delete(pos)
 
             total_payout = ZERO
-            now = datetime.now(timezone.utc)
+
+            # settle_lose 审计：user 资金不变，仓位归零；快照取当前 user 行
+            for lose_tx, lose_uid in lose_txs:
+                lu = (await session.execute(
+                    select(User).where(User.id == lose_uid))).scalars().first()
+                if lu is not None:
+                    await audit_service.record_trade(
+                        session, tx=lose_tx, user=lu, position=None,
+                        market_id=cmd.market_id, market_after=None,
+                        extra={"path": "writer"}, operator_user_id=cmd.admin_id,
+                    )
 
             for uid, pay in payout_by_user.items():
                 if pay <= ZERO:
@@ -463,7 +509,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                 u.cash += pay
                 total_payout += pay
 
-                session.add(Transaction(
+                win_tx = Transaction(
                     user_id=u.id,
                     outcome_id=winning.id,
                     type=TransactionType.SETTLE,
@@ -473,7 +519,14 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                     price=payout_unit,
                     cost=-pay,
                     timestamp=now,
-                ))
+                )
+                session.add(win_tx)
+                await audit_service.record_trade(
+                    session, tx=win_tx, user=u, position=None,
+                    market_id=cmd.market_id, market_after=None,
+                    extra={"payout_unit": payout_unit, "path": "writer"},
+                    operator_user_id=cmd.admin_id,
+                )
 
             for o in outcomes:
                 o.payout = payout_unit if o.id == winning.id else ZERO
@@ -482,6 +535,16 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
             market.winning_outcome_id = winning.id
             market.settled_at = now
             market.settled_by_user_id = cmd.admin_id
+            audit_service.record(
+                session, "market_settle", market_id=cmd.market_id,
+                operator_user_id=cmd.admin_id, ts=now,
+                payload={"winning_outcome_id": winning.id, "payout_unit": payout_unit,
+                         "total_payout": total_payout, "settled_positions": settled_positions,
+                         "path": "writer"},
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=state.outcome_ids, q=state.q_dec, b=state.b,
+                    prices=state.prices, status=MarketStatus.SETTLED),
+            )
         # ── commit 已成功——事务外读缓存属性（expire_on_commit=False）──
         title = market.title
         winning_id = int(market.winning_outcome_id)
@@ -585,7 +648,8 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
                 locked_user.cash += proceeds
                 new_q_dec[idx] = quantize_cost(new_q_dec[idx] - sell_amount)
                 q_work = nq
-                if sell_amount >= pos.amount:
+                pos_deleted = sell_amount >= pos.amount
+                if pos_deleted:
                     await session.delete(pos)
                 else:
                     cost_reduced = (pos.cost_basis * sell_amount / pos.amount
@@ -594,7 +658,7 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
                     pos.cost_basis -= cost_reduced
 
                 avg_price = quantize_price(proceeds / sell_amount) if sell_amount > ZERO else ZERO
-                session.add(Transaction(
+                liq_tx = Transaction(
                     user_id=cmd.user_id, outcome_id=pos.outcome_id,
                     type=TransactionType.LIQUIDATE, shares=sell_amount,
                     cost=-proceeds, price=avg_price,
@@ -602,7 +666,17 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
                     post_market_price=quantize_price(new_prices[idx]),
                     gross=proceeds, fee=ZERO,
                     market_prices_post=list(new_prices),
-                ))
+                )
+                session.add(liq_tx)
+                await audit_service.record_trade(
+                    session, tx=liq_tx, user=locked_user,
+                    position=None if pos_deleted else pos,
+                    market_id=cmd.market_id,
+                    market_after=audit_service.market_snapshot(
+                        outcome_ids=state.outcome_ids, q=new_q_dec, b=state.b,
+                        prices=new_prices, status=state.status),
+                    extra={"mode": cmd.mode, "partial_pct": cmd.partial_pct, "path": "writer"},
+                )
                 total_proceeds += proceeds
                 sold_count += 1
 

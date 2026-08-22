@@ -70,7 +70,9 @@ async def increase_debt(
     result = await session.execute(stmt)
     u = result.scalar_one()
     now = _compat_now(u)
+    debt_pre_accrual = u.debt
     accrue_interest(u, daily_rate, now)
+    interest = (u.debt - debt_pre_accrual).quantize(_QUANT)
     u.debt = (u.debt + amount).quantize(_QUANT)
     if u.debt_last_accrued_at is None:
         u.debt_last_accrued_at = now
@@ -86,6 +88,7 @@ async def increase_debt(
         daily_rate=daily_rate,
         operator_user_id=operator_user_id,
         reason=reason,
+        interest_accrued=interest,
     )
     session.add(u)
     return u
@@ -161,10 +164,13 @@ async def decrease_debt(
     stmt = select(User).where(User.id == user_id).with_for_update()
     result = await session.execute(stmt)
     u = result.scalar_one()
+    debt_before = u.debt
     effective = await decrease_debt_locked(
         session, u, amount,
         consume_cash=consume_cash, daily_rate=daily_rate,
     )
+    # debt_after = debt_before + interest − effective → 反推隐式结息，精确到 6dp
+    interest = (u.debt + effective - debt_before).quantize(_QUANT)
     if effective > 0:
         ledger_service.record_entry(
             session, user=u, entry_type=source,
@@ -173,6 +179,7 @@ async def decrease_debt(
             daily_rate=daily_rate,
             operator_user_id=operator_user_id,
             reason=reason,
+            interest_accrued=interest,
         )
     return u, effective
 

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import managed_transaction
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
+from app.services import audit_service
 
 _CENT = Decimal("0.01")
 
@@ -129,6 +130,10 @@ async def set_role(
             if n <= 1:
                 raise AdminUserError(400, "不能取消最后一个管理员")
         t.is_superuser = is_admin
+        audit_service.record(
+            db, "admin_set_role", user_id=t.id, operator_user_id=admin_id,
+            payload={"is_superuser_before": not is_admin, "is_superuser_after": is_admin},
+        )
     return {"user_id": t.id, "username": t.username, "is_admin": t.is_superuser, "changed": True}
 
 
@@ -149,14 +154,18 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int) -> Dict[str, A
                 raise AdminUserError(400, "不能封禁最后一个活跃管理员（先取消管理员权限或先提升另一人）")
         was_active = t.is_active
         t.is_active = False
+        if was_active:
+            audit_service.record(db, "admin_ban", user_id=t.id, operator_user_id=admin_id)
     return {"user_id": t.id, "username": t.username, "is_active": False, "changed": was_active}
 
 
-async def unban(db: AsyncSession, *, target_id: int) -> Dict[str, Any]:
+async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = None) -> Dict[str, Any]:
     async with managed_transaction(db):
         t = await _lock_user(db, target_id)
         was_active = t.is_active
         t.is_active = True
+        if not was_active:
+            audit_service.record(db, "admin_unban", user_id=t.id, operator_user_id=admin_id)
     return {"user_id": t.id, "username": t.username, "is_active": True, "changed": not was_active}
 
 

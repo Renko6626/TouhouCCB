@@ -126,10 +126,17 @@ async def set_value(
     admin_user_id: Optional[int],
 ) -> SiteConfig:
     row = await _fetch(session, key)
+    old = row.value
     row.value = value
     row.updated_at = datetime.now(timezone.utc)
     row.updated_by = admin_user_id
     session.add(row)
+    from app.services import audit_service  # 局部 import 避免环
+    audit_service.record(
+        session, "config_set",
+        operator_user_id=admin_user_id,
+        payload={"key": key, "old": old, "new": value, "value_type": row.value_type},
+    )
     await session.commit()
     await session.refresh(row)
     _cache.pop(key, None)  # 主动失效，让下次读取拿到新值

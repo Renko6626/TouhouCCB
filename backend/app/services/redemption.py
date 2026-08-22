@@ -131,6 +131,13 @@ async def purchase_code(
     partner = await session.get(RedemptionPartner, batch.partner_id)
 
     # 写资金流水审计行（同事务）
+    from app.services import audit_service
+    audit_service.record(
+        session, "redeem_purchase",
+        user_id=user_id,
+        payload={"batch_id": batch.id, "code_id": code.id, "amount": batch.unit_price},
+        user_after=audit_service.user_snapshot(user),
+    )
     session.add(RedemptionTransaction(
         user_id=user_id,
         code_id=code.id,

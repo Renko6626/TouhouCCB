@@ -174,7 +174,7 @@ async def unban_user(
     db: AsyncSession = Depends(get_async_session),
 ):
     try:
-        r = await svc.unban(db, target_id=user_id)
+        r = await svc.unban(db, target_id=user_id, admin_id=admin.id)
     except AdminUserError as e:
         raise _http(e)
     logger.warning("ADMIN_UNBAN_USER admin_id=%s target_user_id=%s target_username=%s was_active=%s",

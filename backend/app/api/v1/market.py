@@ -46,6 +46,7 @@ from app.services.market_locks import (
     lock_outcome as _lock_outcome,
 )
 from app.services import site_config
+from app.services import audit_service
 from app.services import tick_broadcaster as _tick
 from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_title_gating import assert_user_can_trade_market
@@ -219,6 +220,14 @@ async def create_market(
 
     for label in data.outcomes:
         db.add(Outcome(market_id=new_market.id, label=label, total_shares=ZERO))
+    await db.flush()
+    audit_service.record(
+        db, "market_create", market_id=new_market.id, operator_user_id=admin.id,
+        payload={"title": data.title, "liquidity_b": float(data.liquidity_b),
+                 "outcomes": list(data.outcomes), "closes_at": data.closes_at,
+                 "tags": list(data.tags or [])},
+        market_after=await audit_service.market_snapshot_from_db(db, int(new_market.id)),
+    )
 
     await db.commit()
 
@@ -244,13 +253,17 @@ async def close_market(
     from app.services.market_writer import WRITER
     from app.services.writer_ops import CloseCmd
     if WRITER.enabled and WRITER.get_state(market_id) is not None:
-        return await WRITER.submit(CloseCmd(market_id=market_id))
+        return await WRITER.submit(CloseCmd(market_id=market_id, admin_id=int(admin.id)))
 
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
         if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
         market.status = MarketStatus.HALT
+        audit_service.record(
+            db, "market_close", market_id=market_id, operator_user_id=admin.id,
+            market_after=await audit_service.market_snapshot_from_db(db, market_id, status=MarketStatus.HALT),
+        )
     _tick.TICK_BROADCASTER.feed_status(market_id, MarketStatus.HALT)
     if await site_config.get_bool_or(db, "legacy_trade_events", True):
         await BROKER.publish(
@@ -636,6 +649,14 @@ async def buy_shares(
             market_prices_post=list(new_prices),
         )
         db.add(tx)
+        await audit_service.record_trade(
+            db, tx=tx, user=locked_user, position=position, market_id=int(market.id),
+            market_after=audit_service.market_snapshot(
+                outcome_ids=[o.id for o in all_outcomes],
+                q=[o.total_shares for o in all_outcomes], b=b,
+                prices=new_prices, status=market.status),
+            extra={"fee_rate": "0", "path": "legacy"},
+        )
 
         # ★ candle 物化表 UPSERT
         candle_rows = compute_candle_rows(
@@ -811,6 +832,14 @@ async def sell_shares(
             market_prices_post=list(new_prices),
         )
         db.add(tx)
+        await audit_service.record_trade(
+            db, tx=tx, user=locked_user, position=position, market_id=int(market.id),
+            market_after=audit_service.market_snapshot(
+                outcome_ids=[o.id for o in all_outcomes],
+                q=[o.total_shares for o in all_outcomes], b=b,
+                prices=new_prices, status=market.status),
+            extra={"fee_rate": sell_fee_rate, "path": "legacy"},
+        )
 
         # ★ candle 物化表 UPSERT
         candle_rows = compute_candle_rows(
@@ -937,6 +966,8 @@ async def resolve_market(
         # Decimal 计算兑付
         payout_by_user: dict[int, Decimal] = {}
         settled_positions = 0
+        lose_txs: list[tuple[Transaction, int]] = []
+        now = datetime.now(timezone.utc)
 
         for pos in positions:
             if pos.amount <= ZERO:
@@ -949,7 +980,7 @@ async def resolve_market(
                     payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
             else:
                 # 亏损仓位：记录 settle_lose 交易（图表 shares 重放需要）
-                db.add(Transaction(
+                lose_tx = Transaction(
                     user_id=pos.user_id,
                     outcome_id=pos.outcome_id,
                     type=TransactionType.SETTLE_LOSE,
@@ -960,12 +991,22 @@ async def resolve_market(
                     pre_market_price=ZERO,
                     post_market_price=ZERO,
                     cost=ZERO,
-                ))
+                    timestamp=now,
+                )
+                db.add(lose_tx)
+                lose_txs.append((lose_tx, pos.user_id))
 
             await db.delete(pos)
 
         total_payout = ZERO
-        now = datetime.now(timezone.utc)
+
+        for lose_tx, lose_uid in lose_txs:
+            lu = (await db.execute(select(User).where(User.id == lose_uid))).scalars().first()
+            if lu is not None:
+                await audit_service.record_trade(
+                    db, tx=lose_tx, user=lu, position=None, market_id=int(market.id),
+                    market_after=None, extra={"path": "legacy"}, operator_user_id=admin.id,
+                )
 
         for uid, pay in payout_by_user.items():
             if pay <= ZERO:
@@ -981,7 +1022,7 @@ async def resolve_market(
             u.cash += pay
             total_payout += pay
 
-            db.add(Transaction(
+            win_tx = Transaction(
                 user_id=u.id,
                 outcome_id=winning.id,
                 type=TransactionType.SETTLE,
@@ -991,7 +1032,13 @@ async def resolve_market(
                 price=payout_unit,
                 cost=-pay,
                 timestamp=now,
-            ))
+            )
+            db.add(win_tx)
+            await audit_service.record_trade(
+                db, tx=win_tx, user=u, position=None, market_id=int(market.id),
+                market_after=None, extra={"payout_unit": payout_unit, "path": "legacy"},
+                operator_user_id=admin.id,
+            )
 
         for o in outcomes:
             o.payout = payout_unit if o.id == winning.id else ZERO
@@ -1000,6 +1047,17 @@ async def resolve_market(
         market.winning_outcome_id = winning.id
         market.settled_at = now
         market.settled_by_user_id = admin.id
+        audit_service.record(
+            db, "market_settle", market_id=int(market.id), operator_user_id=admin.id, ts=now,
+            payload={"winning_outcome_id": winning.id, "payout_unit": payout_unit,
+                     "total_payout": total_payout, "settled_positions": settled_positions,
+                     "path": "legacy"},
+            market_after=audit_service.market_snapshot(
+                outcome_ids=[o.id for o in outcomes], q=[o.total_shares for o in outcomes],
+                b=float(market.liquidity_b),
+                prices=calculate_lmsr_with_prices(_shares_to_floats(outcomes), float(market.liquidity_b))[1],
+                status=MarketStatus.SETTLED),
+        )
 
     logger.info(
         "RESOLVE market_id=%s winning_outcome_id=%s payout=%s total_payout=%s settled_positions=%s admin_id=%s",
@@ -1158,7 +1216,7 @@ async def resume_market(
     from app.services.market_writer import WRITER
     from app.services.writer_ops import ResumeCmd
     if WRITER.enabled and WRITER.get_state(market_id) is not None:
-        return await WRITER.submit(ResumeCmd(market_id=market_id))
+        return await WRITER.submit(ResumeCmd(market_id=market_id, admin_id=int(admin.id)))
 
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
@@ -1167,6 +1225,10 @@ async def resume_market(
         if market.status != MarketStatus.HALT:
             raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
         market.status = MarketStatus.TRADING
+        audit_service.record(
+            db, "market_resume", market_id=market_id, operator_user_id=admin.id,
+            market_after=await audit_service.market_snapshot_from_db(db, market_id, status=MarketStatus.TRADING),
+        )
 
     _tick.TICK_BROADCASTER.feed_status(market.id, MarketStatus.TRADING)
     if await site_config.get_bool_or(db, "legacy_trade_events", True):
