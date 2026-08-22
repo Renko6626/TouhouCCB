@@ -9,6 +9,11 @@ const props = defineProps<{
   onClick?: () => void
 }>()
 
+// 流通份额 = total_shares − initial_shares（建市场先验起手份额不算用户持仓）
+const circulatingShares = computed(() =>
+  Math.round(props.outcome.total_shares - (props.outcome.initial_shares ?? 0)).toLocaleString(),
+)
+
 const probabilityPercent = computed(() => {
   return (props.outcome.current_price * 100).toFixed(1)
 })
@@ -43,8 +48,8 @@ const heatLabel = computed(() => {
       </div>
 
       <div class="outcome-row">
-        <span class="outcome-label">总份额:</span>
-        <span class="outcome-value">{{ Math.round(props.outcome.total_shares).toLocaleString() }}</span>
+        <span class="outcome-label">流通份额:</span>
+        <span class="outcome-value">{{ circulatingShares }}</span>
       </div>
 
       <div v-if="props.outcome.payout != null" class="outcome-row">
@@ -60,7 +65,7 @@ const heatLabel = computed(() => {
 
     <template #footer>
       <div class="outcome-footer">
-        <span class="outcome-label">{{ Math.round(props.outcome.total_shares).toLocaleString() }} 份</span>
+        <span class="outcome-label">{{ circulatingShares }} 份</span>
         <span class="heat-tag">{{ heatLabel }}</span>
       </div>
     </template>
