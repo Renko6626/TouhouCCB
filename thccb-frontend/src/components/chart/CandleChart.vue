@@ -118,15 +118,19 @@ const pushFormingToChart = () => {
 }
 
 // 全量加载（初始 / 切 outcome/interval/lookback / gap reconcile）
+let loadGen = 0
 const loadFull = async () => {
   if (!props.outcomeId) return
   loading.value = true
   error.value = null
+  const gen = ++loadGen
   try {
     const raw = await loadHistoryCandles(
       props.outcomeId, props.interval, Math.max(5, lookbackMinutes.value),
       realtime?.historyTail?.value ?? null,
+      realtime?.historyTailAtSec?.value ?? null,
     )
+    if (gen !== loadGen) return   // 丢弃被更新请求取代的旧响应（审计 L21）
     const candles = [...raw].sort((a, b) => toUtcTimestamp(a.t) - toUtcTimestamp(b.t))
     candleCount.value = candles.length
 
@@ -139,7 +143,7 @@ const loadFull = async () => {
     error.value = err instanceof Error ? err.message : 'K线数据加载失败'
     console.error('[CandleChart] loadFull failed:', err)
   } finally {
-    loading.value = false
+    if (gen === loadGen) loading.value = false
   }
 }
 
@@ -216,6 +220,9 @@ const applyVisibleRangeToNow = () => {
 // isDirectTrade=true 表示该 trade 直接发生在本图表的 outcome 上；否则是同市场其他 outcome
 // 的连带价格变动，只更新 OHLC 不计入 n_trades（与后端 candle_writer.compute_candle_rows
 // 的 n_trades 语义一致）
+// 本地合成空桶的上限；超过则整页重载（数量级：10s 档 ≈ 1 小时）
+const MAX_LOCAL_FILL_BUCKETS = 360
+
 const applyTrade = (price: number, shares: number, tsMs: number, isDirectTrade: boolean) => {
   if (!candleSeries) return
   const tsSec = Math.floor(tsMs / 1000)
@@ -240,10 +247,26 @@ const applyTrade = (price: number, shares: number, tsMs: number, isDirectTrade: 
     return
   }
 
-  if (bucketStart === currentCandle.t + stepSeconds.value) {
-    // 正常切到下一个 bucket：闭合 currentCandle，开新 candle
-    publishedCloses.push(currentCandle.c)
-    const prevClose = currentCandle.c
+  if (bucketStart > currentCandle.t) {
+    // 切到后面的 bucket。中间若跨过 ≥1 个空桶，本地按 fillCandles 同一语义合成
+    // （o=h=l=c=prevClose, v=0, n=0）——安静市场两笔成交间隔 >2 步是常态，此前每笔
+    // 都触发全量 loadFull（≤50 次 /history/ GET + 全量 setData + MA 重算，审计 P5）。
+    // 跨桶数过大（挂后台很久）才回退 loadFull：本地逐根 update 没意义，也可能已跨段。
+    const gapBuckets = (bucketStart - currentCandle.t) / stepSeconds.value - 1
+    if (gapBuckets > MAX_LOCAL_FILL_BUCKETS) {
+      console.warn('[CandleChart] multi-bucket gap too large, triggering reload')
+      loadFull()
+      return
+    }
+    let prevClose = currentCandle.c
+    publishedCloses.push(prevClose)
+    for (let t = currentCandle.t + stepSeconds.value; t < bucketStart; t += stepSeconds.value) {
+      currentCandle = { t, o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0, n: 0 }
+      pushFormingToChart()
+      publishedCloses.push(prevClose)
+      candleCount.value += 1
+      prevClose = currentCandle.c
+    }
     currentCandle = {
       t: bucketStart,
       o: prevClose,
@@ -255,14 +278,6 @@ const applyTrade = (price: number, shares: number, tsMs: number, isDirectTrade: 
     }
     pushFormingToChart()
     candleCount.value += 1
-    return
-  }
-
-  if (bucketStart > currentCandle.t + stepSeconds.value) {
-    // 跨过 ≥1 个完整 bucket（用户挂后台 / 间隔时段无 trade / SSE 期间漏消息）
-    // → 中间 bucket 数据本地无法合成，触发 loadFull 让 backend fill=true 补齐
-    console.warn('[CandleChart] multi-bucket gap, triggering reload')
-    loadFull()
     return
   }
 
