@@ -620,7 +620,7 @@ async def buy_shares(
         pos_res = await db.execute(
             select(Position)
             .where(Position.user_id == locked_user.id, Position.outcome_id == outcome.id)
-            .with_for_update()
+            .with_for_update().execution_options(populate_existing=True)
         )
         position = pos_res.scalars().first()
         if not position:
@@ -761,7 +761,7 @@ async def sell_shares(
         pos_res = await db.execute(
             select(Position)
             .where(Position.user_id == int(user.id), Position.outcome_id == int(req.outcome_id))
-            .with_for_update()
+            .with_for_update().execution_options(populate_existing=True)
         )
         position = pos_res.scalars().first()
         if not position or position.amount < shares_d:
@@ -915,7 +915,7 @@ async def resolve_market(
 
     async with managed_transaction(db):
         m_res = await db.execute(
-            select(Market).where(Market.id == market_id).with_for_update()
+            select(Market).where(Market.id == market_id).with_for_update().execution_options(populate_existing=True)
         )
         market = m_res.scalars().first()
         if not market:
@@ -937,7 +937,7 @@ async def resolve_market(
             select(Outcome)
             .where(Outcome.market_id == market.id)
             .order_by(Outcome.id.asc())
-            .with_for_update()
+            .with_for_update().execution_options(populate_existing=True)
         )
         outcomes = o_res.scalars().all()
         if len(outcomes) < 2:
@@ -958,7 +958,7 @@ async def resolve_market(
                     Position.amount > 0,
                 )
             )
-            .with_for_update()
+            .with_for_update().execution_options(populate_existing=True)
         )
         p_res = await db.execute(p_stmt)
         positions = p_res.scalars().all()
@@ -1002,7 +1002,7 @@ async def resolve_market(
 
         for lose_tx, lose_uid in lose_txs:
             lu = (await db.execute(
-                select(User).where(User.id == lose_uid).with_for_update())).scalars().first()
+                select(User).where(User.id == lose_uid).with_for_update().execution_options(populate_existing=True))).scalars().first()
             if lu is not None:
                 await audit_service.record_trade(
                     db, tx=lose_tx, user=lu, position=None, market_id=int(market.id),
@@ -1014,7 +1014,7 @@ async def resolve_market(
                 continue
 
             u_res = await db.execute(
-                select(User).where(User.id == uid).with_for_update()
+                select(User).where(User.id == uid).with_for_update().execution_options(populate_existing=True)
             )
             u = u_res.scalars().first()
             if not u:

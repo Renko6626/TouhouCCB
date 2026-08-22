@@ -84,7 +84,7 @@ async def purchase_code(
     """单事务原子购买：行锁 user → 校验 → SKIP LOCKED 抢一个码 → 扣款 → 标记码。
     不在这里 commit，由调用方负责。
     """
-    user_stmt = select(User).where(User.id == user_id).with_for_update()
+    user_stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     user = (await session.execute(user_stmt)).scalar_one()
 
     batch = await session.get(RedemptionBatch, batch_id)

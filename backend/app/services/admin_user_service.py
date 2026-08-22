@@ -39,7 +39,7 @@ def _money(v: Decimal) -> float:
 
 async def _lock_user(db: AsyncSession, user_id: int) -> User:
     u = (await db.execute(
-        select(User).where(User.id == user_id).with_for_update()
+        select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     )).scalar_one_or_none()
     if u is None:
         raise AdminUserError(404, "用户不存在")
@@ -215,7 +215,7 @@ async def _preview_users(db: AsyncSession, f: UserFilter) -> List[User]:
 
 
 async def _lock_users(db: AsyncSession, f: UserFilter) -> List[User]:
-    users = (await db.execute(build_user_filter_stmt(f).with_for_update())).scalars().all()
+    users = (await db.execute(build_user_filter_stmt(f).with_for_update().execution_options(populate_existing=True))).scalars().all()
     if len(users) > BATCH_HARDCAP:
         raise AdminUserError(400, f"加锁后匹配 {len(users)} > 上限，操作中止")
     return users

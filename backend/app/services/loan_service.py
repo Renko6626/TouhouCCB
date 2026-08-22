@@ -81,7 +81,7 @@ async def increase_debt(
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
-    stmt = select(User).where(User.id == user_id).with_for_update()
+    stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
     now = _compat_now(u)
@@ -176,7 +176,7 @@ async def decrease_debt(
     """
     if amount <= 0:
         raise ValueError("amount must be positive")
-    stmt = select(User).where(User.id == user_id).with_for_update()
+    stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
     debt_before = u.debt
