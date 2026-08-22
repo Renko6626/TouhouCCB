@@ -20,7 +20,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # 1) 跟 dev DB (backend/data/thccb.db) 抢锁、互相污染
 # 2) 老 dev DB 文件碎片严重时 drop_all 极慢（实测 3+ 分钟/次，fresh DB 仅 ~100ms）
 # 3) 测试 drop_all 把开发者 dev 数据洗掉
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:////tmp/thccb_pytest.db")
+# 放 tmpfs（/dev/shm）：每个测试 drop_all+create_all 的 fsync 是整套测试的主要耗时
+# （480 测 × ~0.8s setup），/tmp 在磁盘上；/dev/shm 不存在时回落 /tmp。
+_PYTEST_DB_DIR = "/dev/shm" if os.path.isdir("/dev/shm") else "/tmp"
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest.db")
 
 import pytest
 import pytest_asyncio
@@ -30,6 +33,17 @@ from sqlmodel import SQLModel
 
 from app.main import app
 from app.core.database import engine
+from sqlalchemy import event as _sa_event
+
+
+@_sa_event.listens_for(engine.sync_engine, "connect")
+def _sqlite_fast_pragmas(dbapi_conn, _rec):
+    """测试库不需要持久性：关 fsync、journal 放内存，建表/删表快一个量级。"""
+    if engine.dialect.name == "sqlite":
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA synchronous=OFF")
+        cur.execute("PRAGMA journal_mode=MEMORY")
+        cur.close()
 from app.services.site_config import clear_cache
 
 
