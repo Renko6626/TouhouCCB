@@ -695,18 +695,23 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
             # 回款立即还债（user 行已锁、同事务）：堵住 B→C 之间被花掉的窗口
             repaid = ZERO
             if sold_count and locked_user.cash > ZERO and locked_user.debt > ZERO:
+                from app.services import loan_service   # 局部 import 避免环
+                # 先结息再算还款额：否则 min(cash, 结息前 debt) 会留下结息增量的灰尘债，
+                # 即使现金足够清偿（审计 M3 附带发现）
+                debt_before = locked_user.debt
+                now = loan_service._compat_now(locked_user)
+                loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
                 repay_amount = min(locked_user.cash, locked_user.debt).quantize(Decimal("0.000001"))
                 if repay_amount > ZERO:
-                    from app.services import loan_service   # 局部 import 避免环
-                    debt_before = locked_user.debt
                     repaid = await loan_service.decrease_debt_locked(
                         session, locked_user, repay_amount,
-                        consume_cash=True, daily_rate=cmd.daily_rate)
+                        consume_cash=True, daily_rate=cmd.daily_rate, now=now)
                     audit_service.record_liquidation_repay(
                         session, locked_user, repaid, debt_before, cmd.daily_rate, cmd.trigger_source)
 
     return OpOutcome(
-        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid},
+        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid,
+                  "debt_after": locked_user.debt},
         new_q_dec=new_q_dec if sold_count else None,
         # 强平今天不发 SSE（与现状一致）
     )

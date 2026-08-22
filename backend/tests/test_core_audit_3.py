@@ -134,3 +134,50 @@ async def test_writer_buy_releases_request_connection_before_submit(client, monk
         assert r.status_code == 200, r.text
     finally:
         await WRITER.stop()
+
+
+# ── M3 强平：债清即停，不再卖剩余市场 ─────────────────────────────────────
+@pytest.mark.asyncio
+async def test_split_liquidation_stops_after_debt_cleared(client):
+    from app.models.base import Market, MarketStatus, Outcome, Position, LiquidationEvent
+    from app.services import liquidation_service
+    from app.services.market_writer import WRITER
+    from sqlalchemy import text
+    async with async_session_maker() as s:
+        async with s.begin():
+            for k, v, t in [("sell_fee_rate", "0", "decimal"), ("liquidation_enabled", "true", "bool")]:
+                s.add(SiteConfig(key=k, value=v, value_type=t))
+
+    async def market(shares):
+        async with async_session_maker() as s:
+            m = Market(title="m", liquidity_b=100.0, status=MarketStatus.TRADING, tags="")
+            s.add(m); await s.flush()
+            oids = []
+            for v in shares:
+                o = Outcome(market_id=m.id, label=f"o{v}", total_shares=Decimal(v)); s.add(o); await s.flush(); oids.append(o.id)
+            await s.commit(); return m.id, oids
+
+    # m1：200 股在 q=[300,100] 清算价 ≈ 143；m2：10 股在 q=[200,100] ≈ 7。债 140：
+    # margin ≈ (150−140)/140 = 0.07 < hard 0.2 触发；m1 一卖即清债，m2 不该动
+    uid = await _user(cash="0", debt="140")
+    m1, o1 = await market(("300", "100"))
+    m2, o2 = await market(("200", "100"))
+    async with async_session_maker() as s:
+        s.add(Position(user_id=uid, outcome_id=o1[0], amount=Decimal("200"), cost_basis=Decimal("0")))
+        s.add(Position(user_id=uid, outcome_id=o2[0], amount=Decimal("10"), cost_basis=Decimal("0")))
+        await s.commit()
+    await WRITER.start()
+    try:
+        ev = await liquidation_service.liquidate_user_split(
+            uid, daily_rate=Decimal("0.01"), trigger_source="scheduler",
+            partial_pct=Decimal("1"), target_margin=Decimal("0.3"),
+            emergency_threshold=Decimal("0.05"), hard_threshold=Decimal("0.2"))
+        assert isinstance(ev, LiquidationEvent)
+        assert ev.sold_positions_count == 1, "债清后第二个市场不该再卖"
+        assert ev.remaining_debt == 0
+        async with async_session_maker() as s:
+            remaining = (await s.execute(
+                select(Position.amount).where(Position.user_id == uid, Position.outcome_id == o2[0]))).scalar_one()
+            assert remaining == Decimal("10")
+    finally:
+        await WRITER.stop()
