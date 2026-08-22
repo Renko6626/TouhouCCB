@@ -199,8 +199,12 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
       gapToken.value += 1
     }
     hiddenAt = 0
+    // 后台期间断线（退避中）→ 回前台立即重连，不等退避计时
+    stream.reconnectNow()
   }
   document.addEventListener('visibilitychange', handleVisibility)
+  const handleOnline = () => stream.reconnectNow()
+  window.addEventListener('online', handleOnline)
 
   watch(
     marketId,
@@ -235,6 +239,7 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     stream.off('error', handleError)
     stream.disconnect()
     document.removeEventListener('visibilitychange', handleVisibility)
+    window.removeEventListener('online', handleOnline)
   })
 
   return {
