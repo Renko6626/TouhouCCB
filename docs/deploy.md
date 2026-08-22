@@ -202,17 +202,21 @@ EOF
 
 ## 三、nginx 配置
 
-### 3.1 修改域名
+### 3.1 / 3.2 安装站点配置（复制，不要软链）
 
-编辑 `deploy/nginx.conf`，把 `your-instance.example.com` 改成你的域名。
-
-### 3.2 启用站点
+`deploy/nginx.conf` 是**模板**（域名是占位符），CI 每次部署都会把它 rsync 到服务器覆盖。
+线上配置必须是一份独立副本，否则每次部署都会把真实域名刷回占位符（2026-08-22 事故：
+站点配置失效 → certbot 无法续期 → 证书过期，表现为域名"被别的站点顶掉"）。
 
 ```bash
-sudo ln -s /home/deploy/TouhouCCB/deploy/nginx.conf \
-           /etc/nginx/sites-enabled/thccb.conf
+sudo cp /home/deploy/TouhouCCB/deploy/nginx.conf /etc/nginx/sites-available/thccb.conf
+sudo sed -i 's/your-instance\.example\.com/thccb.你的域名.com/g' /etc/nginx/sites-available/thccb.conf
+sudo ln -sfn /etc/nginx/sites-available/thccb.conf /etc/nginx/sites-enabled/thccb.conf
+sudo mkdir -p /var/cache/nginx/thccb && sudo chown www-data:www-data /var/cache/nginx/thccb   # /history/ 缓存目录
 sudo nginx -t && sudo systemctl reload nginx
 ```
+
+仓库里 nginx 配置有改动时，重复上面五行即可（幂等）。
 
 ### 3.3 HTTPS
 
@@ -221,13 +225,38 @@ sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d thccb.你的域名.com
 ```
 
-启用后，编辑 `deploy/nginx.conf` 取消 HSTS 注释：
+启用后，编辑线上副本 `/etc/nginx/sites-available/thccb.conf` 取消 HSTS 注释（模板里保持注释）：
 
 ```nginx
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 ```
 
-### 3.4 速率限制
+### 3.4 阿里云 ESA 前置时的真实客户端 IP
+
+站点经 ESA（边缘加速）回源时，nginx 看到的 `$remote_addr` 是 ESA 节点 IP。当前配置采用
+"信任 `ali-real-client-ip` 头"的简化方案（ESA「规则 → 转换规则 → 托管转换」开启
+"添加真实客户端 IP 标头"），**不验证来源网段**，直连源站伪造该头可绕过限速。
+
+待办（活动前补）：用 ESA「安全防护 → 源站防护」给出的回源网段生成 `set_real_ip_from` 片段
+（那张表有几百行且会更新，所以暂不维护）：
+
+```bash
+# 1) 把控制台 IPv4 + IPv6 两张表复制到 /tmp/esa_ips.txt（一行一个网段）
+# 2) 生成片段
+sed -E '/^[[:space:]]*$/d; s/^[[:space:]]*([0-9a-fA-F.:/]+)[[:space:]]*$/set_real_ip_from \1;/' /tmp/esa_ips.txt \
+  | sudo tee /etc/nginx/snippets/esa-realip.conf > /dev/null
+grep -v '^set_real_ip_from' /etc/nginx/snippets/esa-realip.conf   # 应无输出
+# 3) thccb server 块加三行（server_name 之后）并 reload
+#    include /etc/nginx/snippets/esa-realip*.conf;
+#    real_ip_header ali-real-client-ip;
+#    real_ip_recursive on;
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+做了这一步之后，可把 `deploy/nginx.conf` 里的 `$client_ip_key` map 改回 `$binary_remote_addr`
+（realip 模块已把 `$remote_addr` 换成真实 IP）。表更新时重跑 1-2 步。
+
+### 3.5 速率限制
 
 | 区域 | 限速 | 保护目标 |
 |------|------|---------|
