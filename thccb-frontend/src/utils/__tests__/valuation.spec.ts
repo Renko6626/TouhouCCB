@@ -8,8 +8,8 @@ import { lcvValue } from '../lmsr'
 import type { MarketPriceCtx, RankThreshold, SummaryPosition } from '@/types/user'
 
 const ctx = new Map<number, MarketPriceCtx>([
-  [1, { b: 100, status: 'trading', outcomeIds: [11, 12], prices: [0.6, 0.4] }],
-  [2, { b: 100, status: 'halt', outcomeIds: [21, 22], prices: [0.7, 0.3] }],
+  [1, { b: 100, status: 'trading', title: 'm1', outcomeIds: [11, 12], prices: [0.6, 0.4], outcomeLabels: ['a', 'b'], prices24hAgo: [null, null] }],
+  [2, { b: 100, status: 'halt', title: 'm2', outcomeIds: [21, 22], prices: [0.7, 0.3], outcomeLabels: ['a', 'b'], prices24hAgo: [null, null] }],
 ])
 
 const positions: SummaryPosition[] = [

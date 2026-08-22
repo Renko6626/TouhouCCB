@@ -68,8 +68,12 @@ export const useUserStore = defineStore('user', () => {
       next.set(m.id, {
         b: m.liquidity_b,
         status: m.status,
+        title: m.title,
         outcomeIds: sorted.map(o => o.id),
         prices: sorted.map(o => o.current_price),
+        outcomeLabels: sorted.map(o => o.label),
+        prices24hAgo: sorted.map(o =>
+          o.price_change_24h == null ? null : o.current_price - o.price_change_24h),
       })
     }
     priceContext.value = next

@@ -73,9 +73,15 @@ export interface Holding extends HoldingSlim {
 export interface MarketPriceCtx {
   b: number
   status: string
+  title: string
   /** 升序，与 prices 同序（与 tick 帧价格向量的索引契约一致） */
   outcomeIds: number[]
   prices: number[]
+  /** 与 outcomeIds 同序 */
+  outcomeLabels: string[]
+  /** 24h 前价格（列表拉取时 current − price_change_24h 反推；无基准为 null）。
+   *  tick 续写 prices 后仍可实时算 24h 涨跌。与 outcomeIds 同序。 */
+  prices24hAgo: (number | null)[]
 }
 
 export interface Transaction {

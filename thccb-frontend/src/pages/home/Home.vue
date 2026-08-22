@@ -10,6 +10,7 @@ import Movers from '@/components/home/Movers.vue'
 import RecentTrades from '@/components/home/RecentTrades.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import RecentLiquidationsPanel from '@/components/home/RecentLiquidationsPanel.vue'
+import MyHoldingsStrip from '@/components/home/MyHoldingsStrip.vue'
 
 const router = useRouter()
 const marketStore = useMarketStore()
@@ -120,6 +121,8 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
           </div>
 
           <p class="pnl-note">* 仅含未结算持仓的浮动盈亏，不含已结算收益</p>
+
+          <MyHoldingsStrip :limit="5" />
 
           <div class="hero-actions">
             <button class="hero-btn-primary" @click="router.push('/user/portfolio')">
