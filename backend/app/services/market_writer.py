@@ -172,6 +172,13 @@ class MarketWriter:
     async def reload_state(self, market_id: int) -> None:
         """自愈：从 DB 镜像重读 q / status。失败则标记 unavailable。"""
         try:
+            # ring 要从 OutcomeCandle 镜像重建，而 flusher 里 ≤5s 未落库的行不会再回到
+            # 新 ring——不先 flush，ring 与 DB 永久分叉，且 /history/ 防线 2 读 ring 的
+            # 窗口段会被 nginx 30d immutable 缓存固化（审计 M5）。flush 失败会回炉并
+            # 返回 0，此时仍继续重建（与旧行为相同），只是会少那几笔。
+            from app.services.candle_flusher import CANDLE_FLUSHER
+            if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
+                logger.error("reload_state: candle flush failed, ring may miss pending rows")
             async with async_session_maker() as s:
                 m = await s.get(Market, market_id)
                 if m is None:
