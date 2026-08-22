@@ -388,7 +388,34 @@ docker tag your-registry.example.com/your-namespace/thccb-backend:<旧sha> your-
 docker compose up -d
 ```
 
-### 5.4 数据库恢复
+### 5.4 赛季重置（保留用户，清活动数据）
+
+新一轮活动开始前跑一次，让 `audit_event` 事件流从 seq=1 起全员锚定（`docs/audit-events.md`）。
+脚本：`backend/scripts/season_reset.py`。**保留** user / siteconfig / title* / user_title /
+redemption_partner|batch|code / alembic_version；**清空** market、outcome、position、transaction、
+outcome_candle、market_required_title、ledger_entry、liquidation_events、bot_suspicion、
+redemption_transaction、danmuku_exchange、audit_event；所有用户 cash → `initial_balance`、debt → 0。
+
+```bash
+cd /home/deploy/TouhouCCB
+# 0) 手动留一份命名清楚的备份（deploy.sh 的自动备份之外）
+docker compose exec -T postgres pg_dump -U thccb thccb > backups/thccb_pre_season_$(date +%Y%m%d_%H%M%S).sql
+ls -la backups/ | tail -2                      # 确认大小不是 0
+# 1) 停后端（writer 内存状态 / 结息 sweep 不能与重置并发）
+docker compose stop backend
+# 2) 预览
+docker compose run --rm --no-deps -T backend python scripts/season_reset.py --dry-run
+# 3) 执行（交互要求输入 RESET；单事务，失败全回滚；结束自动跑一遍事件流自检）
+echo RESET | docker compose run --rm --no-deps -T backend python scripts/season_reset.py
+# 4) 起后端并确认
+docker compose start backend
+docker compose run --rm --no-deps -T backend python scripts/audit_verify.py   # 期望 OK，events = 用户数
+```
+
+想改初始资金：先在管理后台改 `initial_balance` 再跑脚本。需要顺便调整称号/兑换码库存的话，脚本不碰它们，手动处理。
+**绝不**用 `docker compose down -v` 或 `init_db.py` 代替（前者删卷全丢，后者连用户表一起 DROP）。
+
+### 5.5 数据库恢复
 
 **PostgreSQL（默认）：**
 
