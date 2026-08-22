@@ -117,6 +117,10 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             BUILD_SHA=${{ github.sha }}
+          # 阿里云 ACR 不认 buildx 默认附加的 OCI provenance attestation
+          # （manifest 被拒：unknown manifest class for application/vnd.oci.empty.v1+json），
+          # 关掉 attestation 只推纯 image manifest；GHCR 同样接受。
+          provenance: false
 
   # ========================================
   # 前端：检查 + 构建 + 上传产物
