@@ -85,3 +85,52 @@ async def test_increase_and_decrease_debt_use_fresh_row():
     async with async_session_maker() as s:
         u = await s.get(User, uid)
         assert u.cash == Decimal("40") and u.debt == Decimal("0")
+
+
+# ── #2 writer 路径提交前释放请求 session 的池连接 ───────────────────────────
+@pytest.mark.asyncio
+async def test_writer_buy_releases_request_connection_before_submit(client, monkeypatch):
+    from sqlalchemy import text
+    from app.services.site_config import clear_cache
+    from app.services.market_writer import WRITER
+    from app.api.v1 import market as market_api
+    from tests.test_writer_e2e import _dev_login, _create_market
+
+    async with async_session_maker() as s:
+        await s.execute(text(
+            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
+            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
+            "ON CONFLICT (key) DO UPDATE SET value='true'"))
+        await s.commit()
+    clear_cache()
+    await WRITER.start()
+    try:
+        admin_h = await _dev_login(client, "admin_ca3")
+        mid, oids = await _create_market(client, admin_h, "ca3")
+        user_h = await _dev_login(client, "user_ca3")
+
+        seen = {}
+        real_submit = WRITER.submit
+        real_release = market_api._release_request_connection
+
+        async def spy_release(db):
+            await real_release(db)
+            seen["db"] = db
+
+        async def spy_submit(cmd):
+            db = seen.get("db")
+            assert db is not None, "submit 前必须先释放请求连接"
+            assert not db.in_transaction(), "请求 session 仍持有事务/连接"
+            return await real_submit(cmd)
+
+        monkeypatch.setattr(market_api, "_release_request_connection", spy_release)
+        monkeypatch.setattr(WRITER, "submit", spy_submit)
+
+        r = await client.post("/api/v1/market/buy", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "1"})
+        assert r.status_code == 200, r.text
+        r = await client.post("/api/v1/market/sell", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "1"})
+        assert r.status_code == 200, r.text
+    finally:
+        await WRITER.stop()

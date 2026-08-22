@@ -530,6 +530,19 @@ async def verify_anti_bot(
     return user
 
 
+async def _release_request_connection(db: AsyncSession) -> None:
+    """writer 路径提交命令前把请求 session 占用的池连接还回去。
+
+    依赖注入里 get_current_user / verify_anti_bot 已经用这条 session 查过库，
+    SQLAlchemy 自动开了事务并把连接一直占到请求结束；随后 `await WRITER.submit()`
+    最长等 10s，这段时间连接纯闲置。池 = 10 + overflow 20，10 r/s 的买卖下 DB 一抖
+    3 秒就能把池抽干，writer op 自己反而拿不到连接 → 级联 503「结果未知」。
+    close() 回滚（只读，无副作用）并归还连接；user 对象已加载且 expire_on_commit=False，
+    之后只读 id/username 不会再触发 SQL。
+    """
+    await db.close()
+
+
 @router.post("/buy", response_model=TradeResponse, summary="买入胜券")
 async def buy_shares(
     req: TradeRequest,
@@ -551,6 +564,7 @@ async def buy_shares(
                 raise HTTPException(status_code=404, detail="选项不存在")
             # outcome 存在但市场不在 writer（启动前已 SETTLED）→ 与老路径同文案
             raise HTTPException(status_code=400, detail="市场当前不可交易")
+        await _release_request_connection(db)
         return await WRITER.submit(BuyCmd(
             market_id=mid,
             outcome_id=int(req.outcome_id),
@@ -727,6 +741,7 @@ async def sell_shares(
                 raise HTTPException(status_code=404, detail="选项不存在")
             # outcome 存在但市场不在 writer（启动前已 SETTLED）→ 与老路径同文案
             raise HTTPException(status_code=400, detail="市场当前不可交易")
+        await _release_request_connection(db)
         return await WRITER.submit(SellCmd(
             market_id=mid,
             outcome_id=int(req.outcome_id),
