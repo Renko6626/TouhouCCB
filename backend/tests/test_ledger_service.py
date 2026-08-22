@@ -32,7 +32,7 @@ async def test_record_entry_reads_snapshot_from_user(session_and_user):
     from sqlalchemy import select
 
     s, u = session_and_user
-    record_entry(
+    await record_entry(
         s, user=u, entry_type="borrow",
         cash_delta=Decimal("100"), debt_delta=Decimal("100"),
         daily_rate=Decimal("0.01"),
@@ -45,6 +45,9 @@ async def test_record_entry_reads_snapshot_from_user(session_and_user):
     assert row.debt_after == Decimal("100.000000")
     assert row.daily_rate_at_event == Decimal("0.01000000")
     assert row.operator_user_id is None
+    from app.models.audit import AuditEvent
+    ev = (await s.execute(select(AuditEvent))).scalars().one()
+    assert ev.event_type == "loan_borrow" and ev.ref_table == "ledger_entry" and ev.ref_id == row.id
 
 
 @pytest.mark.asyncio
@@ -52,6 +55,6 @@ async def test_record_entry_rejects_bad_type(session_and_user):
     from app.services.ledger_service import record_entry
     s, u = session_and_user
     with pytest.raises(ValueError):
-        record_entry(s, user=u, entry_type="nonsense",
+        await record_entry(s, user=u, entry_type="nonsense",
                      cash_delta=Decimal("0"), debt_delta=Decimal("0"),
                      daily_rate=None)

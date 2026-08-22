@@ -22,6 +22,7 @@ import app.models.base  # noqa: F401, E402
 import app.models.redemption  # noqa: F401, E402
 import app.models.title  # noqa: F401, E402
 import app.models.ledger  # noqa: F401, E402
+import app.models.audit  # noqa: F401, E402
 from app.core.config import settings  # noqa: E402
 
 config = context.config

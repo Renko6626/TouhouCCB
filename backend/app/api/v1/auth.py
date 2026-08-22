@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.services import site_config
+from app.services import audit_service
 from app.core.database import get_async_session, managed_transaction
 from app.core.oidc import OIDCClient
 from app.core.users import create_access_token, create_refresh_token, verify_refresh_token, current_active_user
@@ -188,6 +189,11 @@ async def oauth_callback(
             )
             db.add(user)
             await db.flush()
+            audit_service.record(
+                db, "user_register", user_id=user.id,
+                payload={"username": username, "is_superuser": is_first_user, "source": "casdoor"},
+                user_after=audit_service.user_snapshot(user),
+            )
 
             if is_first_user:
                 logger.info("First user registered as admin: %s (id=%s)", username, user.id)
@@ -253,6 +259,11 @@ async def dev_login(
             )
             db.add(user)
             await db.flush()
+            audit_service.record(
+                db, "user_register", user_id=user.id,
+                payload={"username": uname, "is_superuser": is_first_user, "source": "dev_login"},
+                user_after=audit_service.user_snapshot(user),
+            )
         logger.warning("DEV-LOGIN used username=%s id=%s — 仅应出现在非生产环境", uname, user.id)
     elif not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="USER_BANNED")

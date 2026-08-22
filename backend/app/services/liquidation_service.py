@@ -23,10 +23,42 @@ from app.services import loan_service
 from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_outcomes_for_market, lock_user as lock_user_ref
 from app.services import site_config  # LCV fee 口径统一从 site_config 读
+from app.services import audit_service
 
 _logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
 ONE = Decimal("1")
+
+
+def _record_liq_repay(session, user: User, repaid: Decimal, debt_before: Decimal,
+                      daily_rate: Decimal, trigger_source: str) -> None:
+    """强平后的自动还债（decrease_debt_locked 不写 ledger，审计在这里补）。"""
+    if repaid <= ZERO:
+        return
+    interest = (user.debt + repaid - debt_before).quantize(Decimal("0.000001"))
+    audit_service.record(
+        session, "liquidation_repay", user_id=user.id,
+        payload={"repaid": repaid, "interest_accrued": interest, "daily_rate": daily_rate,
+                 "trigger_source": trigger_source},
+        user_after=audit_service.user_snapshot(user),
+    )
+
+
+def _record_liq_event(session, ev: LiquidationEvent, user: User, path: str) -> None:
+    audit_service.record(
+        session, "liquidation", user_id=ev.user_id,
+        ref_table="liquidation_events", ref_id=ev.id, ts=ev.triggered_at,
+        payload={
+            "pre_cash": ev.pre_cash, "pre_debt": ev.pre_debt,
+            "pre_holdings_value": ev.pre_holdings_value, "pre_net_worth": ev.pre_net_worth,
+            "pre_margin_ratio": ev.pre_margin_ratio,
+            "sold_positions_count": ev.sold_positions_count,
+            "total_proceeds": ev.total_proceeds, "repaid_amount": ev.repaid_amount,
+            "remaining_debt": ev.remaining_debt, "post_cash": ev.post_cash,
+            "trigger_source": ev.trigger_source, "mode": ev.mode, "path": path,
+        },
+        user_after=audit_service.user_snapshot(user),
+    )
 
 
 async def liquidate_user(
@@ -221,7 +253,8 @@ async def liquidate_user(
             user.cash += proceeds
             all_outcomes[idx].total_shares -= sell_amount
 
-            if sell_amount >= pos.amount:
+            pos_deleted = sell_amount >= pos.amount
+            if pos_deleted:
                 # 全卖 (emergency 或 partial 边界)
                 await session.delete(pos)
             else:
@@ -250,6 +283,15 @@ async def liquidate_user(
                 market_prices_post=list(new_prices),
             )
             session.add(tx)
+            await audit_service.record_trade(
+                session, tx=tx, user=user, position=None if pos_deleted else pos,
+                market_id=int(market.id),
+                market_after=audit_service.market_snapshot(
+                    outcome_ids=[o.id for o in all_outcomes],
+                    q=[o.total_shares for o in all_outcomes], b=b,
+                    prices=new_prices, status=market.status),
+                extra={"mode": mode, "partial_pct": partial_pct, "path": "legacy"},
+            )
 
             total_proceeds += proceeds
             sold_count += 1
@@ -261,11 +303,13 @@ async def liquidate_user(
     if user.cash > ZERO and user.debt > ZERO:
         repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
         if repay_amount > ZERO:
+            debt_before = user.debt
             repaid = await loan_service.decrease_debt_locked(
                 session, user, repay_amount,
                 consume_cash=True, daily_rate=daily_rate,
             )
             # decrease_debt_locked 已直接更新 user 对象，无需手动同步
+            _record_liq_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
 
     # 仅当实际卖出了仓位或还了债时才更新时间戳 / 写 event；
     # 全部仓位 proceeds<0 而跳过的"卡水下"用户不算真正被强平，
@@ -318,6 +362,7 @@ async def liquidate_user(
     )
     session.add(ev)
     await session.flush()  # 保证 ev.id 可用
+    _record_liq_event(session, ev, user, "legacy")
 
     _logger.warning(
         "user_liquidated",
@@ -420,9 +465,11 @@ async def liquidate_user_split(
             if user.cash > ZERO and user.debt > ZERO:
                 repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
                 if repay_amount > ZERO:
+                    debt_before = user.debt
                     repaid = await loan_service.decrease_debt_locked(
                         session, user, repay_amount,
                         consume_cash=True, daily_rate=daily_rate)
+                    _record_liq_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
             if sold_count == 0 and repaid == ZERO:
                 return None
             user.last_liquidated_at = datetime.now(timezone.utc)
@@ -442,6 +489,7 @@ async def liquidate_user_split(
             )
             session.add(ev)
             await session.flush()
+            _record_liq_event(session, ev, user, "writer")
     _logger.warning(
         "user_liquidated(split)",
         extra={"user_id": uid, "sold_positions": sold_count,

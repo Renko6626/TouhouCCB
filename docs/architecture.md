@@ -36,7 +36,7 @@ thccb-backend
 
 **`app/core/`**：基础设施——`config.py`（Settings + 环境变量）、`database.py`（async engine + session 工厂 + `managed_transaction`）、`oidc.py`（轻量 OIDC 客户端，通过 `.well-known` 自动发现 Casdoor 端点）、`users.py`（本站 HS256 JWT 签发 & 验证）、`admin.py`（SQLAdmin 管理面板，JWT 鉴权，超管专用）。
 
-**`app/models/`**：SQLModel（SQLAlchemy + Pydantic 合体）定义 DB 表结构。核心表在 `base.py`；`ledger.py`、`redemption.py`、`title.py` 各管自己的附属表（注册到 SQLModel.metadata 后 alembic 自动迁移）。**重要**：`User.positions`、`User.transactions`、`Outcome.positions`、`Outcome.transactions` 四个反向集合均配置 `lazy="raise_on_sql"`，未显式 `selectinload` 则直接访问会抛异常——这是热路径性能护栏，详见 `CONTRIBUTING.md` 的「ORM 查询守则」。
+**`app/models/`**：SQLModel（SQLAlchemy + Pydantic 合体）定义 DB 表结构。核心表在 `base.py`；`ledger.py`、`audit.py`、`redemption.py`、`title.py` 各管自己的附属表（注册到 SQLModel.metadata 后 alembic 自动迁移）。**重要**：`User.positions`、`User.transactions`、`Outcome.positions`、`Outcome.transactions` 四个反向集合均配置 `lazy="raise_on_sql"`，未显式 `selectinload` 则直接访问会抛异常——这是热路径性能护栏，详见 `CONTRIBUTING.md` 的「ORM 查询守则」。
 
 **`app/schemas/`**：Pydantic 模型定义 API 的入参/出参契约（与 ORM 模型解耦）。Money 字段必须使用带 `serialize→float` 的 `Money` 类型，否则 `Decimal` 会以字符串输出触发前端 `TypeError`（见 `docs/` 内 schema-conventions）。
 
@@ -49,6 +49,8 @@ thccb-backend
 | `market_locks.py` | 并发锁助手：`lock_market` / `lock_user` / `lock_outcomes_for_market`，通过 `SELECT FOR UPDATE` 实现数据库行级锁；锁顺序约定：market → user → outcomes，违者引发死锁 |
 | `wealth.py` | 持仓估值双口径：`compute_users_holdings_value`（LCV，含滑点+fee，用于强平/风控）和 `compute_users_holdings_value_mtm`（MTM，按瞬时价×数量，用于 UI 显示） |
 | `wealth_stats.py` | 平台净值分布统计（纯 math，无 DB 依赖）：均值、分位数、基尼系数、按称号档位分桶 |
+| `audit_service.py` | 审计事件写入助手：`record` / `record_trade` / 快照构造；与业务变更同事务 |
+| `audit_replay.py` | 审计事件折叠（T 时刻状态）、独立增量校验、与线上表比对；`scripts/audit_verify.py` / `audit_export.py` 的核心 |
 | `ledger_service.py` | 资金账本写入助手：`record_entry` 构造 `LedgerEntry`，与资金变动同事务提交，调用方负责 user 字段已反映操作后的最终值 |
 | `liquidation_service.py` | 强制平仓原子操作：按 LCV 判定保证金不足后逐持仓卖出，写 `LiquidationEvent` 快照和 LIQUIDATE 类型 `Transaction` |
 | `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，触发 `liquidation_service.liquidate_user` |
@@ -165,6 +167,10 @@ C(q) = b · ln(Σ exp(q_i / b))
 - **覆盖场景**：`borrow`（借款）、`repay`（还款）、`admin_adjust_cash`（调整现金）、`admin_force_loan`（强制放贷）、`admin_forgive_debt`（免债）、`admin_amnesty`（大赦天下：批量清债 + 现金还原，一人一条，cash_delta 与 debt_delta 同时非零）
 - **不覆盖**：buy/sell/结算/强平/兑换/弹幕（各有自己的 `Transaction` / `LiquidationEvent` / 兑换 Event 表记录）；利息（可由公式 + 快照重算）
 - 写入由 `services/ledger_service.py` 的 `record_entry` 完成，与资金变动**同一事务**提交，调用方须确保 `user.cash`/`user.debt` 已更新为操作后的值
+
+### 4.5.1 审计事件流（audit_event）
+
+`AuditEvent`（`models/audit.py`）是覆盖**全部**改钱 / 改仓 / 改市场 / 改配置路径的全序事件流，每条带操作后快照（`user_after` / `position_after` / `market_after` 全市场 q 向量），供事后审计、时间点回溯与离线回测。`LedgerEntry` / `Transaction` / `LiquidationEvent` 仍是各自业务的明细表，`audit_event` 通过 `ref_table/ref_id` 指回它们。**新增任何改 `user.cash/debt`、`position.amount`、`outcome.total_shares`、`market.status`、`site_config` 的写路径，必须在同事务内调用 `audit_service.record(...)`**，否则 `scripts/audit_verify.py` 会报线上表与事件流不一致。详见 `docs/audit-events.md`。
 
 ### 4.6 Decimal 精度约定
 

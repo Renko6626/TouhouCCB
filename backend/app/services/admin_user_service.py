@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import managed_transaction
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
+from app.services import audit_service
 
 _CENT = Decimal("0.01")
 
@@ -58,7 +59,7 @@ async def adjust_cash(
         if new_cash < 0:
             raise AdminUserError(400, f"操作后现金为 {new_cash}，不能为负")
         u.cash = new_cash
-        ledger_service.record_entry(
+        await ledger_service.record_entry(
             db, user=u, entry_type="admin_adjust_cash",
             cash_delta=amount, debt_delta=Decimal("0"), daily_rate=None,
             operator_user_id=admin_id, reason=reason,
@@ -129,10 +130,14 @@ async def set_role(
             if n <= 1:
                 raise AdminUserError(400, "不能取消最后一个管理员")
         t.is_superuser = is_admin
+        audit_service.record(
+            db, "admin_set_role", user_id=t.id, operator_user_id=admin_id,
+            payload={"is_superuser_before": not is_admin, "is_superuser_after": is_admin},
+        )
     return {"user_id": t.id, "username": t.username, "is_admin": t.is_superuser, "changed": True}
 
 
-async def ban(db: AsyncSession, *, target_id: int, admin_id: int) -> Dict[str, Any]:
+async def ban(db: AsyncSession, *, target_id: int, admin_id: int, reason: Optional[str] = None) -> Dict[str, Any]:
     """复用 is_active（FastAPI Users 标准）：被封用户访问任何 protected endpoint 自动 401。
     安全围栏：不能封自己；不能封最后一个活跃管理员。"""
     if target_id == admin_id:
@@ -149,14 +154,19 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int) -> Dict[str, A
                 raise AdminUserError(400, "不能封禁最后一个活跃管理员（先取消管理员权限或先提升另一人）")
         was_active = t.is_active
         t.is_active = False
+        if was_active:
+            audit_service.record(db, "admin_ban", user_id=t.id, operator_user_id=admin_id,
+                                 payload={"reason": reason})
     return {"user_id": t.id, "username": t.username, "is_active": False, "changed": was_active}
 
 
-async def unban(db: AsyncSession, *, target_id: int) -> Dict[str, Any]:
+async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = None) -> Dict[str, Any]:
     async with managed_transaction(db):
         t = await _lock_user(db, target_id)
         was_active = t.is_active
         t.is_active = True
+        if not was_active:
+            audit_service.record(db, "admin_unban", user_id=t.id, operator_user_id=admin_id)
     return {"user_id": t.id, "username": t.username, "is_active": True, "changed": not was_active}
 
 
@@ -252,7 +262,7 @@ async def batch_adjust_cash(
                 continue
             before = u.cash
             u.cash = new_cash
-            ledger_service.record_entry(
+            await ledger_service.record_entry(
                 db, user=u, entry_type="admin_adjust_cash",
                 cash_delta=amount, debt_delta=Decimal("0"), daily_rate=None,
                 operator_user_id=admin_id, reason=reason,
@@ -316,16 +326,20 @@ async def amnesty(
                 # 先显式结息，再按结息后的全额清零（decrease_debt_locked 内部再次
                 # accrue 是同一时刻的 no-op）
                 loan_service.accrue_interest(u, rate, loan_service._compat_now(u))
+                interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
                 forgiven = await loan_service.decrease_debt_locked(
                     db, u, u.debt, consume_cash=False, daily_rate=rate,
                 )
+            else:
+                interest = Decimal("0")
             cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
             u.cash = reset_cash_to
-            ledger_service.record_entry(
+            await ledger_service.record_entry(
                 db, user=u, entry_type="admin_amnesty",
                 cash_delta=cash_delta, debt_delta=-forgiven,
                 daily_rate=rate if forgiven > 0 else None,
                 operator_user_id=admin_id, reason=reason,
+                interest_accrued=interest,
             )
             total_cash_delta += cash_delta
             total_forgiven += forgiven

@@ -119,6 +119,15 @@ async def exchange(
     )
     session.add(record)
     await session.flush()  # 拿到 record.id
+    from app.services import audit_service
+    audit_service.record(
+        session, "danmuku_exchange",
+        user_id=user_id,
+        ref_table="danmuku_exchange", ref_id=record.id,
+        payload={"yuan": record.yuan, "huo": record.huo, "amount": amount,
+                 "qq_user_id": qq_user_id, "room_id": room_id},
+        user_after=audit_service.user_snapshot(user),
+    )
 
     return ExchangeResult(
         id=record.id,
