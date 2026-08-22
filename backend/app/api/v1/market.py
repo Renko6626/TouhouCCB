@@ -121,39 +121,34 @@ def _quote_cache_gc_if_full() -> None:
 # -----------------------------
 
 
-async def _get_prices_24h_ago(db: AsyncSession, outcome_ids: List[int]) -> Dict[int, float]:
-    """
-    批量获取每个 outcome 在 24h 前的最后成交价。
-    返回 {outcome_id: price}，无成交的 outcome 不在 dict 中。
+async def _last_price_before(
+    db: AsyncSession, outcome_ids: List[int], cutoff: datetime, price_col,
+) -> Dict[int, float]:
+    """每个 outcome 在 cutoff 之前的最后一笔成交的 price_col。无成交的不在 dict 中。
+
+    用关联子查询 + LIMIT 1 而不是 row_number() 窗口函数：窗口函数要把 cutoff 前的
+    **全部**历史成交按 outcome 排序再取第一行，O(全量成交)，而 /list（含 Docker
+    healthcheck 每 30s）与详情页每次都跑；关联子查询让 Postgres 对每个 outcome 走
+    ix_transaction_outcome_timestamp 倒序取 1 行，O(outcome 数)（审计 P1）。
     """
     if not outcome_ids:
         return {}
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-
-    # 用窗口函数取每个 outcome 在 cutoff 之前的最后一笔成交价
-    # row_number() OVER (PARTITION BY outcome_id ORDER BY timestamp DESC) = 1
     sub = (
-        select(
-            Transaction.outcome_id,
-            Transaction.price,
-            func.row_number().over(
-                partition_by=Transaction.outcome_id,
-                order_by=Transaction.timestamp.desc(),
-            ).label("rn"),
-        )
-        .where(
-            and_(
-                Transaction.outcome_id.in_(outcome_ids),
-                Transaction.timestamp <= cutoff,
-            )
-        )
-        .subquery()
+        select(price_col)
+        .where(Transaction.outcome_id == Outcome.id, Transaction.timestamp <= cutoff)
+        .order_by(Transaction.timestamp.desc(), Transaction.id.desc())
+        .limit(1)
+        .correlate(Outcome)
+        .scalar_subquery()
     )
+    res = await db.execute(select(Outcome.id, sub).where(Outcome.id.in_(outcome_ids)))
+    return {row[0]: float(row[1]) for row in res.all() if row[1] is not None and float(row[1]) > 0}
 
-    stmt = select(sub.c.outcome_id, sub.c.price).where(sub.c.rn == 1)
-    res = await db.execute(stmt)
-    return {row[0]: float(row[1]) for row in res.all() if row[1] and float(row[1]) > 0}
+
+async def _get_prices_24h_ago(db: AsyncSession, outcome_ids: List[int]) -> Dict[int, float]:
+    """批量获取每个 outcome 在 24h 前的最后成交价。"""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    return await _last_price_before(db, outcome_ids, cutoff, Transaction.price)
 
 
 def _shares_to_floats(outcomes: List[Outcome]) -> List[float]:
@@ -1466,33 +1461,11 @@ async def movers(
     if not markets:
         return []
 
-    # 2) 批量查每个 outcome 在 cutoff 前的最后一笔成交价（窗口函数）
+    # 2) 批量查每个 outcome 在 cutoff 前的最后一笔成交价
     all_outcome_ids = [o.id for m in markets for o in m.outcomes]
     if not all_outcome_ids:
         return []
-
-    sub = (
-        select(
-            Transaction.outcome_id,
-            Transaction.post_market_price.label("price"),
-            func.row_number().over(
-                partition_by=Transaction.outcome_id,
-                order_by=Transaction.timestamp.desc(),
-            ).label("rn"),
-        )
-        .where(
-            and_(
-                Transaction.outcome_id.in_(all_outcome_ids),
-                Transaction.timestamp <= cutoff,
-            )
-        )
-        .subquery()
-    )
-    p_stmt = select(sub.c.outcome_id, sub.c.price).where(sub.c.rn == 1)
-    p_res = await db.execute(p_stmt)
-    prices_then: Dict[int, float] = {
-        row[0]: float(row[1]) for row in p_res.all() if row[1] and float(row[1]) > 0
-    }
+    prices_then = await _last_price_before(db, all_outcome_ids, cutoff, Transaction.post_market_price)
 
     # 3) 计算每个 outcome 的当前价 + 变化
     results: List[MoverItem] = []

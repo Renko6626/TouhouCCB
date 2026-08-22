@@ -181,3 +181,34 @@ async def test_split_liquidation_stops_after_debt_cleared(client):
             assert remaining == Decimal("10")
     finally:
         await WRITER.stop()
+
+
+# ── P1 24h 前价格：关联子查询取每个 outcome cutoff 前最后一笔 ───────────────
+@pytest.mark.asyncio
+async def test_last_price_before_picks_latest_before_cutoff():
+    from datetime import timedelta
+    from app.models.base import Market, MarketStatus, Outcome, Transaction
+    from app.api.v1.market import _last_price_before, _get_prices_24h_ago
+    uid = await _user()
+    async with async_session_maker() as s:
+        m = Market(title="m", liquidity_b=100.0, status=MarketStatus.TRADING, tags="")
+        s.add(m); await s.flush()
+        o1 = Outcome(market_id=m.id, label="a", total_shares=Decimal("0"))
+        o2 = Outcome(market_id=m.id, label="b", total_shares=Decimal("0"))
+        s.add(o1); s.add(o2); await s.flush()
+        now = datetime.now(timezone.utc)
+        def tx(oid, hours_ago, price):
+            return Transaction(user_id=uid, outcome_id=oid, type="buy", shares=Decimal("1"),
+                               price=Decimal(price), cost=Decimal("1"),
+                               timestamp=now - timedelta(hours=hours_ago))
+        s.add(tx(o1.id, 30, "0.30")); s.add(tx(o1.id, 25, "0.25")); s.add(tx(o1.id, 1, "0.90"))
+        s.add(tx(o2.id, 2, "0.50"))          # o2 在 24h 内才有成交
+        await s.commit()
+        ids = [o1.id, o2.id]
+
+    async with async_session_maker() as s:
+        got = await _get_prices_24h_ago(s, ids)
+        assert got == {o1.id: 0.25}
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=26)
+        assert await _last_price_before(s, ids, cutoff, Transaction.price) == {o1.id: 0.30}
+        assert await _last_price_before(s, [], cutoff, Transaction.price) == {}
