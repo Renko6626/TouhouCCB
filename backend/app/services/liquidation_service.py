@@ -381,7 +381,10 @@ async def liquidate_user_split(
     - 不再全或无——某市场失败只损失该市场的清算，其余照常
     - pre_* 快照用 compute_users_holdings_value（审计口径，允许 ~1 LSB 差）
     - LiquidationEvent 在全部子命令返回后统一写一条
-    返回 None 表示 noop（无卖出且无还款、或复检发现已恢复/持有 HALT 仓），不写 event。
+    返回：
+    - LiquidationEvent：已执行
+    - "recovered" / "halt" / "no_debt"：阶段 A 复检放过（状态可能很快再恶化，**调用方不应冷却**）
+    - None：真 noop（下了单但无卖出且无还款，如全部仓位 proceeds<0 卡水下）→ 调用方冷却
     """
     from fastapi import HTTPException
     from app.core.database import async_session_maker
@@ -394,7 +397,7 @@ async def liquidate_user_split(
         async with session.begin():
             user = await lock_user_ref(session, uid)
             if user.debt <= ZERO:
-                return None
+                return "no_debt"
             # 复检（final review IMP-3）：sweep 的守卫事务在调用本函数前已释放
             # user 锁，判定与执行之间存在窗口——用户可能已自救（卖仓/还债/充值）
             # 或市场刚被熔断。老路径判定与卖仓同锁零窗口；这里必须在本把 user 锁
@@ -404,7 +407,7 @@ async def liquidate_user_split(
                     "liquidation_split_recheck_halt_holdings_skip",
                     extra={"user_id": uid},
                 )
-                return None
+                return "halt"
             pre_cash, pre_debt = user.cash, user.debt
             pre_hv = (await compute_users_holdings_value(
                 session, user_ids=[uid])).get(uid, ZERO)
@@ -415,7 +418,7 @@ async def liquidate_user_split(
                     "liquidation_split_recheck_recovered_skip",
                     extra={"user_id": uid, "margin_now": float(pre_margin)},
                 )
-                return None
+                return "recovered"
             market_ids = sorted(set((await session.execute(
                 select(Outcome.market_id)
                 .join(Position, Position.outcome_id == Outcome.id)

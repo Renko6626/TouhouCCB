@@ -102,7 +102,7 @@ async def test_split_liquidation_user_with_halt_holdings_skipped_entirely():
     await _give_position(uid, o2[0], "20", "10")
     await WRITER.start()
     ev = await liquidate_user_split(uid, **ARGS)
-    assert ev is None
+    assert ev == "halt"                                # 复检放过：返回原因串，不冷却
     async with async_session_maker() as s:
         remaining = (await s.execute(select(Position))).scalars().all()
         assert len(remaining) == 2                     # 一张仓都没动
@@ -119,7 +119,7 @@ async def test_split_liquidation_recheck_margin_recovered_returns_none():
     await _give_position(uid, o1[0], "20", "10")
     await WRITER.start()
     ev = await liquidate_user_split(uid, **ARGS)
-    assert ev is None
+    assert ev == "recovered"                           # 复检放过：返回原因串，不冷却
     async with async_session_maker() as s:
         remaining = (await s.execute(select(Position))).scalars().all()
         assert len(remaining) == 1                     # 仓位原封不动

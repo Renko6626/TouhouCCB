@@ -112,8 +112,11 @@ async def _liquidate_one_user(
                     partial_pct=partial_pct, target_margin=target_margin,
                     emergency_threshold=emergency_threshold,
                     hard_threshold=hard_thr)
+                if isinstance(ev, str):
+                    # 阶段 A 复检放过（恢复 / HALT / 无债）：不冷却，下一轮照常评估
+                    return "recovered" if ev == "recovered" else "skipped"
                 if ev is None:
-                    _recently_attempted[uid] = now
+                    _recently_attempted[uid] = now      # 真 noop（卡水下）才冷却
                 return "triggered"
             # ↓ 老路径原逻辑，一行不动
             async with async_session_maker() as session:
