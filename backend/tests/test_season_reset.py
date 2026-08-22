@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
-from app.models.base import Market, Outcome, Position, SiteConfig, Transaction, User
+from app.models.base import Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User
 from app.models.ledger import LedgerEntry
 from app.models.title import Title, UserTitle
 from app.services import audit_service
@@ -34,6 +34,11 @@ async def _seed(setup_db):
             m.winning_outcome_id = o.id
             s.add(Position(user_id=u1.id, outcome_id=o.id, amount=Decimal("5"), cost_basis=Decimal("2")))
             s.add(Transaction(user_id=u1.id, outcome_id=o.id, type="buy", shares=Decimal("5"), cost=Decimal("2")))
+            s.add(OutcomeCandle(outcome_id=o.id, interval="10s",
+                                bucket_start=datetime.now(timezone.utc),
+                                open_price=Decimal("0.5"), high_price=Decimal("0.5"),
+                                low_price=Decimal("0.5"), close_price=Decimal("0.5"),
+                                volume_shares=Decimal("5"), n_trades=1))
             s.add(LedgerEntry(user_id=u1.id, entry_type="borrow", cash_delta=Decimal("30"), debt_delta=Decimal("30"),
                               cash_after=Decimal("12"), debt_after=Decimal("30")))
             t = Title(code="vip", name="VIP", color="#000"); s.add(t); await s.flush()
@@ -72,8 +77,8 @@ async def test_reset_requires_confirmation(monkeypatch):
 async def test_reset_clears_activity_keeps_users_and_reanchors(monkeypatch):
     monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
     assert await _mod().run(dry_run=False) == 0
-    for model in (Market, Outcome, Position, Transaction, LedgerEntry):
-        assert await _count(model) == 0, model
+    for model in (Market, Outcome, Position, Transaction, LedgerEntry, OutcomeCandle):
+        assert await _count(model) == 0, model   # OutcomeCandle 复合主键无 id，序列重置须跳过它
     assert await _count(User) == 2 and await _count(Title) == 1 and await _count(UserTitle) == 1
     assert await _count(SiteConfig) >= 1
     async with async_session_maker() as s:
@@ -86,3 +91,11 @@ async def test_reset_clears_activity_keeps_users_and_reanchors(monkeypatch):
         assert [e.event_type for e in evs] == ["user_register", "user_register"]
         assert evs[0].id == 1 and evs[0].payload["source"] == "season_reset"
         assert Decimal(evs[1].user_after["cash"]) == Decimal("500")
+
+
+def test_outcome_candle_excluded_from_sequence_reset():
+    """复合主键表 outcome_candle 无 id 列，必须排除在序列重置外（否则 PG 报 UndefinedColumn）。"""
+    mod = _mod()
+    assert "outcome_candle" in mod._NO_ID_SEQUENCE
+    assert "transaction" not in mod._NO_ID_SEQUENCE
+    assert "market_required_title" not in mod._NO_ID_SEQUENCE

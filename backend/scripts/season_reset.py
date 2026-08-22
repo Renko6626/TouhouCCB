@@ -54,11 +54,18 @@ async def _counts(session) -> dict[str, int]:
     return out
 
 
+# 复合主键、无自增 id 列的表（不能对其取 id 序列）
+_NO_ID_SEQUENCE = {m.__tablename__ for m in CLEAR_ORDER if not hasattr(m, "id")}
+
+
 async def _reset_sequences(session) -> None:
-    """PG：自增序列回 1（新赛季 audit_event.id 从 1 起）；SQLite：清 sqlite_sequence。"""
+    """PG：自增序列回 1（新赛季 id 从 1 起）；SQLite：清 sqlite_sequence。
+    跳过无 id 列的复合主键表（如 outcome_candle）——PG 上对不存在的列取序列会直接报错。"""
     dialect = session.bind.dialect.name
     for model in CLEAR_ORDER:
         t = model.__tablename__
+        if t in _NO_ID_SEQUENCE:
+            continue
         if dialect == "postgresql":
             await session.execute(text(
                 f"SELECT setval(pg_get_serial_sequence('\"{t}\"', 'id'), 1, false) "
