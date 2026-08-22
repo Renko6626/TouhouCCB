@@ -218,3 +218,79 @@ async def test_sweep_is_mutually_exclusive(client, monkeypatch):
     assert {"skipped": "sweep_in_progress"} in (a, b) and {"triggered": 0} in (a, b)
     # 锁已释放：再跑一次正常进入
     assert await liquidation_sweep.run_liquidation_sweep_once("scheduler") == {"triggered": 0}
+
+
+# ── 第二批：利率口径 / 冷却 / 结算量化 ──────────────────────────────────────
+def test_interest_is_exact_daily_rate_regardless_of_tick_size():
+    """(1+r)^(Δt/day) 分段可合成：60s×1440 次 == 一次 24h == debt×(1+r)。"""
+    from app.services.loan_service import accrue_interest
+    rate = Decimal("0.10")
+    t0 = datetime.now(timezone.utc)
+    a = User(username="a", casdoor_id="a", debt=Decimal("1000"), debt_last_accrued_at=t0)
+    for i in range(1, 1441):
+        accrue_interest(a, rate, t0 + timedelta(seconds=60 * i))
+    b = User(username="b", casdoor_id="b", debt=Decimal("1000"), debt_last_accrued_at=t0)
+    accrue_interest(b, rate, t0 + timedelta(days=1))
+    assert b.debt == Decimal("1100.000000")
+    assert abs(a.debt - b.debt) < Decimal("0.001")      # 逐 tick 只差累计的 6dp 舍入
+
+
+def test_tiny_debt_eventually_accrues():
+    """增量不足 1 LSB 时不推进锚点：0.05 @1%/日 60s tick 旧版永远 0.05，新版最终会涨。"""
+    from app.services.loan_service import accrue_interest
+    t0 = datetime.now(timezone.utc)
+    u = User(username="t", casdoor_id="t", debt=Decimal("0.05"), debt_last_accrued_at=t0)
+    for i in range(1, 60 * 24 + 1):
+        accrue_interest(u, Decimal("0.01"), t0 + timedelta(seconds=60 * i))
+    # 理论 0.0505；每次跨过半个 LSB 就进位（ROUND_HALF_UP），逐 tick 累计最多偏高 ~0.5 LSB/次，
+    # 绝对误差 < 0.0003 金/日，可接受（无 carry 字段的代价）。旧版这里会恒为 0.050000。
+    assert Decimal("0.0505") <= u.debt <= Decimal("0.0508")
+
+
+@pytest.mark.asyncio
+async def test_sweep_does_not_cooldown_on_recheck_recovery(client, monkeypatch):
+    """阶段 A 复检判定已恢复 → 不进 _recently_attempted；真 noop 才冷却。"""
+    uid, _ = await _user(cash="0", debt="50")
+    mid, oids = await _market(shares=("200", "100"))
+    await _pos(uid, oids[0], "100")
+    await WRITER.start()
+    liquidation_sweep._recently_attempted.clear()
+
+    async def fake_split(uid_, **kw):
+        return "recovered"
+    monkeypatch.setattr(liquidation_service, "liquidate_user_split", fake_split)
+    # 直接调 sweep 内部的单用户处理：需要绕过 stage-2 的 margin 复检 → 用 debt 高的用户
+    async with async_session_maker() as s:
+        async with s.begin():
+            u = await s.get(User, uid); u.debt = Decimal("500")
+    r = await liquidation_sweep.run_liquidation_sweep_once("scheduler")
+    assert r.get("skipped") is None, r
+    assert uid not in liquidation_sweep._recently_attempted
+
+    async def fake_split_noop(uid_, **kw):
+        return None
+    monkeypatch.setattr(liquidation_service, "liquidate_user_split", fake_split_noop)
+    await liquidation_sweep.run_liquidation_sweep_once("scheduler")
+    assert uid in liquidation_sweep._recently_attempted
+    liquidation_sweep._recently_attempted.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_payout_quantized_to_6dp(client):
+    """pos.amount × payout_unit 为 12dp 时，cash 增量与审计快照都必须是 6dp 量化值。"""
+    from app.services.writer_ops import ResolveCmd
+    from app.models.audit import AuditEvent
+    uid, _ = await _user(cash="0")
+    admin, _ = await _user()
+    mid, oids = await _market(shares=("1.234567", "0"))
+    await _pos(uid, oids[0], "1.234567")
+    await WRITER.start()
+    res = await WRITER.submit(ResolveCmd(market_id=mid, winning_outcome_id=oids[0],
+                                         payout=Decimal("0.333333"), admin_id=admin))
+    expected = (Decimal("1.234567") * Decimal("0.333333")).quantize(Decimal("0.000001"))
+    assert res.total_payout == expected
+    async with async_session_maker() as s:
+        assert (await s.get(User, uid)).cash == expected
+        ev = (await s.execute(select(AuditEvent).where(AuditEvent.event_type == "settle_win"))).scalar_one()
+        assert Decimal(ev.user_after["cash"]) == expected
+        assert Decimal(ev.payload["cost"]) == -expected

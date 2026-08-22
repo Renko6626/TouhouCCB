@@ -14,18 +14,33 @@ from app.services import audit_service, ledger_service
 _QUANT = Decimal("0.000001")
 
 
+def interest_factor(daily_rate: Decimal, elapsed_sec: Decimal | float | int) -> Decimal:
+    """按「日利率 r、按日复利」口径：factor = (1 + r) ^ (elapsed / 86400)。
+
+    这个形式对分段调用**精确可合成**：(1+r)^a · (1+r)^b = (1+r)^(a+b)，
+    所以不管 sweep 每 10s 还是每小时跑一次，一天后的结果都恰好是 debt × (1+r)。
+    （旧版用 1 + r·Δt/day 逐 tick 相乘，等价于连续复利 e^r，10%/日时实际 10.5%。）
+    """
+    return (Decimal(1) + daily_rate) ** (Decimal(str(elapsed_sec)) / Decimal(86400))
+
+
 def accrue_interest(user: User, daily_rate: Decimal, now: datetime) -> None:
-    """把从 user.debt_last_accrued_at 到 now 的利息折进 user.debt。
-    复利：每次调用作用在当前 debt 上，增量 = debt * rate * elapsed_sec / 86400。
+    """把从 user.debt_last_accrued_at 到 now 的利息折进 user.debt（见 interest_factor）。
     debt==0 / last_accrued_at is None / elapsed<=0 时是 no-op。
+
+    增量量化到 6dp 后为 0 时**不推进** debt_last_accrued_at：否则小额债务（6dp 下
+    一个 sweep 间隔的利息不足 0.0000005）永远累不出利息；不推进则时间继续累积，
+    到够一个 LSB 时才结，长期利息不丢。
     """
     if user.debt <= 0 or user.debt_last_accrued_at is None:
         return
     elapsed_sec = (now - user.debt_last_accrued_at).total_seconds()
     if elapsed_sec <= 0:
         return
-    factor = Decimal(1) + daily_rate * Decimal(elapsed_sec) / Decimal(86400)
-    user.debt = (user.debt * factor).quantize(_QUANT)
+    new_debt = (user.debt * interest_factor(daily_rate, elapsed_sec)).quantize(_QUANT)
+    if new_debt == user.debt:
+        return
+    user.debt = new_debt
     user.debt_last_accrued_at = now
 
 

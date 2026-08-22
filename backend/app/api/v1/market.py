@@ -975,7 +975,7 @@ async def resolve_market(
             settled_positions += 1
 
             if is_winner.get(pos.outcome_id, False):
-                payout_amt = pos.amount * payout_unit
+                payout_amt = quantize_cost(pos.amount * payout_unit)   # 6dp：与 DB 写入、审计快照一致
                 if payout_amt > ZERO:
                     payout_by_user[pos.user_id] = payout_by_user.get(pos.user_id, ZERO) + payout_amt
             else:

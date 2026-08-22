@@ -55,7 +55,7 @@ thccb-backend
 | `liquidation_service.py` | 强制平仓原子操作：按 LCV 判定保证金不足后逐持仓卖出，写 `LiquidationEvent` 快照和 LIQUIDATE 类型 `Transaction` |
 | `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，触发 `liquidation_service.liquidate_user` |
 | `loan_service.py` | 借款业务原子操作：复利结息（`accrue_interest`）、借款/还款资金变动，写 `LedgerEntry` |
-| `loan_sweep.py` | APScheduler 定时结息：扫全体 `debt > 0` 用户，按复利公式增加 debt |
+| `loan_sweep.py` | APScheduler 定时结息：扫全体 `debt > 0` 用户，按 `(1+r)^(Δt/天)` 按日复利增加 debt（分段精确可合成，与 tick 间隔无关；增量不足 1 LSB 不推进锚点） |
 | `title_service.py` | 称号目录 admin 端 CRUD + 状态查询 |
 | `title_code_service.py` | 称号激活码：batch 创建/列表/CSV 解析、用户兑换激活码 |
 | `market_title_gating.py` | 市场准入 title 门槛（ANY-of 语义），仅 gate buy，sell/quote/settle 不调用 |

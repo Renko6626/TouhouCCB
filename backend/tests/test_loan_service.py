@@ -51,7 +51,7 @@ def test_accrue_compounds_across_sweeps():
     for i in range(10):
         now = now + timedelta(seconds=60)
         accrue_interest(u, rate, now)
-    expected = Decimal("1000") * (Decimal(1) + rate * Decimal(60) / Decimal(86400)) ** 10
+    expected = Decimal("1000") * (Decimal(1) + rate) ** (Decimal(600) / Decimal(86400))   # 分段精确可合成
     assert abs(u.debt - expected) < Decimal("0.0001")
 
 
