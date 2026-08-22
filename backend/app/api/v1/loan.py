@@ -14,6 +14,7 @@ from app.models.title import Title as _Title
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
+from app.services.market_locks import lock_user
 
 router = APIRouter()
 logger = logging.getLogger("thccb.loan")
@@ -69,10 +70,14 @@ async def borrow(
     rate = await site_config.get_decimal(db, "loan_daily_rate")
     amount = Decimal(req.amount)
 
-    # 预检查 quota（锁内 increase_debt 会重算 debt，边界仍由 amount + 已有 debt 控制）
+    # 额度校验必须在 user 行锁之下算：否则并发多笔 borrow 各自用同一份未加锁快照
+    # 过检，叠加后远超额度（核心审计 2026-08-22 #1）。同一 session 内 increase_debt
+    # 再次 FOR UPDATE 是同事务重入，不会阻塞。
+    locked = await lock_user(db, user.id)
     hv = await _holdings_value(db, user.id)
-    max_borrow = loan_service.compute_max_borrow(user, hv, k)
+    max_borrow = loan_service.compute_max_borrow(locked, hv, k)
     if amount > max_borrow:
+        await db.rollback()
         raise HTTPException(
             status_code=400,
             detail=f"借款额超出额度（可借 {max_borrow}，申请 {amount}）",

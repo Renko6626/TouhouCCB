@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.base import (
-    LiquidationEvent, MarketStatus, Outcome, Position,
+    LiquidationEvent, Outcome, Position,
     Transaction, TransactionType, User,
 )
 from app.services import loan_service
@@ -24,24 +24,11 @@ from app.services.lmsr import calculate_lmsr_cost, calculate_lmsr_with_prices, q
 from app.services.market_locks import lock_outcomes_for_market, lock_user as lock_user_ref
 from app.services import site_config  # LCV fee 口径统一从 site_config 读
 from app.services import audit_service
+from app.services.market_open import market_is_open
 
 _logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
 ONE = Decimal("1")
-
-
-def _record_liq_repay(session, user: User, repaid: Decimal, debt_before: Decimal,
-                      daily_rate: Decimal, trigger_source: str) -> None:
-    """强平后的自动还债（decrease_debt_locked 不写 ledger，审计在这里补）。"""
-    if repaid <= ZERO:
-        return
-    interest = (user.debt + repaid - debt_before).quantize(Decimal("0.000001"))
-    audit_service.record(
-        session, "liquidation_repay", user_id=user.id,
-        payload={"repaid": repaid, "interest_accrued": interest, "daily_rate": daily_rate,
-                 "trigger_source": trigger_source},
-        user_after=audit_service.user_snapshot(user),
-    )
 
 
 def _record_liq_event(session, ev: LiquidationEvent, user: User, path: str) -> None:
@@ -117,7 +104,7 @@ async def liquidate_user(
     sorted_market_ids = sorted(positions_by_market.keys())
     for market_id in sorted_market_ids:
         market = positions_by_market[market_id][0].outcome.market
-        if market.status != MarketStatus.TRADING:
+        if not market_is_open(market.status, market.closes_at):
             continue
         outcomes_by_market[market_id] = await lock_outcomes_for_market(session, market_id)
 
@@ -128,7 +115,7 @@ async def liquidate_user(
     pre_hv = ZERO
     for pos in positions:
         market = pos.outcome.market
-        if market.status != MarketStatus.TRADING:
+        if not market_is_open(market.status, market.closes_at):
             continue
         outs = outcomes_by_market.get(market.id)
         if not outs:
@@ -180,7 +167,7 @@ async def liquidate_user(
         pos_group = positions_by_market[market_id]
         # 用第一个 position 的 market 引用（同 market_id 共享 market 对象）
         market = pos_group[0].outcome.market
-        if market.status != MarketStatus.TRADING:
+        if not market_is_open(market.status, market.closes_at):
             for pos in pos_group:
                 _logger.info(
                     "liquidation_skip_non_trading_market",
@@ -309,7 +296,7 @@ async def liquidate_user(
                 consume_cash=True, daily_rate=daily_rate,
             )
             # decrease_debt_locked 已直接更新 user 对象，无需手动同步
-            _record_liq_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
+            audit_service.record_liquidation_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
 
     # 仅当实际卖出了仓位或还了债时才更新时间戳 / 写 event；
     # 全部仓位 proceeds<0 而跳过的"卡水下"用户不算真正被强平，
@@ -441,35 +428,40 @@ async def liquidate_user_split(
         uid, mode, partial_pct, pre_margin, hard_threshold, emergency_threshold, target_margin,
     )
 
-    # ── 阶段 B：逐市场提交（尽力而为）──
+    # ── 阶段 B：逐市场提交（尽力而为）。每个市场的卖出回款在**同一事务**内立即还债
+    #    （核心审计 #3：否则 B→C 之间用户可在别的市场把回款花掉，仓位被强卖而债未还）──
     total_proceeds = ZERO
     sold_count = 0
+    repaid_b = ZERO
     for mid in market_ids:
         if WRITER.get_state(mid) is None:
             continue
         try:
             r = await WRITER.submit(LiquidateMarketCmd(
-                market_id=mid, user_id=uid, mode=mode, partial_pct=partial_pct))
+                market_id=mid, user_id=uid, mode=mode, partial_pct=partial_pct,
+                daily_rate=daily_rate, trigger_source=trigger_source))
             total_proceeds += r["total_proceeds"]
             sold_count += r["sold_count"]
+            repaid_b += r.get("repaid", ZERO)
         except HTTPException as e:
             _logger.warning(
                 "liquidation_market_cmd_failed user=%s market=%s status=%s detail=%s",
                 uid, mid, e.status_code, e.detail)
 
-    # ── 阶段 C：还债 + 汇总 event（独立事务）──
+    # ── 阶段 C：余量还债 + 汇总 event（独立事务）──
     async with async_session_maker() as session:
         async with session.begin():
             user = await lock_user_ref(session, uid)
-            repaid = ZERO
+            repaid = repaid_b
             if user.cash > ZERO and user.debt > ZERO:
                 repay_amount = min(user.cash, user.debt).quantize(Decimal("0.000001"))
                 if repay_amount > ZERO:
                     debt_before = user.debt
-                    repaid = await loan_service.decrease_debt_locked(
+                    repaid_c = await loan_service.decrease_debt_locked(
                         session, user, repay_amount,
                         consume_cash=True, daily_rate=daily_rate)
-                    _record_liq_repay(session, user, repaid, debt_before, daily_rate, trigger_source)
+                    audit_service.record_liquidation_repay(session, user, repaid_c, debt_before, daily_rate, trigger_source)
+                    repaid += repaid_c
             if sold_count == 0 and repaid == ZERO:
                 return None
             user.last_liquidated_at = datetime.now(timezone.utc)

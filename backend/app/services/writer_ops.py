@@ -28,6 +28,7 @@ from app.services.market_writer import MarketState, MarketWriter, OpOutcome
 from app.services.trade_checks import check_buy_slippage, check_sell_slippage
 from app.services import site_config
 from app.services import audit_service
+from app.services.market_open import market_is_open
 
 logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
@@ -583,6 +584,8 @@ class LiquidateMarketCmd:
     user_id: int
     mode: str                 # "emergency" | "partial"
     partial_pct: Decimal
+    daily_rate: Decimal = Decimal("0")      # 同事务内立即还债用（核心审计 #3）
+    trigger_source: str = "scheduler"
 
 
 async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> OpOutcome:
@@ -593,8 +596,8 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
     （现状核实：liquidation_service 从不调 compute_candle_rows，K 线只记 BUY/SELL）。
     """
     from decimal import ROUND_CEILING
-    if state.status != MarketStatus.TRADING:
-        # HALT/SETTLED 市场不强平（与老路径 skip 语义一致），空结果不算错误
+    if not market_is_open(state.status, state.closes_at):
+        # HALT/SETTLED/已过 closes_at 的市场不强平（用户自己也卖不了），空结果不算错误
         logger.warning(
             "liquidation_skip_non_trading_market(writer) user_id=%s market_id=%s status=%s",
             cmd.user_id, cmd.market_id, state.status,
@@ -687,8 +690,21 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
                         sa_update(Outcome).where(Outcome.id == oid)
                         .values(total_shares=new_q_dec[i]))
 
+            # 回款立即还债（user 行已锁、同事务）：堵住 B→C 之间被花掉的窗口
+            repaid = ZERO
+            if sold_count and locked_user.cash > ZERO and locked_user.debt > ZERO:
+                repay_amount = min(locked_user.cash, locked_user.debt).quantize(Decimal("0.000001"))
+                if repay_amount > ZERO:
+                    from app.services import loan_service   # 局部 import 避免环
+                    debt_before = locked_user.debt
+                    repaid = await loan_service.decrease_debt_locked(
+                        session, locked_user, repay_amount,
+                        consume_cash=True, daily_rate=cmd.daily_rate)
+                    audit_service.record_liquidation_repay(
+                        session, locked_user, repaid, debt_before, cmd.daily_rate, cmd.trigger_source)
+
     return OpOutcome(
-        response={"sold_count": sold_count, "total_proceeds": total_proceeds},
+        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid},
         new_q_dec=new_q_dec if sold_count else None,
         # 强平今天不发 SSE（与现状一致）
     )

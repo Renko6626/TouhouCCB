@@ -176,11 +176,26 @@ async def _liquidate_one_user(
             return "error"
 
 
+_SWEEP_LOCK = asyncio.Lock()
+
+
 async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
     """扫一次全体 debt>0 用户。给 scheduler + admin run-now 共用。
 
     trigger_source: "scheduler"（定时 cron 触发）或 "admin_manual"（管理员手动触发）。
+
+    进程内互斥：APS 的 max_instances=1 只管 cron job 自身，管理员 run-now 直接调本函数
+    会与 cron 重叠——writer 路径阶段 A 放锁后两次扫描都能过复检，partial 模式会各卖一份
+    （核心审计 #4）。重叠时后到者直接返回 skipped，不排队。
     """
+    if _SWEEP_LOCK.locked():
+        logger.info("liquidation sweep skipped: another sweep in progress (trigger=%s)", trigger_source)
+        return {"skipped": "sweep_in_progress"}
+    async with _SWEEP_LOCK:
+        return await _run_liquidation_sweep_once(trigger_source)
+
+
+async def _run_liquidation_sweep_once(trigger_source: str) -> dict:
     start_ts = time.monotonic()
     async with async_session_maker() as session:
         # 一次批量取 4 个 key，省 3 个 round trip vs 4 次串行 get_*

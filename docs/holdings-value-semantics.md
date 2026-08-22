@@ -68,6 +68,10 @@ LCV = (C(q) - C(q_after_full_sell)) × (1 - sell_fee_rate)
 
 ## HALT 市场的不对称处理
 
+> **2026-08-22 起，「TRADING 但已过 `closes_at`」的市场在 LCV / 强平 / 强平豁免三处与 HALT 同等对待**
+> （统一判定在 `app/services/market_open.py::market_is_open`）。理由：过期市场用户已不能买卖，
+> 若仍算作可变现抵押、且强平还能卖，就出现「用户不能自救却能被强卖」的不对称。MTM 不受影响。
+
 两套口径对非 TRADING 市场的持仓**有意采用不同处理**：
 
 | 口径 | HALT 持仓 | 理由 |
