@@ -75,6 +75,10 @@ class TradeResponse(BaseModel):
     # 6dp 全精度（Money serialize→float）：阶段 3 起是客户端本地 apply 的
     # cash 基线，2dp 舍入会每笔累积最多 0.005 漂移（spec §6.4 配套修正）
     new_cash: Money
+    # 6dp 精确成交额（买入=实付，卖出=扣费后净收）。前端本地 apply 的 cost_basis 基线：
+    # 此前前端用 |prevCash − new_cash| 推导，prevCash 是本地缓存，多标签/bot/借还款/
+    # 强平任一存在就会把外部现金变动算进 cost_basis 且不再自愈。
+    pay: Money
     message: str
 
 

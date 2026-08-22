@@ -13,7 +13,7 @@ import PriceChart from '@/components/chart/PriceChart.vue'
 import CandleChart from '@/components/chart/CandleChart.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import TitleChip from '@/components/title/TitleChip.vue'
-import type { ChartInterval, QuoteResponse } from '@/types/api'
+import type { ChartInterval, QuoteResponse, TradeLimit } from '@/types/api'
 import { buyCost, sellProceeds } from '@/utils/lmsr'
 
 const route = useRoute()
@@ -302,7 +302,13 @@ const estimatedNewCash = computed(() => {
 })
 
 // 执行交易：成交后本地 apply（spec §6.4），不再 refetch 市场/用户数据。
-// pay 从现金差推导——new_cash 是 6dp 全精度，比 2dp 的 cost 字段精确。
+// pay 用后端返回的 6dp 精确成交额（不再从本地现金差推导——prevCash 是缓存，
+// 多标签 / bot / 借还款 / 强平任一存在都会把外部现金变动算进 cost_basis）。
+//
+// 价格保护：用户设了滑点上限时，把本地预览 net 换算成绝对 max_cost / min_proceeds
+// 一并发给后端。后端 bps 检查是相对「执行时刻边际价」的，预览价与成交价之间
+// 没有保护——行情断线/在途期间别人拉价 8%，bps=100 仍会通过。绝对限额让
+// 「所见即所得」成立；「无限制」档两者都不发。
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
 
@@ -310,10 +316,19 @@ const executeTrade = async () => {
   const effectiveBps = acceptAnySlippage ? undefined : maxSlippageBps.value
   const prevCash = userStore.summary?.cash ?? null
 
+  let limit: TradeLimit | undefined
+  const preview = quoteResult.value
+  if (!acceptAnySlippage && effectiveBps !== undefined && preview) {
+    const tol = effectiveBps / 10000
+    limit = tradeType.value === 'buy'
+      ? { max_cost: Math.ceil(preview.net * (1 + tol) * 1e6) / 1e6 }
+      : { min_proceeds: Math.floor(preview.net * (1 - tol) * 1e6) / 1e6 }
+  }
+
   try {
     const result = tradeType.value === 'buy'
-      ? await marketStore.buyShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage)
-      : await marketStore.sellShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage)
+      ? await marketStore.buyShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage, limit)
+      : await marketStore.sellShares(selectedOutcomeId.value, shares.value, effectiveBps, acceptAnySlippage, limit)
 
     if (!result.success) {
       message.error(result.error || '交易失败，请重试')
@@ -327,15 +342,14 @@ const executeTrade = async () => {
         outcomeId: selectedOutcomeId.value,
         marketId: marketStore.currentMarket.id,
         shares: result.data.shares,
-        pay: Math.abs(prevCash - result.data.new_cash),
+        pay: result.data.pay ?? Math.abs(prevCash - result.data.new_cash),
         newCash: result.data.new_cash,
         outcomeLabel: selectedOutcome.value?.label,
         marketTitle: marketStore.currentMarket.title,
       })
     }
-
-    // 重置表单（quoteResult 是 computed，自动跟随）
-    shares.value = 1
+    // 份数不重置：连续加仓/分批减仓是常规用法。卖出后持仓不足时
+    // TradePanel 的 shares > maxShares 门会禁用按钮，不会误下单。
   } catch (err: any) {
     message.error(err?.message || '交易失败，请重试')
   }

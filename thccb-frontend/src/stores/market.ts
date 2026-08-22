@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { MarketListItem, MarketDetail, MarketCreate, TradeResponse, QuoteResponse, MarketTrade, LeaderboardItem } from '@/types/api'
+import type { MarketListItem, MarketDetail, MarketCreate, TradeResponse, TradeLimit, QuoteResponse, MarketTrade, LeaderboardItem } from '@/types/api'
 import type { TradeEventData } from '@/types/stream'
 import { marketApi } from '@/api/market'
 
@@ -130,11 +130,11 @@ export const useMarketStore = defineStore('market', () => {
     return raw
   }
 
-  const buyShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false) => {
+  const buyShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false, limit?: TradeLimit) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.buy(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
+      const result = await marketApi.buy(outcomeId, shares, maxSlippageBps, acceptAnySlippage, limit)
 
       return { success: true, data: result }
     } catch (err: any) {
@@ -146,11 +146,11 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const sellShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false) => {
+  const sellShares = async (outcomeId: number, shares: number, maxSlippageBps?: number, acceptAnySlippage: boolean = false, limit?: TradeLimit) => {
     tradeLoading.value = true
     tradeError.value = null
     try {
-      const result = await marketApi.sell(outcomeId, shares, maxSlippageBps, acceptAnySlippage)
+      const result = await marketApi.sell(outcomeId, shares, maxSlippageBps, acceptAnySlippage, limit)
 
       return { success: true, data: result }
     } catch (err: any) {

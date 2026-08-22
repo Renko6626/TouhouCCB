@@ -4,6 +4,7 @@ import type {
   MarketDetail,
   TradeRequest,
   TradeResponse,
+  TradeLimit,
   MarketTrade,
   LeaderboardItem,
   MarketCreateResponse,
@@ -35,6 +36,7 @@ export const marketApi = {
     shares: number,
     maxSlippageBps?: number,
     acceptAnySlippage: boolean = false,
+    limit?: TradeLimit,
   ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
     if (acceptAnySlippage) {
@@ -42,6 +44,7 @@ export const marketApi = {
     } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
+    if (limit?.max_cost !== undefined) request.max_cost = limit.max_cost
     return api.post<TradeResponse>('/api/v1/market/buy', request)
   },
 
@@ -50,6 +53,7 @@ export const marketApi = {
     shares: number,
     maxSlippageBps?: number,
     acceptAnySlippage: boolean = false,
+    limit?: TradeLimit,
   ): Promise<TradeResponse> {
     const request: TradeRequest = { outcome_id: outcomeId, shares }
     if (acceptAnySlippage) {
@@ -57,6 +61,7 @@ export const marketApi = {
     } else if (maxSlippageBps !== undefined && maxSlippageBps !== null) {
       request.max_slippage_bps = maxSlippageBps
     }
+    if (limit?.min_proceeds !== undefined) request.min_proceeds = limit.min_proceeds
     return api.post<TradeResponse>('/api/v1/market/sell', request)
   },
 

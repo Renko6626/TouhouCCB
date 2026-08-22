@@ -13,9 +13,16 @@ export interface TradeRequest {
 
 export interface TradeResponse {
   shares: number
-  cost: number
-  new_cash: number
+  cost: number          // 2dp 展示用
+  new_cash: number      // 6dp
+  pay: number           // 6dp 精确成交额：买入=实付、卖出=净收。本地 apply 的 cost_basis 基线
   message: string
+}
+
+/** 以本地预览价为基准的绝对价格保护（见 TradingView.executeTrade） */
+export interface TradeLimit {
+  max_cost?: number
+  min_proceeds?: number
 }
 
 export interface QuoteRequest {
