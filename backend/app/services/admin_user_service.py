@@ -137,7 +137,7 @@ async def set_role(
     return {"user_id": t.id, "username": t.username, "is_admin": t.is_superuser, "changed": True}
 
 
-async def ban(db: AsyncSession, *, target_id: int, admin_id: int) -> Dict[str, Any]:
+async def ban(db: AsyncSession, *, target_id: int, admin_id: int, reason: Optional[str] = None) -> Dict[str, Any]:
     """复用 is_active（FastAPI Users 标准）：被封用户访问任何 protected endpoint 自动 401。
     安全围栏：不能封自己；不能封最后一个活跃管理员。"""
     if target_id == admin_id:
@@ -155,7 +155,8 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int) -> Dict[str, A
         was_active = t.is_active
         t.is_active = False
         if was_active:
-            audit_service.record(db, "admin_ban", user_id=t.id, operator_user_id=admin_id)
+            audit_service.record(db, "admin_ban", user_id=t.id, operator_user_id=admin_id,
+                                 payload={"reason": reason})
     return {"user_id": t.id, "username": t.username, "is_active": False, "changed": was_active}
 
 
@@ -325,9 +326,12 @@ async def amnesty(
                 # 先显式结息，再按结息后的全额清零（decrease_debt_locked 内部再次
                 # accrue 是同一时刻的 no-op）
                 loan_service.accrue_interest(u, rate, loan_service._compat_now(u))
+                interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
                 forgiven = await loan_service.decrease_debt_locked(
                     db, u, u.debt, consume_cash=False, daily_rate=rate,
                 )
+            else:
+                interest = Decimal("0")
             cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
             u.cash = reset_cash_to
             ledger_service.record_entry(
@@ -335,6 +339,7 @@ async def amnesty(
                 cash_delta=cash_delta, debt_delta=-forgiven,
                 daily_rate=rate if forgiven > 0 else None,
                 operator_user_id=admin_id, reason=reason,
+                interest_accrued=interest,
             )
             total_cash_delta += cash_delta
             total_forgiven += forgiven
