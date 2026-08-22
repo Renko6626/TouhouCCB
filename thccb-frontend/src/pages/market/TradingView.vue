@@ -212,12 +212,31 @@ watch(realtime.latestMarketStatus, (status) => {
   scheduleRealtimeRefresh()
 })
 
-// SSE seq gap 检测触发的 reconcile：拉一次成交列表覆盖断线期间漏的
+// SSE seq gap 检测触发的 reconcile：拉一次成交列表覆盖断线期间漏的；
+// summary + holdings 一起刷（断线期间可能被强平，只刷 summary 会让 holdings 陈旧，审计 M10）
 watch(realtime.gapToken, () => {
   if (realtime.gapToken.value > 0 && marketId.value) {
     marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
-    userStore.fetchSummary().catch(() => {})
+    userStore.fetchSummary(false).catch(() => {})
+    userStore.fetchHoldings(false).catch(() => {})
   }
+})
+
+// snapshot（首连/重连）重锚定：把 snapshot 价格回写 marketStore / priceContext。
+// 否则重连后到下一笔成交之前，报价用 pricesByOutcome 的新价，而 OutcomeCard /
+// 预估滑点 / maxShares 用 currentMarket 的旧价——同一页两套价格（审计 M8）
+watch(realtime.snapshotToken, () => {
+  if (!marketId.value || !marketStore.currentMarket) return
+  const order = realtime.outcomesOrder.value
+  if (!order.length) return
+  const prices: number[] = []
+  for (const oid of order) {
+    const p = realtime.pricesByOutcome.value.get(oid)
+    if (p === undefined) return
+    prices.push(p)
+  }
+  marketStore.patchAllPricesFromTrade(prices)
+  userStore.patchMarketPrices(marketId.value, prices)
 })
 
 const realtimeStatusType = computed<'success' | 'warning'>(() => {
@@ -530,6 +549,7 @@ const relTime = (iso: string): string => {
             :quote-exceeds-cash="quoteExceedsCash"
             :max-slippage-bps="maxSlippageBps"
             :user-can-trade="marketStore.currentMarket.user_can_trade ?? true"
+            :realtime-connected="realtime.isConnected.value"
             @update:selected-outcome-id="selectedOutcomeId = $event"
             @update:trade-type="tradeType = $event"
             @update:shares="shares = $event"

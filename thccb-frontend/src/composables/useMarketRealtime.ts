@@ -97,8 +97,10 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     }
     pricesByOutcome.value = next
 
-    // 重连场景：旧 lastSeq > 0 且新 snapshot.seq > 旧 lastSeq → 期间发生过事件 → 触发 gap
-    if (lastSeq > 0 && evt.seq !== undefined && evt.seq > lastSeq) {
+    // 重连场景：旧 lastSeq > 0 且 snapshot.seq ≠ 旧 lastSeq → 期间发生过事件 → 触发 gap。
+    // seq < lastSeq 也算：服务端 seq 是进程内计数器，重启后归零，不报 gap 会静默吃掉
+    // 重启到重连之间别人的成交（审计 M9）
+    if (lastSeq > 0 && evt.seq !== undefined && evt.seq !== lastSeq) {
       fireGap(lastSeq + 1, evt.seq)
     }
     lastSeq = evt.seq ?? 0
