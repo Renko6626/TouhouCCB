@@ -166,3 +166,27 @@ async def test_hardcap(client, admin_headers, monkeypatch):
     await _seed(); await _seed()
     r = await client.post(URL, headers=admin_headers, json=_req())
     assert r.status_code == 400 and "上限" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_large_debt_clears_exactly_no_dust(client, admin_headers, monkeypatch):
+    """审计 M2：显式结息与 decrease_debt_locked 内部结息必须用同一个 now。
+    模拟两次 _compat_now 相差 50ms：大额债务下第二次结息会出 6dp 非零增量，
+    修复前留下灰尘债且 debt_last_accrued_at 不清空。"""
+    from app.services import loan_service
+    real_now = loan_service._compat_now
+    calls = {"n": 0}
+
+    def drifting_now(u):
+        calls["n"] += 1
+        return real_now(u) + timedelta(milliseconds=50 * calls["n"])
+    monkeypatch.setattr(loan_service, "_compat_now", drifting_now)
+
+    uid = await _seed(cash="0", debt="1000000", accrued_days_ago=1)
+    r = await client.post(URL, headers=admin_headers, json=_req(dry_run=False))
+    assert r.status_code == 200, r.text
+    u = await _get(uid)
+    assert u.debt == 0 and u.debt_last_accrued_at is None
+    e = (await _ledger(uid))[0]
+    assert e.debt_after == 0 and e.debt_last_accrued_at_after is None
+    assert e.debt_delta <= Decimal("-1000000")          # 本金 + 结息全部免除
