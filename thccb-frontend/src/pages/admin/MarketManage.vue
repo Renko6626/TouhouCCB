@@ -39,7 +39,8 @@ const showCreateModal = ref(false)
 const showSettleModal = ref(false)
 
 let outcomeIdCounter = 0
-const makeOutcome = (label: string) => ({ id: ++outcomeIdCounter, label })
+// price: 初始价格百分比（先验）；null = 不设，全部为空则均匀 1/N
+const makeOutcome = (label: string) => ({ id: ++outcomeIdCounter, label, price: null as number | null })
 
 const createForm = ref({
   title: '',
@@ -188,8 +189,19 @@ const resetCreateForm = () => {
 
 const handleCreateSubmit = async () => {
   if (!createForm.value.title.trim()) { createError.value = '请输入市场标题'; return }
-  const outcomes = createForm.value.outcomes.map((o) => o.label.trim()).filter(Boolean)
+  const validRows = createForm.value.outcomes.filter((o) => o.label.trim())
+  const outcomes = validRows.map((o) => o.label.trim())
   if (outcomes.length < 2) { createError.value = '至少提供两个有效选项'; return }
+  // 初始价格：要么全不填（均匀），要么全填且和为 100%
+  const filled = validRows.filter((o) => o.price !== null)
+  let initial_prices: number[] | undefined
+  if (filled.length > 0) {
+    if (filled.length !== validRows.length) { createError.value = '初始价格要么全部留空，要么每个选项都填'; return }
+    if (validRows.some((o) => (o.price ?? 0) <= 0)) { createError.value = '初始价格必须大于 0'; return }
+    const sum = validRows.reduce((a, o) => a + (o.price ?? 0), 0)
+    if (Math.abs(sum - 100) > 0.5) { createError.value = `初始价格之和应为 100%，当前 ${sum.toFixed(2)}%`; return }
+    initial_prices = validRows.map((o) => (o.price ?? 0) / 100)
+  }
 
   creating.value = true
   createError.value = ''
@@ -207,6 +219,7 @@ const handleCreateSubmit = async () => {
       outcomes,
       tags,
       closes_at,
+      initial_prices,
     })
     if (!result.success) throw new Error(result.error || '创建失败')
 
@@ -480,9 +493,21 @@ onMounted(() => {
           <div class="outcomes-editor">
             <div v-for="(item, idx) in createForm.outcomes" :key="item.id" class="row-gap">
               <NInput v-model:value="item.label" placeholder="选项名称" :disabled="creating" style="flex:1" />
+              <NInputNumber
+                v-model:value="item.price"
+                :min="0.01"
+                :max="99.99"
+                :step="1"
+                :show-button="false"
+                clearable
+                placeholder="初始价 %"
+                :disabled="creating"
+                style="width:120px"
+              />
               <NButton v-if="createForm.outcomes.length > 2" size="small" :disabled="creating" @click="createForm.outcomes.splice(idx, 1)">删除</NButton>
             </div>
             <NButton size="small" :disabled="creating" @click="createForm.outcomes.push(makeOutcome(''))">添加选项</NButton>
+            <div class="outcomes-hint">初始价 % 为先验概率：全部留空则均匀 1/N；填写则需每项都填且合计 100%（q₀ = b·ln p）</div>
           </div>
         </NFormItem>
         <NFormItem label="需要的称号 (空 = 任何人可交易)">
@@ -619,6 +644,12 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+}
+
+.outcomes-hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  line-height: 1.4;
 }
 
 .settle-label {

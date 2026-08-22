@@ -69,6 +69,13 @@ def test_upgrade_downgrade_roundtrip():
             user_table.foreign_keys.discard(fk)
         user_table._columns.remove(removed_col)
 
+    # outcome.initial_shares 由 c4d5e6f7a8b9 加，before-state 同样要剔掉（finally 恢复）
+    outcome_table = SQLModel.metadata.tables["outcome"]
+    removed_outcome_col = None
+    if 'initial_shares' in outcome_table.c:
+        removed_outcome_col = outcome_table.c.initial_shares
+        outcome_table._columns.remove(removed_outcome_col)
+
     # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry + audit_event）
     # ledger_entry / audit_event 由其后续 migration（b2cd21122925 / a7c3e9d1f402）建，
     # before-state 不应预先 create_all，否则 upgrade head 会 "table already exists"。
@@ -98,6 +105,7 @@ def test_upgrade_downgrade_roundtrip():
             assert t in names, f"{t} not created"
         user_cols = {c["name"] for c in insp.get_columns("user")}
         assert "equipped_title_id" in user_cols
+        assert "initial_shares" in {c["name"] for c in insp.get_columns("outcome")}
 
         # 4) downgrade 到 title migration 之前的 baseline → title 表 + 列消失
         # （head 现在是 ledger migration b2cd21122925，downgrade 到 679d34cb5986 会
@@ -109,6 +117,7 @@ def test_upgrade_downgrade_roundtrip():
             assert t not in names, f"{t} not dropped"
         user_cols = {c["name"] for c in insp.get_columns("user")}
         assert "equipped_title_id" not in user_cols
+        assert "initial_shares" not in {c["name"] for c in insp.get_columns("outcome")}
 
         # 5) 幂等再 upgrade head
         command.upgrade(cfg, "head")
@@ -132,6 +141,8 @@ def test_upgrade_downgrade_roundtrip():
             os.environ["DATABASE_URL"] = original_db_url_env
 
         # 恢复 metadata：把列和 FK 加回去
+        if removed_outcome_col is not None:
+            outcome_table.append_column(removed_outcome_col)
         if removed_col is not None:
             user_table.append_column(removed_col)
             for fk in removed_fks:

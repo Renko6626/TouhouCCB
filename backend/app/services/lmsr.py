@@ -57,3 +57,16 @@ def calculate_lmsr_with_prices(
     cost = b * (math.log(sum_exp) + (max_q / b))
     prices = [e / sum_exp for e in exponents]
     return cost, prices
+
+
+def seed_shares_from_prices(prices: List[float], b: float) -> List[Decimal]:
+    """由先验价格反推初始份额：q_i = b·(ln p_i − ln p_min)。
+
+    LMSR 价格是 softmax，q_i = b·ln p_i 时 price_i 恰好等于 p_i；整体平移 −b·ln p_min
+    不改变价格（C(q+c)=C(q)+c），但保证 q ≥ 0 且 min 为 0，避免 chart 反推里的
+    max(0, ·) 钳位与可读性问题。prices 需已归一化（和为 1，每项 > 0）。
+    """
+    if not prices:
+        return []
+    log_min = math.log(min(prices))
+    return [quantize_cost(b * (math.log(p) - log_min)) for p in prices]

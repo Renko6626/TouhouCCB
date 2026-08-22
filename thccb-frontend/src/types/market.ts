@@ -28,6 +28,7 @@ export interface OutcomeQuote {
   id: number
   label: string
   total_shares: number
+  initial_shares?: number  // 建市场先验起手份额；流通量 = total − initial
   current_price: number
   payout?: number | null
   is_winner?: boolean | null
@@ -78,6 +79,8 @@ export interface MarketCreate {
   outcomes: string[]
   closes_at?: string | null
   tags?: string[]
+  /** 各选项初始价格（先验），与 outcomes 一一对应，和为 1；留空 = 均匀 */
+  initial_prices?: number[]
 }
 
 export interface MarketCreateResponse {
