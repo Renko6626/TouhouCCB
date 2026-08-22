@@ -212,3 +212,59 @@ async def test_last_price_before_picks_latest_before_cutoff():
         cutoff = datetime.now(timezone.utc) - timedelta(hours=26)
         assert await _last_price_before(s, ids, cutoff, Transaction.price) == {o1.id: 0.30}
         assert await _last_price_before(s, [], cutoff, Transaction.price) == {}
+
+
+# ── P3/L8 quote：writer 开启时用内存 state；与成交同源；过 closes_at 拒绝 ──────
+@pytest.mark.asyncio
+async def test_quote_matches_fill_and_respects_closes_at(client):
+    from datetime import timedelta
+    from sqlalchemy import text
+    from app.services.site_config import clear_cache
+    from app.services.market_writer import WRITER
+    from app.api.v1 import market as market_api
+    from app.models.base import Market
+    from tests.test_writer_e2e import _dev_login, _create_market
+
+    async with async_session_maker() as s:
+        await s.execute(text(
+            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
+            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
+            "ON CONFLICT (key) DO UPDATE SET value='true'"))
+        await s.commit()
+    clear_cache()
+    await WRITER.start()
+    try:
+        admin_h = await _dev_login(client, "admin_q")
+        mid, oids = await _create_market(client, admin_h, "q")
+        user_h = await _dev_login(client, "user_q")
+
+        q = await client.post("/api/v1/market/quote", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "7.1234567", "side": "buy"})
+        assert q.status_code == 200, q.text
+        b = await client.post("/api/v1/market/buy", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "7.1234567", "accept_any_slippage": True})
+        assert b.status_code == 200, b.text
+        assert q.json()["net"] == b.json()["pay"]          # 报价与成交同源（含 6dp 量化）
+
+        # 第二次报价必须反映 writer 内存里的新 q（不同 shares 绕过 1s 缓存）
+        q2 = await client.post("/api/v1/market/quote", headers=user_h,
+                               json={"outcome_id": oids[0], "shares": "7.2", "side": "buy"})
+        assert q2.json()["net"] > q.json()["net"]
+
+        # 过 closes_at：writer 内存态 + DB 路径都应 400
+        async with async_session_maker() as s:
+            m = await s.get(Market, mid)
+            m.closes_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+            await s.commit()
+        await WRITER.reload_state(mid)
+        market_api._QUOTE_CACHE.clear()
+        r = await client.post("/api/v1/market/quote", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "1", "side": "buy"})
+        assert r.status_code == 400
+        await WRITER.stop()
+        market_api._QUOTE_CACHE.clear()
+        r = await client.post("/api/v1/market/quote", headers=user_h,
+                              json={"outcome_id": oids[0], "shares": "1", "side": "buy"})
+        assert r.status_code == 400
+    finally:
+        await WRITER.stop()

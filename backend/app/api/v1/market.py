@@ -49,6 +49,7 @@ from app.services import site_config
 from app.services import audit_service
 from app.services import tick_broadcaster as _tick
 from app.services.anti_bot import verify_client_token, parse_whitelist
+from app.services.market_open import market_is_open
 from app.services.market_title_gating import assert_user_can_trade_market
 from app.services.trade_checks import check_buy_slippage, check_sell_slippage
 from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
@@ -1125,30 +1126,41 @@ async def quote_trade(
             return cached_resp
         _QUOTE_CACHE.pop(cache_key, None)
 
-    outcome = await db.get(Outcome, req.outcome_id)
-    if not outcome:
-        raise HTTPException(status_code=404, detail="选项不存在")
+    # ── 取市场状态：writer 开启时用内存权威 q/b/status（零 IO，审计 P3），否则读 DB ──
+    from app.services.market_writer import WRITER
+    ids: List[int]; labels: List[str]; old_q: List[float]
+    st = None
+    if WRITER.enabled:
+        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
+        st = WRITER.get_state(mid) if mid is not None else None
+    if st is not None and not st.unavailable:
+        if not market_is_open(st.status, st.closes_at):
+            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
+        ids, labels, old_q, b = st.outcome_ids, st.outcome_labels, list(st.q), st.b
+    else:
+        outcome = await db.get(Outcome, req.outcome_id)
+        if not outcome:
+            raise HTTPException(status_code=404, detail="选项不存在")
+        market = await db.get(Market, outcome.market_id)
+        if not market:
+            raise HTTPException(status_code=404, detail="市场不存在")
+        # 与 buy/sell 同源：status + closes_at 一起判（审计 L8）
+        if not market_is_open(market.status, market.closes_at):
+            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
+        outcomes = (await db.execute(
+            select(Outcome).where(Outcome.market_id == market.id).order_by(Outcome.id)
+        )).scalars().all()
+        ids = [int(o.id) for o in outcomes]
+        labels = [o.label for o in outcomes]
+        old_q = _shares_to_floats(outcomes)
+        b = float(market.liquidity_b)
 
-    market = await db.get(Market, outcome.market_id)
-    if not market:
-        raise HTTPException(status_code=404, detail="市场不存在")
-
-    if market.status != MarketStatus.TRADING:
-        raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
-
-    outcomes_res = await db.execute(
-        select(Outcome).where(Outcome.market_id == market.id).order_by(Outcome.id)
-    )
-    outcomes = outcomes_res.scalars().all()
-
-    idx = next((i for i, o in enumerate(outcomes) if o.id == outcome.id), None)
+    idx = next((i for i, oid in enumerate(ids) if oid == int(req.outcome_id)), None)
     if idx is None:
         raise HTTPException(status_code=400, detail="选项不属于该市场（数据异常）")
-    b = float(market.liquidity_b)
     shares_d = quantize_cost(req.shares)    # Decimal，用于精确计算
-    shares_f = float(req.shares)            # float，喂给 LMSR
+    shares_f = float(shares_d)              # 量化后再转 float，与成交同源（审计 L8）
 
-    old_q = _shares_to_floats(outcomes)
     old_cost, _old_prices = calculate_lmsr_with_prices(old_q, b)
 
     new_q = list(old_q)
@@ -1169,7 +1181,11 @@ async def quote_trade(
         net = gross - fee
 
     avg_price = quantize_price(gross / shares_d) if shares_d > ZERO else ZERO
-    after_prices = _build_prices_from_shares(outcomes, new_q, b, prices=new_prices)
+    after_prices = [
+        {"id": oid, "label": lab, "shares": float(quantize_cost(new_q[i])),
+         "current_price": float(quantize_price(new_prices[i]))}
+        for i, (oid, lab) in enumerate(zip(ids, labels))
+    ]
 
     response = QuoteResponse(
         outcome_id=req.outcome_id,
