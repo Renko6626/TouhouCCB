@@ -487,31 +487,39 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
 
             total_payout = ZERO
 
-            # settle_lose 审计：user 资金不变，仓位归零；快照取当前 user 行
+            # 一次性按 user_id 升序锁全部涉及用户（输家 ∪ 赢家）：
+            # - 逐用户 FOR UPDATE 是 N 次往返；两市场并发结算时按持仓顺序取锁可互相死锁（审计 L11）
+            # - populate_existing：请求 session 里可能已有陈旧 User（管理员自己也持仓）
+            all_uids = sorted({uid for _, uid in lose_txs} | {uid for uid, pay in payout_by_user.items() if pay > ZERO})
+            users_by_id: dict[int, User] = {}
+            if all_uids:
+                users_by_id = {int(u.id): u for u in (await session.execute(
+                    select(User).where(User.id.in_(all_uids)).order_by(User.id)
+                    .with_for_update().execution_options(populate_existing=True)
+                )).scalars().all()}
+
+            # settle_lose 事件必须在赢家加钱**之前**记：同一用户既输又赢时，
+            # settle_lose.user_after.cash 不能含 payout（audit replay 会抓）
+            await session.flush()
             for lose_tx, lose_uid in lose_txs:
-                lu = (await session.execute(
-                    select(User).where(User.id == lose_uid).with_for_update())).scalars().first()
+                lu = users_by_id.get(int(lose_uid))
                 if lu is not None:
                     await audit_service.record_trade(
                         session, tx=lose_tx, user=lu, position=None,
                         market_id=cmd.market_id, market_after=None,
-                        extra={"path": "writer"}, operator_user_id=cmd.admin_id,
+                        extra={"path": "writer"}, operator_user_id=cmd.admin_id, flush=False,
                     )
 
-            for uid, pay in payout_by_user.items():
+            win_txs: list[tuple[Transaction, User]] = []
+            for uid in sorted(payout_by_user):
+                pay = payout_by_user[uid]
                 if pay <= ZERO:
                     continue
-
-                u_res = await session.execute(
-                    select(User).where(User.id == uid).with_for_update()
-                )
-                u = u_res.scalars().first()
+                u = users_by_id.get(int(uid))
                 if not u:
                     raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
-
                 u.cash += pay
                 total_payout += pay
-
                 win_tx = Transaction(
                     user_id=u.id,
                     outcome_id=winning.id,
@@ -524,11 +532,16 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                     timestamp=now,
                 )
                 session.add(win_tx)
+                win_txs.append((win_tx, u))
+
+            # 单次 flush 给全部 settle_win 赋 id，再批量追加事件（不逐条 flush，审计 P4）
+            await session.flush()
+            for win_tx, u in win_txs:
                 await audit_service.record_trade(
                     session, tx=win_tx, user=u, position=None,
                     market_id=cmd.market_id, market_after=None,
                     extra={"payout_unit": payout_unit, "path": "writer"},
-                    operator_user_id=cmd.admin_id,
+                    operator_user_id=cmd.admin_id, flush=False,
                 )
 
             for o in outcomes:

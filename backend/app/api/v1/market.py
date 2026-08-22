@@ -1019,29 +1019,35 @@ async def resolve_market(
 
         total_payout = ZERO
 
+        # 与 writer op_resolve 同构（审计 P4/L11）：按 user_id 升序一次锁全部用户，单次 flush
+        all_uids = sorted({uid for _, uid in lose_txs} | {uid for uid, pay in payout_by_user.items() if pay > ZERO})
+        users_by_id: Dict[int, User] = {}
+        if all_uids:
+            users_by_id = {int(u.id): u for u in (await db.execute(
+                select(User).where(User.id.in_(all_uids)).order_by(User.id)
+                .with_for_update().execution_options(populate_existing=True)
+            )).scalars().all()}
+
+        # settle_lose 事件先于赢家加钱记（同一用户既输又赢时快照不能含 payout）
+        await db.flush()
         for lose_tx, lose_uid in lose_txs:
-            lu = (await db.execute(
-                select(User).where(User.id == lose_uid).with_for_update().execution_options(populate_existing=True))).scalars().first()
+            lu = users_by_id.get(int(lose_uid))
             if lu is not None:
                 await audit_service.record_trade(
                     db, tx=lose_tx, user=lu, position=None, market_id=int(market.id),
-                    market_after=None, extra={"path": "legacy"}, operator_user_id=admin.id,
+                    market_after=None, extra={"path": "legacy"}, operator_user_id=admin.id, flush=False,
                 )
 
-        for uid, pay in payout_by_user.items():
+        win_txs: List[Tuple[Transaction, User]] = []
+        for uid in sorted(payout_by_user):
+            pay = payout_by_user[uid]
             if pay <= ZERO:
                 continue
-
-            u_res = await db.execute(
-                select(User).where(User.id == uid).with_for_update().execution_options(populate_existing=True)
-            )
-            u = u_res.scalars().first()
+            u = users_by_id.get(int(uid))
             if not u:
                 raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
-
             u.cash += pay
             total_payout += pay
-
             win_tx = Transaction(
                 user_id=u.id,
                 outcome_id=winning.id,
@@ -1054,10 +1060,14 @@ async def resolve_market(
                 timestamp=now,
             )
             db.add(win_tx)
+            win_txs.append((win_tx, u))
+
+        await db.flush()
+        for win_tx, u in win_txs:
             await audit_service.record_trade(
                 db, tx=win_tx, user=u, position=None, market_id=int(market.id),
                 market_after=None, extra={"payout_unit": payout_unit, "path": "legacy"},
-                operator_user_id=admin.id,
+                operator_user_id=admin.id, flush=False,
             )
 
         for o in outcomes:

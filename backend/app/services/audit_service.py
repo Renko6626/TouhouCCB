@@ -115,13 +115,18 @@ async def record_trade(
     market_after: Optional[dict[str, Any]],
     extra: Optional[dict[str, Any]] = None,
     operator_user_id: Optional[int] = None,
+    flush: bool = True,
 ) -> AuditEvent:
     """Transaction 写入后调用：flush 拿 tx.id，再追加对应审计事件。
 
     position=None 表示该仓位已删除 / 不存在（position_after.amount=0）。
     market_after 对 buy/sell/liquidate 必填（全市场 q 向量）；settle 传 None。
+    flush=False：调用方已自行 flush 过（批量场景，如结算循环——逐条 flush 是
+    O(N²) 的 identity map 扫描，审计 P4）；此时 tx.id 必须已赋值。
     """
-    await session.flush()
+    if flush:
+        await session.flush()
+    assert tx.id is not None, "record_trade(flush=False) requires a flushed tx"
     tx_type = str(getattr(tx.type, "value", tx.type))
     payload: dict[str, Any] = {
         "tx_type": tx_type,
