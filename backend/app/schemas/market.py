@@ -119,6 +119,7 @@ class OutcomeQuoteRead(BaseModel):
     id: int
     label: str
     total_shares: Money
+    initial_shares: Money = Decimal("0")   # 建市场先验起手份额；流通量 = total − initial
     current_price: Price
     payout: Optional[Money] = None
     is_winner: Optional[bool] = None

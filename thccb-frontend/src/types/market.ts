@@ -28,6 +28,7 @@ export interface OutcomeQuote {
   id: number
   label: string
   total_shares: number
+  initial_shares?: number  // 建市场先验起手份额；流通量 = total − initial
   current_price: number
   payout?: number | null
   is_winner?: boolean | null

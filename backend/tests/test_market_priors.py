@@ -50,6 +50,7 @@ async def test_create_market_with_priors(client, setup_db):
     async with async_session_maker() as s:
         outs = (await s.execute(select(Outcome).where(Outcome.market_id == mid).order_by(Outcome.id))).scalars().all()
     q = [float(o.total_shares) for o in outs]
+    assert [o.initial_shares for o in outs] == [o.total_shares for o in outs]
     assert min(q) == 0.0
     _, prices = calculate_lmsr_with_prices(q, 50.0)
     assert [round(p, 4) for p in prices] == [0.7, 0.2, 0.1]
@@ -59,13 +60,14 @@ async def test_create_market_with_priors(client, setup_db):
     assert r.status_code == 200, r.text
     got = [o["current_price"] for o in r.json()["outcomes"]]
     assert [round(p, 4) for p in got] == [0.7, 0.2, 0.1]
+    assert [o["initial_shares"] for o in r.json()["outcomes"]] == q
 
     # 默认仍为全 0
     r = await client.post("/api/v1/market/create", headers=ah, json=base)
     assert r.status_code == 201, r.text
     async with async_session_maker() as s:
         outs = (await s.execute(select(Outcome).where(Outcome.market_id == r.json()["market_id"]))).scalars().all()
-    assert all(o.total_shares == 0 for o in outs)
+    assert all(o.total_shares == 0 and o.initial_shares == 0 for o in outs)
 
 
 @pytest.mark.asyncio

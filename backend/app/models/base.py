@@ -128,6 +128,11 @@ class Outcome(SQLModel, table=True):
     )
     label: str
     total_shares: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
+    # 建市场时的起手份额（先验 q_0 = b·(ln p_i − ln p_min)，无先验为 0）。
+    # 重放 / 回填脚本以此为起点；用户真实流通量 = total_shares − initial_shares。
+    initial_shares: Decimal = Field(
+        default=Decimal("0"), sa_type=Numeric(16, 6), sa_column_kwargs={"server_default": "0"},
+    )
 
     payout: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 8))
     market: Optional["Market"] = Relationship(

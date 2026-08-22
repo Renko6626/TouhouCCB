@@ -221,7 +221,7 @@ async def create_market(
     else:
         seed_q = [ZERO] * len(data.outcomes)
     for label, q0 in zip(data.outcomes, seed_q):
-        db.add(Outcome(market_id=new_market.id, label=label, total_shares=q0))
+        db.add(Outcome(market_id=new_market.id, label=label, total_shares=q0, initial_shares=q0))
     await db.flush()
     audit_service.record(
         db, "market_create", market_id=new_market.id, operator_user_id=admin.id,
@@ -434,6 +434,7 @@ async def get_market_detail(
                 id=int(o.id),
                 label=str(o.label),
                 total_shares=o.total_shares,
+                initial_shares=o.initial_shares,
                 current_price=price,
                 payout=o.payout,
                 is_winner=is_winner,
