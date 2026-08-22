@@ -35,6 +35,7 @@ from app.services.lmsr import (
     calculate_lmsr_with_prices,
     get_current_price,
     quantize_cost,
+    seed_shares_from_prices,
     quantize_price,
 )
 from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
@@ -214,14 +215,21 @@ async def create_market(
     db.add(new_market)
     await db.flush()
 
-    for label in data.outcomes:
-        db.add(Outcome(market_id=new_market.id, label=label, total_shares=ZERO))
+    # 先验：q_i = b·(ln p_i − ln p_min)，使初始价等于 initial_prices；留空则全 0（均匀 1/N）
+    if data.initial_prices:
+        seed_q = seed_shares_from_prices(data.initial_prices, float(data.liquidity_b))
+    else:
+        seed_q = [ZERO] * len(data.outcomes)
+    for label, q0 in zip(data.outcomes, seed_q):
+        db.add(Outcome(market_id=new_market.id, label=label, total_shares=q0))
     await db.flush()
     audit_service.record(
         db, "market_create", market_id=new_market.id, operator_user_id=admin.id,
         payload={"title": data.title, "liquidity_b": float(data.liquidity_b),
                  "outcomes": list(data.outcomes), "closes_at": data.closes_at,
-                 "tags": list(data.tags or [])},
+                 "tags": list(data.tags or []),
+                 "initial_prices": data.initial_prices,
+                 "initial_shares": [str(x) for x in seed_q]},
         market_after=await audit_service.market_snapshot_from_db(db, int(new_market.id)),
     )
 

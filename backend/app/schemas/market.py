@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.base import Money, Price
 from app.schemas.title import TitleChipRead
@@ -15,6 +15,25 @@ class MarketCreate(BaseModel):
     outcomes: List[str] = Field(..., min_length=2, description="至少提供两个选项名称")
     closes_at: Optional[datetime] = Field(default=None, description="交易截止时间（UTC），到期后自动禁止交易")
     tags: Optional[List[str]] = Field(default=None, description="分类标签列表")
+    initial_prices: Optional[List[float]] = Field(
+        default=None,
+        description="各选项初始价格（先验），与 outcomes 一一对应，每项 >0 且和为 1（允许 ±1% 误差，服务端归一化）；留空则均匀 1/N",
+    )
+
+    @model_validator(mode="after")
+    def _check_initial_prices(self):
+        p = self.initial_prices
+        if p is None:
+            return self
+        if len(p) != len(self.outcomes):
+            raise ValueError("initial_prices 长度必须与 outcomes 一致")
+        if any(x <= 0 for x in p):
+            raise ValueError("initial_prices 每项必须 > 0")
+        total = sum(p)
+        if abs(total - 1.0) > 0.01:
+            raise ValueError("initial_prices 之和必须为 1（允许 ±1% 误差）")
+        self.initial_prices = [x / total for x in p]
+        return self
 
 
 class OutcomePriceRead(BaseModel):

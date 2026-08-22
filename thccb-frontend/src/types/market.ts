@@ -78,6 +78,8 @@ export interface MarketCreate {
   outcomes: string[]
   closes_at?: string | null
   tags?: string[]
+  /** 各选项初始价格（先验），与 outcomes 一一对应，和为 1；留空 = 均匀 */
+  initial_prices?: number[]
 }
 
 export interface MarketCreateResponse {
