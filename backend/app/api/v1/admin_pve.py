@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, time as dtime, timezone
 from decimal import Decimal, InvalidOperation
@@ -23,24 +24,30 @@ from app.services import audit_service, site_config
 from app.services.pve import service as pve_service
 from app.services.pve.attention import ACTIVE_PRESETS
 from app.services.pve.engine import ENGINE
-from app.services.pve.templates import TEMPLATE_REGISTRY
+from app.services.pve.templates import PARAM_DOCS, TEMPLATE_REGISTRY
 from app.services.wealth import compute_users_holdings_value
 
 router = APIRouter()
 logger = logging.getLogger("thccb.admin_pve")
 
-# ── 配置键注册表：value_type + 默认值（引擎侧读取用 get_*_or 同默认，缺行不炸）──
-PVE_CONFIG_SPEC: Dict[str, tuple[str, str]] = {
-    "pve_enabled": ("bool", "false"),
-    "pve_tick_interval_sec": ("int", "20"),          # 改后需重启才生效（scheduler 启动时读）
-    "pve_orders_per_min_cap": ("int", "30"),
-    "pve_single_order_cap_cny": ("decimal", "200"),
-    "pve_daily_turnover_cap_cny": ("decimal", "2000"),
-    "pve_max_slippage_bps": ("int", "800"),
-    "pve_death_floor_cny": ("decimal", "3"),
-    "pve_max_wakes_per_tick": ("int", "20"),
-    "leaderboard_include_bots": ("bool", "true"),
-    "wealth_stats_include_bots": ("bool", "true"),
+# ── 配置键注册表：value_type + 默认值 + 中文说明（引擎侧读取用 get_*_or 同默认，缺行不炸）──
+PVE_CONFIG_SPEC: Dict[str, tuple[str, str, str]] = {
+    "pve_enabled": ("bool", "false", "总闸：关掉后最迟一个 tick 内全体机器人停手"),
+    # 改后需重启才生效（scheduler 启动时读）
+    "pve_tick_interval_sec": ("int", "20", "引擎心跳间隔（秒）——改后需重启后端"),
+    "pve_orders_per_min_cap": ("int", "30", "全体机器人每分钟下单总量上限"),
+    "pve_single_order_cap_cny": ("decimal", "200", "单笔成交金额上限（¥），超过直接放弃"),
+    "pve_daily_turnover_cap_cny": ("decimal", "2000", "单机器人当日成交额上限（¥，北京自然日）"),
+    "pve_max_slippage_bps": ("int", "800", "滑点保护（基点）：报价偏离现价超过此值放弃下单"),
+    "pve_death_floor_cny": ("decimal", "3", "死亡水位（¥）：现金+持仓清算价值低于此判死，注资可复活"),
+    "pve_max_wakes_per_tick": ("int", "20", "每个 tick 最多唤醒的机器人数（削峰）"),
+    "pve_sentiment": (
+        "string", "",
+        '风向注入：{"tilts": {"<outcome_id>": 0.15}, "expires_at": "ISO 时间可省"}——'
+        "给散户机器人吹一阵利好/利空（负数）风；清空=撤风",
+    ),
+    "leaderboard_include_bots": ("bool", "true", "排行榜是否计入机器人"),
+    "wealth_stats_include_bots": ("bool", "true", "财富统计是否计入机器人"),
 }
 
 
@@ -110,7 +117,26 @@ async def pve_overview(
         "engine": ENGINE.snapshot(),
         "templates": sorted(TEMPLATE_REGISTRY.keys()),
         "active_presets": sorted(ACTIVE_PRESETS.keys()),
+        "template_details": _template_details(),
+        "param_docs": PARAM_DOCS,
     }
+
+
+def _template_details() -> List[dict]:
+    """模板图鉴：中文名 + docstring 解说 + 分组 + 默认参数（管理页渲染用）。
+    active_preset=always 即量化型（与 spawn_params 的判定同一约定）。"""
+    out = []
+    for name, cls in sorted(TEMPLATE_REGISTRY.items()):
+        doc = (cls.__doc__ or "").strip()
+        out.append({
+            "name": name,
+            "title": cls.title or name,
+            "summary": doc.splitlines()[0].strip() if doc else "",
+            "description": doc,
+            "group": "quant" if cls.default_params.get("active_preset") == "always" else "retail",
+            "params": cls.default_params,
+        })
+    return out
 
 
 def _today_start_utc() -> datetime:
@@ -285,8 +311,13 @@ async def get_config(
 ):
     stored = await site_config.get_many(db, list(PVE_CONFIG_SPEC.keys()))
     return {
-        key: {"value": stored.get(key, default), "value_type": vtype, "is_default": key not in stored}
-        for key, (vtype, default) in PVE_CONFIG_SPEC.items()
+        key: {
+            "value": stored.get(key, default),
+            "value_type": vtype,
+            "is_default": key not in stored,
+            "label": label,
+        }
+        for key, (vtype, default, label) in PVE_CONFIG_SPEC.items()
     }
 
 
@@ -295,6 +326,24 @@ def _validate_config_value(key: str, vtype: str, value: str) -> str:
         v = value.strip().lower()
         if v not in ("true", "false"):
             raise HTTPException(400, detail=f"{key} 需为 true/false")
+        return v
+    if vtype == "string":
+        v = value.strip()
+        if key == "pve_sentiment" and v:  # 空串=撤风，合法；非空必须是格式正确的风向 JSON
+            try:
+                data = json.loads(v)
+                tilts = data["tilts"]
+                if not isinstance(tilts, dict) or not tilts:
+                    raise ValueError
+                for oid, tilt in tilts.items():
+                    int(oid), float(tilt)
+                if data.get("expires_at"):
+                    datetime.fromisoformat(data["expires_at"])
+            except (ValueError, TypeError, KeyError):
+                raise HTTPException(
+                    400,
+                    detail='pve_sentiment 格式：{"tilts": {"<outcome_id>": 0.15}, "expires_at": "ISO 时间可省"}',
+                )
         return v
     try:
         if vtype == "int":
@@ -317,7 +366,7 @@ async def put_config(
         raise HTTPException(400, detail=f"未知配置键：{sorted(unknown)}")
     applied = {}
     for key, raw in payload.items():
-        vtype, _default = PVE_CONFIG_SPEC[key]
+        vtype, _default, _label = PVE_CONFIG_SPEC[key]
         value = _validate_config_value(key, vtype, raw)
         try:
             await site_config.set_value(db, key, value, admin_user_id=admin.id)

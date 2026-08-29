@@ -22,6 +22,15 @@ export interface PveBotItem {
   created_at: string
 }
 
+export interface PveTemplateDetail {
+  name: string
+  title: string
+  summary: string
+  description: string
+  group: 'quant' | 'retail'
+  params: Record<string, unknown>
+}
+
 export interface PveOverview {
   enabled: boolean
   counts: { active: number; paused: number; dead: number }
@@ -32,6 +41,8 @@ export interface PveOverview {
   }
   templates: string[]
   active_presets: string[]
+  template_details: PveTemplateDetail[]
+  param_docs: Record<string, string>
 }
 
 export interface PveLogEntry {
@@ -63,8 +74,9 @@ export interface PvePatchRequest {
 
 export interface PveConfigEntry {
   value: string
-  value_type: 'bool' | 'int' | 'decimal'
+  value_type: 'bool' | 'int' | 'decimal' | 'string'
   is_default: boolean
+  label: string
 }
 
 const P = '/api/v1/admin/pve'

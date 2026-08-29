@@ -157,7 +157,9 @@ async def test_fund_revives_dead_bot(client, admin_headers):
 async def test_config_roundtrip(client, admin_headers):
     r = await client.get(f"{BASE}/config", headers=admin_headers)
     body = r.json()
-    assert body["pve_enabled"] == {"value": "false", "value_type": "bool", "is_default": True}
+    e = body["pve_enabled"]
+    assert (e["value"], e["value_type"], e["is_default"]) == ("false", "bool", True)
+    assert e["label"]  # 每个配置键都带中文说明（管理页直接渲染）
 
     r2 = await client.put(f"{BASE}/config", headers=admin_headers, json={
         "pve_enabled": "true", "pve_orders_per_min_cap": "10",
@@ -179,3 +181,40 @@ async def test_config_roundtrip(client, admin_headers):
                              json={"pve_enabled": "maybe"})).status_code == 400
     assert (await client.put(f"{BASE}/config", headers=admin_headers,
                              json={"pve_orders_per_min_cap": "abc"})).status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_overview_template_details_and_param_docs(client, admin_headers):
+    """管理页人性化元数据：模板中文名/解说/分组/默认参数 + 全量参数说明。"""
+    r = await client.get(f"{BASE}/overview", headers=admin_headers)
+    body = r.json()
+    details = {d["name"]: d for d in body["template_details"]}
+    assert set(details) == set(body["templates"])
+    fan = details["fan"]
+    assert fan["title"] and fan["summary"] and fan["description"]
+    assert fan["params"]["conviction"] == 0.3
+    assert details["liquidity"]["group"] == "quant"    # active_preset=always → 量化
+    assert details["fan"]["group"] == "retail"
+    # 每个模板的每个参数键、以及注意力键，都必须有人话说明——新模板作者漏写会被这里拦下
+    docs = body["param_docs"]
+    from app.services.pve.attention import ATTENTION_DEFAULTS
+    for d in details.values():
+        for k in list(d["params"]) + list(ATTENTION_DEFAULTS):
+            assert k in docs and docs[k], f"参数 {k} 缺说明"
+
+
+@pytest.mark.asyncio
+async def test_config_sentiment_key(client, admin_headers):
+    """pve_sentiment 进配置注册表：合法 JSON / 清空可写，垃圾被拦。"""
+    r = await client.get(f"{BASE}/config", headers=admin_headers)
+    assert r.json()["pve_sentiment"]["value_type"] == "string"
+
+    ok = await client.put(f"{BASE}/config", headers=admin_headers,
+                          json={"pve_sentiment": '{"tilts": {"42": 0.15}}'})
+    assert ok.status_code == 200, ok.text
+    assert (await client.put(f"{BASE}/config", headers=admin_headers,
+                             json={"pve_sentiment": ""})).status_code == 200  # 清空=撤风
+    assert (await client.put(f"{BASE}/config", headers=admin_headers,
+                             json={"pve_sentiment": "not json"})).status_code == 400
+    assert (await client.put(f"{BASE}/config", headers=admin_headers,
+                             json={"pve_sentiment": '{"tilts": {"x": 1}}'})).status_code == 400

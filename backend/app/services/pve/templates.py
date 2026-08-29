@@ -195,9 +195,12 @@ TEMPLATE_REGISTRY: Dict[str, type["BotTemplate"]] = {}
 
 class BotTemplate(ABC):
     """子类只要定义了 name 就自动进 TEMPLATE_REGISTRY——写完类即注册完毕。
-    name 留空的子类视为抽象中间基类，不注册。"""
+    name 留空的子类视为抽象中间基类，不注册。
+    title 是管理页显示的中文名，docstring 首行=一句话简介、全文=解说卡片正文；
+    参数键的说明写进本文件底部的 PARAM_DOCS（漏写会被 test_admin_pve 拦下）。"""
 
     name: str = ""
+    title: str = ""
     default_params: dict = {}
 
     def __init_subclass__(cls, **kwargs):
@@ -219,6 +222,7 @@ class HodlerTemplate(BotTemplate):
     """定投死拿：认准一个 outcome 定期小额买入，几乎不卖。"""
 
     name = "hodler"
+    title = "定投死拿"
     default_params = {
         "outcome_id": None,        # 固定主场；None=随机选定后记住
         "buy_cny_min": 3.0,
@@ -259,6 +263,7 @@ class GridTemplate(BotTemplate):
     持仓每次从 DB 真实读取（bot.holdings），无内部账本漂移。"""
 
     name = "grid"
+    title = "网格党"
     default_params = {
         "outcome_id": None,
         "price_low": None,         # 显式区间；None=锚定价 ±band_pct
@@ -311,6 +316,7 @@ class LiquidityTemplate(BotTemplate):
     造流动性目标的主力模板。"""
 
     name = "liquidity"
+    title = "做市主力"
     default_params = {
         "outcome_id": None,
         "base_shares": 300.0,
@@ -381,6 +387,7 @@ class BelieverTemplate(BotTemplate):
     """
 
     name = "believer"
+    title = "信念散户·通用"
     default_params = {
         # 信念层
         "conviction": 0.12,       # 生成信念时本命 outcome 的上倾幅度（概率空间）
@@ -500,6 +507,7 @@ class FanTemplate(BelieverTemplate):
     """铁杆粉：本命信念又高又硬，跌了反而补仓，几乎不止盈——拿到结算。"""
 
     name = "fan"
+    title = "铁杆粉"
     default_params = {
         **BelieverTemplate.default_params,
         "conviction": 0.3, "herd_coef": 0.03, "w_swing": 0.1,
@@ -512,6 +520,7 @@ class SwingerTemplate(BelieverTemplate):
     """波段客：没什么立场，哪里有波动去哪里，止盈勤快、割肉果断。"""
 
     name = "swinger"
+    title = "波段客"
     default_params = {
         **BelieverTemplate.default_params,
         "conviction": 0.04, "herd_coef": 0.1, "w_swing": 0.8, "trend_coef": 0.7,
@@ -523,6 +532,7 @@ class ChaserTemplate(BelieverTemplate):
     """追涨杀跌：看图表信动量，涨了觉得还会涨；被套后割肉也快。"""
 
     name = "chaser"
+    title = "追涨杀跌"
     default_params = {
         **BelieverTemplate.default_params,
         "conviction": 0.05, "herd_coef": 0.3, "w_swing": 0.7, "trend_coef": 1.2,
@@ -534,6 +544,7 @@ class SheepTemplate(BelieverTemplate):
     """跟风羊：不看价格看人群（net_flow），大家买它才信，总慢半拍。"""
 
     name = "sheep"
+    title = "跟风羊"
     default_params = {
         **BelieverTemplate.default_params,
         "herd_signal": "flow", "herd_coef": 0.5, "flow_step": 0.1,
@@ -545,6 +556,7 @@ class BottomFisherTemplate(BelieverTemplate):
     """抄底侠：大跌进场接飞刀等反弹，赚一点就跑。"""
 
     name = "bottom_fisher"
+    title = "抄底侠"
     default_params = {
         **BelieverTemplate.default_params,
         "conviction": 0.05, "herd_coef": 0.05, "w_swing": 0.75, "trend_coef": -1.0,
@@ -552,3 +564,60 @@ class BottomFisherTemplate(BelieverTemplate):
     }
 
 
+
+
+# ── 参数说明（管理页参数表单渲染用；键覆盖所有模板 default_params + 注意力键）──
+
+PARAM_DOCS: Dict[str, str] = {
+    # 通用执行
+    "outcome_id": "固定主场 outcome 的 id；留空(null)=自己随机认一个并记住",
+    "skip_prob": "看了盘但什么都不做的概率（0~1，人味来源）",
+    "cash_reserve_cny": "永远留在手里的保底现金（¥）",
+    "buy_cny_min": "单次买入金额下限（¥）",
+    "buy_cny_max": "单次买入金额上限（¥）",
+    "max_price": "价格高于此不再追买（0~1）",
+    "sell_prob": "偶发减仓概率（0=从不卖）",
+    # 网格
+    "price_low": "网格下边界价；留空=按锚定价 ±band_pct 自动拉",
+    "price_high": "网格上边界价；留空=自动",
+    "band_pct": "自动网格时围绕锚定价的半宽比例",
+    "levels": "网格线数量",
+    "shares_per_level": "每条网格线对应的目标持仓份额",
+    "min_trade_shares": "低于此份额的调仓不动手（省手续费/防抖）",
+    "max_trade_shares": "单次调仓份额上限",
+    # 做市
+    "base_shares": "底仓目标份额（先 bootstrap 建到这里附近）",
+    "max_offset_shares": "围绕底仓上下浮动的最大份额",
+    "scale_price": "均价偏离多少算「满信号」（tanh 尺度，价格空间）",
+    "lookback_min": "行情观察窗（分钟）——动量/均价都看这个窗口",
+    "bootstrap_step_shares": "建仓期每次买入的份额",
+    "max_bootstrap_price": "价格高于此暂停建仓",
+    # believer 信念层
+    "conviction": "生成信念时本命 outcome 的上倾幅度（概率空间，越大越铁）",
+    "herd_coef": "每次看盘信念被市场带偏的比例（0=铁杆不动摇，负=逆势党）",
+    "herd_signal": "从众信号源：price=跟价格信（图表党）/ flow=跟人群净流入信（从众党）",
+    "flow_scale": "flow 模式：净流入多少份算「人群明显在买」",
+    "flow_step": "flow 模式：单次看盘信念最大被带偏量（价格空间）",
+    "shock_prob": "观点冲击概率——随机重估某个 outcome，模拟看到了消息",
+    "shock_scale": "观点冲击幅度（价格空间）",
+    "sentiment_gain": "对管理员风向注入（pve_sentiment）的易感度（0=免疫）",
+    # believer 短线层
+    "w_swing": "短线动机权重（0=信仰党拿到结算，1=波段客只吃短线）",
+    "trend_coef": "动量外推系数（正=追涨觉得还会涨，负=等回调抢反弹）",
+    "take_profit": "浮盈比例止盈线（按 w_swing 概率执行——波段客勤快）",
+    "stop_loss": "浮亏比例割肉线（信念也不再支持时才割）",
+    "act_threshold": "行动阈值：|edge| 超过才动手（每次带 ±30% 抖动）",
+    "aggressiveness": "下注规模系数：单次 ≈ 现金 × 本系数 × edge 强度",
+    "yolo_prob": "上头概率：命中时这一单直接 ×3",
+    "max_bet_cny": "单次下注金额上限（¥）",
+    # 注意力（attention.py）
+    "check_interval_sec": "常规看盘间隔（秒）；量化型分钟级、散户小时级",
+    "active_preset": "作息模板：always 全天候（量化）/ worker 上班族 / evening 晚间党 / owl 夜猫 / loose 松散",
+    "hour_offset": "个体作息偏移（小时，生成时随机）",
+    "alert_window_min": "行情推送观察窗（分钟）",
+    "alert_threshold": "窗口内 |Δ价格| 超过此值算「大行情」，可能被推送唤醒",
+    "alert_prob": "收到推送后真的点开看盘的概率",
+    "alert_cooldown_sec": "两次推送唤醒之间的冷却（秒）",
+    "alert_delay_min_sec": "被推送后陆续点开的最小延迟（秒）",
+    "alert_delay_max_sec": "被推送后陆续点开的最大延迟（秒）",
+}

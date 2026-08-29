@@ -7,6 +7,7 @@ import {
 import {
   pveApi,
   type PveBotItem, type PveConfigEntry, type PveLogEntry, type PveOverview,
+  type PveTemplateDetail,
 } from '@/api/pve'
 
 const msg = useMessage()
@@ -50,8 +51,34 @@ function formatTs(iso: string | null): string {
   return new Date(iso).toLocaleString('zh-CN', { hour12: false })
 }
 
+// ── 模板图鉴（后端 docstring 是解说的单一来源，新模板自动出现在这里）────────
+
+const templateDetails = computed<PveTemplateDetail[]>(() => {
+  const details = overview.value?.template_details ?? []
+  // 量化底盘在前、散户人格在后，同组按中文名稳定排序
+  return [...details].sort((a, b) =>
+    a.group === b.group ? a.title.localeCompare(b.title, 'zh') : a.group === 'quant' ? -1 : 1)
+})
+const detailByName = computed<Record<string, PveTemplateDetail>>(() =>
+  Object.fromEntries(templateDetails.value.map(d => [d.name, d])))
+const templateTitle = (name: string) => detailByName.value[name]?.title ?? name
+const groupLabel = (g: string) => (g === 'quant' ? '量化底盘' : '散户人格')
+// docstring 展示：去掉与 summary 重复的首行，按空行分段，段内源码换行合并
+function personaParagraphs(d: PveTemplateDetail): string[] {
+  const rest = d.description.startsWith(d.summary)
+    ? d.description.slice(d.summary.length)
+    : d.description
+  return rest
+    .split(/\n\s*\n/)
+    .map(p => p.replace(/\s*\n\s*/g, '').trim())
+    .filter(Boolean)
+}
+const paramDocs = computed<Record<string, string>>(() => overview.value?.param_docs ?? {})
+
 const templateOptions = computed<SelectOption[]>(() =>
-  (overview.value?.templates ?? []).map(t => ({ label: t, value: t })),
+  templateDetails.value.length
+    ? templateDetails.value.map(d => ({ label: `${d.title}（${d.name}）`, value: d.name }))
+    : (overview.value?.templates ?? []).map(t => ({ label: t, value: t })),
 )
 
 // ── 急停闸 ──────────────────────────────────────────────────────────────
@@ -150,27 +177,83 @@ async function submitFund() {
   }
 }
 
-// 参数编辑（params JSON + 模板 + 市场范围）
+// 参数编辑：表单模式（带说明的逐项输入）为主，JSON 模式兜底
 const editTarget = ref<PveBotItem | null>(null)
+const editMode = ref<'form' | 'json'>('form')
+const editParams = ref<Record<string, unknown>>({})
 const editParamsText = ref('')
 const editTemplate = ref('')
 const editScope = ref('')
 
 function openEdit(b: PveBotItem) {
   editTarget.value = b
+  editParams.value = JSON.parse(JSON.stringify(b.params))
   editParamsText.value = JSON.stringify(b.params, null, 2)
   editTemplate.value = b.template
   editScope.value = (b.market_scope ?? []).join(',')
+  editMode.value = 'form'
 }
+
+function switchEditMode(mode: 'form' | 'json') {
+  if (mode === editMode.value) return
+  if (mode === 'json') {
+    editParamsText.value = JSON.stringify(editParams.value, null, 2)
+  } else {
+    try {
+      editParams.value = JSON.parse(editParamsText.value)
+    } catch {
+      msg.error('params 不是合法 JSON，先修好再切回表单')
+      return
+    }
+  }
+  editMode.value = mode
+}
+
+// 每个参数按值类型挑输入控件；作息/信号源这类语义枚举给下拉
+type ParamKind = 'bool' | 'number' | 'preset' | 'signal' | 'text'
+function paramKind(key: string, val: unknown): ParamKind {
+  if (typeof val === 'boolean') return 'bool'
+  if (key === 'active_preset') return 'preset'
+  if (key === 'herd_signal') return 'signal'
+  if (typeof val === 'number' || val === null) return 'number'
+  return 'text'
+}
+const editParamRows = computed(() =>
+  Object.keys(editParams.value).map(k => ({ key: k, kind: paramKind(k, editParams.value[k]) })))
+const setParam = (k: string, v: unknown) => { editParams.value[k] = v }
+const numParam = (k: string): number | null => {
+  const v = editParams.value[k]
+  return typeof v === 'number' ? v : null
+}
+const strParam = (k: string): string => {
+  const v = editParams.value[k]
+  return typeof v === 'string' ? v : ''
+}
+const boolParam = (k: string): boolean => editParams.value[k] === true
+
+const PRESET_LABELS: Record<string, string> = {
+  always: 'always · 全天候（量化）', worker: 'worker · 上班族', evening: 'evening · 晚间党',
+  owl: 'owl · 夜猫', loose: 'loose · 松散',
+}
+const presetOptions = computed<SelectOption[]>(() =>
+  (overview.value?.active_presets ?? []).map(p => ({ label: PRESET_LABELS[p] ?? p, value: p })))
+const signalOptions: SelectOption[] = [
+  { label: 'price · 跟价格信（图表党）', value: 'price' },
+  { label: 'flow · 跟人群信（从众党）', value: 'flow' },
+]
 
 async function submitEdit() {
   if (!editTarget.value) return
   let params: Record<string, unknown>
-  try {
-    params = JSON.parse(editParamsText.value)
-  } catch {
-    msg.error('params 不是合法 JSON')
-    return
+  if (editMode.value === 'form') {
+    params = editParams.value
+  } else {
+    try {
+      params = JSON.parse(editParamsText.value)
+    } catch {
+      msg.error('params 不是合法 JSON')
+      return
+    }
   }
   const scope = parseScope(editScope.value)
   if (editScope.value.trim() && scope === null) { msg.error('市场范围格式：逗号分隔的市场 id'); return }
@@ -276,11 +359,33 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
         </div>
       </section>
 
+      <!-- 模板图鉴 -->
+      <section class="panel">
+        <h2>人格图鉴</h2>
+        <p class="hint">
+          量化底盘全天候提供流动性；散户人格是同一个「信念模型」的不同参数点位——
+          行为从信念演化里涌现，没有固定套路可被玩家试探。点开卡片看完整解说。
+        </p>
+        <div class="persona-grid">
+          <details v-for="d in templateDetails" :key="d.name" class="persona-card">
+            <summary class="persona-head">
+              <span class="persona-title">{{ d.title }}</span>
+              <code class="persona-code">{{ d.name }}</code>
+              <NTag size="tiny" :type="d.group === 'quant' ? 'info' : 'default'">
+                {{ groupLabel(d.group) }}
+              </NTag>
+            </summary>
+            <p class="persona-summary">{{ d.summary }}</p>
+            <p v-for="(para, i) in personaParagraphs(d)" :key="i" class="persona-desc">{{ para }}</p>
+          </details>
+        </div>
+      </section>
+
       <!-- 批量生成 -->
       <section class="panel">
         <h2>批量生成</h2>
         <div class="row">
-          <NSelect v-model:value="genTemplate" :options="templateOptions" placeholder="模板" size="small" style="width: 140px" />
+          <NSelect v-model:value="genTemplate" :options="templateOptions" placeholder="人格模板" size="small" style="width: 210px" />
           <NInputNumber v-model:value="genCount" :min="1" :max="50" size="small" style="width: 100px">
             <template #suffix>个</template>
           </NInputNumber>
@@ -291,7 +396,10 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
           <NInput v-model:value="genScope" placeholder="市场范围 id（逗号分隔，空=全部）" size="small" style="width: 220px" />
           <NButton type="primary" size="small" :loading="generating" @click="generate">生成</NButton>
         </div>
-        <p class="hint">初始注资走 ledger 调账记账；人格参数按模板默认值随机扰动落库，生成后可逐个调整。</p>
+        <p v-if="genTemplate && detailByName[genTemplate]" class="hint persona-pick">
+          {{ detailByName[genTemplate]?.summary }}
+        </p>
+        <p class="hint">初始注资走 ledger 调账记账；人格参数按模板默认值随机扰动落库（同模板个体天然不同），生成后可逐个调整。</p>
       </section>
 
       <!-- 账户池 -->
@@ -321,7 +429,12 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
                   <code class="user-id">uid={{ b.user_id }}</code>
                 </div>
               </td>
-              <td><NTag size="small">{{ b.template }}</NTag></td>
+              <td>
+                <div class="user-cell">
+                  <NTag size="small">{{ templateTitle(b.template) }}</NTag>
+                  <code class="user-id">{{ b.template }}</code>
+                </div>
+              </td>
               <td>
                 <NTag :type="statusTagType(b.status)" size="small">{{ statusLabel(b.status) }}</NTag>
                 <NTag v-if="b.status === 'active' && !b.scheduled" size="small" type="warning">未入调度</NTag>
@@ -358,14 +471,21 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
         </div>
         <NTable :bordered="true" :single-line="false" size="small">
           <thead>
-            <tr><th>键</th><th>类型</th><th style="width: 200px">值</th><th>状态</th></tr>
+            <tr><th>配置项</th><th style="width: 240px">值</th><th>状态</th></tr>
           </thead>
           <tbody>
             <tr v-for="k in configKeys" :key="k">
-              <td class="mono">{{ k }}</td>
-              <td class="small">{{ config[k]?.value_type }}</td>
+              <td>
+                <div class="config-cell">
+                  <code class="param-key">{{ k }}</code>
+                  <span class="param-doc">{{ config[k]?.label }}</span>
+                </div>
+              </td>
               <td>
                 <NInput :value="configDraft[k] ?? ''" size="small"
+                        :type="k === 'pve_sentiment' ? 'textarea' : 'text'"
+                        :autosize="k === 'pve_sentiment' ? { minRows: 2, maxRows: 4 } : undefined"
+                        :placeholder="k === 'pve_sentiment' ? '空=无风向' : ''"
                         @update:value="(v: string) => { configDraft[k] = v }" />
               </td>
               <td>
@@ -375,10 +495,6 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
             </tr>
           </tbody>
         </NTable>
-        <p class="hint">
-          pve_tick_interval_sec 改后需重启后端生效；其余热生效。
-          leaderboard/wealth_stats_include_bots 控制排行榜与财富统计是否计入机器人。
-        </p>
       </section>
     </NSpin>
 
@@ -399,17 +515,50 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
     </NModal>
 
     <!-- 参数编辑 modal -->
-    <NModal :show="editTarget !== null" preset="card" :title="`参数：${editTarget?.username ?? ''}`"
-            style="width: 560px" @update:show="(v: boolean) => { if (!v) editTarget = null }">
+    <NModal :show="editTarget !== null" preset="card" :title="`人格调校：${editTarget?.username ?? ''}`"
+            style="width: 640px" @update:show="(v: boolean) => { if (!v) editTarget = null }">
       <div class="modal-form">
         <div class="row">
           <span class="field-label">模板</span>
-          <NSelect v-model:value="editTemplate" :options="templateOptions" size="small" style="width: 160px" />
+          <NSelect v-model:value="editTemplate" :options="templateOptions" size="small" style="width: 210px" />
           <span class="field-label">市场范围</span>
-          <NInput v-model:value="editScope" placeholder="空=全部" size="small" style="width: 160px" />
+          <NInput v-model:value="editScope" placeholder="空=全部" size="small" style="width: 140px" />
+          <span class="spacer" />
+          <NButton size="tiny" :type="editMode === 'form' ? 'primary' : 'default'"
+                   @click="switchEditMode('form')">表单</NButton>
+          <NButton size="tiny" :type="editMode === 'json' ? 'primary' : 'default'"
+                   @click="switchEditMode('json')">JSON</NButton>
         </div>
-        <NInput v-model:value="editParamsText" type="textarea" :rows="14" class="mono" />
-        <p class="hint">params 为 JSON；换模板会清空该机器人的进程内记忆（网格线/主场等）。</p>
+        <p v-if="editTemplate && detailByName[editTemplate]" class="hint persona-pick">
+          {{ detailByName[editTemplate]?.summary }}
+        </p>
+
+        <div v-if="editMode === 'form'" class="param-form">
+          <div v-for="row in editParamRows" :key="row.key" class="param-row">
+            <div class="param-info">
+              <code class="param-key">{{ row.key }}</code>
+              <span class="param-doc">{{ paramDocs[row.key] ?? '' }}</span>
+            </div>
+            <div class="param-input">
+              <NSwitch v-if="row.kind === 'bool'" size="small" :value="boolParam(row.key)"
+                       @update:value="(v: boolean) => setParam(row.key, v)" />
+              <NSelect v-else-if="row.kind === 'preset'" size="small" :value="strParam(row.key)"
+                       :options="presetOptions" style="width: 190px"
+                       @update:value="(v: string) => setParam(row.key, v)" />
+              <NSelect v-else-if="row.kind === 'signal'" size="small" :value="strParam(row.key)"
+                       :options="signalOptions" style="width: 190px"
+                       @update:value="(v: string) => setParam(row.key, v)" />
+              <NInputNumber v-else-if="row.kind === 'number'" size="small" :value="numParam(row.key)"
+                            clearable placeholder="留空=自动" style="width: 150px" :show-button="false"
+                            @update:value="(v: number | null) => setParam(row.key, v)" />
+              <NInput v-else size="small" :value="strParam(row.key)" style="width: 190px"
+                      @update:value="(v: string) => setParam(row.key, v)" />
+            </div>
+          </div>
+        </div>
+        <NInput v-else v-model:value="editParamsText" type="textarea" :rows="14" class="mono" />
+
+        <p class="hint">改动下一个 tick 生效；换模板会清空该机器人的进程内记忆（信念/网格线/主场等），相当于换了个人。</p>
         <div class="row right">
           <NButton size="small" @click="editTarget = null">取消</NButton>
           <NButton size="small" type="primary" @click="submitEdit">保存</NButton>
@@ -548,5 +697,98 @@ h2 {
   font-size: 12px;
   color: #666;
   margin: 0 0 6px 0;
+}
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.persona-card {
+  border: 2px solid #000;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+.persona-card[open] {
+  background: #fff;
+}
+.persona-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.persona-head::-webkit-details-marker {
+  display: none;
+}
+.persona-title {
+  font-weight: 800;
+  font-size: 14px;
+}
+.persona-code {
+  font-family: monospace;
+  font-size: 11px;
+  color: #888;
+}
+.persona-summary {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.persona-desc {
+  margin: 6px 0 0 0;
+  font-size: 12px;
+  color: #444;
+  line-height: 1.7;
+}
+.persona-summary + .persona-desc {
+  border-top: 1.5px dashed #ccc;
+  padding-top: 6px;
+}
+.persona-pick {
+  border-left: 3px solid #000;
+  padding-left: 8px;
+  color: #000;
+}
+.param-form {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1.5px solid #ddd;
+}
+.param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+}
+.param-row:last-child {
+  border-bottom: none;
+}
+.param-info,
+.config-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.param-key {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+.param-doc {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.5;
+}
+.param-input {
+  flex-shrink: 0;
+}
+.spacer {
+  flex: 1;
 }
 </style>
