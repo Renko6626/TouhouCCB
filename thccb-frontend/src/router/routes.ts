@@ -173,6 +173,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: 'Bot 预警', requiresAuth: true, requiresAdmin: true },
       },
       {
+        path: 'admin/pve',
+        name: 'admin-pve',
+        component: () => import('@/pages/admin/PveManage.vue'),
+        meta: { title: 'PvE 机器人', requiresAuth: true, requiresAdmin: true },
+      },
+      {
         path: 'admin/redemption/partners',
         name: 'admin-redemption-partners',
         component: () => import('@/pages/admin/RedemptionPartners.vue'),

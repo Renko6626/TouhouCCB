@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
+from app.services import site_config
 from app.services.wealth import compute_users_holdings_value
 from app.services.wealth_stats import compute_wealth_distribution
 
@@ -32,9 +33,12 @@ async def wealth_stats(
     口径与 /user/summary、/market/leaderboard 一致——持仓清算价 = LMSR 全部
     卖出 gross × (1-fee)，统一走 services.wealth.compute_users_holdings_value。
     """
-    users = (await db.execute(
-        select(User).where(User.is_active == True)  # noqa: E712
-    )).scalars().all()
+    # PvE：wealth_stats_include_bots=false 时宏观统计只看真人
+    include_bots = await site_config.get_bool_or(db, "wealth_stats_include_bots", True)
+    users_stmt = select(User).where(User.is_active == True)  # noqa: E712
+    if not include_bots:
+        users_stmt = users_stmt.where(User.is_bot == False)  # noqa: E712
+    users = (await db.execute(users_stmt)).scalars().all()
     if not users:
         return compute_wealth_distribution(
             [], total_cash=0.0, total_debt=0.0, total_holdings_value=0.0,

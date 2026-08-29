@@ -49,6 +49,7 @@ const adminItems: NavEntry[] = [
     ],
   },
   { label: '市场管理', path: '/admin/markets', icon: 'i-mdi-chart-box-outline', activeIcon: 'i-mdi-chart-box' },
+  { label: 'PvE 机器人', path: '/admin/pve', icon: 'i-mdi-robot-outline', activeIcon: 'i-mdi-robot' },
   {
     label: '风控', icon: 'i-mdi-shield-outline', activeIcon: 'i-mdi-shield',
     children: [

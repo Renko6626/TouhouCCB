@@ -1,0 +1,335 @@
+"""PvE 机器人管理 endpoints（spec §7）。全部超管；挂 /api/v1/admin/pve（nginx /admin 限速带）。
+
+资金操作（generate 初始注资 / fund 注资复活）走 ledger_service.record_entry，
+与人工调账同一条审计链。决策日志读 ENGINE 内存环形缓冲（重启即弃，spec §2）。
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, time as dtime, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_async_session, managed_transaction
+from app.core.users import current_superuser
+from app.models.base import SiteConfig, Transaction, User
+from app.models.bot import BotProfile, BOT_STATUS_ACTIVE, BOT_STATUS_PAUSED
+from app.services import audit_service, site_config
+from app.services.pve import service as pve_service
+from app.services.pve.attention import ACTIVE_PRESETS
+from app.services.pve.engine import ENGINE
+from app.services.pve.templates import TEMPLATE_REGISTRY
+from app.services.wealth import compute_users_holdings_value
+
+router = APIRouter()
+logger = logging.getLogger("thccb.admin_pve")
+
+# ── 配置键注册表：value_type + 默认值（引擎侧读取用 get_*_or 同默认，缺行不炸）──
+PVE_CONFIG_SPEC: Dict[str, tuple[str, str]] = {
+    "pve_enabled": ("bool", "false"),
+    "pve_tick_interval_sec": ("int", "20"),          # 改后需重启才生效（scheduler 启动时读）
+    "pve_orders_per_min_cap": ("int", "30"),
+    "pve_single_order_cap_cny": ("decimal", "200"),
+    "pve_daily_turnover_cap_cny": ("decimal", "2000"),
+    "pve_max_slippage_bps": ("int", "800"),
+    "pve_death_floor_cny": ("decimal", "3"),
+    "pve_max_wakes_per_tick": ("int", "20"),
+    "leaderboard_include_bots": ("bool", "true"),
+    "wealth_stats_include_bots": ("bool", "true"),
+}
+
+
+# ── Schemas ──────────────────────────────────────────────────────────────
+
+
+class BotItem(BaseModel):
+    profile_id: int
+    user_id: int
+    username: str
+    template: str
+    status: str
+    params: dict
+    market_scope: Optional[List[int]]
+    cash: float
+    holdings_value: float          # LCV 清算口径
+    total_value: float
+    today_turnover: float
+    scheduled: bool                # 当前是否在引擎调度中
+    next_action_at: Optional[str]
+    last_trade_at: Optional[datetime]
+    created_at: datetime
+
+
+class GenerateItem(BaseModel):
+    template: str
+    count: int = Field(..., ge=1, le=50)
+
+
+class GenerateRequest(BaseModel):
+    items: List[GenerateItem] = Field(..., min_length=1)
+    naming_style: str = Field("lowkey", pattern="^(npc|lowkey)$")
+    initial_cash: Decimal = Field(..., ge=0, le=100000)
+    market_scope: Optional[List[int]] = None
+
+
+class PatchBotRequest(BaseModel):
+    status: Optional[str] = Field(None, pattern="^(active|paused)$")
+    template: Optional[str] = None
+    params: Optional[dict] = None
+    market_scope: Optional[List[int]] = None  # 显式传 null 清空范围（看 model_fields_set）
+
+
+class FundRequest(BaseModel):
+    amount: Decimal = Field(..., gt=0, le=100000)
+    reason: Optional[str] = Field(None, max_length=200)
+
+
+# ── 总览 / 列表 ──────────────────────────────────────────────────────────
+
+
+@router.get("/overview", summary="PvE 总览：引擎状态 + 编制统计")
+async def pve_overview(
+    db: AsyncSession = Depends(get_async_session),
+    _: User = Depends(current_superuser),
+):
+    counts = {
+        s: c
+        for s, c in (
+            await db.execute(select(BotProfile.status, func.count()).group_by(BotProfile.status))
+        ).all()
+    }
+    enabled = await site_config.get_bool_or(db, "pve_enabled", False)
+    return {
+        "enabled": enabled,
+        "counts": {"active": counts.get("active", 0), "paused": counts.get("paused", 0), "dead": counts.get("dead", 0)},
+        "engine": ENGINE.snapshot(),
+        "templates": sorted(TEMPLATE_REGISTRY.keys()),
+        "active_presets": sorted(ACTIVE_PRESETS.keys()),
+    }
+
+
+def _today_start_utc() -> datetime:
+    """北京自然日起点的 UTC 时刻（当日成交额口径与引擎 day_turnover 一致）。"""
+    from app.services.pve.attention import TZ
+
+    now_bj = datetime.now(TZ)
+    return datetime.combine(now_bj.date(), dtime.min, tzinfo=TZ).astimezone(timezone.utc)
+
+
+@router.get("/bots", response_model=List[BotItem], summary="机器人账户池列表")
+async def list_bots(
+    db: AsyncSession = Depends(get_async_session),
+    _: User = Depends(current_superuser),
+):
+    rows = (
+        await db.execute(
+            select(BotProfile, User).join(User, User.id == BotProfile.user_id).order_by(BotProfile.id)
+        )
+    ).all()
+    if not rows:
+        return []
+    uids = [u.id for _, u in rows]
+    lcv = await compute_users_holdings_value(db, uids)
+    turnover_rows = (
+        await db.execute(
+            select(Transaction.user_id, func.coalesce(func.sum(Transaction.gross), 0))
+            .where(
+                Transaction.user_id.in_(uids),
+                Transaction.timestamp >= _today_start_utc(),
+                Transaction.type.in_(("buy", "sell")),
+            )
+            .group_by(Transaction.user_id)
+        )
+    ).all()
+    turnover = {uid: float(v) for uid, v in turnover_rows}
+    items: List[BotItem] = []
+    for profile, user in rows:
+        rt = ENGINE.runtimes.get(profile.id)
+        hv = float(lcv.get(user.id, Decimal("0")))
+        items.append(
+            BotItem(
+                profile_id=profile.id,
+                user_id=user.id,
+                username=user.username,
+                template=profile.template,
+                status=profile.status,
+                params=profile.params or {},
+                market_scope=profile.market_scope,
+                cash=float(user.cash),
+                holdings_value=hv,
+                total_value=float(user.cash) + hv,
+                today_turnover=turnover.get(user.id, 0.0),
+                scheduled=rt is not None,
+                next_action_at=rt.next_action_at.isoformat(timespec="seconds") if rt else None,
+                last_trade_at=profile.last_trade_at,
+                created_at=profile.created_at,
+            )
+        )
+    return items
+
+
+# ── 编制管理 ─────────────────────────────────────────────────────────────
+
+
+@router.post("/bots/generate", summary="批量生成机器人（初始注资走 ledger）")
+async def generate_bots(
+    payload: GenerateRequest,
+    db: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_superuser),
+):
+    total = sum(it.count for it in payload.items)
+    if total > 100:
+        raise HTTPException(400, detail="单次最多生成 100 个")
+    try:
+        async with managed_transaction(db):
+            created = await pve_service.generate_bots(
+                db,
+                items=[(it.template, it.count) for it in payload.items],
+                naming_style=payload.naming_style,
+                initial_cash=payload.initial_cash,
+                market_scope=payload.market_scope,
+                operator_user_id=admin.id,
+            )
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    logger.info("pve_generate admin=%s count=%s", admin.id, len(created))
+    return {"created": created}
+
+
+@router.patch("/bots/{profile_id}", summary="个体干预：暂停/恢复、换模板、改参数、改市场范围")
+async def patch_bot(
+    profile_id: int,
+    payload: PatchBotRequest,
+    db: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_superuser),
+):
+    profile = (
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+    ).scalars().first()
+    if profile is None:
+        raise HTTPException(404, detail="机器人不存在")
+    if payload.template is not None and payload.template not in TEMPLATE_REGISTRY:
+        raise HTTPException(400, detail=f"未知模板：{payload.template}")
+    changes: dict = {}
+    async with managed_transaction(db):
+        if payload.status is not None:
+            changes["status"] = [profile.status, payload.status]
+            profile.status = payload.status
+        if payload.template is not None:
+            changes["template"] = [profile.template, payload.template]
+            profile.template = payload.template
+        if payload.params is not None:
+            changes["params"] = True
+            profile.params = payload.params
+        if "market_scope" in payload.model_fields_set:
+            changes["market_scope"] = [profile.market_scope, payload.market_scope]
+            profile.market_scope = payload.market_scope
+        pass
+    if changes:
+        # 非资金操作不进 audit_event（资金动作已由 ledger 记账+审计）；运维日志留痕
+        logger.info("pve_bot_patch admin=%s profile=%s changes=%s", admin.id, profile.id, changes)
+    return {"ok": True, "changes": list(changes.keys())}
+
+
+@router.post("/bots/{profile_id}/fund", summary="注资（dead 顺带复活）")
+async def fund_bot(
+    profile_id: int,
+    payload: FundRequest,
+    db: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_superuser),
+):
+    profile = (
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+    ).scalars().first()
+    if profile is None:
+        raise HTTPException(404, detail="机器人不存在")
+    async with managed_transaction(db):
+        user = await pve_service.fund_bot(
+            db,
+            profile=profile,
+            amount=payload.amount,
+            operator_user_id=admin.id,
+            reason=payload.reason,
+        )
+        new_cash = float(user.cash)
+        status = profile.status
+    return {"ok": True, "new_cash": new_cash, "status": status}
+
+
+@router.get("/bots/{profile_id}/log", summary="决策流水（内存环形缓冲，重启即弃）")
+async def bot_log(
+    profile_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    _: User = Depends(current_superuser),
+):
+    profile = (
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+    ).scalars().first()
+    if profile is None:
+        raise HTTPException(404, detail="机器人不存在")
+    return {"profile_id": profile_id, "log": ENGINE.get_log(profile_id)}
+
+
+# ── 全局配置 ─────────────────────────────────────────────────────────────
+
+
+@router.get("/config", summary="PvE 全局配置（含未落库的默认值）")
+async def get_config(
+    db: AsyncSession = Depends(get_async_session),
+    _: User = Depends(current_superuser),
+):
+    stored = await site_config.get_many(db, list(PVE_CONFIG_SPEC.keys()))
+    return {
+        key: {"value": stored.get(key, default), "value_type": vtype, "is_default": key not in stored}
+        for key, (vtype, default) in PVE_CONFIG_SPEC.items()
+    }
+
+
+def _validate_config_value(key: str, vtype: str, value: str) -> str:
+    if vtype == "bool":
+        v = value.strip().lower()
+        if v not in ("true", "false"):
+            raise HTTPException(400, detail=f"{key} 需为 true/false")
+        return v
+    try:
+        if vtype == "int":
+            int(value)
+        else:
+            Decimal(value)
+    except (ValueError, InvalidOperation):
+        raise HTTPException(400, detail=f"{key} 的值 {value!r} 不是合法 {vtype}")
+    return value.strip()
+
+
+@router.put("/config", summary="改 PvE 全局配置（缺行自动落库）")
+async def put_config(
+    payload: Dict[str, str],
+    db: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_superuser),
+):
+    unknown = set(payload) - set(PVE_CONFIG_SPEC)
+    if unknown:
+        raise HTTPException(400, detail=f"未知配置键：{sorted(unknown)}")
+    applied = {}
+    for key, raw in payload.items():
+        vtype, _default = PVE_CONFIG_SPEC[key]
+        value = _validate_config_value(key, vtype, raw)
+        try:
+            await site_config.set_value(db, key, value, admin_user_id=admin.id)
+        except site_config.SiteConfigError:
+            # 首次设置：行不存在，直接落库（set_value 只改已有行）
+            db.add(SiteConfig(key=key, value=value, value_type=vtype, updated_by=admin.id))
+            audit_service.record(
+                db, "config_set",
+                operator_user_id=admin.id,
+                payload={"key": key, "old": None, "new": value, "value_type": vtype},
+            )
+            await db.commit()
+            site_config.clear_cache()
+        applied[key] = value
+    return {"ok": True, "applied": applied}
