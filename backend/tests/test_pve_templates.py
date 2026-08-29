@@ -1,56 +1,11 @@
-"""PvE 模板决策单测：decide() 纯函数 + MarketView 窗口计算，全部夹具驱动，无 DB。"""
+"""PvE 模板决策单测：decide() 纯函数 + MarketView 窗口计算，夹具见 tests/pve_helpers.py。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import random
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
-
 from app.services.pve.templates import (
-    BotState,
-    GridTemplate,
-    HodlerTemplate,
-    LiquidityTemplate,
-    MarketBrief,
-    MarketView,
-    OutcomeView,
-    TradeBrief,
+    GridTemplate, HodlerTemplate, LiquidityTemplate,
 )
-
-NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
-
-
-def _view(price_a=0.5, price_b=0.5, trades=None) -> MarketView:
-    """单市场双 outcome（id 11/12，market 1）夹具。"""
-    return MarketView(
-        now=NOW,
-        outcomes={
-            11: OutcomeView(11, 1, "A", price_a),
-            12: OutcomeView(12, 1, "B", price_b),
-        },
-        markets={1: MarketBrief(1, [11, 12])},
-        trades=trades or [],
-    )
-
-
-def _bot(template_cls, cash="100", holdings=None, seed=1, **param_overrides) -> BotState:
-    params = dict(template_cls.default_params)
-    params.update(param_overrides)
-    return BotState(
-        user_id=1, profile_id=1, username="bot",
-        params=params, market_scope=None,
-        cash=Decimal(cash),
-        holdings={k: (Decimal(str(a)), Decimal("0")) for k, a in (holdings or {}).items()},
-        memory={}, rng=random.Random(seed),
-    )
-
-
-def _trade(minutes_ago: float, outcome_id=11, price=0.5, post=None, side="buy", shares=10.0):
-    return TradeBrief(
-        ts=NOW - timedelta(minutes=minutes_ago),
-        outcome_id=outcome_id, market_id=1, side=side,
-        shares=shares, price=price, market_prices_post=post,
-    )
+from tests.pve_helpers import make_bot as _bot, make_trade as _trade, make_view as _view
 
 
 # ── MarketView 窗口计算 ─────────────────────────────────────────────────
@@ -70,6 +25,25 @@ def test_window_change_uses_oldest_trade_in_window():
     assert abs(v.window_change(11, 10) - (0.5 - 0.40)) < 1e-9
     # 同市场另一 outcome 用同一笔快照的对应下标
     assert abs(v.window_change(12, 10) - (0.5 - 0.60)) < 1e-9
+
+
+def test_net_flow_buy_minus_sell():
+    trades = [
+        _trade(2, side="buy", shares=30.0),
+        _trade(5, side="sell", shares=10.0),
+        _trade(8, side="buy", shares=5.0),
+        _trade(30, side="buy", shares=100.0),  # 窗口外
+        _trade(3, outcome_id=12, side="buy", shares=99.0),  # 别的 outcome
+    ]
+    v = _view(trades=trades)
+    assert abs(v.net_flow(11, 10) - (30 - 10 + 5)) < 1e-9
+    assert v.net_flow(11, 1) == 0.0
+
+
+def test_bot_avg_cost():
+    bot = _bot(HodlerTemplate, holdings={11: (20, 8)})  # 20 份成本 8 → 均价 0.4
+    assert abs(bot.avg_cost(11) - 0.4) < 1e-9
+    assert bot.avg_cost(12) is None  # 无仓位
 
 
 def test_max_abs_change_scoped():

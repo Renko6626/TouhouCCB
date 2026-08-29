@@ -1,7 +1,11 @@
 """PvE 人格模板：数据结构 + 一期模板实现 + 注册表。
 
+**写新模板看 docs/pve.md**——一个 BotTemplate 子类（name + default_params + decide()）
+写进本文件即自动注册，不用改任何其他地方。
+
 decide() 是同步纯函数（输入 BotState + MarketView，输出 Action | None），
-不碰 DB / 不发请求——所有 IO 由 engine 承担，模板可以直接用夹具单测。
+不碰 DB / 不发请求——所有 IO 由 engine 承担，模板可以直接用夹具单测
+（夹具见 tests/pve_helpers.py）。
 
 一期模板（spec §5.2）：liquidity（做市主力）/ grid（网格）/ hodler（定投死拿，兼冒烟测试）。
 二期散户行为化模板（chaser/sheep/bottom_fisher/gambler/degen）后续加入。
@@ -98,6 +102,15 @@ class MarketView:
         cutoff = self.now - timedelta(minutes=minutes)
         return sum(1 for t in self.trades if t.outcome_id == outcome_id and t.ts >= cutoff)
 
+    def net_flow(self, outcome_id: int, minutes: float) -> float:
+        """窗口内净流入份额：Σbuy − Σsell。>0 = 人群在买（sheep 跟风的信号源）。"""
+        cutoff = self.now - timedelta(minutes=minutes)
+        net = 0.0
+        for t in self.trades:
+            if t.outcome_id == outcome_id and t.ts >= cutoff:
+                net += t.shares if t.side == "buy" else -t.shares
+        return net
+
 
 # ── 机器人状态与动作 ─────────────────────────────────────────────────────
 
@@ -119,6 +132,14 @@ class BotState:
     def holding(self, outcome_id: int) -> Decimal:
         return self.holdings.get(outcome_id, (Decimal("0"), Decimal("0")))[0]
 
+    def avg_cost(self, outcome_id: int) -> Optional[float]:
+        """该仓位的均价成本（cost_basis / amount）；无仓位返回 None。
+        chaser 类模板拿它和现价比来决定止盈/割肉。"""
+        amount, cost = self.holdings.get(outcome_id, (Decimal("0"), Decimal("0")))
+        if amount <= 0:
+            return None
+        return float(cost / amount)
+
     def eligible_outcomes(self, view: MarketView) -> List[OutcomeView]:
         return [
             ov
@@ -135,12 +156,12 @@ class Action:
     reason: str
 
 
-def _q_shares(x: float) -> Decimal:
-    """份额量化到 2dp（远低于后端 6dp 上限，够人味也够干净）。"""
+def q_shares(x: float) -> Decimal:
+    """份额量化到 2dp（远低于后端 6dp 上限，够人味也够干净）。Action.shares 用它构造。"""
     return Decimal(f"{x:.2f}")
 
 
-def _pick_home_outcome(
+def pick_home_outcome(
     bot: BotState, view: MarketView, prefer_active: bool = False
 ) -> Optional[OutcomeView]:
     """选定并记住"主场 outcome"。参数 outcome_id 优先；否则随机（或按活跃度）选一个，
@@ -165,9 +186,23 @@ def _pick_home_outcome(
 # ── 模板基类 ─────────────────────────────────────────────────────────────
 
 
+TEMPLATE_REGISTRY: Dict[str, type["BotTemplate"]] = {}
+
+
 class BotTemplate(ABC):
+    """子类只要定义了 name 就自动进 TEMPLATE_REGISTRY——写完类即注册完毕。
+    name 留空的子类视为抽象中间基类，不注册。"""
+
     name: str = ""
     default_params: dict = {}
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cls.name:
+            existing = TEMPLATE_REGISTRY.get(cls.name)
+            if existing is not None and existing is not cls:
+                raise ValueError(f"PvE 模板名重复：{cls.name!r}（{existing.__name__} vs {cls.__name__}）")
+            TEMPLATE_REGISTRY[cls.name] = cls
 
     @abstractmethod
     def decide(self, bot: BotState, view: MarketView) -> Optional[Action]: ...
@@ -195,14 +230,14 @@ class HodlerTemplate(BotTemplate):
 
     def decide(self, bot: BotState, view: MarketView) -> Optional[Action]:
         p, rng = bot.params, bot.rng
-        home = _pick_home_outcome(bot, view)
+        home = pick_home_outcome(bot, view)
         if home is None:
             return None
         if rng.random() < p["skip_prob"]:
             return None
         held = bot.holding(home.outcome_id)
         if p["sell_prob"] > 0 and held > Decimal("1") and rng.random() < p["sell_prob"]:
-            return Action("sell", home.outcome_id, _q_shares(float(held) / 2), "hodler 偶发减仓")
+            return Action("sell", home.outcome_id, q_shares(float(held) / 2), "hodler 偶发减仓")
         if home.price > p["max_price"]:
             return None
         budget = float(bot.cash) - p["cash_reserve_cny"]
@@ -212,7 +247,7 @@ class HodlerTemplate(BotTemplate):
         shares = cny / max(home.price, 0.01)
         if shares < 0.5:
             return None
-        return Action("buy", home.outcome_id, _q_shares(shares), f"hodler 定投 ≈{cny:.1f}")
+        return Action("buy", home.outcome_id, q_shares(shares), f"hodler 定投 ≈{cny:.1f}")
 
 
 class GridTemplate(BotTemplate):
@@ -235,7 +270,7 @@ class GridTemplate(BotTemplate):
 
     def decide(self, bot: BotState, view: MarketView) -> Optional[Action]:
         p = bot.params
-        home = _pick_home_outcome(bot, view)
+        home = pick_home_outcome(bot, view)
         if home is None:
             return None
         lines = bot.memory.get("grid_lines")
@@ -259,11 +294,11 @@ class GridTemplate(BotTemplate):
             delta = min(delta, affordable)
             if delta < p["min_trade_shares"]:
                 return None
-            return Action("buy", home.outcome_id, _q_shares(delta), f"grid 补至目标 {target:.0f}")
+            return Action("buy", home.outcome_id, q_shares(delta), f"grid 补至目标 {target:.0f}")
         sell = min(-delta, held)
         if sell < p["min_trade_shares"]:
             return None
-        return Action("sell", home.outcome_id, _q_shares(sell), f"grid 降至目标 {target:.0f}")
+        return Action("sell", home.outcome_id, q_shares(sell), f"grid 降至目标 {target:.0f}")
 
 
 class LiquidityTemplate(BotTemplate):
@@ -288,7 +323,7 @@ class LiquidityTemplate(BotTemplate):
 
     def decide(self, bot: BotState, view: MarketView) -> Optional[Action]:
         p = bot.params
-        home = _pick_home_outcome(bot, view, prefer_active=True)
+        home = pick_home_outcome(bot, view, prefer_active=True)
         if home is None:
             return None
         oid = home.outcome_id
@@ -302,7 +337,7 @@ class LiquidityTemplate(BotTemplate):
             step = min(step, affordable)
             if step < 1:
                 return None
-            return Action("buy", oid, _q_shares(step), f"liquidity bootstrap 建仓（{held:.0f}→{floor:.0f}）")
+            return Action("buy", oid, q_shares(step), f"liquidity bootstrap 建仓（{held:.0f}→{floor:.0f}）")
         cutoff = view.now - timedelta(minutes=p["lookback_min"])
         prices = [t.price for t in view.trades if t.outcome_id == oid and t.ts >= cutoff]
         if len(prices) < 3:
@@ -319,11 +354,8 @@ class LiquidityTemplate(BotTemplate):
             delta = min(delta, affordable)
             if delta < p["min_trade_shares"]:
                 return None
-            return Action("buy", oid, _q_shares(delta), f"liquidity 回补至 {target:.0f}")
+            return Action("buy", oid, q_shares(delta), f"liquidity 回补至 {target:.0f}")
         sell = min(-delta, held)
-        return Action("sell", oid, _q_shares(sell), f"liquidity 减至 {target:.0f}")
+        return Action("sell", oid, q_shares(sell), f"liquidity 减至 {target:.0f}")
 
 
-TEMPLATE_REGISTRY: Dict[str, type[BotTemplate]] = {
-    t.name: t for t in (HodlerTemplate, GridTemplate, LiquidityTemplate)
-}

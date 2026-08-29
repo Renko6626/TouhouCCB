@@ -19,7 +19,6 @@ from app.services.pve.attention import ATTENTION_DEFAULTS
 from app.services.pve.naming import generate_usernames
 from app.services.pve.templates import TEMPLATE_REGISTRY
 
-_QUANT_TEMPLATES = {"grid", "liquidity"}  # 量化模板全天候；散户抽作息
 _RETAIL_PRESETS = ["worker", "evening", "owl", "loose"]
 
 # 生成时不做数值扰动的键（语义非"强度"）
@@ -37,9 +36,9 @@ def spawn_params(template: str, rng: random.Random) -> dict:
             out[k] = round(v * factor) if isinstance(v, int) else round(v * factor, 4)
         else:
             out[k] = v
-    if template in _QUANT_TEMPLATES:
-        out["active_preset"] = "always"
-    elif out.get("active_preset") not in ("always",):
+    # 模板 default_params 里 active_preset="always" 视为量化型（全天候，不抽作息）；
+    # 其余按散户抽典型作息——新模板凭自己的默认值声明类型，这里不维护清单
+    if out.get("active_preset") != "always":
         out["active_preset"] = rng.choice(_RETAIL_PRESETS)
     out["hour_offset"] = round(rng.uniform(-1.5, 1.5), 2)
     out["alert_threshold"] = round(rng.uniform(0.04, 0.15), 3)
