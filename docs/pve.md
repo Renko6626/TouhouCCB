@@ -9,10 +9,11 @@
 不用改引擎、不用改管理端——管理页的模板下拉自动出现它）：
 
 ```python
-class ChaserTemplate(BotTemplate):
-    """追涨杀跌：买最近涨得凶的，跌破自己成本一定比例恐慌割肉。"""
+class MyChaserTemplate(BotTemplate):
+    """追涨杀跌：买最近涨得凶的，跌破自己成本一定比例恐慌割肉。
+    （教学示例——真实的追涨杀跌人格请直接用 believer 家族的 chaser 预设）"""
 
-    name = "chaser"                      # 唯一名；重名会在 import 时直接报错
+    name = "my_chaser"                   # 唯一名；重名会在 import 时直接报错
     default_params = {
         "lookback_min": 30,              # 动量观察窗
         "momentum_threshold": 0.05,      # 涨幅超过它才追
@@ -46,17 +47,17 @@ class ChaserTemplate(BotTemplate):
 配一个单测（夹具直接 import，别复制粘贴）：
 
 ```python
-# tests/test_pve_chaser.py
-from app.services.pve.templates import ChaserTemplate
+# tests/test_pve_my_chaser.py
+from app.services.pve.templates import MyChaserTemplate
 from tests.pve_helpers import make_bot, make_trade, make_view
 
-def test_chaser_panic_sells_below_cost():
-    bot = make_bot(ChaserTemplate, holdings={11: (20, 10)})   # 20 份成本 10 → 均价 0.5
-    a = ChaserTemplate().decide(bot, make_view(price_a=0.35)) # 跌 30% > panic 15%
+def test_my_chaser_panic_sells_below_cost():
+    bot = make_bot(MyChaserTemplate, holdings={11: (20, 10)})   # 20 份成本 10 → 均价 0.5
+    a = MyChaserTemplate().decide(bot, make_view(price_a=0.35)) # 跌 30% > panic 15%
     assert a is not None and a.side == "sell"
 ```
 
-跑 `pytest tests/test_pve_chaser.py -x`，绿了就完事。上线后在 `/admin/pve` 生成即可。
+跑 `pytest tests/test_pve_my_chaser.py -x`，绿了就完事。上线后在 `/admin/pve` 生成即可。
 
 ## decide() 合同
 
@@ -119,11 +120,36 @@ reason 写人话，它会原样出现在管理页决策日志里。
 `price_low/high`、`active_preset`）不扰动。全量参数落库 `bot_profile.params`，
 管理页可看可改，改了下一 tick 生效。
 
-## 二期模板清单（spec §5.2/§8）
+## believer 家族：信念驱动散户（二期）
 
-`chaser` 追涨杀跌 / `sheep` 跟风（用 `net_flow`）/ `bottom_fisher` 抄底侠 /
-`gambler` 赌徒 / `meanrev` 均值回归（移植 thccb-quant）/ `degen` 杠杆赌徒。
-**degen 特别注意**：它要经回环调借贷接口，上线前必须先给 engine 加单机器人负债
+散户人格不是一堆独立脚本，而是 `BelieverTemplate` 这一个模型的参数点位：每个机器人
+内心维护一份主观概率（「我觉得它会赢」），交易动机 = 长线信念 edge（belief − price）
+与短线动量 edge（trend_coef × window_change）按 `w_swing` 加权混合。信念每次看盘被
+三样东西演化：从众项（`herd_coef`，price 模式跟价格信 / flow 模式跟 `net_flow` 人群信、
+负值=逆势党）、观点冲击（`shock_prob/scale`，外生噪声源）、风向注入（见下）。
+短线退出（止盈落袋 / 割肉）按 `w_swing` 概率执行——波段客勤快、信仰党拿到结算。
+
+已注册预设（薄子类，只改参数分布中心）：`fan` 铁杆粉 / `swinger` 波段客 /
+`chaser` 追涨杀跌 / `sheep` 跟风羊 / `bottom_fisher` 抄底侠 / `believer` 通用中间型。
+加新人格优先考虑「加一个参数点位」而不是新写 decide()——没有固定行为阈值，
+玩家无法用指纹试探识别。测试见 `tests/test_pve_believer.py`。
+
+### 风向注入（运营造事件行情）
+
+site_config 键 `pve_sentiment`（`/admin/pve` 全局配置里直接编辑），格式：
+
+```json
+{"tilts": {"42": 0.15}, "expires_at": "2026-08-30T12:00:00+00:00"}
+```
+
+tilt 单位是价格空间（可为负），believer 系把 `sentiment_gain × tilt` 加进对应
+outcome 的长线 edge——相当于给整群散户吹一阵「42 号利好」的风；`expires_at`
+可省略（一直生效），到期/删除键/格式写错都安全失效（解析函数
+`market_view.parse_sentiment` 保证不炸 tick）。
+
+## 还没做的
+
+`degen` 杠杆赌徒：要经回环调借贷接口，上线前必须先给 engine 加单机器人负债
 上限护栏（现在还没有），并确认利息结算/强平对机器人的语义。
 
 ## 验证与观测

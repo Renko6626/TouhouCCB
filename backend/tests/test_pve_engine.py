@@ -151,6 +151,48 @@ async def test_global_orders_per_min_cap(client):
 
 
 @pytest.mark.asyncio
+async def test_believer_trades_through_real_api(client):
+    """believer 系（fan 预设）经回环 HTTP 真实下单：信念高于市价 → 买入本命。"""
+    await _seed_config()
+    await _seed_market()
+    pid, uid = await _seed_bot("fan", {
+        "skip_prob": 0.0, "shock_prob": 0.0, "conviction": 0.3, "w_swing": 0.0,
+        "check_interval_sec": 60, "active_preset": "always",
+    })
+    engine = _engine()
+    await engine.tick()
+    _force_wake(engine)
+    r = await engine.tick()
+    assert r["trade"] == 1, f"应成交一笔：{r} / log={engine.get_log(pid)}"
+    async with async_session_maker() as s:
+        txs = (await s.execute(select(Transaction).where(Transaction.user_id == uid))).scalars().all()
+        assert len(txs) == 1 and txs[0].type == "buy"
+    await engine.trader.close()
+
+
+@pytest.mark.asyncio
+async def test_market_view_carries_sentiment(client):
+    """site_config `pve_sentiment` → 解析进 MarketView.sentiment（风向注入的接线）。"""
+    from app.models.base import Outcome
+    from app.services.pve.market_view import build_market_view
+
+    await _seed_config()
+    mid = await _seed_market()
+    async with async_session_maker() as s:
+        async with s.begin():
+            oid = (await s.execute(
+                select(Outcome.id).where(Outcome.market_id == mid).order_by(Outcome.id)
+            )).scalars().first()
+            s.add(SiteConfig(key="pve_sentiment", value='{"tilts": {"%d": 0.2}}' % oid,
+                             value_type="string"))
+    from app.services.site_config import clear_cache
+    clear_cache()
+    async with async_session_maker() as s:
+        view = await build_market_view(s)
+    assert view.sentiment == {oid: 0.2}
+
+
+@pytest.mark.asyncio
 async def test_paused_bot_leaves_schedule(client):
     await _seed_config()
     await _seed_market()
