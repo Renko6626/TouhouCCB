@@ -13,6 +13,7 @@ from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
 from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
 from app.models import title as _title_models  # noqa: F401 触发 metadata 注册
+from app.models import bot as _bot_models  # noqa: F401 触发 metadata 注册 bot_profile
 from app.services.loan_sweep import (
     start_scheduler as start_loan_scheduler,
     stop_scheduler as stop_loan_scheduler,

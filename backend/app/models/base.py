@@ -42,6 +42,10 @@ class User(SQLModel, table=True):
     is_active: bool = Field(default=True, nullable=False)
     is_superuser: bool = Field(default=False, nullable=False)
 
+    # PvE 机器人标志——供查询侧低成本过滤（bot_detection 扫描排除、管理端筛选、
+    # 排行榜/财富统计可选排除）。机器人 casdoor_id/email 均为 NULL，无法被登录。
+    is_bot: bool = Field(default=False, nullable=False, index=True)
+
     # 游戏业务属性 — Decimal(16,6)
     # 默认 0：仅 User() 不显式传 cash 时的兜底；新用户实际初始余额由注册流程按
     # site_config.initial_balance 显式赋值（见 api/v1/auth.py）。
