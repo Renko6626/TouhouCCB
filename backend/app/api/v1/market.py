@@ -1321,11 +1321,16 @@ async def leaderboard(
 
 
 async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
+    # PvE：机器人默认参与排名（把 NPC 从榜上打下去是玩法）；可用开关排除
+    include_bots = await site_config.get_bool_or(db, "leaderboard_include_bots", True)
     if mode == "net_worth":
         # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
         # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观,
         # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
-        users = (await db.execute(select(User))).scalars().all()
+        users_stmt = select(User)
+        if not include_bots:
+            users_stmt = users_stmt.where(User.is_bot == False)  # noqa: E712
+        users = (await db.execute(users_stmt)).scalars().all()
         if not users:
             return []
         holdings = await compute_users_holdings_value_mtm(
@@ -1412,6 +1417,8 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
             .order_by(score_expr.desc())
             .limit(limit)
         )
+        if not include_bots:
+            stmt = stmt.where(User.is_bot == False)  # noqa: E712
         rows = (await db.execute(stmt)).all()
 
         items: List[LeaderboardItem] = []

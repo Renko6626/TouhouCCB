@@ -212,9 +212,15 @@ async def run_bot_detection_once() -> dict:
         whitelist = parse_whitelist(cfg.get("quant_whitelist_user_ids", ""))
 
         window_start = now - timedelta(seconds=window_sec)
+        from app.models.base import User as _User
+
         all_txns_stmt = (
             select(Transaction)
-            .where(Transaction.timestamp >= window_start)
+            .where(
+                Transaction.timestamp >= window_start,
+                # PvE 机器人（is_bot）排除：官方机器人不进自己的反作弊预警
+                Transaction.user_id.not_in(select(_User.id).where(_User.is_bot == True)),  # noqa: E712
+            )
             .order_by(Transaction.timestamp.asc())
         )
         all_txns = (await db.execute(all_txns_stmt)).scalars().all()
