@@ -170,6 +170,48 @@ async def test_believer_trades_through_real_api(client):
     await engine.trader.close()
 
 
+def test_collect_wakees_release_count_is_randomized():
+    """积压削峰不能是固定节律（每 tick 精确放行 cap 个=规律脉冲）——
+    放行数在 [cap/2, cap] 内随机。"""
+    import random as _random
+    from datetime import datetime, timedelta, timezone as _tz
+
+    from app.services.pve.engine import Runtime
+    from app.services.pve.templates import TEMPLATE_REGISTRY
+    from tests.pve_helpers import make_view
+
+    engine = PveEngine()
+    now = datetime.now(_tz.utc)
+    for pid in range(40):  # 40 个全部到点的机器人
+        engine.runtimes[pid] = Runtime(
+            profile_id=pid, user_id=pid, username=f"b{pid}",
+            template=TEMPLATE_REGISTRY["hodler"](),
+            params=dict(TEMPLATE_REGISTRY["hodler"].default_params),
+            market_scope=None,
+            next_action_at=now - timedelta(seconds=5),
+            rng=_random.Random(pid),
+        )
+    cfg = {"max_wakes_per_tick": 10}
+    sizes = {len(engine._collect_wakees(make_view(), cfg, now)) for _ in range(60)}
+    assert all(5 <= s <= 10 for s in sizes)
+    assert len(sizes) > 1, "放行数恒定——脉冲仍有固定节律"
+
+
+@pytest.mark.asyncio
+async def test_tick_evolves_activity(client):
+    """潮汐：tick 演化全局活跃度并在 snapshot 暴露（默认幅度 >0）。"""
+    await _seed_config()
+    engine = _engine()
+    vals = set()
+    for _ in range(10):
+        await engine.tick()
+        vals.add(engine.activity)
+    assert len(vals) > 1, "activity 没有演化"
+    assert all(0.3 <= v <= 1.9 for v in vals)
+    assert "activity" in engine.snapshot()
+    await engine.trader.close()
+
+
 @pytest.mark.asyncio
 async def test_market_view_carries_sentiment(client):
     """site_config `pve_sentiment` → 解析进 MarketView.sentiment（风向注入的接线）。"""

@@ -40,7 +40,12 @@ PVE_CONFIG_SPEC: Dict[str, tuple[str, str, str]] = {
     "pve_daily_turnover_cap_cny": ("decimal", "2000", "单机器人当日成交额上限（¥，北京自然日）"),
     "pve_max_slippage_bps": ("int", "800", "滑点保护（基点）：报价偏离现价超过此值放弃下单"),
     "pve_death_floor_cny": ("decimal", "3", "死亡水位（¥）：现金+持仓清算价值低于此判死，注资可复活"),
-    "pve_max_wakes_per_tick": ("int", "20", "每个 tick 最多唤醒的机器人数（削峰）"),
+    "pve_max_wakes_per_tick": ("int", "20", "每个 tick 最多唤醒的机器人数（削峰；实际放行数在其 1/2~1 倍间随机）"),
+    "pve_activity_wave": (
+        "decimal", "0.7",
+        "全局活跃度潮汐幅度（0=关）：慢波动的市场情绪——活跃期全体看盘变勤、冷清期变懒，"
+        "避免恒定速率的机器味",
+    ),
     "pve_sentiment": (
         "string", "",
         '风向注入：{"tilts": {"<outcome_id>": 0.15}, "expires_at": "ISO 时间可省"}——'

@@ -49,8 +49,48 @@ def test_next_wake_inside_window_uses_jittered_interval():
     for _ in range(20):
         t = attention.next_wake(now, params, rng)
         delta = (t - now).total_seconds()
-        # 0.6~1.6 抖动；均落在窗口内不再顺延
-        assert 360 <= delta <= 960
+        # 常规 0.6~1.6 抖动 + 偶发重尾（沉迷 ×0.15~0.35 / 失踪 ×2~4），全在此包络内
+        assert 600 * 0.6 * 0.15 <= delta <= 600 * 1.6 * 4 + 1
+
+
+def test_next_wake_has_heavy_tails():
+    """间隔分布必须有重尾：偶尔很快回来刷盘、偶尔消失很久——
+    否则全体机器人是匀速泊松流，一眼机器味。"""
+    rng = random.Random(7)
+    now = _bj(20, 0)
+    params = {"check_interval_sec": 600, "active_preset": "always", "hour_offset": 0.0}
+    deltas = [(attention.next_wake(now, params, rng) - now).total_seconds() for _ in range(500)]
+    assert sum(1 for d in deltas if d < 600 * 0.4) > 5       # 沉迷刷盘出现过
+    assert sum(1 for d in deltas if d > 600 * 1.8) > 10      # 长时间失踪出现过
+    assert 600 * 0.7 <= sorted(deltas)[250] <= 600 * 1.5     # 中位数仍在常规区间
+
+
+def test_next_wake_pace_scales_interval():
+    """全局活跃度 pace：活跃期（pace>1）看盘更勤，冷清期（pace<1）更懒。"""
+    now = _bj(20, 0)
+    params = {"check_interval_sec": 600, "active_preset": "always", "hour_offset": 0.0}
+    fast = [(attention.next_wake(now, params, random.Random(i), pace=2.0) - now).total_seconds()
+            for i in range(100)]
+    slow = [(attention.next_wake(now, params, random.Random(i), pace=0.5) - now).total_seconds()
+            for i in range(100)]
+    # 同种子逐对比较：pace=2 恰是 pace=0.5 的 1/4 间隔
+    assert all(abs(f * 4 - s) < 1 for f, s in zip(fast, slow))
+
+
+def test_activity_step_wave():
+    """全局活跃度 OU 演化：amp=0 恒为 1（关闭）；有噪声时在界内波动且向 1 回归。"""
+    rng = random.Random(3)
+    assert attention.activity_step(0.5, 0.0, rng) == 1.0
+    a = 1.0
+    seen = []
+    for _ in range(2000):
+        a = attention.activity_step(a, 1.0, rng)
+        seen.append(a)
+        assert attention.ACTIVITY_MIN <= a <= attention.ACTIVITY_MAX
+    assert max(seen) > 1.15 and min(seen) < 0.85    # 真的在波动
+    # 从边界出发向 1 回归（无噪声分量看均值漂移）
+    drift = attention.activity_step(attention.ACTIVITY_MAX, 0.0, rng)
+    assert drift == 1.0  # amp=0 直接归位
 
 
 def test_next_wake_outside_window_pushed_to_window():

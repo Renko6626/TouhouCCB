@@ -115,6 +115,12 @@ reason 写人话，它会原样出现在管理页决策日志里。
 `always/worker/evening/owl/loose`）、`alert_threshold`/`alert_prob`/`alert_cooldown_sec`
 （行情推送唤醒）。量化型给 `always`+分钟级间隔；散户给小时级+具体作息。
 
+**时间涨落**（防「每 N 分钟冲进来一批单」的机器节律，模板作者不用管，引擎统一做）：
+看盘间隔除常规 ×U(0.6,1.6) 抖动外带重尾（5% 沉迷刷盘 ×0.15~0.35、10% 忙别的去了
+×2~4）；全局还有一个 OU 慢波「活跃度潮汐」（site_config `pve_activity_wave`，0=关，
+默认 0.7）——活跃期全体看盘变勤、冷清期变懒，成交到达率自然起伏；积压削峰的每 tick
+放行数也在 cap/2~cap 间随机。当前活跃度可在管理页引擎快照（`engine.activity`）观测。
+
 **生成时扰动**（`service.spawn_params`）：数值参数自动 ×U(0.75,1.3)，散户随机抽作息、
 注意力参数重新采样——同模板的个体天然不同。语义非"强度"的键（`outcome_id`、
 `price_low/high`、`active_preset`）不扰动。全量参数落库 `bot_profile.params`，

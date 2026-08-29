@@ -68,6 +68,10 @@ class PveEngine:
         self._order_ts: deque = deque(maxlen=512)  # 全局限速滑窗
         self._ticking = False
         self.last_tick_result: dict = {}
+        # 全局活跃度（潮汐）：每 tick OU 演化，作用于全体 next_wake 的 pace；
+        # 加上放行数随机化，避免「每 N 秒冲进来一批」的固定节律。重启归位 1。
+        self.activity: float = 1.0
+        self._engine_rng = random.Random()
 
     # ── 对外观测（admin API 用）────────────────────────────────────────
 
@@ -79,6 +83,7 @@ class PveEngine:
         return {
             "scheduled_bots": len(self.runtimes),
             "orders_last_min": self._orders_in_window(now, 60),
+            "activity": round(self.activity, 3),
             "last_tick": self.last_tick_result,
         }
 
@@ -101,6 +106,9 @@ class PveEngine:
             if not await site_config.get_bool_or(db, "pve_enabled", False):
                 return {"enabled": False}
             cfg = await self._load_cfg(db)
+            self.activity = attention.activity_step(
+                self.activity, cfg["activity_wave"], self._engine_rng
+            )
             await self._sync_runtimes(db, now)
             if not self.runtimes:
                 return {"enabled": True, "bots": 0}
@@ -188,6 +196,9 @@ class PveEngine:
                 db, "pve_death_floor_cny", Decimal("3")
             ),
             "max_wakes_per_tick": await site_config.get_int_or(db, "pve_max_wakes_per_tick", 20),
+            "activity_wave": float(
+                await site_config.get_decimal_or(db, "pve_activity_wave", Decimal("0.7"))
+            ),
         }
 
     def _merge_params(self, profile: BotProfile) -> dict:
@@ -274,7 +285,9 @@ class PveEngine:
             (rt for rt in self.runtimes.values() if rt.next_action_at <= now),
             key=lambda rt: rt.next_action_at,
         )
-        return due[: cfg["max_wakes_per_tick"]]
+        # 放行数随机化：积压时若每 tick 精确放行 cap 个，成交会呈固定节律脉冲
+        cap = cfg["max_wakes_per_tick"]
+        return due[: self._engine_rng.randint((cap + 1) // 2, cap)]
 
     # ── 单机器人：决策 + 护栏 + 执行 ─────────────────────────────────
 
@@ -287,7 +300,7 @@ class PveEngine:
         holdings: Dict[int, tuple],
         now: datetime,
     ) -> str:
-        rt.next_action_at = attention.next_wake(now, rt.params, rt.rng)
+        rt.next_action_at = attention.next_wake(now, rt.params, rt.rng, pace=self.activity)
         bot = BotState(
             user_id=rt.user_id,
             profile_id=rt.profile_id,

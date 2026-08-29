@@ -57,10 +57,31 @@ def _hours_until_window(hour: float, windows: List[Tuple[float, float]]) -> floa
     return min((start - hour) % 24 for start, _ in windows)
 
 
-def next_wake(now: datetime, params: dict, rng: random.Random) -> datetime:
-    """下次看盘时间 = now + 抖动后的看盘间隔，再推到作息窗口内。"""
+# 全局活跃度（潮汐）边界：engine 每 tick 用 activity_step 演化一个乘子，
+# 传给 next_wake 的 pace——活跃期全体看盘变勤、冷清期变懒，避免恒定到达率的机器味
+ACTIVITY_MIN, ACTIVITY_MAX = 0.35, 1.8
+
+
+def activity_step(a: float, amp: float, rng: random.Random) -> float:
+    """OU 过程一步：向 1 回归 + 噪声。amp=0 → 恒 1（关闭潮汐）。
+    tick=20s 时去相关时间约半小时——「今晚热闹、待会儿冷清」的慢波。"""
+    if amp <= 0:
+        return 1.0
+    a += 0.01 * (1.0 - a) + amp * 0.025 * rng.gauss(0, 1)
+    return min(ACTIVITY_MAX, max(ACTIVITY_MIN, a))
+
+
+def next_wake(now: datetime, params: dict, rng: random.Random, pace: float = 1.0) -> datetime:
+    """下次看盘时间 = now + 抖动后的看盘间隔（÷全局 pace），再推到作息窗口内。
+    间隔带重尾：小概率沉迷刷盘（×0.15~0.35）/ 忙别的去了（×2~4）。"""
     base = float(params.get("check_interval_sec", ATTENTION_DEFAULTS["check_interval_sec"]))
-    t = now + timedelta(seconds=base * rng.uniform(0.6, 1.6))
+    mult = rng.uniform(0.6, 1.6)
+    roll = rng.random()
+    if roll < 0.05:
+        mult *= rng.uniform(0.15, 0.35)
+    elif roll < 0.15:
+        mult *= rng.uniform(2.0, 4.0)
+    t = now + timedelta(seconds=base * mult / max(pace, 1e-6))
     windows = ACTIVE_PRESETS.get(
         params.get("active_preset", "loose"), ACTIVE_PRESETS["loose"]
     )
