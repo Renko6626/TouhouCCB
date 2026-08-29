@@ -51,7 +51,7 @@ async def generate_bots(
     db: AsyncSession,
     *,
     items: List[tuple[str, int]],           # [(template, count), ...]
-    naming_style: str,                       # "npc" | "lowkey"
+    naming_style: str,                       # "npc" | "lowkey" | "phrase"
     initial_cash: Decimal,
     market_scope: Optional[List[int]],
     operator_user_id: int,

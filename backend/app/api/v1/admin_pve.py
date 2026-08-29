@@ -84,7 +84,7 @@ class GenerateItem(BaseModel):
 
 class GenerateRequest(BaseModel):
     items: List[GenerateItem] = Field(..., min_length=1)
-    naming_style: str = Field("lowkey", pattern="^(npc|lowkey)$")
+    naming_style: str = Field("lowkey", pattern="^(npc|lowkey|phrase)$")
     initial_cash: Decimal = Field(..., ge=0, le=100000)
     market_scope: Optional[List[int]] = None
 

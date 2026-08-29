@@ -112,13 +112,14 @@ async function toggleEnabled(on: boolean) {
 
 const genTemplate = ref<string | null>(null)
 const genCount = ref<number>(5)
-const genStyle = ref<'npc' | 'lowkey'>('lowkey')
+const genStyle = ref<'npc' | 'lowkey' | 'phrase'>('lowkey')
 const genCash = ref<number>(200)
 const genScope = ref('')
 const generating = ref(false)
 const styleOptions: SelectOption[] = [
   { label: '低调款（混在人群里）', value: 'lowkey' },
   { label: '辨识度款（NPC·xx）', value: 'npc' },
+  { label: '句式款（贪婪的散户悄悄抄底）', value: 'phrase' },
 ]
 
 function parseScope(raw: string): number[] | null {

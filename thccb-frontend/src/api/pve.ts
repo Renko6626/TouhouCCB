@@ -53,7 +53,7 @@ export interface PveLogEntry {
 
 export interface PveGenerateRequest {
   items: { template: string; count: number }[]
-  naming_style: 'npc' | 'lowkey'
+  naming_style: 'npc' | 'lowkey' | 'phrase'
   initial_cash: string
   market_scope?: number[] | null
 }
