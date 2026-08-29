@@ -228,7 +228,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    # PATCH：admin 端（用户封禁/角色、PvE 机器人干预）用 PATCH 语义；
+    # 生产同源不走 CORS，这里补齐是让跨域 dev（vite:5173 → 8004）也能用
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
