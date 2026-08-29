@@ -76,12 +76,25 @@ def test_upgrade_downgrade_roundtrip():
         removed_outcome_col = outcome_table.c.initial_shares
         outcome_table._columns.remove(removed_outcome_col)
 
+    # user.is_bot 由 ba3a85c3b675 加（同迁移建 bot_profile 表，走 keep_tables 剔除）；
+    # is_bot 带 index=True，索引对象也要一并摘掉，否则 create_all 会建 ix_user_is_bot
+    removed_is_bot_col = None
+    removed_is_bot_indexes = []
+    if 'is_bot' in user_table.c:
+        removed_is_bot_col = user_table.c.is_bot
+        for idx in list(user_table.indexes):
+            if any(col.name == 'is_bot' for col in idx.columns):
+                user_table.indexes.discard(idx)
+                removed_is_bot_indexes.append(idx)
+        user_table._columns.remove(removed_is_bot_col)
+
     # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry + audit_event）
     # ledger_entry / audit_event 由其后续 migration（b2cd21122925 / a7c3e9d1f402）建，
     # before-state 不应预先 create_all，否则 upgrade head 会 "table already exists"。
     keep_tables = [
         t for name, t in SQLModel.metadata.tables.items()
-        if name not in title_table_names and name not in ("ledger_entry", "audit_event")
+        if name not in title_table_names
+        and name not in ("ledger_entry", "audit_event", "bot_profile")
     ]
 
     # 2) 保存原 settings，临时 rebind 到 tempfile DB URL
@@ -106,6 +119,7 @@ def test_upgrade_downgrade_roundtrip():
         user_cols = {c["name"] for c in insp.get_columns("user")}
         assert "equipped_title_id" in user_cols
         assert "initial_shares" in {c["name"] for c in insp.get_columns("outcome")}
+        assert "bot_profile" in names and "is_bot" in user_cols  # ba3a85c3b675
 
         # 4) downgrade 到 title migration 之前的 baseline → title 表 + 列消失
         # （head 现在是 ledger migration b2cd21122925，downgrade 到 679d34cb5986 会
@@ -118,6 +132,7 @@ def test_upgrade_downgrade_roundtrip():
         user_cols = {c["name"] for c in insp.get_columns("user")}
         assert "equipped_title_id" not in user_cols
         assert "initial_shares" not in {c["name"] for c in insp.get_columns("outcome")}
+        assert "bot_profile" not in names and "is_bot" not in user_cols
 
         # 5) 幂等再 upgrade head
         command.upgrade(cfg, "head")
@@ -143,6 +158,11 @@ def test_upgrade_downgrade_roundtrip():
         # 恢复 metadata：把列和 FK 加回去
         if removed_outcome_col is not None:
             outcome_table.append_column(removed_outcome_col)
+        if removed_is_bot_col is not None:
+            # append_column 会因 Column(index=True) 自动重建 ix_user_is_bot，
+            # 不能再手动 add removed_is_bot_indexes——会得到重复索引对象，
+            # 后续测试 create_all 报 "index ix_user_is_bot already exists"
+            user_table.append_column(removed_is_bot_col)
         if removed_col is not None:
             user_table.append_column(removed_col)
             for fk in removed_fks:

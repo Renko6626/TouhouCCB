@@ -26,6 +26,10 @@ from app.services.bot_detection import (
     start_scheduler as start_bot_detection_scheduler,
     stop_scheduler as stop_bot_detection_scheduler,
 )
+from app.services.pve.scheduler import (
+    start_scheduler as start_pve_scheduler,
+    stop_scheduler as stop_pve_scheduler,
+)
 from app.services.loan_migrate import auto_migrate
 
 from dotenv import load_dotenv
@@ -79,6 +83,8 @@ async def lifespan(app: FastAPI):
     await start_loan_scheduler()
     await start_liquidation_scheduler()
     await start_bot_detection_scheduler()
+    # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
+    await start_pve_scheduler()
     # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
     from app.core.database import async_session_maker
     from app.services import site_config as _site_config
@@ -101,6 +107,8 @@ async def lifespan(app: FastAPI):
     # writer 再停（断新增命令）→ broadcaster 再停（此时 writer/老路径都不再 feed，
     # 做最后一次 flush 把残帧发给订阅者）→ flusher 最后停（做最终 flush），避免停
     # flusher 时 writer 仍在往 _pending 塞数据
+    # PvE 最先停：它经回环 HTTP 下单，必须在 uvicorn 停止接收请求前住手
+    await stop_pve_scheduler()
     await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()
@@ -295,6 +303,9 @@ app.include_router(admin_title_api.router, prefix="/api/v1/admin", tags=["AdminT
 
 from app.api.v1 import admin_users as admin_users_api
 app.include_router(admin_users_api.router, prefix="/api/v1/admin/users", tags=["AdminUsers"])
+
+from app.api.v1 import admin_pve as admin_pve_api
+app.include_router(admin_pve_api.router, prefix="/api/v1/admin/pve", tags=["AdminPve"])
 
 from app.api.v1 import title as title_api
 app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])

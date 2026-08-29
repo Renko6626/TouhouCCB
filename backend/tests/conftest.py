@@ -67,6 +67,8 @@ def _disable_scheduler():
         patch("app.main.stop_liquidation_scheduler", _noop),
         patch("app.main.start_bot_detection_scheduler", _noop),
         patch("app.main.stop_bot_detection_scheduler", _noop),
+        patch("app.main.start_pve_scheduler", _noop),
+        patch("app.main.stop_pve_scheduler", _noop),
     ):
         yield
 
