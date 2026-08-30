@@ -18,15 +18,17 @@ from app.services.pve.templates import (
 NOW = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
 
 
-def make_view(price_a: float = 0.5, price_b: float = 0.5, trades=None, sentiment=None) -> MarketView:
-    """单市场双 outcome（id 11/12，market 1）快照。sentiment={outcome_id: 倾斜幅度}。"""
+def make_view(price_a: float = 0.5, price_b: float = 0.5, trades=None, sentiment=None,
+              liquidity_b: float = 100.0) -> MarketView:
+    """单市场双 outcome（id 11/12，market 1）快照。sentiment={outcome_id: 倾斜幅度}。
+    liquidity_b=市场 LMSR 深度，做市类模板按它缩放库存。"""
     return MarketView(
         now=NOW,
         outcomes={
             11: OutcomeView(11, 1, "A", price_a),
             12: OutcomeView(12, 1, "B", price_b),
         },
-        markets={1: MarketBrief(1, [11, 12])},
+        markets={1: MarketBrief(1, [11, 12], liquidity_b)},
         trades=trades or [],
         sentiment=sentiment or {},
     )
