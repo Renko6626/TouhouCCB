@@ -18,11 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_superuser
-from app.models.base import SiteConfig, Transaction, User
-from app.models.bot import BotProfile, BOT_STATUS_ACTIVE, BOT_STATUS_PAUSED
+from app.models.base import Position, SiteConfig, Transaction, User
+from app.models.bot import (
+    BotProfile, BOT_STATUS_ACTIVE, BOT_STATUS_PAUSED, BOT_STATUS_RETIRED,
+)
 from app.services import audit_service, site_config
 from app.services.pve import service as pve_service
 from app.services.pve.attention import ACTIVE_PRESETS
+from app.services.pve.client import PveTradeError
 from app.services.pve.engine import ENGINE
 from app.services.pve.templates import PARAM_DOCS, TEMPLATE_REGISTRY
 from app.services.wealth import compute_users_holdings_value
@@ -98,6 +101,9 @@ class PatchBotRequest(BaseModel):
     template: Optional[str] = None
     params: Optional[dict] = None
     market_scope: Optional[List[int]] = None  # 显式传 null 清空范围（看 model_fields_set）
+    # 改名：二选一——username 直接指定；rename_style 从 naming 词库重抽一个没被占用的
+    username: Optional[str] = Field(None, min_length=2, max_length=32)
+    rename_style: Optional[str] = Field(None, pattern="^(npc|lowkey|phrase)$")
 
 
 class FundRequest(BaseModel):
@@ -250,6 +256,10 @@ async def patch_bot(
         raise HTTPException(404, detail="机器人不存在")
     if payload.template is not None and payload.template not in TEMPLATE_REGISTRY:
         raise HTTPException(400, detail=f"未知模板：{payload.template}")
+    if payload.username is not None and payload.rename_style is not None:
+        raise HTTPException(400, detail="username 与 rename_style 只能二选一")
+    if profile.status == BOT_STATUS_RETIRED:
+        raise HTTPException(409, detail="已退役的机器人不可再干预")
     changes: dict = {}
     async with managed_transaction(db):
         if payload.status is not None:
@@ -264,11 +274,88 @@ async def patch_bot(
         if "market_scope" in payload.model_fields_set:
             changes["market_scope"] = [profile.market_scope, payload.market_scope]
             profile.market_scope = payload.market_scope
-        pass
+        if payload.username is not None or payload.rename_style is not None:
+            try:
+                old, new = await pve_service.rename_bot(
+                    db, profile=profile,
+                    username=payload.username, style=payload.rename_style,
+                )
+            except pve_service.BotOpError as e:
+                raise HTTPException(e.status_code, detail=e.detail)
+            changes["username"] = [old, new]
     if changes:
         # 非资金操作不进 audit_event（资金动作已由 ledger 记账+审计）；运维日志留痕
         logger.info("pve_bot_patch admin=%s profile=%s changes=%s", admin.id, profile.id, changes)
     return {"ok": True, "changes": list(changes.keys())}
+
+
+@router.delete("/bots/{profile_id}", summary="销毁：没交易过的真删，交易过的清算退休")
+async def destroy_bot(
+    profile_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    admin: User = Depends(current_superuser),
+):
+    """双路径见 pve_service.destroy_bot 的 docstring。
+
+    平仓走真实 sell（LMSR 份额正确退回、价格正确回落、留下 Transaction），
+    且必须在 managed_transaction **之外**——每次 loopback 下单会开自己的事务，
+    在外层事务里调用会与它争行锁。平不干净就 409 中止，不置 retired、不收现金；
+    已卖出的部分保留（LMSR 成交不可回滚），重试会接着卖剩下的，是幂等的。
+    """
+    profile = (
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+    ).scalars().first()
+    if profile is None:
+        raise HTTPException(404, detail="机器人不存在")
+    if profile.status == BOT_STATUS_RETIRED:
+        raise HTTPException(409, detail="该机器人已退役")
+    # 下面的 expire_all() 会把 admin 也失效掉，先把要用的标量取出来
+    admin_id, bot_user_id = admin.id, profile.user_id
+
+    positions = (
+        await db.execute(
+            select(Position).where(Position.user_id == bot_user_id, Position.amount > 0)
+        )
+    ).scalars().all()
+    sold, failed = [], []
+    for pos in positions:
+        try:
+            # 强制平仓接受任意滑点——退役的仓位必须清干净，否则会留下无主份额
+            await ENGINE.trader.sell(bot_user_id, pos.outcome_id, pos.amount, 10000)
+            sold.append({"outcome_id": pos.outcome_id, "shares": float(pos.amount)})
+        except PveTradeError as e:
+            failed.append({"outcome_id": pos.outcome_id, "detail": e.detail})
+        except Exception as e:  # noqa: BLE001 — 网络/回环异常照样要如实报给管理员
+            failed.append({"outcome_id": pos.outcome_id, "detail": repr(e)})
+    if failed:
+        raise HTTPException(
+            409,
+            detail=f"平仓未完成，已卖出 {len(sold)} 个、失败 {len(failed)} 个："
+                   f"{failed}。处理后重试销毁（幂等）",
+        )
+
+    # 上面的 loopback 下单在别的 session 改了 cash/positions；先失效再在事务里重查，
+    # 不能对失效对象做属性懒加载（异步上下文里会 MissingGreenlet）
+    db.expire_all()
+    async with managed_transaction(db):
+        profile = (
+            await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+        ).scalars().first()
+        if profile is None:
+            raise HTTPException(404, detail="机器人不存在")
+        try:
+            result = await pve_service.destroy_bot(
+                db, profile=profile, operator_user_id=admin_id
+            )
+        except pve_service.BotOpError as e:
+            raise HTTPException(e.status_code, detail=e.detail)
+    result["sold"] = sold
+    logger.warning(
+        "pve_bot_destroy admin=%s profile=%s mode=%s username=%s sold=%s recovered=%s",
+        admin_id, profile_id, result["mode"], result["username"], sold,
+        result["recovered_cash"],
+    )
+    return result
 
 
 @router.post("/bots/{profile_id}/fund", summary="注资（dead 顺带复活）")
