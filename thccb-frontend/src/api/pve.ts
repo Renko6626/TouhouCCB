@@ -2,7 +2,7 @@ import api from './index'
 
 // ── PvE 机器人管理（backend/app/api/v1/admin_pve.py）──
 
-export type PveBotStatus = 'active' | 'paused' | 'dead'
+export type PveBotStatus = 'active' | 'paused' | 'dead' | 'retired'
 
 export interface PveBotItem {
   profile_id: number
@@ -70,6 +70,18 @@ export interface PvePatchRequest {
   template?: string
   params?: Record<string, unknown>
   market_scope?: number[] | null
+  /** 改名：与 rename_style 二选一 */
+  username?: string
+  /** 按词库风格重抽一个没被占用的名字 */
+  rename_style?: 'npc' | 'lowkey' | 'phrase'
+}
+
+export interface PveDestroyResult {
+  /** deleted=从未交易过，账号已彻底删除；retired=已清算平仓并回收现金，账号与流水保留 */
+  mode: 'deleted' | 'retired'
+  username: string
+  recovered_cash: number
+  sold: { outcome_id: number; shares: number }[]
 }
 
 export interface PveConfigEntry {
@@ -92,6 +104,8 @@ export const pveApi = {
     api.post<{ ok: boolean; new_cash: number; status: PveBotStatus }>(
       `${P}/bots/${profileId}/fund`, { amount, reason },
     ),
+  destroy: (profileId: number) =>
+    api.delete<PveDestroyResult>(`${P}/bots/${profileId}`),
   log: (profileId: number) =>
     api.get<{ profile_id: number; log: PveLogEntry[] }>(`${P}/bots/${profileId}/log`),
   getConfig: () => api.get<Record<string, PveConfigEntry>>(`${P}/config`),

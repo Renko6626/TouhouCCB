@@ -58,7 +58,11 @@ async def build_market_view(db: AsyncSession) -> MarketView:
     for m in markets:
         ordered = sorted(m.outcomes, key=lambda o: o.id)
         shares_list = [float(o.total_shares) for o in ordered]
-        briefs[m.id] = MarketBrief(market_id=m.id, outcome_ids=[o.id for o in ordered])
+        briefs[m.id] = MarketBrief(
+            market_id=m.id,
+            outcome_ids=[o.id for o in ordered],
+            liquidity_b=float(m.liquidity_b),
+        )
         for i, o in enumerate(ordered):
             outcomes[o.id] = OutcomeView(
                 outcome_id=o.id,

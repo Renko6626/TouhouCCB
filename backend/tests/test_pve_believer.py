@@ -169,3 +169,46 @@ def test_persona_presets_decide_smoke():
             bot = make_bot(cls, seed=seed, holdings={11: (20, 8)})
             a = cls().decide(bot, make_view(**MOMENTUM_VIEW))
             assert a is None or (a.side in ("buy", "sell") and float(a.shares) > 0)
+
+
+def test_believer_bet_cap_scales_with_cash():
+    """单次下注上限跟现金走：钱多的机器人敢下更大的单（旧行为：恒定 ¥40 封顶）。"""
+    t = BelieverTemplate()
+    kw = dict(outcome_id=11, conviction=0.4, w_swing=0.0, skip_prob=0.0,
+              shock_prob=0.0, herd_coef=0.0, yolo_prob=0.0, act_threshold=0.0)
+    poor = t.decide(make_bot(BelieverTemplate, cash="100", **kw), make_view())
+    rich = t.decide(make_bot(BelieverTemplate, cash="5000", **kw), make_view())
+    assert poor is not None and rich is not None
+    assert float(rich.shares) > float(poor.shares) * 2
+    # 默认不设绝对上限——机器人也该有砸盘的本钱，兜底交给滑点保护
+    assert BelieverTemplate.default_params["max_bet_cap_cny"] == 0.0
+
+
+def test_believer_absolute_bet_cap_binds_when_set():
+    """max_bet_cap_cny > 0 时仍是硬上限（0=不限，>0=按值封顶）。"""
+    t = BelieverTemplate()
+    kw = dict(outcome_id=11, conviction=0.4, w_swing=0.0, skip_prob=0.0,
+              shock_prob=0.0, herd_coef=0.0, yolo_prob=0.0, act_threshold=0.0)
+    uncapped = t.decide(make_bot(BelieverTemplate, cash="5000", **kw), make_view())
+    capped = t.decide(make_bot(BelieverTemplate, cash="5000",
+                               max_bet_cap_cny=50.0, **kw), make_view())
+    assert uncapped is not None and capped is not None
+    assert float(capped.shares) < float(uncapped.shares)
+    # 价格 0.5、b=100 上花 ¥50 ≈ 90 份（按 LMSR 真实成本，不是 50/0.5=100）
+    assert float(capped.shares) < 100
+
+
+def test_belief_anchor_keeps_edge_alive_against_herding():
+    """信念锚点：从众项想把看法拉平到市价，锚点把它拽回来 → edge 不会衰减到 0。
+    回归旧 bug——机器人把价格推到自己信念上之后就永久躺平。"""
+    t = BelieverTemplate()
+    bot = make_bot(BelieverTemplate, outcome_id=11, conviction=0.3, w_swing=0.0,
+               skip_prob=0.0, shock_prob=0.0, herd_coef=0.5, conviction_revert=0.2)
+    t.decide(bot, make_view())                       # 建立信念 + 锚点
+    anchor = dict(bot.memory["belief_anchor"])
+    for _ in range(50):                          # 长期盯着「信念已实现」的价格看盘
+        t.decide(bot, make_view(price_a=0.5, price_b=0.5))
+    # 从众项单独作用会让信念收敛到 0.5；锚点在，就停在 0.5 与锚点之间
+    assert bot.memory["beliefs"][11] > 0.5 + 1e-3
+    assert bot.memory["beliefs"][11] < anchor[11]
+    assert bot.memory["belief_anchor"] == anchor  # 无冲击时锚点不漂

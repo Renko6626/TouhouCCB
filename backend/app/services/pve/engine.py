@@ -185,13 +185,14 @@ class PveEngine:
     async def _load_cfg(self, db) -> dict:
         return {
             "orders_per_min": await site_config.get_int_or(db, "pve_orders_per_min_cap", 30),
+            # 默认 0=不限，须与 admin_pve.PVE_CONFIG_SPEC 保持一致
             "single_order_cap": float(
-                await site_config.get_decimal_or(db, "pve_single_order_cap_cny", Decimal("200"))
+                await site_config.get_decimal_or(db, "pve_single_order_cap_cny", Decimal("0"))
             ),
             "daily_cap": float(
-                await site_config.get_decimal_or(db, "pve_daily_turnover_cap_cny", Decimal("2000"))
+                await site_config.get_decimal_or(db, "pve_daily_turnover_cap_cny", Decimal("0"))
             ),
-            "max_slippage_bps": await site_config.get_int_or(db, "pve_max_slippage_bps", 800),
+            "max_slippage_bps": await site_config.get_int_or(db, "pve_max_slippage_bps", 2500),
             "death_floor": await site_config.get_decimal_or(
                 db, "pve_death_floor_cny", Decimal("3")
             ),
@@ -355,10 +356,12 @@ class PveEngine:
         if slip_bps > cfg["max_slippage_bps"]:
             self._log(rt, "skip", f"滑点 {slip_bps:.0f}bps 超限（{cfg['max_slippage_bps']}），放弃：{action.reason}")
             return "skip"
-        if gross > cfg["single_order_cap"]:
+        # 金额闸门 0 = 不限：机器人要能像真人一样砸盘/抬轿，钱不该是天花板。
+        # 真正的护栏是上面的滑点保护（单笔价格冲击）+ 下面的现金校验
+        if 0 < cfg["single_order_cap"] < gross:
             self._log(rt, "skip", f"单笔 {gross:.1f} 超上限 {cfg['single_order_cap']}，放弃")
             return "skip"
-        if rt.day_turnover + gross > cfg["daily_cap"]:
+        if 0 < cfg["daily_cap"] < rt.day_turnover + gross:
             self._log(rt, "skip", f"当日成交额将超上限 {cfg['daily_cap']}，放弃")
             return "skip"
         if action.side == "buy" and Decimal(str(net)) > cash:

@@ -1,4 +1,5 @@
 """PvE 模板决策单测：decide() 纯函数 + MarketView 窗口计算，夹具见 tests/pve_helpers.py。"""
+import math
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -125,7 +126,7 @@ def test_grid_buy_limited_by_cash():
 
 
 def test_liquidity_bootstraps_toward_floor():
-    kw = dict(outcome_id=11, base_shares=100.0, max_offset_shares=40.0,
+    kw = dict(outcome_id=11, base_shares_b_frac=1.0, max_offset_b_frac=0.4,
               bootstrap_step_shares=15.0)
     bot = _bot(LiquidityTemplate, cash="1000", **kw)  # 空仓，floor=60
     a = LiquidityTemplate().decide(bot, _view())
@@ -134,14 +135,14 @@ def test_liquidity_bootstraps_toward_floor():
 
 
 def test_liquidity_bootstrap_paused_when_overpriced():
-    kw = dict(outcome_id=11, base_shares=100.0, max_offset_shares=40.0,
+    kw = dict(outcome_id=11, base_shares_b_frac=1.0, max_offset_b_frac=0.4,
               max_bootstrap_price=0.85)
     bot = _bot(LiquidityTemplate, cash="1000", **kw)
     assert LiquidityTemplate().decide(bot, _view(price_a=0.9)) is None
 
 
 def test_liquidity_sells_when_price_above_mean():
-    kw = dict(outcome_id=11, base_shares=100.0, max_offset_shares=40.0,
+    kw = dict(outcome_id=11, base_shares_b_frac=1.0, max_offset_b_frac=0.4,
               scale_price=0.05, min_trade_shares=1.0, max_trade_shares=1000.0)
     # 近期均价 0.4，现价 0.6 → mean-cur=-0.2 → tanh 饱和 → 目标 ≈ 60 → 卖 ≈ 40
     trades = [_trade(m, price=0.4) for m in (5, 10, 15)]
@@ -152,7 +153,7 @@ def test_liquidity_sells_when_price_above_mean():
 
 
 def test_liquidity_needs_enough_recent_trades():
-    kw = dict(outcome_id=11, base_shares=100.0, max_offset_shares=40.0)
+    kw = dict(outcome_id=11, base_shares_b_frac=1.0, max_offset_b_frac=0.4)
     bot = _bot(LiquidityTemplate, cash="1000", holdings={11: 100}, **kw)
     # 只有 2 笔近期成交 → 信号样本不足 → 不动
     trades = [_trade(5, price=0.4), _trade(10, price=0.4)]
@@ -163,3 +164,44 @@ def test_market_scope_restricts_home_pick():
     bot = _bot(HodlerTemplate, skip_prob=0.0)
     bot.market_scope = [999]  # 快照里没有这个市场
     assert HodlerTemplate().decide(bot, _view()) is None
+
+
+# ── 资金投放：三个「机器人太谨慎」的成因（见 fix/2026-08-30-pve-capital-deployment）──
+
+
+def test_liquidity_inventory_scales_with_market_depth():
+    """做市底仓按 b 缩放：同样的参数，深市场建大仓、浅市场建小仓。
+    回归旧 bug——绝对 base_shares=300 跑在 b=100 上，光底仓就把价格顶到 0.95。"""
+    t = LiquidityTemplate()
+    shallow = _bot(LiquidityTemplate, cash="100000", outcome_id=11)
+    deep = _bot(LiquidityTemplate, cash="100000", outcome_id=11)
+    # 底仓目标 = b × base_shares_b_frac，浅市场必须显著小于深市场
+    a_shallow = t.decide(shallow, _view(liquidity_b=100.0))
+    a_deep = t.decide(deep, _view(liquidity_b=3000.0))
+    assert a_shallow is not None and a_deep is not None
+    b_frac = LiquidityTemplate.default_params["base_shares_b_frac"]
+    off_frac = LiquidityTemplate.default_params["max_offset_b_frac"]
+    floor_shallow = (b_frac - off_frac) * 100.0
+    # 浅市场的底仓下限必须远小于 b，否则价格会被单个做市商顶到轨道上
+    assert floor_shallow < 100.0 * 0.5
+    # 建仓步长受 floor 限制 → 浅市场单步不会超过它自己的 floor
+    assert float(a_shallow.shares) <= floor_shallow + 1e-6
+
+
+def test_shares_for_budget_matches_real_lmsr_cost():
+    """预算换份额必须按 LMSR 真实成本反解——cny/price 在浅市场会严重超支，
+    超支的单子会被引擎的单笔上限/滑点保护丢掉，机器人白醒一次。"""
+    from app.services.lmsr import calculate_lmsr_cost
+    from app.services.pve.templates import shares_for_budget
+
+    for b, price, cny in [(100.0, 0.5, 150.0), (100.0, 0.2, 30.0), (3000.0, 0.5, 150.0)]:
+        # 由价格反推一组等价份额（令 Σexp(q/b)=1 ⇒ q_i = b·ln p_i）
+        q = [b * math.log(price), b * math.log(1 - price)]
+        got = shares_for_budget(cny, price, b)
+        real = calculate_lmsr_cost([q[0] + got, q[1]], b) - calculate_lmsr_cost(q, b)
+        assert abs(real - cny) < 0.01, f"b={b} price={price}: 想花 {cny} 实花 {real}"
+        # 老写法在浅市场上超支多少
+        if b == 100.0 and price == 0.5:
+            naive = cny / price
+            naive_cost = calculate_lmsr_cost([q[0] + naive, q[1]], b) - calculate_lmsr_cost(q, b)
+            assert naive_cost > cny * 1.5

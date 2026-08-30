@@ -14,7 +14,10 @@ from sqlalchemy import Column, DateTime, JSON
 BOT_STATUS_ACTIVE = "active"    # 参与调度
 BOT_STATUS_PAUSED = "paused"    # 管理员暂停
 BOT_STATUS_DEAD = "dead"        # 总资产（cash+LCV）低于水位自动置；ledger 注资后管理员拨回 active
-BOT_STATUSES = frozenset({BOT_STATUS_ACTIVE, BOT_STATUS_PAUSED, BOT_STATUS_DEAD})
+BOT_STATUS_RETIRED = "retired"  # 管理员销毁：已清算平仓+回收现金，永久退役（不可恢复，账号与流水保留）
+BOT_STATUSES = frozenset(
+    {BOT_STATUS_ACTIVE, BOT_STATUS_PAUSED, BOT_STATUS_DEAD, BOT_STATUS_RETIRED}
+)
 
 
 class BotProfile(SQLModel, table=True):

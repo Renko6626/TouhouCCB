@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
-from app.models.base import User
+from app.models.base import Position, User
 from app.models.bot import BotProfile
 from app.models.ledger import LedgerEntry
 
@@ -218,3 +218,158 @@ async def test_config_sentiment_key(client, admin_headers):
                              json={"pve_sentiment": "not json"})).status_code == 400
     assert (await client.put(f"{BASE}/config", headers=admin_headers,
                              json={"pve_sentiment": '{"tilts": {"x": 1}}'})).status_code == 400
+
+
+# ── 改名 / 销毁 ─────────────────────────────────────────────────────────
+
+
+async def _gen_one(client, admin_headers, cash="50") -> dict:
+    r = await client.post(f"{BASE}/bots/generate", headers=admin_headers, json={
+        "items": [{"template": "hodler", "count": 1}],
+        "naming_style": "lowkey", "initial_cash": cash,
+    })
+    assert r.status_code == 200, r.text
+    return r.json()["created"][0]
+
+
+@pytest.mark.asyncio
+async def test_rename_bot_manual_and_by_style(client, admin_headers):
+    bot = await _gen_one(client, admin_headers)
+    pid = bot["profile_id"]
+
+    r = await client.patch(f"{BASE}/bots/{pid}", headers=admin_headers,
+                           json={"username": "灵梦的钱包"})
+    assert r.status_code == 200, r.text
+    assert "username" in r.json()["changes"]
+    async with async_session_maker() as s:
+        u = (await s.execute(select(User).where(User.id == bot["user_id"]))).scalars().one()
+        assert u.username == "灵梦的钱包"
+
+    # 按风格重抽：名字变了、且是词库里的风格
+    r = await client.patch(f"{BASE}/bots/{pid}", headers=admin_headers,
+                           json={"rename_style": "npc"})
+    assert r.status_code == 200, r.text
+    async with async_session_maker() as s:
+        u = (await s.execute(select(User).where(User.id == bot["user_id"]))).scalars().one()
+        assert u.username.startswith("NPC·")
+
+
+@pytest.mark.asyncio
+async def test_rename_rejects_duplicate_and_both_fields(client, admin_headers):
+    a, b = await _gen_one(client, admin_headers), await _gen_one(client, admin_headers)
+    async with async_session_maker() as s:
+        taken = (await s.execute(
+            select(User.username).where(User.id == a["user_id"]))).scalars().one()
+    r = await client.patch(f"{BASE}/bots/{b['profile_id']}", headers=admin_headers,
+                           json={"username": taken})
+    assert r.status_code == 409, r.text
+    r = await client.patch(f"{BASE}/bots/{b['profile_id']}", headers=admin_headers,
+                           json={"username": "两个都传", "rename_style": "npc"})
+    assert r.status_code == 400, r.text
+
+
+@pytest.mark.asyncio
+async def test_destroy_untraded_bot_is_hard_deleted(client, admin_headers):
+    """从没交易过 → 真删：User / BotProfile / 初始注资 ledger 全清。"""
+    bot = await _gen_one(client, admin_headers)
+    r = await client.delete(f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["mode"] == "deleted"
+
+    async with async_session_maker() as s:
+        assert (await s.execute(
+            select(User).where(User.id == bot["user_id"]))).scalars().first() is None
+        assert (await s.execute(select(BotProfile).where(
+            BotProfile.id == bot["profile_id"]))).scalars().first() is None
+        assert (await s.execute(select(LedgerEntry).where(
+            LedgerEntry.user_id == bot["user_id"]))).scalars().all() == []
+    # 幂等性：再删一次是 404，不是 500
+    assert (await client.delete(
+        f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)).status_code == 404
+
+
+@pytest_asyncio.fixture
+async def loopback_engine():
+    """销毁走 ENGINE.trader 真实下单；测试里把它换成 ASGI 回环，用完还回去。"""
+    from httpx import ASGITransport
+    from app.main import app as fastapi_app
+    from app.services.pve.client import LoopbackTrader
+    from app.services.pve.engine import ENGINE
+
+    original = ENGINE.trader
+    ENGINE.trader = LoopbackTrader(transport=ASGITransport(app=fastapi_app))
+    yield ENGINE
+    await ENGINE.trader.close()
+    ENGINE.trader = original
+
+
+@pytest.mark.asyncio
+async def test_destroy_traded_bot_retires_and_recovers_cash(
+    client, admin_headers, loopback_engine
+):
+    """交易过 → 清算退休：现金回收进 ledger、status=retired、成交流水保留。"""
+    from app.models.base import Market, MarketStatus, Outcome, Transaction
+
+    bot = await _gen_one(client, admin_headers, cash="500")
+    async with async_session_maker() as s:
+        async with s.begin():
+            m = Market(title=f"destroy_{uuid.uuid4().hex[:6]}", description="",
+                       liquidity_b=100.0, status=MarketStatus.TRADING, tags="")
+            s.add(m); await s.flush()
+            o = Outcome(market_id=m.id, label="A", total_shares=Decimal("0"))
+            s.add(o); s.add(Outcome(market_id=m.id, label="B", total_shares=Decimal("0")))
+            await s.flush()
+            oid = o.id
+            # 造一笔真实持仓 + 一条成交流水
+            s.add(Position(user_id=bot["user_id"], outcome_id=oid,
+                           amount=Decimal("10"), cost_basis=Decimal("5")))
+            s.add(Transaction(user_id=bot["user_id"], outcome_id=oid, type="buy",
+                              shares=Decimal("10"), price=Decimal("0.5"),
+                              cost=Decimal("5"), gross=Decimal("5")))
+            o.total_shares = Decimal("10")
+
+    r = await client.delete(f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["mode"] == "retired"
+    assert body["recovered_cash"] > 0 and body["sold"], body
+
+    async with async_session_maker() as s:
+        u = (await s.execute(select(User).where(User.id == bot["user_id"]))).scalars().one()
+        assert u.cash == Decimal("0") and u.is_active is False
+        prof = (await s.execute(select(BotProfile).where(
+            BotProfile.id == bot["profile_id"]))).scalars().one()
+        assert prof.status == "retired"
+        # 成交流水保留（审计链不断）；平仓那笔 sell 也记下来了
+        txs = (await s.execute(select(Transaction).where(
+            Transaction.user_id == bot["user_id"]))).scalars().all()
+        assert any(t.type == "buy" for t in txs) and any(t.type == "sell" for t in txs)
+        # 份额已退回市场，没有留下无主持仓
+        pos = (await s.execute(select(Position).where(
+            Position.user_id == bot["user_id"], Position.amount > 0))).scalars().all()
+        assert pos == []
+
+
+@pytest.mark.asyncio
+async def test_retired_bot_rejects_further_intervention(client, admin_headers):
+    from app.models.base import Market, MarketStatus, Outcome, Transaction
+
+    bot = await _gen_one(client, admin_headers, cash="20")
+    async with async_session_maker() as s:
+        async with s.begin():
+            m = Market(title=f"retired_{uuid.uuid4().hex[:6]}", description="",
+                       liquidity_b=100.0, status=MarketStatus.TRADING, tags="")
+            s.add(m); await s.flush()
+            o = Outcome(market_id=m.id, label="A", total_shares=Decimal("0"))
+            s.add(o); await s.flush()
+            # 有成交流水但已无持仓 → 走退休路径
+            s.add(Transaction(user_id=bot["user_id"], outcome_id=o.id, type="buy",
+                              shares=Decimal("1"), price=Decimal("0.5"),
+                              cost=Decimal("0.5"), gross=Decimal("0.5")))
+    assert (await client.delete(
+        f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)).status_code == 200
+    # 退役后不可再改参/恢复，也不可重复销毁
+    assert (await client.patch(f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers,
+                               json={"status": "active"})).status_code == 409
+    assert (await client.delete(
+        f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)).status_code == 409

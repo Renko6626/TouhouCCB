@@ -161,6 +161,53 @@ async function togglePause(b: PveBotItem) {
   }
 }
 
+// 改名（手动指定 or 按词库风格重抽）
+const renameTarget = ref<PveBotItem | null>(null)
+const renameName = ref('')
+
+async function submitRename(style?: 'npc' | 'lowkey' | 'phrase') {
+  if (!renameTarget.value) return
+  const payload = style ? { rename_style: style } : { username: renameName.value.trim() }
+  if (!style && (payload.username!.length < 2 || payload.username!.length > 32)) {
+    msg.error('用户名长度需在 2~32 之间')
+    return
+  }
+  try {
+    await pveApi.patchBot(renameTarget.value.profile_id, payload)
+    msg.success(style ? '已按词库重新起名' : `已改名为 ${payload.username}`)
+    renameTarget.value = null
+    await refresh()
+  } catch (e: unknown) {
+    msg.error(errDetail(e))
+  }
+}
+
+// 销毁：后端判定走「真删」还是「清算退休」，确认框先把判定结果讲清楚
+const destroyTarget = ref<PveBotItem | null>(null)
+const destroying = ref(false)
+// 有持仓或有过成交 → 一定走退休；两者都没有才可能真删
+const destroyWillDelete = computed(
+  () => destroyTarget.value !== null && destroyTarget.value.holdings_value <= 0
+    && destroyTarget.value.last_trade_at === null,
+)
+
+async function submitDestroy() {
+  if (!destroyTarget.value) return
+  destroying.value = true
+  try {
+    const r = await pveApi.destroy(destroyTarget.value.profile_id)
+    msg.success(r.mode === 'deleted'
+      ? `已彻底删除 ${r.username}（从未交易过）`
+      : `已清算退役 ${r.username}：平仓 ${r.sold.length} 笔，回收现金 ${r.recovered_cash.toFixed(2)}`)
+    destroyTarget.value = null
+    await refresh()
+  } catch (e: unknown) {
+    msg.error(errDetail(e))
+  } finally {
+    destroying.value = false
+  }
+}
+
 // 注资（dead 顺带复活）
 const fundTarget = ref<PveBotItem | null>(null)
 const fundAmount = ref<number>(100)
@@ -321,8 +368,10 @@ async function saveConfig() {
   }
 }
 
-const statusTagType = (s: string) => (s === 'active' ? 'success' : s === 'paused' ? 'warning' : 'error')
-const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ? '已暂停' : '已死亡')
+const statusTagType = (s: string) =>
+  s === 'active' ? 'success' : s === 'paused' ? 'warning' : s === 'retired' ? 'default' : 'error'
+const statusLabel = (s: string) =>
+  s === 'active' ? '在编' : s === 'paused' ? '已暂停' : s === 'retired' ? '已退役' : '已死亡'
 </script>
 
 <template>
@@ -457,6 +506,10 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
                 </NButton>
                 <NButton size="tiny" @click="openEdit(b)">参数</NButton>
                 <NButton size="tiny" @click="openLog(b)">日志</NButton>
+                <NButton v-if="b.status !== 'retired'" size="tiny"
+                         @click="renameTarget = b; renameName = b.username">改名</NButton>
+                <NButton v-if="b.status !== 'retired'" size="tiny" type="error" ghost
+                         @click="destroyTarget = b">销毁</NButton>
               </td>
             </tr>
           </tbody>
@@ -498,6 +551,50 @@ const statusLabel = (s: string) => (s === 'active' ? '在编' : s === 'paused' ?
         </NTable>
       </section>
     </NSpin>
+
+    <!-- 改名 modal -->
+    <NModal :show="renameTarget !== null" preset="card" :title="`改名：${renameTarget?.username ?? ''}`"
+            style="width: 460px" @update:show="(v: boolean) => { if (!v) renameTarget = null }">
+      <div class="modal-form">
+        <NInput v-model:value="renameName" placeholder="新名字（2~32 字）" />
+        <div class="row right">
+          <NButton size="small" @click="renameTarget = null">取消</NButton>
+          <NButton size="small" type="primary" @click="submitRename()">确认改名</NButton>
+        </div>
+        <p class="hint">或者直接从词库重抽一个（自动避开已占用的名字）：</p>
+        <div class="row">
+          <NButton size="small" @click="submitRename('npc')">NPC 款</NButton>
+          <NButton size="small" @click="submitRename('lowkey')">低调款</NButton>
+          <NButton size="small" @click="submitRename('phrase')">句式款</NButton>
+        </div>
+      </div>
+    </NModal>
+
+    <!-- 销毁 modal -->
+    <NModal :show="destroyTarget !== null" preset="card" :title="`销毁：${destroyTarget?.username ?? ''}`"
+            style="width: 480px" @update:show="(v: boolean) => { if (!v) destroyTarget = null }">
+      <div class="modal-form">
+        <template v-if="destroyWillDelete">
+          <p class="hint danger">
+            该机器人从未交易过，将被<strong>彻底删除</strong>——账号、机器人档案、初始注资流水全部清除，不可恢复。
+          </p>
+        </template>
+        <template v-else>
+          <p class="hint">
+            该机器人有过交易，将走<strong>清算退役</strong>：先按市价强制平掉全部持仓（份额退回市场、价格相应回落），
+            回收剩余现金进 ledger，然后永久退出调度。账号与全部成交流水保留，退役后不可恢复。
+          </p>
+          <p class="hint">当前持仓估值 {{ destroyTarget?.holdings_value.toFixed(2) }} ·
+            现金 {{ destroyTarget?.cash.toFixed(2) }}</p>
+        </template>
+        <div class="row right">
+          <NButton size="small" @click="destroyTarget = null">取消</NButton>
+          <NButton size="small" type="error" :loading="destroying" @click="submitDestroy">
+            {{ destroyWillDelete ? '确认彻底删除' : '确认清算退役' }}
+          </NButton>
+        </div>
+      </div>
+    </NModal>
 
     <!-- 注资 modal -->
     <NModal :show="fundTarget !== null" preset="card" :title="`注资：${fundTarget?.username ?? ''}`"

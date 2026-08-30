@@ -37,6 +37,7 @@ class OutcomeView:
 class MarketBrief:
     market_id: int
     outcome_ids: List[int]  # 升序 = Transaction.market_prices_post 的下标顺序
+    liquidity_b: float = 100.0  # LMSR 深度；做市类模板按它缩放库存，别写死份额
 
 
 @dataclass
@@ -61,6 +62,13 @@ class MarketView:
     markets: Dict[int, MarketBrief]
     trades: List[TradeBrief]
     sentiment: Dict[int, float] = field(default_factory=dict)
+
+    def liquidity_b(self, outcome_id: int) -> float:
+        """该 outcome 所在市场的 LMSR 深度 b。份额类参数请用它换算成相对量——
+        绝对份额在不同深度的市场里含义完全不同（b=100 上 300 份就把价格顶到 0.95）。"""
+        ov = self.outcomes.get(outcome_id)
+        mb = self.markets.get(ov.market_id) if ov else None
+        return float(mb.liquidity_b) if mb else 100.0
 
     def _price_at_window_start(self, outcome_id: int, minutes: float) -> Optional[float]:
         ov = self.outcomes.get(outcome_id)
@@ -160,6 +168,23 @@ class Action:
     reason: str
 
 
+def shares_for_budget(cny: float, price: float, b: float) -> float:
+    """给定预算换算成份额——按 LMSR 真实成本反解，不是 cny/price。
+
+    `cny/price` 把价格当常数，在浅市场上会严重超支：b=100、price=0.5 时想花 ¥150，
+    cny/price 得 300 份，实际成本 ¥235——直接撞上引擎的 `pve_single_order_cap_cny`
+    或滑点保护被丢单，机器人白醒一次。
+
+    推导：令 Σexp(q_j/b)=1（LMSR 成本只关心相对量），则 exp(q_i/b)=price，
+    买 Δ 份的成本 = b·ln(1 + price·(e^(Δ/b) − 1))，反解即得下式。
+    """
+    price = min(max(price, 1e-6), 1.0)
+    if b <= 0:
+        return cny / price
+    ratio = min(cny / b, 30.0)  # 钳住指数，防止极端预算/极浅市场溢出
+    return b * math.log1p(math.expm1(ratio) / price)
+
+
 def q_shares(x: float) -> Decimal:
     """份额量化到 2dp（远低于后端 6dp 上限，够人味也够干净）。Action.shares 用它构造。"""
     return Decimal(f"{x:.2f}")
@@ -252,7 +277,7 @@ class HodlerTemplate(BotTemplate):
         if budget <= 0.5:
             return None
         cny = min(rng.uniform(p["buy_cny_min"], p["buy_cny_max"]), budget)
-        shares = cny / max(home.price, 0.01)
+        shares = shares_for_budget(cny, home.price, view.liquidity_b(home.outcome_id))
         if shares < 0.5:
             return None
         return Action("buy", home.outcome_id, q_shares(shares), f"hodler 定投 ≈{cny:.1f}")
@@ -299,7 +324,9 @@ class GridTemplate(BotTemplate):
             return None
         delta = max(-p["max_trade_shares"], min(p["max_trade_shares"], delta))
         if delta > 0:
-            affordable = (float(bot.cash) * 0.95) / max(home.price, 0.01)
+            affordable = shares_for_budget(
+                float(bot.cash) * 0.95, home.price, view.liquidity_b(home.outcome_id)
+            )
             delta = min(delta, affordable)
             if delta < p["min_trade_shares"]:
                 return None
@@ -319,8 +346,11 @@ class LiquidityTemplate(BotTemplate):
     title = "做市主力"
     default_params = {
         "outcome_id": None,
-        "base_shares": 300.0,
-        "max_offset_shares": 120.0,
+        # 库存按市场深度 b 缩放：绝对份额在不同 b 的市场里含义完全不同——
+        # 旧默认 base_shares=300 跑在 b=100 的市场上，光底仓就把价格顶到 0.95，
+        # 全场其他机器人随即因「价格太满/信念被钳到 0.98」集体停手
+        "base_shares_b_frac": 0.25,   # 底仓 = b × 本系数（b=100 → 25 份 → 价格 ≈0.56）
+        "max_offset_b_frac": 0.2,     # 围绕底仓上下浮动 = b × 本系数
         "scale_price": 0.05,        # tanh 尺度（价格空间）
         "lookback_min": 30,
         "min_trade_shares": 5.0,
@@ -338,12 +368,17 @@ class LiquidityTemplate(BotTemplate):
             return None
         oid = home.outcome_id
         held = float(bot.holding(oid))
-        floor = p["base_shares"] - p["max_offset_shares"]
+        b = view.liquidity_b(oid)
+        base = p["base_shares_b_frac"] * b
+        max_offset = p["max_offset_b_frac"] * b
+        floor = base - max_offset
         if held < floor:
             if home.price > p["max_bootstrap_price"]:
                 return None
             step = min(p["bootstrap_step_shares"], floor - held)
-            affordable = (float(bot.cash) * 0.95) / max(home.price, 0.01)
+            affordable = shares_for_budget(
+                float(bot.cash) * 0.95, home.price, view.liquidity_b(home.outcome_id)
+            )
             step = min(step, affordable)
             if step < 1:
                 return None
@@ -353,14 +388,16 @@ class LiquidityTemplate(BotTemplate):
         if len(prices) < 3:
             return None
         mean = sum(prices) / len(prices)
-        offset = math.tanh((mean - home.price) / p["scale_price"]) * p["max_offset_shares"]
-        target = p["base_shares"] + offset
+        offset = math.tanh((mean - home.price) / p["scale_price"]) * max_offset
+        target = base + offset
         delta = target - held
         if abs(delta) < p["min_trade_shares"]:
             return None
         delta = max(-p["max_trade_shares"], min(p["max_trade_shares"], delta))
         if delta > 0:
-            affordable = (float(bot.cash) * 0.95) / max(home.price, 0.01)
+            affordable = shares_for_budget(
+                float(bot.cash) * 0.95, home.price, view.liquidity_b(home.outcome_id)
+            )
             delta = min(delta, affordable)
             if delta < p["min_trade_shares"]:
                 return None
@@ -370,6 +407,10 @@ class LiquidityTemplate(BotTemplate):
 
 
 # ── 二期：信念驱动散户（believer 家族）─────────────────────────────────
+
+
+# 穷机器人的单次下注下限：现金 × max_bet_frac 太小时兜底，免得永远凑不够一手
+_BET_FLOOR_CNY = 10.0
 
 
 def _renorm(beliefs: Dict[int, float]) -> Dict[int, float]:
@@ -397,6 +438,7 @@ class BelieverTemplate(BotTemplate):
         "flow_step": 0.08,        # flow 模式：单次看盘信念最大被带偏量（价格空间）
         "shock_prob": 0.06,       # 观点冲击概率（模拟看到消息/风向变了）
         "shock_scale": 0.08,      # 冲击幅度（价格空间）
+        "conviction_revert": 0.05,  # 每次看盘信念回归「长期立场」锚点的比例（见 decide 注释）
         "sentiment_gain": 1.0,    # 对管理员风向注入（view.sentiment）的易感度
         # 短线层
         "w_swing": 0.35,          # 短线动机权重 0~1
@@ -406,9 +448,13 @@ class BelieverTemplate(BotTemplate):
         "stop_loss": 0.25,        # 浮亏割肉线（信念也不再支持时才割）
         # 执行
         "act_threshold": 0.04,    # |edge| 行动阈值（每次带 ±30% 随机抖动）
-        "aggressiveness": 0.12,   # 单次下注 ≈ 现金 × 本系数 ×（edge 强度）
+        "aggressiveness": 0.2,    # 单次下注 ≈ 现金 × 本系数 ×（edge 强度）
         "yolo_prob": 0.04,        # 上头概率：下注 ×3
-        "max_bet_cny": 40.0,
+        # 单次下注上限跟着现金走。原来只有一个绝对值 40，现金一多就成了死约束：
+        # 不管有 ¥500 还是 ¥10000，单笔都只敢 ¥40
+        "max_bet_frac": 0.35,     # 占现金比例上限
+        "max_bet_cap_cny": 0.0,   # 绝对上限，0=不限（默认）——机器人也该有砸盘的本钱；
+                                  # 真正兜底的是站点配置 pve_max_slippage_bps 的价格冲击保护
         "skip_prob": 0.3,
         "cash_reserve_cny": 1.0,
         # 注意力
@@ -427,13 +473,26 @@ class BelieverTemplate(BotTemplate):
             oid for oid in view.markets[home.market_id].outcome_ids if oid in view.outcomes
         ]
         beliefs = bot.memory.get("beliefs")
-        if not beliefs or set(beliefs) != set(oids):  # 首次/主场市场变更 → 重建信念
+        anchor = bot.memory.get("belief_anchor")
+        if not beliefs or not anchor or set(beliefs) != set(oids):  # 首次/主场市场变更 → 重建
             beliefs = {oid: view.outcomes[oid].price for oid in oids}
             beliefs[home.outcome_id] += p["conviction"]
             beliefs = _renorm(beliefs)
+            anchor = dict(beliefs)  # 「长期立场」：从众项能拉走当下看法，但拉不走它
         else:
+            # 观点冲击改的是长期立场（同时立刻反映到当下看法）。只改后者的话，
+            # 从众项几个来回就把它抹平，机器人一旦把价格推到自己信念上就再无 edge，
+            # 从此永久躺平——这正是「¥500 只投出去 ¥50 然后不动了」的成因之一
+            if rng.random() < p["shock_prob"]:
+                hit = rng.choice(oids)
+                delta = rng.uniform(-1, 1) * p["shock_scale"]
+                anchor[hit] += delta
+                beliefs[hit] += delta
+                anchor = _renorm(anchor)
             # 从众项：每次看盘信念被市场带偏（负 herd_coef=逆势党越看越反着信）。
             # price 模式跟价格信（图表党）；flow 模式跟人群净流入信（从众党）
+            # 回归项：同时被自己的长期立场往回拽。两者拉锯 → 均衡信念停在价格与
+            # 锚点之间，edge 不会衰减到 0，机器人对后续行情保持活性
             for oid in oids:
                 if p["herd_signal"] == "flow":
                     sig = p["flow_step"] * math.tanh(
@@ -441,12 +500,13 @@ class BelieverTemplate(BotTemplate):
                     )
                 else:
                     sig = view.outcomes[oid].price - beliefs[oid]
-                beliefs[oid] += p["herd_coef"] * sig
-            # 观点冲击：随机重估某个 outcome（模拟看到消息/风向变了）
-            if rng.random() < p["shock_prob"]:
-                beliefs[rng.choice(oids)] += rng.uniform(-1, 1) * p["shock_scale"]
+                beliefs[oid] += (
+                    p["herd_coef"] * sig
+                    + p["conviction_revert"] * (anchor[oid] - beliefs[oid])
+                )
             beliefs = _renorm(beliefs)
         bot.memory["beliefs"] = beliefs
+        bot.memory["belief_anchor"] = anchor
 
         # score = 长线信念 edge 与短线动量 edge 按 w_swing 加权（生成扰动可能越界，钳回）
         w = min(1.0, max(0.0, p["w_swing"]))
@@ -486,8 +546,11 @@ class BelieverTemplate(BotTemplate):
                 cny = p["aggressiveness"] * float(bot.cash) * heat * rng.uniform(0.6, 1.4)
                 if rng.random() < p["yolo_prob"]:
                     cny *= 3  # 上头
-                cny = min(cny, p["max_bet_cny"], budget)
-                shares = cny / max(ov.price, 0.01)
+                bet_cap = max(p["max_bet_frac"] * float(bot.cash), _BET_FLOOR_CNY)
+                if p["max_bet_cap_cny"] > 0:  # 0=不限
+                    bet_cap = min(bet_cap, p["max_bet_cap_cny"])
+                cny = min(cny, bet_cap, budget)
+                shares = shares_for_budget(cny, ov.price, view.liquidity_b(oid))
                 if shares < 0.5:
                     continue
                 return Action("buy", oid, q_shares(shares), f"看好 {ov.label}（edge {score:+.2f}）")
@@ -586,8 +649,10 @@ PARAM_DOCS: Dict[str, str] = {
     "min_trade_shares": "低于此份额的调仓不动手（省手续费/防抖）",
     "max_trade_shares": "单次调仓份额上限",
     # 做市
-    "base_shares": "底仓目标份额（先 bootstrap 建到这里附近）",
-    "max_offset_shares": "围绕底仓上下浮动的最大份额",
+    "base_shares_b_frac": "底仓 = 市场深度 b × 本系数（相对量；绝对份额在不同深度的市场里含义不同）",
+    "max_offset_b_frac": "围绕底仓上下浮动的最大幅度 = 市场深度 b × 本系数",
+    "base_shares": "（已废弃，改用 base_shares_b_frac）底仓目标份额",
+    "max_offset_shares": "（已废弃，改用 max_offset_b_frac）围绕底仓上下浮动的最大份额",
     "scale_price": "均价偏离多少算「满信号」（tanh 尺度，价格空间）",
     "lookback_min": "行情观察窗（分钟）——动量/均价都看这个窗口",
     "bootstrap_step_shares": "建仓期每次买入的份额",
@@ -600,6 +665,7 @@ PARAM_DOCS: Dict[str, str] = {
     "flow_step": "flow 模式：单次看盘信念最大被带偏量（价格空间）",
     "shock_prob": "观点冲击概率——随机重估某个 outcome，模拟看到了消息",
     "shock_scale": "观点冲击幅度（价格空间）",
+    "conviction_revert": "信念回归长期立场的比例（0=看法被市场带走就再也回不来，越大越固执）",
     "sentiment_gain": "对管理员风向注入（pve_sentiment）的易感度（0=免疫）",
     # believer 短线层
     "w_swing": "短线动机权重（0=信仰党拿到结算，1=波段客只吃短线）",
@@ -609,7 +675,9 @@ PARAM_DOCS: Dict[str, str] = {
     "act_threshold": "行动阈值：|edge| 超过才动手（每次带 ±30% 抖动）",
     "aggressiveness": "下注规模系数：单次 ≈ 现金 × 本系数 × edge 强度",
     "yolo_prob": "上头概率：命中时这一单直接 ×3",
-    "max_bet_cny": "单次下注金额上限（¥）",
+    "max_bet_frac": "单次下注占现金的比例上限",
+    "max_bet_cap_cny": "单次下注绝对上限（¥）；0=不限（默认，让机器人也能砸盘）",
+    "max_bet_cny": "（已废弃，改用 max_bet_frac + max_bet_cap_cny）单次下注金额上限（¥）",
     # 注意力（attention.py）
     "check_interval_sec": "常规看盘间隔（秒）；量化型分钟级、散户小时级",
     "active_preset": "作息模板：always 全天候（量化）/ worker 上班族 / evening 晚间党 / owl 夜猫 / loose 松散",
