@@ -88,18 +88,29 @@ class LoopbackTrader:
             {"outcome_id": outcome_id, "shares": str(shares), "side": side},
         )
 
+    # accept_any_slippage：market API 会把 max_slippage_bps 截到
+    # trade_checks.HARDCAP_SLIPPAGE_BPS=1000（10%），所以站点配置 pve_max_slippage_bps
+    # 调到 1000 以上时，单子会先过引擎自检、再被 API 拒（白跑一趟且记成 error）。
+    # 引擎在 _execute 里已按 pve_max_slippage_bps 自己算过滑点并拦截，这里声明
+    # 「已明确接受」把裁决权收归引擎一处，避免两道口径打架。
     async def buy(
-        self, user_id: int, outcome_id: int, shares: Decimal, max_slippage_bps: int
+        self, user_id: int, outcome_id: int, shares: Decimal, max_slippage_bps: int,
+        accept_any_slippage: bool = True,
     ) -> dict:
         return await self._post(
             "/buy", user_id,
-            {"outcome_id": outcome_id, "shares": str(shares), "max_slippage_bps": max_slippage_bps},
+            {"outcome_id": outcome_id, "shares": str(shares),
+             "max_slippage_bps": min(max_slippage_bps, 10000),
+             "accept_any_slippage": accept_any_slippage},
         )
 
     async def sell(
-        self, user_id: int, outcome_id: int, shares: Decimal, max_slippage_bps: int
+        self, user_id: int, outcome_id: int, shares: Decimal, max_slippage_bps: int,
+        accept_any_slippage: bool = True,
     ) -> dict:
         return await self._post(
             "/sell", user_id,
-            {"outcome_id": outcome_id, "shares": str(shares), "max_slippage_bps": max_slippage_bps},
+            {"outcome_id": outcome_id, "shares": str(shares),
+             "max_slippage_bps": min(max_slippage_bps, 10000),
+             "accept_any_slippage": accept_any_slippage},
         )
