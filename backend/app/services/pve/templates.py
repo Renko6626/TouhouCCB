@@ -448,13 +448,13 @@ class BelieverTemplate(BotTemplate):
         "stop_loss": 0.25,        # 浮亏割肉线（信念也不再支持时才割）
         # 执行
         "act_threshold": 0.04,    # |edge| 行动阈值（每次带 ±30% 随机抖动）
-        "aggressiveness": 0.12,   # 单次下注 ≈ 现金 × 本系数 ×（edge 强度）
+        "aggressiveness": 0.2,    # 单次下注 ≈ 现金 × 本系数 ×（edge 强度）
         "yolo_prob": 0.04,        # 上头概率：下注 ×3
-        # 单次下注上限 = min(绝对上限, 现金 × 比例)。原来只有一个绝对值 40，
-        # 现金一多就成了死约束：不管有 ¥500 还是 ¥10000，单笔都只敢 ¥40
-        "max_bet_frac": 0.25,     # 占现金比例上限
-        "max_bet_cap_cny": 150.0, # 绝对上限；应 ≤ 站点配置 pve_single_order_cap_cny(200)，
-                                  # 否则单子会被引擎以「单笔超上限」直接丢掉
+        # 单次下注上限跟着现金走。原来只有一个绝对值 40，现金一多就成了死约束：
+        # 不管有 ¥500 还是 ¥10000，单笔都只敢 ¥40
+        "max_bet_frac": 0.35,     # 占现金比例上限
+        "max_bet_cap_cny": 0.0,   # 绝对上限，0=不限（默认）——机器人也该有砸盘的本钱；
+                                  # 真正兜底的是站点配置 pve_max_slippage_bps 的价格冲击保护
         "skip_prob": 0.3,
         "cash_reserve_cny": 1.0,
         # 注意力
@@ -546,10 +546,9 @@ class BelieverTemplate(BotTemplate):
                 cny = p["aggressiveness"] * float(bot.cash) * heat * rng.uniform(0.6, 1.4)
                 if rng.random() < p["yolo_prob"]:
                     cny *= 3  # 上头
-                bet_cap = min(
-                    p["max_bet_cap_cny"],
-                    max(p["max_bet_frac"] * float(bot.cash), _BET_FLOOR_CNY),
-                )
+                bet_cap = max(p["max_bet_frac"] * float(bot.cash), _BET_FLOOR_CNY)
+                if p["max_bet_cap_cny"] > 0:  # 0=不限
+                    bet_cap = min(bet_cap, p["max_bet_cap_cny"])
                 cny = min(cny, bet_cap, budget)
                 shares = shares_for_budget(cny, ov.price, view.liquidity_b(oid))
                 if shares < 0.5:
@@ -677,7 +676,7 @@ PARAM_DOCS: Dict[str, str] = {
     "aggressiveness": "下注规模系数：单次 ≈ 现金 × 本系数 × edge 强度",
     "yolo_prob": "上头概率：命中时这一单直接 ×3",
     "max_bet_frac": "单次下注占现金的比例上限",
-    "max_bet_cap_cny": "单次下注绝对上限（¥）；应 ≤ 站点配置 pve_single_order_cap_cny",
+    "max_bet_cap_cny": "单次下注绝对上限（¥）；0=不限（默认，让机器人也能砸盘）",
     "max_bet_cny": "（已废弃，改用 max_bet_frac + max_bet_cap_cny）单次下注金额上限（¥）",
     # 注意力（attention.py）
     "check_interval_sec": "常规看盘间隔（秒）；量化型分钟级、散户小时级",

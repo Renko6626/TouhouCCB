@@ -180,9 +180,22 @@ def test_believer_bet_cap_scales_with_cash():
     rich = t.decide(make_bot(BelieverTemplate, cash="5000", **kw), make_view())
     assert poor is not None and rich is not None
     assert float(rich.shares) > float(poor.shares) * 2
-    # 但绝对上限仍守住，免得被引擎的 pve_single_order_cap_cny 直接丢单
-    cap = BelieverTemplate.default_params["max_bet_cap_cny"]
-    assert float(rich.shares) * 0.5 <= cap + 1e-6
+    # 默认不设绝对上限——机器人也该有砸盘的本钱，兜底交给滑点保护
+    assert BelieverTemplate.default_params["max_bet_cap_cny"] == 0.0
+
+
+def test_believer_absolute_bet_cap_binds_when_set():
+    """max_bet_cap_cny > 0 时仍是硬上限（0=不限，>0=按值封顶）。"""
+    t = BelieverTemplate()
+    kw = dict(outcome_id=11, conviction=0.4, w_swing=0.0, skip_prob=0.0,
+              shock_prob=0.0, herd_coef=0.0, yolo_prob=0.0, act_threshold=0.0)
+    uncapped = t.decide(make_bot(BelieverTemplate, cash="5000", **kw), make_view())
+    capped = t.decide(make_bot(BelieverTemplate, cash="5000",
+                               max_bet_cap_cny=50.0, **kw), make_view())
+    assert uncapped is not None and capped is not None
+    assert float(capped.shares) < float(uncapped.shares)
+    # 价格 0.5、b=100 上花 ¥50 ≈ 90 份（按 LMSR 真实成本，不是 50/0.5=100）
+    assert float(capped.shares) < 100
 
 
 def test_belief_anchor_keeps_edge_alive_against_herding():

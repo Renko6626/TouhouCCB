@@ -36,9 +36,13 @@ PVE_CONFIG_SPEC: Dict[str, tuple[str, str, str]] = {
     # 改后需重启才生效（scheduler 启动时读）
     "pve_tick_interval_sec": ("int", "20", "引擎心跳间隔（秒）——改后需重启后端"),
     "pve_orders_per_min_cap": ("int", "30", "全体机器人每分钟下单总量上限"),
-    "pve_single_order_cap_cny": ("decimal", "200", "单笔成交金额上限（¥），超过直接放弃"),
-    "pve_daily_turnover_cap_cny": ("decimal", "2000", "单机器人当日成交额上限（¥，北京自然日）"),
-    "pve_max_slippage_bps": ("int", "800", "滑点保护（基点）：报价偏离现价超过此值放弃下单"),
+    "pve_single_order_cap_cny": ("decimal", "0", "单笔成交金额上限（¥）；0=不限（默认，让机器人也能砸盘）"),
+    "pve_daily_turnover_cap_cny": ("decimal", "0", "单机器人当日成交额上限（¥，北京自然日）；0=不限（默认）"),
+    "pve_max_slippage_bps": (
+        "int", "2500",
+        "滑点保护（基点）：报价偏离现价超过此值放弃下单——金额闸门放开后，这是约束"
+        "单笔价格冲击的主护栏",
+    ),
     "pve_death_floor_cny": ("decimal", "3", "死亡水位（¥）：现金+持仓清算价值低于此判死，注资可复活"),
     "pve_max_wakes_per_tick": ("int", "20", "每个 tick 最多唤醒的机器人数（削峰；实际放行数在其 1/2~1 倍间随机）"),
     "pve_activity_wave": (
