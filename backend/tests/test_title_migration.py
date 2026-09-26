@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from alembic.config import Config
 from alembic import command
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, MetaData
 
 
 def _make_alembic_cfg(db_url: str) -> Config:
@@ -105,7 +105,22 @@ def test_upgrade_downgrade_roundtrip():
 
     try:
         # 构造 before-state schema（不含 title* 表，user 不含 equipped_title_id）
-        SQLModel.metadata.create_all(sync_engine, tables=keep_tables)
+        before_metadata = MetaData()
+        for table in keep_tables:
+            table.to_metadata(before_metadata)
+        # before-state 也必须排除后来新增的线下核销列，不能预先建成 head。
+        codes = before_metadata.tables["redemption_code"]
+        for name in ("redeemed_at", "redeemed_by_admin_id", "redemption_note"):
+            column = codes.c[name]
+            for constraint in list(codes.constraints):
+                if any(item.name == name for item in constraint.columns):
+                    codes.constraints.discard(constraint)
+            for index in list(codes.indexes):
+                if any(item.name == name for item in index.columns):
+                    codes.indexes.discard(index)
+            codes.foreign_keys.difference_update(column.foreign_keys)
+            codes._columns.remove(column)
+        before_metadata.create_all(sync_engine)
 
         cfg = _make_alembic_cfg(db_url)
         command.stamp(cfg, "679d34cb5986")

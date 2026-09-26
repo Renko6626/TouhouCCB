@@ -23,6 +23,7 @@ AUDIT_EVENT_TYPES = frozenset({
     "admin_set_role", "admin_ban", "admin_unban",
     "config_set",
     "redeem_purchase", "danmuku_exchange",
+    "redeem_fulfill", "redeem_fulfill_revoke",
 })
 
 

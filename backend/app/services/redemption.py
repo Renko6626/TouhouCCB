@@ -8,6 +8,8 @@ from typing import List, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
+from fastapi import HTTPException
 
 from app.models.base import User
 from app.models.redemption import (
@@ -179,6 +181,90 @@ async def count_total_for_batch(session: AsyncSession, batch_id: int) -> int:
         RedemptionCode.batch_id == batch_id,
     )
     return int((await session.execute(stmt)).scalar_one())
+
+
+async def count_redeemed_for_batch(session: AsyncSession, batch_id: int) -> int:
+    stmt = select(func.count()).select_from(RedemptionCode).where(
+        RedemptionCode.batch_id == batch_id,
+        RedemptionCode.redeemed_at.is_not(None),
+    )
+    return int((await session.execute(stmt)).scalar_one())
+
+
+async def fulfill_code(session: AsyncSession, code_id: int, admin_id: int, note: str) -> None:
+    """原子核销；状态和审计同事务，调用者 commit。条件更新也兼容 SQLite。"""
+    now = datetime.now(timezone.utc)
+    result = await session.execute(
+        update(RedemptionCode).where(
+            RedemptionCode.id == code_id,
+            RedemptionCode.status == CodeStatus.SOLD,
+            RedemptionCode.bought_by_user_id.is_not(None),
+            RedemptionCode.redeemed_at.is_(None),
+        ).values(
+            redeemed_at=now, redeemed_by_admin_id=admin_id, redemption_note=note.strip(),
+        ).execution_options(synchronize_session=False)
+    )
+    code = (await session.execute(
+        select(RedemptionCode).where(RedemptionCode.id == code_id)
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if code is None:
+        raise HTTPException(status_code=404, detail="兑换码不存在")
+    if result.rowcount != 1:
+        if code.redeemed_at is not None:
+            # 展示时间统一使用明确的 UTC，前端列表再转工作人员本地时间。
+            when = code.redeemed_at.replace(tzinfo=timezone.utc).isoformat()
+            raise HTTPException(status_code=409, detail=f"该兑换码已于 {when} 核销，请勿重复发放")
+        raise HTTPException(status_code=409, detail="兑换码尚未售出，不能核销")
+    from app.services import audit_service
+    audit_service.record(
+        session, "redeem_fulfill", user_id=code.bought_by_user_id,
+        operator_user_id=admin_id, ref_table="redemption_code", ref_id=code.id,
+        payload={"batch_id": code.batch_id, "redeemed_at": now, "note": note.strip()},
+        ts=now,
+    )
+
+
+async def revoke_fulfillment(
+    session: AsyncSession, code_id: int, admin_id: int, reason: str, expected_redeemed_at: datetime,
+) -> None:
+    """撤销误核销，并保留原记录及原因；用户个人标记、销售状态和资金不变。"""
+    reason = reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="请填写撤销原因")
+    code = (await session.execute(
+        select(RedemptionCode).where(RedemptionCode.id == code_id).with_for_update()
+        .execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if code is None:
+        raise HTTPException(status_code=404, detail="兑换码不存在")
+    if code.redeemed_at is None:
+        raise HTTPException(status_code=409, detail="该兑换码尚未核销")
+    current_time = code.redeemed_at.replace(tzinfo=timezone.utc) if code.redeemed_at.tzinfo is None else code.redeemed_at.astimezone(timezone.utc)
+    expected_time = expected_redeemed_at.replace(tzinfo=timezone.utc) if expected_redeemed_at.tzinfo is None else expected_redeemed_at.astimezone(timezone.utc)
+    if current_time != expected_time:
+        raise HTTPException(status_code=409, detail="核销记录已变化，请刷新后重试")
+    previous = {
+        "batch_id": code.batch_id, "reason": reason,
+        "previous_redeemed_at": code.redeemed_at,
+        "previous_redeemed_by_admin_id": code.redeemed_by_admin_id,
+        "previous_note": code.redemption_note,
+    }
+    result = await session.execute(
+        update(RedemptionCode).where(
+            RedemptionCode.id == code_id, RedemptionCode.redeemed_at == code.redeemed_at,
+        ).values(
+            redeemed_at=None, redeemed_by_admin_id=None, redemption_note="",
+        ).execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise HTTPException(status_code=409, detail="核销状态已变化，请刷新后重试")
+    from app.services import audit_service
+    audit_service.record(
+        session, "redeem_fulfill_revoke", user_id=code.bought_by_user_id,
+        operator_user_id=admin_id, ref_table="redemption_code", ref_id=code.id,
+        payload=previous,
+    )
 
 
 async def list_active_batches_with_stock(session: AsyncSession):

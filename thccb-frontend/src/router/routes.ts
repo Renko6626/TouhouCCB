@@ -191,6 +191,12 @@ export const routes: RouteRecordRaw[] = [
         meta: { title: '兑换批次', requiresAuth: true, requiresAdmin: true },
       },
       {
+        path: 'admin/redemption/codes',
+        name: 'admin-redemption-codes',
+        component: () => import('@/pages/admin/RedemptionCodes.vue'),
+        meta: { title: '兑换码核销', requiresAuth: true, requiresAdmin: true },
+      },
+      {
         path: 'admin/redemption/batches/:id/import',
         name: 'admin-redemption-import',
         component: () => import('@/pages/admin/RedemptionImport.vue'),

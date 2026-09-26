@@ -119,11 +119,8 @@ class DanmukuExchange(SQLModel, table=True):
 class RedemptionCode(SQLModel, table=True):
     """用户购买后的兑换码记录。
 
-    安全约束：`code_string` 仅对 `bought_by_user_id == 当前用户` 可见。
-    api/v1/redemption.py 已强制；如未来在 core/admin.py 给本表挂 sqladmin
-    `ModelView`，必须在 `column_list`/`column_details_list` 中**排除
-    code_string** 字段，否则超管会在 sqladmin 后台看到所有用户的码字符串，
-    违背 spec 第 6 节"已售码的 code_string 不在管理员后台显示"。
+    普通用户只能查看自己购买的码；管理员可在专用核销接口中查看全部码，
+    用于线下活动发放。管理员确认的核销与用户个人已用备注独立保存。
     """
     __tablename__ = "redemption_code"
     __table_args__ = (
@@ -138,3 +135,6 @@ class RedemptionCode(SQLModel, table=True):
     bought_by_user_id: Optional[int] = Field(default=None, foreign_key="user.id", index=True)
     bought_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
     marked_used_by_user_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    redeemed_at: Optional[datetime] = Field(default=None, index=True, sa_type=DateTime(timezone=True))
+    redeemed_by_admin_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    redemption_note: str = Field(default="", max_length=500, nullable=False)

@@ -133,6 +133,7 @@ async def my_redemptions(
             paid_amount=b.unit_price if b else 0,
             bought_at=c.bought_at,
             marked_used_by_user_at=c.marked_used_by_user_at,
+            redeemed_at=c.redeemed_at,
         ))
     return out
 
@@ -157,6 +158,7 @@ async def my_redemption_detail(
         paid_amount=b.unit_price if b else 0,
         bought_at=c.bought_at,
         marked_used_by_user_at=c.marked_used_by_user_at,
+        redeemed_at=c.redeemed_at,
         description=b.description if b else "",
     )
 

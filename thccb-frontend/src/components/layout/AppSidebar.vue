@@ -62,6 +62,7 @@ const adminItems: NavEntry[] = [
     children: [
       { label: '合作方', path: '/admin/redemption/partners', icon: 'i-mdi-handshake-outline', activeIcon: 'i-mdi-handshake' },
       { label: '兑换批次', path: '/admin/redemption/batches', icon: 'i-mdi-package-variant', activeIcon: 'i-mdi-package-variant' },
+      { label: '兑换码核销', path: '/admin/redemption/codes', icon: 'i-mdi-ticket-confirmation-outline', activeIcon: 'i-mdi-ticket-confirmation' },
       { label: '称号目录', path: '/admin/titles', icon: 'i-mdi-medal-outline', activeIcon: 'i-mdi-medal' },
       { label: '称号激活码', path: '/admin/title-codes', icon: 'i-mdi-ticket-account', activeIcon: 'i-mdi-ticket-account' },
     ],

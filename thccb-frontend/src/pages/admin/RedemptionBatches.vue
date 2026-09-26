@@ -86,6 +86,10 @@ function goImport(b: BatchAdminItem) {
   router.push(`/admin/redemption/batches/${b.id}/import`)
 }
 
+function goCodes(b: BatchAdminItem) {
+  router.push({ path: '/admin/redemption/codes', query: { batch_id: b.id } })
+}
+
 onMounted(load)
 </script>
 
@@ -115,7 +119,7 @@ onMounted(load)
       <thead>
         <tr>
           <th>ID</th><th>合作方</th><th>名称</th><th>价格</th>
-          <th>状态</th><th>库存</th><th>操作</th>
+          <th>状态</th><th>库存</th><th>已核销</th><th>操作</th>
         </tr>
       </thead>
       <tbody>
@@ -139,9 +143,11 @@ onMounted(load)
               {{ b.available_count }} / {{ b.total_count }}
             </span>
           </td>
+          <td>{{ b.redeemed_count }} / {{ b.sold_count }}</td>
           <td>
             <button class="btn-sm" @click="startEdit(b)">编辑</button>
             <button class="btn-sm" @click="goImport(b)">导入码</button>
+            <button class="btn-sm" @click="goCodes(b)">查看 / 核销</button>
           </td>
         </tr>
       </tbody>
@@ -185,7 +191,7 @@ onMounted(load)
 .table { width: 100%; border-collapse: collapse; background: #fff; }
 .table th, .table td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; white-space: nowrap; }
 .table th { background: #000; color: #fff; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
-.table td:nth-child(4), .table td:nth-child(6) { font-variant-numeric: tabular-nums; }
+.table td:nth-child(4), .table td:nth-child(6), .table td:nth-child(7) { font-variant-numeric: tabular-nums; }
 .stock-alerts { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
 .alert {
   border: 2px solid #000; padding: 8px 14px; font-size: 13px;
