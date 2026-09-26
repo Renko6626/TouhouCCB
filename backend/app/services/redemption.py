@@ -58,7 +58,7 @@ def parse_csv_codes(text: str) -> Tuple[List[str], List[str]]:
 
 
 class PurchaseError(Exception):
-    """购买失败 code ∈ {INSUFFICIENT_CASH, SOLD_OUT, BATCH_NOT_ACTIVE, BATCH_NOT_FOUND, PER_USER_LIMIT_REACHED}"""
+    """购买失败 code ∈ {INSUFFICIENT_CASH, OUTSTANDING_DEBT, SOLD_OUT, BATCH_NOT_ACTIVE, BATCH_NOT_FOUND, PER_USER_LIMIT_REACHED}"""
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
@@ -94,6 +94,10 @@ async def purchase_code(
         raise PurchaseError("BATCH_NOT_FOUND")
     if batch.status != BatchStatus.ACTIVE:
         raise PurchaseError("BATCH_NOT_ACTIVE")
+
+    # 与借款/还款共享 user 行锁，按最新债务判断；现金再多也不能带债兑换。
+    if user.debt > 0:
+        raise PurchaseError("OUTSTANDING_DEBT")
 
     if user.cash < batch.unit_price:
         raise PurchaseError("INSUFFICIENT_CASH")

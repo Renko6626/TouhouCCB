@@ -17,6 +17,32 @@ const submitting = ref(false)
 const error = ref('')
 const showConfirm = ref(false)
 const result = ref<DanmukuExchangeResponse | null>(null)
+const summaryLoading = ref(false)
+const summaryReady = ref(false)
+const summaryError = ref('')
+const debtRule = '请先还清全部借款（含利息），再购买或兑换激活码'
+const hasOutstandingDebt = computed(() => (userStore.summary?.debt ?? 0) > 0)
+const paymentAllowed = computed(() => !summaryLoading.value && summaryReady.value
+  && userStore.summary !== null && Number.isFinite(userStore.summary.debt) && userStore.summary.debt <= 0)
+
+async function refreshSummary() {
+  if (summaryLoading.value) return
+  summaryLoading.value = true
+  summaryReady.value = false
+  summaryError.value = ''
+  try {
+    const summary = await userStore.fetchSummary()
+    if (!summary || !Number.isFinite(summary.debt) || !Number.isFinite(summary.cash)) {
+      summaryError.value = '无法确认账户余额与借款状态，请重试后再兑换。'
+      return
+    }
+    summaryReady.value = true
+  } catch {
+    summaryError.value = '无法确认账户余额与借款状态，请重试后再兑换。'
+  } finally {
+    summaryLoading.value = false
+  }
+}
 
 // 解析数字（空 → 0），失败 → NaN
 const parseNum = (s: string): number => {
@@ -37,6 +63,7 @@ const cash = computed(() => userStore.summary?.cash ?? 0)
 const cashAfter = computed(() => cash.value - totalAmount.value)
 
 const formValid = computed(() => {
+  if (!paymentAllowed.value) return false
   if (!qqUserId.value.trim()) return false
   if (!roomId.value.trim()) return false
   if (!Number.isFinite(yuanNum.value) || yuanNum.value < 0) return false
@@ -47,6 +74,7 @@ const formValid = computed(() => {
 })
 
 const formError = computed(() => {
+  if (!paymentAllowed.value) return ''
   if (!qqUserId.value.trim()) return '请填写 QQ 号'
   if (!roomId.value.trim()) return '请填写房间号'
   if (!Number.isFinite(yuanNum.value)) return '弹货不是合法数字'
@@ -70,12 +98,16 @@ async function onExchange() {
     })
     result.value = resp
     showConfirm.value = false
-    await userStore.fetchSummary()
+    await refreshSummary()
     // 兑换成功后清空金额字段（QQ/房间号保留方便连续兑换）
     yuan.value = ''
     huo.value = ''
   } catch (e) {
-    error.value = extractErrorMessage(e, '兑换失败')
+    const failure = extractErrorMessage(e, '兑换失败')
+    error.value = failure === 'OUTSTANDING_DEBT' ? debtRule : failure
+    if (typeof e === 'object' && e !== null && 'status' in e && e.status === 403) {
+      await refreshSummary()
+    }
   } finally {
     submitting.value = false
   }
@@ -86,9 +118,7 @@ async function copyCode(text: string) {
   message.success('激活码已复制')
 }
 
-onMounted(() => {
-  if (!userStore.summary) userStore.fetchSummary()
-})
+onMounted(refreshSummary)
 </script>
 
 <template>
@@ -99,6 +129,10 @@ onMounted(() => {
         <router-link to="/my/redemptions" class="history-link">查看兑换历史 →</router-link>
       </div>
       <p class="page-sub">用站内现金按 1:1 兑换弹幕系统的弹货 / P 点激活码</p>
+      <p class="repayment-rule">
+        存在任何未偿还借款（含利息）时，不能购买或兑换激活码。请先还清全部借款。
+        <router-link to="/loan">前往借款页还款 →</router-link>
+      </p>
     </header>
 
     <div class="layout">
@@ -108,8 +142,16 @@ onMounted(() => {
 
         <div class="balance-row">
           <span class="balance-label">当前现金</span>
-          <span class="balance-value tabular-nums">金 {{ cash.toFixed(2) }}</span>
+          <span class="balance-value tabular-nums">金 {{ summaryReady && !summaryLoading ? cash.toFixed(2) : '—' }}</span>
         </div>
+        <div v-if="summaryLoading || !summaryReady" class="account-state" role="status">
+          <p>{{ summaryLoading ? '正在确认账户余额与借款状态…' : summaryError || '尚未确认账户状态，暂不能兑换。' }}</p>
+          <button class="btn-secondary" :disabled="summaryLoading || submitting" @click="refreshSummary">重试账户状态</button>
+        </div>
+        <p v-else-if="hasOutstandingDebt" class="account-state" role="alert">
+          当前仍有未偿还借款（含利息）。{{ debtRule }}。
+          <router-link to="/loan">去还款 →</router-link>
+        </p>
 
         <div class="form-grid">
           <label class="form-field">
@@ -173,7 +215,7 @@ onMounted(() => {
               class="preview-value tabular-nums"
               :class="{ 'preview-value--bad': Number.isFinite(cashAfter) && cashAfter < 0 }"
             >
-              金 {{ Number.isFinite(cashAfter) ? cashAfter.toFixed(2) : '—' }}
+              金 {{ summaryReady && !summaryLoading && Number.isFinite(cashAfter) ? cashAfter.toFixed(2) : '—' }}
             </span>
           </div>
         </div>
@@ -193,7 +235,7 @@ onMounted(() => {
     </div>
 
     <!-- 二次确认弹窗 -->
-    <div v-if="showConfirm" class="modal-bg" @click.self="showConfirm = false">
+    <div v-if="showConfirm" class="modal-bg" @click.self="!submitting && (showConfirm = false)">
       <div class="modal-panel">
         <h3 class="modal-title">确认兑换</h3>
         <p class="modal-text">
@@ -203,9 +245,14 @@ onMounted(() => {
         <p class="modal-warn">
           <span class="warning-tag">注意</span>码一旦生成视同交付，<b>不可退款</b>。
         </p>
+        <p class="repayment-rule">{{ debtRule }}。<router-link to="/loan">去还款 →</router-link></p>
+        <p v-if="summaryLoading || !summaryReady" class="account-state">
+          {{ summaryLoading ? '正在确认账户状态…' : summaryError || '尚未确认账户状态，暂不能兑换。' }}
+          <button class="btn-secondary" :disabled="summaryLoading || submitting" @click="refreshSummary">重试账户状态</button>
+        </p>
         <div class="modal-actions">
           <button class="btn-secondary" @click="showConfirm = false" :disabled="submitting">取消</button>
-          <button class="btn-primary" @click="onExchange" :disabled="submitting">
+          <button class="btn-primary" @click="onExchange" :disabled="submitting || !formValid">
             {{ submitting ? '处理中…' : '确认' }}
           </button>
         </div>
@@ -259,6 +306,22 @@ onMounted(() => {
   font-size: 13px;
   color: #555;
 }
+.repayment-rule, .account-state {
+  border: 2px solid #000;
+  padding: 10px 14px;
+  margin-top: 12px;
+  margin-bottom: 12px;
+  background: #f5f5f5;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.repayment-rule a, .account-state a {
+  color: #000;
+  font-weight: 700;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.account-state button { margin-top: 8px; }
 .history-link {
   font-size: 13px;
   font-weight: 600;

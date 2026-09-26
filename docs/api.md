@@ -282,6 +282,10 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 同 borrow 格式。`amount` 超过真实债务或现金时，服务层会封顶，实际生效值见响应 `effective`。
 
+### POST `/loan/repay-all` — 按最新负债一键还款
+
+需要登录，无请求体。后端在用户行锁内计息，再扣减 `min(最新负债, 最新现金)`；现金充足时负债精确清零，现金不足时返回剩余负债。响应与 `/loan/repay` 相同，`effective` 为实际扣款。已无负债时不扣款；有负债但无现金时返回 400。
+
 ### GET `/loan/liquidation-policy` — 强平规则（公开只读）
 
 ### GET `/loan/recent-liquidations` — 最近强平事件（公开只读，脱敏）
@@ -303,6 +307,8 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 ```
 每次购买一个码，响应：`{ "code_id", "code_string", "batch_name", "partner_name", "partner_website_url", "paid_amount", "cash_after" }`。
 
+必须先还清全部借款（含利息）；最新债务大于 0 时返回 403，拒绝购买，不扣款或消耗兑换码库存。判断与借款/还款共享用户行锁。
+
 ### GET `/redemption/my` — 我购买的兑换码
 
 ### GET `/redemption/my/{code_id}` — 单个兑换码详情（含 `code_string`）
@@ -323,6 +329,8 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 { "qq_user_id": "10001", "room_id": "弹幕群", "yuan": 0, "huo": 10 }
 ```
 扣减站内 cash = `yuan + huo`（1:1）。响应：`{ "id", "code_string", "yuan", "huo", "amount", "cash_after", "timestamp" }`（与朋友的 danmuku 服务端约定 HMAC 签名）。
+
+同样要求借款全部还清；最新债务大于 0 时返回 403，不扣款、不生成激活码。
 
 ### GET `/danmuku/my` — 我的弹幕兑换记录
 
