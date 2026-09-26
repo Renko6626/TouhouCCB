@@ -131,7 +131,7 @@ trap 'exit 143' TERM
 WORK_DIR="$(mktemp -d "$PROJECT_ROOT/.season-reset.XXXXXX")"
 OVERRIDE_PATH="$WORK_DIR/compose.yml"
 OWNER_TOKEN="${WORK_DIR##*/}-$$"
-printf 'services:\n  backend:\n    init: true\n    pull_policy: never\n' > "$OVERRIDE_PATH"
+printf '%s\n' '{"services":{"backend":{"init":true,"pull_policy":"never"}}}' > "$OVERRIDE_PATH"
 printf 'RESET\n' > "$WORK_DIR/confirmation"
 
 run_oneoff() {

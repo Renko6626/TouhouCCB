@@ -23,7 +23,6 @@ import os
 from pathlib import Path
 import signal
 import sys
-import yaml
 
 state_path = Path(os.environ["FAKE_STATE"])
 state = json.loads(state_path.read_text())
@@ -95,7 +94,7 @@ cmd = args[1:]
 if cmd[0] == "-f":
     assert cmd[1].endswith("docker-compose.yml") and cmd[2] == "-f", cmd
     override = Path(cmd[3])
-    config = yaml.safe_load(override.read_text())
+    config = json.loads(override.read_text())
     assert config["services"]["backend"]["init"] is True
     assert config["services"]["backend"]["pull_policy"] == "never"
     state["overrides"].append(str(override))
