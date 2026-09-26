@@ -29,6 +29,7 @@ export interface PveTemplateDetail {
   description: string
   group: 'quant' | 'retail'
   params: Record<string, unknown>
+  supports_event?: boolean
 }
 
 export interface PveOverview {
@@ -43,6 +44,7 @@ export interface PveOverview {
   active_presets: string[]
   template_details: PveTemplateDetail[]
   param_docs: Record<string, string>
+  event_mix: Record<string, number>
 }
 
 export interface PveLogEntry {
@@ -56,6 +58,7 @@ export interface PveGenerateRequest {
   naming_style: 'npc' | 'lowkey' | 'phrase'
   initial_cash: string
   market_scope?: number[] | null
+  activity_mode?: 'longterm' | 'event'
 }
 
 export interface PveGeneratedBot {

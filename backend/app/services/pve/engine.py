@@ -35,6 +35,7 @@ from app.services.pve.templates import (
 )
 from app.services.wealth import compute_users_holdings_value
 from app.services.pve.attention import TZ as _BJ_TZ
+from app.services.pve.profiles import validate_params
 
 logger = logging.getLogger("thccb.pve")
 
@@ -112,7 +113,10 @@ class PveEngine:
             await self._sync_runtimes(db, now)
             if not self.runtimes:
                 return {"enabled": True, "bots": 0}
-            view = await build_market_view(db)
+            human_window = max((float(rt.params["anchor_adapt_window_min"])
+                                for rt in self.runtimes.values()
+                                if rt.params.get("anchor_adapt_rate", 0) > 0), default=0)
+            view = await build_market_view(db, human_window_min=human_window)
             wakees = self._collect_wakees(view, cfg, now)
             if not wakees:
                 return {"enabled": True, "bots": len(self.runtimes), "woke": 0}
@@ -221,9 +225,14 @@ class PveEngine:
             if profile.template not in TEMPLATE_REGISTRY:
                 logger.warning("pve_unknown_template profile=%s template=%s", profile.id, profile.template)
                 continue
+            try:
+                merged = self._merge_params(profile)
+                validate_params(profile.template, merged)
+            except ValueError as e:
+                logger.warning("pve_bad_params profile=%s: %s", profile.id, e)
+                continue
             seen.add(profile.id)
             rt = self.runtimes.get(profile.id)
-            merged = self._merge_params(profile)
             if rt is None:
                 rng = random.Random(profile.id * 7919 + 17)  # 稳定个体种子=稳定人格
                 first_delay = rng.uniform(0, min(float(merged["check_interval_sec"]), 600))

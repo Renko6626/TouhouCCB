@@ -80,6 +80,15 @@ const templateOptions = computed<SelectOption[]>(() =>
     ? templateDetails.value.map(d => ({ label: `${d.title}（${d.name}）`, value: d.name }))
     : (overview.value?.templates ?? []).map(t => ({ label: t, value: t })),
 )
+const generationTemplateOptions = computed<SelectOption[]>(() =>
+  genMode.value === 'event'
+    ? [
+        { label: '活动混编（50 个，推荐）', value: '__event_mix__' },
+        ...templateDetails.value.filter(d => d.supports_event)
+          .map(d => ({ label: `${d.title}（${d.name}）`, value: d.name })),
+      ]
+    : templateOptions.value,
+)
 
 // ── 急停闸 ──────────────────────────────────────────────────────────────
 
@@ -111,11 +120,30 @@ async function toggleEnabled(on: boolean) {
 // ── 批量生成 ────────────────────────────────────────────────────────────
 
 const genTemplate = ref<string | null>(null)
+const genMode = ref<'longterm' | 'event'>('longterm')
 const genCount = ref<number>(5)
 const genStyle = ref<'npc' | 'lowkey' | 'phrase'>('lowkey')
 const genCash = ref<number>(200)
 const genScope = ref('')
 const generating = ref(false)
+const generationModeOptions: SelectOption[] = [
+  { label: '长期游戏', value: 'longterm' },
+  { label: '活动短线 · 3–5 分钟看盘', value: 'event' },
+]
+const eventMixDescription = computed(() => Object.entries(overview.value?.event_mix ?? {})
+  .map(([name, count]) => `${templateTitle(name)} ${count} 个`).join('、'))
+
+function setGenerationMode(mode: 'longterm' | 'event') {
+  genMode.value = mode
+  genTemplate.value = mode === 'event' ? '__event_mix__' : null
+  genCount.value = mode === 'event' ? 50 : 5
+  genCash.value = mode === 'event' ? 500 : 200
+}
+
+function setGenerationTemplate(template: string | null) {
+  genTemplate.value = template
+  if (template === '__event_mix__') genCount.value = 50
+}
 const styleOptions: SelectOption[] = [
   { label: '低调款（混在人群里）', value: 'lowkey' },
   { label: '辨识度款（NPC·xx）', value: 'npc' },
@@ -132,10 +160,16 @@ async function generate() {
   if (!genTemplate.value) { msg.warning('选择模板'); return }
   const scope = parseScope(genScope.value)
   if (genScope.value.trim() && scope === null) { msg.warning('市场范围格式：逗号分隔的市场 id'); return }
+  if (genMode.value === 'event' && !scope?.length) { msg.warning('活动短线模式需指定活动市场 id'); return }
+  const items = genTemplate.value === '__event_mix__'
+    ? Object.entries(overview.value?.event_mix ?? {}).map(([template, count]) => ({ template, count }))
+    : [{ template: genTemplate.value, count: genCount.value }]
+  if (!items.length) { msg.warning('活动编制未加载，请刷新后重试'); return }
   generating.value = true
   try {
     const r = await pveApi.generate({
-      items: [{ template: genTemplate.value, count: genCount.value }],
+      items,
+      activity_mode: genMode.value,
       naming_style: genStyle.value,
       initial_cash: String(genCash.value),
       market_scope: scope,
@@ -435,20 +469,27 @@ const statusLabel = (s: string) =>
       <section class="panel">
         <h2>批量生成</h2>
         <div class="row">
-          <NSelect v-model:value="genTemplate" :options="templateOptions" placeholder="人格模板" size="small" style="width: 210px" />
-          <NInputNumber v-model:value="genCount" :min="1" :max="50" size="small" style="width: 100px">
+          <NSelect :value="genMode" :options="generationModeOptions" size="small" style="width: 240px" @update:value="setGenerationMode" />
+          <NSelect :value="genTemplate" :options="generationTemplateOptions" placeholder="人格模板" size="small" style="width: 240px" @update:value="setGenerationTemplate" />
+          <NInputNumber v-model:value="genCount" :min="1" :max="50" :disabled="genTemplate === '__event_mix__'" size="small" style="width: 100px">
             <template #suffix>个</template>
           </NInputNumber>
           <NSelect v-model:value="genStyle" :options="styleOptions" size="small" style="width: 200px" />
           <NInputNumber v-model:value="genCash" :min="0" :max="100000" size="small" style="width: 140px">
             <template #prefix>注资</template>
           </NInputNumber>
-          <NInput v-model:value="genScope" placeholder="市场范围 id（逗号分隔，空=全部）" size="small" style="width: 220px" />
+          <NInput v-model:value="genScope" :placeholder="genMode === 'event' ? '活动市场 id（逗号分隔，必填）' : '市场范围 id（逗号分隔，空=全部）'" size="small" style="width: 240px" />
           <NButton type="primary" size="small" :loading="generating" @click="generate">生成</NButton>
         </div>
         <p v-if="genTemplate && detailByName[genTemplate]" class="hint persona-pick">
           {{ detailByName[genTemplate]?.summary }}
         </p>
+        <p v-if="genMode === 'event'" class="hint">
+          活动短线保留信念与从众人格，全天活跃，每 3–5 分钟看盘；强信号重仓，止盈/割肉后继续参与。
+          多数人格会根据持续的多人真人买盘逐步改信，铁杆粉保留原立场。
+          按活动市场均分编制，三个市场生成 50 个时为 17/17/16。建议在下方将引擎心跳设为 5 秒（修改后需重启后端）。
+        </p>
+        <p v-if="genTemplate === '__event_mix__'" class="hint">{{ eventMixDescription }}</p>
         <p class="hint">初始注资走 ledger 调账记账；人格参数按模板默认值随机扰动落库（同模板个体天然不同），生成后可逐个调整。</p>
       </section>
 

@@ -49,6 +49,9 @@ class TradeBrief:
     shares: float
     price: float
     market_prices_post: Optional[List[float]]
+    user_id: Optional[int] = None
+    is_bot: Optional[bool] = None
+    pre_market_price: Optional[float] = None  # 该笔交易目标选项的成交前瞬时价
 
 
 @dataclass
@@ -62,6 +65,7 @@ class MarketView:
     markets: Dict[int, MarketBrief]
     trades: List[TradeBrief]
     sentiment: Dict[int, float] = field(default_factory=dict)
+    human_trades: Optional[List[TradeBrief]] = None  # 完整真人窗口；不受行情快照的 600 笔上限影响
 
     def liquidity_b(self, outcome_id: int) -> float:
         """该 outcome 所在市场的 LMSR 深度 b。份额类参数请用它换算成相对量——
@@ -86,12 +90,21 @@ class MarketView:
             return None
         try:
             idx = mb.outcome_ids.index(outcome_id)
+            pre = oldest.pre_market_price
+            if pre is not None:
+                if oldest.outcome_id == outcome_id:
+                    return pre
+                traded_idx = mb.outcome_ids.index(oldest.outcome_id)
+                traded_post = float(oldest.market_prices_post[traded_idx])
+                if traded_post < 1:
+                    # LMSR 单选项交易使其他选项等比例缩放，反推首笔成交前的价格。
+                    return float(oldest.market_prices_post[idx]) * (1 - pre) / (1 - traded_post)
             return float(oldest.market_prices_post[idx])
         except (ValueError, IndexError):
             return None
 
     def window_change(self, outcome_id: int, minutes: float) -> float:
-        """现价 − 窗口起点价（用同市场窗口内最老一笔的 market_prices_post 近似）。
+        """现价 − 窗口起点价（优先用最早成交的 pre 价；旧记录退回 post 近似）。
         窗口内无成交 → 0（价格没动）。"""
         then = self._price_at_window_start(outcome_id, minutes)
         ov = self.outcomes.get(outcome_id)
@@ -420,6 +433,36 @@ def _renorm(beliefs: Dict[int, float]) -> Dict[int, float]:
     return {oid: b / total for oid, b in clamped.items()}
 
 
+def _adapt_anchor(bot: BotState, view: MarketView, anchor: Dict[int, float]) -> Dict[int, float]:
+    """持续的多人真人买盘支持新价格时，缓慢改信；机器人买盘不充当证据。"""
+    p = bot.params
+    rate = p["anchor_adapt_rate"]
+    if rate <= 0:
+        return anchor
+    cutoff = view.now - timedelta(minutes=p["anchor_adapt_window_min"])
+    buyers: dict[int, set[int]] = {oid: set() for oid in anchor}
+    flows = dict.fromkeys(anchor, 0.0)
+    evidence_trades = view.human_trades if view.human_trades is not None else view.trades
+    for trade in evidence_trades:
+        if trade.ts < cutoff or trade.outcome_id not in anchor or trade.user_id is None or trade.is_bot is not False:
+            continue
+        flows[trade.outcome_id] += trade.shares if trade.side == "buy" else -trade.shares
+        if trade.side == "buy":
+            buyers[trade.outcome_id].add(trade.user_id)
+    evidence = bot.memory.get("anchor_evidence", {})
+    supported = {
+        oid: evidence.get(oid, view.now) for oid in anchor
+        if len(buyers[oid]) >= p["anchor_adapt_min_traders"] and flows[oid] > 0
+        and view.outcomes[oid].price - anchor[oid] >= p["anchor_adapt_min_shift"]
+    }
+    bot.memory["anchor_evidence"] = supported  # 信号中断就重计观察期
+    if not any((view.now - since).total_seconds() >= p["anchor_adapt_wait_sec"]
+               for since in supported.values()):
+        return anchor
+    return _renorm({oid: belief + rate * (view.outcomes[oid].price - belief)
+                    for oid, belief in anchor.items()})
+
+
 class BelieverTemplate(BotTemplate):
     """信念驱动散户：内心维护一份主观概率（对每个 outcome「我觉得它会赢」），
     交易动机 = 长线信念 edge 与短线动量 edge 的加权混合（w_swing 是刻度：
@@ -439,6 +482,11 @@ class BelieverTemplate(BotTemplate):
         "shock_prob": 0.06,       # 观点冲击概率（模拟看到消息/风向变了）
         "shock_scale": 0.08,      # 冲击幅度（价格空间）
         "conviction_revert": 0.05,  # 每次看盘信念回归「长期立场」锚点的比例（见 decide 注释）
+        "anchor_adapt_rate": 0.0,   # 长期模式保留旧立场；活动模式可据持续真人买盘改信
+        "anchor_adapt_window_min": 15,
+        "anchor_adapt_min_traders": 3,
+        "anchor_adapt_min_shift": 0.015,
+        "anchor_adapt_wait_sec": 600,
         "sentiment_gain": 1.0,    # 对管理员风向注入（view.sentiment）的易感度
         # 短线层
         "w_swing": 0.35,          # 短线动机权重 0~1
@@ -448,6 +496,7 @@ class BelieverTemplate(BotTemplate):
         "stop_loss": 0.25,        # 浮亏割肉线（信念也不再支持时才割）
         # 执行
         "act_threshold": 0.04,    # |edge| 行动阈值（每次带 ±30% 随机抖动）
+        "edge_scale": 0.10,       # edge 达到此值算满信号；活动短线使用更小标尺
         "aggressiveness": 0.2,    # 单次下注 ≈ 现金 × 本系数 ×（edge 强度）
         "yolo_prob": 0.04,        # 上头概率：下注 ×3
         # 单次下注上限跟着现金走。原来只有一个绝对值 40，现金一多就成了死约束：
@@ -479,6 +528,7 @@ class BelieverTemplate(BotTemplate):
             beliefs[home.outcome_id] += p["conviction"]
             beliefs = _renorm(beliefs)
             anchor = dict(beliefs)  # 「长期立场」：从众项能拉走当下看法，但拉不走它
+            bot.memory.pop("anchor_evidence", None)
         else:
             # 观点冲击改的是长期立场（同时立刻反映到当下看法）。只改后者的话，
             # 从众项几个来回就把它抹平，机器人一旦把价格推到自己信念上就再无 edge，
@@ -489,6 +539,7 @@ class BelieverTemplate(BotTemplate):
                 anchor[hit] += delta
                 beliefs[hit] += delta
                 anchor = _renorm(anchor)
+            anchor = _adapt_anchor(bot, view, anchor)
             # 从众项：每次看盘信念被市场带偏（负 herd_coef=逆势党越看越反着信）。
             # price 模式跟价格信（图表党）；flow 模式跟人群净流入信（从众党）
             # 回归项：同时被自己的长期立场往回拽。两者拉锯 → 均衡信念停在价格与
@@ -542,7 +593,7 @@ class BelieverTemplate(BotTemplate):
             if score > 0:
                 if budget <= 0.5:
                     continue
-                heat = min(abs(score) / 0.10, 1.5)
+                heat = min(abs(score) / p["edge_scale"], 1.5)
                 cny = p["aggressiveness"] * float(bot.cash) * heat * rng.uniform(0.6, 1.4)
                 if rng.random() < p["yolo_prob"]:
                     cny *= 3  # 上头
@@ -557,7 +608,7 @@ class BelieverTemplate(BotTemplate):
             held = float(bot.holding(oid))
             if held < 1:
                 continue
-            frac = min(abs(score) / 0.10, 1.0) * rng.uniform(0.4, 1.0)
+            frac = min(abs(score) / p["edge_scale"], 1.0) * rng.uniform(0.4, 1.0)
             shares = min(held, max(held * frac, 1.0))
             return Action("sell", oid, q_shares(shares), f"觉得 {ov.label} 高估（edge {score:+.2f}）减仓")
         return None
@@ -666,6 +717,11 @@ PARAM_DOCS: Dict[str, str] = {
     "shock_prob": "观点冲击概率——随机重估某个 outcome，模拟看到了消息",
     "shock_scale": "观点冲击幅度（价格空间）",
     "conviction_revert": "信念回归长期立场的比例（0=看法被市场带走就再也回不来，越大越固执）",
+    "anchor_adapt_rate": "持续多人真人买盘成立后，每次看盘把长期信念向价格更新的比例；0=嘴硬不改信",
+    "anchor_adapt_window_min": "长期改信参考的真人成交窗口（分钟）",
+    "anchor_adapt_min_traders": "同一选项至少多少名不同真人买入，才开始观察新偏置",
+    "anchor_adapt_min_shift": "新价格高于旧信念至少多少，才考虑改信（价格空间）",
+    "anchor_adapt_wait_sec": "多人买盘与价格偏置需持续多久才开始改信（秒）",
     "sentiment_gain": "对管理员风向注入（pve_sentiment）的易感度（0=免疫）",
     # believer 短线层
     "w_swing": "短线动机权重（0=信仰党拿到结算，1=波段客只吃短线）",
@@ -673,12 +729,14 @@ PARAM_DOCS: Dict[str, str] = {
     "take_profit": "浮盈比例止盈线（按 w_swing 概率执行——波段客勤快）",
     "stop_loss": "浮亏比例割肉线（信念也不再支持时才割）",
     "act_threshold": "行动阈值：|edge| 超过才动手（每次带 ±30% 抖动）",
+    "edge_scale": "下注/减仓满信号的 edge 标尺；越小，同样信号的仓位变化越大（需 >0）",
     "aggressiveness": "下注规模系数：单次 ≈ 现金 × 本系数 × edge 强度",
     "yolo_prob": "上头概率：命中时这一单直接 ×3",
     "max_bet_frac": "单次下注占现金的比例上限",
     "max_bet_cap_cny": "单次下注绝对上限（¥）；0=不限（默认，让机器人也能砸盘）",
     "max_bet_cny": "（已废弃，改用 max_bet_frac + max_bet_cap_cny）单次下注金额上限（¥）",
     # 注意力（attention.py）
+    "activity_mode": "longterm 长期作息 / event 活动短线：全天活跃，常规每 3–5 分钟看盘",
     "check_interval_sec": "常规看盘间隔（秒）；量化型分钟级、散户小时级",
     "active_preset": "作息模板：always 全天候（量化）/ worker 上班族 / evening 晚间党 / owl 夜猫 / loose 松散",
     "hour_offset": "个体作息偏移（小时，生成时随机）",

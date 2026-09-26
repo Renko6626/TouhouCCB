@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, time as dtime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -27,7 +27,8 @@ from app.services.pve import service as pve_service
 from app.services.pve.attention import ACTIVE_PRESETS
 from app.services.pve.client import PveTradeError
 from app.services.pve.engine import ENGINE
-from app.services.pve.templates import PARAM_DOCS, TEMPLATE_REGISTRY
+from app.services.pve.templates import BelieverTemplate, PARAM_DOCS, TEMPLATE_REGISTRY
+from app.services.pve.profiles import EVENT_MIX, validate_params
 from app.services.wealth import compute_users_holdings_value
 
 router = APIRouter()
@@ -94,6 +95,7 @@ class GenerateRequest(BaseModel):
     naming_style: str = Field("lowkey", pattern="^(npc|lowkey|phrase)$")
     initial_cash: Decimal = Field(..., ge=0, le=100000)
     market_scope: Optional[List[int]] = None
+    activity_mode: Literal["longterm", "event"] = "longterm"
 
 
 class PatchBotRequest(BaseModel):
@@ -134,6 +136,7 @@ async def pve_overview(
         "active_presets": sorted(ACTIVE_PRESETS.keys()),
         "template_details": _template_details(),
         "param_docs": PARAM_DOCS,
+        "event_mix": EVENT_MIX,
     }
 
 
@@ -150,6 +153,7 @@ def _template_details() -> List[dict]:
             "description": doc,
             "group": "quant" if cls.default_params.get("active_preset") == "always" else "retail",
             "params": cls.default_params,
+            "supports_event": issubclass(cls, BelieverTemplate),
         })
     return out
 
@@ -235,6 +239,7 @@ async def generate_bots(
                 initial_cash=payload.initial_cash,
                 market_scope=payload.market_scope,
                 operator_user_id=admin.id,
+                activity_mode=payload.activity_mode,
             )
     except ValueError as e:
         raise HTTPException(400, detail=str(e))
@@ -260,6 +265,12 @@ async def patch_bot(
         raise HTTPException(400, detail="username 与 rename_style 只能二选一")
     if profile.status == BOT_STATUS_RETIRED:
         raise HTTPException(409, detail="已退役的机器人不可再干预")
+    if payload.params is not None or payload.template is not None:
+        try:
+            validate_params(payload.template or profile.template,
+                            payload.params if payload.params is not None else (profile.params or {}))
+        except ValueError as e:
+            raise HTTPException(400, detail=str(e))
     changes: dict = {}
     async with managed_transaction(db):
         if payload.status is not None:
@@ -443,11 +454,16 @@ def _validate_config_value(key: str, vtype: str, value: str) -> str:
         return v
     try:
         if vtype == "int":
-            int(value)
+            number = int(value)
         else:
-            Decimal(value)
+            number = Decimal(value)
+            if not number.is_finite():
+                raise ValueError
     except (ValueError, InvalidOperation):
         raise HTTPException(400, detail=f"{key} 的值 {value!r} 不是合法 {vtype}")
+    minimum = 1 if key == "pve_max_wakes_per_tick" else 5 if key == "pve_tick_interval_sec" else 0
+    if number < minimum:
+        raise HTTPException(400, detail=f"{key} 需不小于 {minimum}")
     return value.strip()
 
 

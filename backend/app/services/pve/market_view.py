@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.base import Market, MarketStatus, Transaction
+from app.models.base import Market, MarketStatus, Transaction, User
 from app.services import lmsr, site_config
 from app.services.pve.templates import MarketBrief, MarketView, OutcomeView, TradeBrief
 
@@ -40,7 +40,17 @@ def parse_sentiment(raw: Optional[str], now: datetime) -> Dict[int, float]:
         return {}
 
 
-async def build_market_view(db: AsyncSession) -> MarketView:
+def _trade_brief(t: Transaction, market_id: int, is_bot: bool) -> TradeBrief:
+    return TradeBrief(
+        ts=t.timestamp if t.timestamp.tzinfo else t.timestamp.replace(tzinfo=timezone.utc),
+        outcome_id=t.outcome_id, market_id=market_id, side=t.type,
+        shares=float(t.shares), price=float(t.price), market_prices_post=t.market_prices_post,
+        user_id=t.user_id, is_bot=is_bot,
+        pre_market_price=float(t.pre_market_price) if t.pre_market_price and t.pre_market_price > 0 else None,
+    )
+
+
+async def build_market_view(db: AsyncSession, human_window_min: float = 15) -> MarketView:
     now = datetime.now(timezone.utc)
     markets = (
         (
@@ -75,30 +85,31 @@ async def build_market_view(db: AsyncSession) -> MarketView:
     txs = (
         (
             await db.execute(
-                select(Transaction)
+                select(Transaction, User.is_bot)
+                .join(User, User.id == Transaction.user_id)
                 .where(Transaction.timestamp >= cutoff, Transaction.type.in_(("buy", "sell")))
                 .order_by(Transaction.timestamp.desc())
                 .limit(_TRADES_LIMIT)
             )
         )
-        .scalars()
         .all()
     )
     oid2mid = {oid: mid for mid, mb in briefs.items() for oid in mb.outcome_ids}
     trades = [
-        TradeBrief(
-            # sqlite（测试）返回 naive datetime，统一补 UTC，避免与 aware now 比较崩
-            ts=t.timestamp if t.timestamp.tzinfo else t.timestamp.replace(tzinfo=timezone.utc),
-            outcome_id=t.outcome_id,
-            market_id=oid2mid[t.outcome_id],
-            side=t.type,
-            shares=float(t.shares),
-            price=float(t.price),
-            market_prices_post=t.market_prices_post,
-        )
-        for t in txs
+        _trade_brief(t, oid2mid[t.outcome_id], is_bot)
+        for t, is_bot in txs
         if t.outcome_id in oid2mid  # 已结算/halt 市场的历史成交不进快照
     ]
+    # 独立完整窗口：繁忙时 600 笔快照可能截掉早先卖单，不能据此判断真人净买盘。
+    human_trades = []
+    if human_window_min > 0 and outcomes:
+        human_rows = (await db.execute(
+            select(Transaction).join(User, User.id == Transaction.user_id)
+            .where(User.is_bot.is_(False), Transaction.timestamp >= now - timedelta(minutes=human_window_min),
+                   Transaction.type.in_(("buy", "sell")), Transaction.outcome_id.in_(list(outcomes)))
+            .order_by(Transaction.timestamp.desc())
+        )).scalars().all()
+        human_trades = [_trade_brief(t, oid2mid[t.outcome_id], False) for t in human_rows]
     try:
         raw = await site_config.get_str(db, "pve_sentiment")
     except site_config.SiteConfigError:
@@ -106,4 +117,5 @@ async def build_market_view(db: AsyncSession) -> MarketView:
     return MarketView(
         now=now, outcomes=outcomes, markets=briefs, trades=trades,
         sentiment=parse_sentiment(raw, now),
+        human_trades=human_trades,
     )
