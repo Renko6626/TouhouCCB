@@ -24,8 +24,7 @@ async def test_user():
                 username=f"test_{suffix}",
                 email=f"test_{suffix}@test.com",
                 casdoor_id=f"casdoor_{suffix}",
-                cash=Decimal("100"),
-                debt=Decimal("0"),
+                cash=Decimal("500"),
             )
             session.add(user)
             await session.flush()
@@ -42,7 +41,7 @@ async def test_get_me_with_valid_token(client, test_user):
     assert res.status_code == 200
     data = res.json()
     assert data["id"] == test_user
-    assert data["cash"] == 100.0
+    assert data["cash"] == 500.0
 
 
 @pytest.mark.asyncio

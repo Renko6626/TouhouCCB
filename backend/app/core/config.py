@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = Field(default=None)
 
     SECRET_KEY: str = Field(default="")
-    INITIAL_BALANCE: float = 100.0
+    INITIAL_BALANCE: float = 500.0
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60   # 1 小时
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7      # 7 天
 

@@ -30,11 +30,11 @@ async def test_dev_login_creates_user_and_returns_tokens(client):
     assert me.status_code == 200, me.text
     assert me.json()["username"] == "alice"
 
-    # 用户已建，余额 = initial_balance 回落默认 100
+    # 用户已建，余额 = initial_balance 回落默认 500
     async with async_session_maker() as s:
         u = (await s.execute(select(User).where(User.username == "alice"))).scalars().first()
     assert u is not None
-    assert u.cash == Decimal("100")
+    assert u.cash == Decimal("500")
 
 
 @pytest.mark.asyncio
