@@ -13,6 +13,8 @@ from sqlalchemy import func, select
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
 from app.models.base import Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User
+from app.models.bot import BotProfile
+from app.models.redemption import RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction, DanmukuExchange
 from app.models.ledger import LedgerEntry
 from app.models.title import Title, UserTitle
 from app.services import audit_service
@@ -93,9 +95,186 @@ async def test_reset_clears_activity_keeps_users_and_reanchors(monkeypatch):
         assert Decimal(evs[1].user_after["cash"]) == Decimal("500")
 
 
-def test_outcome_candle_excluded_from_sequence_reset():
-    """复合主键表 outcome_candle 无 id 列，必须排除在序列重置外（否则 PG 报 UndefinedColumn）。"""
+@pytest.mark.asyncio
+async def test_reset_removes_unreferenced_bots_and_disables_engine(monkeypatch):
+    async with async_session_maker() as s:
+        async with s.begin():
+            bot = User(username="old-bot", is_bot=True, cash=Decimal("900"))
+            s.add(bot)
+            await s.flush()
+            s.add(BotProfile(user_id=bot.id, template="random", params={}))
+            s.add(SiteConfig(key="pve_enabled", value="true", value_type="bool"))
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0
+    assert await _count(BotProfile) == 0
+    assert await _count(User) == 2
+    async with async_session_maker() as s:
+        assert (await s.execute(select(SiteConfig.value).where(SiteConfig.key == "pve_enabled"))).scalar_one() == "false"
+        assert (await s.execute(select(User.cash).where(User.username == "a"))).scalar_one() == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_reset_preserves_redemption_ownership_fulfillment_and_audit(monkeypatch):
+    async with async_session_maker() as s:
+        async with s.begin():
+            buyer = (await s.execute(select(User).where(User.username == "b"))).scalar_one()
+            bot = User(username="bot-with-history", is_bot=True, cash=Decimal("800"))
+            s.add(bot)
+            await s.flush()
+            bot_id = bot.id
+            s.add(BotProfile(user_id=bot.id, template="random", params={}))
+            partner = RedemptionPartner(name="keep-partner")
+            s.add(partner)
+            await s.flush()
+            batch = RedemptionBatch(partner_id=partner.id, name="keep-batch", unit_price=Decimal("10"))
+            s.add(batch)
+            await s.flush()
+            when = datetime.now(timezone.utc)
+            code = RedemptionCode(batch_id=batch.id, code_string="keep-code", status="sold",
+                                  bought_by_user_id=bot.id, bought_at=when,
+                                  redeemed_at=when, redeemed_by_admin_id=buyer.id,
+                                  redemption_note="实物已发放")
+            s.add(code)
+            await s.flush()
+            code_id = code.id
+            kept = audit_service.record(s, "redeem_fulfill", user_id=bot.id,
+                                        operator_user_id=buyer.id, ref_table="redemption_code",
+                                        ref_id=code.id, payload={"note": "实物已发放"})
+            await s.flush()
+            event_id = kept.id
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0
+    assert await _count(BotProfile) == 0
+    async with async_session_maker() as s:
+        code = await s.get(RedemptionCode, code_id)
+        assert code.status == "sold" and code.bought_by_user_id == bot_id
+        assert code.redeemed_at is not None and code.redemption_note == "实物已发放"
+        bot = await s.get(User, bot_id)
+        assert bot is not None and bot.is_bot and not bot.is_active
+        assert bot.cash == 0 and bot.debt == 0
+        kept = await s.get(AuditEvent, event_id)
+        assert kept is not None and kept.event_type == "redeem_fulfill"
+        assert kept.payload["note"] == "实物已发放"
+        registrations = list((await s.execute(select(AuditEvent).where(AuditEvent.event_type == "user_register"))).scalars())
+        assert len(registrations) == 3
+
+
+@pytest.mark.asyncio
+async def test_dry_run_leaves_bots_and_redemption_audit_untouched():
+    async with async_session_maker() as s:
+        async with s.begin():
+            bot = User(username="dry-bot", is_bot=True, cash=Decimal("800"))
+            s.add(bot)
+            await s.flush()
+            s.add(BotProfile(user_id=bot.id, template="random", params={}))
+            audit_service.record(s, "redeem_fulfill_revoke", user_id=bot.id,
+                                 payload={"reason": "keep this reason"})
+    assert await _mod().run(dry_run=True) == 0
+    assert await _count(BotProfile) == 1
+    assert await _count(User) == 3
+    assert await _count(AuditEvent) == 2
+
+
+@pytest.mark.asyncio
+async def test_invalid_initial_balance_leaves_the_season_untouched(monkeypatch):
+    async with async_session_maker() as s:
+        async with s.begin():
+            initial = (await s.execute(select(SiteConfig).where(SiteConfig.key == "initial_balance"))).scalar_one()
+            initial.value = "NaN"
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    with pytest.raises(ValueError, match="initial_balance"):
+        await _mod().run(dry_run=False)
+    assert await _count(Market) == 1
+    assert await _count(Position) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_audit_validation_rolls_back_the_entire_reset(monkeypatch):
     mod = _mod()
-    assert "outcome_candle" in mod._NO_ID_SEQUENCE
-    assert "transaction" not in mod._NO_ID_SEQUENCE
-    assert "market_required_title" not in mod._NO_ID_SEQUENCE
+    original_record = mod.audit_service.record
+
+    def corrupt_snapshot(*args, **kwargs):
+        event = original_record(*args, **kwargs)
+        event.user_after = {**event.user_after, "cash": "8888"}
+        return event
+
+    monkeypatch.setattr(mod.audit_service, "record", corrupt_snapshot)
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await mod.run(dry_run=False) == 2
+    assert await _count(Market) == 1
+    assert await _count(Position) == 1
+    assert await _count(Transaction) == 1
+    assert await _count(AuditEvent) == 1
+    async with async_session_maker() as s:
+        assert (await s.execute(select(User.cash).where(User.username == "a"))).scalar_one() == Decimal("12")
+        assert (await s.execute(select(User.cash).where(User.username == "b"))).scalar_one() == Decimal("999")
+
+
+@pytest.mark.asyncio
+async def test_human_identity_account_flags_and_equipped_title_survive(monkeypatch):
+    when = datetime.now(timezone.utc)
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = (await s.execute(select(User).where(User.username == "b"))).scalar_one()
+            title = (await s.execute(select(Title).where(Title.name == "VIP"))).scalar_one()
+            uid, tid = user.id, title.id
+            user.email = "human@example.test"
+            user.is_active = False
+            user.equipped_title_id = tid
+            user.tos_accepted_at = when
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert user.username == "b" and user.casdoor_id == "b"
+        assert user.email == "human@example.test" and not user.is_active
+        assert user.equipped_title_id == tid and user.tos_accepted_at is not None
+        membership = (await s.execute(select(UserTitle).where(UserTitle.user_id == uid))).scalar_one()
+        assert membership.title_id == tid
+
+
+@pytest.mark.asyncio
+async def test_bot_referenced_as_title_granter_stays_disabled_without_breaking_title(monkeypatch):
+    async with async_session_maker() as s:
+        async with s.begin():
+            human = (await s.execute(select(User).where(User.username == "a"))).scalar_one()
+            title = (await s.execute(select(Title).where(Title.name == "VIP"))).scalar_one()
+            bot = User(username="bot-granter", is_bot=True, is_superuser=True, cash=Decimal("800"))
+            s.add(bot)
+            await s.flush()
+            uid, bot_id = human.id, bot.id
+            s.add(UserTitle(user_id=human.id, title_id=title.id, source="admin", granted_by_admin_id=bot.id))
+            s.add(BotProfile(user_id=bot.id, template="random", params={}))
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0
+    async with async_session_maker() as s:
+        bot = await s.get(User, bot_id)
+        assert bot is not None and not bot.is_active and not bot.is_superuser and bot.cash == 0
+        human = await s.get(User, uid)
+        assert human.is_superuser and human.is_active
+        title_record = (await s.execute(select(UserTitle).where(UserTitle.user_id == uid))).scalar_one()
+        assert title_record.granted_by_admin_id == bot_id
+
+
+@pytest.mark.asyncio
+async def test_exchange_purchases_and_danmuku_activation_codes_are_preserved(monkeypatch):
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = (await s.execute(select(User).where(User.username == "b"))).scalar_one()
+            s.add(RedemptionTransaction(user_id=user.id, batch_name_snapshot="保留购买凭证", amount=Decimal("5")))
+            s.add(DanmukuExchange(user_id=user.id, qq_user_id="123456", room_id="room",
+                                 yuan=Decimal("1"), huo=Decimal("1"), amount=Decimal("2"),
+                                 code_string="keep-danmuku-activation"))
+            audit_service.record(s, "redeem_purchase", user_id=user.id,
+                                 payload={"amount": "5"}, user_after={"cash": "994", "debt": "0"})
+            audit_service.record(s, "danmuku_exchange", user_id=user.id,
+                                 payload={"amount": "2"}, user_after={"cash": "992", "debt": "0"})
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0
+    assert await _count(RedemptionTransaction) == 1
+    async with async_session_maker() as s:
+        activation = (await s.execute(select(DanmukuExchange))).scalar_one()
+        assert activation.code_string == "keep-danmuku-activation"
+        events = (await s.execute(select(AuditEvent).where(AuditEvent.event_type.in_(("redeem_purchase", "danmuku_exchange"))).order_by(AuditEvent.id))).scalars().all()
+        assert [event.payload["amount"] for event in events] == ["5", "2"]
+        assert (await s.execute(select(User.cash).where(User.username == "b"))).scalar_one() == Decimal("500")

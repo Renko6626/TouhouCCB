@@ -176,6 +176,9 @@ jobs:
   # ========================================
   deploy:
     name: Deploy
+    concurrency:
+      group: thccb-production
+      cancel-in-progress: false
     needs: [backend, frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
     runs-on: ubuntu-latest

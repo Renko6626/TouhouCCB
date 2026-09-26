@@ -390,29 +390,29 @@ docker compose up -d
 
 ### 5.4 赛季重置（保留用户，清活动数据）
 
-新一轮活动开始前跑一次，让 `audit_event` 事件流从 seq=1 起全员锚定（`docs/audit-events.md`）。
-脚本：`backend/scripts/season_reset.py`。**保留** user / siteconfig / title* / user_title /
-redemption_partner|batch|code / alembic_version；**清空** market、outcome、position、transaction、
-outcome_candle、market_required_title、ledger_entry、liquidation_events、bot_suspicion、
-redemption_transaction、danmuku_exchange、audit_event；所有用户 cash → `initial_balance`、debt → 0。
+新一轮活动开始前使用维护入口，先预览，再验证旧季备份，最后明确确认执行。
+详细范围见 [`season-reset-2026-09-27.md`](season-reset-2026-09-27.md)。
+
+真人基本信息、角色/账号状态、称号、兑换码及购买/核销归属保持；真人 cash →
+`siteconfig.initial_balance`、debt → 0。活动市场、持仓、K 线和金融流水清空。
+机器人配置清空、PvE 关闭；没有保留记录引用的机器人账号删除，否则停用且资产归零。
+兑换购买、弹幕激活码、核销及撤销审计全部保留，作为旧码领取凭证；其余审计清空后重新写入资产锚点。
+
+**不重置 PostgreSQL 自增序列**：新市场/选项不能复用旧 ID，否则 Nginx/浏览器的不可变 K 线缓存会串季。
 
 ```bash
 cd /home/deploy/TouhouCCB
-# 0) 手动留一份命名清楚的备份（deploy.sh 的自动备份之外）
-docker compose exec -T postgres pg_dump -U thccb thccb > backups/thccb_pre_season_$(date +%Y%m%d_%H%M%S).sql
-ls -la backups/ | tail -2                      # 确认大小不是 0
-# 1) 停后端（writer 内存状态 / 结息 sweep 不能与重置并发）
-docker compose stop backend
-# 2) 预览
-docker compose run --rm --no-deps -T backend python scripts/season_reset.py --dry-run
-# 3) 执行（交互要求输入 RESET；单事务，失败全回滚；结束自动跑一遍事件流自检）
-echo RESET | docker compose run --rm --no-deps -T backend python scripts/season_reset.py
-# 4) 起后端并确认
-docker compose start backend
-docker compose run --rm --no-deps -T backend python scripts/audit_verify.py   # 期望 OK，events = 用户数
+# 1) 只读预览，不停服务
+bash deploy/season_reset.sh preview
+# 2) 独立备份 + 完整恢复验证；结束恢复后端原运行状态，不清活动数据
+bash deploy/season_reset.sh backup
+# 3) 已确认清理范围后执行；仍会先创建和验证一份新备份
+SEASON_CONFIRM=RESET bash deploy/season_reset.sh execute
 ```
 
-想改初始资金：先在管理后台改 `initial_balance` 再跑脚本。需要顺便调整称号/兑换码库存的话，脚本不碰它们，手动处理。
+GitHub 的手动维护工作流提供相同的 preview / backup / execute 三种动作；默认 preview。
+execute 必须填写确认词 `RESET`，并与自动部署共用生产互斥组。
+想改初始资金：先在管理后台改 `initial_balance` 再预览。维护入口保留称号与兑换库存。
 **绝不**用 `docker compose down -v` 或 `init_db.py` 代替（前者删卷全丢，后者连用户表一起 DROP）。
 
 ### 5.5 数据库恢复
@@ -790,4 +790,3 @@ TouhouCCB/
 └── docs/
     └── deploy.md                # 本文档
 ```
-

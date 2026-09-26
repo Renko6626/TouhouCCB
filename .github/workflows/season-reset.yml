@@ -1,0 +1,45 @@
+name: Season Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Maintenance action (preview is read-only)'
+        type: choice
+        options: [preview, backup, execute]
+        default: preview
+        required: true
+      confirmation:
+        description: 'execute only: type RESET after reviewing the preview'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  maintenance:
+    name: Season maintenance
+    if: github.repository_owner == 'Renko6626' && github.actor == 'Renko6626'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: thccb-production
+      cancel-in-progress: false
+    steps:
+      - name: Run deployed maintenance script
+        uses: appleboy/ssh-action@v1
+        env:
+          SEASON_ACTION: ${{ inputs.action }}
+          SEASON_CONFIRM: ${{ inputs.confirmation }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: SEASON_ACTION,SEASON_CONFIRM
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /home/deploy/TouhouCCB
+            bash deploy/season_reset.sh "$SEASON_ACTION"
