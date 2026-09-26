@@ -107,14 +107,29 @@ async def repay(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    return await _repay(user, db, Decimal(req.amount))
+
+
+@router.post("/repay-all", response_model=LoanActionResponse)
+async def repay_all(
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """锁内结息后按最新债务与现金还到上限，不使用页面查询时的金额。"""
+    return await _repay(user, db, None)
+
+
+async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     rate = await site_config.get_decimal(db, "loan_daily_rate")
     k = await site_config.get_decimal(db, "loan_leverage_k")
-    amount = Decimal(req.amount)
 
-    # 不做 pre-check：服务层会在锁内 accrue 后用 min(amount, 真实 debt, 真实 cash) 封顶。
+    # 不预检金额上限：服务层在锁内结息后按真实 debt/cash 封顶；None 表示还到上限。
     # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
     # 实际扣减由 effective 字段返回，前端可展示"实际还款 金 N"。
-    if user.cash <= 0 and user.debt > 0:
+    # 现金预检也使用锁内最新值，避免另一个会话的转账/成交使页面快照过期。
+    locked = await lock_user(db, user.id)
+    if locked.cash <= 0 and locked.debt > 0:
+        await db.rollback()
         raise HTTPException(status_code=400, detail="现金为 0，无法还款；请先卖出持仓变现")
 
     try:

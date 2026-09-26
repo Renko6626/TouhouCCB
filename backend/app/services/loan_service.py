@@ -112,7 +112,7 @@ async def increase_debt(
 async def decrease_debt_locked(
     session: AsyncSession,
     user: User,
-    amount: Decimal,
+    amount: Decimal | None,
     *,
     consume_cash: bool,
     daily_rate: Decimal,
@@ -135,14 +135,14 @@ async def decrease_debt_locked(
     edge case 同 decrease_debt：accrue_interest 后的真实 debt 可能因复利大于
     调用方快照，effective 取 min(amount, debt[, cash])。
 
-    返回 effective 金额。amount 必须 > 0。
+    返回 effective 金额。amount 必须 > 0；None 表示按结息后的最新债务还到上限。
     """
-    if amount <= 0:
+    if amount is not None and amount <= 0:
         raise ValueError("amount must be positive")
     if now is None:
         now = _compat_now(user)
     accrue_interest(user, daily_rate, now)
-    effective = min(amount, user.debt).quantize(_QUANT)
+    effective = (user.debt if amount is None else min(amount, user.debt)).quantize(_QUANT)
     if consume_cash:
         # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
         effective = min(effective, user.cash).quantize(_QUANT)
@@ -164,7 +164,7 @@ async def decrease_debt_locked(
 async def decrease_debt(
     session: AsyncSession,
     user_id: int,
-    amount: Decimal,
+    amount: Decimal | None,
     *,
     consume_cash: bool,
     daily_rate: Decimal,
@@ -178,9 +178,9 @@ async def decrease_debt(
     decrease_debt_locked。
 
     source: ledger entry_type（"repay" / "admin_forgive_debt"）。
-    返回 (user, effective_amount)。
+    返回 (user, effective_amount)。amount=None 在锁内结息后按最新 debt/cash 还到上限。
     """
-    if amount <= 0:
+    if amount is not None and amount <= 0:
         raise ValueError("amount must be positive")
     stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)

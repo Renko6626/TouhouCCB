@@ -92,7 +92,80 @@ async def test_borrow_nonpositive_422(client):
     assert r.status_code == 422  # pydantic gt=0
 
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from app.services import loan_service
+from app.models.ledger import LedgerEntry
+from app.models.audit import AuditEvent
+
+
+async def _set_fixed_interest_clock(uid, monkeypatch):
+    now = datetime(2026, 9, 27, 12, tzinfo=timezone.utc)
+    async with async_session_maker() as s:
+        u = await s.get(User, uid)
+        u.debt_last_accrued_at = now - timedelta(days=1)
+        await s.commit()
+    monkeypatch.setattr(loan_service, "_compat_now", lambda u: now.replace(tzinfo=None)
+                        if u.debt_last_accrued_at is not None and u.debt_last_accrued_at.tzinfo is None else now)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_repayment_leaves_newly_accrued_interest(client, monkeypatch):
+    uid, h = await _make_user(cash=Decimal("500"), debt=Decimal("100"))
+    await _set_fixed_interest_clock(uid, monkeypatch)
+    quota = (await client.get("/api/v1/loan/quota", headers=h)).json()
+    r = await client.post("/api/v1/loan/repay", json={"amount": quota["debt"]}, headers=h)
+    assert r.status_code == 200, r.text
+    assert Decimal(r.json()["debt"]) == Decimal("1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cash,debt,remaining,effective", [
+    ("500", "100", "0", "101"),
+    ("30", "100", "71", "30"),
+    ("500", "0.000001", "0", "0.000001"),
+])
+async def test_repay_all_uses_latest_interest_and_cash_cap(client, monkeypatch, cash, debt, remaining, effective):
+    uid, h = await _make_user(cash=Decimal(cash), debt=Decimal(debt))
+    await _set_fixed_interest_clock(uid, monkeypatch)
+    r = await client.post("/api/v1/loan/repay-all", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert Decimal(body["debt"]) == Decimal(remaining)
+    assert Decimal(body["effective"]) == Decimal(effective)
+    assert Decimal(body["cash"]) == Decimal(cash) - Decimal(effective)
+    async with async_session_maker() as s:
+        u = await s.get(User, uid)
+        assert u.debt == Decimal(remaining)
+        assert (u.debt_last_accrued_at is None) == (u.debt == 0)
+        entry = (await s.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalar_one()
+        assert entry.cash_delta == entry.debt_delta == -Decimal(effective)
+        event = (await s.execute(select(AuditEvent).where(AuditEvent.user_id == uid))).scalar_one()
+        assert Decimal(str(event.payload["interest_accrued"])) == Decimal(remaining) + Decimal(effective) - Decimal(debt)
+
+
+@pytest.mark.asyncio
+async def test_repay_all_already_repaid_is_safe_noop(client):
+    uid, h = await _make_user(cash=Decimal("500"))
+    r = await client.post("/api/v1/loan/repay-all", headers=h)
+    assert r.status_code == 200, r.text
+    assert Decimal(r.json()["debt"]) == Decimal(r.json()["effective"]) == 0
+    assert Decimal(r.json()["cash"]) == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_repay_all_without_cash_fails_without_forgiving_debt(client):
+    uid, h = await _make_user(cash=Decimal("0"), debt=Decimal("100"))
+    r = await client.post("/api/v1/loan/repay-all", headers=h)
+    assert r.status_code == 400, r.text
+    async with async_session_maker() as s:
+        u = await s.get(User, uid)
+        assert u.cash == 0 and u.debt == Decimal("100")
+
+
+@pytest.mark.asyncio
+async def test_repay_all_requires_authentication(client):
+    r = await client.post("/api/v1/loan/repay-all")
+    assert r.status_code == 401
 
 
 @pytest.mark.asyncio
