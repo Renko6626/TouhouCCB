@@ -12,7 +12,7 @@ from typing import List, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import Position, Transaction, User
+from app.models.base import Market, MarketStatus, Position, Transaction, User
 from app.models.bot import (
     BotProfile, BOT_STATUS_ACTIVE, BOT_STATUS_DEAD, BOT_STATUS_RETIRED,
 )
@@ -21,6 +21,7 @@ from app.services.ledger_service import record_entry
 from app.services.pve.attention import ATTENTION_DEFAULTS
 from app.services.pve.naming import generate_usernames
 from app.services.pve.templates import TEMPLATE_REGISTRY
+from app.services.pve.profiles import event_params, validate_params
 
 _RETAIL_PRESETS = ["worker", "evening", "owl", "loose"]
 
@@ -28,7 +29,7 @@ _RETAIL_PRESETS = ["worker", "evening", "owl", "loose"]
 _NO_PERTURB = {"outcome_id", "price_low", "price_high", "active_preset"}
 
 
-def spawn_params(template: str, rng: random.Random) -> dict:
+def spawn_params(template: str, rng: random.Random, activity_mode: str = "longterm") -> dict:
     """模板默认值 + 注意力默认值 → 随机扰动出个体人格，全量落库（管理页可直接看/改）。"""
     base = dict(ATTENTION_DEFAULTS)
     base.update(TEMPLATE_REGISTRY[template].default_params)
@@ -39,6 +40,8 @@ def spawn_params(template: str, rng: random.Random) -> dict:
             out[k] = round(v * factor) if isinstance(v, int) else round(v * factor, 4)
         else:
             out[k] = v
+        if k.endswith("_prob") or k in ("w_swing", "max_bet_frac"):
+            out[k] = min(1.0, max(0.0, out[k]))
     # 模板 default_params 里 active_preset="always" 视为量化型（全天候，不抽作息）；
     # 其余按散户抽典型作息——新模板凭自己的默认值声明类型，这里不维护清单
     if out.get("active_preset") != "always":
@@ -47,6 +50,11 @@ def spawn_params(template: str, rng: random.Random) -> dict:
     out["alert_threshold"] = round(rng.uniform(0.04, 0.15), 3)
     out["alert_prob"] = round(rng.uniform(0.25, 0.85), 2)
     out["alert_cooldown_sec"] = rng.randint(900, 3600)
+    if activity_mode == "event":
+        out = event_params(out, rng, template)
+    elif activity_mode != "longterm":
+        raise ValueError("activity_mode 需为 longterm/event")
+    validate_params(template, out)
     return out
 
 
@@ -58,10 +66,21 @@ async def generate_bots(
     initial_cash: Decimal,
     market_scope: Optional[List[int]],
     operator_user_id: int,
+    activity_mode: str = "longterm",
 ) -> List[dict]:
     for template, _ in items:
         if template not in TEMPLATE_REGISTRY:
             raise ValueError(f"未知模板：{template}")
+        validate_params(template, {"activity_mode": activity_mode})
+    scopes = list(dict.fromkeys(market_scope or []))
+    if activity_mode == "event":
+        if not scopes:
+            raise ValueError("活动短线模式需指定活动市场 id")
+        available = set((await db.execute(
+            select(Market.id).where(Market.id.in_(scopes), Market.status == MarketStatus.TRADING)
+        )).scalars().all())
+        if available != set(scopes):
+            raise ValueError("活动市场需存在且处于交易中")
     total = sum(c for _, c in items)
     taken = set(
         (await db.execute(select(User.username))).scalars().all()
@@ -91,8 +110,8 @@ async def generate_bots(
             profile = BotProfile(
                 user_id=user.id,
                 template=template,
-                params=spawn_params(template, rng),
-                market_scope=market_scope,
+                params=spawn_params(template, rng, activity_mode),
+                market_scope=[scopes[i % len(scopes)]] if activity_mode == "event" else market_scope,
                 status=BOT_STATUS_ACTIVE,
             )
             db.add(profile)

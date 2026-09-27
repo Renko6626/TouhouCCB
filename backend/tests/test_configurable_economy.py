@@ -89,7 +89,7 @@ async def test_defaults_seeded(client):
     await auto_migrate()
     async with async_session_maker() as s:
         assert await get_decimal(s, "sell_fee_rate") == Decimal("0")
-        assert await get_decimal(s, "initial_balance") == Decimal("100")
+        assert await get_decimal(s, "initial_balance") == Decimal("500")
 
 
 # ── 校验区间 ──

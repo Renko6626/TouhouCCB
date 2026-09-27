@@ -22,6 +22,7 @@ ACTIVE_PRESETS: dict[str, List[Tuple[float, float]]] = {
 }
 
 ATTENTION_DEFAULTS = {
+    "activity_mode": "longterm",
     "check_interval_sec": 1800,
     "active_preset": "loose",
     "hour_offset": 0.0,          # 个体作息偏移（小时）
@@ -74,6 +75,10 @@ def activity_step(a: float, amp: float, rng: random.Random) -> float:
 def next_wake(now: datetime, params: dict, rng: random.Random, pace: float = 1.0) -> datetime:
     """下次看盘时间 = now + 抖动后的看盘间隔（÷全局 pace），再推到作息窗口内。
     间隔带重尾：小概率沉迷刷盘（×0.15~0.35）/ 忙别的去了（×2~4）。"""
+    if params.get("activity_mode") == "event":
+        # 线下活动的常规看盘保持 3–5 分钟；不被重尾/潮汐拉成秒刷或长时间离场。
+        # 行情推送仍由 engine 单独处理，可以偶尔提前唤醒。
+        return now + timedelta(seconds=rng.uniform(180, 300))
     base = float(params.get("check_interval_sec", ATTENTION_DEFAULTS["check_interval_sec"]))
     mult = rng.uniform(0.6, 1.6)
     roll = rng.random()
