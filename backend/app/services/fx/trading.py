@@ -1,19 +1,26 @@
 """Player FX quotes and atomic trades.
 
-Transaction contract (WP4a):
+Transaction contract (WP4a/WP4b):
 
 - ``quote`` / ``get_public_snapshot`` are pure reads: no writes, no commit.
 - ``execute_trade_in_session`` performs every validation, lock and balance
   mutation for a player trade **inside the caller's transaction**.  It never
   commits, never rolls back and never publishes, so the same core can be
   reused by a caller that owns one larger transaction.
+- ``execute_liquidation_sell_in_session`` is the forced-liquidation twin: it
+  re-quotes the batch from the locked pair/wallet through the accepted
+  ``services.credit.fx_quote`` interface, moves wallet/cash/pool/treasury in
+  the same transaction and leaves debt repayment and the commit to the
+  orchestration caller.  It is idempotent per ``(run_id, round_no)``.
 - ``execute_trade`` is the request-path wrapper: it owns commit (or the
   idempotent-replay rollback) and hands the committed trade to the bounded
   post-commit publisher, which never blocks the response on the public frame
   or on the 24h volume aggregation.
 
-Lock order is always ``pair -> user -> wallet -> treasury``; the in-session
-function keeps it identical to the historical implementation.
+Lock order is always ``pair -> user -> wallet -> treasury`` in all three
+execution paths.  Player order acceptance follows the F9 double-axis product
+state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
+documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
 
@@ -31,11 +38,15 @@ from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config
+from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
 from app.services.fx.amm import quote_buy, quote_sell, marginal_price
 from app.services.market_locks import lock_user
 
 _logger = logging.getLogger(__name__)
+
+#: ``FxTrade.source`` for forced-liquidation sells (WP4 parent brief §WP4).
+LIQUIDATION_SOURCE = "liquidation"
 
 
 class TradeRejected(ValueError):
@@ -56,6 +67,31 @@ class FxTradeExecution:
     trade: FxTrade
     public: FxTradePublic
     replay: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FxLiquidationExecution:
+    """Result of one in-session forced-liquidation sell.
+
+    Exactly one shape is returned:
+
+    - **blocked**: ``blocked_reason`` is set, ``trade`` is None and nothing was
+      mutated (no wallet row is created, no reserve changes);
+    - **executed / replay**: ``trade`` and ``public`` are set.  ``replay`` is
+      True when the ``(run_id, round_no)`` idempotency key already had a
+      committed trade, so the caller must not sell again or book a second
+      action for that round.
+
+    ``quote`` carries the fresh batch quote for executed/blocked attempts and
+    is None on replay (the committed numbers are in ``public``/``trade``).
+    """
+
+    trade: Optional[FxTrade]
+    public: Optional[FxTradePublic]
+    quote: Optional[FxGroupQuote]
+    replay: bool
+    blocked_reason: Optional[str]
+    idempotency_key: str
 
 
 # Public snapshot prices are always quoted in gold per one foreign unit.
@@ -88,6 +124,33 @@ def _nonnegative(value: Decimal, name: str) -> Decimal:
     if -value.as_tuple().exponent > 6:
         raise TradeRejected(f"{name} must have at most 6 fractional digits")
     return value
+
+
+def _player_side_allowed(status: str, reduce_only: bool, side: str) -> bool:
+    """F9 double-axis product state for **player** orders (spec §9.1).
+
+    ================  ============  ==========================================
+    status            reduce_only   player buy / sell
+    ================  ============  ==========================================
+    trading           false         buy allowed, sell allowed (legacy)
+    trading           true          buy rejected, sell allowed (reduce-only)
+    paused            true          buy rejected, sell allowed (operator opt-in)
+    paused            false         fully halted (legacy semantics preserved)
+    draft/closed/…    any           fully halted
+    ================  ============  ==========================================
+
+    ``paused`` therefore never becomes tradable implicitly: an operator must
+    set ``reduce_only`` explicitly.  Forced liquidation uses the same product
+    matrix through ``services.credit.fx_quote`` (see
+    :func:`execute_liquidation_sell_in_session`).
+    """
+    normalized_status = str(status or "").strip().lower()
+    normalized_side = str(side or "").strip().lower()
+    if normalized_status == "trading":
+        return normalized_side == "sell" or not reduce_only
+    if normalized_status == "paused":
+        return reduce_only and normalized_side == "sell"
+    return False
 
 
 async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False) -> FxPair:
@@ -176,6 +239,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     min_out = _nonnegative(min_out, "min_out")
     if not idempotency_key or len(idempotency_key) > 128:
         raise TradeRejected("idempotency_key is required")
+    if idempotency_key.startswith("liq:"):
+        raise TradeRejected("idempotency_key prefix is reserved")
 
     normalized = str(side).lower()
     pair = await _pair(db, pair_id, lock=True)
@@ -196,8 +261,14 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     enabled = await site_config.get_bool_or(db, "fx_enabled", False)
     if not enabled:
         raise HTTPException(status_code=403, detail="FX trading is disabled")
-    if pair.status != "trading":
-        raise HTTPException(status_code=403, detail="FX pair is not trading")
+    if not _player_side_allowed(pair.status, bool(pair.reduce_only), normalized):
+        # Legacy detail preserved for the fully-halted states (paused without
+        # reduce_only / draft / closed); reduce-only rejections get a specific
+        # reason so the client can explain why buying is unavailable.
+        fully_halted = str(pair.status or "").strip().lower() not in ("trading", "paused")
+        detail = ("FX pair is not trading" if fully_halted or not bool(pair.reduce_only)
+                  else "FX pair is reduce-only")
+        raise HTTPException(status_code=403, detail=detail)
     if user.is_bot:
         raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
     if user.tos_accepted_at is None:
@@ -286,6 +357,157 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
         trade_id=execution.trade.id,
     )
     return public
+
+
+def liquidation_idempotency_key(run_id: int, round_no: int) -> str:
+    """Deterministic sell key for one liquidation run round (parent brief §WP4).
+
+    A retry or crash recovery for the same ``(run_id, round_no)`` reuses the
+    key, so the ``(user_id, idempotency_key)`` unique constraint on
+    ``fx_trade`` turns a double submission into a replay instead of a second
+    sale.
+    """
+    if (not isinstance(run_id, int) or not isinstance(round_no, int)
+            or isinstance(run_id, bool) or isinstance(round_no, bool)
+            or run_id <= 0 or round_no <= 0):
+        raise ValueError("run_id and round_no must be positive integers")
+    return f"liq:{run_id}:{round_no}"
+
+
+async def execute_liquidation_sell_in_session(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    pair_id: int,
+    run_id: int,
+    round_no: int,
+    mode: str = "partial",
+    partial_pct: Optional[Decimal] = None,
+) -> FxLiquidationExecution:
+    """Sell one FX batch for forced liquidation inside the caller's transaction.
+
+    Semantics (spec §5.2 / F9 / F12):
+
+    - the batch is **re-quoted under the lock** from the locked pair and wallet
+      through ``services.credit.fx_quote.quote_fx_group``; a stale caller-side
+      quote is never executed (retry semantics: re-quote, no ``min_out``);
+    - ``mode="partial"`` sells ``ceil(balance * partial_pct)`` capped at the
+      balance (``partial_pct`` must be passed explicitly); ``mode="full"``
+      sells the whole wallet;
+    - product executability is the F9 matrix: ``trading`` (either axis) and
+      ``paused + reduce_only=true`` are executable; ``paused`` without
+      ``reduce_only``, ``draft``, ``closed`` and an invalid/zero-output quote
+      are blocked with ``quote.blocked_reason`` and mutate nothing;
+    - wallet / cash / pool / treasury / ``FxTrade(source="liquidation")`` /
+      audit row are one transaction; the caller repays debt in the same
+      transaction and commits once.  This function never commits, never rolls
+      back and never publishes.
+    - player gates (``fx_enabled`` / bot / TOS / debt) deliberately do not
+      apply: forced liquidation is a system action whose gates live in the
+      orchestration (``liquidation_enabled``, run state, F9 product state).
+    """
+    if mode not in ("partial", "full"):
+        raise ValueError(f"unknown liquidation mode: {mode!r}")
+    if mode == "partial":
+        if partial_pct is None:
+            raise ValueError("partial_pct is required for partial liquidation")
+        # Avoid the binary-float expansion of Decimal(0.1); callers should pass
+        # a Decimal but strings/floats must not shift the ceil'd batch.
+        partial_pct = (partial_pct if isinstance(partial_pct, Decimal)
+                       else Decimal(str(partial_pct)))
+        if not (Decimal("0") < partial_pct <= Decimal("1")):
+            raise ValueError(f"partial_pct must be in (0, 1]: {partial_pct!r}")
+    key = liquidation_idempotency_key(run_id, round_no)
+
+    pair = await _pair(db, pair_id, lock=True)          # 1. product lock
+    user = await lock_user(db, user_id)                 # 2. account lock
+
+    old = (await db.execute(select(FxTrade).where(
+        FxTrade.user_id == user_id, FxTrade.idempotency_key == key,
+    ))).scalars().first()
+    if old is not None:
+        if (old.pair_id != pair_id or old.side != "sell"
+                or old.source != LIQUIDATION_SOURCE):
+            raise HTTPException(status_code=409,
+                                detail="liquidation idempotency key parameter mismatch")
+        # Materialize before returning: callers may roll back (expiring ORM rows).
+        return FxLiquidationExecution(
+            trade=old, public=FxTradePublic.model_validate(old), quote=None,
+            replay=True, blocked_reason=None, idempotency_key=key)
+
+    wallet = await _wallet_lock(db, user_id, pair_id, create=False)  # 3. wallet lock
+    foreign_amount = Decimal("0") if wallet is None else Decimal(wallet.foreign_amount)
+    quote = quote_fx_group(
+        FxPairSnapshot(
+            pair_id=pair.id,
+            status=str(pair.status),
+            reduce_only=bool(pair.reduce_only),
+            gold_reserve=Decimal(pair.gold_reserve),
+            foreign_reserve=Decimal(pair.foreign_reserve),
+            sell_fee_rate=Decimal(pair.sell_fee_rate),
+        ),
+        foreign_amount=foreign_amount,
+        mode=mode,
+        partial_pct=partial_pct if mode == "partial" else Decimal("1"),
+    )
+    if quote.blocked_reason is not None:
+        # Blocked batches produce zeros and never touch reserves or balances.
+        return FxLiquidationExecution(
+            trade=None, public=None, quote=quote, replay=False,
+            blocked_reason=quote.blocked_reason, idempotency_key=key)
+    if wallet is None or quote.foreign_in > wallet.foreign_amount:
+        raise TradeRejected("liquidation quote exceeds the locked wallet balance")
+
+    # 4. treasury lock, then all mutations in the caller's transaction.
+    treasury = (await db.execute(
+        select(FxTreasury).where(FxTreasury.pair_id == pair_id)
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalars().first()
+    if treasury is None:
+        treasury = FxTreasury(pair_id=pair_id)
+        db.add(treasury)
+
+    pre_amount = Decimal(wallet.foreign_amount)
+    wallet.foreign_amount = pre_amount - quote.foreign_in
+    if wallet.foreign_amount <= 0:
+        # A full sale clears the wallet exactly (no fractional dust, F12).
+        wallet.foreign_amount = Decimal("0")
+        wallet.cost_basis = Decimal("0")
+    else:
+        wallet.cost_basis = max(
+            Decimal("0"),
+            wallet.cost_basis - (wallet.cost_basis * quote.foreign_in / pre_amount),
+        )
+    wallet.updated_at = utcnow()
+    user.cash += quote.gold_out
+
+    pre_gold, pre_foreign = pair.gold_reserve, pair.foreign_reserve
+    pair.gold_reserve = quote.post_gold_reserve
+    pair.foreign_reserve = quote.post_foreign_reserve
+    pair.pool_version += 1
+    pair.updated_at = utcnow()
+    # Sell fees are charged in foreign inside the AMM; they accrue to treasury
+    # while the pool receives the net input.
+    treasury.foreign_balance += quote.fee_foreign
+    treasury.updated_at = utcnow()
+
+    trade = FxTrade(
+        pair_id=pair_id, user_id=user_id, side="sell",
+        input_amount=quote.foreign_in, output_amount=quote.gold_out,
+        min_out=Decimal("0"), fee_amount=quote.fee_foreign,
+        pre_gold_reserve=pre_gold, pre_foreign_reserve=pre_foreign,
+        post_gold_reserve=quote.post_gold_reserve,
+        post_foreign_reserve=quote.post_foreign_reserve,
+        post_price=marginal_price(quote.post_gold_reserve, quote.post_foreign_reserve),
+        source=LIQUIDATION_SOURCE, idempotency_key=key,
+    )
+    db.add(trade)
+    await db.flush()
+    audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
+                                  wallet=wallet, treasury=treasury)
+    return FxLiquidationExecution(
+        trade=trade, public=FxTradePublic.model_validate(trade), quote=quote,
+        replay=False, blocked_reason=None, idempotency_key=key)
 
 
 async def publish_public_event(trade: FxTrade) -> None:

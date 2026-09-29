@@ -57,11 +57,13 @@ async def db_session():
     engine.dispose()
 
 
-async def seed(db, *, cash="100", debt="0", bot=False, tos=True, status="trading"):
+async def seed(db, *, cash="100", debt="0", bot=False, tos=True, status="trading",
+               reduce_only=False):
     suffix = uuid4().hex[:8]
     user = User(username=f"fx-{suffix}", cash=Decimal(cash), debt=Decimal(debt),
                 is_bot=bot, tos_accepted_at=(datetime.now(timezone.utc) if tos else None))
     pair = FxPair(currency_code=f"G{suffix}", currency_name="Gold", status=status,
+                  reduce_only=reduce_only,
                   gold_reserve=Decimal("100"), foreign_reserve=Decimal("100"),
                   buy_fee_rate=Decimal("0.01"), sell_fee_rate=Decimal("0.01"))
     db.add_all([user, pair])
@@ -178,6 +180,15 @@ async def test_in_session_replay_reports_replay_and_leaves_transaction_open(db_s
 
 
 @pytest.mark.asyncio
+async def test_player_cannot_reserve_liquidation_idempotency_key(db_session):
+    uid, pid = await seed(db_session)
+    with pytest.raises(trading.TradeRejected, match="reserved"):
+        await trading.execute_trade_in_session(
+            db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), "liq:7:3")
+    assert _trades(db_session) == []
+
+
+@pytest.mark.asyncio
 async def test_in_session_idempotency_mismatch_is_409_and_mutates_nothing(db_session):
     uid, pid = await seed(db_session)
     await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "k-1")
@@ -245,6 +256,61 @@ async def test_guard_status_codes_match_between_wrapper_and_in_session(db_sessio
         assert exc.value.status_code == status
         await db_session.rollback()
     assert _trades(db_session) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,reduce_only,side,allowed", [
+    ("trading", False, "buy", True),
+    ("trading", False, "sell", True),
+    ("trading", True, "buy", False),
+    ("trading", True, "sell", True),
+    ("paused", True, "buy", False),
+    ("paused", True, "sell", True),
+    ("paused", False, "buy", False),
+    ("paused", False, "sell", False),
+    ("draft", True, "sell", False),
+    ("closed", True, "sell", False),
+])
+async def test_f9_player_side_matrix(db_session, status, reduce_only, side, allowed):
+    """F9 double-axis product state for player orders (spec §9.1)."""
+    uid, pid = await seed(db_session, status=status, reduce_only=reduce_only)
+    if side == "sell":
+        db_session.add(FxWallet(user_id=uid, pair_id=pid, foreign_amount=Decimal("1"),
+                                cost_basis=Decimal("1")))
+        await db_session.commit()
+
+    if allowed:
+        execution = await trading.execute_trade_in_session(
+            db_session, uid, pid, side, Decimal("1"), Decimal("0"), uuid4().hex)
+        assert execution.public.side == side
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await trading.execute_trade_in_session(
+                db_session, uid, pid, side, Decimal("1"), Decimal("0"), uuid4().hex)
+        assert exc.value.status_code == 403
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_reduce_only_buy_rejection_detail_is_actionable(db_session):
+    uid, pid = await seed(db_session, status="trading", reduce_only=True)
+    with pytest.raises(HTTPException) as exc:
+        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
+                                               Decimal("0"), uuid4().hex)
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "FX pair is reduce-only"
+    await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_paused_without_reduce_only_keeps_legacy_detail(db_session):
+    uid, pid = await seed(db_session, status="paused", reduce_only=False)
+    with pytest.raises(HTTPException) as exc:
+        await trading.execute_trade_in_session(db_session, uid, pid, "sell", Decimal("1"),
+                                               Decimal("0"), uuid4().hex)
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "FX pair is not trading"
+    await db_session.rollback()
 
 
 @pytest.mark.asyncio
