@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 from pydantic import ConfigDict
-from sqlalchemy import UniqueConstraint, CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric, JSON
+from sqlalchemy import UniqueConstraint, CheckConstraint, Column, DateTime, ForeignKey, Index, Numeric, JSON, text
 
 
 class MarketStatus(str, Enum):
@@ -68,6 +68,19 @@ class User(SQLModel, table=True):
     last_liquidated_at: Optional[datetime] = Field(
         default=None,
         sa_type=DateTime(timezone=True),
+    )
+
+    # ── 统一信贷风险（spec 2026-09-29 §2.1）──
+    # 用户经济状态版本：任何改现金/债务/持仓/钱包的路径都必须 bump
+    # （app.services.credit.version.bump_economic_version）。强平/交易在锁后重验版本，
+    # 不一致就重新发现依赖，禁止用过期快照放行。
+    economic_version: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": text("0")},
+    )
+    # 授信冻结：资不抵债 / 管理员显式冻结后禁止新增风险（借款、开仓）；
+    # 还款、充值、卖出减仓与强平路径不受影响。
+    credit_frozen: bool = Field(
+        default=False, nullable=False, sa_column_kwargs={"server_default": text("false")},
     )
 
     # 当前佩戴的 title；ondelete=SET NULL 兜底（title 硬删 / 撤销时自动清）
@@ -301,6 +314,19 @@ class LiquidationEvent(SQLModel, table=True):
 
     trigger_source: str  # "scheduler" | "admin_manual"
     mode: str = Field(default="emergency", max_length=20)
+
+    # ── 统一信贷风险（计划 §3.3）──
+    # 归属的强平 run（可空：legacy 强平与既有行没有 run）；run 删除后置空，保留公示行。
+    run_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("liquidation_run.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+    )
+    # 产品命名空间（"lmsr" / "fx"；可空：legacy 行为 None）。F11：公开页只多这一个字段。
+    product: Optional[str] = Field(default=None, max_length=8)
 
 
 class BotSuspicion(SQLModel, table=True):

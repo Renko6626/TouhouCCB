@@ -31,17 +31,43 @@ def accrue_interest(user: User, daily_rate: Decimal, now: datetime) -> None:
     增量量化到 6dp 后为 0 时**不推进** debt_last_accrued_at：否则小额债务（6dp 下
     一个 sweep 间隔的利息不足 0.0000005）永远累不出利息；不推进则时间继续累积，
     到够一个 LSB 时才结，长期利息不丢。
+
+    读写同源：数值完全来自 ``pending_debt``，估值侧（统一风控 E 的 D_effective）
+    必须调用同一个函数，禁止另写一份利息公式。
     """
-    if user.debt <= 0 or user.debt_last_accrued_at is None:
-        return
-    elapsed_sec = (now - user.debt_last_accrued_at).total_seconds()
-    if elapsed_sec <= 0:
-        return
-    new_debt = (user.debt * interest_factor(daily_rate, elapsed_sec)).quantize(_QUANT)
+    new_debt = pending_debt(user, daily_rate, now)
     if new_debt == user.debt:
         return
     user.debt = new_debt
     user.debt_last_accrued_at = now
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """naive 时间按 UTC 解释（SQLite 读回的 DATETIME 没有 tzinfo）。"""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _elapsed_seconds(stored: datetime, now: datetime) -> float:
+    # 两边 tz 感知性一致时保持原样相减（与历史行为逐位一致）；混用时按 UTC 对齐，
+    # 避免估值侧传入 aware now、库里是 naive 时直接 TypeError。
+    if (stored.tzinfo is None) != (now.tzinfo is None):
+        return (_as_utc(now) - _as_utc(stored)).total_seconds()
+    return (now - stored).total_seconds()
+
+
+def pending_debt(user: User, daily_rate: Decimal, now: datetime) -> Decimal:
+    """**纯函数**：返回含未落库利息的债务（D_effective），不修改 user。
+
+    debt==0 / last_accrued_at is None / elapsed<=0 时返回当前 user.debt。
+    结果量化到 6dp —— 与 ``accrue_interest`` 完全同源，所以"先估值再加息"与
+    "先加息再估值"得到同一个 D（不会出现估值读到的 D 比落库后的 D 少一分钱）。
+    """
+    if user.debt <= 0 or user.debt_last_accrued_at is None:
+        return user.debt
+    elapsed_sec = _elapsed_seconds(user.debt_last_accrued_at, now)
+    if elapsed_sec <= 0:
+        return user.debt
+    return (user.debt * interest_factor(daily_rate, elapsed_sec)).quantize(_QUANT)
 
 
 class LoanServiceError(Exception):

@@ -36,20 +36,25 @@ import app.models.audit  # noqa: F401, E402
 import app.models.ledger  # noqa: F401, E402
 import app.models.redemption  # noqa: F401, E402
 import app.models.fx  # noqa: F401, E402
+import app.models.credit  # noqa: F401, E402
 from app.models.audit import AuditEvent  # noqa: E402
 from app.models.base import (  # noqa: E402
     BotSuspicion, LiquidationEvent, Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User,
 )
 from app.models.bot import BotProfile  # noqa: E402
+from app.models.credit import LiquidationAction, LiquidationRun  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
 
 # 子表在前，父表在后（外键顺序）
+# LiquidationAction.run_id → LiquidationRun.id：action 必须先删。
+# LiquidationEvent.run_id → LiquidationRun.id 是 SET NULL，放前面只为顺序清晰。
 CLEAR_ORDER = [
     AuditEvent, BotProfile, BotSuspicion,
-    LiquidationEvent, LedgerEntry, Transaction, Position, OutcomeCandle,
+    LiquidationAction, LiquidationEvent, LiquidationRun,
+    LedgerEntry, Transaction, Position, OutcomeCandle,
     MarketRequiredTitle, Outcome, Market,
 ]
 
@@ -180,6 +185,10 @@ async def run(dry_run: bool) -> int:
                     u.debt = Decimal("0")
                     u.debt_last_accrued_at = None
                     u.last_liquidated_at = None
+                    # 统一信贷（WP1）：新赛季从零开始，清坏账冻结并推进经济版本
+                    # （现金/债务变了，旧快照一律作废）。
+                    u.credit_frozen = False
+                    u.economic_version = int(u.economic_version or 0) + 1
                     if u.is_bot:
                         u.is_active = False
                         u.is_superuser = False

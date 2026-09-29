@@ -23,10 +23,37 @@ def test_fulfillment_migration_preserves_inventory_and_roundtrips(tmp_path, monk
     fx_table_names = {
         "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
     }
+    # 同理：liquidation_run/action 由 head revision credit_foundation_20260930 建，
+    # 本测试 stamp 在它之前，before-state 不能预建（WP1 新增）。
+    credit_table_names = {"liquidation_run", "liquidation_action"}
     for name, table in SQLModel.metadata.tables.items():
         if name in fx_table_names:
             continue
         table.to_metadata(before)
+
+    def _strip_column(table, name: str) -> None:
+        """从 before-state 的表副本里摘掉一列及其 FK / 索引。"""
+        if name not in table.c:
+            return
+        column = table.c[name]
+        for fk in list(column.foreign_keys):
+            table.foreign_keys.discard(fk)
+            column.foreign_keys.discard(fk)
+        for index in list(table.indexes):
+            if any(c.name == name for c in index.columns):
+                table.indexes.discard(index)
+        for constraint in list(table.constraints):
+            if any(c.name == name for c in getattr(constraint, "columns", ())):
+                table.constraints.discard(constraint)
+        table._columns.remove(column)
+
+    # 统一信贷（WP1）：预状态没有 credit 表，user/liquidation_events 也没有新列
+    _strip_column(before.tables["user"], "economic_version")
+    _strip_column(before.tables["user"], "credit_frozen")
+    _strip_column(before.tables["liquidation_events"], "run_id")
+    _strip_column(before.tables["liquidation_events"], "product")
+    for name in credit_table_names:
+        before.remove(before.tables[name])
     codes = before.tables["redemption_code"]
     for name in ("redeemed_at", "redeemed_by_admin_id", "redemption_note"):
         column = codes.c[name]

@@ -11,7 +11,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, Date, DateTime, Index, JSON, Numeric, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Date, DateTime, Index, JSON, Numeric, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -58,6 +58,12 @@ class FxPair(SQLModel, table=True):
     buy_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
     sell_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
     pool_version: int = Field(default=1, nullable=False)
+    # ── 统一信贷风险 F9：paused/reduce_only 双轴语义 ──
+    # reduce_only=True：只允许卖出/强平，拒绝开仓与系统干预（L 仍按可执行报价计算）。
+    # 默认 false：paused 仍是"全停"旧语义，迁移不得把已 paused 的 pair 无提示变成可卖。
+    reduce_only: bool = Field(
+        default=False, nullable=False, sa_column_kwargs={"server_default": text("false")},
+    )
     created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 

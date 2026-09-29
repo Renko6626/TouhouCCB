@@ -98,12 +98,31 @@ def test_upgrade_downgrade_roundtrip():
     fx_table_names = {
         "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
     }
+    # 统一信贷表由 head revision credit_foundation_20260930 建（WP1）：先把它们一起拷进
+    # before-state（否则 liquidation_events.run_id 的外键无法解析），再整表摘掉。
+    credit_table_names = {"liquidation_run", "liquidation_action"}
     keep_tables = [
         t for name, t in SQLModel.metadata.tables.items()
         if name not in title_table_names
         and name not in ("ledger_entry", "audit_event", "bot_profile")
         and name not in fx_table_names
     ]
+
+    def _strip_column(table, name: str) -> None:
+        """从 before-state 的表副本里摘掉一列及其 FK / 索引（不动全局 metadata）。"""
+        if name not in table.c:
+            return
+        column = table.c[name]
+        for fk in list(column.foreign_keys):
+            table.foreign_keys.discard(fk)
+            column.foreign_keys.discard(fk)
+        for index in list(table.indexes):
+            if any(c.name == name for c in index.columns):
+                table.indexes.discard(index)
+        for constraint in list(table.constraints):
+            if any(c.name == name for c in getattr(constraint, "columns", ())):
+                table.constraints.discard(constraint)
+        table._columns.remove(column)
 
     # 2) 保存原 settings，临时 rebind 到 tempfile DB URL
     original_settings = _cfg.settings
@@ -116,6 +135,13 @@ def test_upgrade_downgrade_roundtrip():
         before_metadata = MetaData()
         for table in keep_tables:
             table.to_metadata(before_metadata)
+        # 统一信贷（WP1）：预状态没有 credit 表，user/liquidation_events 也没有新列
+        _strip_column(before_metadata.tables["user"], "economic_version")
+        _strip_column(before_metadata.tables["user"], "credit_frozen")
+        _strip_column(before_metadata.tables["liquidation_events"], "run_id")
+        _strip_column(before_metadata.tables["liquidation_events"], "product")
+        for name in credit_table_names:
+            before_metadata.remove(before_metadata.tables[name])
         # before-state 也必须排除后来新增的线下核销列，不能预先建成 head。
         codes = before_metadata.tables["redemption_code"]
         for name in ("redeemed_at", "redeemed_by_admin_id", "redemption_note"):

@@ -16,6 +16,11 @@ from app.models import redemption as _redemption_models  # noqa: F401  注册兑
 from app.models import title as _title_models  # noqa: F401  注册称号系统表到 SQLModel.metadata
 from app.models import ledger as _ledger_models  # noqa: F401  注册资金流水账本表到 SQLModel.metadata
 from app.models import audit as _audit_models  # noqa: F401  注册审计事件流表到 SQLModel.metadata
+# F10（计划 §3 / WP1）：补 metadata 注册，修复"空库缺 FX / bot / 统一信贷表"缺陷。
+# 只加 import，不改本脚本其余清库 / 示例数据逻辑。
+from app.models import fx as _fx_models  # noqa: F401  注册 FX 表到 SQLModel.metadata
+from app.models import bot as _bot_models  # noqa: F401  注册 bot_profile 到 SQLModel.metadata
+from app.models import credit as _credit_models  # noqa: F401  注册 liquidation_run/action 到 SQLModel.metadata
 
 
 def get_alembic_head() -> str:

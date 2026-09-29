@@ -20,6 +20,12 @@ AUDIT_EVENT_TYPES = frozenset({
     "admin_adjust_cash", "admin_force_loan", "admin_forgive_debt", "admin_amnesty",
     "liquidation_repay", "liquidation",
     "interest_accrual",
+    # ── 统一信贷风险（计划 §3.5）：新事件的 user_after 必须是**提交后**的权威快照；
+    #    资金影响仍由同事务的 trade_liquidate / liquidation_repay / fx_trade 承担。
+    #    ⚠️ 同一事务内必须先写资金事件、再写这些"记录型"事件：audit_replay.fold 对
+    #    未知类型不校验增量但会把它当作新的 user 锚点，顺序反了会让后续资金事件对不上。 ──
+    "liquidation_run_start", "liquidation_action", "liquidation_blocked",
+    "liquidation_run_close", "credit_freeze_set",
     "admin_set_role", "admin_ban", "admin_unban",
     "config_set",
     "redeem_purchase", "danmuku_exchange",

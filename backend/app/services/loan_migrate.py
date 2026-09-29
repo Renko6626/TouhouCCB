@@ -13,13 +13,28 @@ Postgres 下 updated_at NOT NULL 但 SQLModel 没设 DB 默认值，所以 INSER
 """
 from __future__ import annotations
 import logging
-from sqlalchemy import text
+from decimal import Decimal, InvalidOperation
+from typing import Optional
 
-from app.core.database import engine
+from sqlalchemy import text
+from sqlmodel import select
+
+from app.core.database import async_session_maker, engine
 from app.core.config import settings
 from app.services.site_config import FX_DEFAULT_CONFIGS
 
 logger = logging.getLogger("thccb.loan_migrate")
+
+#: 重复次数默认（计划 §3.4 credit_risk_retry_limit=3）。
+DEFAULT_CREDIT_RISK_RETRY_LIMIT = 3
+#: 名义杠杆上限（F6：20x 需运营显式启用；迁移不得把旧 k>19 直接映射成 >20x）。
+MAX_CREDIT_LEVERAGE = Decimal("20")
+
+LEGACY_LEVERAGE_KEY = "loan_leverage_k"
+LEGACY_HARD_THRESHOLD_KEY = "liquidation_hard_threshold"
+CREDIT_LEVERAGE_KEY = "credit_leverage"
+CREDIT_MAINTENANCE_KEY = "credit_maintenance_ratio"
+CREDIT_MIGRATION_SOURCE = "credit_migration"
 
 
 DEFAULT_CONFIGS = [
@@ -56,6 +71,13 @@ DEFAULT_CONFIGS = [
     # 已有 DB 行不受种子影响，翻转仍按各自语义：writer 需重启，legacy 热生效）
     ("single_writer_enabled", "true", "bool"),    # 翻转需重启进程（启动时读一次）
     ("legacy_trade_events", "false", "bool"),     # 老 SSE 事件双发关闭（bot 已内建 tick 适配）；阶段 5 删
+    # ── 统一信贷风险（计划 §3.4）──
+    # 总开关默认 false：开关关着时后续 WP 的落地对现有交易零行为变化。
+    # credit_leverage / credit_maintenance_ratio 不在这里种静态值，由
+    # _seed_credit_risk_configs() 按 F7/F6 从旧配置派生（见下）。
+    ("unified_credit_enabled", "false", "bool"),
+    ("credit_new_risk_frozen", "false", "bool"),
+    ("credit_risk_retry_limit", str(DEFAULT_CREDIT_RISK_RETRY_LIMIT), "int"),
 ]
 
 # Keep all startup defaults in one seed operation so existing installations
@@ -106,4 +128,124 @@ async def auto_migrate() -> None:
                 'WHERE debt > 0 AND debt_last_accrued_at IS NULL'
             ))
 
+    # 4. 统一信贷风险：从旧配置派生 credit_leverage / credit_maintenance_ratio。
+    await seed_credit_risk_configs()
+
     logger.info("loan auto-migrate done (dialect=%s)", dialect)
+
+
+def _decimal_or_none(raw: Optional[str]) -> Optional[Decimal]:
+    if raw is None or not str(raw).strip():
+        return None
+    try:
+        value = Decimal(str(raw).strip())
+    except (InvalidOperation, ValueError):
+        return None
+    return value if value.is_finite() else None
+
+
+def _r_initial(leverage: Decimal) -> Optional[Decimal]:
+    if leverage <= 1:
+        return None
+    return Decimal(1) / (leverage - 1)
+
+
+async def seed_credit_risk_configs() -> list[str]:
+    """按 F7/F6 派生统一信贷配置（只补缺失行，幂等；返回本次写入的 key）。
+
+    - ``credit_leverage = loan_leverage_k + 1``：与旧 ``compute_max_borrow`` 精确等价，
+      **不放松授信**。旧 ``k + 1 > 20``（即 k > 19）时拒绝写入并打 CRITICAL。
+    - ``credit_maintenance_ratio``：迁移期沿用有效的 ``liquidation_hard_threshold``
+      （要求 ``0 < hard < R_initial(credit_leverage)``）；无效则不写，等 20x 启用前
+      由运营显式设为 0.04（F6）。
+    - 每次写入都补 ``config_set`` 审计，``source="credit_migration"``。
+    """
+    from app.models.base import SiteConfig
+    from app.services import audit_service
+
+    keys = (CREDIT_LEVERAGE_KEY, CREDIT_MAINTENANCE_KEY, LEGACY_LEVERAGE_KEY, LEGACY_HARD_THRESHOLD_KEY)
+    seeded: list[str] = []
+    async with async_session_maker() as session:
+        async with session.begin():
+            rows = {
+                r.key: r
+                for r in (await session.execute(
+                    select(SiteConfig).where(SiteConfig.key.in_(keys))
+                )).scalars().all()
+            }
+
+            def _value(key: str) -> Optional[str]:
+                row = rows.get(key)
+                return None if row is None else row.value
+
+            leverage = _decimal_or_none(_value(CREDIT_LEVERAGE_KEY))
+            if leverage is None:
+                legacy_k = _decimal_or_none(_value(LEGACY_LEVERAGE_KEY))
+                if legacy_k is None:
+                    logger.warning(
+                        "credit_leverage 未 seed：缺少 %s 且无 %s",
+                        LEGACY_LEVERAGE_KEY, CREDIT_LEVERAGE_KEY,
+                    )
+                else:
+                    candidate = legacy_k + Decimal(1)
+                    if candidate > MAX_CREDIT_LEVERAGE:
+                        logger.critical(
+                            "拒绝 seed credit_leverage=%s：旧 %s=%s 映射后超过上限 %s（F7/F6）",
+                            candidate, LEGACY_LEVERAGE_KEY, legacy_k, MAX_CREDIT_LEVERAGE,
+                        )
+                    elif candidate <= 1:
+                        logger.critical(
+                            "拒绝 seed credit_leverage=%s：旧 %s=%s 非法（必须 > 0）",
+                            candidate, LEGACY_LEVERAGE_KEY, legacy_k,
+                        )
+                    else:
+                        leverage = candidate
+                        session.add(SiteConfig(
+                            key=CREDIT_LEVERAGE_KEY,
+                            value=format(candidate, "f"),
+                            value_type="decimal",
+                        ))
+                        seeded.append(CREDIT_LEVERAGE_KEY)
+
+            if _decimal_or_none(_value(CREDIT_MAINTENANCE_KEY)) is None:
+                hard = _decimal_or_none(_value(LEGACY_HARD_THRESHOLD_KEY))
+                r_initial = _r_initial(leverage) if leverage is not None else None
+                if hard is None:
+                    logger.warning(
+                        "credit_maintenance_ratio 未 seed：缺少 %s；启用 20x 前必须显式设为 0.04",
+                        LEGACY_HARD_THRESHOLD_KEY,
+                    )
+                elif r_initial is None:
+                    logger.warning(
+                        "credit_maintenance_ratio 未 seed：无法确定有效 credit_leverage"
+                    )
+                elif Decimal(0) < hard < r_initial:
+                    session.add(SiteConfig(
+                        key=CREDIT_MAINTENANCE_KEY,
+                        value=format(hard, "f"),
+                        value_type="decimal",
+                    ))
+                    seeded.append(CREDIT_MAINTENANCE_KEY)
+                else:
+                    logger.warning(
+                        "credit_maintenance_ratio 未 seed：%s=%s 不满足 0 < hard < R_initial(%s)",
+                        LEGACY_HARD_THRESHOLD_KEY, hard, r_initial,
+                    )
+
+            for key in seeded:
+                row = (
+                    await session.execute(select(SiteConfig).where(SiteConfig.key == key))
+                ).scalars().one()
+                audit_service.record(
+                    session, "config_set",
+                    payload={
+                        "key": key,
+                        "old": None,
+                        "new": row.value,
+                        "value_type": row.value_type,
+                        "source": CREDIT_MIGRATION_SOURCE,
+                    },
+                )
+    if seeded:
+        logger.info("credit risk configs seeded: %s", ", ".join(seeded))
+    return seeded

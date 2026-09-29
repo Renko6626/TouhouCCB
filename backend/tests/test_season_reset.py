@@ -12,8 +12,9 @@ from sqlalchemy import func, select
 
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
-from app.models.base import Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User
+from app.models.base import LiquidationEvent, Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User
 from app.models.bot import BotProfile
+from app.models.credit import LiquidationAction, LiquidationRun
 from app.models.redemption import RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction, DanmukuExchange
 from app.models.ledger import LedgerEntry
 from app.models.title import Title, UserTitle
@@ -278,3 +279,55 @@ async def test_exchange_purchases_and_danmuku_activation_codes_are_preserved(mon
         events = (await s.execute(select(AuditEvent).where(AuditEvent.event_type.in_(("redeem_purchase", "danmuku_exchange"))).order_by(AuditEvent.id))).scalars().all()
         assert [event.payload["amount"] for event in events] == ["5", "2"]
         assert (await s.execute(select(User.cash).where(User.username == "b"))).scalar_one() == Decimal("500")
+
+
+@pytest.mark.asyncio
+async def test_reset_clears_credit_runs_audit_and_unfreezes(monkeypatch):
+    """WP1：新表 / 新审计类型纳入 CLEAR_ORDER；坏账冻结清除、经济版本推进；replay 自检通过。"""
+    async with async_session_maker() as s:
+        async with s.begin():
+            human = (await s.execute(select(User).where(User.username == "a"))).scalar_one()
+            human.credit_frozen = True
+            human.economic_version = 5
+            s.add(human)
+            await s.flush()
+            run = LiquidationRun(
+                user_id=human.id, status="active", trigger_source="scheduler",
+                started_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                pre_cash=Decimal("12"), pre_debt=Decimal("30"),
+                pre_liquidation_equity=Decimal("-1"),
+            )
+            s.add(run)
+            await s.flush()
+            s.add(LiquidationAction(
+                run_id=run.id, user_id=human.id, round_no=1, kind="blocked",
+                blocked_reason="paused_group",
+            ))
+            s.add(LiquidationEvent(
+                user_id=human.id, triggered_at=datetime.now(timezone.utc),
+                pre_cash=Decimal("12"), pre_debt=Decimal("30"), pre_holdings_value=Decimal("1"),
+                pre_net_worth=Decimal("-17"), sold_positions_count=0,
+                total_proceeds=Decimal("0"), repaid_amount=Decimal("0"),
+                remaining_debt=Decimal("30"), post_cash=Decimal("12"),
+                trigger_source="scheduler", mode="emergency",
+                run_id=run.id, product="lmsr",
+            ))
+            for event_type in ("liquidation_run_start", "liquidation_action",
+                               "liquidation_blocked", "credit_freeze_set"):
+                audit_service.record(
+                    s, event_type, user_id=human.id, payload={"run_id": run.id},
+                    user_after=audit_service.user_snapshot(human),
+                )
+
+    monkeypatch.setattr(builtins, "input", lambda *_: "RESET")
+    assert await _mod().run(dry_run=False) == 0   # 返回 0 = replay 自检通过
+
+    assert await _count(LiquidationRun) == 0
+    assert await _count(LiquidationAction) == 0
+    assert await _count(LiquidationEvent) == 0
+    async with async_session_maker() as s:
+        human = (await s.execute(select(User).where(User.username == "a"))).scalar_one()
+        assert human.credit_frozen is False
+        assert human.economic_version == 6   # 现金/债务被改写 → 版本必须推进
+        anchors = (await s.execute(select(AuditEvent.event_type))).scalars().all()
+        assert set(anchors) == {"user_register"} and len(anchors) == 2

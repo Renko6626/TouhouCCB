@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.database import engine, init_db
+from app.core.database import async_session_maker, engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
 from app.api.v1 import fx as fx_api
@@ -18,6 +18,7 @@ from app.models import redemption as _redemption_models  # noqa: F401  确保 SQ
 from app.models import title as _title_models  # noqa: F401 触发 metadata 注册
 from app.models import bot as _bot_models  # noqa: F401 触发 metadata 注册 bot_profile
 from app.models import fx as _fx_models  # noqa: F401 触发 metadata 注册 FX 表
+from app.models import credit as _credit_models  # noqa: F401 触发 metadata 注册 liquidation_run/action
 from app.services.loan_sweep import (
     start_scheduler as start_loan_scheduler,
     stop_scheduler as stop_loan_scheduler,
@@ -39,6 +40,7 @@ from app.services.fx.scheduler import (
     stop_scheduler as stop_fx_scheduler,
 )
 from app.services.loan_migrate import auto_migrate
+from app.services.credit import flags as credit_flags
 
 from dotenv import load_dotenv
 
@@ -79,6 +81,10 @@ async def lifespan(app: FastAPI):
     await init_db()
     await auto_migrate()
     setup_admin(app, engine)
+    # ── 统一信贷 flags（计划 §3.4）：启动时读一次 site_config，运行期不重读；
+    #    默认 unified_credit_enabled=false，开关关着时以下调度器/交易行为与本改动前一致。
+    async with async_session_maker() as _flags_session:
+        await credit_flags.load_flags(_flags_session)
     # ── candle 表 race-window 兜底扫（spec § 6.3）──
     # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
     # ★ 顺序依赖（阶段 4）：必须先于 WRITER.start()——writer 启动时从
@@ -88,14 +94,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
         logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
-    await start_loan_scheduler()
-    await start_liquidation_scheduler()
-    await start_bot_detection_scheduler()
-    # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
-    await start_pve_scheduler()
-    await start_fx_scheduler()
+    # ── 写调度器：只读实例必须显式全关（spec §6.1 / 计划 §3 WP1 "只读实例钩子"）──
+    # WP1 只提供钩子（THCCB_READ_ONLY_INSTANCE）；真正的单写所有权判定由 WP3
+    # credit/ownership.py 接管。未声明只读时行为与改动前完全一致。
+    if credit_flags.write_schedulers_enabled():
+        await start_loan_scheduler()
+        await start_liquidation_scheduler()
+        await start_bot_detection_scheduler()
+        # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
+        await start_pve_scheduler()
+        await start_fx_scheduler()
+    else:
+        logging.getLogger("thccb.main").warning(
+            "read-only instance (%s): all write schedulers disabled",
+            credit_flags.READ_ONLY_ENV,
+        )
     # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
-    from app.core.database import async_session_maker
     from app.services import site_config as _site_config
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
