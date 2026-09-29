@@ -234,7 +234,7 @@ async def test_fee_charged_once_cash_increment_equals_net():
             .order_by(Transaction.id)
         )).scalars().all()
     for tx in txs:
-        assert tx.fee == quantize_cost(tx.gross * FEE_RATE)
+        assert tx.fee == (tx.gross * FEE_RATE).quantize(Decimal("0.000001"))
         assert tx.cost == -(tx.gross - tx.fee)
         assert tx.market_prices_post is not None
 
