@@ -1,9 +1,27 @@
-"""Player FX quotes and atomic trades."""
+"""Player FX quotes and atomic trades.
+
+Transaction contract (WP4a):
+
+- ``quote`` / ``get_public_snapshot`` are pure reads: no writes, no commit.
+- ``execute_trade_in_session`` performs every validation, lock and balance
+  mutation for a player trade **inside the caller's transaction**.  It never
+  commits, never rolls back and never publishes, so the same core can be
+  reused by a caller that owns one larger transaction.
+- ``execute_trade`` is the request-path wrapper: it owns commit (or the
+  idempotent-replay rollback) and hands the committed trade to the bounded
+  post-commit publisher, which never blocks the response on the public frame
+  or on the 24h volume aggregation.
+
+Lock order is always ``pair -> user -> wallet -> treasury``; the in-session
+function keeps it identical to the historical implementation.
+"""
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Awaitable, Callable, Optional
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -13,12 +31,31 @@ from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config
+from app.services.fx import publisher
 from app.services.fx.amm import quote_buy, quote_sell, marginal_price
 from app.services.market_locks import lock_user
+
+_logger = logging.getLogger(__name__)
 
 
 class TradeRejected(ValueError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class FxTradeExecution:
+    """Result of one in-session FX execution.
+
+    ``trade`` is the live ORM row inside the caller's transaction.  ``public``
+    is materialized before returning so it survives the wrapper's rollback on
+    an idempotent replay (a rollback expires loaded ORM instances).  ``replay``
+    is True when an existing idempotent trade was returned and nothing was
+    mutated by this call.
+    """
+
+    trade: FxTrade
+    public: FxTradePublic
+    replay: bool
 
 
 # Public snapshot prices are always quoted in gold per one foreign unit.
@@ -116,14 +153,31 @@ async def _wallet_lock(db: AsyncSession, user_id: int, pair_id: int,
     return row
 
 
-async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
-                        amount: Decimal, min_out: Decimal,
-                        idempotency_key: str) -> FxTradePublic:
+async def _rollback_quietly(db: AsyncSession) -> None:
+    """Best-effort rollback that never masks the original failure."""
+    try:
+        await db.rollback()
+    except Exception:
+        _logger.exception("FX trade rollback failed")
+
+
+async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
+                                   amount: Decimal, min_out: Decimal,
+                                   idempotency_key: str) -> FxTradeExecution:
+    """Execute one player FX trade inside the caller's transaction.
+
+    Keeps every historical guard, fee and idempotency binding of
+    ``execute_trade`` (identical HTTP status codes), acquires the product locks
+    in ``pair -> user -> wallet -> treasury`` order and flushes its writes, but
+    deliberately does **not** commit, roll back or publish.  On error the
+    caller owns the transaction and must roll it back before reuse.
+    """
     amount = _positive(amount, "amount")
     min_out = _nonnegative(min_out, "min_out")
     if not idempotency_key or len(idempotency_key) > 128:
         raise TradeRejected("idempotency_key is required")
 
+    normalized = str(side).lower()
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
 
@@ -131,13 +185,13 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
         FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
     ))).scalars().first()
     if old is not None:
-        replay = FxTradePublic.model_validate(old)
-        if (old.pair_id != pair_id or old.side != str(side).lower()
+        if (old.pair_id != pair_id or old.side != normalized
                 or old.input_amount != amount or old.min_out != min_out):
-            await db.rollback()
             raise HTTPException(status_code=409, detail="idempotency key parameter mismatch")
-        await db.rollback()
-        return replay
+        # Materialize before returning: the wrapper rolls back to release the
+        # pair/user locks, which expires ORM instances.
+        return FxTradeExecution(trade=old, public=FxTradePublic.model_validate(old),
+                                replay=True)
 
     enabled = await site_config.get_bool_or(db, "fx_enabled", False)
     if not enabled:
@@ -148,32 +202,27 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
         raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
     if user.tos_accepted_at is None:
         raise HTTPException(status_code=403, detail="TOS acceptance required")
-    if str(side).lower() == "buy" and user.debt > 0:
+    if normalized == "buy" and user.debt > 0:
         raise HTTPException(status_code=403, detail="outstanding debt blocks FX purchases")
 
     try:
-        q = _math(pair, str(side).lower(), amount)
+        q = _math(pair, normalized, amount)
     except (TypeError, ValueError, ArithmeticError) as exc:
-        await db.rollback()
         raise TradeRejected(str(exc)) from exc
     if q.output_amount < min_out:
-        await db.rollback()
         raise HTTPException(status_code=409, detail="quoted output is below min_out")
 
     if q.input_amount <= 0 or q.output_amount <= 0:
         raise TradeRejected("trade amount must be positive")
-    wallet = await _wallet_lock(db, user_id, pair_id,
-                                create=str(side).lower() == "buy")
-    if str(side).lower() == "buy":
+    wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
+    if normalized == "buy":
         if user.cash < q.input_amount:
-            await db.rollback()
             raise HTTPException(status_code=400, detail="insufficient cash")
         user.cash -= q.input_amount
         wallet.foreign_amount += q.output_amount
         wallet.cost_basis += q.input_amount
     else:
         if wallet is None or wallet.foreign_amount < q.input_amount:
-            await db.rollback()
             raise HTTPException(status_code=400, detail="insufficient FX wallet balance")
         wallet.foreign_amount -= q.input_amount
         wallet.cost_basis = max(Decimal("0"), wallet.cost_basis - (wallet.cost_basis * q.input_amount / (wallet.foreign_amount + q.input_amount)))
@@ -189,12 +238,12 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
     if treasury is None:
         treasury = FxTreasury(pair_id=pair_id)
         db.add(treasury)
-    if str(side).lower() == "buy":
+    if normalized == "buy":
         treasury.gold_balance += q.fee_amount
     else:
         treasury.foreign_balance += q.fee_amount
     treasury.updated_at = utcnow()
-    trade = FxTrade(pair_id=pair_id, user_id=user_id, side=str(side).lower(),
+    trade = FxTrade(pair_id=pair_id, user_id=user_id, side=normalized,
                     input_amount=q.input_amount, output_amount=q.output_amount,
                     min_out=min_out,
                     fee_amount=q.fee_amount, pre_gold_reserve=pre_gold,
@@ -205,16 +254,49 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
     await db.flush()
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
+    return FxTradeExecution(trade=trade, public=FxTradePublic.model_validate(trade),
+                            replay=False)
+
+
+async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
+                        amount: Decimal, min_out: Decimal,
+                        idempotency_key: str) -> FxTradePublic:
+    """Request-path wrapper: owns the transaction boundary and publication.
+
+    Commits a fresh execution (or rolls back an idempotent replay to release
+    the pair/user locks) and enqueues the committed trade on the bounded
+    publisher.  Enqueueing never blocks: the response does not wait for the
+    public frame or its 24h volume aggregation.
+    """
+    try:
+        execution = await execute_trade_in_session(
+            db, user_id, pair_id, side, amount, min_out, idempotency_key)
+    except BaseException:
+        await _rollback_quietly(db)
+        raise
+    if execution.replay:
+        await db.rollback()
+        return execution.public
     await db.commit()
-    await db.refresh(trade)
-    await publish_public_event(trade)
-    return FxTradePublic.model_validate(trade)
+    await db.refresh(execution.trade)
+    public = FxTradePublic.model_validate(execution.trade)
+    publisher.enqueue_publication(
+        pair_id=execution.trade.pair_id,
+        post_price=execution.trade.post_price,
+        trade_id=execution.trade.id,
+    )
+    return public
 
 
 async def publish_public_event(trade: FxTrade) -> None:
-    """Post-commit hook for the public FX stream."""
-    from app.services.fx.market_data import publish_trade
-    await publish_trade(trade)
+    """Best-effort post-commit publication into the bounded FX publisher.
+
+    Retained for callers/tests that used to await the direct broker write; it
+    now only enqueues (never blocks, never raises) instead of performing IO on
+    the caller's path.
+    """
+    publisher.enqueue_publication(
+        pair_id=trade.pair_id, post_price=trade.post_price, trade_id=trade.id)
 
 
 async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:

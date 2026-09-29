@@ -120,8 +120,16 @@ async def publish_public_frame(broker: MarketEventBroker, pair_id: int,
     await broker.publish(pair_id, "fx", public_frame_to_wire(frame))
 
 
-async def publish_trade(trade: Any, broker: MarketEventBroker | None = None) -> None:
-    """Publish a post-commit trade frame; user/system identity is never exposed."""
+async def publish_pair_frame(pair_id: int, post_price: Any,
+                             broker: MarketEventBroker | None = None) -> None:
+    """Publish one committed post-trade frame for a pair.
+
+    Reads the committed snapshot in its own session, so callers must only
+    invoke it after commit.  ``post_price`` is the event price the frame
+    carries.  This is the function the background publisher calls; keeping it
+    separate from ``publish_trade`` lets the post-commit path receive plain
+    values instead of an ORM row that may already be expired.
+    """
     if broker is None:
         from app.services.realtime import BROKER
         broker = BROKER
@@ -131,9 +139,14 @@ async def publish_trade(trade: Any, broker: MarketEventBroker | None = None) -> 
     from app.services.fx import trading
 
     async with async_session_maker() as db:
-        snapshot = await trading.get_public_snapshot(db, trade.pair_id)
+        snapshot = await trading.get_public_snapshot(db, pair_id)
     frame = build_public_frame(snapshot)
     # The trade's post marginal price is the event price; snapshot quotes and
     # cumulative volume describe the committed state around that trade.
-    frame["price"] = Decimal(trade.post_price)
-    await publish_public_frame(broker, trade.pair_id, frame)
+    frame["price"] = Decimal(post_price)
+    await publish_public_frame(broker, pair_id, frame)
+
+
+async def publish_trade(trade: Any, broker: MarketEventBroker | None = None) -> None:
+    """Publish a post-commit trade frame; user/system identity is never exposed."""
+    await publish_pair_frame(trade.pair_id, trade.post_price, broker)
