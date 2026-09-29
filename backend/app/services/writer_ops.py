@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from fastapi import HTTPException
@@ -19,8 +19,17 @@ from app.core.database import async_session_maker
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
+from app.models.credit import LiquidationAction, LiquidationRun
 from app.schemas.market import SettleResult
 from app.services.candle_writer import compute_candle_rows
+from app.services.credit.lmsr_quote import (
+    BLOCKED_MARKET_NOT_OPEN,
+    BLOCKED_UNKNOWN_OUTCOME,
+    OutcomeSnapshot,
+    quote_lmsr_group,
+)
+from app.services.credit.runs import get_or_create_active_run, record_action
+from app.services.credit.version import bump_economic_version
 from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_user
 from app.services.market_title_gating import assert_user_can_trade_market
@@ -32,6 +41,8 @@ from app.services.market_open import market_is_open
 
 logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
+ONE = Decimal("1")
+Q6 = Decimal("0.000001")
 
 
 def _require_trading_state(state: MarketState) -> None:
@@ -593,6 +604,19 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
     )
 
 
+def _require_legacy_liquidation_disabled(entry: str) -> None:
+    """WP5：统一执行器开启后，legacy 强平入口必须硬拒绝（避免两个执行者同时卖仓）。
+
+    开关默认 false → 本函数是纯读取，legacy 行为逐字段不变（不查库、不写库）。
+    """
+    from app.services.credit import flags as credit_flags   # 局部 import 避免环
+    if credit_flags.get_flags().unified_credit_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail=f"统一清算已启用（unified_credit_enabled=true），legacy 强平入口 {entry} 已禁用",
+        )
+
+
 @dataclass
 class LiquidateMarketCmd:
     market_id: int
@@ -607,9 +631,14 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
     """单市场强平（spec § 4.6）：卖光/按比例卖该 user 在该市场的全部持仓。
 
     与 op_sell 的关键差异：不检查滑点（强平不受用户设的滑点保护约束），
-    不收手续费（与老路径 liquidate_user 同语义）；LIQUIDATE 交易不写 candle
-    （现状核实：liquidation_service 从不调 compute_candle_rows，K 线只记 BUY/SELL）。
+    不收手续费（legacy 执行器；统一执行器 ``op_liquidate_group`` 按 F5 收普通卖出费）；
+    LIQUIDATE 交易不写 candle（现状核实：liquidation_service 从不调 compute_candle_rows，
+    K 线只记 BUY/SELL）。
+
+    ``unified_credit_enabled=true`` 时本入口禁用（WP5）：统一执行器接管强平后，
+    两个执行者同时卖仓会绕开 ``(run_id, round_no)`` 幂等与组级滚动 q 报价。
     """
+    _require_legacy_liquidation_disabled("op_liquidate_market")
     from decimal import ROUND_CEILING
     if not market_is_open(state.status, state.closes_at):
         # HALT/SETTLED/已过 closes_at 的市场不强平（用户自己也卖不了），空结果不算错误
@@ -730,6 +759,423 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# WP5 统一强平：一个 market 的整组持仓作为一个卖出批次
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class LiquidateGroupCmd:
+    """统一强平命令（计划 §WP5 冻结签名）。
+
+    - ``mode``：``"partial"`` 按 ``partial_pct`` 分批（F12 向上取整到 1 股、封顶持仓）；
+      ``"full"`` 在 ``E <= 0`` 时全卖选中组。
+    - ``fee_rate``：该产品**普通卖出费率**（F5；LMSR 取 ``site_config.sell_fee_rate``），
+      由编排方读取后传入——op 内不读配置，保证报价与执行同源。
+    - ``(run_id, round_no)``：业务幂等键，在用户行锁内、卖出**之前**检查。
+    - ``state`` 侧（MarketWriter）：本 op 只被该 market 的 consumer 串行调用，
+      不额外持锁、不等待其它 writer 队列。
+    """
+
+    market_id: int
+    user_id: int
+    run_id: int
+    round_no: int
+    mode: str                       # "partial" | "full"
+    partial_pct: Decimal
+    fee_rate: Decimal
+    daily_rate: Decimal = Decimal("0")
+    trigger_source: str = "scheduler"
+
+
+def _cmd_decimal(value: object, name: str) -> Decimal:
+    """把命令里的费率/比例解析成有限 Decimal；非法 → 422（事务外失败）。"""
+    if isinstance(value, Decimal):
+        parsed = value
+    else:
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=f"{name} 非法: {value!r}") from exc
+    if not parsed.is_finite():
+        raise HTTPException(status_code=422, detail=f"{name} 必须是有限数字")
+    return parsed
+
+
+async def _find_group_action(
+    session, *, run_id: int, round_no: int, user_id: int,
+) -> Optional[LiquidationAction]:
+    """业务幂等预检：``(run_id, round_no)`` 已存在则返回既有动作。
+
+    必须在**持有用户行锁**之后、卖出之前调用：同一用户的动作被 user 行锁串行化，
+    读到的既有动作一定是已提交的（不会看到别的执行者未提交的卖出）。
+    额外按 ``user_id`` 过滤：即使调用方传了别人的 run_id，也不可能回放他人的动作。
+    """
+    return (await session.execute(
+        select(LiquidationAction).where(
+            LiquidationAction.run_id == int(run_id),
+            LiquidationAction.round_no == int(round_no),
+            LiquidationAction.user_id == int(user_id),
+        )
+    )).scalars().first()
+
+
+async def _lock_group_run(session, cmd: LiquidateGroupCmd) -> Optional[LiquidationRun]:
+    """锁 run 行并校验归属；返回 None 表示该 id 尚不存在（调用方已持 user 锁）。
+
+    调用约束来自 ``credit/runs.py``：``get_or_create_active_run`` 会自己锁 User 行，
+    必须由已经持锁的调用方在同一事务内调用，否则与执行路径锁序相反。
+    """
+    run = (await session.execute(
+        select(LiquidationRun)
+        .where(LiquidationRun.id == int(cmd.run_id))
+        .with_for_update()
+    )).scalars().first()
+    if run is not None and int(run.user_id) != int(cmd.user_id):
+        raise HTTPException(status_code=409, detail="强平 run 不属于该用户")
+    return run
+
+
+async def _create_group_run(session, cmd: LiquidateGroupCmd) -> LiquidationRun:
+    """run 缺失时补建（调用方已持 user 锁，锁序 User → run）；id 不一致即拒绝。"""
+    created = await get_or_create_active_run(
+        session, user_id=int(cmd.user_id), trigger_source=str(cmd.trigger_source),
+        now=datetime.now(timezone.utc),
+    )
+    if int(created.id) != int(cmd.run_id):
+        raise HTTPException(
+            status_code=409, detail="强平 run 缺失且与当前活动 run 不一致，需重新编排")
+    return created
+
+
+def _group_response(
+    *, mode: str, sold_count: int, gross: Decimal, fee: Decimal, net: Decimal,
+    repaid: Decimal, debt_after: Decimal, cash_after: Decimal,
+    blocked_reason: Optional[str], replayed: bool,
+) -> OpOutcome:
+    """统一响应体（计划 §WP5：sold_count/gross/fee/net/repaid/debt_after/cash_after）。"""
+    return OpOutcome(response={
+        "sold_count": int(sold_count),
+        "gross": gross,
+        "fee": fee,
+        "net": net,
+        "repaid": repaid,
+        "debt_after": debt_after,
+        "cash_after": cash_after,
+        "blocked_reason": blocked_reason,
+        "mode": mode,
+        "replayed": replayed,
+    })
+
+
+def _replay_group_outcome(action: LiquidationAction, cmd: LiquidateGroupCmd) -> OpOutcome:
+    """幂等命中：原样回放已提交动作，不对 DB / 内存镜像做任何变更。
+
+    回放**不**返回 ``new_q_dec``：DB 与 writer 内存镜像的一致性由 writer 自身
+    的 commit→apply / reload_state 自愈保证；重放旧 q 反而可能覆盖之后的成交。
+    """
+    executed = action.executed or {}
+    gross = Decimal(str(action.proceeds or ZERO))
+    fee = Decimal(str(action.fee or ZERO))
+    return _group_response(
+        mode=str(action.mode or cmd.mode),
+        sold_count=int(executed.get("sold_count") or 0),
+        gross=gross, fee=fee, net=gross - fee,
+        repaid=Decimal(str(action.repaid or ZERO)),
+        debt_after=Decimal(str(action.debt_after or ZERO)),
+        cash_after=Decimal(str(action.cash_after or ZERO)),
+        blocked_reason=action.blocked_reason,
+        replayed=True,
+    )
+
+
+async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOutcome:
+    """统一 LMSR 组强平（计划 §WP5；spec §5 F3/F5、§6.2 组合清算）。
+
+    事务内顺序（全部成功才 commit；任何异常整批回滚，内存镜像不动）：
+
+    1. ``lock_user``（User 行锁）→ **幂等预检** ``(run_id, round_no)``；
+    2. 该 market 全部持仓 ``FOR UPDATE``（``Position.id ASC``）；
+    3. ``quote_lmsr_group`` 在 ``state.q_dec``（writer 权威内存值）的滚动副本上
+       按 ``outcome_id`` 升序报价：F12 向上取整到 1 股并封顶持仓；负收益腿跳过
+       （不删持仓、不进 q 副本）；市场不可交易 → 整组阻塞且零写入；
+    4. 逐腿：``cash += net``（F5：fee 只从 gross 扣一次）、outcome 绝对值 SET、
+       ``LIQUIDATE`` 交易（``cost = -net``、``gross`` 为腿 gross、``fee`` 为腿费）、
+       同事务审计 ``trade_liquidate`` + 市场快照（逐腿滚动 q）；
+    5. 计息 + ``decrease_debt_locked`` 还债（同事务），审计 ``liquidation_repay``；
+    6. ``bump_economic_version`` → ``record_action``（``sell_group``）→ 记录型审计
+       ``liquidation_action``。**资金事件必须排在记录型事件之前**（audit_replay 锚点）。
+
+    不检查滑点 / 不用用户 ``min_out``、不写 candle；commit 后由 consumer 依据
+    ``new_q_dec`` 调 ``feed_prices``（强平改价但无成交事件）。
+    """
+    mode = str(cmd.mode)
+    if mode not in ("partial", "full"):
+        raise HTTPException(status_code=422, detail=f"未知强平模式: {cmd.mode!r}")
+    if int(cmd.run_id) <= 0:
+        raise HTTPException(status_code=422, detail="run_id 必须为正整数")
+    if int(cmd.round_no) < 1:
+        raise HTTPException(status_code=422, detail="round_no 必须 >= 1")
+    trigger_source = str(cmd.trigger_source)
+    if not trigger_source or len(trigger_source) > 32:
+        raise HTTPException(status_code=422, detail="trigger_source 必须为 1-32 字符")
+
+    fee_rate = _cmd_decimal(cmd.fee_rate, "fee_rate")
+    if not (ZERO <= fee_rate < ONE):
+        raise HTTPException(status_code=422, detail="fee_rate 必须在 [0, 1)")
+    partial_pct = _cmd_decimal(cmd.partial_pct, "partial_pct")
+    if mode == "partial" and not (ZERO < partial_pct <= ONE):
+        raise HTTPException(status_code=422, detail="partial_pct 必须在 (0, 1]")
+
+    market_id = int(state.market_id)
+    index_of = {int(oid): i for i, oid in enumerate(state.outcome_ids)}
+
+    async with async_session_maker() as session:
+        async with session.begin():
+            locked_user = await lock_user(session, cmd.user_id)
+
+            # ── 1. 幂等预检：卖之前查业务键（用户行锁内；不是卖完再查）──
+            # 先锁 run 行并校验归属，避免用别人的 run_id 回放别人的动作。
+            run = await _lock_group_run(session, cmd)
+            replay = await _find_group_action(
+                session, run_id=int(cmd.run_id), round_no=int(cmd.round_no),
+                user_id=int(cmd.user_id))
+            if replay is not None:
+                logger.info(
+                    "LIQUIDATE_GROUP replay user_id=%s market_id=%s run_id=%s round_no=%s "
+                    "action_id=%s kind=%s",
+                    cmd.user_id, market_id, cmd.run_id, cmd.round_no, replay.id, replay.kind,
+                )
+                return _replay_group_outcome(replay, cmd)
+            if run is not None and run.status != "active":
+                # 已提交动作的轮次在上面 replay 掉了；这里是"终态 run + 新轮次"
+                raise HTTPException(
+                    status_code=409, detail=f"强平 run 已处于终态 {run.status}，本轮不得再执行")
+
+            if not market_is_open(state.status, state.closes_at):
+                # 与 legacy op 同语义：HALT/SETTLED/已过 closes_at 不强平（用户自己也卖不了）
+                logger.warning(
+                    "liquidation_skip_non_trading_market(unified) user_id=%s market_id=%s status=%s",
+                    cmd.user_id, market_id, state.status,
+                )
+                return _group_response(
+                    mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                    debt_after=locked_user.debt, cash_after=locked_user.cash,
+                    blocked_reason=BLOCKED_MARKET_NOT_OPEN, replayed=False)
+
+            # ── 2. 该 market 全部持仓行锁（Position.id ASC；与 legacy 同序）──
+            positions = (await session.execute(
+                select(Position)
+                .join(Outcome, Position.outcome_id == Outcome.id)
+                .where(Position.user_id == cmd.user_id,
+                       Position.amount > ZERO,
+                       Outcome.market_id == market_id)
+                .order_by(Position.id.asc())
+                .with_for_update()
+            )).scalars().all()
+            if not positions:
+                return _group_response(
+                    mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                    debt_after=locked_user.debt, cash_after=locked_user.cash,
+                    blocked_reason=None, replayed=False)
+
+            unknown = [int(p.outcome_id) for p in positions if int(p.outcome_id) not in index_of]
+            if unknown:
+                # writer 内存 state 与 DB 不一致（数据异常）：整组阻塞、零写入
+                logger.error(
+                    "liquidation_unknown_outcome(unified) user_id=%s market_id=%s outcomes=%s",
+                    cmd.user_id, market_id, unknown,
+                )
+                return _group_response(
+                    mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                    debt_after=locked_user.debt, cash_after=locked_user.cash,
+                    blocked_reason=BLOCKED_UNKNOWN_OUTCOME, replayed=False)
+
+            # ── 3. 组级滚动 q 报价（纯函数；q 基准 = writer 权威 state.q_dec）──
+            snapshots = [
+                OutcomeSnapshot(
+                    outcome_id=int(oid),
+                    total_shares=quantize_cost(state.q_dec[i]),
+                    status=str(getattr(state.status, "value", state.status)),
+                    closes_at=state.closes_at,
+                )
+                for i, oid in enumerate(state.outcome_ids)
+            ]
+            held = {int(p.outcome_id): p.amount for p in positions}
+            quote = quote_lmsr_group(
+                snapshots, held,
+                market_id=market_id, b=state.b, fee_rate=fee_rate,
+                mode=mode, partial_pct=partial_pct, unit=ONE,
+            )
+            if quote.blocked_reason is not None:
+                logger.warning(
+                    "liquidation_group_blocked user_id=%s market_id=%s reason=%s",
+                    cmd.user_id, market_id, quote.blocked_reason,
+                )
+                return _group_response(
+                    mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                    debt_after=locked_user.debt, cash_after=locked_user.cash,
+                    blocked_reason=quote.blocked_reason, replayed=False)
+            if not quote.legs:
+                # 没有正回收腿（held 非空时只可能是全部持仓 amount<=0）
+                return _group_response(
+                    mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                    debt_after=locked_user.debt, cash_after=locked_user.cash,
+                    blocked_reason=None, replayed=False)
+
+            # ── 4. run 缺失才补建（正常编排方已先建好；有动作的轮次已 replay）──
+            if run is None:
+                run = await _create_group_run(session, cmd)
+
+            pos_by_outcome = {int(p.outcome_id): p for p in positions}
+            q_dec_roll = [quantize_cost(x) for x in state.q_dec]
+            q_float_roll = [float(x) for x in state.q_dec]
+            prices = list(state.prices)
+
+            for leg in quote.legs:
+                idx = index_of[int(leg.outcome_id)]
+                pos = pos_by_outcome[int(leg.outcome_id)]
+
+                # 持仓：全卖删除、部分卖按真实比例减 cost_basis（与 legacy 逐字同口径）
+                pos_deleted = leg.amount >= pos.amount
+                if pos_deleted:
+                    await session.delete(pos)
+                else:
+                    cost_reduced = (pos.cost_basis * leg.amount / pos.amount).quantize(Q6)
+                    pos.amount = pos.amount - leg.amount
+                    pos.cost_basis = pos.cost_basis - cost_reduced
+
+                # 现金：F5 净额入账（fee 已在报价里从 gross 扣过一次，不再重复扣）
+                locked_user.cash = locked_user.cash + leg.net
+                q_dec_roll[idx] = quantize_cost(q_dec_roll[idx] - leg.amount)
+                q_float_roll[idx] -= float(leg.amount)
+                _, prices_after = calculate_lmsr_with_prices(q_float_roll, state.b)
+
+                avg_price = (
+                    quantize_price(leg.gross / leg.amount) if leg.amount > ZERO else ZERO)
+                liq_tx = Transaction(
+                    user_id=cmd.user_id, outcome_id=int(leg.outcome_id),
+                    type=TransactionType.LIQUIDATE, shares=leg.amount,
+                    cost=-leg.net, price=avg_price,
+                    pre_market_price=quantize_price(prices[idx]),
+                    post_market_price=quantize_price(prices_after[idx]),
+                    gross=leg.gross, fee=leg.fee,
+                    market_prices_post=list(prices_after),
+                )
+                session.add(liq_tx)
+                await audit_service.record_trade(
+                    session, tx=liq_tx, user=locked_user,
+                    position=None if pos_deleted else pos,
+                    market_id=market_id,
+                    market_after=audit_service.market_snapshot(
+                        outcome_ids=state.outcome_ids, q=q_dec_roll, b=state.b,
+                        prices=prices_after, status=state.status),
+                    extra={"mode": mode, "partial_pct": partial_pct, "fee_rate": fee_rate,
+                           "run_id": int(cmd.run_id), "round_no": int(cmd.round_no),
+                           "path": "unified"},
+                )
+                prices = prices_after
+
+            # 镜像批量 SET（每个动过的 outcome 一条 UPDATE；值取 6dp 滚动 q）
+            for i, oid in enumerate(state.outcome_ids):
+                if q_dec_roll[i] != state.q_dec[i]:
+                    await session.execute(
+                        sa_update(Outcome).where(Outcome.id == int(oid))
+                        .values(total_shares=q_dec_roll[i]))
+
+            # ── 5. 回款立即还债（同事务；先结息再算还款额，不留灰尘债）──
+            repaid = ZERO
+            if locked_user.cash > ZERO and locked_user.debt > ZERO:
+                from app.services import loan_service   # 局部 import 避免环
+                debt_before = locked_user.debt
+                now = loan_service._compat_now(locked_user)
+                loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
+                repay_amount = min(locked_user.cash, locked_user.debt).quantize(Q6)
+                if repay_amount > ZERO:
+                    repaid = await loan_service.decrease_debt_locked(
+                        session, locked_user, repay_amount,
+                        consume_cash=True, daily_rate=cmd.daily_rate, now=now)
+                    audit_service.record_liquidation_repay(
+                        session, locked_user, repaid, debt_before,
+                        cmd.daily_rate, trigger_source)
+
+            # ── 6. 版本 + 动作记录 + 记录型审计（必须晚于资金事件）──
+            version = bump_economic_version(locked_user)
+            executed = {
+                "sold_count": len(quote.legs),
+                "gross": format(quote.gross, "f"),
+                "fee": format(quote.fee, "f"),
+                "net": format(quote.net, "f"),
+                "legs": [
+                    {
+                        "outcome_id": int(leg.outcome_id),
+                        "shares": format(leg.amount, "f"),
+                        "gross": format(leg.gross, "f"),
+                        "fee": format(leg.fee, "f"),
+                        "net": format(leg.net, "f"),
+                    }
+                    for leg in quote.legs
+                ],
+                "q_after": [format(x, "f") for x in q_dec_roll],
+            }
+            action = await record_action(
+                session, run=run, round_no=int(cmd.round_no), kind="sell_group",
+                product="lmsr", group_id=market_id, mode=mode,
+                requested={"mode": mode, "partial_pct": format(partial_pct, "f"),
+                           "trigger_source": trigger_source},
+                executed=executed,
+                proceeds=quote.gross, fee=quote.fee, fee_currency="gold",
+                repaid=repaid, debt_after=locked_user.debt, cash_after=locked_user.cash,
+                economic_version_after=version,
+            )
+            if action.executed != executed:
+                # 用户行锁下理论不可达；DB 唯一键兜底防"卖出后才发现本轮已被占用"
+                raise HTTPException(status_code=409, detail="强平轮次已被占用，本次已回滚")
+            audit_service.record(
+                session, "liquidation_action",
+                user_id=int(locked_user.id),
+                ref_table="liquidation_action", ref_id=int(action.id),
+                payload={
+                    "run_id": int(run.id), "round_no": int(cmd.round_no),
+                    "kind": "sell_group", "product": "lmsr", "group_id": market_id,
+                    "mode": mode, "sold_count": len(quote.legs),
+                    "proceeds": format(quote.gross, "f"), "fee": format(quote.fee, "f"),
+                    "fee_currency": "gold", "net": format(quote.net, "f"),
+                    "repaid": format(repaid, "f"),
+                    "debt_after": format(locked_user.debt, "f"),
+                    "cash_after": format(locked_user.cash, "f"),
+                    "economic_version_after": int(version),
+                    "trigger_source": trigger_source,
+                },
+                user_after=audit_service.user_snapshot(locked_user),
+            )
+
+        new_cash = locked_user.cash
+        new_debt = locked_user.debt
+
+    logger.info(
+        "LIQUIDATE_GROUP(writer) user_id=%s market_id=%s run_id=%s round_no=%s mode=%s "
+        "sold_count=%s gross=%s fee=%s net=%s repaid=%s cash_after=%s debt_after=%s",
+        cmd.user_id, market_id, cmd.run_id, cmd.round_no, mode, len(quote.legs),
+        quote.gross, quote.fee, quote.net, repaid, new_cash, new_debt,
+    )
+    return OpOutcome(
+        response={
+            "sold_count": len(quote.legs),
+            "gross": quote.gross,
+            "fee": quote.fee,
+            "net": quote.net,
+            "repaid": repaid,
+            "debt_after": new_debt,
+            "cash_after": new_cash,
+            "blocked_reason": None,
+            "mode": mode,
+            "replayed": False,
+        },
+        # 无 candle（K 线只记 BUY/SELL）；consumer 见 new_q_dec 且无 tick_trade → feed_prices
+        new_q_dec=q_dec_roll,
+    )
+
+
 def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(BuyCmd, op_buy)
     writer.register_op(SellCmd, op_sell)
@@ -737,3 +1183,4 @@ def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(ResumeCmd, op_resume)
     writer.register_op(ResolveCmd, op_resolve)
     writer.register_op(LiquidateMarketCmd, op_liquidate_market)
+    writer.register_op(LiquidateGroupCmd, op_liquidate_group)

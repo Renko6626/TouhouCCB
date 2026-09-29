@@ -31,6 +31,17 @@ ZERO = Decimal("0")
 ONE = Decimal("1")
 
 
+def _require_unified_liquidation_disabled(entry: str) -> None:
+    """WP5：统一执行器开启后，legacy 强平入口必须硬拒绝（避免两个执行者同时卖仓）。
+
+    开关默认 false → 纯读取，legacy 行为逐字段不变（不查库、不写库、不加锁）。
+    """
+    from app.services.credit import flags as credit_flags   # 局部 import 避免环
+    if credit_flags.get_flags().unified_credit_enabled:
+        raise RuntimeError(
+            f"统一清算已启用（unified_credit_enabled=true），legacy 强平入口 {entry} 已禁用")
+
+
 def _record_liq_event(session, ev: LiquidationEvent, user: User, path: str) -> None:
     audit_service.record(
         session, "liquidation", user_id=ev.user_id,
@@ -76,6 +87,7 @@ async def liquidate_user(
     """
     if user.debt <= ZERO:
         raise ValueError("liquidate_user requires user.debt > 0")
+    _require_unified_liquidation_disabled("liquidate_user")
 
     # 0. pre-snapshot 之前先拉 positions + lock outcomes，让 pre_hv 用同一份数据
     #    inline 算（省一次独立的 compute_users_holdings_value 调用 + 其 3-4 个 query）
@@ -266,7 +278,7 @@ async def liquidate_user(
                 pre_market_price=quantize_price(old_prices[idx]),
                 post_market_price=quantize_price(new_prices[idx]),
                 gross=proceeds,
-                fee=ZERO,               # 强平不收手续费
+                fee=ZERO,               # legacy 执行器不收费；统一执行器按 F5 收普通卖出费
                 market_prices_post=list(new_prices),
             )
             session.add(tx)
@@ -393,6 +405,8 @@ async def liquidate_user_split(
     from app.services.market_writer import WRITER
     from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
     from app.services.writer_ops import LiquidateMarketCmd
+
+    _require_unified_liquidation_disabled("liquidate_user_split")
 
     # ── 阶段 A：锁内复检 + 快照 + mode 决策（短事务，锁完即放）──
     async with async_session_maker() as session:
