@@ -18,7 +18,7 @@ export interface LoanActionResult {
   cash: string
   debt: string
   max_borrow: string
-  /** 实际生效金额（仅 repay 有意义；用户输 3000 但只欠 1000，effective 会是 ~1000） */
+  /** 实际生效金额（repay / repay-all；按提交时的负债与现金封顶） */
   effective?: string | null
 }
 
@@ -41,6 +41,9 @@ export const loanApi = {
   },
   async repay(amount: string): Promise<LoanActionResult> {
     return api.post<LoanActionResult>('/api/v1/loan/repay', { amount })
+  },
+  async repayAll(): Promise<LoanActionResult> {
+    return api.post<LoanActionResult>('/api/v1/loan/repay-all')
   },
 }
 

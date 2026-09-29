@@ -26,7 +26,7 @@ TouhouCCB/
 ├── backend/
 │   ├── Dockerfile
 │   ├── app/
-│   │   ├── api/v1/           # 路由 (auth/user/market/chart/stream/loan/title/redemption/danmuku/site-config + admin_*)
+│   │   ├── api/v1/           # 路由 (auth/user/market/chart/stream/loan/title/redemption/danmuku/fx/site-config + admin_*)
 │   │   ├── models/           # SQLModel 数据模型
 │   │   ├── schemas/          # Pydantic 请求/响应 schema
 │   │   ├── core/             # 配置、数据库、OIDC 客户端
@@ -96,6 +96,7 @@ npm install && npm run dev
 | 弹幕兑换 | ✅ | 现金兑换弹幕额度（HMAC 签名对接） |
 | 反作弊 | ✅ | X-Client-Token 校验 + 行为信号检测 + 封禁 |
 | 管理后台 | ✅ | 创建/熔断/结算市场，用户管理，调整现金 |
+| 幻想外汇 (FX) | 🚧 | 默认关闭的金圆券↔外币 AMM 子游戏；独立表、事件干预、MTM 展示净值；运维见 `docs/fx.md` |
 
 ## 页面路由
 
@@ -124,6 +125,8 @@ npm install && npm run dev
 | `/admin/bot-review-ban` | 反作弊审核 | 管理员 |
 | `/admin/titles` · `/admin/title-codes` | 称号 / 称号码管理 | 管理员 |
 | `/admin/redemption/partners` · `/admin/redemption/batches` | 兑换码合作方 / 批次 | 管理员 |
+| `/fx` | 幻想外汇（默认关闭） | 已认证 |
+| `/admin/fx` | FX 管理（默认关闭） | 管理员 |
 ## 图表架构
 
 K 线和走势图的数据不是只查目标选项的交易记录，而是查**整个市场所有选项的交易**，逐笔重放 shares 状态，计算目标选项的瞬时价格。这是因为 LMSR 中交易任何选项都会改变所有选项的价格。
@@ -152,6 +155,7 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | `docs/api.md` | 后端 REST API 规范（按代码核对） |
 | `docs/development.md` | 本地开发环境搭建与技术栈约束 |
 | `docs/deploy.md` | 部署：Docker Compose / CI-CD / nginx / 回滚 |
+| `docs/fx.md` | 幻想外汇 (FX) 迁移、开市护栏、事件运营与赛季重置 |
 | `docs/migrations.md` | Alembic 数据库迁移工作流 |
 | `docs/schema-conventions.md` | 数据库字段 / Decimal 序列化约定 |
 | `docs/holdings-value-semantics.md` | 持仓估值双口径（MTM 展示 / LCV 风控） |

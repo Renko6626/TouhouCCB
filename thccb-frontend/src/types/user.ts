@@ -32,6 +32,10 @@ export interface UserSummary {
   /** 6dp 全精度——成交后本地 apply 的 cash 基线 */
   cash: number
   debt: number
+  /** FX 展示市值/成本/浮盈；只进展示净值与 rank，不进 LCV margin 口径 */
+  fx_mtm: number
+  fx_cost_basis: number
+  fx_unrealized_pnl: number
   positions: SummaryPosition[]
   margin_hard_threshold: number
   margin_soft_threshold: number

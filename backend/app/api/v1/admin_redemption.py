@@ -1,23 +1,26 @@
 """兑换中心管理员端 API。"""
 from __future__ import annotations
 import logging
-from typing import List
+from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
+from sqlalchemy.orm import aliased
 
 from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.models.redemption import (
-    RedemptionPartner, RedemptionBatch, BatchStatus,
+    RedemptionPartner, RedemptionBatch, RedemptionCode, BatchStatus, CodeStatus,
 )
 from app.schemas.redemption import (
     PartnerCreate, PartnerUpdate, PartnerAdminItem,
     BatchCreate, BatchUpdate, BatchAdminItem,
     CsvImportRequest, CsvImportPreview,
     CsvImportConfirm, CsvImportResult,
+    CodeAdminItem, CodeAdminPage, CodeRedeemRequest, CodeRevokeRequest,
 )
 from app.services import redemption as svc
 
@@ -79,12 +82,13 @@ async def _batch_to_admin_item(db: AsyncSession, b: RedemptionBatch) -> BatchAdm
     p = await db.get(RedemptionPartner, b.partner_id)
     total = await svc.count_total_for_batch(db, b.id)
     avail = await svc.count_available_for_batch(db, b.id)
+    redeemed = await svc.count_redeemed_for_batch(db, b.id)
     return BatchAdminItem(
         id=b.id, partner_id=b.partner_id,
         partner_name=p.name if p else "",
         name=b.name, description=b.description,
         unit_price=b.unit_price, status=b.status,
-        total_count=total, sold_count=total - avail, available_count=avail,
+        total_count=total, sold_count=total - avail, available_count=avail, redeemed_count=redeemed,
         created_at=b.created_at,
     )
 
@@ -195,3 +199,97 @@ async def import_commit(
         result["skipped_duplicate"], result["skipped_invalid"],
     )
     return CsvImportResult(**result)
+
+
+# ===== 线下兑换码核销（仅管理员；工作人员共享此权威状态） =====
+
+def _admin_code_query():
+    buyer = aliased(User)
+    staff = aliased(User)
+    return (
+        select(RedemptionCode, RedemptionBatch.name, RedemptionPartner.name,
+               buyer.username, staff.username)
+        .join(RedemptionBatch, RedemptionBatch.id == RedemptionCode.batch_id)
+        .join(RedemptionPartner, RedemptionPartner.id == RedemptionBatch.partner_id)
+        .outerjoin(buyer, buyer.id == RedemptionCode.bought_by_user_id)
+        .outerjoin(staff, staff.id == RedemptionCode.redeemed_by_admin_id)
+    )
+
+
+def _admin_code_item(row) -> CodeAdminItem:
+    code, batch_name, partner_name, buyer_name, staff_name = row
+    return CodeAdminItem(
+        id=code.id, batch_id=code.batch_id, batch_name=batch_name, partner_name=partner_name,
+        code_string=code.code_string, status=code.status,
+        bought_by_user_id=code.bought_by_user_id, bought_by_username=buyer_name,
+        bought_at=code.bought_at, redeemed_at=code.redeemed_at,
+        redeemed_by_admin_id=code.redeemed_by_admin_id, redeemed_by_admin_username=staff_name,
+        redemption_note=code.redemption_note,
+    )
+
+
+async def _get_admin_code(db: AsyncSession, code_id: int) -> CodeAdminItem:
+    row = (await db.execute(
+        _admin_code_query().where(RedemptionCode.id == code_id)
+        .execution_options(populate_existing=True)
+    )).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="兑换码不存在")
+    return _admin_code_item(row)
+
+
+@router.get("/codes", response_model=CodeAdminPage)
+async def list_codes_admin(
+    batch_id: Optional[int] = Query(default=None, ge=1),
+    q: str = Query(default="", max_length=128),
+    status: Literal["all", "available", "pending", "redeemed"] = "all",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    if batch_id is not None and await db.get(RedemptionBatch, batch_id) is None:
+        raise HTTPException(status_code=404, detail="批次不存在")
+    filters = []
+    if batch_id is not None:
+        filters.append(RedemptionCode.batch_id == batch_id)
+    if q.strip():
+        filters.append(func.lower(RedemptionCode.code_string).contains(q.strip().lower(), autoescape=True))
+    if status == "available":
+        filters.append(RedemptionCode.status == CodeStatus.AVAILABLE)
+    elif status == "pending":
+        filters.extend([RedemptionCode.status == CodeStatus.SOLD, RedemptionCode.redeemed_at.is_(None)])
+    elif status == "redeemed":
+        filters.append(RedemptionCode.redeemed_at.is_not(None))
+    total = int((await db.execute(
+        select(func.count()).select_from(RedemptionCode).where(*filters)
+    )).scalar_one())
+    rows = (await db.execute(
+        _admin_code_query().where(*filters).order_by(RedemptionCode.id)
+        .offset((page - 1) * page_size).limit(page_size)
+    )).all()
+    return CodeAdminPage(items=[_admin_code_item(row) for row in rows], total=total, page=page, page_size=page_size)
+
+
+@router.post("/codes/{code_id}/redeem", response_model=CodeAdminItem)
+async def redeem_code_admin(
+    code_id: int,
+    req: CodeRedeemRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    await svc.fulfill_code(db, code_id, admin.id, req.note)
+    await db.commit()
+    return await _get_admin_code(db, code_id)
+
+
+@router.post("/codes/{code_id}/revoke", response_model=CodeAdminItem)
+async def revoke_code_admin(
+    code_id: int,
+    req: CodeRevokeRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    await svc.revoke_fulfillment(db, code_id, admin.id, req.reason, req.expected_redeemed_at)
+    await db.commit()
+    return await _get_admin_code(db, code_id)

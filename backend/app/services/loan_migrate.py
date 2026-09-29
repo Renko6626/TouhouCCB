@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from app.core.database import engine
 from app.core.config import settings
+from app.services.site_config import FX_DEFAULT_CONFIGS
 
 logger = logging.getLogger("thccb.loan_migrate")
 
@@ -56,6 +57,10 @@ DEFAULT_CONFIGS = [
     ("single_writer_enabled", "true", "bool"),    # 翻转需重启进程（启动时读一次）
     ("legacy_trade_events", "false", "bool"),     # 老 SSE 事件双发关闭（bot 已内建 tick 适配）；阶段 5 删
 ]
+
+# Keep all startup defaults in one seed operation so existing installations
+# receive the FX keys without overwriting operator changes.
+DEFAULT_CONFIGS.extend(FX_DEFAULT_CONFIGS)
 
 
 async def auto_migrate() -> None:

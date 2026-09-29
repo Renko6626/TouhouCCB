@@ -3,6 +3,7 @@ import { onMounted, ref, computed } from 'vue'
 import { NInputNumber, NButton, NSpin, NAlert, NDivider, useMessage } from 'naive-ui'
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
+import { extractErrorMessage } from '@/utils/errors'
 
 const store = useLoanStore()
 const msg = useMessage()
@@ -10,6 +11,7 @@ const msg = useMessage()
 const borrowAmount = ref<number | null>(null)
 const repayAmount = ref<number | null>(null)
 const submitting = ref(false)
+const busy = computed(() => store.loading || submitting.value)
 
 const policy = ref<LiquidationPolicy | null>(null)
 
@@ -54,21 +56,21 @@ const repayOverflow = computed(() => {
 })
 
 async function submitBorrow() {
-  if (!borrowAmount.value || borrowAmount.value <= 0) return
+  if (busy.value || !borrowAmount.value || borrowAmount.value <= 0) return
   submitting.value = true
   try {
     await store.borrow(String(borrowAmount.value))
     msg.success(`借入 ${borrowAmount.value}`)
     borrowAmount.value = null
-  } catch (e: any) {
-    msg.error(e?.data?.detail ?? e?.message ?? '借款失败')
+  } catch (e: unknown) {
+    msg.error(extractErrorMessage(e, '借款失败'))
   } finally {
     submitting.value = false
   }
 }
 
 async function submitRepay() {
-  if (!repayAmount.value || repayAmount.value <= 0) return
+  if (busy.value || !repayAmount.value || repayAmount.value <= 0) return
   submitting.value = true
   try {
     const r = await store.repay(String(repayAmount.value))
@@ -79,18 +81,29 @@ async function submitRepay() {
       msg.success(`还款 金 ${eff.toFixed(2)}`)
     }
     repayAmount.value = null
-  } catch (e: any) {
-    msg.error(e?.data?.detail ?? e?.message ?? '还款失败')
+  } catch (e: unknown) {
+    msg.error(extractErrorMessage(e, '还款失败'))
   } finally {
     submitting.value = false
   }
 }
 
-function repayAll() {
-  // 还到能还的最大值：min(真实负债, 真实现金)
-  if (maxRepayNumber.value <= 0) return
-  repayAmount.value = maxRepayNumber.value
-  submitRepay()
+async function repayAll() {
+  if (busy.value || !store.quota || debtNumber.value <= 0 || cashNumber.value <= 0) return
+  submitting.value = true
+  try {
+    const r = await store.repayAll()
+    if (/^0(?:\.0+)?$/.test(r.debt)) {
+      msg.success(`已全部还清（实际还款 金 ${r.effective ?? '0'}）`)
+    } else {
+      msg.success(`已用可用现金还款 金 ${r.effective ?? '0'}，剩余借款 金 ${r.debt}（含利息）`)
+    }
+    repayAmount.value = null
+  } catch (e: unknown) {
+    msg.error(extractErrorMessage(e, '还款失败'))
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 
@@ -132,13 +145,13 @@ function repayAll() {
             :min="0.01"
             :max="maxBorrowNumber"
             :precision="2"
-            :disabled="!store.quota?.enabled || maxBorrowNumber <= 0"
+            :disabled="busy || !store.quota?.enabled || maxBorrowNumber <= 0"
             style="width: 200px"
           />
           <NButton
             type="primary"
             :loading="submitting"
-            :disabled="!store.quota?.enabled || !borrowAmount || borrowAmount <= 0"
+            :disabled="busy || !store.quota?.enabled || !borrowAmount || borrowAmount <= 0"
             @click="submitBorrow"
           >借入</NButton>
         </div>
@@ -155,28 +168,32 @@ function repayAll() {
             placeholder="金额"
             :min="0.01"
             :precision="2"
-            :disabled="debtNumber <= 0 || cashNumber <= 0"
+            :disabled="busy || debtNumber <= 0 || cashNumber <= 0"
             style="width: 200px"
           />
           <NButton
             :loading="submitting"
-            :disabled="!repayAmount || repayAmount <= 0 || debtNumber <= 0"
+            :disabled="busy || !repayAmount || repayAmount <= 0 || debtNumber <= 0"
             @click="submitRepay"
           >还款</NButton>
           <NButton
             quaternary
-            :disabled="maxRepayNumber <= 0"
+            :loading="submitting"
+            :disabled="busy || !store.quota || debtNumber <= 0 || cashNumber <= 0"
             @click="repayAll"
-          >还到上限 金 {{ maxRepayNumber.toFixed(2) }}</NButton>
+          >{{ cashNumber >= debtNumber ? '全部还清' : '用可用现金还款' }}</NButton>
         </div>
+        <p class="meta-small">
+          “全部还清 / 用可用现金还款”会按提交时的最新借款计息后还款；现金不足时仍会保留欠款。
+        </p>
         <div v-if="repayOverflow > 0" class="meta-small warn">
           <span class="warning-tag">注意</span>
-          输入 金 {{ repayAmount }} 超过可还上限 金 {{ maxRepayNumber.toFixed(2) }}，
-          实际只会扣减 金 {{ maxRepayNumber.toFixed(2) }}（多出的 金 {{ repayOverflow.toFixed(2) }} 不收取）
+          输入 金 {{ repayAmount }} 超过当前可还上限 金 {{ maxRepayNumber.toFixed(6) }}，
+          实际只会按提交时的借款 / 现金封顶（多出的金额不收取）
         </div>
         <div v-else-if="debtNumber > 0" class="meta-small">
-          当前真实负债 <strong>金 {{ debtNumber.toFixed(2) }}</strong>，可用现金 <strong>金 {{ cashNumber.toFixed(2) }}</strong>，
-          可还上限 <strong>金 {{ maxRepayNumber.toFixed(2) }}</strong>
+          当前借款（含利息）<strong>金 {{ debtNumber.toFixed(6) }}</strong>，可用现金 <strong>金 {{ cashNumber.toFixed(6) }}</strong>，
+          当前可还上限 <strong>金 {{ maxRepayNumber.toFixed(6) }}</strong>
         </div>
       </section>
 
@@ -308,6 +325,7 @@ function repayAll() {
 }
 .row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }

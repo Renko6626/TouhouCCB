@@ -53,7 +53,7 @@ def generate_giftcode(
 
 
 class ExchangeError(Exception):
-    """兑换失败 code ∈ {INVALID_AMOUNT, INSUFFICIENT_CASH}"""
+    """兑换失败 code ∈ {INVALID_AMOUNT, INSUFFICIENT_CASH, OUTSTANDING_DEBT}"""
     def __init__(self, code: str, message: str = ""):
         super().__init__(message or code)
         self.code = code
@@ -92,6 +92,9 @@ async def exchange(
     # 行锁 user 防止并发兑换穿透余额
     user_stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     user = (await session.execute(user_stmt)).scalar_one()
+
+    if user.debt > 0:
+        raise ExchangeError("OUTSTANDING_DEBT", "请先还清全部借款（含利息），再购买或兑换激活码")
 
     if user.cash < amount:
         raise ExchangeError("INSUFFICIENT_CASH", "现金不足")

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { loanApi, type LoanQuota } from '@/api/loan'
+import { extractErrorMessage } from '@/utils/errors'
 
 export const useLoanStore = defineStore('loan', () => {
   const quota = ref<LoanQuota | null>(null)
@@ -12,8 +13,8 @@ export const useLoanStore = defineStore('loan', () => {
     error.value = null
     try {
       quota.value = await loanApi.quota()
-    } catch (e: any) {
-      error.value = e?.message ?? '加载失败'
+    } catch (e: unknown) {
+      error.value = extractErrorMessage(e, '加载失败')
     } finally {
       loading.value = false
     }
@@ -39,5 +40,16 @@ export const useLoanStore = defineStore('loan', () => {
     return r
   }
 
-  return { quota, loading, error, refresh, borrow, repay }
+  async function repayAll() {
+    const r = await loanApi.repayAll()
+    if (quota.value) {
+      quota.value.cash = r.cash
+      quota.value.debt = r.debt
+      quota.value.max_borrow = r.max_borrow
+      if (/^0(?:\.0+)?$/.test(r.debt)) quota.value.last_accrued_at = null
+    }
+    return r
+  }
+
+  return { quota, loading, error, refresh, borrow, repay, repayAll }
 })

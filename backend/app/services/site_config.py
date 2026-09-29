@@ -15,6 +15,32 @@ class SiteConfigError(Exception):
     pass
 
 
+# FX is deliberately disabled and has conservative defaults until an operator
+# explicitly enables and funds a pair.  loan_migrate imports this list when it
+# seeds a new or upgraded database.
+FX_DEFAULT_CONFIGS = [
+    ("fx_enabled", "false", "bool"),
+    ("fx_hourly_sigma", "0.002", "decimal"),
+    ("fx_step_max_ratio", "0.001", "decimal"),
+    ("fx_noise_interval_sec", "30", "int"),
+    ("fx_noise_pool_ratio", "0.0001", "decimal"),
+    ("fx_system_half_life_sec", "600", "int"),
+    ("fx_default_price_move_limit", "0.005", "decimal"),
+    ("fx_daily_budget", "100000", "decimal"),
+]
+
+FX_CONFIG_RULES = {
+    "fx_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
+    "fx_hourly_sigma": lambda v: Decimal(v) >= 0 and Decimal(v) <= Decimal("1"),
+    "fx_step_max_ratio": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
+    "fx_noise_interval_sec": lambda v: int(v) >= 1,
+    "fx_noise_pool_ratio": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
+    "fx_system_half_life_sec": lambda v: int(v) >= 1,
+    "fx_default_price_move_limit": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
+    "fx_daily_budget": lambda v: Decimal(v) >= 0,
+}
+
+
 # 进程级 TTL 缓存：key → (raw_value_str, expires_monotonic)
 # 准静态配置（loan_daily_rate 等）在 set_value 时主动失效，其余 60s 自然过期。
 _cache: dict[str, tuple[str, float]] = {}
@@ -134,6 +160,12 @@ async def set_value(
     admin_user_id: Optional[int],
 ) -> SiteConfig:
     row = await _fetch(session, key)
+    if key in FX_CONFIG_RULES:
+        try:
+            if not FX_CONFIG_RULES[key](value):
+                raise SiteConfigError(f"invalid FX config value: {key}")
+        except (ValueError, ArithmeticError) as exc:
+            raise SiteConfigError(f"invalid FX config value: {key}") from exc
     old = row.value
     row.value = value
     row.updated_at = datetime.now(timezone.utc)

@@ -72,6 +72,8 @@
 同时返回两套口径（详见 `docs/holdings-value-semantics.md`）：
 - 无后缀字段（`holdings_value` / `net_worth` / `unrealized_pnl`）= **MTM 口径**（瞬时市价 × 数量，不含滑点），用于展示与排名。
 - `*_liquidation` 字段 = **LCV 口径**（LMSR 全部卖出清算价，含滑点 + 扣 sell_fee），强平 / 借款额度按此算，通常 ≤ MTM。
+- `fx_mtm` / `fx_cost_basis` / `fx_unrealized_pnl` = FX 外币持仓的展示估值（按最新 AMM 边际价 MTM）。
+  FX **只进入展示净值 / 排行榜 / rank**，不计入 LCV、借款额度或强平抵押物。
 
 ```json
 {
@@ -84,6 +86,9 @@
   "unrealized_pnl_liquidation": 19.75,
   "net_worth": 242.35,
   "net_worth_liquidation": 240.00,
+  "fx_mtm": 31.20,
+  "fx_cost_basis": 30.00,
+  "fx_unrealized_pnl": 1.20,
   "rank": "人里居民",
   "margin_ratio": null,
   "margin_status": "healthy",
@@ -282,6 +287,10 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 同 borrow 格式。`amount` 超过真实债务或现金时，服务层会封顶，实际生效值见响应 `effective`。
 
+### POST `/loan/repay-all` — 按最新负债一键还款
+
+需要登录，无请求体。后端在用户行锁内计息，再扣减 `min(最新负债, 最新现金)`；现金充足时负债精确清零，现金不足时返回剩余负债。响应与 `/loan/repay` 相同，`effective` 为实际扣款。已无负债时不扣款；有负债但无现金时返回 400。
+
 ### GET `/loan/liquidation-policy` — 强平规则（公开只读）
 
 ### GET `/loan/recent-liquidations` — 最近强平事件（公开只读，脱敏）
@@ -303,6 +312,8 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 ```
 每次购买一个码，响应：`{ "code_id", "code_string", "batch_name", "partner_name", "partner_website_url", "paid_amount", "cash_after" }`。
 
+必须先还清全部借款（含利息）；最新债务大于 0 时返回 403，拒绝购买，不扣款或消耗兑换码库存。判断与借款/还款共享用户行锁。
+
 ### GET `/redemption/my` — 我购买的兑换码
 
 ### GET `/redemption/my/{code_id}` — 单个兑换码详情（含 `code_string`）
@@ -323,6 +334,8 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 { "qq_user_id": "10001", "room_id": "弹幕群", "yuan": 0, "huo": 10 }
 ```
 扣减站内 cash = `yuan + huo`（1:1）。响应：`{ "id", "code_string", "yuan", "huo", "amount", "cash_after", "timestamp" }`（与朋友的 danmuku 服务端约定 HMAC 签名）。
+
+同样要求借款全部还清；最新债务大于 0 时返回 403，不扣款、不生成激活码。
 
 ### GET `/danmuku/my` — 我的弹幕兑换记录
 
@@ -406,7 +419,99 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 ---
 
-## 12. Transaction 模型
+## 12. 幻想外汇 (FX)
+
+FX 是默认关闭的独立子游戏；完整运维手册见 [`docs/fx.md`](fx.md)。
+总闸 `site_config.fx_enabled` 默认 `false`：关闭时成交 / 发布返回 403，公开行情仍可只读。
+所有金额为 6 位 `Decimal`，REST 以 **JSON 字符串** 返回。
+
+**公开字段白名单**：公开 schema 只含行情与已发布新闻。任何公开响应都**不含**
+`gold_reserve` / `foreign_reserve` / `target_price` / `target_min` / `target_max` /
+`initial_price` / `buy_fee_rate` / `sell_fee_rate` / `shock_ratio` / `first_reaction_ratio` /
+`parameter_snapshot` / `idempotency_key` / `min_out` / 成交来源 `source` / 成交用户身份。
+内部系统来源（`system_event` / `system_noise` / `system_target`）只在管理员
+`GET /admin/fx/pairs/{id}/interventions` 暴露。
+
+### GET `/fx/pairs` — 货币对列表（公开）
+
+非 `draft` 的货币对，返回 `FxPairPublic`：
+`id`、`currency_code`、`currency_name`、`status`、`pool_version`、`created_at`、`updated_at`。
+
+### GET `/fx/pairs/{pair_id}/snapshot` — 行情快照（公开）
+
+返回 `FxSnapshot`：`pair`（`FxPairPublic`）、`price`（边际价）、`buy_price`、`sell_price`、
+`spread`、`volume_24h`。三个价格字段统一为「金圆券 / 1 外币」口径：`buy_price` 是
+买入外币的有效 ask（金入 / 外币出），`sell_price` 是卖出外币的有效 bid（金出 / 外币入），
+`spread = buy_price − sell_price`，含手续费时为正、深池取整时可能为 0。
+若库中已存在病态 pair（费率为 1 或储备小到单笔产出向下量化为 0），该接口返回带原因的
+**422**，不会 500。
+
+### POST `/fx/pairs/{pair_id}/quote` — 报价（公开）
+
+请求 `{ "side": "buy"|"sell", "amount": "10.000000" }`，返回 `FxQuote`：
+`pair_id`、`side`、`input_amount`、`output_amount`、`fee_amount`、`effective_price`、
+`post_price`、`expires_at`。报价不校验 gate、不锁定价格；成交时以事务内重新报价为准。
+
+### POST `/fx/pairs/{pair_id}/trades` — 成交（需登录）
+
+请求：`{ "side", "amount", "min_out", "idempotency_key" }`。
+
+- 仅 `status='trading'` 且 gate 开启时可成交；成交时重新报价，`output_amount < min_out`
+  返回 409（过期报价保护）。
+- 幂等：`(user_id, idempotency_key)` 唯一。同键同参重放返回原成交且不重复扣款；
+  同键换参数返回 409。
+- 拒绝条件（403）：bot 账号、未接受 TOS、货币对非 trading、gate 关闭；
+  `debt > 0` 禁止买入（卖出已有外币不受影响）。
+- 金额必须有限、正、最多 6 位小数（否则 422）。
+- 返回 `FxTradePublic`：`id`、`pair_id`、`side`、`input_amount`、`output_amount`、
+  `fee_amount`、`post_price`、`created_at`（不含内部 `source`）。
+
+### GET `/fx/pairs/{pair_id}/trades` — 公开成交流（公开）
+
+最近成交（`limit` 1–100，默认 50），返回 `FxTradePublic` 列表；不含用户身份与内部参数。
+
+### GET `/fx/pairs/{pair_id}/wallet` — 个人钱包（需登录）
+
+当前用户在该货币对的 `FxWalletPublic`：`pair_id`、`foreign_amount`、`cost_basis`、
+`updated_at`。从未交易时返回零值且 `updated_at=null`，不返回 404。不含其他用户数据或
+pair 的隐藏参数。
+
+### GET `/fx/pairs/{pair_id}/my-trades` — 个人成交历史（需登录）
+
+当前用户在该货币对的成交（新到旧，`limit` 1–100，默认 50），返回 `FxTradePublic` 列表；
+只含本人成交，不含其他用户身份。
+
+### GET `/fx/pairs/{pair_id}/chart?interval=1m&from=&to=` — K 线（公开）
+
+只读 `FxTrade`，按成交后边际价分桶返回 OHLCV：
+`bucket_start`、`interval`、`open`、`high`、`low`、`close`、`volume`。
+`from >= to` 或非法 interval 返回 422。
+
+### GET `/fx/stream/{pair_id}` — SSE（公开）
+
+先发 `snapshot` 帧（`seq=0`），随后推送 `fx` 命名事件。帧数据只允许
+`price`、`buy_price`、`sell_price`、`spread`、`volume`，新闻只允许
+`title`、`body`、`kind`、`published_at`。漏帧可用 snapshot 恢复。
+
+### 管理端 `/admin/fx`（仅超管）
+
+- `GET /pairs`：管理端只读列表（**包含草稿**），返回 `FxPairAdminDetail` =
+  `FxPairAdmin` + `gold_balance`、`foreign_balance`、`daily_spend`、`spend_date`；
+  供管理页刷新后仍显示池子与系统 treasury，不再依赖写操作响应。
+- `POST /pairs`、`PATCH /pairs/{id}`：创建 / 修改货币对；同时只允许一个 `trading`；
+  开市后不可改币种代码/名称。费率必须 `0 <= rate < 1`（`1` 会被 422 拒绝，避免 AMM
+  吃掉全部输入）。返回 `FxPairAdmin`（含储备与目标等私有字段）。
+- `POST /pairs/{id}/fund`、`POST /pairs/{id}/withdraw`：**注资 / 撤资唯一入口**，
+  请求 `{ "gold_amount", "foreign_amount" }`；不越过储备安全下限，写审计。
+- `GET /config`、`PUT /config`：读取 / 更新 FX 配置（仅 `FX_DEFAULT_CONFIGS` 键）。
+- `GET /events`、`POST /events`、`POST /events/{id}/publish`、`POST /events/{id}/cancel`：
+  事件草稿 / 排期 / 发布 / 取消；管理响应为 `FxEventAdmin`（含 `shock_ratio`、
+  `first_reaction_ratio`、`window_sec`、`budget`、`parameter_snapshot` 等私有字段）。
+- `GET /pairs/{id}/interventions`：该货币对的系统干预成交。
+
+---
+
+## 13. Transaction 模型
 
 | 字段 | 类型 | 说明 |
 |------|------|------|

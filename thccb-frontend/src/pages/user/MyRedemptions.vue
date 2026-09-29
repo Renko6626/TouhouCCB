@@ -4,6 +4,7 @@ import { useMessage } from 'naive-ui'
 import { redemptionApi } from '@/api/redemption'
 import { danmukuApi, type DanmukuExchangeHistoryItem } from '@/api/danmuku'
 import type { MyRedemptionItem, MyRedemptionDetail } from '@/types/redemption'
+import { extractErrorMessage } from '@/utils/errors'
 
 const message = useMessage()
 
@@ -26,6 +27,7 @@ const partnerItems = ref<MyRedemptionItem[]>([])
 const danmukuItems = ref<DanmukuExchangeHistoryItem[]>([])
 const expanded = ref<Map<string, MyRedemptionDetail>>(new Map())
 const loading = ref(false)
+const marking = ref<Set<number>>(new Set())
 const filter = ref<Filter>('all')
 
 const filters: { value: Filter; label: string }[] = [
@@ -74,6 +76,8 @@ async function togglePartnerDetail(codeId: number) {
     return
   }
   const detail = await redemptionApi.myRedemptionDetail(codeId)
+  const item = partnerItems.value.find(item => item.code_id === codeId)
+  if (item) item.redeemed_at = detail.redeemed_at
   expanded.value.set(key, detail)
   expanded.value = new Map(expanded.value)
 }
@@ -95,9 +99,17 @@ async function copyCode(code: string) {
 }
 
 async function toggleUsed(item: MyRedemptionItem) {
+  if (marking.value.has(item.code_id)) return
+  marking.value.add(item.code_id)
   const newState = !item.marked_used_by_user_at
-  const r = await redemptionApi.markUsed(item.code_id, newState)
-  item.marked_used_by_user_at = r.marked_used_by_user_at
+  try {
+    const r = await redemptionApi.markUsed(item.code_id, newState)
+    item.marked_used_by_user_at = r.marked_used_by_user_at
+  } catch (err) {
+    message.error(extractErrorMessage(err, '个人备注保存失败'))
+  } finally {
+    marking.value.delete(item.code_id)
+  }
 }
 
 const fmtTime = (s: string) => new Date(s).toLocaleString('zh-CN')
@@ -136,7 +148,7 @@ onMounted(load)
         v-for="row in filteredRows"
         :key="`${row.source}:${row.source === 'partner' ? row.payload.code_id : row.payload.id}`"
         class="row"
-        :class="{ used: row.source === 'partner' && !!row.payload.marked_used_by_user_at }"
+        :class="{ used: row.source === 'partner' && !!row.payload.redeemed_at }"
       >
         <!-- 合作方兑换行 -->
         <template v-if="row.source === 'partner'">
@@ -150,8 +162,10 @@ onMounted(load)
               <span class="meta-time">{{ fmtTime(row.payload.bought_at) }}</span>
               <span class="meta-amount tabular-nums">金 {{ row.payload.paid_amount }}</span>
               <span class="meta-status">
-                {{ row.payload.marked_used_by_user_at ? '已使用' : '未使用' }}
+                {{ row.payload.redeemed_at ? '线下已兑换' : '待线下兑换' }}
               </span>
+              <span v-if="row.payload.redeemed_at" class="meta-time">核销于 {{ fmtTime(row.payload.redeemed_at) }}</span>
+              <span class="meta-mini">个人备注：{{ row.payload.marked_used_by_user_at ? '已标记已用' : '未标记' }}</span>
             </div>
           </div>
           <div v-if="expanded.get(`partner:${row.payload.code_id}`)" class="row-detail">
@@ -167,10 +181,11 @@ onMounted(load)
                 rel="noopener"
                 class="btn-secondary"
               >前往 {{ row.payload.partner_name }} →</a>
-              <button class="btn-secondary" @click="toggleUsed(row.payload)">
-                {{ row.payload.marked_used_by_user_at ? '取消已用标记' : '标记为已使用' }}
+              <button class="btn-secondary" :disabled="marking.has(row.payload.code_id)" @click="toggleUsed(row.payload)">
+                {{ marking.has(row.payload.code_id) ? '保存中…' : row.payload.marked_used_by_user_at ? '取消个人已用备注' : '个人备注：标记已用' }}
               </button>
             </div>
+            <p class="personal-note">个人备注仅用于自己记忆；线下兑换状态由管理员核销确认。</p>
             <pre v-if="expanded.get(`partner:${row.payload.code_id}`)!.description" class="description">{{ expanded.get(`partner:${row.payload.code_id}`)!.description }}</pre>
           </div>
         </template>
@@ -385,9 +400,18 @@ onMounted(load)
   text-decoration: none;
   transition: background 0.1s, color 0.1s;
 }
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: #000;
   color: #fff;
+}
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.personal-note {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
 }
 
 .description {

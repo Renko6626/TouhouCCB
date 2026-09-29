@@ -1,0 +1,83 @@
+{
+  "mode": "event",
+  "seed": 20260928,
+  "hours": 10,
+  "bots": 50,
+  "initial_cash": 25000,
+  "wakes": 7715,
+  "trades": 4929,
+  "errors": 0,
+  "hourly_trades": [
+    591,
+    552,
+    573,
+    551,
+    473,
+    361,
+    482,
+    396,
+    514,
+    436
+  ],
+  "median_trade_amount": 59.5,
+  "cash_remaining": 8000.496579,
+  "min_cash": 5.529372,
+  "market_cost_increase": 15558.670045656025,
+  "fees_paid": 1440.833367,
+  "holdings_match_market": true,
+  "markets": [
+    {
+      "market_id": 1,
+      "depth": 5000,
+      "outcomes": 2,
+      "trades": 1378,
+      "material_trades_ge_20": 1067,
+      "mean_gap_sec": 26.07,
+      "median_gap_sec": 15,
+      "median_trade_move_pp": 0.8516,
+      "p90_trade_move_pp": 3.2832,
+      "max_minute_change_std_pp": 2.6602,
+      "max_minute_log_return_std_pct": 5.548,
+      "max_price_span_pp": 24.571,
+      "max_15m_change_pp": 15.335
+    },
+    {
+      "market_id": 2,
+      "depth": 6667,
+      "outcomes": 3,
+      "trades": 1811,
+      "material_trades_ge_20": 1254,
+      "mean_gap_sec": 19.84,
+      "median_gap_sec": 15.0,
+      "median_trade_move_pp": 0.4716,
+      "p90_trade_move_pp": 3.0981,
+      "max_minute_change_std_pp": 2.2012,
+      "max_minute_log_return_std_pct": 7.4899,
+      "max_price_span_pp": 28.215,
+      "max_15m_change_pp": 24.214
+    },
+    {
+      "market_id": 3,
+      "depth": 7500,
+      "outcomes": 4,
+      "trades": 1740,
+      "material_trades_ge_20": 1207,
+      "mean_gap_sec": 20.68,
+      "median_gap_sec": 15,
+      "median_trade_move_pp": 0.5026,
+      "p90_trade_move_pp": 3.068,
+      "max_minute_change_std_pp": 2.1404,
+      "max_minute_log_return_std_pct": 8.6194,
+      "max_price_span_pp": 21.095,
+      "max_15m_change_pp": 17.498
+    }
+  ],
+  "skip_reasons": {
+    "看了盘": 2781,
+    "滑点 3217bps 超限": 1,
+    "滑点 3464bps 超限": 1,
+    "滑点 6501bps 超限": 1,
+    "滑点 2627bps 超限": 1,
+    "滑点 2917bps 超限": 1
+  }
+}

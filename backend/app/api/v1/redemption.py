@@ -82,6 +82,8 @@ async def purchase(
         result = await svc.purchase_code(db, user_id=user.id, batch_id=req.batch_id)
     except svc.PurchaseError as e:
         await db.rollback()
+        if e.code == "OUTSTANDING_DEBT":
+            raise HTTPException(status_code=403, detail="请先还清全部借款（含利息），再购买或兑换激活码")
         if e.code == "INSUFFICIENT_CASH":
             raise HTTPException(status_code=422, detail="资金不足")
         if e.code == "SOLD_OUT":
@@ -133,6 +135,7 @@ async def my_redemptions(
             paid_amount=b.unit_price if b else 0,
             bought_at=c.bought_at,
             marked_used_by_user_at=c.marked_used_by_user_at,
+            redeemed_at=c.redeemed_at,
         ))
     return out
 
@@ -157,6 +160,7 @@ async def my_redemption_detail(
         paid_amount=b.unit_price if b else 0,
         bought_at=c.bought_at,
         marked_used_by_user_at=c.marked_used_by_user_at,
+        redeemed_at=c.redeemed_at,
         description=b.description if b else "",
     )
 

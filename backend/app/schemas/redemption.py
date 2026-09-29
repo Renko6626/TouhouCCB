@@ -1,9 +1,9 @@
 """兑换码模块 Pydantic schemas（请求/响应）。"""
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ========== 用户端 ==========
@@ -51,6 +51,13 @@ class MyRedemptionItem(BaseModel):
     paid_amount: Decimal
     bought_at: datetime
     marked_used_by_user_at: Optional[datetime]
+    redeemed_at: Optional[datetime] = None
+
+    @field_validator("redeemed_at")
+    @classmethod
+    def normalize_redemption_time(cls, value: Optional[datetime]) -> Optional[datetime]:
+        # SQLite 不保留 timezone；核销时间统一以 UTC 传给浏览器。
+        return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
 
 
 class MyRedemptionDetail(MyRedemptionItem):
@@ -115,6 +122,7 @@ class BatchAdminItem(BaseModel):
     total_count: int
     sold_count: int
     available_count: int
+    redeemed_count: int = 0
     created_at: datetime
 
 
@@ -138,3 +146,40 @@ class CsvImportResult(BaseModel):
     inserted: int
     skipped_duplicate: int
     skipped_invalid: int
+
+
+class CodeAdminItem(BaseModel):
+    id: int
+    batch_id: int
+    batch_name: str
+    partner_name: str
+    code_string: str
+    status: str
+    bought_by_user_id: Optional[int]
+    bought_by_username: Optional[str]
+    bought_at: Optional[datetime]
+    redeemed_at: Optional[datetime]
+    redeemed_by_admin_id: Optional[int]
+    redeemed_by_admin_username: Optional[str]
+    redemption_note: str
+
+    @field_validator("bought_at", "redeemed_at")
+    @classmethod
+    def normalize_times(cls, value: Optional[datetime]) -> Optional[datetime]:
+        return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
+
+
+class CodeAdminPage(BaseModel):
+    items: List[CodeAdminItem]
+    total: int
+    page: int
+    page_size: int
+
+
+class CodeRedeemRequest(BaseModel):
+    note: str = Field(default="", max_length=500)
+
+
+class CodeRevokeRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    expected_redeemed_at: datetime

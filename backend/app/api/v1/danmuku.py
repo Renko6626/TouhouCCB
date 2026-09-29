@@ -41,6 +41,8 @@ async def exchange(
         )
     except svc.ExchangeError as e:
         await db.rollback()
+        if e.code == "OUTSTANDING_DEBT":
+            raise HTTPException(status_code=403, detail="请先还清全部借款（含利息），再购买或兑换激活码")
         if e.code == "INSUFFICIENT_CASH":
             raise HTTPException(status_code=422, detail="现金不足")
         if e.code == "INVALID_AMOUNT":

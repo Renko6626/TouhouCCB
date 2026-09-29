@@ -390,29 +390,29 @@ docker compose up -d
 
 ### 5.4 赛季重置（保留用户，清活动数据）
 
-新一轮活动开始前跑一次，让 `audit_event` 事件流从 seq=1 起全员锚定（`docs/audit-events.md`）。
-脚本：`backend/scripts/season_reset.py`。**保留** user / siteconfig / title* / user_title /
-redemption_partner|batch|code / alembic_version；**清空** market、outcome、position、transaction、
-outcome_candle、market_required_title、ledger_entry、liquidation_events、bot_suspicion、
-redemption_transaction、danmuku_exchange、audit_event；所有用户 cash → `initial_balance`、debt → 0。
+新一轮活动开始前使用维护入口，先预览，再验证旧季备份，最后明确确认执行。
+详细范围见 [`season-reset-2026-09-27.md`](season-reset-2026-09-27.md)。
+
+真人基本信息、角色/账号状态、称号、兑换码及购买/核销归属保持；真人 cash →
+`siteconfig.initial_balance`、debt → 0。活动市场、持仓、K 线和金融流水清空。
+机器人配置清空、PvE 关闭；没有保留记录引用的机器人账号删除，否则停用且资产归零。
+兑换购买、弹幕激活码、核销及撤销审计全部保留，作为旧码领取凭证；其余审计清空后重新写入资产锚点。
+
+**不重置 PostgreSQL 自增序列**：新市场/选项不能复用旧 ID，否则 Nginx/浏览器的不可变 K 线缓存会串季。
 
 ```bash
 cd /home/deploy/TouhouCCB
-# 0) 手动留一份命名清楚的备份（deploy.sh 的自动备份之外）
-docker compose exec -T postgres pg_dump -U thccb thccb > backups/thccb_pre_season_$(date +%Y%m%d_%H%M%S).sql
-ls -la backups/ | tail -2                      # 确认大小不是 0
-# 1) 停后端（writer 内存状态 / 结息 sweep 不能与重置并发）
-docker compose stop backend
-# 2) 预览
-docker compose run --rm --no-deps -T backend python scripts/season_reset.py --dry-run
-# 3) 执行（交互要求输入 RESET；单事务，失败全回滚；结束自动跑一遍事件流自检）
-echo RESET | docker compose run --rm --no-deps -T backend python scripts/season_reset.py
-# 4) 起后端并确认
-docker compose start backend
-docker compose run --rm --no-deps -T backend python scripts/audit_verify.py   # 期望 OK，events = 用户数
+# 1) 只读预览，不停服务
+bash deploy/season_reset.sh preview
+# 2) 独立备份 + 完整恢复验证；结束恢复后端原运行状态，不清活动数据
+bash deploy/season_reset.sh backup
+# 3) 已确认清理范围后执行；仍会先创建和验证一份新备份
+SEASON_CONFIRM=RESET bash deploy/season_reset.sh execute
 ```
 
-想改初始资金：先在管理后台改 `initial_balance` 再跑脚本。需要顺便调整称号/兑换码库存的话，脚本不碰它们，手动处理。
+GitHub 的手动维护工作流提供相同的 preview / backup / execute 三种动作；默认 preview。
+execute 必须填写确认词 `RESET`，并与自动部署共用生产互斥组。
+想改初始资金：先在管理后台改 `initial_balance` 再预览。维护入口保留称号与兑换库存。
 **绝不**用 `docker compose down -v` 或 `init_db.py` 代替（前者删卷全丢，后者连用户表一起 DROP）。
 
 ### 5.5 数据库恢复
@@ -433,6 +433,39 @@ docker compose stop backend
 cp backups/thccb_想恢复的时间戳.db backend/data/thccb.db
 docker compose start backend
 ```
+
+### 5.6 FX 子游戏部署护栏
+
+> FX 完整运维手册见 [`docs/fx.md`](fx.md)。**本任务范围内总闸保持关闭、不打开 gate、
+> 不开市**；Task 9 发现并已最小修复一个审计日期序列化缺陷（见 fx.md 第 11 节）。
+
+- **迁移顺序**：FX migration `fx_tables_20260928` 依赖兑换履约 `0d0ac23efa85`。
+  已有库只跑 `alembic upgrade head`（`deploy.sh` 自动执行）；**绝不**对已有库跑
+  `init_db.py`。详见 `docs/migrations.md` 与 `docs/fx.md` 第 2 节。
+- **默认关闭**：`site_config.fx_enabled` 默认 `false`。没有建立并注资货币对之前不得开市；
+  生产任何阶段都不得擅自打开 `fx_enabled`。
+- **注资 / 撤资只能走 admin service**：`POST /api/v1/admin/fx/pairs/{id}/fund|withdraw`。
+  **禁止**直接 SQL 改 `fx_pair` / `fx_treasury`，否则跳过守恒、行锁与审计。
+- **预算 / 储备护栏**：`fx_daily_budget` 每日系统支出上限、事件 `budget` 单事件上限、
+  池子储备 `> 0`、treasury 余额 `>= 0`、目标价夹取与 6 位 Decimal。
+- **暂停 / 赛季重置**：暂停用 `PATCH /api/v1/admin/fx/pairs/{id} {"status":"paused"}`；
+  赛季重置走 `deploy/season_reset.sh`（见 5.4），会删除全部 FX 表并关闭 gate，
+  保留兑换核销记录与自增序列。
+- **回滚**：`alembic downgrade 0d0ac23efa85` 会删除 5 张 FX 表（数据丢失，仅应急）；
+  回滚前先停后端并备份。
+- **验证命令**：
+
+  ```bash
+  cd backend
+  python -m compileall -q app scripts
+  python -c "import app.main"
+  python -m pytest -q --noconftest tests/test_fx_end_to_end.py
+  git diff --check
+  ```
+
+- **CI**：CI 在后端 job 中额外跑一次 FX 隔离端到端检查
+  （`pytest -q --noconftest tests/test_fx_end_to_end.py`），避免既有全量
+  `pytest -q` 的 async fixture 挂起掩盖 FX 回归；不改变现有兑换相关检查。
 
 ---
 
@@ -790,4 +823,3 @@ TouhouCCB/
 └── docs/
     └── deploy.md                # 本文档
 ```
-

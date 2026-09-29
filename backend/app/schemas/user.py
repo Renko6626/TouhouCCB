@@ -43,6 +43,10 @@ class UserSummary(BaseModel):
     """
     cash: Money
     debt: Money
+    # FX is an independent display asset; it is excluded from LCV/collateral.
+    fx_mtm: Money = Decimal("0")
+    fx_cost_basis: Money = Decimal("0")
+    fx_unrealized_pnl: Money = Decimal("0")
     positions: List[SummaryPosition] = []
     margin_hard_threshold: Money = Decimal("0.2")
     margin_soft_threshold: Money = Decimal("0.5")

@@ -32,6 +32,10 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
   <div class="page">
     <h1 class="page-title">兑换中心</h1>
     <p class="page-hint">用 TouhouCCB 资金兑换合作方网站的码。码可在「我的兑换」中永久查看。</p>
+    <p class="repayment-rule">
+      存在任何未偿还借款（含利息）时，不能购买或兑换激活码。请先还清全部借款。
+      <router-link to="/loan">前往借款页还款 →</router-link>
+    </p>
     <div class="disclaimer">
       ⚠ 兑换由合作方独立履约，TouhouCCB 不参与核销，对合作方失约/商品争议不承担责任。请谨慎选择。
     </div>
@@ -70,6 +74,8 @@ const goDetail = (id: number) => router.push(`/redemption/batches/${id}`)
 .page { padding: 16px; }
 .page-title { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
 .page-hint { color: #666; font-size: 13px; margin-bottom: 12px; }
+.repayment-rule { border: 2px solid #000; padding: 10px 14px; margin-bottom: 12px; background: #f5f5f5; font-size: 13px; line-height: 1.6; }
+.repayment-rule a { color: #000; font-weight: 700; text-decoration: underline; white-space: nowrap; }
 .disclaimer {
   border: 2px solid #000; padding: 10px 14px; margin-bottom: 24px;
   background: #fef2f2; font-size: 13px; color: #000;

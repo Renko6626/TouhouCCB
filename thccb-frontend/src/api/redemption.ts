@@ -4,6 +4,7 @@ import type {
   MyRedemptionItem, MyRedemptionDetail,
   PartnerAdminItem, BatchAdminItem, BatchStatus,
   CsvImportPreview, CsvImportResult,
+  RedemptionCodeAdminItem, RedemptionCodeAdminPage, RedemptionCodeFilter,
 } from '@/types/redemption'
 
 export const redemptionApi = {
@@ -51,6 +52,14 @@ export interface BatchUpdatePayload {
   status?: BatchStatus
 }
 
+export interface RedemptionCodeListParams {
+  batch_id?: number
+  q?: string
+  status?: RedemptionCodeFilter
+  page?: number
+  page_size?: number
+}
+
 export const redemptionAdminApi = {
   listPartners: () => api.get<PartnerAdminItem[]>('/api/v1/admin/redemption/partners'),
   createPartner: (data: PartnerCreatePayload) =>
@@ -63,6 +72,15 @@ export const redemptionAdminApi = {
     api.post<BatchAdminItem>('/api/v1/admin/redemption/batches', data),
   updateBatch: (id: number, data: BatchUpdatePayload) =>
     api.patch<BatchAdminItem>(`/api/v1/admin/redemption/batches/${id}`, data),
+
+  listCodes: (params: RedemptionCodeListParams) =>
+    api.get<RedemptionCodeAdminPage>('/api/v1/admin/redemption/codes', { params }),
+  redeemCode: (id: number, note = '') =>
+    api.post<RedemptionCodeAdminItem>(`/api/v1/admin/redemption/codes/${id}/redeem`, { note }),
+  revokeCode: (id: number, reason: string, expectedRedeemedAt: string) =>
+    api.post<RedemptionCodeAdminItem>(`/api/v1/admin/redemption/codes/${id}/revoke`, {
+      reason, expected_redeemed_at: expectedRedeemedAt,
+    }),
 
   importPreview: (batchId: number, csvText: string) =>
     api.post<CsvImportPreview>(

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>东方炒炒币 · A4 横版宣传图</title>
+  <style>
+    @page { size: A4 landscape; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    body { font-family: 'Noto Sans CJK SC', 'Noto Sans SC', sans-serif; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .sheet { width: 1123px; height: 794px; padding: 28px 36px; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+    .topline { display: flex; align-items: center; justify-content: space-between; font-family: Arial, sans-serif; font-size: 18px; letter-spacing: 2px; font-weight: 700; }
+    .edition { color: #666; font-size: 16px; letter-spacing: 1px; }
+    .heading { display: flex; justify-content: space-between; align-items: flex-end; margin: 12px 0 18px; }
+    .title { margin: 0; font-size: 104px; line-height: 1.07; font-weight: 900; letter-spacing: -4px; }
+    .heading-subtitle { margin: 8px 0 0; font-size: 30px; line-height: 1.4; letter-spacing: 2px; font-weight: 600; }
+    .heading-tag { border: 2px solid #000; padding: 9px 14px; font-size: 18px; font-weight: 700; margin-bottom: 5px; letter-spacing: .5px; }
+    .rule { height: 3px; background: #000; flex-shrink: 0; }
+    .content { display: grid; grid-template-columns: minmax(0, 1fr) 294px; column-gap: 24px; flex: 1; min-height: 0; align-items: center; padding: 16px 0 0; }
+    .screen-column { min-width: 0; }
+    .screen-label { margin: 0 5px 13px; font-size: 23px; color: #000; letter-spacing: 1px; font-weight: 700; }
+    .screen { display: block; width: 100%; height: auto; }
+    .screen-caption { margin: 14px 5px 0; font-size: 17px; color: #555; letter-spacing: 0; display: flex; gap: 19px; }
+    .screen-caption span::before { content: '+'; margin-right: 5px; color: #000; font-weight: 700; }
+    .scan-column { align-self: center; padding-left: 17px; border-left: 1px solid #ccc; }
+    .scan-title { margin: 0 0 10px; font-size: 34px; font-weight: 900; letter-spacing: -1px; line-height: 1.3; }
+    .qr { display: block; width: 276px; height: 276px; background: #fff; }
+    .scan-action { display: flex; justify-content: space-between; align-items: center; background: #000; color: #fff; padding: 12px 16px; font-size: 21px; font-weight: 700; letter-spacing: 1px; margin-top: 12px; }
+    .scan-action b { font-size: 27px; line-height: 1; }
+    .url { margin: 12px 0 0; font-family: Arial, sans-serif; font-size: 18px; letter-spacing: -.3px; font-weight: 700; white-space: nowrap; }
+    @media print { .sheet { width: 297mm; height: 210mm; } }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <div class="topline"><span>TOUHOU CCB</span></div>
+    <header class="heading">
+      <div><h1 class="title">东方炒炒币</h1></div>
+      <span class="heading-tag">东方 Project · 虚拟交易游戏</span>
+    </header>
+    <div class="rule"></div>
+    <section class="content">
+      <div class="screen-column">
+        <div class="screen-label">哇多么好的机会啊</div>
+        <img class="screen" src="trading-screenshot.png" alt="博丽灵梦的模拟 K 线图和买入交易面板" />
+        <div class="screen-caption"><span>角色人气行情</span><span>K 线与成交量</span><span>金圆券模拟交易</span></div>
+      </div>
+      <aside class="scan-column">
+        <h2 class="scan-title">扫码进入<br />幻想乡的市场。</h2>
+        <img class="qr" src="website-qr.svg" alt="扫码访问 https://thccb.secret-sealing.club/" />
+        <div class="scan-action"><span>即刻开始</span><b>↗</b></div>
+        <p class="url">thccb.secret-sealing.club</p>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

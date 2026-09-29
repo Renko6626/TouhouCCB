@@ -11,9 +11,13 @@ from app.core.config import settings
 from app.core.database import engine, init_db
 from app.core.admin import setup_admin
 from app.api.v1 import auth, user, market, chart, stream, loan, site_config as site_config_api
+from app.api.v1 import fx as fx_api
+from app.api.v1 import admin_fx as admin_fx_api
+from app.api.v1 import fx_stream as fx_stream_api
 from app.models import redemption as _redemption_models  # noqa: F401  确保 SQLModel.metadata 注册兑换码三张表
 from app.models import title as _title_models  # noqa: F401 触发 metadata 注册
 from app.models import bot as _bot_models  # noqa: F401 触发 metadata 注册 bot_profile
+from app.models import fx as _fx_models  # noqa: F401 触发 metadata 注册 FX 表
 from app.services.loan_sweep import (
     start_scheduler as start_loan_scheduler,
     stop_scheduler as stop_loan_scheduler,
@@ -29,6 +33,10 @@ from app.services.bot_detection import (
 from app.services.pve.scheduler import (
     start_scheduler as start_pve_scheduler,
     stop_scheduler as stop_pve_scheduler,
+)
+from app.services.fx.scheduler import (
+    start_scheduler as start_fx_scheduler,
+    stop_scheduler as stop_fx_scheduler,
 )
 from app.services.loan_migrate import auto_migrate
 
@@ -85,6 +93,7 @@ async def lifespan(app: FastAPI):
     await start_bot_detection_scheduler()
     # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
     await start_pve_scheduler()
+    await start_fx_scheduler()
     # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
     from app.core.database import async_session_maker
     from app.services import site_config as _site_config
@@ -109,6 +118,7 @@ async def lifespan(app: FastAPI):
     # flusher 时 writer 仍在往 _pending 塞数据
     # PvE 最先停：它经回环 HTTP 下单，必须在 uvicorn 停止接收请求前住手
     await stop_pve_scheduler()
+    await stop_fx_scheduler()
     await stop_bot_detection_scheduler()
     await stop_liquidation_scheduler()
     await stop_loan_scheduler()
@@ -278,6 +288,7 @@ app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])
 app.include_router(stream.router, prefix="/api/v1/stream", tags=["Stream"])
+app.include_router(fx_stream_api.router, prefix="/api/v1/fx", tags=["FX Stream"])
 
 from app.api.v1 import history as history_api
 app.include_router(history_api.router, prefix="/history", tags=["History"])  # 不在 /api/v1 下：绕开 no-store 中间件（见 history.py 模块注释）
@@ -311,6 +322,8 @@ app.include_router(admin_pve_api.router, prefix="/api/v1/admin/pve", tags=["Admi
 
 from app.api.v1 import title as title_api
 app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])
+app.include_router(fx_api.router, prefix="/api/v1/fx", tags=["FX"])
+app.include_router(admin_fx_api.router, prefix="/api/v1/admin/fx", tags=["AdminFX"])
 
 
 @app.get("/")
