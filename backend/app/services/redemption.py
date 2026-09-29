@@ -1,12 +1,21 @@
-"""兑换码模块服务层：CSV 解析、购买事务、库存查询。"""
+"""兑换码模块服务层：CSV 解析、购买事务、库存查询。
+
+统一信贷（WP6b）：`purchase_code` 是现金消费入口（flag=unified_credit_enabled 时）
+- 单写实例守卫 `OWNERSHIP.require_writes()`；
+- 锁外做依赖发现（无债用户走单行快路径），按品种门闩（抵押品共享）后锁 user；
+- 沿用「有债禁止兑换」，再跑 `check_cash_spend`（版本复检 + 交易后 E / 冻结判定）；
+- 通过后扣款并自增 `economic_version`。
+开关关闭时逐字段保持旧行为（不查依赖、不置版本、不多任何一行查询）。
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import managed_transaction
 from sqlalchemy.future import select
 from sqlalchemy import update
 from fastapi import HTTPException
@@ -16,10 +25,71 @@ from app.models.redemption import (
     RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction,
     BatchStatus, CodeStatus,
 )
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.risk import (
+    REASON_CREDIT_FROZEN,
+    REASON_FROZEN_BY_OPERATOR,
+    REASON_INSUFFICIENT_INITIAL_MARGIN,
+    REASON_VERSION_CONFLICT,
+    DependencySet,
+    check_cash_spend,
+    discover_dependencies,
+)
+from app.services.credit.thresholds import RiskThresholds
+from app.services.credit.version import bump_economic_version
 
 
 _MAX_CODE_LEN = 128
 _QUANT = Decimal("0.000001")
+ZERO = Decimal("0")
+ONE = Decimal("1")
+
+_RISK_DENY_DETAILS = {
+    REASON_CREDIT_FROZEN: "账号已因坏账冻结，仅允许充值 / 还款 / 核销",
+    REASON_FROZEN_BY_OPERATOR: "运营已开启停增险，暂缓消费类操作",
+    REASON_INSUFFICIENT_INITIAL_MARGIN: "扣款后不满足初始保证金门槛",
+    REASON_VERSION_CONFLICT: "经济版本冲突（并发写入），请重试",
+}
+
+
+def _unified_thresholds() -> Optional[RiskThresholds]:
+    """flag 关闭 → None（走 legacy）；flag 开启但门槛缺失 → fail-closed。"""
+    if OWNERSHIP.reason is not None:
+        OWNERSHIP.require_writes()
+    flags = credit_flags.get_flags()
+    if not flags.unified_credit_enabled:
+        return None
+    thresholds = flags.thresholds
+    if thresholds is None:
+        raise HTTPException(status_code=503, detail="统一信贷风险引擎不可用，已拒绝消费类操作")
+    return thresholds
+
+
+async def _deps_for_spend(session: AsyncSession, user_id: int) -> Optional[DependencySet]:
+    """锁外依赖发现：无债返回最小依赖集（不读持仓/快照），有债返回完整组合。"""
+    row = (await session.execute(
+        select(User.cash, User.debt, User.debt_last_accrued_at, User.economic_version)
+        .where(User.id == user_id)
+    )).first()
+    if row is None:
+        return None
+    cash, debt, last_accrued, version = row
+    if Decimal(debt) > ZERO:
+        return await discover_dependencies(session, user_id)
+    return DependencySet(
+        economic_version=int(version or 0),
+        cash=Decimal(cash),
+        debt=Decimal(debt),
+        debt_last_accrued_at=last_accrued,
+        groups=(),
+        holdings={},
+    )
+
+
+def _risk_deny_detail(reason: Optional[str]) -> str:
+    return _RISK_DENY_DETAILS.get(reason, f"风险检查未通过：{reason}")
 # 单用户在单个批次的累计购买上限，防 1 个用户秒杀整批
 # 不走 site_config 是有意为之：YAGNI，若实际产生分歧再做成可配置
 _PER_USER_PER_BATCH_LIMIT = 5
@@ -85,7 +155,35 @@ async def purchase_code(
 ) -> PurchaseResult:
     """单事务原子购买：行锁 user → 校验 → SKIP LOCKED 抢一个码 → 扣款 → 标记码。
     不在这里 commit，由调用方负责。
+
+    统一信贷 ON：先锁外发现依赖 + 门闩，再进 `_purchase_code_impl` 锁行；
+    版本复检与冻结 / 保证金判定在 `check_cash_spend` 内完成。
     """
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _purchase_code_impl(
+            session, user_id=user_id, batch_id=batch_id, deps=None, thresholds=None,
+        )
+    OWNERSHIP.require_writes()
+    if session.new or session.dirty or session.deleted:
+        raise RuntimeError("purchase_code requires a clean session before risk admission")
+    deps = await _deps_for_spend(session, user_id)
+    await session.commit()
+    async with GATES.hold(shared=() if deps is None else deps.groups):
+        async with managed_transaction(session):
+            return await _purchase_code_impl(
+                session, user_id=user_id, batch_id=batch_id, deps=deps, thresholds=thresholds,
+            )
+
+
+async def _purchase_code_impl(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    batch_id: int,
+    deps: Optional[DependencySet],
+    thresholds: Optional[RiskThresholds],
+) -> PurchaseResult:
     user_stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     user = (await session.execute(user_stmt)).scalar_one()
 
@@ -101,6 +199,19 @@ async def purchase_code(
 
     if user.cash < batch.unit_price:
         raise PurchaseError("INSUFFICIENT_CASH")
+
+    if thresholds is not None:
+        # 锁成功 ⇒ 用户存在 ⇒ 锁外预读一定拿到了依赖集
+        assert deps is not None
+        decision = await check_cash_spend(
+            session, user=user, deps=deps, spend=batch.unit_price,
+            thresholds=thresholds, partial_pct=ONE, now=datetime.now(timezone.utc),
+        )
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"统一信贷准入拒绝：{_risk_deny_detail(decision.reason)}",
+            )
 
     # 单用户单批次累计上限校验
     from sqlalchemy import func as _func
@@ -125,11 +236,15 @@ async def purchase_code(
     if code is None:
         raise PurchaseError("SOLD_OUT")
 
+    OWNERSHIP.require_writes()
     now = datetime.now(timezone.utc)
     user.cash = (user.cash - batch.unit_price).quantize(_QUANT)
     code.status = CodeStatus.SOLD
     code.bought_by_user_id = user_id
     code.bought_at = now
+
+    if thresholds is not None:
+        bump_economic_version(user)
 
     session.add(user)
     session.add(code)

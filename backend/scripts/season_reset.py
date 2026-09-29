@@ -47,6 +47,7 @@ from app.models.ledger import LedgerEntry  # noqa: E402
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
+from app.services.credit.version import bump_economic_version  # noqa: E402
 
 # 子表在前，父表在后（外键顺序）
 # LiquidationAction.run_id → LiquidationRun.id：action 必须先删。
@@ -185,10 +186,11 @@ async def run(dry_run: bool) -> int:
                     u.debt = Decimal("0")
                     u.debt_last_accrued_at = None
                     u.last_liquidated_at = None
-                    # 统一信贷（WP1）：新赛季从零开始，清坏账冻结并推进经济版本
-                    # （现金/债务变了，旧快照一律作废）。
+                    # 统一信贷（WP1/WP6b）：新赛季从零开始，清坏账冻结并推进经济版本
+                    # （现金/债务变了，旧快照一律作废）。run/action 已在 CLEAR_ORDER
+                    # 里删除，新赛季不保留任何强平在途状态。
                     u.credit_frozen = False
-                    u.economic_version = int(u.economic_version or 0) + 1
+                    bump_economic_version(u)
                     if u.is_bot:
                         u.is_active = False
                         u.is_superuser = False

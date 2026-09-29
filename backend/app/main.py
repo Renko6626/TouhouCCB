@@ -145,6 +145,7 @@ async def _startup(app: FastAPI) -> None:
     app.state.credit_writes_enabled = writes_ok
     if writes_ok:
         # SQLAdmin 提供绕过业务校验的直写 API，只读/非 owner 实例不得挂载
+        _configure_admin_economic_writes(flags.unified_credit_enabled)
         setup_admin(app, engine)
     else:
         main_logger.warning(
@@ -187,6 +188,15 @@ async def _startup(app: FastAPI) -> None:
     # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
+
+
+def _configure_admin_economic_writes(unified: bool) -> None:
+    """Route unified economic mutations through business services, not raw CRUD."""
+    from app.core.admin import UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin
+    for view in (UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin):
+        view.can_create = not unified
+        view.can_edit = not unified
+        view.can_delete = not unified
 
 
 async def _shutdown() -> None:

@@ -1,4 +1,11 @@
-"""FX event administration and five-second recovery scheduler."""
+"""FX event administration and five-second recovery scheduler.
+
+统一信贷（WP6b，flag=unified_credit_enabled）：
+- `fund_pair` / `withdraw_pair` 改变池子储备：单写守卫 + pair 独占门闩 +
+  `pool_version += 1`（风险快照按 pool_version/储备版本失效）；
+- `publish_event` 的首轮冲击是系统干预：pair 非 trading 或 reduce_only 时拒绝；
+- 门闩在 pair 行锁之前获取，commit 后才释放；开关关闭时逐字段保持旧行为。
+"""
 from __future__ import annotations
 
 from datetime import date, datetime, timezone, timedelta
@@ -14,12 +21,22 @@ from app.core.database import async_session_maker
 from app.models.fx import FxEvent, FxEventStatus, FxPair, FxTreasury
 from app.schemas.fx import FxEventAdmin, FxPairAdmin
 from app.services import audit_service, site_config
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.keys import GroupKey
+from app.services.credit.ownership import OWNERSHIP
 from app.services.fx.engine import FxEngine
 from app.services.fx.amm import marginal_price
 
 _scheduler: Optional[AsyncIOScheduler] = None
 _JOB_ID = "fx-engine"
 ENGINE = FxEngine()
+
+
+def unified_credit_enabled() -> bool:
+    if OWNERSHIP.reason is not None:
+        OWNERSHIP.require_writes()
+    return bool(credit_flags.get_flags().unified_credit_enabled)
 
 
 def _utc(value: Optional[datetime] = None) -> datetime:
@@ -39,12 +56,12 @@ async def schedule_event(db: AsyncSession, event_id: int, scheduled_at: datetime
     if pair_id is None:
         raise HTTPException(404, "FX event not found")
     pair = (await db.execute(
-        select(FxPair).where(FxPair.id == pair_id).with_for_update()
+        select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True)
     )).scalars().first()
     if pair is None:
         raise HTTPException(404, "FX pair not found")
     event = (await db.execute(
-        select(FxEvent).where(FxEvent.id == event_id).with_for_update()
+        select(FxEvent).where(FxEvent.id == event_id).with_for_update().execution_options(populate_existing=True)
     )).scalars().first()
     if event is None:
         raise HTTPException(404, "FX event not found")
@@ -62,6 +79,7 @@ async def schedule_event(db: AsyncSession, event_id: int, scheduled_at: datetime
         other_end = other_start + timedelta(seconds=int(other.window_sec or 600))
         if planned < other_end and other_start < end:
             raise HTTPException(409, "scheduled event window overlaps existing event; choose a later UTC time")
+    OWNERSHIP.require_writes()
     event.status, event.scheduled_at = "scheduled", planned
     await db.commit(); await db.refresh(event)
     return FxEventAdmin.model_validate(event)
@@ -69,20 +87,34 @@ async def schedule_event(db: AsyncSession, event_id: int, scheduled_at: datetime
 
 async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime] = None) -> FxEventAdmin:
     now = _utc(now)
-    # Same lock order as schedule_event/engine.tick: fx_pair first, then fx_event.
-    # The unlocked pair_id probe only chooses which pair row to lock.
+    unified = unified_credit_enabled()
+    if unified:
+        OWNERSHIP.require_writes()
+    # 未加锁的 pair_id 探针只用于选择要锁的 pair 行（既有锁序：pair → event）。
     pair_id = (await db.execute(
         select(FxEvent.pair_id).where(FxEvent.id == event_id)
     )).scalars().first()
     if pair_id is None:
         raise HTTPException(404, "FX event not found")
+    if not unified:
+        return await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=False)
+    await db.commit()  # return the discovery connection before waiting on a gate
+    # 首轮冲击改价 = 系统干预：pair 独占门闩必须在 DB 行锁之前。
+    async with GATES.hold(exclusive=[GroupKey("fx", int(pair_id))]):
+        return await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=True)
+
+
+async def _publish_event_impl(
+    db: AsyncSession, *, event_id: int, pair_id: int, now: datetime, unified: bool,
+) -> FxEventAdmin:
+    # Same lock order as schedule_event/engine.tick: fx_pair first, then fx_event.
     pair = (await db.execute(
-        select(FxPair).where(FxPair.id == pair_id).with_for_update()
+        select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True)
     )).scalars().first()
     if pair is None:
         raise HTTPException(404, "FX pair not found")
     event = (await db.execute(
-        select(FxEvent).where(FxEvent.id == event_id).with_for_update()
+        select(FxEvent).where(FxEvent.id == event_id).with_for_update().execution_options(populate_existing=True)
     )).scalars().first()
     if event is None:
         raise HTTPException(404, "FX event not found")
@@ -90,6 +122,9 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
         return FxEventAdmin.model_validate(event)
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(403, "FX trading is disabled")
+    if unified and (str(pair.status).strip().lower() != "trading" or bool(pair.reduce_only)):
+        # F9：halted（paused 且未显式 reduce_only）与 reduce_only 都不允许系统干预
+        raise HTTPException(409, "pair is halted or reduce-only: system intervention disabled")
     if event.status in {"cancelled"}:
         raise HTTPException(409, "event is cancelled")
     conflict = (await db.execute(select(FxEvent).where(
@@ -108,7 +143,8 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
     cap = Decimal("0.20") if str(event.kind).lower().replace("-", "_") in {"black_swan", "black_swan_event"} else Decimal("0.05")
     if abs(shock) > cap or not (Decimal("0.1") <= first_ratio <= Decimal("0.9")):
         raise HTTPException(422, "event parameters are outside allowed range")
-    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update())).scalars().first()
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
+    OWNERSHIP.require_writes()
     if treasury is None: treasury = FxTreasury(pair_id=pair.id); db.add(treasury); await db.flush()
     if treasury.spend_date != now.date(): treasury.spend_date, treasury.daily_spend = now.date(), Decimal("0")
     snapshot_spent = Decimal(str((event.parameter_snapshot or {}).get("spent", "0")))
@@ -120,6 +156,7 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
     new_target = max(lower, min(upper, target_before * (Decimal("1") + shock)))
     current_price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
     desired_price = current_price * ((new_target / current_price).ln() * first_ratio).exp()
+    OWNERSHIP.require_writes()
     event.parameter_snapshot = {
         "shock_ratio": str(event.shock_ratio or 0), "first_reaction_ratio": str(event.first_reaction_ratio or 0),
         "window_sec": event.window_sec, "budget": str(event.budget or 0),
@@ -144,6 +181,7 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
         raise HTTPException(409, event.error_message)
     pair.target_price = new_target
     pair.updated_at = now
+    OWNERSHIP.require_writes()
     event.parameter_snapshot = {
         **dict(event.parameter_snapshot or {}),
         "first_trade_id": moved.trade.id,
@@ -164,17 +202,31 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
 
 async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
                     operator_user_id: int):
-    pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update())).scalars().first()
+    if not unified_credit_enabled():
+        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=False)
+    OWNERSHIP.require_writes()
+    await db.commit()
+    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
+        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=True)
+
+
+async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
+                          operator_user_id: int, unified: bool):
+    pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
     gold_amount, foreign_amount = Decimal(gold_amount), Decimal(foreign_amount)
     if gold_amount < 0 or foreign_amount < 0 or (gold_amount == 0 and foreign_amount == 0): raise HTTPException(422, "fund amount must be positive")
-    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update())).scalars().first()
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
+    OWNERSHIP.require_writes()
     if treasury is None:
         treasury = FxTreasury(pair_id=pair.id); db.add(treasury)
     before = {"pool_gold": str(pair.gold_reserve), "pool_foreign": str(pair.foreign_reserve),
               "treasury_gold": str(treasury.gold_balance), "treasury_foreign": str(treasury.foreign_balance)}
+    OWNERSHIP.require_writes()
     pair.gold_reserve += gold_amount; pair.foreign_reserve += foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance += gold_amount; treasury.foreign_balance += foreign_amount; treasury.updated_at = _utc()
+    if unified:
+        pair.pool_version += 1
     audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
@@ -187,18 +239,31 @@ async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreig
 
 async def withdraw_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
                         operator_user_id: int):
-    pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update())).scalars().first()
+    if not unified_credit_enabled():
+        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=False)
+    OWNERSHIP.require_writes()
+    await db.commit()
+    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
+        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=True)
+
+
+async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
+                              operator_user_id: int, unified: bool):
+    pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
     gold_amount, foreign_amount = Decimal(gold_amount), Decimal(foreign_amount)
     if gold_amount < 0 or foreign_amount < 0 or pair.gold_reserve - gold_amount <= 0 or pair.foreign_reserve - foreign_amount <= 0:
         raise HTTPException(409, "withdrawal would exhaust reserves")
-    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update())).scalars().first()
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if treasury is None or treasury.gold_balance < gold_amount or treasury.foreign_balance < foreign_amount:
         raise HTTPException(409, "withdrawal exceeds treasury balance")
     before = {"pool_gold": str(pair.gold_reserve), "pool_foreign": str(pair.foreign_reserve),
               "treasury_gold": str(treasury.gold_balance), "treasury_foreign": str(treasury.foreign_balance)}
+    OWNERSHIP.require_writes()
     pair.gold_reserve -= gold_amount; pair.foreign_reserve -= foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance -= gold_amount; treasury.foreign_balance -= foreign_amount; treasury.updated_at = _utc()
+    if unified:
+        pair.pool_version += 1
     audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
@@ -212,11 +277,14 @@ async def withdraw_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, fo
 async def _tick_safe() -> None:
     try:
         async with async_session_maker() as db:
-            due = (await db.execute(select(FxEvent).where(FxEvent.status == "scheduled", FxEvent.scheduled_at <= _utc()).order_by(FxEvent.scheduled_at.asc()))).scalars().all()
+            due = (await db.execute(select(FxEvent.id).where(FxEvent.status == "scheduled", FxEvent.scheduled_at <= _utc()).order_by(FxEvent.scheduled_at.asc()))).scalars().all()
             if await site_config.get_bool_or(db, "fx_enabled", False):
-                for event in due:
-                    try: await publish_event(db, event.id)
-                    except HTTPException: continue
+                for event_id in due:
+                    try: await publish_event(db, event_id)
+                    except HTTPException:
+                        # A rejected event may still hold pair/event row locks.
+                        # Release them before acquiring another product gate.
+                        await db.rollback()
         await ENGINE.tick()
     except Exception:
         import logging; logging.getLogger(__name__).exception("fx scheduler tick failed")

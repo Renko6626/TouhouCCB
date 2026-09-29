@@ -5,9 +5,20 @@
 - 自己管事务边界（`managed_transaction`），返回纯 dict，便于单测与复用
 - 业务错误抛 `AdminUserError(status, detail)`，路由层翻译成 HTTPException
 - 所有资金变动都写 LedgerEntry（同事务）
+
+统一信贷（WP6b，flag=unified_credit_enabled）：
+- 现金/债务写入口先拿 `OWNERSHIP.require_writes()`（单写实例），
+  现金减少（管理扣款/大赦降现金）走 `check_cash_spend`：锁外发现依赖 → 按品种
+  门闩（抵押品共享）→ user 行锁 → 版本复检 → 交易后 E 检查 → 变更 + 版本自增；
+- 新增信用（`force_loan`）走 `check_new_risk`：新增债务必须用完整抵押估值；
+- 债务核销（`forgive_debt`）只减债、不可能恶化保证金，不加风险检查但仍自增版本；
+  冻结用户的批量大赦核销是**显式运营动作**，ledger 审计带 operator+reason；
+- 开关关闭时逐字段保持旧行为（不置版本、不加锁、不多查一行）。
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -19,8 +30,29 @@ from app.core.database import managed_transaction
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
 from app.services import audit_service
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.risk import (
+    REASON_CREDIT_FROZEN,
+    REASON_FROZEN_BY_OPERATOR,
+    REASON_INSUFFICIENT_INITIAL_MARGIN,
+    REASON_VERSION_CONFLICT,
+    DependencySet,
+    PostTradeState,
+    RiskDecision,
+    check_cash_spend,
+    check_new_risk,
+    discover_dependencies,
+)
+from app.services.credit.thresholds import RiskThresholds
+from app.services.credit.version import bump_economic_version, economic_version_of
+
+logger = logging.getLogger("thccb.admin_user")
 
 _CENT = Decimal("0.01")
+ZERO = Decimal("0")
+ONE = Decimal("1")
 
 # 批量操作安全围栏：一次最多影响这么多用户，超过 → 400（防 filter 不严误伤）
 BATCH_HARDCAP = 500
@@ -37,12 +69,89 @@ def _money(v: Decimal) -> float:
     return float(v.quantize(_CENT))
 
 
+# ────────────────────────── 统一信贷准入辅助（WP6b） ──────────────────────────
+
+_RISK_DENY_DETAILS = {
+    REASON_CREDIT_FROZEN: "用户已因坏账冻结（仅允许充值 / 还款 / 核销）",
+    REASON_FROZEN_BY_OPERATOR: "运营已开启停增险（credit_new_risk_frozen）",
+    REASON_INSUFFICIENT_INITIAL_MARGIN: "操作后不满足初始保证金门槛",
+    REASON_VERSION_CONFLICT: "经济版本冲突（并发写入），请重试",
+}
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _unified_thresholds() -> Optional[RiskThresholds]:
+    """统一信贷门槛：开关关闭返回 None（调用方走 legacy 原路径）。
+
+    flag ON 却没有可用门槛属于启动期就应拒绝的配置；运行期 fail-closed，
+    绝不放行经济写操作（不降级到无风控）。
+    """
+    if OWNERSHIP.reason is not None:
+        OWNERSHIP.require_writes()
+    flags = credit_flags.get_flags()
+    if not flags.unified_credit_enabled:
+        return None
+    thresholds = flags.thresholds
+    if thresholds is None:
+        raise AdminUserError(503, "统一信贷风险引擎不可用（门槛配置缺失），已拒绝经济写操作")
+    return thresholds
+
+
+def _risk_deny_detail(decision: RiskDecision) -> str:
+    return _RISK_DENY_DETAILS.get(decision.reason, f"风险检查未通过：{decision.reason}")
+
+
+async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
+    """现金写路径的依赖发现：无债走单行快路径，有债走完整组合发现。
+
+    债务为 0 时 `check_cash_spend` / 债务清零后的 `check_new_risk` 都走 cache-only
+    快路径，不会读抵押品，所以最小依赖集（groups=()）足够且判定保守成立；
+    只要用户仍可能有债务留下，就必须完整发现全组合抵押（跨产品不可复用）。
+    """
+    row = (await db.execute(
+        select(User.cash, User.debt, User.debt_last_accrued_at, User.economic_version)
+        .where(User.id == user_id)
+    )).first()
+    if row is None:
+        raise AdminUserError(404, "用户不存在")
+    cash, debt, last_accrued, version = row
+    if Decimal(debt) > ZERO:
+        return await discover_dependencies(db, user_id)
+    return DependencySet(
+        economic_version=int(version or 0),
+        cash=Decimal(cash),
+        debt=Decimal(debt),
+        debt_last_accrued_at=last_accrued,
+        groups=(),
+        holdings={},
+    )
+
+
+async def _apply_cash_change(
+    db: AsyncSession, *, user: User, amount: Decimal, reason: str, admin_id: int,
+) -> Decimal:
+    """写现金 + ledger 审计（同事务）；返回变更后现金。不做负数围栏。"""
+    OWNERSHIP.require_writes()
+    new_cash = user.cash + amount
+    user.cash = new_cash
+    await ledger_service.record_entry(
+        db, user=user, entry_type="admin_adjust_cash",
+        cash_delta=amount, debt_delta=Decimal("0"), daily_rate=None,
+        operator_user_id=admin_id, reason=reason,
+    )
+    return new_cash
+
+
 async def _lock_user(db: AsyncSession, user_id: int) -> User:
     u = (await db.execute(
         select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     )).scalar_one_or_none()
     if u is None:
         raise AdminUserError(404, "用户不存在")
+    OWNERSHIP.require_writes()
     return u
 
 
@@ -51,6 +160,20 @@ async def _lock_user(db: AsyncSession, user_id: int) -> User:
 # ==========================================
 
 async def adjust_cash(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
+) -> Dict[str, Any]:
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _adjust_cash_legacy(
+            db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id,
+        )
+    return await _adjust_cash_unified(
+        db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id,
+        thresholds=thresholds,
+    )
+
+
+async def _adjust_cash_legacy(
     db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
 ) -> Dict[str, Any]:
     async with managed_transaction(db):
@@ -70,6 +193,44 @@ async def adjust_cash(
     }
 
 
+async def _adjust_cash_unified(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
+    thresholds: RiskThresholds,
+) -> Dict[str, Any]:
+    OWNERSHIP.require_writes()
+    if amount < ZERO:
+        # 现金减少 = 增险：全组合抵押门闩 + user 行锁 + 交易后 E 检查
+        deps = await _deps_for_cash_write(db, target_id)
+        await db.commit()  # release discovery connection before waiting on gates
+        async with GATES.hold(shared=deps.groups):
+            async with managed_transaction(db):
+                u = await _lock_user(db, target_id)
+                decision = await check_cash_spend(
+                    db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
+                    partial_pct=ONE, now=_utcnow(),
+                )
+                if not decision.allowed:
+                    raise AdminUserError(409, f"管理扣款被统一信贷拒绝：{_risk_deny_detail(decision)}")
+                if u.cash + amount < 0:
+                    raise AdminUserError(400, f"操作后现金为 {u.cash + amount}，不能为负")
+                new_cash = await _apply_cash_change(
+                    db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+                )
+                bump_economic_version(u)
+    else:
+        # 充值 / 赠予不恶化保证金，冻结期也允许（spec §4.1）
+        async with managed_transaction(db):
+            u = await _lock_user(db, target_id)
+            new_cash = await _apply_cash_change(
+                db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+            )
+            bump_economic_version(u)
+    return {
+        "user_id": u.id, "username": u.username,
+        "amount": float(amount), "new_cash": _money(new_cash), "reason": reason,
+    }
+
+
 async def force_loan(
     db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
 ) -> Dict[str, Any]:
@@ -78,6 +239,20 @@ async def force_loan(
     rate = await site_config.get_decimal(db, "loan_daily_rate")
     if await db.get(User, target_id) is None:
         raise AdminUserError(404, "用户不存在")
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _force_loan_legacy(
+            db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id, rate=rate,
+        )
+    return await _force_loan_unified(
+        db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id,
+        rate=rate, thresholds=thresholds,
+    )
+
+
+async def _force_loan_legacy(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int, rate: Decimal,
+) -> Dict[str, Any]:
     try:
         u = await loan_service.increase_debt(
             db, target_id, amount, grant_cash=True, daily_rate=rate,
@@ -91,12 +266,55 @@ async def force_loan(
     return {"user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt)}
 
 
+async def _force_loan_unified(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
+    rate: Decimal, thresholds: RiskThresholds,
+) -> Dict[str, Any]:
+    OWNERSHIP.require_writes()
+    # 新增债务（即使现金同增）：必须用完整组合抵押估值做交易后 E 检查
+    deps = await discover_dependencies(db, target_id)
+    await db.commit()
+    async with GATES.hold(shared=deps.groups):
+        try:
+            async with managed_transaction(db):
+                u = await _lock_user(db, target_id)
+                post = PostTradeState(cash=deps.cash + amount, debt=deps.debt + amount)
+                decision = await check_new_risk(
+                    db, user=u, deps=deps, post=post, thresholds=thresholds,
+                    partial_pct=ONE, now=_utcnow(),
+                )
+                if not decision.allowed:
+                    raise AdminUserError(409, f"强制放贷被统一信贷拒绝：{_risk_deny_detail(decision)}")
+                OWNERSHIP.require_writes()
+                u = await loan_service.increase_debt(
+                    db, target_id, amount, grant_cash=True, daily_rate=rate,
+                    source="admin_force_loan", operator_user_id=admin_id, reason=reason,
+                )
+        except (ValueError, loan_service.LoanServiceError) as e:
+            raise AdminUserError(400, str(e))
+    await db.refresh(u)
+    return {"user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt)}
+
+
 async def forgive_debt(
     db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
 ) -> Dict[str, Any]:
     rate = await site_config.get_decimal(db, "loan_daily_rate")
     if await db.get(User, target_id) is None:
         raise AdminUserError(404, "用户不存在")
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _forgive_debt_legacy(
+            db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id, rate=rate,
+        )
+    return await _forgive_debt_unified(
+        db, target_id=target_id, amount=amount, reason=reason, admin_id=admin_id, rate=rate,
+    )
+
+
+async def _forgive_debt_legacy(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int, rate: Decimal,
+) -> Dict[str, Any]:
     try:
         u, effective = await loan_service.decrease_debt(
             db, target_id, amount, consume_cash=False, daily_rate=rate,
@@ -106,6 +324,30 @@ async def forgive_debt(
         await db.rollback()
         raise AdminUserError(400, str(e))
     await db.commit()
+    await db.refresh(u)
+    return {
+        "user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt),
+        "effective": _money(effective),
+    }
+
+
+async def _forgive_debt_unified(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int, rate: Decimal,
+) -> Dict[str, Any]:
+    """债务核销（显式运营动作）：只减债，不可能恶化初始保证金，无需 E 检查。
+
+    ledger 审计本身带 operator + reason；即使 effective=0 而只结息，也要自增版本。
+    """
+    OWNERSHIP.require_writes()
+    try:
+        async with managed_transaction(db):
+            await _lock_user(db, target_id)
+            u, effective = await loan_service.decrease_debt(
+                db, target_id, amount, consume_cash=False, daily_rate=rate,
+                source="admin_forgive_debt", operator_user_id=admin_id, reason=reason,
+            )
+    except (ValueError, loan_service.LoanServiceError) as e:
+        raise AdminUserError(400, str(e))
     await db.refresh(u)
     return {
         "user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt),
@@ -248,10 +490,25 @@ async def batch_adjust_cash(
             "matched_users": matched,
         }
 
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _batch_adjust_cash_legacy(
+            db, f=f, amount=amount, reason=reason, admin_id=admin_id,
+        )
+    return await _batch_adjust_cash_unified(
+        db, users=preview, amount=amount, reason=reason, admin_id=admin_id,
+        thresholds=thresholds,
+    )
+
+
+async def _batch_adjust_cash_legacy(
+    db: AsyncSession, *, f: UserFilter, amount: Decimal, reason: str, admin_id: int,
+) -> Dict[str, Any]:
     updated: List[Dict[str, Any]] = []
     failed: List[Dict[str, Any]] = []
     async with managed_transaction(db):
         for u in await _lock_users(db, f):
+            OWNERSHIP.require_writes()
             new_cash = u.cash + amount
             if new_cash < 0:
                 failed.append({
@@ -277,6 +534,94 @@ async def batch_adjust_cash(
         "total_delta": _money(Decimal(len(updated)) * amount),
         "updated": updated, "failed": failed,
     }
+
+
+async def _batch_adjust_cash_unified(
+    db: AsyncSession, *, users: List[User], amount: Decimal, reason: str, admin_id: int,
+    thresholds: RiskThresholds,
+) -> Dict[str, Any]:
+    """统一模式：逐用户「门闩 → 行锁 → 版本复检 → E 检查 → 提交」。
+
+    每用户独立短事务，避免批量操作长期持有大量品种门闩；单用户失败只跳过该用户，
+    与 legacy 的 failed 记录语义一致。
+    """
+    OWNERSHIP.require_writes()
+    updated: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for u in users:
+        try:
+            ok, record = await _batch_adjust_one(
+                db, user_id=int(u.id), amount=amount, reason=reason,
+                admin_id=admin_id, thresholds=thresholds,
+            )
+        except AdminUserError as e:
+            ok, record = False, {
+                "user_id": int(u.id), "username": u.username, "reason": e.detail,
+                "cash_before": None, "would_be": None,
+            }
+        (updated if ok else failed).append(record)
+    return {
+        "dry_run": False,
+        "updated_count": len(updated), "failed_count": len(failed),
+        "total_delta": _money(Decimal(len(updated)) * amount),
+        "updated": updated, "failed": failed,
+    }
+
+
+async def _batch_adjust_one(
+    db: AsyncSession, *, user_id: int, amount: Decimal, reason: str, admin_id: int,
+    thresholds: RiskThresholds,
+) -> tuple[bool, Dict[str, Any]]:
+    if amount < ZERO:
+        deps = await _deps_for_cash_write(db, user_id)
+        await db.commit()
+        async with GATES.hold(shared=deps.groups):
+            async with managed_transaction(db):
+                u = await _lock_user(db, user_id)
+                new_cash = u.cash + amount
+                if new_cash < 0:
+                    return False, {
+                        "user_id": u.id, "username": u.username,
+                        "reason": "操作后现金为负，已跳过",
+                        "cash_before": _money(u.cash), "would_be": _money(new_cash),
+                    }
+                decision = await check_cash_spend(
+                    db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
+                    partial_pct=ONE, now=_utcnow(),
+                )
+                if not decision.allowed:
+                    return False, {
+                        "user_id": u.id, "username": u.username,
+                        "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
+                        "cash_before": _money(u.cash), "would_be": _money(new_cash),
+                    }
+                before = u.cash
+                new_cash = await _apply_cash_change(
+                    db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+                )
+                bump_economic_version(u)
+                return True, {
+                    "user_id": u.id, "username": u.username,
+                    "cash_before": _money(before), "cash_after": _money(new_cash),
+                }
+    async with managed_transaction(db):
+        u = await _lock_user(db, user_id)
+        new_cash = u.cash + amount
+        if new_cash < 0:
+            return False, {
+                "user_id": u.id, "username": u.username,
+                "reason": "操作后现金为负，已跳过",
+                "cash_before": _money(u.cash), "would_be": _money(new_cash),
+            }
+        before = u.cash
+        new_cash = await _apply_cash_change(
+            db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+        )
+        bump_economic_version(u)
+        return True, {
+            "user_id": u.id, "username": u.username,
+            "cash_before": _money(before), "cash_after": _money(new_cash),
+        }
 
 
 async def amnesty(
@@ -315,12 +660,30 @@ async def amnesty(
             "matched_users": rows,
         }
 
+    thresholds = _unified_thresholds()
+    if thresholds is None:
+        return await _amnesty_legacy(
+            db, f=f, reset_cash_to=reset_cash_to, forgive_debt=forgive_debt,
+            reason=reason, admin_id=admin_id, rate=rate,
+        )
+    return await _amnesty_unified(
+        db, users=preview, reset_cash_to=reset_cash_to, forgive_debt=forgive_debt,
+        reason=reason, admin_id=admin_id, rate=rate, thresholds=thresholds,
+    )
+
+
+async def _amnesty_legacy(
+    db: AsyncSession, *, f: UserFilter, reset_cash_to: Decimal, forgive_debt: bool,
+    reason: str, admin_id: int, rate: Decimal,
+) -> Dict[str, Any]:
     updated: List[Dict[str, Any]] = []
     total_cash_delta = Decimal("0")
     total_forgiven = Decimal("0")
     async with managed_transaction(db):
         for u in await _lock_users(db, f):
+            OWNERSHIP.require_writes()
             cash_before, debt_before = u.cash, u.debt
+            OWNERSHIP.require_writes()
             forgiven = Decimal("0")
             if forgive_debt and u.debt > 0:
                 # 先显式结息，再按结息后的全额清零。同一个 now 传给 decrease_debt_locked，
@@ -334,6 +697,7 @@ async def amnesty(
                 assert u.debt == 0 and u.debt_last_accrued_at is None
             else:
                 interest = Decimal("0")
+            OWNERSHIP.require_writes()
             cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
             u.cash = reset_cash_to
             await ledger_service.record_entry(
@@ -360,3 +724,118 @@ async def amnesty(
         "total_debt_forgiven": _money(total_forgiven),
         "updated": updated,
     }
+
+
+async def _amnesty_unified(
+    db: AsyncSession, *, users: List[User], reset_cash_to: Decimal, forgive_debt: bool,
+    reason: str, admin_id: int, rate: Decimal, thresholds: RiskThresholds,
+) -> Dict[str, Any]:
+    OWNERSHIP.require_writes()
+    updated: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    total_cash_delta = Decimal("0")
+    total_forgiven = Decimal("0")
+    for u in users:
+        try:
+            ok, record, cash_delta, forgiven = await _amnesty_one(
+                db, user_id=int(u.id), reset_cash_to=reset_cash_to, forgive_debt=forgive_debt,
+                reason=reason, admin_id=admin_id, rate=rate, thresholds=thresholds,
+            )
+        except AdminUserError as e:
+            ok, record, cash_delta, forgiven = False, {
+                "user_id": int(u.id), "username": u.username, "reason": e.detail,
+            }, Decimal("0"), Decimal("0")
+        if ok:
+            updated.append(record)
+            total_cash_delta += cash_delta
+            total_forgiven += forgiven
+        else:
+            failed.append(record)
+    return {
+        "dry_run": False,
+        "updated_count": len(updated), "failed_count": len(failed),
+        "reset_cash_to": _money(reset_cash_to),
+        "forgive_debt": forgive_debt,
+        "total_cash_delta": _money(total_cash_delta),
+        "total_debt_forgiven": _money(total_forgiven),
+        "updated": updated, "failed": failed,
+    }
+
+
+async def _amnesty_one(
+    db: AsyncSession, *, user_id: int, reset_cash_to: Decimal, forgive_debt: bool,
+    reason: str, admin_id: int, rate: Decimal, thresholds: RiskThresholds,
+) -> tuple[bool, Dict[str, Any], Decimal, Decimal]:
+    """单用户大赦（自带门闩/事务）；返回 (是否成功, 记录, cash_delta, forgiven)。"""
+    if forgive_debt:
+        # 债务将清零 → cache-only 快路径足够（有债时 _deps_for_cash_write 仍会完整发现）
+        deps = await _deps_for_cash_write(db, user_id)
+    else:
+        # 债务保留：现金下调可能触碰初始门槛，必须完整组合估值
+        deps = await discover_dependencies(db, user_id)
+    await db.commit()
+    async with GATES.hold(shared=deps.groups):
+        async with managed_transaction(db):
+            u = await _lock_user(db, user_id)
+            if economic_version_of(u) != deps.economic_version:
+                # post.cash 是绝对值，不能被 _rebase_post 的增量语义重放；安全跳过
+                return False, {
+                    "user_id": u.id, "username": u.username,
+                    "cash_before": _money(u.cash), "debt_before": _money(u.debt),
+                    "reason": "经济版本冲突（并发写入），已跳过",
+                }, ZERO, ZERO
+            cash_before, debt_before = u.cash, u.debt
+            now = loan_service._compat_now(u)
+            # check_new_risk itself accrues interest from the persistent debt.
+            post_debt = ZERO if forgive_debt else u.debt
+            decision = await check_new_risk(
+                db, user=u, deps=deps,
+                post=PostTradeState(cash=reset_cash_to, debt=post_debt),
+                thresholds=thresholds, partial_pct=ONE, now=now,
+            )
+            writeoff = forgive_debt and post_debt <= ZERO
+            freeze_reason = decision.reason in (REASON_CREDIT_FROZEN, REASON_FROZEN_BY_OPERATOR)
+            if not decision.allowed and not (writeoff and freeze_reason):
+                return False, {
+                    "user_id": u.id, "username": u.username,
+                    "cash_before": _money(cash_before), "debt_before": _money(debt_before),
+                    "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
+                }, ZERO, ZERO
+            if not decision.allowed:
+                # 显式运营核销（ledger 审计带 operator+reason）：允许越过坏账冻结
+                logger.warning(
+                    "amnesty: 显式核销越过冻结 user_id=%s reason=%s operator=%s",
+                    u.id, reason, admin_id,
+                )
+            OWNERSHIP.require_writes()
+            forgiven = Decimal("0")
+            if forgive_debt and u.debt > 0:
+                # 先显式结息，再按结息后的全额清零。同一个 now 传给 decrease_debt_locked，
+                # 其内部再次 accrue 才是真正的 no-op（不同 now 会留灰尘债，审计 M2）
+                loan_service.accrue_interest(u, rate, now)
+                interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
+                forgiven = await loan_service.decrease_debt_locked(
+                    db, u, u.debt, consume_cash=False, daily_rate=rate, now=now,
+                )
+                assert u.debt == 0 and u.debt_last_accrued_at is None
+            else:
+                interest = Decimal("0")
+            OWNERSHIP.require_writes()
+            cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
+            u.cash = reset_cash_to
+            await ledger_service.record_entry(
+                db, user=u, entry_type="admin_amnesty",
+                cash_delta=cash_delta, debt_delta=-forgiven,
+                daily_rate=rate if forgiven > 0 else None,
+                operator_user_id=admin_id, reason=reason,
+                interest_accrued=interest,
+            )
+            if economic_version_of(u) == deps.economic_version:
+                bump_economic_version(u)
+            record = {
+                "user_id": u.id, "username": u.username,
+                "cash_before": _money(cash_before), "cash_after": _money(u.cash),
+                "debt_before": _money(debt_before), "debt_after": _money(u.debt),
+                "debt_forgiven": _money(forgiven),
+            }
+            return True, record, cash_delta, forgiven

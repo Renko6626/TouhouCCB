@@ -284,3 +284,14 @@ async def test_shutdown_step_failure_does_not_block_cleanup(startup, monkeypatch
                     "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
         assert stopped in startup, f"单步失败后缺少 {stopped}"
     assert own.released is True
+
+
+async def test_unified_sqladmin_economic_views_are_read_only():
+    from app.core.admin import UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin
+    views = (UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin)
+    try:
+        main._configure_admin_economic_writes(True)
+        assert all(not view.can_create and not view.can_edit and not view.can_delete for view in views)
+    finally:
+        main._configure_admin_economic_writes(False)
+    assert all(view.can_create and view.can_edit and view.can_delete for view in views)
