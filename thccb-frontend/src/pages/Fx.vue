@@ -1,21 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import {
-  CandlestickSeries,
-  ColorType,
-  HistogramSeries,
-  createChart,
-  type CandlestickData,
-  type HistogramData,
-  type IChartApi,
-  type ISeriesApi,
-  type Time,
-  type UTCTimestamp,
-} from 'lightweight-charts'
-import {
   computeMinOut,
+  divideFxAmount,
   formatFxAmount,
+  formatFxPrice,
   fxApi,
   FxOrderSubmitter,
   fxOrderSignature,
@@ -26,8 +16,9 @@ import {
 } from '@/api/fx'
 import { userApi } from '@/api/user'
 import type {
-  FxChartPoint,
+  FxChartInterval,
   FxPairPublic,
+  FxPriceTick,
   FxPublicFrame,
   FxPublicNews,
   FxQuote,
@@ -36,15 +27,11 @@ import type {
   FxTradePublic,
   FxWalletPublic,
 } from '@/types/fx'
-import { getPalette, withAlpha } from '@/utils/palette'
+import FxCandleChart from '@/components/chart/FxCandleChart.vue'
 
 defineOptions({ name: 'FxPage' })
 
 const msg = useMessage()
-
-type FxInterval = '1m' | '15m' | '1h'
-const INTERVAL_SECONDS: Record<FxInterval, number> = { '1m': 60, '15m': 900, '1h': 3600 }
-const LOOKBACK_MINUTES: Record<FxInterval, number> = { '1m': 480, '15m': 1200, '1h': 4800 }
 
 interface FxDisplaySummary {
   fx_mtm: number
@@ -61,11 +48,13 @@ const trades = ref<FxTradePublic[]>([])
 const wallet = ref<FxWalletPublic | null>(null)
 const newsFeed = ref<FxPublicNews[]>([])
 const streamConnected = ref(false)
+/** 图表周期性刷新/成交后强制重载用；同时把 SSE 价格转发给图表组件 */
+const chartReloadToken = ref(0)
+const lastTick = ref<FxPriceTick | null>(null)
+const priceDirection = ref<'up' | 'down' | 'neutral'>('neutral')
 
-const intervals: FxInterval[] = ['1m', '15m', '1h']
-const interval = ref<FxInterval>('1m')
-const candleCount = ref(0)
-const candles = ref<FxChartPoint[]>([])
+const intervals: FxChartInterval[] = ['1m', '15m', '1h']
+const interval = ref<FxChartInterval>('1m')
 
 const side = ref<FxSide>('buy')
 const amount = ref('')
@@ -81,8 +70,14 @@ const summary = ref<FxDisplaySummary | null>(null)
 const activePair = computed(() => pairs.value.find((p) => p.id === pairId.value) ?? null)
 const tradable = computed(() => activePair.value?.status === 'trading')
 const currencyName = computed(() => activePair.value?.currency_name ?? '外币')
+/** 交易面板顶部按方向显示对应的有效买卖价 */
+const sidePrice = computed(() =>
+  side.value === 'buy' ? snapshot.value?.buy_price : snapshot.value?.sell_price,
+)
 
-const amountValid = computed(() => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && Number(amount.value) > 0)
+const amountValid = computed(
+  () => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && Number(amount.value) > 0,
+)
 const effectiveSlippageBps = computed(() => {
   const v = Number(slippageBps.value)
   if (!Number.isFinite(v)) return 0
@@ -91,6 +86,7 @@ const effectiveSlippageBps = computed(() => {
 const minOut = computed(() =>
   quote.value ? computeMinOut(quote.value.output_amount, effectiveSlippageBps.value) : '',
 )
+const minOutDisplay = computed(() => (minOut.value ? formatFxAmount(minOut.value) : '—'))
 // 后端 effective_price = output/input：buy 是「外币/金」，sell 是「金/外币」。
 // 滑点统一折算成「金/外币」再与 snapshot.price（边际汇率，金/外币）比较。
 const effectiveGoldPerForeign = computed(() => {
@@ -109,157 +105,8 @@ const fxPnlPositive = computed(() => (summary.value?.fx_unrealized_pnl ?? 0) >= 
 const walletAvgCost = computed(() => {
   const w = wallet.value
   if (!w) return null
-  const amount = Number(w.foreign_amount)
-  const cost = Number(w.cost_basis)
-  if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(cost)) return null
-  return cost / amount
+  return divideFxAmount(w.cost_basis, w.foreign_amount, 12)
 })
-const priceDirection = computed(() => {
-  if (candles.value.length < 2) return 'neutral'
-  const first = candles.value[0]!.o
-  const last = candles.value[candles.value.length - 1]!.c
-  if (last > first) return 'up'
-  if (last < first) return 'down'
-  return 'neutral'
-})
-
-// ── 图表 ──
-const chartRef = ref<HTMLDivElement | null>(null)
-const chartLoading = ref(false)
-let chartInstance: IChartApi | null = null
-let candleSeries: ISeriesApi<'Candlestick', Time> | null = null
-let volumeSeries: ISeriesApi<'Histogram', Time> | null = null
-let resizeObserver: ResizeObserver | null = null
-
-const toTimestamp = (iso: string): UTCTimestamp =>
-  Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp
-
-function ensureChart() {
-  if (chartInstance || !chartRef.value) return
-  chartInstance = createChart(chartRef.value, {
-    layout: {
-      background: { type: ColorType.Solid, color: '#ffffff' },
-      textColor: '#333',
-    },
-    grid: {
-      vertLines: { color: '#e0e0e0', style: 1 },
-      horzLines: { color: '#e0e0e0', style: 1 },
-    },
-    rightPriceScale: {
-      borderColor: '#000',
-      scaleMargins: { top: 0.15, bottom: 0.25 },
-    },
-    timeScale: { borderColor: '#000', timeVisible: true },
-    crosshair: { mode: 1 },
-    width: chartRef.value.clientWidth,
-    height: chartRef.value.clientHeight || 360,
-  })
-  const palette = getPalette()
-  candleSeries = chartInstance.addSeries(CandlestickSeries, {
-    upColor: palette.up,
-    downColor: palette.down,
-    wickUpColor: palette.up,
-    wickDownColor: palette.down,
-    borderVisible: false,
-  })
-  volumeSeries = chartInstance.addSeries(HistogramSeries, {
-    color: '#94a3b8',
-    priceFormat: { type: 'volume' },
-    priceScaleId: '',
-  })
-  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } })
-  if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry || !chartInstance) return
-      chartInstance.applyOptions({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      })
-    })
-    resizeObserver.observe(chartRef.value)
-  }
-}
-
-function renderCandles(points: FxChartPoint[]) {
-  if (!candleSeries || !volumeSeries) return
-  const palette = getPalette()
-  const candleData: CandlestickData<UTCTimestamp>[] = points.map((c) => ({
-    time: toTimestamp(c.t),
-    open: c.o,
-    high: c.h,
-    low: c.l,
-    close: c.c,
-  }))
-  const volumeData: HistogramData<UTCTimestamp>[] = points.map((c) => ({
-    time: toTimestamp(c.t),
-    value: c.v,
-    color: withAlpha(c.c >= c.o ? palette.up : palette.down, 0x80),
-  }))
-  candleSeries.setData(candleData)
-  volumeSeries.setData(volumeData)
-  candleCount.value = points.length
-  chartInstance?.timeScale().fitContent()
-}
-
-function applyFrameToChart(price: number) {
-  if (!candleSeries || !Number.isFinite(price) || price <= 0) return
-  const step = INTERVAL_SECONDS[interval.value]
-  const bucket = Math.floor(Date.now() / 1000 / step) * step
-  const last = candles.value[candles.value.length - 1]
-  if (!last) {
-    const point: FxChartPoint = {
-      t: new Date(bucket * 1000).toISOString(),
-      o: price,
-      h: price,
-      l: price,
-      c: price,
-      v: 0,
-    }
-    candles.value = [point]
-    candleSeries.update({ time: bucket as UTCTimestamp, open: price, high: price, low: price, close: price })
-    return
-  }
-  const lastTs = Math.floor(new Date(last.t).getTime() / 1000)
-  if (bucket === lastTs) {
-    last.h = Math.max(last.h, price)
-    last.l = Math.min(last.l, price)
-    last.c = price
-    candleSeries.update({
-      time: lastTs as UTCTimestamp,
-      open: last.o,
-      high: last.h,
-      low: last.l,
-      close: last.c,
-    })
-  } else if (bucket > lastTs) {
-    const point: FxChartPoint = {
-      t: new Date(bucket * 1000).toISOString(),
-      o: last.c,
-      h: Math.max(last.c, price),
-      l: Math.min(last.c, price),
-      c: price,
-      v: 0,
-    }
-    candles.value = [...candles.value, point]
-    candleSeries.update({
-      time: bucket as UTCTimestamp,
-      open: point.o,
-      high: point.h,
-      low: point.l,
-      close: point.c,
-    })
-  } else {
-    last.c = price
-    candleSeries.update({
-      time: lastTs as UTCTimestamp,
-      open: last.o,
-      high: last.h,
-      low: last.l,
-      close: last.c,
-    })
-  }
-}
 
 // ── 数据加载 ──
 async function loadPairs() {
@@ -312,28 +159,8 @@ async function loadSummary() {
   }
 }
 
-async function loadChart() {
-  const pid = pairId.value
-  if (!pid) return
-  chartLoading.value = true
-  try {
-    const to = new Date()
-    const from = new Date(to.getTime() - LOOKBACK_MINUTES[interval.value] * 60_000)
-    const points = await fxApi.getChart(pid, interval.value, from.toISOString(), to.toISOString())
-    candles.value = points
-    await nextTick()
-    ensureChart()
-    renderCandles(points)
-  } catch (e) {
-    // 图表失败不影响行情与交易
-    console.error('[Fx] loadChart failed', e)
-  } finally {
-    chartLoading.value = false
-  }
-}
-
 async function refreshAll() {
-  await Promise.allSettled([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadChart()])
+  await Promise.allSettled([loadSnapshot(), loadTrades(), loadWallet(), loadSummary()])
 }
 
 // ── SSE ──
@@ -342,6 +169,12 @@ function onFrame(frame: FxPublicFrame) {
   if (frame.price === undefined && frame.news === undefined) return
   const current = snapshot.value
   if (current) {
+    const prev = Number(current.price)
+    const next = frame.price !== undefined ? Number(frame.price) : null
+    if (next !== null && Number.isFinite(next) && Number.isFinite(prev)) {
+      if (next > prev) priceDirection.value = 'up'
+      else if (next < prev) priceDirection.value = 'down'
+    }
     snapshot.value = {
       ...current,
       price: frame.price ?? current.price,
@@ -351,7 +184,8 @@ function onFrame(frame: FxPublicFrame) {
       volume_24h: frame.volume ?? current.volume_24h,
     }
   }
-  if (frame.price !== undefined) applyFrameToChart(Number(frame.price))
+  // 价格保持字符串语义转发给图表；图表内部才在适配层转 number
+  if (frame.price !== undefined) lastTick.value = { price: frame.price, ts: Date.now() }
   if (frame.news) {
     const signature = `${frame.news.published_at ?? ''}|${frame.news.title ?? ''}`
     const exists = newsFeed.value.some(
@@ -382,10 +216,11 @@ async function selectPair(id: number) {
   quote.value = null
   tradeError.value = null
   newsFeed.value = []
-  candles.value = []
   wallet.value = null
+  snapshot.value = null
+  lastTick.value = null
   try {
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadChart()])
+    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary()])
     connectStream()
   } catch (e) {
     error.value = mapFxError(e, 'FX 行情加载失败')
@@ -398,7 +233,7 @@ async function load() {
   try {
     await loadPairs()
     if (pairId.value === null) return
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadChart()])
+    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary()])
     connectStream()
   } catch (e) {
     error.value = mapFxError(e, 'FX 行情加载失败')
@@ -491,6 +326,7 @@ async function submitTrade() {
     amount.value = ''
     quote.value = null
     await refreshAll()
+    chartReloadToken.value += 1
   } catch (e) {
     if (isConflictError(e)) {
       // 409：行情/幂等冲突，刷新 snapshot 后重新报价；参数一致时复用同一幂等键。
@@ -509,10 +345,9 @@ function setSide(next: FxSide) {
   scheduleQuote()
 }
 
-function setChartInterval(next: FxInterval) {
+function setChartInterval(next: FxChartInterval) {
   if (interval.value === next) return
   interval.value = next
-  void loadChart()
 }
 
 function onPairChange(event: Event) {
@@ -526,6 +361,21 @@ function formatTime(iso: string | null | undefined): string {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : '—'
 }
 
+const statusLabel = computed(() => {
+  switch (activePair.value?.status) {
+    case 'trading':
+      return '交易中'
+    case 'paused':
+      return '暂停'
+    case 'closed':
+      return '已闭市'
+    case 'draft':
+      return '草稿'
+    default:
+      return '未知'
+  }
+})
+
 watch([amount, side], scheduleQuote)
 
 onMounted(load)
@@ -534,42 +384,64 @@ onUnmounted(() => {
   if (quoteTimer) clearTimeout(quoteTimer)
   stream?.disconnect()
   stream = null
-  if (resizeObserver) {
-    resizeObserver.disconnect()
-    resizeObserver = null
-  }
-  if (chartInstance) {
-    chartInstance.remove()
-    chartInstance = null
-  }
-  candleSeries = null
-  volumeSeries = null
 })
 </script>
 
 <template>
   <div class="fx-page">
-    <div class="fx-head">
-      <div>
+    <!-- ── 顶部行情条：货币对 / 状态 / 当前价 / 关键报价 ── -->
+    <header class="fx-topbar">
+      <div class="fx-topbar-id">
         <h1 class="fx-title">幻想外汇</h1>
-        <p class="fx-sub">金圆券 ↔ 幻想外币。第一版只有一个货币对，不做杠杆、做空或限价单。</p>
+        <div class="fx-pair-row">
+          <select
+            id="fx-pair"
+            class="fx-pair-select"
+            :value="pairId ?? ''"
+            :disabled="pairs.length === 0"
+            aria-label="选择货币对"
+            @change="onPairChange"
+          >
+            <option v-if="pairs.length === 0" value="">暂无货币对</option>
+            <option v-for="p in pairs" :key="p.id" :value="p.id">
+              {{ p.currency_name }}（{{ p.currency_code }}）
+            </option>
+          </select>
+          <span v-if="activePair" class="fx-status" :class="`fx-status-${activePair.status}`">
+            {{ statusLabel }}
+          </span>
+          <span
+            class="fx-stream-dot"
+            :class="{ on: streamConnected }"
+            :title="streamConnected ? '实时已连接' : '实时未连接'"
+          ></span>
+        </div>
       </div>
-      <div class="fx-pair-select">
-        <label for="fx-pair">货币对</label>
-        <select
-          id="fx-pair"
-          :value="pairId ?? ''"
-          :disabled="pairs.length === 0"
-          @change="onPairChange"
-        >
-          <option v-if="pairs.length === 0" value="">暂无货币对</option>
-          <option v-for="p in pairs" :key="p.id" :value="p.id">
-            {{ p.currency_name }}（{{ p.currency_code }}）· {{ p.status }}
-          </option>
-        </select>
-        <span class="fx-stream-dot" :class="{ on: streamConnected }" :title="streamConnected ? '实时已连接' : '实时未连接'"></span>
+
+      <div class="fx-topbar-price">
+        <span class="fx-topbar-label">边际汇率 · 金 / 1 {{ currencyName }}</span>
+        <span class="fx-price" :class="priceDirection">{{ formatFxPrice(snapshot?.price) }}</span>
       </div>
-    </div>
+
+      <div class="fx-topbar-stats">
+        <div class="fx-stat">
+          <span>买入价 ask</span>
+          <b class="up">{{ formatFxPrice(snapshot?.buy_price) }}</b>
+        </div>
+        <div class="fx-stat">
+          <span>卖出价 bid</span>
+          <b class="down">{{ formatFxPrice(snapshot?.sell_price) }}</b>
+        </div>
+        <div class="fx-stat">
+          <span>价差</span>
+          <b>{{ formatFxPrice(snapshot?.spread) }}</b>
+        </div>
+        <div class="fx-stat">
+          <span>24h 成交量</span>
+          <b>{{ formatFxAmount(snapshot?.volume_24h) }}</b>
+        </div>
+      </div>
+    </header>
 
     <div v-if="loading" class="fx-state">行情加载中…</div>
     <div v-else-if="error" class="fx-state fx-state-error">
@@ -582,81 +454,52 @@ onUnmounted(() => {
 
     <template v-else>
       <div v-if="!tradable" class="fx-notice">
-        当前货币对状态为「{{ activePair.status }}」，仅可查看行情，不能买卖。
+        当前货币对状态为「{{ statusLabel }}」，仅可查看行情，不能买卖。
       </div>
 
-      <!-- 行情快照 -->
-      <section class="fx-panel fx-quote-panel">
-        <div class="fx-quote-main">
-          <div class="fx-quote-label">有效买入价（买入外币）</div>
-          <div class="fx-quote-value" :class="priceDirection">
-            {{ formatFxAmount(snapshot?.buy_price) }}
-          </div>
-          <div class="fx-quote-unit">金 / 1 {{ currencyName }}</div>
-        </div>
-        <div class="fx-quote-grid">
-          <div class="fx-metric">
-            <span>边际汇率</span>
-            <strong>{{ formatFxAmount(snapshot?.price) }}</strong>
-          </div>
-          <div class="fx-metric">
-            <span>有效卖出价（卖出外币）</span>
-            <strong>{{ formatFxAmount(snapshot?.sell_price) }}</strong>
-          </div>
-          <div class="fx-metric">
-            <span>买卖价差（买入价 − 卖出价）</span>
-            <strong>{{ formatFxAmount(snapshot?.spread) }}</strong>
-          </div>
-          <div class="fx-metric">
-            <span>24h 成交量（金圆券口径）</span>
-            <strong>{{ formatFxAmount(snapshot?.volume_24h) }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <!-- 图表 -->
-      <section class="fx-panel">
-        <div class="fx-panel-head">
-          <h2>价格走势</h2>
-          <div class="fx-intervals">
-            <button
-              v-for="iv in intervals"
-              :key="iv"
-              class="fx-interval"
-              :class="{ active: interval === iv }"
-              @click="setChartInterval(iv)"
-            >
-              {{ iv }}
-            </button>
-          </div>
-        </div>
-        <div class="fx-chart-wrap">
-          <div ref="chartRef" class="fx-chart"></div>
-          <div v-if="chartLoading" class="fx-chart-overlay">K 线加载中…</div>
-          <div v-else-if="candleCount === 0" class="fx-chart-overlay">暂无成交，等待第一笔交易</div>
-        </div>
-      </section>
-
-      <div class="fx-columns">
-        <!-- 兑换表单 -->
-        <section class="fx-panel">
+      <!-- ── 工作台：K 线主区 + 右侧交易面板（移动端堆叠） ── -->
+      <div class="fx-workbench">
+        <section class="fx-chart-panel">
           <div class="fx-panel-head">
-            <h2>兑换</h2>
-            <span class="fx-balance">
-              现金/持仓以「我的资产」及下方估值面板为准
-            </span>
+            <div class="fx-panel-title">
+              <h2>K 线</h2>
+              <span class="fx-chart-sub">{{ currencyName }} · 金 / {{ currencyName }}</span>
+            </div>
+            <div class="fx-intervals">
+              <button
+                v-for="iv in intervals"
+                :key="iv"
+                class="fx-interval"
+                :class="{ active: interval === iv }"
+                @click="setChartInterval(iv)"
+              >
+                {{ iv }}
+              </button>
+            </div>
           </div>
+          <div class="fx-chart-body">
+            <FxCandleChart
+              v-if="pairId"
+              :pair-id="pairId"
+              :interval="interval"
+              :tick="lastTick"
+              :reload-token="chartReloadToken"
+              height="100%"
+            />
+          </div>
+        </section>
 
-          <div class="fx-side-toggle">
+        <aside class="fx-trade-panel">
+          <div class="fx-trade-tabs">
             <button
-              class="fx-side"
+              class="fx-trade-tab"
               :class="{ active: side === 'buy' }"
               @click="setSide('buy')"
             >
               买入 {{ currencyName }}
             </button>
             <button
-              class="fx-side"
+              class="fx-trade-tab"
               :class="{ active: side === 'sell' }"
               @click="setSide('sell')"
             >
@@ -664,161 +507,178 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <label class="fx-field">
-            <span>{{ side === 'buy' ? '投入金圆券' : '投入外币' }}（最多 6 位小数）</span>
-            <input
-              v-model="amount"
-              class="fx-input"
-              inputmode="decimal"
-              placeholder="0.000000"
-              :disabled="!tradable || submitting"
-            />
-          </label>
-
-          <label class="fx-field">
-            <span>最大滑点（bps，100 = 1%）</span>
-            <input
-              v-model.number="slippageBps"
-              class="fx-input"
-              type="number"
-              min="0"
-              max="10000"
-              step="1"
-              :disabled="!tradable || submitting"
-            />
-          </label>
-
-          <div class="fx-preview">
-            <div class="fx-preview-row">
-              <span>预计得到</span>
-              <strong>{{ quote ? formatFxAmount(quote.output_amount) : '—' }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>手续费</span>
-              <strong>{{ quote ? formatFxAmount(quote.fee_amount) : '—' }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>有效成交价（{{ side === 'buy' ? '外币/金' : '金/外币' }}）</span>
-              <strong>{{ quote ? formatFxAmount(quote.effective_price) : '—' }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>报价滑点 / 最大滑点</span>
-              <strong>
-                {{ quoteSlippage === null ? '—' : quoteSlippage.toFixed(2) }} bps /
-                {{ effectiveSlippageBps }} bps
+          <div class="fx-trade-body">
+            <div class="fx-trade-price">
+              <span>{{ side === 'buy' ? '有效买入价（ask）' : '有效卖出价（bid）' }}</span>
+              <strong :class="side === 'buy' ? 'up' : 'down'">
+                {{ formatFxPrice(sidePrice) }}
               </strong>
             </div>
-            <div class="fx-preview-row">
-              <span>min-out（服务端最低可接受产出）</span>
-              <strong>{{ minOut || '—' }}</strong>
+
+            <label class="fx-field">
+              <span>{{ side === 'buy' ? '投入金圆券' : '投入外币' }}（最多 6 位小数）</span>
+              <input
+                v-model="amount"
+                class="fx-input"
+                inputmode="decimal"
+                autocomplete="off"
+                placeholder="0.000000"
+                :disabled="!tradable || submitting"
+              />
+            </label>
+
+            <label class="fx-field">
+              <span>最大滑点（bps，100 = 1%）</span>
+              <input
+                v-model.number="slippageBps"
+                class="fx-input"
+                type="number"
+                min="0"
+                max="10000"
+                step="1"
+                :disabled="!tradable || submitting"
+              />
+            </label>
+
+            <div class="fx-preview">
+              <div class="fx-preview-row">
+                <span>预计得到</span>
+                <strong>{{ quote ? formatFxAmount(quote.output_amount) : '—' }}</strong>
+              </div>
+              <div class="fx-preview-row">
+                <span>手续费</span>
+                <strong>{{ quote ? formatFxAmount(quote.fee_amount) : '—' }}</strong>
+              </div>
+              <div class="fx-preview-row">
+                <span>有效成交价（{{ side === 'buy' ? '外币/金' : '金/外币' }}）</span>
+                <strong>{{ quote ? formatFxPrice(quote.effective_price) : '—' }}</strong>
+              </div>
+              <div class="fx-preview-row">
+                <span>报价滑点 / 最大滑点</span>
+                <strong>
+                  {{ quoteSlippage === null ? '—' : quoteSlippage.toFixed(2) }} bps /
+                  {{ effectiveSlippageBps }} bps
+                </strong>
+              </div>
+              <div class="fx-preview-row fx-preview-row--minout">
+                <span>min-out（服务端最低可接受产出）</span>
+                <strong>{{ minOutDisplay }}</strong>
+              </div>
+            </div>
+
+            <div class="fx-submit-state">
+              <span v-if="tradeError" class="fx-error">{{ tradeError }}</span>
+              <span v-else-if="submitting" class="fx-hint">提交中…服务端按幂等键防止重复扣款</span>
+              <span v-else-if="quoting" class="fx-hint">报价更新中…</span>
+              <span v-else class="fx-hint">
+                成交按钮提交期间会禁用；价格冲突（409）会刷新行情并重新报价。
+              </span>
+            </div>
+
+            <div class="fx-actions">
+              <button
+                class="fx-submit"
+                :class="side === 'buy' ? 'fx-submit-buy' : 'fx-submit-sell'"
+                :disabled="!tradable || submitting || !amountValid"
+                @click="submitTrade"
+              >
+                {{ submitting ? '提交中…' : side === 'buy' ? '买入' : '卖出' }}
+              </button>
+              <button
+                class="btn-secondary"
+                :disabled="quoting || !amountValid"
+                @click="fetchQuote"
+              >
+                重新报价
+              </button>
             </div>
           </div>
+        </aside>
+      </div>
 
-          <p v-if="tradeError" class="fx-error">{{ tradeError }}</p>
-          <p v-else-if="quoting" class="fx-hint">报价更新中…</p>
-
-          <div class="fx-actions">
-            <button
-              class="btn-primary"
-              :disabled="!tradable || submitting || !amountValid"
-              @click="submitTrade"
-            >
-              {{ submitting ? '提交中…' : side === 'buy' ? '买入' : '卖出' }}
-            </button>
-            <button class="btn-secondary" :disabled="quoting || !amountValid" @click="fetchQuote">
-              重新报价
-            </button>
+      <!-- ── 下方：持仓估值 / 新闻 / 成交记录 ── -->
+      <div class="fx-lower">
+        <section class="fx-block">
+          <h2>外币持仓与估值</h2>
+          <div class="fx-preview-row">
+            <span>持仓数量（{{ currencyName }}）</span>
+            <strong>{{ formatFxAmount(wallet?.foreign_amount ?? 0) }}</strong>
           </div>
-          <p class="fx-hint">
-            成交按钮提交期间会禁用，服务端按幂等键防止重复扣款；价格冲突（409）会刷新行情并重新报价。
+          <div class="fx-preview-row">
+            <span>持仓成本（金圆券）</span>
+            <strong>{{ formatFxAmount(wallet?.cost_basis ?? 0) }}</strong>
+          </div>
+          <div class="fx-preview-row">
+            <span>平均成本（金 / 外币）</span>
+            <strong>{{ walletAvgCost === null ? '—' : formatFxPrice(walletAvgCost) }}</strong>
+          </div>
+          <div class="fx-preview-row">
+            <span>持仓市值（MTM）</span>
+            <strong>{{ formatFxAmount(summary?.fx_mtm ?? 0) }}</strong>
+          </div>
+          <div class="fx-preview-row">
+            <span>浮动盈亏</span>
+            <strong :class="fxPnlPositive ? 'up' : 'down'">
+              {{ formatFxAmount(summary?.fx_unrealized_pnl ?? 0) }}
+            </strong>
+          </div>
+          <p class="fx-collateral-note">
+            FX 外币资产计入展示净值，<strong>不计入借款抵押价值</strong>，也不能直接用于预测市场、兑换商品或还款。
+            有未还借款时不能买入外币，但可以卖出取回金圆券。
           </p>
         </section>
 
-        <!-- 持仓与新闻 -->
-        <div class="fx-side-col">
-          <section class="fx-panel">
-            <h2>外币持仓与估值</h2>
-            <div class="fx-preview-row">
-              <span>持仓数量（{{ currencyName }}）</span>
-              <strong>{{ formatFxAmount(wallet?.foreign_amount ?? 0) }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>持仓成本（金圆券）</span>
-              <strong>{{ formatFxAmount(wallet?.cost_basis ?? 0) }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>平均成本（金 / 外币）</span>
-              <strong>{{ walletAvgCost === null ? '—' : formatFxAmount(walletAvgCost) }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>持仓市值（MTM）</span>
-              <strong>{{ formatFxAmount(summary?.fx_mtm ?? 0) }}</strong>
-            </div>
-            <div class="fx-preview-row">
-              <span>浮动盈亏</span>
-              <strong :class="fxPnlPositive ? 'up' : 'down'">
-                {{ formatFxAmount(summary?.fx_unrealized_pnl ?? 0) }}
-              </strong>
-            </div>
-            <p class="fx-collateral-note">
-              FX 外币资产计入展示净值，<strong>不计入借款抵押价值</strong>，也不能直接用于预测市场、兑换商品或还款。
-              有未还借款时不能买入外币，但可以卖出取回金圆券。
-            </p>
-          </section>
+        <section class="fx-block">
+          <h2>市场新闻</h2>
+          <ul v-if="newsFeed.length" class="fx-news">
+            <li v-for="(n, i) in newsFeed" :key="`${n.published_at}-${i}`">
+              <div class="fx-news-title">{{ n.title || '未命名事件' }}</div>
+              <div class="fx-news-body">{{ n.body }}</div>
+              <div class="fx-news-meta">{{ n.kind || 'macro' }} · {{ formatTime(n.published_at) }}</div>
+            </li>
+          </ul>
+          <p v-else class="fx-hint">当前没有已发布事件。新闻只包含公开标题与定性正文，不含隐藏冲击数值。</p>
+        </section>
 
-          <section class="fx-panel">
-            <h2>市场新闻</h2>
-            <ul v-if="newsFeed.length" class="fx-news">
-              <li v-for="(n, i) in newsFeed" :key="`${n.published_at}-${i}`">
-                <div class="fx-news-title">{{ n.title || '未命名事件' }}</div>
-                <div class="fx-news-body">{{ n.body }}</div>
-                <div class="fx-news-meta">{{ n.kind || 'macro' }} · {{ formatTime(n.published_at) }}</div>
-              </li>
-            </ul>
-            <p v-else class="fx-hint">当前没有已发布事件。新闻只包含公开标题与定性正文，不含隐藏冲击数值。</p>
-          </section>
-        </div>
+        <section class="fx-block fx-trades-block">
+          <div class="fx-panel-head">
+            <h2>我的成交记录</h2>
+            <button class="btn-secondary" @click="loadTrades">刷新</button>
+          </div>
+          <div class="table-wrap">
+            <table class="fx-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>方向</th>
+                  <th>投入</th>
+                  <th>产出</th>
+                  <th>手续费</th>
+                  <th>成交后价格</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="t in trades" :key="t.id">
+                  <td>{{ formatTime(t.created_at) }}</td>
+                  <td :class="t.side === 'buy' ? 'up' : 'down'">
+                    {{ t.side === 'buy' ? '买外币' : '卖外币' }}
+                  </td>
+                  <td>{{ formatFxAmount(t.input_amount) }}</td>
+                  <td>{{ formatFxAmount(t.output_amount) }}</td>
+                  <td>{{ formatFxAmount(t.fee_amount) }}</td>
+                  <td>{{ formatFxPrice(t.post_price) }}</td>
+                </tr>
+                <tr v-if="trades.length === 0">
+                  <td colspan="6" class="fx-empty-cell">暂无成交</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="fx-hint">
+            只显示当前登录用户的个人成交；公开行情（价格/K 线/新闻）见上方，不包含任何其他用户身份或隐藏事件参数。
+          </p>
+        </section>
       </div>
-
-      <!-- 成交历史 -->
-      <section class="fx-panel">
-        <div class="fx-panel-head">
-          <h2>我的成交记录</h2>
-          <button class="btn-secondary" @click="loadTrades">刷新</button>
-        </div>
-        <div class="table-wrap">
-          <table class="fx-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>方向</th>
-                <th>投入</th>
-                <th>产出</th>
-                <th>手续费</th>
-                <th>成交后价格</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="t in trades" :key="t.id">
-                <td>{{ formatTime(t.created_at) }}</td>
-                <td :class="t.side === 'buy' ? 'up' : 'down'">
-                  {{ t.side === 'buy' ? '买外币' : '卖外币' }}
-                </td>
-                <td>{{ formatFxAmount(t.input_amount) }}</td>
-                <td>{{ formatFxAmount(t.output_amount) }}</td>
-                <td>{{ formatFxAmount(t.fee_amount) }}</td>
-                <td>{{ formatFxAmount(t.post_price) }}</td>
-              </tr>
-              <tr v-if="trades.length === 0">
-                <td colspan="6" class="fx-empty-cell">暂无成交</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="fx-hint">
-          只显示当前登录用户的个人成交；公开行情（价格/K 线/新闻）见上方，不包含任何其他用户身份或隐藏事件参数。
-        </p>
-      </section>
     </template>
   </div>
 </template>
@@ -826,40 +686,60 @@ onUnmounted(() => {
 <style scoped>
 .fx-page {
   padding: 4px;
-  max-width: 1200px;
-}
-.fx-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
+  max-width: 1360px;
 }
 .fx-title {
-  margin: 0 0 4px;
-  font-size: 24px;
-  font-weight: 800;
-}
-.fx-sub {
   margin: 0;
-  color: #666;
-  font-size: 13px;
-  max-width: 560px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
 }
-.fx-pair-select {
+/* ── 顶部行情条 ── */
+.fx-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+  border: 2px solid #000;
+  background: #fff;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.fx-topbar-id {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fx-pair-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
-  color: #555;
 }
-.fx-pair-select select {
+.fx-pair-select {
   border: 2px solid #000;
   background: #fff;
-  padding: 6px 8px;
+  padding: 5px 8px;
   font-family: inherit;
   font-size: 13px;
+  font-weight: 700;
+}
+.fx-status {
+  border: 1.5px solid #000;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.fx-status-trading {
+  background: #000;
+  color: #fff;
+}
+.fx-status-paused,
+.fx-status-closed,
+.fx-status-draft {
+  background: #fff;
+  color: #555;
 }
 .fx-stream-dot {
   width: 10px;
@@ -871,6 +751,51 @@ onUnmounted(() => {
 .fx-stream-dot.on {
   background: #16a34a;
 }
+.fx-topbar-price {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+}
+.fx-topbar-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #777;
+}
+.fx-price {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+.fx-price.up { color: var(--color-up, #16a34a); }
+.fx-price.down { color: var(--color-down, #dc2626); }
+.fx-topbar-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(110px, 1fr));
+  gap: 6px 22px;
+  flex: 1;
+  min-width: 260px;
+}
+.fx-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fx-stat span {
+  font-size: 11px;
+  color: #777;
+}
+.fx-stat b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.fx-stat b.up { color: var(--color-up, #16a34a); }
+.fx-stat b.down { color: var(--color-down, #dc2626); }
+
+/* ── 状态 ── */
 .fx-state {
   border: 2px solid #000;
   padding: 24px;
@@ -887,21 +812,28 @@ onUnmounted(() => {
   border: 2px solid #b45309;
   background: #fffbeb;
   color: #92400e;
-  padding: 10px 12px;
-  margin-bottom: 14px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
   font-size: 13px;
   font-weight: 600;
 }
-.fx-panel {
+
+/* ── 工作台 ── */
+.fx-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
   border: 2px solid #000;
   background: #fff;
-  padding: 16px;
-  margin-bottom: 16px;
 }
-.fx-panel h2 {
-  margin: 0 0 10px;
-  font-size: 15px;
-  font-weight: 800;
+.fx-chart-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.fx-trade-panel {
+  display: flex;
+  flex-direction: column;
+  border-left: 2px solid #000;
 }
 .fx-panel-head {
   display: flex;
@@ -909,54 +841,22 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e0e0e0;
 }
-.fx-quote-panel {
+.fx-panel-title {
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  align-items: stretch;
+  align-items: baseline;
+  gap: 10px;
 }
-.fx-quote-main {
-  min-width: 220px;
-  border-right: 1px solid #e0e0e0;
-  padding-right: 20px;
-}
-.fx-quote-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #777;
-}
-.fx-quote-value {
-  font-size: 40px;
+.fx-panel-title h2 {
+  margin: 0;
+  font-size: 15px;
   font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.1;
 }
-.fx-quote-value.up { color: var(--color-up, #16a34a); }
-.fx-quote-value.down { color: var(--color-down, #dc2626); }
-.fx-quote-unit {
+.fx-chart-sub {
   font-size: 12px;
-  color: #777;
-}
-.fx-quote-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(120px, 1fr));
-  gap: 10px 18px;
-  flex: 1;
-}
-.fx-metric {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.fx-metric span {
-  font-size: 11px;
-  color: #777;
-}
-.fx-metric strong {
-  font-size: 16px;
+  color: #888;
   font-variant-numeric: tabular-nums;
 }
 .fx-intervals {
@@ -966,65 +866,71 @@ onUnmounted(() => {
 .fx-interval {
   border: 1.5px solid #000;
   background: #fff;
-  padding: 2px 10px;
+  padding: 2px 12px;
   font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
 }
 .fx-interval.active {
   background: #000;
   color: #fff;
 }
-.fx-chart-wrap {
-  position: relative;
-  margin-top: 10px;
-  height: 360px;
+.fx-chart-body {
+  height: 540px;
+  min-height: 0;
 }
-.fx-chart {
-  width: 100%;
-  height: 100%;
-}
-.fx-chart-overlay {
-  position: absolute;
-  inset: 0;
+
+/* ── 交易面板 ── */
+.fx-trade-tabs {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.85);
-  color: #666;
-  font-size: 13px;
+  border-bottom: 2px solid #000;
 }
-.fx-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 16px;
-}
-.fx-side-col {
-  display: flex;
-  flex-direction: column;
-}
-.fx-side-toggle {
-  display: flex;
-  border: 2px solid #000;
-  margin-bottom: 14px;
-}
-.fx-side {
+.fx-trade-tab {
   flex: 1;
-  padding: 8px;
+  padding: 10px 6px;
   background: #fff;
   border: none;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 800;
   font-size: 13px;
+  color: #555;
 }
-.fx-side.active {
+.fx-trade-tab + .fx-trade-tab {
+  border-left: 1px solid #000;
+}
+.fx-trade-tab.active {
   background: #000;
   color: #fff;
 }
+.fx-trade-body {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+}
+.fx-trade-price {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+.fx-trade-price span {
+  font-size: 12px;
+  color: #666;
+}
+.fx-trade-price strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.fx-trade-price strong.up { color: var(--color-up, #16a34a); }
+.fx-trade-price strong.down { color: var(--color-down, #dc2626); }
 .fx-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   font-size: 12px;
   color: #444;
 }
@@ -1041,8 +947,8 @@ onUnmounted(() => {
 }
 .fx-preview {
   border: 1.5px solid #000;
-  padding: 10px 12px;
-  margin: 6px 0 12px;
+  padding: 8px 10px;
+  margin: 2px 0 10px;
   background: #fafafa;
 }
 .fx-preview-row {
@@ -1057,26 +963,94 @@ onUnmounted(() => {
 }
 .fx-preview-row strong {
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .fx-preview-row strong.up { color: var(--color-up, #16a34a); }
 .fx-preview-row strong.down { color: var(--color-down, #dc2626); }
+.fx-preview-row--minout strong {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.fx-submit-state {
+  min-height: 34px;
+  display: flex;
+  align-items: flex-start;
+}
+.fx-error {
+  color: var(--color-down, #dc2626);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 0;
+}
+.fx-hint {
+  font-size: 12px;
+  color: #777;
+  line-height: 1.5;
+  margin: 0;
+}
 .fx-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
 }
-.fx-error {
-  color: var(--color-down, #dc2626);
-  font-size: 12px;
-  font-weight: 600;
-  margin: 0 0 8px;
+.fx-submit {
+  flex: 1;
+  min-width: 120px;
+  border: 2px solid #000;
+  background: #000;
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
 }
-.fx-hint {
-  font-size: 12px;
-  color: #777;
-  line-height: 1.5;
-  margin: 8px 0 0;
+.fx-submit:disabled {
+  background: #999;
+  border-color: #999;
+  cursor: not-allowed;
+}
+.fx-submit-sell {
+  background: #fff;
+  color: #000;
+}
+.fx-submit-sell:disabled {
+  background: #f0f0f0;
+  color: #999;
+  border-color: #999;
+}
+.fx-submit:not(:disabled):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 #000;
+}
+
+/* ── 下方区块 ── */
+.fx-lower {
+  margin-top: 12px;
+  border: 2px solid #000;
+  background: #fff;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.fx-block {
+  padding: 14px;
+  min-width: 0;
+}
+.fx-block:nth-child(2) {
+  border-left: 2px solid #000;
+}
+.fx-block h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.fx-trades-block {
+  grid-column: 1 / -1;
+  border-top: 2px solid #000;
+}
+.fx-trades-block .fx-panel-head {
+  padding: 0 0 8px;
+  border-bottom: none;
 }
 .fx-collateral-note {
   margin: 10px 0 0;
@@ -1086,15 +1060,11 @@ onUnmounted(() => {
   border-left: 3px solid #000;
   padding-left: 8px;
 }
-.fx-balance {
-  font-size: 11px;
-  color: #888;
-}
 .fx-news {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 320px;
+  max-height: 300px;
   overflow-y: auto;
 }
 .fx-news li {
@@ -1117,7 +1087,7 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 .table-wrap {
-  margin-top: 10px;
+  margin-top: 8px;
   overflow-x: auto;
   border: 2px solid #000;
 }
@@ -1133,6 +1103,7 @@ onUnmounted(() => {
   text-align: left;
   white-space: nowrap;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .fx-table th {
   background: #000;
@@ -1147,9 +1118,38 @@ onUnmounted(() => {
   text-align: center;
   color: #888;
 }
-@media (max-width: 900px) {
-  .fx-columns { grid-template-columns: 1fr; }
-  .fx-quote-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-  .fx-quote-main { border-right: none; padding-right: 0; }
+
+@media (max-width: 1024px) {
+  .fx-workbench {
+    grid-template-columns: 1fr;
+  }
+  .fx-trade-panel {
+    border-left: none;
+    border-top: 2px solid #000;
+  }
+  .fx-chart-body {
+    height: 400px;
+  }
+  .fx-lower {
+    grid-template-columns: 1fr;
+  }
+  .fx-block:nth-child(2) {
+    border-left: none;
+    border-top: 2px solid #000;
+  }
+  .fx-topbar-stats {
+    grid-template-columns: repeat(2, minmax(110px, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .fx-price {
+    font-size: 26px;
+  }
+  .fx-chart-body {
+    height: 320px;
+  }
+  .fx-submit {
+    flex-basis: 100%;
+  }
 }
 </style>

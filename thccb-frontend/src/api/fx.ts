@@ -60,6 +60,36 @@ const FX_ERROR_DETAILS: Record<string, string> = {
 
 // ── 金额格式化（十进制字符串，half-up，不丢精度） ──
 
+/**
+ * 把 JS `Number` 可能产生的科学计数法字符串（如 `1e-7`、`1.23e+21`）展开为
+ * 普通十进制字符串，供字符串版 formatter 使用。非科学计数法原样返回；
+ * 无法安全展开时返回 null。
+ *
+ * 只有「lightweight-charts 必须要 number」的图表适配层才会把价格先变成
+ * number，再经这里还原成字符串格式化，避免精度在展示前丢失。
+ */
+export function expandExponential(raw: string): string | null {
+  const trimmed = raw.trim()
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/.exec(trimmed)
+  if (!match) return trimmed
+  const sign = match[1] === '-' ? '-' : ''
+  const intDigits = match[2]!
+  const fracDigits = match[3] ?? ''
+  const exponent = Number(match[4])
+  if (!Number.isFinite(exponent) || Math.abs(exponent) > 200) return null
+  const digits = intDigits + fracDigits
+  const point = intDigits.length + exponent
+  let body: string
+  if (point <= 0) {
+    body = `0.${'0'.repeat(-point)}${digits}`
+  } else if (point >= digits.length) {
+    body = `${digits}${'0'.repeat(point - digits.length)}`
+  } else {
+    body = `${digits.slice(0, point)}.${digits.slice(point)}`
+  }
+  return `${sign}${body}`
+}
+
 function incrementScaled(intPart: string, fracPart: string): { int: string; frac: string } {
   const digits = (intPart + fracPart).split('')
   let i = digits.length - 1
@@ -87,7 +117,9 @@ export function formatFxAmount(
   digits = 6,
 ): string {
   if (value === null || value === undefined) return FX_EMPTY
-  const raw = String(value).trim()
+  const expanded = expandExponential(String(value))
+  if (expanded === null) return FX_EMPTY
+  const raw = expanded.trim()
   if (raw === '' || raw === '-' || raw === '.' || raw === '-.') return FX_EMPTY
   if (!/^-?\d*(?:\.\d*)?$/.test(raw)) return FX_EMPTY
 
@@ -114,9 +146,86 @@ export function formatFxAmount(
   return `${sign}${intPart}${d > 0 ? '.' + keep : ''}`
 }
 
+// ── FX 价格精度：汇率比普通市场敏感，按数量级动态选择小数位 ──
+
+/** 价格默认小数位（对应 minMove = 1e-6）。 */
+export const FX_PRICE_BASE_DECIMALS = 6
+/** 价格显示小数位上限（防御性，避免极小价格把格式化字符串拉爆）。 */
+export const FX_PRICE_MAX_DECIMALS = 12
+/** 目标有效数字：0.2 → 6 位；0.000123 → 9 位；12.345678 → 6 位。 */
+export const FX_PRICE_SIGNIFICANT_DIGITS = 6
+
+export interface FxPricePrecision {
+  precision: number
+  minMove: number
+}
+
+export interface FxPriceDecimalOptions {
+  base?: number
+  max?: number
+  significant?: number
+}
+
+/** 从已归一化的十进制字符串求 floor(log10(|value|))；零/非法返回 null。 */
+function decimalExponent(raw: string): number | null {
+  const match = /^-?(\d*)(?:\.(\d*))?$/.exec(raw)
+  if (!match) return null
+  const intPart = (match[1] ?? '').replace(/^0+/, '')
+  if (intPart.length > 0) return intPart.length - 1
+  const fracPart = match[2] ?? ''
+  const firstSignificant = fracPart.search(/[1-9]/)
+  if (firstSignificant < 0) return null
+  return -(firstSignificant + 1)
+}
+
+/**
+ * 动态价格小数位：默认 6 位，按数量级扩展到约 6 位有效数字，最多 12 位。
+ * - `0.2` → 6（`0.200000`）
+ * - `0.000123` → 9（`0.000123000`）
+ * - `12.345678` → 6
+ * - `1e-9` → 12（触顶）
+ * 非法值 / 零返回默认 6。
+ */
+export function fxPriceDecimals(
+  value: string | number | null | undefined,
+  options: FxPriceDecimalOptions = {},
+): number {
+  const base = Math.max(0, Math.min(12, Math.floor(options.base ?? FX_PRICE_BASE_DECIMALS)))
+  const max = Math.max(base, Math.min(12, Math.floor(options.max ?? FX_PRICE_MAX_DECIMALS)))
+  const significant = Math.max(1, Math.floor(options.significant ?? FX_PRICE_SIGNIFICANT_DIGITS))
+  if (value === null || value === undefined) return base
+  const expanded = expandExponential(String(value))
+  if (expanded === null) return base
+  const exponent = decimalExponent(expanded.trim())
+  if (exponent === null) return base
+  return Math.max(base, Math.min(max, significant - 1 - exponent))
+}
+
+/** 价格专用格式化：与图表右轴 / tooltip 共用同一 formatter。 */
+export function formatFxPrice(
+  value: string | number | null | undefined,
+  options: FxPriceDecimalOptions = {},
+): string {
+  return formatFxAmount(value, fxPriceDecimals(value, options))
+}
+
+/**
+ * lightweight-charts 价格轴格式：`precision` 控制标签小数位，`minMove` 是价格步长。
+ * 默认 1e-6，极小汇率才细化到 `10^-precision`。
+ */
+export function fxPricePrecision(
+  value: string | number | null | undefined,
+  options: FxPriceDecimalOptions = {},
+): FxPricePrecision {
+  const precision = fxPriceDecimals(value, options)
+  return { precision, minMove: 10 ** -precision }
+}
+
 function parseScaled(value: string | number | null | undefined, scale: number): bigint | null {
   if (value === null || value === undefined) return null
-  const raw = String(value).trim()
+  const expanded = expandExponential(String(value))
+  if (expanded === null) return null
+  const raw = expanded.trim()
   if (raw === '' || raw === '-' || raw === '.' || raw === '-.') return null
   if (!/^-?\d*(?:\.\d*)?$/.test(raw)) return null
   let sign = 1n
@@ -161,6 +270,23 @@ export function computeMinOut(
   const bps = clampBps(slippageBps)
   const result = (scaled * BigInt(10000 - bps)) / 10000n
   return scaledToString(result, 6)
+}
+
+/**
+ * 十进制字符串除法（截断到 `digits` 位小数），用于「平均成本 = 成本 / 持仓」这类
+ * 派生比值，避免为了显示而先把金额 `Number()`。除零 / 非法输入返回 null。
+ */
+export function divideFxAmount(
+  numerator: string | number | null | undefined,
+  denominator: string | number | null | undefined,
+  digits = 12,
+): string | null {
+  const scale = Math.max(0, Math.min(12, Math.floor(digits)))
+  const guard = 6
+  const n = parseScaled(numerator, scale + guard)
+  const d = parseScaled(denominator, guard)
+  if (n === null || d === null || d === 0n) return null
+  return scaledToString(n / d, scale)
 }
 
 function toFiniteNumber(value: string | number | null | undefined): number | null {

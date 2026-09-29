@@ -11,6 +11,8 @@
 
 export type FxSide = 'buy' | 'sell'
 export type FxPairStatus = 'draft' | 'trading' | 'paused' | 'closed'
+/** 图表周期：仅玩家页使用，与后端 `/chart` 的 interval 参数一致。 */
+export type FxChartInterval = '1m' | '15m' | '1h'
 export type FxEventStatus =
   | 'draft'
   | 'scheduled'
@@ -115,6 +117,14 @@ export interface FxChartPoint {
   l: number
   c: number
   v: number
+}
+
+/** FX 实时价格帧经页面转成的图表 tick（价格保持字符串语义）。 */
+export interface FxPriceTick {
+  /** 边际汇率，金圆券 / 1 外币（字符串十进制，避免 Number 破坏精度） */
+  price: string
+  /** 客户端接收时刻（ms），用于归类到当前 bucket */
+  ts: number
 }
 
 // ── 管理员 schema（仅在 /admin/fx 使用；含 reserves / 隐藏事件参数） ──

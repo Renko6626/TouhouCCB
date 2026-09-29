@@ -3,9 +3,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   computeMinOut,
+  divideFxAmount,
+  expandExponential,
   formatFxAmount,
+  formatFxPrice,
   FxOrderSubmitter,
   fxOrderSignature,
+  fxPriceDecimals,
+  fxPricePrecision,
   isConflictError,
   mapFxError,
   mergeFxPairs,
@@ -264,5 +269,120 @@ describe('I2 逻辑订单幂等键复用', () => {
 
     submitter.reset()
     expect(submitter.keyFor(changed)).not.toBe(first)
+  })
+})
+
+// ── FX 高敏感汇率精度：动态小数位，价格 formatter 与金额 formatter 分离 ──
+
+describe('FX 价格精度（动态小数位）', () => {
+  it('0.2 / 12.345678 默认 6 位，不再固定 2 位', () => {
+    expect(fxPriceDecimals('0.2')).toBe(6)
+    expect(formatFxPrice('0.2')).toBe('0.200000')
+    expect(fxPriceDecimals('12.345678')).toBe(6)
+    expect(formatFxPrice('12.345678')).toBe('12.345678')
+    expect(formatFxPrice('12345.6')).toBe('12345.600000')
+  })
+
+  it('0.000123 一类极小汇率按数量级扩展小数位', () => {
+    expect(fxPriceDecimals('0.000123')).toBe(9)
+    expect(formatFxPrice('0.000123')).toBe('0.000123000')
+    // 1.23e-7：目标 6 位有效数字 → 14，触顶 12
+    expect(fxPriceDecimals('0.000000123')).toBe(12)
+    expect(formatFxPrice('0.000000123')).toBe('0.000000123000')
+  })
+
+  it('价格 formatter 与金额 formatter 分离：金额仍默认 6 位', () => {
+    expect(formatFxAmount('0.000123')).toBe('0.000123')
+    expect(formatFxPrice('0.000123')).toBe('0.000123000')
+    expect(formatFxAmount('0.2')).toBe('0.200000')
+  })
+
+  it('minMove 默认 1e-6，极小汇率才细化', () => {
+    expect(fxPricePrecision('0.2')).toEqual({ precision: 6, minMove: 1e-6 })
+    expect(fxPricePrecision('12.345678')).toEqual({ precision: 6, minMove: 1e-6 })
+    expect(fxPricePrecision('0.000123').precision).toBe(9)
+    expect(fxPricePrecision('0.000123').minMove).toBe(1e-9)
+  })
+
+  it('NaN / 非法 / 零 / 空返回默认位数或占位符', () => {
+    expect(fxPriceDecimals(null)).toBe(6)
+    expect(fxPriceDecimals(undefined)).toBe(6)
+    expect(fxPriceDecimals('')).toBe(6)
+    expect(fxPriceDecimals('abc')).toBe(6)
+    expect(fxPriceDecimals(Number.NaN)).toBe(6)
+    expect(fxPriceDecimals('0')).toBe(6)
+    expect(formatFxPrice('abc')).toBe('—')
+    expect(formatFxPrice(null)).toBe('—')
+    expect(formatFxPrice('0')).toBe('0.000000')
+  })
+
+  it('half-up 舍入的向下/向上边界', () => {
+    expect(formatFxPrice('1.2345644')).toBe('1.234564')
+    expect(formatFxPrice('1.2345649')).toBe('1.234565')
+    expect(formatFxPrice('0.1999995')).toBe('0.200000')
+    expect(formatFxPrice('9.9999995')).toBe('10.000000')
+    expect(formatFxPrice('-1.2345675')).toBe('-1.234568')
+  })
+
+  it('科学计数法 number 在适配层还原后再格式化，不丢展示', () => {
+    expect(expandExponential('1e-7')).toBe('0.0000001')
+    expect(expandExponential('1.23e+3')).toBe('1230')
+    expect(expandExponential('abc')).toBe('abc')
+    expect(formatFxAmount(1e-7)).toBe('0.000000')
+    expect(formatFxPrice(1e-7)).toBe('0.000000100000')
+  })
+})
+
+describe('divideFxAmount（平均成本等派生比值不丢精度）', () => {
+  it('十进制字符串相除并截断到指定小数位', () => {
+    expect(divideFxAmount('100', '4', 12)).toBe('25.000000000000')
+    expect(divideFxAmount('1', '3', 6)).toBe('0.333333')
+    expect(divideFxAmount('0.123456', '0.2', 6)).toBe('0.617280')
+    expect(divideFxAmount('0', '5', 6)).toBe('0.000000')
+  })
+
+  it('除零 / 非法输入返回 null', () => {
+    expect(divideFxAmount('1', '0')).toBeNull()
+    expect(divideFxAmount('abc', '1')).toBeNull()
+    expect(divideFxAmount('1', null)).toBeNull()
+  })
+})
+
+describe('交易面板回归：min-out 与双击单飞', () => {
+  it('min-out 不放宽滑点保护：随 bps 单调不增且向下取 6 位', () => {
+    const output = '0.123456'
+    expect(computeMinOut(output, 0)).toBe('0.123456')
+    // 0.123456 × 0.995 = 0.12283872 → 向下 0.122838
+    expect(computeMinOut(output, 50)).toBe('0.122838')
+    const a = computeMinOut(output, 50)
+    const b = computeMinOut(output, 100)
+    expect(Number(a)).toBeLessThanOrEqual(Number(output))
+    expect(Number(b)).toBeLessThanOrEqual(Number(a))
+    // 向下取整：0.123456 × 0.9999 = 0.12344365… → 0.123443
+    expect(computeMinOut(output, 1)).toBe('0.123443')
+  })
+
+  it('报价 await 期间双击只提交一笔 API', async () => {
+    const submitter = new FxOrderSubmitter()
+    const calls: string[] = []
+    const click = async () => {
+      let quote = ''
+      const fetchQuote = async () => {
+        await Promise.resolve()
+        quote = '0.900000'
+        return quote
+      }
+      if (!quote) await fetchQuote()
+      const signature = fxOrderSignature({ pairId: 1, side: 'buy', amount: '10', minOut: quote })
+      return submitter.submit(signature, async () => {
+        calls.push(quote)
+        await Promise.resolve()
+        return 'filled'
+      })
+    }
+    const [first, second] = await Promise.all([click(), click()])
+    expect(calls).toHaveLength(1)
+    expect([first, second].filter((r) => r === 'filled')).toHaveLength(1)
+    expect([first, second].filter((r) => r === null)).toHaveLength(1)
   })
 })
