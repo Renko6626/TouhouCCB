@@ -220,6 +220,9 @@ class MarketWriter:
         self._ops[cmd_type] = op
 
     async def submit(self, cmd) -> Any:
+        from app.services.credit.gates import GATES
+        if GATES.held_keys_by_current_task():
+            raise RuntimeError("Release all symbol gates before awaiting a writer command")
         market_id = cmd.market_id
         q = self._queues.get(market_id)
         st = self._states.get(market_id)
@@ -253,26 +256,7 @@ class MarketWriter:
                 if st.unavailable:
                     raise HTTPException(status_code=503, detail="市场状态异常，暂停服务")
                 op = self._ops[type(cmd)]
-                outcome: OpOutcome = await op(st, cmd)
-                # ── commit 已成功（op 返回即视为已 commit）→ apply 内存（spec § 4.4）──
-                if outcome.new_q_dec is not None:
-                    st.q_dec = outcome.new_q_dec
-                    st.q = [float(x) for x in st.q_dec]
-                    # MIN-1：prices 恒从量化后的 q 重新导出，保证 prices == f(q)。
-                    # 阶段 2 起 prices 进 tick 帧，若沿用 op 浮点直加算出的 new_prices，
-                    # 重启/自愈从镜像重读后帧价格会出现末位跳变
-                    _, st.prices = calculate_lmsr_with_prices(st.q, st.b)
-                if outcome.new_status is not None:
-                    st.status = outcome.new_status
-                if outcome.candle_rows:
-                    self._merge_candles(outcome.candle_rows)
-                    # ring 与 flusher 吃同一份行——两者永远一致（spec § 7.5）
-                    for row in outcome.candle_rows:
-                        ring = st.rings.get(int(row["outcome_id"]))
-                        if ring is not None:
-                            ring.merge_row(row)
-                    if outcome.tick_trade is not None:
-                        st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
+                outcome: OpOutcome = await self._execute_gated(st, cmd, op)
                 # ── tick 帧投喂（spec § 5.1）──
                 prices_8dp = [float(quantize_price(p)) for p in st.prices]
                 if outcome.tick_trade is not None:
@@ -287,7 +271,7 @@ class MarketWriter:
                 # ── 老事件双发（legacy_trade_events；阶段 5 删）──
                 if outcome.publishes and await _tick.legacy_events_enabled():
                     for event_type, data in outcome.publishes:
-                        await BROKER.publish(market_id, event_type, data)
+                        await BROKER.publish(f"lmsr:{market_id}", event_type, data)
                 if not fut.done():
                     fut.set_result(outcome.response)
             except HTTPException as e:
@@ -308,6 +292,65 @@ class MarketWriter:
                     fut.set_exception(HTTPException(
                         status_code=500, detail="交易处理异常，结果未知，请刷新后确认"))
                 await self.reload_state(market_id)
+
+    async def _execute_gated(self, st, cmd, op):
+        from app.services.credit.gates import GATES
+        from app.services.credit.keys import GroupKey
+        from app.services.credit.flags import get_flags
+        from app.services.credit.ownership import OWNERSHIP
+        from app.services.credit.risk import discover_dependencies
+        from app.services.writer_ops import CREDIT_DEPS, CreditRetry
+        target = GroupKey("lmsr", int(st.market_id))
+        deps = None
+        # First attempt is target-only and adds no SQL for debt-free accounts.
+        for attempt in range(get_flags().credit_risk_retry_limit + 2):
+            try:
+                async with GATES.hold(exclusive=[target], shared=deps.groups if deps else ()):
+                    OWNERSHIP.require_writes()
+                    token = CREDIT_DEPS.set(deps)
+                    try:
+                        outcome = await op(st, cmd)
+                        try:
+                            self._apply_outcome(st, outcome)
+                        except BaseException:
+                            st.unavailable = True
+                            raise
+                    except (CreditRetry, HTTPException):
+                        raise
+                    except BaseException:
+                        # Isolate before releasing gates; recovery runs outside this scope.
+                        st.unavailable = True
+                        raise
+                    finally:
+                        CREDIT_DEPS.reset(token)
+                    return outcome
+            except CreditRetry:
+                if attempt >= get_flags().credit_risk_retry_limit + 1:
+                    raise HTTPException(409, "version_conflict")
+                async with async_session_maker() as session:
+                    deps = await discover_dependencies(session, cmd.user_id, extra_groups=[target])
+        raise HTTPException(409, "version_conflict")
+
+    def _apply_outcome(self, st, outcome):
+        # ── commit 已成功（op 返回即视为已 commit）→ apply 内存（spec § 4.4）──
+        if outcome.new_q_dec is not None:
+            st.q_dec = outcome.new_q_dec
+            st.q = [float(x) for x in st.q_dec]
+            # MIN-1：prices 恒从量化后的 q 重新导出，保证 prices == f(q)。
+            # 阶段 2 起 prices 进 tick 帧，若沿用 op 浮点直加算出的 new_prices，
+            # 重启/自愈从镜像重读后帧价格会出现末位跳变
+            _, st.prices = calculate_lmsr_with_prices(st.q, st.b)
+        if outcome.new_status is not None:
+            st.status = outcome.new_status
+        if outcome.candle_rows:
+            self._merge_candles(outcome.candle_rows)
+            # ring 与 flusher 吃同一份行——两者永远一致（spec § 7.5）
+            for row in outcome.candle_rows:
+                ring = st.rings.get(int(row["outcome_id"]))
+                if ring is not None:
+                    ring.merge_row(row)
+            if outcome.tick_trade is not None:
+                st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
 
     def _merge_candles(self, rows: list[dict]) -> None:
         from app.services.candle_flusher import CANDLE_FLUSHER

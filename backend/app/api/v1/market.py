@@ -1,4 +1,7 @@
 import logging
+import inspect
+from functools import wraps
+from contextvars import ContextVar
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -54,7 +57,81 @@ from app.services.anti_bot import verify_client_token, parse_whitelist
 from app.services.market_open import market_is_open
 from app.services.market_title_gating import assert_user_can_trade_market
 from app.services.trade_checks import check_buy_slippage, check_sell_slippage
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.version import bump_economic_version
+from app.services.writer_ops import check_credit_buy, repay_sale_proceeds
 from app.models.title import MarketRequiredTitle, Title as _TitleModel, UserTitle as _UserTitleModel
+
+
+
+_LEGACY_POSTCOMMIT_EVENTS = ContextVar("legacy_market_postcommit_events", default=None)
+
+
+def _queue_legacy_event(topic, event_type, payload):
+    # Store plain event data, never coroutine/task objects. The request awaits
+    # effects after releasing its complete gate batch, preserving error delivery.
+    events = _LEGACY_POSTCOMMIT_EVENTS.get()
+    if events is None:
+        raise RuntimeError("Legacy market events require the economic write boundary")
+    events.append((topic, event_type, payload))
+
+
+def _economic_market_write(fn):
+    """Legacy path owns gates; writer path delegates ownership to its consumer.
+
+    Auth has opened a read transaction. Close it before any gate/queue wait;
+    detached identity fields survive, economic fields are reloaded under row locks.
+    """
+    signature = inspect.signature(fn)
+    @wraps(fn)
+    async def guarded(*args, **kwargs):
+        from app.services.market_writer import WRITER
+        from app.services.credit import flags, risk
+        from app.services.credit.gates import GATES
+        from app.services.credit.keys import GroupKey
+        from app.services.writer_ops import CREDIT_DEPS, CreditRetry
+        values = signature.bind(*args, **kwargs).arguments
+        db = values["db"]
+        OWNERSHIP.require_writes()
+        if WRITER.enabled and fn.__name__ in ("buy_shares", "sell_shares"):
+            await db.close()
+            return await fn(*args, **kwargs)
+        market_id = values.get("market_id")
+        if market_id is None and "req" in values:
+            market_id = (await db.execute(select(Outcome.market_id).where(
+                Outcome.id == int(values["req"].outcome_id)))).scalar_one_or_none()
+            if market_id is None:
+                raise HTTPException(404, "选项不存在")
+        await db.close()
+        if WRITER.enabled and (fn.__name__ in ("buy_shares", "sell_shares")
+                               or WRITER.get_state(market_id) is not None):
+            return await fn(*args, **kwargs)
+        target = GroupKey("lmsr", int(market_id))
+        deps = None
+        for attempt in range(flags.get_flags().credit_risk_retry_limit + 2):
+            try:
+                async with GATES.hold(exclusive=[target], shared=deps.groups if deps else ()):
+                    OWNERSHIP.require_writes()
+                    token = CREDIT_DEPS.set(deps)
+                    events = []
+                    effects_token = _LEGACY_POSTCOMMIT_EVENTS.set(events)
+                    try:
+                        result = await fn(*args, **kwargs)
+                    finally:
+                        _LEGACY_POSTCOMMIT_EVENTS.reset(effects_token)
+                        CREDIT_DEPS.reset(token)
+                if events and await site_config.get_bool_or(db, "legacy_trade_events", True):
+                    for topic, event_type, payload in events:
+                        await BROKER.publish(topic, event_type, payload)
+                return result
+            except CreditRetry:
+                await db.rollback()
+                if attempt >= flags.get_flags().credit_risk_retry_limit + 1:
+                    raise HTTPException(409, "version_conflict")
+                # No user lock, transaction, or gate survives this boundary.
+                deps = await risk.discover_dependencies(db, int(values["user"].id), extra_groups=[target])
+                await db.close()
+    return guarded
 
 
 async def _optional_current_user_id(
@@ -205,6 +282,7 @@ async def create_market(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
+    OWNERSHIP.require_writes()
     new_market = Market(
         title=data.title,
         description=data.description,
@@ -250,6 +328,7 @@ async def create_market(
 
 
 @router.post("/{market_id:int}/close", summary="关闭市场交易（仅限管理员）")
+@_economic_market_write
 async def close_market(
     market_id: int,
     admin: User = Depends(current_superuser),
@@ -262,6 +341,7 @@ async def close_market(
 
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
+        OWNERSHIP.require_writes()
         if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
         market.status = MarketStatus.HALT
@@ -270,12 +350,11 @@ async def close_market(
             market_after=await audit_service.market_snapshot_from_db(db, market_id, status=MarketStatus.HALT),
         )
     _tick.TICK_BROADCASTER.feed_status(market_id, MarketStatus.HALT)
-    if await site_config.get_bool_or(db, "legacy_trade_events", True):
-        await BROKER.publish(
-            market_id,
-            "market_status",
-            {"status": MarketStatus.HALT}
-        )
+    _queue_legacy_event(
+        f"lmsr:{market_id}",
+        "market_status",
+        {"status": MarketStatus.HALT}
+    )
     return {"message": f"市场 {market.title} 已停止交易（熔断）"}
 
 
@@ -550,6 +629,7 @@ async def _release_request_connection(db: AsyncSession) -> None:
 
 
 @router.post("/buy", response_model=TradeResponse, summary="买入胜券")
+@_economic_market_write
 async def buy_shares(
     req: TradeRequest,
     user: User = Depends(verify_anti_bot),
@@ -597,6 +677,7 @@ async def buy_shares(
         # outcomes 之前：legacy 强平是 user → positions → outcomes，此前这里先锁 outcomes
         # 再锁 user，与强平互逆可死锁（审计 M7）
         locked_user = await _lock_user(db, int(user.id))
+        OWNERSHIP.require_writes()
 
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
@@ -636,7 +717,13 @@ async def buy_shares(
             raise HTTPException(status_code=400, detail="现金不足")
 
         # Decimal 精确运算
+        await check_credit_buy(
+            db, locked_user, market.id, outcome.id, shares_d, pay,
+            [quantize_cost(o.total_shares + (shares_d if i == target_idx else ZERO))
+             for i, o in enumerate(all_outcomes)])
+        OWNERSHIP.require_writes()
         locked_user.cash -= pay
+        bump_economic_version(locked_user)
         all_outcomes[target_idx].total_shares += shares_d
 
         # 持仓
@@ -718,8 +805,7 @@ async def buy_shares(
         trade_payload,
         market.status,
     )
-    if await site_config.get_bool_or(db, "legacy_trade_events", True):
-        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
+    _queue_legacy_event(f"lmsr:{market.id}", "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
@@ -731,6 +817,7 @@ async def buy_shares(
 
 
 @router.post("/sell", response_model=TradeResponse, summary="卖出胜券")
+@_economic_market_write
 async def sell_shares(
     req: TradeRequest,
     user: User = Depends(verify_anti_bot),
@@ -778,6 +865,7 @@ async def sell_shares(
         # outcomes 之前：legacy 强平是 user → positions → outcomes，此前这里先锁 outcomes
         # 再锁 user，与强平互逆可死锁（审计 M7）
         locked_user = await _lock_user(db, int(user.id))
+        OWNERSHIP.require_writes()
 
         all_outcomes = await _lock_outcomes_for_market(db, int(market.id))
         target_idx = next((i for i, o in enumerate(all_outcomes) if o.id == int(req.outcome_id)), None)
@@ -828,7 +916,9 @@ async def sell_shares(
         )
 
         # Decimal 精确运算
+        OWNERSHIP.require_writes()
         locked_user.cash += net
+        bump_economic_version(locked_user)
         all_outcomes[target_idx].total_shares -= shares_d
 
         # cost_basis 按卖出比例减少：卖掉 shares_d / amount 比例的成本
@@ -879,6 +969,7 @@ async def sell_shares(
             ts=tx.timestamp if tx.timestamp else datetime.now(timezone.utc),
         )
         await upsert_candles(db, candle_rows)
+        await repay_sale_proceeds(db, locked_user, net)
 
     logger.info(
         "SELL user_id=%s outcome_id=%s market_id=%s shares=%s proceeds=%s fee=%s net=%s avg_price=%s pre_mp=%s post_mp=%s new_cash=%s",
@@ -906,8 +997,7 @@ async def sell_shares(
         trade_payload,
         market.status,
     )
-    if await site_config.get_bool_or(db, "legacy_trade_events", True):
-        await BROKER.publish(market.id, "trade", {"trade": trade_payload})
+    _queue_legacy_event(f"lmsr:{market.id}", "trade", {"trade": trade_payload})
 
     return {
         "shares": float(shares_d),
@@ -924,6 +1014,7 @@ async def sell_shares(
     summary="结算市场（指定赢家，发放兑付，仅管理员）",
     status_code=status.HTTP_200_OK,
 )
+@_economic_market_write
 async def resolve_market(
     market_id: int,
     req: ResolveRequest,
@@ -1030,13 +1121,17 @@ async def resolve_market(
         total_payout = ZERO
 
         # 与 writer op_resolve 同构（审计 P4/L11）：按 user_id 升序一次锁全部用户，单次 flush
-        all_uids = sorted({uid for _, uid in lose_txs} | {uid for uid, pay in payout_by_user.items() if pay > ZERO})
+        all_uids = sorted({int(pos.user_id) for pos in positions})
         users_by_id: Dict[int, User] = {}
         if all_uids:
             users_by_id = {int(u.id): u for u in (await db.execute(
                 select(User).where(User.id.in_(all_uids)).order_by(User.id)
                 .with_for_update().execution_options(populate_existing=True)
             )).scalars().all()}
+
+        OWNERSHIP.require_writes()
+        for account in users_by_id.values():
+            bump_economic_version(account)
 
         # settle_lose 事件先于赢家加钱记（同一用户既输又赢时快照不能含 payout）
         await db.flush()
@@ -1056,6 +1151,7 @@ async def resolve_market(
             u = users_by_id.get(int(uid))
             if not u:
                 raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
+            OWNERSHIP.require_writes()
             u.cash += pay
             total_payout += pay
             win_tx = Transaction(
@@ -1108,16 +1204,15 @@ async def resolve_market(
         market.id, MarketStatus.SETTLED,
         settlement={"winning_outcome_id": int(winning.id), "settled_at": now.isoformat()},
     )
-    if await site_config.get_bool_or(db, "legacy_trade_events", True):
-        await BROKER.publish(
-            market.id,
-            "market_status",
-            {
-                "status": MarketStatus.SETTLED,
-                "winning_outcome_id": int(winning.id),
-                "settled_at": now.isoformat(),
-            }
-        )
+    _queue_legacy_event(
+        f"lmsr:{market.id}",
+        "market_status",
+        {
+            "status": MarketStatus.SETTLED,
+            "winning_outcome_id": int(winning.id),
+            "settled_at": now.isoformat(),
+        }
+    )
 
     return SettleResult(
         market_id=market.id,
@@ -1263,6 +1358,7 @@ async def get_market_trades(
 
 
 @router.post("/{market_id:int}/resume", summary="恢复市场交易（仅管理员）")
+@_economic_market_write
 async def resume_market(
     market_id: int,
     admin: User = Depends(current_superuser),
@@ -1275,6 +1371,7 @@ async def resume_market(
 
     async with managed_transaction(db):
         market = await _lock_market(db, market_id)
+        OWNERSHIP.require_writes()
         if market.status == MarketStatus.SETTLED:
             raise HTTPException(status_code=400, detail="市场已结算，无法恢复交易")
         if market.status != MarketStatus.HALT:
@@ -1286,12 +1383,11 @@ async def resume_market(
         )
 
     _tick.TICK_BROADCASTER.feed_status(market.id, MarketStatus.TRADING)
-    if await site_config.get_bool_or(db, "legacy_trade_events", True):
-        await BROKER.publish(
-            market.id,
-            "market_status",
-            {"status": MarketStatus.TRADING}
-        )
+    _queue_legacy_event(
+        f"lmsr:{market.id}",
+        "market_status",
+        {"status": MarketStatus.TRADING}
+    )
     return {"message": f"市场 {market.title} 已恢复交易"}
 
 

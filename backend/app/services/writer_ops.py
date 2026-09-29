@@ -7,6 +7,7 @@ consumer 统一 apply——op 返回即视为已 commit（spec § 4.4）。
 from __future__ import annotations
 
 import logging
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -30,6 +31,7 @@ from app.services.credit.lmsr_quote import (
 )
 from app.services.credit.runs import get_or_create_active_run, record_action
 from app.services.credit.version import bump_economic_version
+from app.services.credit.ownership import OWNERSHIP
 from app.services.lmsr import calculate_lmsr_with_prices, quantize_cost, quantize_price
 from app.services.market_locks import lock_user
 from app.services.market_title_gating import assert_user_can_trade_market
@@ -43,6 +45,64 @@ logger = logging.getLogger(__name__)
 ZERO = Decimal("0")
 ONE = Decimal("1")
 Q6 = Decimal("0.000001")
+
+
+
+# Set only by the consumer/API gate owner. Discovery and retries run with no locks.
+CREDIT_DEPS = ContextVar("lmsr_credit_dependencies", default=None)
+
+
+class CreditRetry(Exception):
+    """Release the transaction and every gate, rediscover, and recompute."""
+
+
+async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, new_q):
+    from app.services.credit import flags, risk
+    from app.services.credit.keys import GroupKey
+    from app.services.credit.gates import GATES
+    if not flags.get_flags().unified_credit_enabled or user.debt <= ZERO:
+        return
+    deps = CREDIT_DEPS.get()
+    if deps is None or deps.economic_version != user.economic_version:
+        raise CreditRetry()
+    target = GroupKey("lmsr", int(market_id))
+    if not (set(deps.groups) | {target}) <= GATES.held_keys_by_current_task():
+        raise CreditRetry()
+    holdings = dict(deps.holdings.get(target, {}))
+    holdings[int(outcome_id)] = holdings.get(int(outcome_id), ZERO) + shares
+    post = risk.PostTradeState(
+        cash=user.cash-pay, debt=user.debt,
+        lmsr_q={int(market_id): tuple(new_q)}, post_holdings={target: holdings},
+        base_versions={target: deps.snapshots[target].version},
+    )
+    thresholds = flags.get_flags().thresholds
+    if thresholds is None:
+        raise HTTPException(503, "credit_configuration_invalid")
+    decision = await risk.check_new_risk(
+        session, user=user, deps=deps, post=post, thresholds=thresholds,
+        partial_pct=Decimal("0.1"), now=datetime.now(timezone.utc),
+    )
+    if decision.reason == "version_conflict":
+        raise CreditRetry()
+    if not decision.allowed:
+        raise HTTPException(400, decision.reason)
+
+
+async def repay_sale_proceeds(session, user, net):
+    """Record the sale first, then atomically repay its proceeds; no risk admission."""
+    from app.services.credit.flags import get_flags
+    if not get_flags().unified_credit_enabled or user.debt <= ZERO or net <= ZERO:
+        return
+    from app.services import loan_service, ledger_service
+    rate = await site_config.get_decimal_or(session, "loan_daily_rate", ZERO)
+    before = user.debt
+    repaid = await loan_service.decrease_debt_locked(
+        session, user, net, consume_cash=True, daily_rate=rate)
+    if repaid > ZERO:
+        await ledger_service.record_entry(
+            session, user=user, entry_type="repay", cash_delta=-repaid,
+            debt_delta=-repaid, daily_rate=rate, reason="lmsr_sell_proceeds",
+            interest_accrued=(user.debt+repaid-before).quantize(Q6))
 
 
 def _require_trading_state(state: MarketState) -> None:
@@ -108,11 +168,16 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
     async with async_session_maker() as session:
         async with session.begin():
             locked_user = await lock_user(session, cmd.user_id)
+            OWNERSHIP.require_writes()
             # title 门槛：与老路径同位置（锁内、扣款前），语义不变
             await assert_user_can_trade_market(session, cmd.user_id, state.market_id)
             if locked_user.cash < pay:
                 raise HTTPException(status_code=400, detail="现金不足")
+            await check_credit_buy(session, locked_user, state.market_id, cmd.outcome_id,
+                                   shares_d, pay, new_q_dec)
+            OWNERSHIP.require_writes()
             locked_user.cash -= pay
+            bump_economic_version(locked_user)
 
             pos = (await session.execute(
                 select(Position)
@@ -262,6 +327,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
                                 cmd.accept_any_slippage)
 
             locked_user = await lock_user(session, cmd.user_id)
+            OWNERSHIP.require_writes()
             pos = (await session.execute(
                 select(Position)
                 .where(Position.user_id == cmd.user_id,
@@ -271,7 +337,9 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
             if not pos or pos.amount < shares_d:
                 raise HTTPException(status_code=400, detail="持仓不足")
 
+            OWNERSHIP.require_writes()
             locked_user.cash += net
+            bump_economic_version(locked_user)
             if pos.amount > ZERO:
                 sold_ratio = shares_d / pos.amount
                 pos.cost_basis -= (pos.cost_basis * sold_ratio).quantize(Decimal("0.000001"))
@@ -297,6 +365,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
                     prices=new_prices, status=state.status),
                 extra={"fee_rate": sell_fee_rate, "path": "writer"},
             )
+            await repay_sale_proceeds(session, locked_user, net)
         new_cash = locked_user.cash
 
     ts = tx.timestamp if tx.timestamp else datetime.now(timezone.utc)
@@ -352,6 +421,7 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
     async with async_session_maker() as session:
         async with session.begin():
             market = await session.get(Market, cmd.market_id)
+            OWNERSHIP.require_writes()
             market.status = MarketStatus.HALT
             audit_service.record(
                 session, "market_close", market_id=cmd.market_id,
@@ -376,6 +446,7 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
     async with async_session_maker() as session:
         async with session.begin():
             market = await session.get(Market, cmd.market_id)
+            OWNERSHIP.require_writes()
             market.status = MarketStatus.TRADING
             audit_service.record(
                 session, "market_resume", market_id=cmd.market_id,
@@ -415,6 +486,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
     async with async_session_maker() as session:
         async with session.begin():
             market = await session.get(Market, cmd.market_id)
+            OWNERSHIP.require_writes()
             if not market:
                 raise HTTPException(status_code=404, detail="市场不存在")
 
@@ -501,13 +573,17 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
             # 一次性按 user_id 升序锁全部涉及用户（输家 ∪ 赢家）：
             # - 逐用户 FOR UPDATE 是 N 次往返；两市场并发结算时按持仓顺序取锁可互相死锁（审计 L11）
             # - populate_existing：请求 session 里可能已有陈旧 User（管理员自己也持仓）
-            all_uids = sorted({uid for _, uid in lose_txs} | {uid for uid, pay in payout_by_user.items() if pay > ZERO})
+            all_uids = sorted({int(pos.user_id) for pos in positions})
             users_by_id: dict[int, User] = {}
             if all_uids:
                 users_by_id = {int(u.id): u for u in (await session.execute(
                     select(User).where(User.id.in_(all_uids)).order_by(User.id)
                     .with_for_update().execution_options(populate_existing=True)
                 )).scalars().all()}
+
+            OWNERSHIP.require_writes()
+            for account in users_by_id.values():
+                bump_economic_version(account)
 
             # settle_lose 事件必须在赢家加钱**之前**记：同一用户既输又赢时，
             # settle_lose.user_after.cash 不能含 payout（audit replay 会抓）
@@ -529,6 +605,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                 u = users_by_id.get(int(uid))
                 if not u:
                     raise HTTPException(status_code=500, detail=f"用户 {uid} 不存在，无法结算（已回滚）")
+                OWNERSHIP.require_writes()
                 u.cash += pay
                 total_payout += pay
                 win_tx = Transaction(
@@ -656,6 +733,7 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
     async with async_session_maker() as session:
         async with session.begin():
             locked_user = await lock_user(session, cmd.user_id)
+            OWNERSHIP.require_writes()
             positions = (await session.execute(
                 select(Position)
                 .join(Outcome, Position.outcome_id == Outcome.id)
@@ -693,6 +771,7 @@ async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> Op
                     continue    # skip not delete（老路径同语义）
 
                 locked_user.cash += proceeds
+                bump_economic_version(locked_user)
                 new_q_dec[idx] = quantize_cost(new_q_dec[idx] - sell_amount)
                 q_work = nq
                 pos_deleted = sell_amount >= pos.amount
@@ -932,6 +1011,8 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
     async with async_session_maker() as session:
         async with session.begin():
             locked_user = await lock_user(session, cmd.user_id)
+            OWNERSHIP.require_writes()
+            version_before = locked_user.economic_version
 
             # ── 1. 幂等预检：卖之前查业务键（用户行锁内；不是卖完再查）──
             # 先锁 run 行并校验归属，避免用别人的 run_id 回放别人的动作。
@@ -1099,7 +1180,9 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                         cmd.daily_rate, trigger_source)
 
             # ── 6. 版本 + 动作记录 + 记录型审计（必须晚于资金事件）──
-            version = bump_economic_version(locked_user)
+            version = (bump_economic_version(locked_user)
+                       if locked_user.economic_version == version_before
+                       else locked_user.economic_version)
             executed = {
                 "sold_count": len(quote.legs),
                 "gross": format(quote.gross, "f"),
