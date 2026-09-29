@@ -35,6 +35,8 @@ def test_parse_flags_defaults_to_legacy_behavior():
     assert flags.credit_risk_retry_limit == 3
     assert flags.thresholds is None
     assert flags.disabled_reason is None
+    assert flags.enable_requested is False
+    assert flags.config_error is None
 
 
 def test_parse_flags_valid_config_enables_engine():
@@ -69,10 +71,20 @@ def test_parse_flags_valid_config_enables_engine():
       "credit_maintenance_ratio": "0.04"}, "missing_credit_leverage"),
 ])
 def test_parse_flags_refuses_to_enable_with_bad_config(raw, reason_part):
+    """WP3 收紧：保留 enable_requested 意图 + disabled_reason，启动路径据此拒绝启动。"""
     flags = credit_flags.parse_flags(raw)
     assert flags.unified_credit_enabled is False
+    assert flags.enable_requested is True
     assert flags.disabled_reason is not None
     assert reason_part in flags.disabled_reason
+    assert flags.config_error == flags.disabled_reason
+    assert flags.risk_engine_ready is False  # 坏配置下不得有可用门槛
+
+
+def test_parse_flags_enable_requested_false_when_operator_left_it_off():
+    flags = credit_flags.parse_flags({"credit_leverage": "abc"})
+    assert flags.enable_requested is False
+    assert flags.config_error is None
 
 
 def test_parse_flags_retry_limit_falls_back_to_default():
@@ -214,7 +226,8 @@ async def test_load_flags_reads_db_and_defaults_off(setup_db):
 
 
 @pytest.mark.asyncio
-async def test_load_flags_refuses_enable_with_bad_db_config(setup_db, caplog):
+async def test_load_flags_fails_startup_on_bad_db_config(setup_db, caplog):
+    """WP3：enabled=true 但配置非法 → 非只读实例必须启动失败，不得回落 legacy 强平。"""
     await auto_migrate()
     async with async_session_maker() as s:
         async with s.begin():
@@ -229,11 +242,94 @@ async def test_load_flags_refuses_enable_with_bad_db_config(setup_db, caplog):
                 s.add(row)
     site_config_service.clear_cache()
     with caplog.at_level("CRITICAL", logger="thccb.credit.flags"):
+        with pytest.raises(credit_flags.CreditConfigError) as excinfo:
+            async with async_session_maker() as s:
+                await credit_flags.load_flags(s)
+    assert "invalid_thresholds" in str(excinfo.value)
+    assert any(r.levelname == "CRITICAL" for r in caplog.records)
+    flags = credit_flags.get_flags()
+    assert flags.enable_requested is True
+    assert flags.unified_credit_enabled is False
+    assert flags.config_error is not None
+    assert flags.risk_engine_ready is False
+
+
+@pytest.mark.asyncio
+async def test_load_flags_read_only_instance_freezes_instead_of_failing(
+    setup_db, caplog, monkeypatch,
+):
+    """只读实例遇坏配置不 raise（本来就不写），但保持冻结且不可误判为可放贷。"""
+    await auto_migrate()
+    async with async_session_maker() as s:
+        async with s.begin():
+            for key, value in (
+                ("unified_credit_enabled", "true"),
+                ("credit_maintenance_ratio", "1.5"),
+            ):
+                row = (await s.execute(
+                    select(SiteConfig).where(SiteConfig.key == key)
+                )).scalars().one()
+                row.value = value
+                s.add(row)
+    site_config_service.clear_cache()
+    monkeypatch.setenv(credit_flags.READ_ONLY_ENV, "true")
+    with caplog.at_level("CRITICAL", logger="thccb.credit.flags"):
         async with async_session_maker() as s:
             flags = await credit_flags.load_flags(s)
-    assert flags.unified_credit_enabled is False
-    assert flags.disabled_reason is not None
+    assert flags.read_only_instance is True
+    assert flags.config_error is not None
+    assert flags.thresholds is None
+    assert credit_flags.write_schedulers_enabled() is False
     assert any(r.levelname == "CRITICAL" for r in caplog.records)
+
+
+# ─────────────────────── 热冻结（credit_new_risk_frozen） ───────────────────────
+
+@pytest.mark.asyncio
+async def test_hot_freeze_is_read_at_runtime_bypassing_ttl(setup_db):
+    """风险检查消费的值必须运行期热读：直接改 DB 后（不清 site_config 缓存）立即生效。"""
+    await auto_migrate()
+    credit_flags.set_flags(credit_flags.parse_flags({}))
+    assert credit_flags.new_risk_frozen() is False
+
+    async with async_session_maker() as s:
+        assert await credit_flags.refresh_new_risk_frozen(s) is False
+
+    # 直接改 DB，且**故意不清** site_config 的 60s TTL 缓存
+    async with async_session_maker() as s:
+        async with s.begin():
+            row = (await s.execute(
+                select(SiteConfig).where(SiteConfig.key == "credit_new_risk_frozen")
+            )).scalars().one()
+            row.value = "true"
+            s.add(row)
+    async with async_session_maker() as s:
+        assert await credit_flags.refresh_new_risk_frozen(s) is True
+    assert credit_flags.new_risk_frozen() is True
+
+    # 解冻同样热生效
+    async with async_session_maker() as s:
+        async with s.begin():
+            row = (await s.execute(
+                select(SiteConfig).where(SiteConfig.key == "credit_new_risk_frozen")
+            )).scalars().one()
+            row.value = "false"
+            s.add(row)
+    async with async_session_maker() as s:
+        assert await credit_flags.refresh_new_risk_frozen(s) is False
+    assert credit_flags.new_risk_frozen() is False
+
+
+def test_new_risk_frozen_falls_back_to_process_snapshot_and_override():
+    credit_flags.set_flags(credit_flags.parse_flags({"credit_new_risk_frozen": "true"}))
+    assert credit_flags.new_risk_frozen() is True
+    credit_flags.set_new_risk_frozen(False)
+    assert credit_flags.new_risk_frozen() is False
+    credit_flags.set_new_risk_frozen(None)
+    assert credit_flags.new_risk_frozen() is True
+    # set_flags 会清掉热覆写，回到新快照
+    credit_flags.set_flags(credit_flags.parse_flags({}))
+    assert credit_flags.new_risk_frozen() is False
 
 
 # ─────────────────────────── admin API 交叉校验 ───────────────────────────

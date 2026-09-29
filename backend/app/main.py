@@ -41,6 +41,7 @@ from app.services.fx.scheduler import (
 )
 from app.services.loan_migrate import auto_migrate
 from app.services.credit import flags as credit_flags
+from app.services.credit import ownership as credit_ownership
 
 from dotenv import load_dotenv
 
@@ -77,27 +78,89 @@ def _set_no_store_for_api(path: str, response):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup: 建表 → LoanV1 幂等补列/种默认配置 → 挂载 admin → 启动 loan/liquidation sweep
-    await init_db()
-    await auto_migrate()
-    setup_admin(app, engine)
-    # ── 统一信贷 flags（计划 §3.4）：启动时读一次 site_config，运行期不重读；
-    #    默认 unified_credit_enabled=false，开关关着时以下调度器/交易行为与本改动前一致。
-    async with async_session_maker() as _flags_session:
-        await credit_flags.load_flags(_flags_session)
-    # ── candle 表 race-window 兜底扫（spec § 6.3）──
-    # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
-    # ★ 顺序依赖（阶段 4）：必须先于 WRITER.start()——writer 启动时从
-    #   OutcomeCandle 回灌 HistoryRing，resync 先跑保证崩溃丢失的 ≤5s 已修复。
+    """启动/关闭编排。
+
+    无论正常关闭还是启动中途失败，``finally`` 都执行 ``_shutdown()``：
+    反向停止已启动资源 + 释放经济写所有权（reviewer blocker 6）。
+    """
     try:
-        await _resync_recent_candles()
-    except Exception as e:
-        # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
-        logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
-    # ── 写调度器：只读实例必须显式全关（spec §6.1 / 计划 §3 WP1 "只读实例钩子"）──
-    # WP1 只提供钩子（THCCB_READ_ONLY_INSTANCE）；真正的单写所有权判定由 WP3
-    # credit/ownership.py 接管。未声明只读时行为与改动前完全一致。
-    if credit_flags.write_schedulers_enabled():
+        await _startup(app)
+        yield
+    finally:
+        await _shutdown()
+
+
+async def _startup(app: FastAPI) -> None:
+    # 启动顺序（WP3 单写所有权，spec §6.1 / 计划 WP3 "ownership"）：
+    #   0) 只读实例声明 → 在**任何启动写之前**跳过 init_db/auto_migrate/seed/resync
+    #   1) 非只读实例先用专用非池化 PG 连接取 pg_try_advisory_lock（启动写之前！）
+    #   2) 只有 owner 才跑 init_db/auto_migrate（含 seed）
+    #   3) 读 credit flags；unified_credit_enabled=true 却**非 owner 且非只读** → 启动失败
+    #      （第二写实例必须被拒，不能回落只处理 LMSR 的 legacy 强平；只读实例不写，
+    #       即使运营已开启统一信贷也允许启动）
+    #   4) 只有 owner 才挂 SQLAdmin（它自带直写 API）、跑 resync / writer / flusher /
+    #      全部写调度器；HTTP 经济写路径由 WP6 的 require_writes() 兜底
+    main_logger = logging.getLogger("thccb.main")
+    read_only = credit_flags.read_only_from_env()
+    owner = False
+    if read_only:
+        credit_ownership.OWNERSHIP.mark_read_only()
+        main_logger.warning(
+            "read-only instance (%s): skip init_db/auto_migrate/resync/writer/flusher/"
+            "all schedulers", credit_flags.READ_ONLY_ENV,
+        )
+    else:
+        # 专用非池化连接：池化连接被回收会把 session advisory lock 带走
+        owner = await credit_ownership.OWNERSHIP.acquire()
+        if owner:
+            await init_db()
+            await auto_migrate()
+        else:
+            main_logger.critical(
+                "single-writer ownership NOT acquired (%s): skip init_db/auto_migrate/"
+                "resync/writer/flusher/all schedulers",
+                credit_ownership.OWNERSHIP.reason,
+            )
+    # ── 统一信贷 flags（计划 §3.4）：启动时读一次 site_config；
+    #    默认 unified_credit_enabled=false，开关关着时以下调度器/交易行为与本改动前一致。
+    #    credit_new_risk_frozen 例外：风险检查运行期热读（见 flags.refresh_new_risk_frozen）。
+    try:
+        async with async_session_maker() as _flags_session:
+            await credit_flags.load_flags(_flags_session)
+    except Exception as exc:
+        if not owner and not read_only:
+            raise RuntimeError(
+                "非 owner 实例无法读取 credit flags，拒绝启动"
+                "（不能确认 unified_credit_enabled 是否要求持锁）"
+            ) from exc
+        raise
+    flags = credit_flags.get_flags()
+    if flags.unified_credit_enabled and not owner and not read_only:
+        raise RuntimeError(
+            "unified_credit_enabled=true 但本进程未持有经济写所有权"
+            f"（{credit_ownership.OWNERSHIP.reason}）：拒绝以第二写实例启动"
+        )
+    writes_ok = owner and credit_flags.write_schedulers_enabled()
+    app.state.credit_writes_enabled = writes_ok
+    if writes_ok:
+        # SQLAdmin 提供绕过业务校验的直写 API，只读/非 owner 实例不得挂载
+        setup_admin(app, engine)
+    else:
+        main_logger.warning(
+            "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
+            "直写 API", read_only, owner,
+        )
+    if writes_ok:
+        # ── candle 表 race-window 兜底扫（spec § 6.3）──
+        # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
+        # ★ 顺序依赖（阶段 4）：必须先于 WRITER.start()——writer 启动时从
+        #   OutcomeCandle 回灌 HistoryRing，resync 先跑保证崩溃丢失的 ≤5s 已修复。
+        try:
+            await _resync_recent_candles()
+        except Exception as e:
+            # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
+            logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
+        # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
         await start_loan_scheduler()
         await start_liquidation_scheduler()
         await start_bot_detection_scheduler()
@@ -105,23 +168,26 @@ async def lifespan(app: FastAPI):
         await start_pve_scheduler()
         await start_fx_scheduler()
     else:
-        logging.getLogger("thccb.main").warning(
-            "read-only instance (%s): all write schedulers disabled",
-            credit_flags.READ_ONLY_ENV,
+        main_logger.warning(
+            "writes disabled (read_only=%s owner=%s reason=%s): all write schedulers "
+            "skipped", read_only, owner, credit_ownership.OWNERSHIP.reason,
         )
     # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
     from app.services import site_config as _site_config
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
-    async with async_session_maker() as _s:
-        _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
-    if _sw:
-        await WRITER.start()
-        await CANDLE_FLUSHER.start()
-    # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动 ──
+    if writes_ok:
+        async with async_session_maker() as _s:
+            _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
+        if _sw:
+            await WRITER.start()
+            await CANDLE_FLUSHER.start()
+    # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
-    yield
+
+
+async def _shutdown() -> None:
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
     # 启动顺序 loan → liquidation → bot_detection，停止时反序。
     # 调度器（含 liquidation sweep）必须先于 writer/flusher 停——反过来，在途 sweep
@@ -131,18 +197,37 @@ async def lifespan(app: FastAPI):
     # 做最后一次 flush 把残帧发给订阅者）→ flusher 最后停（做最终 flush），避免停
     # flusher 时 writer 仍在往 _pending 塞数据
     # PvE 最先停：它经回环 HTTP 下单，必须在 uvicorn 停止接收请求前住手
-    await stop_pve_scheduler()
-    await stop_fx_scheduler()
-    await stop_bot_detection_scheduler()
-    await stop_liquidation_scheduler()
-    await stop_loan_scheduler()
-    from app.services.market_writer import WRITER as _writer
-    from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
-    from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
-    await _writer.stop()
-    await _tick_b.stop()      # writer 已停无新 feed；最后一次 flush 把残帧发给订阅者
-    await _flusher.stop()
-    await engine.dispose()
+    #
+    # reviewer blocker 6：每一步都 best-effort（单点失败不阻断后续清理），
+    # 所有权释放与 engine.dispose 放在 finally，保证启动中途失败也会走到。
+    logger = logging.getLogger("thccb.main")
+
+    async def _safe(name: str, step) -> None:
+        try:
+            await step()
+        except Exception:
+            logger.exception("shutdown: %s 清理失败（继续其余清理）", name)
+
+    try:
+        await _safe("pve_scheduler", stop_pve_scheduler)
+        await _safe("fx_scheduler", stop_fx_scheduler)
+        await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
+        await _safe("liquidation_scheduler", stop_liquidation_scheduler)
+        await _safe("loan_scheduler", stop_loan_scheduler)
+        from app.services.market_writer import WRITER as _writer
+        from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
+        from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
+        await _safe("writer", _writer.stop)
+        await _safe("tick_broadcaster", _tick_b.stop)  # writer 已停；最后 flush 发残帧
+        await _safe("candle_flusher", _flusher.stop)
+    finally:
+        try:
+            # 释放经济写所有权（专用连接随之关闭；PG 上 session lock 立即释放）
+            await credit_ownership.OWNERSHIP.release()
+        except Exception:
+            logger.exception("shutdown: ownership release 失败")
+        finally:
+            await engine.dispose()
 
 
 async def _resync_recent_candles(window_hours: int = 1) -> None:
