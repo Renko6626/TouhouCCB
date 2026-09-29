@@ -45,7 +45,7 @@ from typing import Mapping, Optional, Sequence
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import Market, Outcome, Position, User
+from app.models.base import Market, Outcome, Position, SiteConfig, User
 from app.models.fx import FxPair, FxWallet
 from app.services import site_config
 from app.services.credit import flags as credit_flags
@@ -732,6 +732,21 @@ def _rebase_post(
     )
 
 
+async def _current_rates(session: AsyncSession, deps: DependencySet) -> DependencySet:
+    # Column reads bypass both the TTL cache and ORM identity-map snapshots.
+    rows = (await session.execute(select(SiteConfig.key, SiteConfig.value).where(
+        SiteConfig.key.in_([LOAN_DAILY_RATE_KEY, SELL_FEE_RATE_KEY, credit_flags.KEY_CREDIT_NEW_RISK_FROZEN])
+    ))).all()
+    raw = dict(rows)
+    credit_flags.set_new_risk_frozen(
+        str(raw.get(credit_flags.KEY_CREDIT_NEW_RISK_FROZEN, "false")).strip().lower()
+        in {"true", "1", "yes", "on"}
+    )
+    return replace(deps,
+        daily_rate=_parse_decimal_or(raw.get(LOAN_DAILY_RATE_KEY), ZERO),
+        lmsr_fee_rate=_parse_decimal_or(raw.get(SELL_FEE_RATE_KEY), ZERO))
+
+
 async def _guard_and_refresh_prices(
     session: AsyncSession, *, deps: DependencySet, post: PostTradeState,
 ) -> DependencySet:
@@ -884,7 +899,10 @@ async def check_new_risk(
     """
     pct = _as_decimal(partial_pct, "partial_pct")
     uid = _user_id_of(user)
-    await credit_flags.refresh_new_risk_frozen(session)
+    current = await _current_rates(session, deps)
+    if post.debt > ZERO and current.daily_rate != deps.daily_rate:
+        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=post.debt)
+    deps = current
     # R1：版本/冻结/现金一律以数据库权威行为准（刷新 identity map）
     authority = await _refresh_user_authority(session, uid)
     # 无债快路径优先（复审要求）：post 无债时不刷新全组合快照、不报价。
@@ -964,7 +982,7 @@ async def check_cash_spend(
         raise ValueError(f"spend 不能为负: {amount!r}")
     pct = _as_decimal(partial_pct, "partial_pct")
     uid = _user_id_of(user)
-    await credit_flags.refresh_new_risk_frozen(session)
+    deps = await _current_rates(session, deps)
     # R1：权威 user 行；R3 同族：重读全部持仓组快照，避免旧抵押价
     authority = await _refresh_user_authority(session, uid)
     # 无债快路径优先：D_after==0 不做全组合快照刷新

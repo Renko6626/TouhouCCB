@@ -159,13 +159,21 @@ async def set_value(
     *,
     admin_user_id: Optional[int],
 ) -> SiteConfig:
+    _require_writes()
     row = await _fetch(session, key)
+    _require_writes()
     if key in FX_CONFIG_RULES:
         try:
             if not FX_CONFIG_RULES[key](value):
                 raise SiteConfigError(f"invalid FX config value: {key}")
         except (ValueError, ArithmeticError) as exc:
             raise SiteConfigError(f"invalid FX config value: {key}") from exc
+    from app.services.credit import flags
+    if (key in {"loan_daily_rate", "sell_fee_rate"} and flags.get_flags().unified_credit_enabled
+            and Decimal(value) != Decimal(row.value)):
+        # Runtime global fee changes also race newly-created market catalogs.
+        # Configure before activation; maintenance must settle old-rate interest.
+        raise SiteConfigError(f"统一信贷运行期间不能调整 {key}；须在停写维护中配置，日利率变更先结清旧率利息")
     old = row.value
     row.value = value
     row.updated_at = datetime.now(timezone.utc)
@@ -177,7 +185,15 @@ async def set_value(
         operator_user_id=admin_user_id,
         payload={"key": key, "old": old, "new": value, "value_type": row.value_type},
     )
+    _require_writes()
     await session.commit()
     await session.refresh(row)
     _cache.pop(key, None)  # 主动失效，让下次读取拿到新值
     return row
+
+
+def _require_writes() -> None:
+    from app.services.credit import flags
+    from app.services.credit.ownership import OWNERSHIP
+    if flags.get_flags().unified_credit_enabled or OWNERSHIP.reason is not None or flags.read_only_from_env():
+        OWNERSHIP.require_writes()

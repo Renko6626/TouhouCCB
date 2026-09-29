@@ -67,6 +67,37 @@ async def _trading_count(db) -> int:
 
 
 @pytest.mark.asyncio
+async def test_unified_pair_status_update_holds_gate_through_commit(monkeypatch):
+    from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
+    from app.core.database import async_session_maker
+    from app.services.credit import flags
+    from app.services.credit.gates import GATES
+    from app.services.credit.keys import GroupKey
+
+    async with async_session_maker() as db:
+        admin = User(username="gate_admin", casdoor_id="gate_admin", is_superuser=True)
+        db.add(admin)
+        await db.commit()
+        created = await create_pair(PairCreate(**_pair("GATE")), admin, db)
+        pair_id, version = created.id, created.pool_version
+        config = flags.parse_flags({"unified_credit_enabled": "true",
+                                    "credit_leverage": "20", "credit_maintenance_ratio": "0.04"})
+        monkeypatch.setattr(flags, "get_flags", lambda: config)
+        commit = db.commit
+        held = []
+
+        async def checked_commit():
+            held.append(GroupKey("fx", pair_id) in GATES.held_keys_by_current_task())
+            await commit()
+
+        monkeypatch.setattr(db, "commit", checked_commit)
+        updated = await update_pair(pair_id, PairPatch(status="paused"), admin, db)
+        assert held == [True]
+        assert updated.pool_version == version + 1
+        assert not GATES.held_keys_by_current_task()
+
+
+@pytest.mark.asyncio
 async def test_three_trading_pairs_allowed_and_fourth_rejected(ctx):
     client, db, _ = ctx
     for code in ("AAA", "BBB", "CCC"):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -19,6 +20,10 @@ from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury
 from app.schemas.fx import FxEventAdmin, FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
 from app.services.fx import scheduler
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.keys import GroupKey
+from app.services.credit.ownership import OWNERSHIP
 
 router = APIRouter()
 
@@ -32,6 +37,26 @@ MAX_TRADING_PAIRS = 3
 # - 其他方言（SQLite 开发/测试）：本进程内 asyncio.Lock 覆盖"检查 → 写入 → commit"。
 _TRADING_MUTATION_LOCK = asyncio.Lock()
 _TRADING_CAPACITY_LOCK_KEY = 0x46585F5452414445  # "FX_TRADE" 的固定 64-bit key
+
+
+def _require_writes():
+    if (credit_flags.get_flags().unified_credit_enabled or OWNERSHIP.reason is not None
+            or credit_flags.read_only_from_env()):
+        OWNERSHIP.require_writes()
+
+
+@asynccontextmanager
+async def _pair_update_gate(db: AsyncSession, pair_id: int):
+    _require_writes()
+    if not credit_flags.get_flags().unified_credit_enabled:
+        yield
+        return
+    if db.new or db.dirty or db.deleted:
+        raise RuntimeError("FX pair update requires a clean request session")
+    await db.close()
+    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
+        _require_writes()
+        yield
 
 
 def _dialect_name(db: AsyncSession) -> str:
@@ -219,6 +244,7 @@ async def list_pairs(_: User = Depends(current_superuser), db: AsyncSession = De
 
 @router.post("/pairs", response_model=FxPairAdmin)
 async def create_pair(req: PairCreate, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    _require_writes()
     if req.target_min > req.target_price or req.target_price > req.target_max:
         raise HTTPException(422, "target price must be within target range")
     async with _TRADING_MUTATION_LOCK:
@@ -226,6 +252,7 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
         await _lock_trading_capacity(db)
         if req.status == "trading":
             await _ensure_trading_capacity(db)
+        _require_writes()
         pair = FxPair(**req.model_dump())
         db.add(pair)
         await db.flush()
@@ -249,7 +276,7 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
     if pair.status != "draft" and (req.currency_code is not None or req.currency_name is not None):
         raise HTTPException(409, "currency cannot be changed after opening")
     values = req.model_dump(exclude_unset=True)
-    async with _TRADING_MUTATION_LOCK:
+    async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
         await _lock_trading_capacity(db)
         # 锁内重读同一行（populate_existing 覆盖身份映射里的旧值）：并发 PATCH
         # 不能拿临界区之外读到的 stale status/reduce_only 做计数与审计 before。
@@ -265,8 +292,11 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
             raise HTTPException(422, "reduce_only must be a boolean")
         if values.get("status") == "trading":
             await _ensure_trading_capacity(db, exclude_pair_id=pair_id)
+        _require_writes()
         before = {key: str(getattr(pair, key)) for key in values}
         for key, value in values.items(): setattr(pair, key, value)
+        if credit_flags.get_flags().unified_credit_enabled:
+            pair.pool_version += 1
         if pair.target_min > pair.target_price or pair.target_price > pair.target_max: raise HTTPException(422, "target price must be within target range")
         pair.updated_at = datetime.now(timezone.utc)
         # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
@@ -299,6 +329,7 @@ async def get_config(_: User = Depends(current_superuser), db: AsyncSession = De
 
 @router.put("/config")
 async def put_config(req: ConfigUpdate, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    _require_writes()
     if req.key not in FX_CONFIG_KEYS: raise HTTPException(400, "unknown FX config key")
     try: row = await site_config.set_value(db, req.key, req.value, admin_user_id=admin.id)
     except Exception as exc: raise HTTPException(422, str(exc)) from exc
@@ -312,22 +343,26 @@ async def list_events(_: User = Depends(current_superuser), db: AsyncSession = D
 
 @router.post("/events", response_model=FxEventAdmin)
 async def create_event(req: EventRequest, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    _require_writes()
     pair = await db.get(FxPair, req.pair_id)
     if pair is None: raise HTTPException(404, "FX pair not found")
     cap = Decimal("0.20") if req.kind in {"black_swan", "black-swan", "black_swan_event"} else Decimal("0.05")
     if abs(req.shock_ratio) > cap: raise HTTPException(422, "shock ratio exceeds event kind cap")
     if not (Decimal("0.1") <= req.first_reaction_ratio <= Decimal("0.9")):
         raise HTTPException(422, "first reaction ratio must be between 0.1 and 0.9")
+    _require_writes()
     event = FxEvent(**req.model_dump(exclude={"scheduled_at"}), operator_user_id=admin.id)
     db.add(event); await db.flush()
     _admin_audit(db, "fx_event_create", admin.id, "fx_event", event.id, {},
                  {"status": "draft", "pair_id": event.pair_id, "shock_ratio": str(event.shock_ratio),
                   "first_reaction_ratio": str(event.first_reaction_ratio), "budget": str(event.budget)})
+    _require_writes()
     await db.commit(); await db.refresh(event)
     if req.scheduled_at is not None:
         scheduled = await scheduler.schedule_event(db, event.id, req.scheduled_at)
         _admin_audit(db, "fx_event_schedule", admin.id, "fx_event", event.id,
                      {"status": "draft"}, {"status": "scheduled", "scheduled_at": scheduled.scheduled_at.isoformat()})
+        _require_writes()
         await db.commit()
         return scheduled
     return event
@@ -340,11 +375,14 @@ async def publish_event(event_id: int, admin: User = Depends(current_superuser),
 
 @router.post("/events/{event_id}/cancel", response_model=FxEventAdmin)
 async def cancel_event(event_id: int, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    _require_writes()
     event = (await db.execute(select(FxEvent).where(FxEvent.id == event_id))).scalars().first()
     if event is None: raise HTTPException(404, "FX event not found")
     if event.status not in {"draft", "scheduled"}: raise HTTPException(409, "published events cannot be cancelled")
+    _require_writes()
     event.status = "cancelled"; event.operator_user_id = admin.id
     audit_service.record(db, "fx_event_cancel", operator_user_id=admin.id, ref_table="fx_event", ref_id=event.id, payload={"pair_id": event.pair_id})
+    _require_writes()
     await db.commit(); await db.refresh(event)
     return event
 

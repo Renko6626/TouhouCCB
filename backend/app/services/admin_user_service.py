@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -205,6 +206,8 @@ async def _adjust_cash_unified(
         async with GATES.hold(shared=deps.groups):
             async with managed_transaction(db):
                 u = await _lock_user(db, target_id)
+                if economic_version_of(u) != deps.economic_version:
+                    raise AdminUserError(409, "经济版本冲突，请重试")
                 decision = await check_cash_spend(
                     db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
                     partial_pct=ONE, now=_utcnow(),
@@ -278,17 +281,21 @@ async def _force_loan_unified(
         try:
             async with managed_transaction(db):
                 u = await _lock_user(db, target_id)
-                post = PostTradeState(cash=deps.cash + amount, debt=deps.debt + amount)
+                if economic_version_of(u) != deps.economic_version:
+                    raise AdminUserError(409, "经济版本冲突，请重试")
+                now = loan_service._compat_now(u)
+                effective = loan_service.pending_debt(u, deps.daily_rate, now)
+                post = PostTradeState(cash=deps.cash + amount, debt=effective + amount)
                 decision = await check_new_risk(
-                    db, user=u, deps=deps, post=post, thresholds=thresholds,
-                    partial_pct=ONE, now=_utcnow(),
+                    db, user=u, deps=replace(deps, debt_last_accrued_at=now), post=post, thresholds=thresholds,
+                    partial_pct=ONE, now=now,
                 )
                 if not decision.allowed:
                     raise AdminUserError(409, f"强制放贷被统一信贷拒绝：{_risk_deny_detail(decision)}")
                 OWNERSHIP.require_writes()
                 u = await loan_service.increase_debt(
-                    db, target_id, amount, grant_cash=True, daily_rate=rate,
-                    source="admin_force_loan", operator_user_id=admin_id, reason=reason,
+                    db, target_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
+                    source="admin_force_loan", operator_user_id=admin_id, reason=reason, now=now,
                 )
         except (ValueError, loan_service.LoanServiceError) as e:
             raise AdminUserError(400, str(e))
@@ -578,6 +585,8 @@ async def _batch_adjust_one(
         async with GATES.hold(shared=deps.groups):
             async with managed_transaction(db):
                 u = await _lock_user(db, user_id)
+                if economic_version_of(u) != deps.economic_version:
+                    raise AdminUserError(409, "经济版本冲突，请重试")
                 new_cash = u.cash + amount
                 if new_cash < 0:
                     return False, {

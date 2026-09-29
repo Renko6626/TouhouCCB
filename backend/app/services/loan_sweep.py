@@ -18,6 +18,8 @@ from app.models.base import User
 from app.services.loan_service import accrue_interest, _compat_now
 from app.services import site_config
 from app.services import audit_service
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.version import bump_economic_version
 
 
 logger = logging.getLogger("thccb.loan_sweep")
@@ -57,12 +59,15 @@ async def run_sweep_once() -> int:
                     select(User).where(User.id == uid).with_for_update()
                 )
                 u = result.scalar_one()
+                OWNERSHIP.require_writes()
                 before = u.debt
                 before_at = u.debt_last_accrued_at
                 now = _compat_now(u)
                 if before_at is not None and (now - before_at).total_seconds() < min_gap_sec:
                     continue
                 accrue_interest(u, rate, now)
+                if (u.debt, u.debt_last_accrued_at) != (before, before_at):
+                    bump_economic_version(u)
                 if u.debt != before:
                     session.add(u)
                     touched += 1

@@ -54,6 +54,7 @@ async def test_sweep_accrues_interest():
     assert u.debt > Decimal("1000.3")
     assert u.debt < Decimal("1000.5")
     assert u.debt_last_accrued_at is not None
+    assert u.economic_version == 1
 
 
 @pytest.mark.asyncio
@@ -67,6 +68,8 @@ async def test_sweep_multiple_users_independent():
         u2 = await s.get(User, uid2)
     assert u1.debt > Decimal("100.5") and u1.debt < Decimal("101.5")
     assert u2.debt == Decimal("0")
+    assert u1.economic_version == 1
+    assert u2.economic_version == 0
 
 
 @pytest.mark.asyncio

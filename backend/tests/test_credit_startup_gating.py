@@ -183,6 +183,18 @@ async def test_non_owner_with_unified_credit_enabled_fails_startup(startup, monk
     assert own.released is True  # 启动失败也要释放所有权
 
 
+async def test_unified_credit_starts_writer_without_legacy_writer_flag(startup, monkeypatch):
+    _install_ownership(monkeypatch, owner=True, events=startup)
+    _install_flags(monkeypatch, {"unified_credit_enabled": "true", "credit_leverage": "20",
+                               "credit_maintenance_ratio": "0.04"})
+    try:
+        await _run_lifespan()
+        assert "WRITER.start" in startup
+        assert "FLUSHER.start" in startup
+    finally:
+        main._configure_admin_economic_writes(False)
+
+
 async def test_non_owner_without_unified_credit_runs_without_writes(startup, monkeypatch):
     own = _install_ownership(monkeypatch, owner=False, events=startup)
     _install_flags(monkeypatch, {"unified_credit_enabled": "false"})

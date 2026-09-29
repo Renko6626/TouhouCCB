@@ -162,14 +162,6 @@ async def _startup(app: FastAPI) -> None:
         except Exception as e:
             # 兜底失败不能阻塞启动；记日志后续手工跑 backfill CLI
             logging.getLogger("thccb.candle").exception("resync_recent_candles failed: %s", e)
-        # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
-        await start_loan_scheduler()
-        await start_liquidation_scheduler()
-        await start_bot_detection_scheduler()
-        # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
-        await start_pve_scheduler()
-        await start_fx_scheduler()
-        await start_fx_publisher()
     else:
         main_logger.warning(
             "writes disabled (read_only=%s owner=%s reason=%s): all write schedulers "
@@ -182,9 +174,18 @@ async def _startup(app: FastAPI) -> None:
     if writes_ok:
         async with async_session_maker() as _s:
             _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
-        if _sw:
+        if _sw or flags.unified_credit_enabled:
             await WRITER.start()
             await CANDLE_FLUSHER.start()
+    if writes_ok:
+        # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
+        await start_loan_scheduler()
+        await start_liquidation_scheduler()
+        await start_bot_detection_scheduler()
+        # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
+        await start_pve_scheduler()
+        await start_fx_scheduler()
+        await start_fx_publisher()
     # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
@@ -364,6 +365,16 @@ async def log_requests(request: Request, call_next):
     跳过高频探活（/health）与长连接（SSE），避免淹没日志；
     5xx 用 warning 级别提升告警敏感度。
     """
+    # Readonly instances intentionally cannot POST login/register (SSO may issue
+    # initial cash). Authenticate on the writer; existing-token GETs remain usable.
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        from app.services.credit.ownership import OWNERSHIP, EconomicWritesDisabled
+        if credit_flags.read_only_from_env() or OWNERSHIP.reason is not None:
+            try:
+                OWNERSHIP.require_writes()
+            except EconomicWritesDisabled as exc:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=503, content={"detail": str(exc)})
     path = request.url.path
     if any(path.startswith(p) for p in _LOG_SKIP_PREFIXES):
         return _set_no_store_for_api(path, await call_next(request))
