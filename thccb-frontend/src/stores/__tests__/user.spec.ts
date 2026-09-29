@@ -62,3 +62,16 @@ describe('I6 user store：FX MTM 进展示净值/rank，不进 LCV', () => {
     expect(store.marginRatioEstimate).toBe(1)
   })
 })
+
+describe('unified credit snapshot', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  it('uses pending debt for MTM and product liquidation equity for margin', () => {
+    const store = useUserStore()
+    store.summary = makeSummary({ unified_credit_enabled: true, cash: 100,
+      debt: 50, debt_with_interest: 55, fx_mtm: 100,
+      liquidation_equity: 125, equity_to_debt: 125 / 55 })
+    expect(store.netWorth).toBe(145)
+    expect(store.netWorthLcv).toBe(125)
+    expect(store.marginRatioEstimate).toBeCloseTo(125 / 55)
+  })
+})

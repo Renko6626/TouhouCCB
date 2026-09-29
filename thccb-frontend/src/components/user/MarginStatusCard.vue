@@ -11,18 +11,18 @@ const shouldShow = computed(() => {
 })
 
 const ratio = computed(() => userStore.marginRatioEstimate)
-const baseStatus = computed(() => summary.value?.margin_status ?? 'healthy')
-const protectedByHalt = computed(() => summary.value?.liquidation_protected ?? false)
+const baseStatus = computed(() => summary.value?.risk_status ?? summary.value?.margin_status ?? 'healthy')
+const protectedByHalt = computed(() => !summary.value?.unified_credit_enabled && (summary.value?.liquidation_protected ?? false))
 // HALT 保护优先：danger/warning + HALT 持仓 → 显示保护态而非危险
 const status = computed(() =>
   protectedByHalt.value && baseStatus.value !== 'healthy' ? 'protected' : baseStatus.value
 )
-const hardThr = computed(() => summary.value?.margin_hard_threshold ?? 0.2)
-const softThr = computed(() => summary.value?.margin_soft_threshold ?? 0.5)
+const hardThr = computed(() => summary.value?.r_maintenance ?? summary.value?.margin_hard_threshold ?? 0.2)
+const softThr = computed(() => summary.value?.r_initial ?? summary.value?.margin_soft_threshold ?? 0.5)
 // net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
 const netWorth = computed(() => userStore.netWorth)
 const netWorthLcv = computed(() => userStore.netWorthLcv)
-const debt = computed(() => Number(summary.value?.debt ?? 0))
+const debt = computed(() => Number(summary.value?.debt_with_interest ?? summary.value?.debt ?? 0))
 // 两口径差距（LMSR 滑点 + 手续费的损耗）
 const slippageGap = computed(() => netWorth.value - netWorthLcv.value)
 
@@ -74,6 +74,7 @@ function relativeTime(ms: number): string {
       <span class="card-badge" :class="`badge-${status}`">{{ statusLabel }}</span>
     </div>
 
+    <p v-if="summary?.unified_credit_enabled">清算净值与风险状态为最近刷新快照；定时扫描按最新资产执行。</p>
     <div class="ratio-row">
       <span class="ratio-big">
         {{ ratio != null ? Number(ratio).toFixed(3) : '—' }}
@@ -90,7 +91,7 @@ function relativeTime(ms: number): string {
         </div>
         <div class="thresholds">
           强平线 <span class="num">{{ Number(hardThr).toFixed(2) }}</span>
-          · 警戒线 <span class="num">{{ Number(softThr).toFixed(2) }}</span>
+          · {{ summary?.unified_credit_enabled ? '初始 / 恢复线' : '警戒线' }} <span class="num">{{ Number(softThr).toFixed(2) }}</span>
         </div>
       </div>
     </div>

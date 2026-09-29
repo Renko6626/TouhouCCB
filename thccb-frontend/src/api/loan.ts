@@ -12,6 +12,10 @@ export interface LoanQuota {
   daily_rate: string
   max_borrow: string
   last_accrued_at: string | null
+  display_equity?: string | null
+  liquidation_equity?: string | null
+  r_initial?: string | null
+  r_maintenance?: string | null
 }
 
 export interface LoanActionResult {
@@ -63,6 +67,7 @@ export interface LiquidationEvent {
   repaid_amount: number
   remaining_debt: number
   post_cash: number
+  product?: 'lmsr' | 'fx' | null
   trigger_source: string
   fully_liquidated: boolean
   /** 'emergency' = margin 跌破紧急线全平; 'partial' = 渐进按比例平仓 */
@@ -76,6 +81,13 @@ export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEv
 }
 
 export interface LiquidationPolicy {
+  unified_credit_enabled?: boolean
+  credit_leverage?: number | null
+  r_initial?: number | null
+  r_maintenance?: number | null
+  sell_fee_rate?: number
+  fx_sell_fee_rates?: { pair_id: number; currency_code: string; sell_fee_rate: number }[]
+  legacy?: { legacy: true }
   enabled: boolean
   hard_threshold: number       // margin < 这个值触发强平
   soft_threshold: number       // 软警告线

@@ -15,13 +15,15 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user
 from app.models.base import User, Position, Transaction, Outcome
-from app.models.fx import FxWallet
+from app.models.fx import FxWallet, FxPair
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import quantize_cost
 from app.services import site_config as _site_config
 from app.services.rank import RANK_THRESHOLDS
 from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
-from app.services.fx.valuation import compute_fx_mtm
+from app.services.fx.amm import marginal_price
+from app.services.credit import flags as credit_flags
+from app.services.credit.valuation import value_user_detailed
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +40,7 @@ async def get_user_summary(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """阶段 3 新契约（spec §6.4）：只返回客户端算不出来的东西。
-
-    每次成交后必被调用 × 每次两遍全仓 LMSR 的时代结束：margin_status
-    仅在 debt>0 时算一次 LCV，无债用户零 LMSR 开销。调用时机也随之降频
-    （登录 / 手动刷新 / gap reconcile，成交后不再调用）。
-    """
+    """账户快照；统一模式各产品估值一次，旧模式保持无债零 LCV 路径。"""
     pos_rows = (await db.execute(
         select(Position.outcome_id, Outcome.market_id,
                Position.amount, Position.cost_basis)
@@ -63,18 +60,47 @@ async def get_user_summary(
     hard = await _site_config.get_decimal_or(db, "liquidation_hard_threshold", Decimal("0.2"))
     soft = await _site_config.get_decimal_or(db, "liquidation_soft_threshold", Decimal("0.5"))
     sell_fee_rate = await _site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
-    fx_mtm = (await compute_fx_mtm(db, user_ids=[user.id])).get(user.id, ZERO)
-    fx_cost_row = (await db.execute(
-        select(FxWallet.cost_basis).where(
-            FxWallet.user_id == user.id, FxWallet.cost_basis > ZERO
-        )
+    wallet_rows = (await db.execute(
+        select(FxWallet, FxPair).join(FxPair, FxPair.id == FxWallet.pair_id)
+        .where(FxWallet.user_id == user.id).order_by(FxPair.id)
     )).all()
-    fx_cost_basis = sum((Decimal(row[0]) for row in fx_cost_row), ZERO).quantize(Decimal("0.000001"))
+    fx_wallets = [{
+        "pair_id": pair.id, "currency_code": pair.currency_code,
+        "foreign_amount": quantize_cost(wallet.foreign_amount),
+        "mtm_gold": quantize_cost(wallet.foreign_amount * marginal_price(
+            pair.gold_reserve, pair.foreign_reserve)),
+    } for wallet, pair in wallet_rows if wallet.foreign_amount > ZERO]
+    fx_mtm = sum((w["mtm_gold"] for w in fx_wallets), ZERO)
+    fx_cost_basis = sum((wallet.cost_basis for wallet, _ in wallet_rows
+                         if wallet.cost_basis > ZERO), ZERO)
+    flags = credit_flags.get_flags()
+    credit_fields = {"fx_wallets": fx_wallets,
+                     "unified_credit_enabled": flags.unified_credit_enabled,
+                     "credit_frozen": user.credit_frozen}
+    valuation = None
+    if flags.unified_credit_enabled:
+        rate = await _site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+        # One product valuation, also for debt-free accounts: MTM is never LCV.
+        valuation = await value_user_detailed(db, user.id, daily_rate=rate)
+        thresholds = flags.thresholds
+        equity, debt = valuation.liquidation_equity, valuation.debt_effective
+        risk_status = ("danger" if thresholds.triggered(equity, debt) else
+                       "warning" if not thresholds.recovered(equity, debt) else "healthy")
+        credit_fields.update(
+            display_equity=valuation.display_equity, liquidation_equity=equity,
+            debt_with_interest=debt, credit_leverage=thresholds.leverage,
+            r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
+            equity_to_debt=(equity / debt if debt > ZERO else None),
+            risk_status=risk_status,
+        )
 
     # margin_status 服务端权威（保守 LCV 口径，docs/holdings-value-semantics.md）。
     # 只有 debt>0 才需要跑全仓 LMSR。
     margin_status = "healthy"
-    if user.debt > ZERO:
+    if valuation is not None:
+        margin_status = credit_fields["risk_status"]
+        hard, soft = flags.thresholds.r_maintenance, flags.thresholds.r_initial
+    elif user.debt > ZERO:
         holdings_lcv = (
             await compute_users_holdings_value(db, user_ids=[user.id])
         ).get(user.id, ZERO)
@@ -86,13 +112,15 @@ async def get_user_summary(
             margin_status = "warning"
 
     # 流动性危机保护标志：语义不变（review I3）
-    liquidation_protected = await user_has_halt_holdings(db, user.id)
+    liquidation_protected = (False if flags.unified_credit_enabled else
+                             await user_has_halt_holdings(db, user.id))
 
     from app.services import title_service as _title_service
     equipped_t = await _title_service.get_equipped_chip(db, user.id)
     my_title_rows = await _title_service.list_my_titles(db, user.id)
 
     return {
+        **credit_fields,
         "cash": quantize_cost(user.cash),   # 6dp——客户端 cash 基线
         "debt": quantize_cost(user.debt),
         "fx_mtm": quantize_cost(fx_mtm),

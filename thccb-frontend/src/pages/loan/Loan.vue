@@ -5,6 +5,8 @@ import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
 import { extractErrorMessage } from '@/utils/errors'
 
+defineOptions({ name: 'LoanPage' })
+
 const store = useLoanStore()
 const msg = useMessage()
 
@@ -199,7 +201,25 @@ async function repayAll() {
 
       <NDivider />
 
-      <section class="panel liq-panel">
+      <section v-if="policy?.unified_credit_enabled" class="panel liq-panel">
+        <h3>跨产品定时强平</h3>
+        <p>账面净值：金 {{ store.quota?.display_equity ?? '—' }}；清算净值：金 {{ store.quota?.liquidation_equity ?? '—' }}。</p>
+        <p>清算净值 = 现金 + LMSR 与各外汇实际可变现金额 − 含待结利息的负债。
+          不可卖资产的清算价值为 0，账面市值不代表能立即变现。</p>
+        <p>初始 / 恢复率 {{ ((policy.r_initial ?? 0) * 100).toFixed(2) }}%；
+          维持率 {{ ((policy.r_maintenance ?? 0) * 100).toFixed(2) }}%。</p>
+        <p>每 {{ policy.sweep_interval_sec }} 秒扫描；清算净值 ÷ 负债低于维持率时触发。
+          先用现金还债，再按固定顺序选择可卖的一组（一个预测市场或一个外汇交易对）。
+          每人每次扫描最多处理一组，通常卖出该组的 {{ (policy.partial_pct * 100).toFixed(2) }}%；清算净值不大于 0 时卖出该组全部。
+          下一次扫描继续，恢复到初始率或还清即停止；卖光仍欠债会冻结新增信用，不会免债。</p>
+        <p>强平不另收罚金：LMSR 卖出费率 {{ ((policy.sell_fee_rate ?? 0) * 100).toFixed(2) }}%。
+          <span v-for="pair in policy.fx_sell_fee_rates" :key="pair.pair_id">
+            {{ pair.currency_code }} 卖出费率 {{ (pair.sell_fee_rate * 100).toFixed(2) }}%。
+          </span>
+        </p>
+        <p>机制{{ policy.enabled ? '已开启' : '已暂停' }}。交易或行情变化不会额外触发强平。</p>
+      </section>
+      <section v-else class="panel liq-panel">
         <h3>强制平仓机制</h3>
         <p class="liq-intro">
           有负债时，系统会按下面规则定期检查你的保证金率

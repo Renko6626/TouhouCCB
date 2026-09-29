@@ -11,6 +11,7 @@ from sqlmodel import select
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User, LiquidationEvent
+from app.models.fx import FxPair
 from app.models.title import Title as _Title
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
@@ -287,6 +288,7 @@ async def recent_liquidations(
             "fully_liquidated": ev.remaining_debt == Decimal("0"),
             "trigger_source": ev.trigger_source,
             "mode": ev.mode,
+            "product": ev.product,
         }
         for ev, user_id, username, t in rows
     ]
@@ -304,7 +306,7 @@ async def liquidation_policy(
     target_margin = await site_config.get_decimal(db, "liquidation_target_margin")
     emergency_thr = await site_config.get_decimal(db, "liquidation_emergency_threshold")
     interval = await site_config.get_int(db, "liquidation_sweep_interval_sec")
-    return {
+    legacy = {
         "enabled": enabled,
         "hard_threshold": float(hard_thr),
         "soft_threshold": float(soft_thr),
@@ -312,4 +314,22 @@ async def liquidation_policy(
         "target_margin": float(target_margin),
         "emergency_threshold": float(emergency_thr),
         "sweep_interval_sec": int(interval),
+    }
+
+    flags = credit_flags.get_flags()
+    thresholds = flags.thresholds
+    rates = (await db.execute(select(FxPair.id, FxPair.currency_code, FxPair.sell_fee_rate)
+                              .where(FxPair.status != "draft").order_by(FxPair.id))).all()
+    return {
+        **legacy,
+        "partial_pct": float(partial_pct),
+        "unified_credit_enabled": flags.unified_credit_enabled,
+        "credit_leverage": float(thresholds.leverage) if thresholds else None,
+        "r_initial": float(thresholds.r_initial) if thresholds else None,
+        "r_maintenance": float(thresholds.r_maintenance) if thresholds else None,
+        "sell_fee_rate": float(await site_config.get_decimal_or(db, "sell_fee_rate", Decimal("0"))),
+        "fx_sell_fee_rates": [{"pair_id": pid, "currency_code": code, "sell_fee_rate": float(rate)}
+                              for pid, code, rate in rates],
+        "legacy": {"legacy": True, **{k: legacy[k] for k in (
+            "hard_threshold", "soft_threshold", "target_margin", "emergency_threshold", "partial_pct")}},
     }

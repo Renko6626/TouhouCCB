@@ -423,3 +423,16 @@ whole-branch review 遗留的 3 个 Minor（见 `fix-wave-review.md`）已在本
 - Task 9 验收报告：`.superpowers/sdd/2026-09-28-fx-market/task-9-report.md`。
 - whole-branch fix wave 报告：`.superpowers/sdd/2026-09-28-fx-market/fix-wave-report.md`。
 - 本轮 minor fix 报告：`.superpowers/sdd/2026-09-28-fx-market/minor-fix-report.md`。
+
+## 统一信贷接入（2026-10，需独立启用）
+
+启用统一信贷后，多 FX 钱包与 LMSR 共用单一金圆券贷款、初始率和维持率。
+账面市值仍按现价展示；授信与强平改用各 pair AMM 真实卖出净额，扣各自卖出费率。
+无债也不能把账面市值当成真实清算价值。默认 paused 继续全停；显式 reduce-only 允许卖出和强平，但不允许买入或系统干预。
+每次定时扫描最多为同一玩家卖一个组的配置比例（`liquidation_partial_pct`，默认 10%；清算净值不大于零时卖该组全部），可在不同扫描轮次处理不同产品；没有行情或成交额外触发。
+首期最多 3 个 trading pair，账户页按币种列出钱包。
+
+20 倍杠杆需要运营显式设定，维持率建议 `0.04`；迁移本身保留旧授信水平。
+存在 FX 抵押债务时不得回退到只处理 LMSR 的旧强平。
+发布门槛、费率公示、启动缓存和完整备份回退流程见 [统一信贷操作手册](unified-credit-risk-2026-10.md)。
+本节是启用后的规则；此前描述的 FX 不计入贷款抵押仅适用于统一信贷关闭时。

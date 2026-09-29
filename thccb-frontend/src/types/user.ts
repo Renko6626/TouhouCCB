@@ -32,7 +32,18 @@ export interface UserSummary {
   /** 6dp 全精度——成交后本地 apply 的 cash 基线 */
   cash: number
   debt: number
-  /** FX 展示市值/成本/浮盈；只进展示净值与 rank，不进 LCV margin 口径 */
+  unified_credit_enabled?: boolean
+  display_equity?: number | null
+  liquidation_equity?: number | null
+  debt_with_interest?: number | null
+  credit_leverage?: number | null
+  r_initial?: number | null
+  r_maintenance?: number | null
+  equity_to_debt?: number | null
+  risk_status?: 'healthy' | 'warning' | 'danger' | null
+  credit_frozen?: boolean
+  fx_wallets?: { pair_id: number; currency_code: string; foreign_amount: number; mtm_gold: number }[]
+  /** FX 展示市值；统一模式清算净值来自服务端产品报价 */
   fx_mtm: number
   fx_cost_basis: number
   fx_unrealized_pnl: number

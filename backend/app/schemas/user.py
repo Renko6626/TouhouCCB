@@ -33,17 +33,33 @@ class RankThresholdItem(BaseModel):
     title: str
 
 
-class UserSummary(BaseModel):
-    """阶段 3 新契约（spec §6.4）：只返回客户端算不出来的东西。
+class FxWalletSummary(BaseModel):
+    pair_id: int
+    currency_code: str
+    foreign_amount: Money
+    mtm_gold: Money
 
-    holdings_value / net_worth / unrealized_pnl / rank / margin_ratio 等
-    派生值由前端 utils/lmsr.ts + priceContext 本地算；margin_status 仍是
-    服务端权威（LCV 口径，spec §6.3——真正触发强平的是 sweep）。
-    cash 是客户端成交后本地 apply 的基线，6dp 全精度。
+
+class UserSummary(BaseModel):
+    """账户快照；统一模式的清算指标由服务端按产品真实报价计算。
+
+    客户端仍可续写 MTM 价格，但不能将它当作最新风险准入结论。
+    关闭统一信贷时保留旧字段与无债零 LCV 路径。
     """
     cash: Money
     debt: Money
-    # FX is an independent display asset; it is excluded from LCV/collateral.
+    # New valuation fields are populated only with unified credit enabled.
+    fx_wallets: List[FxWalletSummary] = []
+    display_equity: Optional[Money] = None
+    liquidation_equity: Optional[Money] = None
+    debt_with_interest: Optional[Money] = None
+    credit_leverage: Optional[float] = None
+    r_initial: Optional[float] = None
+    r_maintenance: Optional[float] = None
+    equity_to_debt: Optional[float] = None
+    risk_status: Optional[str] = None
+    credit_frozen: bool = False
+    unified_credit_enabled: bool = False
     fx_mtm: Money = Decimal("0")
     fx_cost_basis: Money = Decimal("0")
     fx_unrealized_pnl: Money = Decimal("0")

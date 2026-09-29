@@ -4,6 +4,7 @@ import type {
   Holding, HoldingSlim, MarketPriceCtx, Transaction, UserSummary,
 } from '@/types/api'
 import { userApi } from '@/api/user'
+import { extractErrorMessage } from '@/utils/errors'
 import { marketApi } from '@/api/market'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -29,16 +30,19 @@ export const useUserStore = defineStore('user', () => {
   const holdingsValueLcv = computed(() =>
     computeHoldingsValueLcv(summary.value?.positions ?? [], priceContext.value,
                             summary.value?.sell_fee_rate ?? 0))
-  // FX 展示市值：只并入账面净值/浮盈/rank，不并入 LCV（借款抵押/强平）。
+  // MTM 随本地 LMSR 报价更新；统一清算净值仅取服务端最近快照。
   const fxMtm = computed(() => summary.value?.fx_mtm ?? 0)
   const fxCostBasis = computed(() => summary.value?.fx_cost_basis ?? 0)
   const netWorth = computed(() =>
     summary.value
-      ? summary.value.cash - summary.value.debt + holdingsValueMtm.value + fxMtm.value
+      ? summary.value.cash - (summary.value.unified_credit_enabled
+          ? summary.value.debt_with_interest ?? summary.value.debt : summary.value.debt) + holdingsValueMtm.value + fxMtm.value
       : 0)
-  // LCV 口径（服务端 margin_status / 强平抵押）保持不含 FX——FX 不是合格抵押物。
+  // 旧模式保留 LMSR 本地估算；统一模式包含各 FX pair 的真实清算报价。
   const netWorthLcv = computed(() =>
-    summary.value ? summary.value.cash - summary.value.debt + holdingsValueLcv.value : 0)
+    summary.value?.unified_credit_enabled
+      ? summary.value.liquidation_equity ?? 0
+      : summary.value ? summary.value.cash - summary.value.debt + holdingsValueLcv.value : 0)
   const unrealizedPnl = computed(() =>
     holdingsValueMtm.value - totalCostBasis.value + fxMtm.value - fxCostBasis.value)
   const unrealizedPnlLcv = computed(() => holdingsValueLcv.value - totalCostBasis.value)
@@ -47,6 +51,7 @@ export const useUserStore = defineStore('user', () => {
   // 显示用估算；权威 margin_status 仍来自 summary（服务端 LCV 口径）
   const marginRatioEstimate = computed<number | null>(() => {
     const s = summary.value
+    if (s?.unified_credit_enabled) return s.equity_to_debt ?? null
     if (!s || s.debt <= 0) return null
     return netWorthLcv.value / s.debt
   })
@@ -119,8 +124,8 @@ export const useUserStore = defineStore('user', () => {
       }
       summary.value = s
       return s
-    } catch (err: any) {
-      error.value = err.message || '获取资产概览失败'
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err, '获取资产概览失败')
       console.error('获取资产概览失败:', err)
       return null
     } finally {
@@ -141,8 +146,8 @@ export const useUserStore = defineStore('user', () => {
       }
       holdingsRaw.value = h
       return holdingsRaw.value
-    } catch (err: any) {
-      error.value = err.message || '获取持仓明细失败'
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err, '获取持仓明细失败')
       console.error('获取持仓明细失败:', err)
       return []
     } finally {
@@ -157,8 +162,8 @@ export const useUserStore = defineStore('user', () => {
     try {
       transactions.value = await userApi.getTransactions(limit)
       return transactions.value
-    } catch (err: any) {
-      error.value = err.message || '获取交易历史失败'
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err, '获取交易历史失败')
       console.error('获取交易历史失败:', err)
       return []
     } finally {
@@ -178,8 +183,8 @@ export const useUserStore = defineStore('user', () => {
         fetchTransactions(100, false),
       ])
       return { success: true }
-    } catch (err: any) {
-      error.value = err.message || '获取用户数据失败'
+    } catch (err: unknown) {
+      error.value = extractErrorMessage(err, '获取用户数据失败')
       console.error('获取用户数据失败:', err)
       return { success: false, error: error.value }
     } finally {

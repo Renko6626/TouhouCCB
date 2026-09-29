@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { userApi } from '@/api/user'
 import { extractErrorMessage } from '@/utils/errors'
 import {
-  NButton, NCard, NTag,
+  NButton, NCard,
   NSpace, NSpin, NDataTable, NEmpty, NAlert, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -15,6 +15,8 @@ import type { Holding } from '@/types/api'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import MarginStatusCard from '@/components/user/MarginStatusCard.vue'
 import MyTitlesPanel from '@/components/title/MyTitlesPanel.vue'
+
+defineOptions({ name: 'UserPortfolio' })
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -84,7 +86,7 @@ const loadData = async () => {
 onMounted(() => { loadData() })
 
 const marketById = computed(() => {
-  const map = new Map<number, any>()
+  const map = new Map<number, (typeof marketStore.markets)[number]>()
   marketStore.markets.forEach(m => map.set(m.id, m))
   return map
 })
@@ -231,20 +233,35 @@ const holdingsByMarketArray = computed(() => {
           </span>
         </div>
         <div
-          v-if="Number(userStore.summary.debt) > 0"
+          v-if="Number(userStore.summary.debt_with_interest ?? userStore.summary.debt) > 0"
           class="asset-card asset-card-debt"
           @click="router.push('/loan')"
           role="link"
           title="点击查看负债详情"
         >
           <span class="asset-label">负债</span>
-          <span class="asset-value asset-value-debt">金 {{ Number(userStore.summary.debt).toFixed(2) }}</span>
+          <span class="asset-value asset-value-debt">金 {{ Number(userStore.summary.debt_with_interest ?? userStore.summary.debt).toFixed(2) }}</span>
         </div>
         <div class="asset-card asset-card-highlight asset-card-wide">
-          <span class="asset-label">净资产</span>
+          <span class="asset-label">净资产（账面市值）</span>
           <span class="asset-value asset-value-net">金 {{ userStore.netWorth.toFixed(2) }}</span>
         </div>
       </div>
+
+      <section v-if="userStore.summary?.unified_credit_enabled" class="asset-card">
+        <span class="asset-label">清算净值（最近刷新，含各产品滑点与手续费）</span>
+        <span class="asset-value">金 {{ userStore.netWorthLcv.toFixed(2) }}</span>
+        <span>初始 / 恢复率 {{ ((userStore.summary.r_initial ?? 0) * 100).toFixed(2) }}%
+          · 维持率 {{ ((userStore.summary.r_maintenance ?? 0) * 100).toFixed(2) }}%</span>
+        <span v-if="userStore.summary.credit_frozen">账户已冻结新增信用；可还款及安全减仓。</span>
+      </section>
+      <section v-if="userStore.summary?.fx_wallets?.length" class="asset-grid">
+        <div v-for="wallet in userStore.summary.fx_wallets" :key="wallet.pair_id" class="asset-card">
+          <span class="asset-label">{{ wallet.currency_code }}</span>
+          <span class="asset-value">{{ wallet.foreign_amount.toFixed(6) }}</span>
+          <span>账面市值 金 {{ wallet.mtm_gold.toFixed(2) }}</span>
+        </div>
+      </section>
 
       <!-- 保证金率详情（debt > 0 时才显示） -->
       <MarginStatusCard />
