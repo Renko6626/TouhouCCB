@@ -37,16 +37,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
-from app.services import audit_service, site_config
+from app.services import audit_service, site_config, loan_service, ledger_service
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
 from app.services.fx.amm import quote_buy, quote_sell, marginal_price
 from app.services.market_locks import lock_user
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.keys import GroupKey
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.risk import DependencySet, PostTradeState, discover_dependencies, check_new_risk
+from app.services.credit.version import bump_economic_version, economic_version_of
 
 _logger = logging.getLogger(__name__)
 
 #: ``FxTrade.source`` for forced-liquidation sells (WP4 parent brief §WP4).
 LIQUIDATION_SOURCE = "liquidation"
+
+
+class _RetryCredit(Exception):
+    """Release transaction and all gates before discovering dependencies again."""
+
+
+def _require_writes():
+    flags = credit_flags.get_flags()
+    if (flags.unified_credit_enabled or flags.read_only_instance
+            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
+        OWNERSHIP.require_writes()
 
 
 class TradeRejected(ValueError):
@@ -226,15 +243,24 @@ async def _rollback_quietly(db: AsyncSession) -> None:
 
 async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
                                    amount: Decimal, min_out: Decimal,
-                                   idempotency_key: str) -> FxTradeExecution:
+                                   idempotency_key: str, *,
+                                   credit_deps: Optional[DependencySet] = None) -> FxTradeExecution:
     """Execute one player FX trade inside the caller's transaction.
 
-    Keeps every historical guard, fee and idempotency binding of
-    ``execute_trade`` (identical HTTP status codes), acquires the product locks
+    Unified callers must acquire the target exclusive gate and every collateral
+    shared gate before opening this transaction, pass ``credit_deps`` for debt
+    buys, and retain gates through commit. ``_RetryCredit`` requires rollback,
+    release of all gates and fresh discovery; never retry inside existing gates.
+    Flag-off keeps the historical debt-buy prohibition. Acquires product locks
     in ``pair -> user -> wallet -> treasury`` order and flushes its writes, but
     deliberately does **not** commit, roll back or publish.  On error the
     caller owns the transaction and must roll it back before reuse.
     """
+    _require_writes()
+    unified = credit_flags.get_flags().unified_credit_enabled
+    key = GroupKey("fx", pair_id)
+    if unified and key not in GATES.held_keys_by_current_task():
+        raise RuntimeError("unified FX caller must hold target exclusive gate through commit")
     amount = _positive(amount, "amount")
     min_out = _nonnegative(min_out, "min_out")
     if not idempotency_key or len(idempotency_key) > 128:
@@ -245,6 +271,14 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     normalized = str(side).lower()
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
+    if unified and normalized == "buy" and user.debt > 0:
+        if (credit_deps is None
+                or economic_version_of(user) != credit_deps.economic_version
+                or not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task())):
+            raise _RetryCredit()
+        # Price snapshots from discovery can age while waiting for gates. Refresh
+        # inside the complete gate set before simulating this transaction.
+        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key])
 
     old = (await db.execute(select(FxTrade).where(
         FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
@@ -273,7 +307,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
     if user.tos_accepted_at is None:
         raise HTTPException(status_code=403, detail="TOS acceptance required")
-    if normalized == "buy" and user.debt > 0:
+    if not unified and normalized == "buy" and user.debt > 0:
         raise HTTPException(status_code=403, detail="outstanding debt blocks FX purchases")
 
     try:
@@ -286,6 +320,35 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     if q.input_amount <= 0 or q.output_amount <= 0:
         raise TradeRejected("trade amount must be positive")
     wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
+    trade_now = utcnow()
+    if unified and normalized == "buy" and user.debt > 0:
+        holdings = Decimal(wallet.foreign_amount) + q.output_amount
+        decision = await check_new_risk(
+            db, user=user, deps=credit_deps,
+            post=PostTradeState(
+                cash=Decimal(user.cash) - q.input_amount, debt=Decimal(user.debt),
+                fx_reserves={pair_id: (q.post_gold_reserve, q.post_foreign_reserve)},
+                post_holdings={key: {pair_id: holdings}},
+                base_versions=({key: credit_deps.snapshots[key].version}
+                               if key in credit_deps.snapshots else {}),
+            ), thresholds=credit_flags.get_flags().thresholds,
+            partial_pct=Decimal("1"), now=trade_now,
+        )
+        if not decision.allowed:
+            if decision.reason == "version_conflict":
+                raise _RetryCredit()
+            raise HTTPException(status_code=400, detail=decision.reason)
+        _require_writes()
+        before_debt = user.debt
+        loan_service.accrue_interest(user, credit_deps.daily_rate, trade_now)
+        if user.debt != before_debt:
+            audit_service.record(
+                db, "interest_accrual", user_id=user.id,
+                payload={"debt_before": before_debt, "debt_after": user.debt,
+                         "interest": user.debt - before_debt,
+                         "daily_rate": credit_deps.daily_rate, "source": "fx_buy"},
+                user_after=audit_service.user_snapshot(user))
+    _require_writes()
     if normalized == "buy":
         if user.cash < q.input_amount:
             raise HTTPException(status_code=400, detail="insufficient cash")
@@ -299,6 +362,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         wallet.cost_basis = max(Decimal("0"), wallet.cost_basis - (wallet.cost_basis * q.input_amount / (wallet.foreign_amount + q.input_amount)))
         user.cash += q.output_amount
     wallet.updated_at = utcnow()
+    bump_economic_version(user)
 
     pre_gold, pre_foreign = pair.gold_reserve, pair.foreign_reserve
     pair.gold_reserve, pair.foreign_reserve = q.post_gold_reserve, q.post_foreign_reserve
@@ -306,6 +370,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     pair.updated_at = utcnow()
     treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
                                  .with_for_update().execution_options(populate_existing=True))).scalars().first()
+    _require_writes()
     if treasury is None:
         treasury = FxTreasury(pair_id=pair_id)
         db.add(treasury)
@@ -325,6 +390,16 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     await db.flush()
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
+    if unified and normalized == "sell" and user.debt > 0:
+        rate = await site_config.get_decimal_or(db, "loan_daily_rate", Decimal("0"))
+        debt_before = user.debt
+        repaid = await loan_service.decrease_debt_locked(
+            db, user, q.output_amount, consume_cash=True, daily_rate=rate, now=trade_now)
+        if repaid > 0:
+            await ledger_service.record_entry(
+                db, user=user, entry_type="repay", cash_delta=-repaid,
+                debt_delta=-repaid, daily_rate=rate, reason="fx_sell_proceeds",
+                interest_accrued=(user.debt + repaid - debt_before).quantize(Decimal("0.000001")))
     return FxTradeExecution(trade=trade, public=FxTradePublic.model_validate(trade),
                             replay=False)
 
@@ -339,23 +414,58 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
     publisher.  Enqueueing never blocks: the response does not wait for the
     public frame or its 24h volume aggregation.
     """
-    try:
-        execution = await execute_trade_in_session(
-            db, user_id, pair_id, side, amount, min_out, idempotency_key)
-    except BaseException:
-        await _rollback_quietly(db)
-        raise
-    if execution.replay:
-        await db.rollback()
-        return execution.public
-    await db.commit()
+    _require_writes()
+    flags = credit_flags.get_flags()
+    if not flags.unified_credit_enabled:
+        try:
+            execution = await execute_trade_in_session(
+                db, user_id, pair_id, side, amount, min_out, idempotency_key)
+            if execution.replay:
+                await db.rollback()
+                return execution.public
+            _require_writes()
+            await db.commit()
+        except BaseException:
+            await _rollback_quietly(db)
+            raise
+    else:
+        needs_discovery = False
+        for attempt in range(flags.credit_risk_retry_limit + 2):
+            try:
+                # Optimistically take only the target gate. If the locked user
+                # has debt, release everything and discover the complete set.
+                deps = (await discover_dependencies(db, user_id, extra_groups=[GroupKey("fx", pair_id)])
+                        if needs_discovery else None)
+                if db.in_transaction():
+                    await db.rollback()
+                async with GATES.hold(exclusive=[GroupKey("fx", pair_id)],
+                                      shared=deps.groups if deps else ()):
+                    try:
+                        execution = await execute_trade_in_session(
+                            db, user_id, pair_id, side, amount, min_out,
+                            idempotency_key, credit_deps=deps)
+                        if execution.replay:
+                            await db.rollback()
+                            return execution.public
+                        _require_writes()
+                        await db.commit()
+                    except BaseException:
+                        await _rollback_quietly(db)
+                        raise
+                break
+            except _RetryCredit:
+                needs_discovery = True
+                if attempt == flags.credit_risk_retry_limit + 1:
+                    raise HTTPException(status_code=409, detail="version_conflict; retry")
+            except BaseException:
+                await _rollback_quietly(db)
+                raise
+    # Pool version is committed before gates release; publication is bounded
+    # and cannot extend the transaction or hold unrelated symbols.
     await db.refresh(execution.trade)
     public = FxTradePublic.model_validate(execution.trade)
-    publisher.enqueue_publication(
-        pair_id=execution.trade.pair_id,
-        post_price=execution.trade.post_price,
-        trade_id=execution.trade.id,
-    )
+    publisher.enqueue_publication(pair_id=public.pair_id, post_price=public.post_price,
+                                  trade_id=public.id)
     return public
 
 
@@ -467,6 +577,7 @@ async def execute_liquidation_sell_in_session(
         treasury = FxTreasury(pair_id=pair_id)
         db.add(treasury)
 
+    _require_writes()
     pre_amount = Decimal(wallet.foreign_amount)
     wallet.foreign_amount = pre_amount - quote.foreign_in
     if wallet.foreign_amount <= 0:
@@ -480,6 +591,7 @@ async def execute_liquidation_sell_in_session(
         )
     wallet.updated_at = utcnow()
     user.cash += quote.gold_out
+    bump_economic_version(user)
 
     pre_gold, pre_foreign = pair.gold_reserve, pair.foreign_reserve
     pair.gold_reserve = quote.post_gold_reserve

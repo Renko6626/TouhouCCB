@@ -104,6 +104,12 @@ async def setup_db():
     # fixture 显式启
     await WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
+    # Unit tests invoke economic services without the app lifespan. Establish
+    # the same ownership precondition on their disposable SQLite database.
+    from app.services.credit.ownership import OWNERSHIP
+    if engine.dialect.name == "sqlite":
+        await OWNERSHIP.release()
+        await OWNERSHIP.acquire()
 
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)

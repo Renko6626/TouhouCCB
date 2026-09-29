@@ -25,6 +25,10 @@ class LoanQuotaResponse(BaseModel):
     daily_rate: Decimal
     max_borrow: Decimal
     last_accrued_at: Optional[datetime]
+    display_equity: Optional[Decimal] = None
+    liquidation_equity: Optional[Decimal] = None
+    r_initial: Optional[Decimal] = None
+    r_maintenance: Optional[Decimal] = None
 
 
 class LoanActionResponse(BaseModel):

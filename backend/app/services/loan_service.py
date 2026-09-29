@@ -9,9 +9,20 @@ from sqlalchemy.future import select
 
 from app.models.base import User
 from app.services import audit_service, ledger_service
+from app.services.credit.version import bump_economic_version
 
 
 _QUANT = Decimal("0.000001")
+
+
+def _require_writes():
+    # Recheck after row-lock waits: ownership may have been lost while queued.
+    from app.services.credit import flags
+    from app.services.credit.ownership import OWNERSHIP
+    config = flags.get_flags()
+    if (config.unified_credit_enabled or config.read_only_instance
+            or flags.read_only_from_env() or OWNERSHIP.reason is not None):
+        OWNERSHIP.require_writes()
 
 
 def interest_factor(daily_rate: Decimal, elapsed_sec: Decimal | float | int) -> Decimal:
@@ -99,6 +110,7 @@ async def increase_debt(
     source: str,
     operator_user_id: Optional[int] = None,
     reason: Optional[str] = None,
+    now: Optional[datetime] = None,
 ) -> User:
     """SELECT FOR UPDATE user → accrue → debt += amount；grant_cash=True 时 cash += amount。
     调用方负责 commit。amount 必须 > 0，否则 ValueError。
@@ -110,18 +122,22 @@ async def increase_debt(
     stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
-    now = _compat_now(u)
+    _require_writes()
+    now = now or _compat_now(u)
     debt_pre_accrual = u.debt
     accrue_interest(u, daily_rate, now)
     interest = (u.debt - debt_pre_accrual).quantize(_QUANT)
+    # A new principal starts accruing at this operation's timestamp even when
+    # the old principal's pending interest rounded to zero. Keeping its old
+    # timestamp would retroactively charge the new loan historical interest.
+    u.debt_last_accrued_at = now
     u.debt = (u.debt + amount).quantize(_QUANT)
-    if u.debt_last_accrued_at is None:
-        u.debt_last_accrued_at = now
     if grant_cash:
         u.cash = (u.cash + amount).quantize(_QUANT)
     # 防御性兜底：debt/cash 不应出现负值
     if u.debt < 0 or u.cash < 0:
         raise LoanServiceError(f"invariant violated post-increase: debt={u.debt} cash={u.cash}")
+    bump_economic_version(u)
     await ledger_service.record_entry(
         session, user=u, entry_type=source,
         cash_delta=(amount if grant_cash else Decimal("0")),
@@ -167,12 +183,16 @@ async def decrease_debt_locked(
         raise ValueError("amount must be positive")
     if now is None:
         now = _compat_now(user)
+    _require_writes()
+    before = (user.cash, user.debt, user.debt_last_accrued_at)
     accrue_interest(user, daily_rate, now)
     effective = (user.debt if amount is None else min(amount, user.debt)).quantize(_QUANT)
     if consume_cash:
         # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
         effective = min(effective, user.cash).quantize(_QUANT)
     if effective <= 0:
+        if before != (user.cash, user.debt, user.debt_last_accrued_at):
+            bump_economic_version(user)
         return Decimal("0")
     user.debt = (user.debt - effective).quantize(_QUANT)
     if consume_cash:
@@ -183,6 +203,7 @@ async def decrease_debt_locked(
     # 防御性兜底：debt/cash 不应出现负值
     if user.debt < 0 or user.cash < 0:
         raise LoanServiceError(f"invariant violated post-decrease: debt={user.debt} cash={user.cash}")
+    bump_economic_version(user)
     session.add(user)
     return effective
 

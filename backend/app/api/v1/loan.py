@@ -1,7 +1,8 @@
 """Loan 玩家接口。所有 handler 为 loan_service 薄封装。"""
 from __future__ import annotations
 import logging
-from datetime import timezone
+from datetime import datetime, timezone
+from dataclasses import replace
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,12 @@ from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionRespons
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
 from app.services.market_locks import lock_user
+from app.services.credit import flags as credit_flags
+from app.services.credit.gates import GATES
+from app.services.credit.ownership import OWNERSHIP
+from app.services.credit.risk import discover_dependencies, check_new_risk, PostTradeState
+from app.services.credit.valuation import value_user_detailed
+from app.services.credit.version import economic_version_of
 
 router = APIRouter()
 logger = logging.getLogger("thccb.loan")
@@ -33,11 +40,84 @@ async def _holdings_value(db: AsyncSession, user_id: int) -> Decimal:
     ).get(user_id, Decimal("0"))
 
 
+
+def _require_writes():
+    flags = credit_flags.get_flags()
+    if (flags.unified_credit_enabled or flags.read_only_instance
+            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
+        OWNERSHIP.require_writes()
+
+
+async def _unified_quota(db: AsyncSession, user_id: int):
+    rate = await site_config.get_decimal(db, "loan_daily_rate")
+    valuation = await value_user_detailed(db, user_id, daily_rate=rate)
+    thresholds = credit_flags.get_flags().thresholds
+    user = (await db.execute(select(User).where(User.id == user_id)
+                            .execution_options(populate_existing=True))).scalar_one()
+    await credit_flags.refresh_new_risk_frozen(db)
+    frozen = user.credit_frozen or credit_flags.new_risk_frozen()
+    return LoanQuotaResponse(
+        enabled=await site_config.get_bool(db, "loan_enabled"),
+        cash=valuation.cash, debt=valuation.debt_effective,
+        net_worth=valuation.liquidation_equity,
+        leverage_k=thresholds.leverage - Decimal("1"), daily_rate=rate,
+        max_borrow=(Decimal("0") if frozen else thresholds.max_borrow(
+            valuation.liquidation_equity, valuation.debt_effective)),
+        last_accrued_at=user.debt_last_accrued_at,
+        display_equity=valuation.display_equity,
+        liquidation_equity=valuation.liquidation_equity,
+        r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
+    )
+
+
+async def _borrow_unified(db: AsyncSession, user_id: int, amount: Decimal):
+    flags = credit_flags.get_flags()
+    for attempt in range(flags.credit_risk_retry_limit + 1):
+        deps = await discover_dependencies(db, user_id)
+        await db.rollback()  # No connection/transaction held while waiting for gates.
+        async with GATES.hold(shared=deps.groups):
+            try:
+                user = await lock_user(db, user_id)
+                if economic_version_of(user) != deps.economic_version:
+                    await db.rollback()
+                    continue
+                now = datetime.now(timezone.utc)
+                effective = loan_service.pending_debt(user, deps.daily_rate, now)
+                # Borrowed principal starts accruing now, not at the previous
+                # debt accrual timestamp. Only the old principal earns pending interest.
+                decision = await check_new_risk(
+                    db, user=user, deps=replace(deps, debt_last_accrued_at=now),
+                    post=PostTradeState(cash=Decimal(user.cash) + amount,
+                                        debt=effective + amount),
+                    thresholds=flags.thresholds, partial_pct=Decimal("1"), now=now,
+                )
+                if not decision.allowed:
+                    if decision.reason == "version_conflict":
+                        await db.rollback()
+                        continue
+                    raise HTTPException(status_code=400, detail=decision.reason)
+                u = await loan_service.increase_debt(
+                    db, user_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
+                    source="borrow", operator_user_id=None, now=now,
+                )
+                cash, debt = u.cash, u.debt
+                _require_writes()
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        quota = await _unified_quota(db, user_id)
+        return LoanActionResponse(cash=cash, debt=debt, max_borrow=quota.max_borrow)
+    raise HTTPException(status_code=409, detail="version_conflict; retry")
+
+
 @router.get("/quota", response_model=LoanQuotaResponse)
 async def get_quota(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    if credit_flags.get_flags().unified_credit_enabled:
+        return await _unified_quota(db, int(user.id))
     enabled = await site_config.get_bool(db, "loan_enabled")
     k = await site_config.get_decimal(db, "loan_leverage_k")
     rate = await site_config.get_decimal(db, "loan_daily_rate")
@@ -62,9 +142,13 @@ async def borrow(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
+    _require_writes()
     enabled = await site_config.get_bool(db, "loan_enabled")
     if not enabled:
         raise HTTPException(status_code=403, detail="借款功能已关闭")
+
+    if credit_flags.get_flags().unified_credit_enabled:
+        return await _borrow_unified(db, int(user.id), Decimal(req.amount))
 
     k = await site_config.get_decimal(db, "loan_leverage_k")
     rate = await site_config.get_decimal(db, "loan_daily_rate")
@@ -87,6 +171,7 @@ async def borrow(
         db, user.id, amount, grant_cash=True, daily_rate=rate,
         source="borrow", operator_user_id=None,
     )
+    _require_writes()
     await db.commit()
     await db.refresh(u)
     logger.info(
@@ -120,8 +205,10 @@ async def repay_all(
 
 
 async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
+    _require_writes()
     rate = await site_config.get_decimal(db, "loan_daily_rate")
-    k = await site_config.get_decimal(db, "loan_leverage_k")
+    k = (None if credit_flags.get_flags().unified_credit_enabled
+         else await site_config.get_decimal(db, "loan_leverage_k"))
 
     # 不预检金额上限：服务层在锁内结息后按真实 debt/cash 封顶；None 表示还到上限。
     # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
@@ -140,12 +227,16 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     except (ValueError, loan_service.LoanServiceError) as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    _require_writes()
     await db.commit()
     await db.refresh(u)
     logger.info(
         "LOAN_REPAY user_id=%s requested=%s effective=%s new_cash=%s new_debt=%s",
         user.id, amount, effective, u.cash, u.debt,
     )
+    if credit_flags.get_flags().unified_credit_enabled:
+        quota = await _unified_quota(db, u.id)
+        return LoanActionResponse(cash=u.cash, debt=u.debt, max_borrow=quota.max_borrow, effective=effective)
     hv = await _holdings_value(db, u.id)
     return LoanActionResponse(
         cash=u.cash,
