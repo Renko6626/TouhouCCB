@@ -9,6 +9,14 @@
   超限返回 ``version_conflict`` 拒绝——绝不用旧快照放行（spec §6.2 第 4 条）。
 - 本模块不写库、不 commit、不发 writer 命令、不持全局锁、不做定时调度；
   强平只由 WP7 的定时扫描触发。
+- **权威读取（复审 R1）**：``discover_dependencies`` 与 ``check_*`` 用
+  ``populate_existing`` 刷新 User 行，版本 / cash / debt / ``credit_frozen`` 一律取
+  数据库当前值——同 session 里先前锁行或加载的旧实例不会让外部并发改动被忽略。
+  代价是该实例上的**未提交内存修改会被丢弃**，所以调用方必须在应用变更**之前**
+  调用 ``check_*``（计划 WP6 的顺序本来就是先检查后落库）。
+- **价格/状态版本（复审 R3）**：锁内重读本次模拟涉及的品种快照；调用方声明的
+  ``base_versions`` 或 deps 快照版本被推进即 ``version_conflict`` 拒绝，**不要求
+  user 版本也变化**。纯抵押品种只刷新快照重估，不拒绝。
 
 判定（spec §4）：
 
@@ -34,7 +42,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Market, Outcome, Position, User
@@ -64,6 +72,10 @@ REASON_INSUFFICIENT_INITIAL_MARGIN = "insufficient_initial_margin"
 REASON_CREDIT_FROZEN = "credit_frozen"
 REASON_FROZEN_BY_OPERATOR = "frozen_by_operator"
 REASON_VERSION_CONFLICT = "version_conflict"
+
+
+class _StalePostState(Exception):
+    """调用方模拟的交易后价格/状态基于已过期的品种版本（R3）：安全拒绝。"""
 
 
 # ────────────────────────────── 数据结构 ──────────────────────────────
@@ -252,6 +264,35 @@ def _parse_decimal_or(raw: Optional[str], default: Decimal) -> Decimal:
 
 def _q6(value: Decimal) -> Decimal:
     return _as_decimal(value, "value").quantize(Q6)
+
+
+def _user_id_of(user: User) -> int:
+    """不触发 lazy load 地取 user 主键（rollback 后对象可能 expired）。"""
+    identity = sa_inspect(user).identity
+    if identity is not None:
+        return int(identity[0])
+    raw = user.__dict__.get("id")
+    if raw is None:
+        raise ValueError("user 尚未持久化（id 为空）")
+    return int(raw)
+
+
+async def _refresh_user_authority(session: AsyncSession, user_id: int) -> User:
+    """读**数据库权威值**并就地刷新 identity map。
+
+    R1：``expire_on_commit=False`` 下，同 session 里先前锁行/加载的 User 实例会被
+    ``select(User)`` 原样返回（不覆盖已加载属性）。经济版本、cash/debt、
+    ``credit_frozen`` 必须取数据库当前行，否则外部会话抽现金/冻结后会被旧值放行。
+    """
+    stmt = (
+        select(User)
+        .where(User.id == int(user_id))
+        .execution_options(populate_existing=True)
+    )
+    row = (await session.execute(stmt)).scalars().first()
+    if row is None:
+        raise ValueError(f"user not found: {user_id}")
+    return row
 
 
 def _effective_debt(
@@ -475,9 +516,9 @@ async def discover_dependencies(
     ``check_*`` 在缺快照时也会自行补齐）。
     """
     uid = int(user_id)
-    user = (await session.execute(select(User).where(User.id == uid))).scalars().first()
-    if user is None:
-        raise ValueError(f"user not found: {uid}")
+    # R1：必须 populate_existing，否则返回同 session identity map 里的旧 User，
+    # 外部并发改动（抽现金/冻结/bump 版本）会被忽略。
+    user = await _refresh_user_authority(session, uid)
 
     pos_rows = (await session.execute(
         select(
@@ -671,6 +712,9 @@ def _rebase_post(
 
     调用方的交易是相对 old 的一个 delta；并发写改的是 base，所以同样的 delta
     叠加到 new 上即可（cash/debt 直接加差，holdings 逐腿加差）。
+
+    R2：``post_holdings[key] = {}``（显式清仓）必须保留空映射——丢了它会退回
+    ``deps.holdings`` 旧持仓，把已清仓的组按旧值计价而错误放行。
     """
     holdings: dict[GroupKey, dict[int, Decimal]] = {}
     for key in set(old.holdings) | set(new.holdings) | set(post.post_holdings):
@@ -678,7 +722,7 @@ def _rebase_post(
         base_new = new.holdings.get(key, {})
         simulated = post.post_holdings.get(key, base_old)
         merged = _shift_positions(simulated, base_new, base_old)
-        if merged:
+        if merged or key in post.post_holdings:
             holdings[key] = merged
     return replace(
         post,
@@ -686,6 +730,68 @@ def _rebase_post(
         debt=post.debt + (new.debt - old.debt),
         post_holdings=holdings,
     )
+
+
+async def _guard_and_refresh_prices(
+    session: AsyncSession, *, deps: DependencySet, post: PostTradeState,
+) -> DependencySet:
+    """R3：锁内重读受影响品种快照，拒绝基于过期价格的模拟后态。
+
+    - 调用方**模拟过价格/状态**的品种（``lmsr_q`` / ``fx_reserves`` /
+      ``statuses`` / ``closes_at``）：与 deps 快照或声明的 ``base_versions`` 比对，
+      版本前进即抛 ``_StalePostState``（不能拿旧价模拟放行，即使 user 版本没变）。
+    - 纯抵押 / 费率类品种：直接刷新快照后重估，不拒绝（持仓数量不依赖价格）。
+    """
+    # 自有抵押组即使 post 完全没提到也要刷新：外部成交可能已经改了它的 q/储备，
+    # 旧引用价会算大/算小 L（复审：wrong-allow）。这类键不在 simulated 集合里，
+    # 只做"刷新后重估"，不触发 version_conflict。
+    affected = set(deps.groups)
+    affected |= set(_market_changed_keys(post)) | set(post.base_versions)
+    affected |= set(post.statuses) | set(post.closes_at) | set(post.fee_rates)
+    if not affected:
+        return deps
+    fresh = await _load_snapshots(
+        session, sorted(affected), lmsr_fee_rate=deps.lmsr_fee_rate,
+    )
+    simulated = set(_market_changed_keys(post)) | set(post.statuses) | set(post.closes_at)
+    for key in sorted(simulated):
+        old_snapshot = deps.snapshots.get(key)
+        new_snapshot = fresh.get(key)
+        if (old_snapshot is not None and new_snapshot is not None
+                and old_snapshot.version != new_snapshot.version):
+            raise _StalePostState(f"{key.product}:{key.group_id} 价格/状态已变")
+        base = post.base_versions.get(key)
+        if (base is not None and new_snapshot is not None
+                and tuple(base) != tuple(new_snapshot.version)):
+            raise _StalePostState(f"{key.product}:{key.group_id} base_version 已过期")
+    merged = dict(deps.snapshots)
+    merged.update(fresh)
+    return replace(deps, snapshots=merged)
+
+
+async def _refresh_with_stale_guard(
+    session: AsyncSession, *, deps: DependencySet, post: PostTradeState,
+) -> Optional[DependencySet]:
+    """``_guard_and_refresh_prices`` 的拒绝语义包装：过期模拟价 → None（安全拒绝）。"""
+    try:
+        return await _guard_and_refresh_prices(session, deps=deps, post=post)
+    except _StalePostState as exc:
+        logger.warning("risk: 拒绝过期模拟价格（%s）", exc)
+        return None
+
+
+async def _refresh_collateral_snapshots(
+    session: AsyncSession, deps: DependencySet,
+) -> DependencySet:
+    """消费/转出路径：重读全部持仓组快照，避免拿旧抵押价做保证金判断。"""
+    if not deps.groups:
+        return deps
+    fresh = await _load_snapshots(
+        session, deps.groups, lmsr_fee_rate=deps.lmsr_fee_rate,
+    )
+    merged = dict(deps.snapshots)
+    merged.update(fresh)
+    return replace(deps, snapshots=merged)
 
 
 async def _revalidate_post(
@@ -777,11 +883,25 @@ async def check_new_risk(
     - 否则按**全组合**整组清算价值检查初始保证金。
     """
     pct = _as_decimal(partial_pct, "partial_pct")
-    uid = int(user.id)
+    uid = _user_id_of(user)
     await credit_flags.refresh_new_risk_frozen(session)
+    # R1：版本/冻结/现金一律以数据库权威行为准（刷新 identity map）
+    authority = await _refresh_user_authority(session, uid)
+    # 无债快路径优先（复审要求）：post 无债时不刷新全组合快照、不报价。
+    pre_debt = _effective_debt(
+        post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
+    )
+    refreshed = False
+    if pre_debt > ZERO:
+        # R3：锁内重读受影响 + 自有抵押品种快照；模拟价格过期直接拒绝
+        guarded = await _refresh_with_stale_guard(session, deps=deps, post=post)
+        if guarded is None:
+            return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=pre_debt)
+        deps = guarded
+        refreshed = True
 
     revalidated = await _revalidate_post(
-        session, user=user, user_id=uid, deps=deps, post=post,
+        session, user=authority, user_id=uid, deps=deps, post=post,
     )
     if revalidated is None:
         debt_after = _effective_debt(
@@ -790,7 +910,7 @@ async def check_new_risk(
         return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
     deps, post = revalidated
 
-    reason = _freeze_reason(user, credit_flags.new_risk_frozen())
+    reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     debt_after = _effective_debt(
         post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
     )
@@ -807,6 +927,12 @@ async def check_new_risk(
         max_borrow = thresholds.max_borrow(equity, ZERO) if complete else None
         return RiskDecision(True, None, equity, ZERO, max_borrow)
 
+    if not refreshed:
+        # 重发现后债务才出现（并发新增债务）：此时才刷新全组合 + 过期检查
+        guarded = await _refresh_with_stale_guard(session, deps=deps, post=post)
+        if guarded is None:
+            return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
+        deps = guarded
     holdings_value, _ = await _collateral_value(
         session, user_id=uid, deps=deps, post=post, partial_pct=pct,
     )
@@ -837,10 +963,20 @@ async def check_cash_spend(
     if amount < ZERO:
         raise ValueError(f"spend 不能为负: {amount!r}")
     pct = _as_decimal(partial_pct, "partial_pct")
-    uid = int(user.id)
+    uid = _user_id_of(user)
     await credit_flags.refresh_new_risk_frozen(session)
+    # R1：权威 user 行；R3 同族：重读全部持仓组快照，避免旧抵押价
+    authority = await _refresh_user_authority(session, uid)
+    # 无债快路径优先：D_after==0 不做全组合快照刷新
+    pre_debt = _effective_debt(
+        deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
+    )
+    refreshed = False
+    if pre_debt > ZERO:
+        deps = await _refresh_collateral_snapshots(session, deps)
+        refreshed = True
 
-    fresh = await _revalidate_cash(session, user=user, user_id=uid, deps=deps)
+    fresh = await _revalidate_cash(session, user=authority, user_id=uid, deps=deps)
     debt_after = _effective_debt(
         deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
     )
@@ -853,7 +989,7 @@ async def check_cash_spend(
     )
     cash_after = deps.cash - amount
 
-    reason = _freeze_reason(user, credit_flags.new_risk_frozen())
+    reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     if reason is not None:
         return _deny(reason, cash=cash_after, debt_after=debt_after)
 
@@ -866,6 +1002,9 @@ async def check_cash_spend(
         max_borrow = thresholds.max_borrow(equity, ZERO) if complete else None
         return RiskDecision(True, None, equity, ZERO, max_borrow)
 
+    if not refreshed:
+        # 重发现后债务才出现：此时才刷新抵押快照再判保证金
+        deps = await _refresh_collateral_snapshots(session, deps)
     holdings_value, _ = await _collateral_value(
         session, user_id=uid, deps=deps, post=post, partial_pct=pct,
     )

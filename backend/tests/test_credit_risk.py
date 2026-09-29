@@ -624,15 +624,32 @@ async def test_discover_dependencies_selects_are_bounded():
     assert len(statements) <= 6, statements         # User/Position/Outcome/Wallet/site_config
 
 
-async def test_check_new_risk_selects_bounded_when_cache_warm():
-    """未变组命中版本缓存时，check 不应再发估值查询（只有热冻结 1 条 SELECT）。"""
+async def test_check_new_risk_selects_bounded_when_cache_warm(monkeypatch):
+    """有债路径：抵押快照会按 R3 刷新（≤3 条批量）但估值仍走版本缓存（0 次报价）；
+    无债快路径完全不刷新、不报价。"""
     await _seed_config(loan_daily_rate="0.01", sell_fee_rate="0.01")
+    calls = {"lmsr": 0, "fx": 0}
+    original_lmsr = risk.quote_lmsr_group
+    original_fx = risk.quote_fx_group
+
+    def counting_lmsr(*args, **kwargs):
+        calls["lmsr"] += 1
+        return original_lmsr(*args, **kwargs)
+
+    def counting_fx(*args, **kwargs):
+        calls["fx"] += 1
+        return original_fx(*args, **kwargs)
+
+    monkeypatch.setattr(risk, "quote_lmsr_group", counting_lmsr)
+    monkeypatch.setattr(risk, "quote_fx_group", counting_fx)
+
     async with async_session_maker() as s:
         user, *_ = await _rich_user(s, "sql_check", cash="500", debt="200", fx_foreign="120")
         uid = int(user.id)
     deps = await _deps(uid)
     post = PostTradeState(cash=deps.cash, debt=deps.debt)
     await _check(uid, deps=deps, post=post)          # 预热缓存
+    assert calls["lmsr"] == 1 and calls["fx"] == 1
 
     statements, stop = _capture_selects()
     try:
@@ -640,9 +657,12 @@ async def test_check_new_risk_selects_bounded_when_cache_warm():
     finally:
         stop()
     assert decision.allowed is True
-    assert len(statements) <= 2, statements
+    # 未变组命中缓存 → 0 次新报价（查询只来自：helper 读 user + R1 权威 + 热冻结
+    # + R3 抵押快照批量：Market/Outcome/FxPair）
+    assert calls["lmsr"] == 1 and calls["fx"] == 1
+    assert len(statements) <= 6, statements
 
-    # 无债快路径（真实无债用户 + 有抵押）同样不报价、不发额外估值查询
+    # 无债快路径（真实无债用户 + 有抵押）：不刷新快照、不报价
     async with async_session_maker() as s:
         user2, *_ = await _rich_user(s, "sql_check_nodebt", cash="500", debt="0")
         uid2 = int(user2.id)
@@ -654,4 +674,316 @@ async def test_check_new_risk_selects_bounded_when_cache_warm():
     finally:
         stop2()
     assert fast.allowed is True and fast.debt_after == ZERO
-    assert len(statements2) <= 2, statements2
+    # 3 条 = helper 读 user + R1 权威刷新 + 热冻结；无快照刷新、无估值
+    assert len(statements2) <= 3, statements2
+
+# ────────────── 复审 R1/R2/R3：同 session 陈旧身份映射 / 显式清仓 / 市场版本 ──────────────
+
+async def _load_user_stale(session, uid: int) -> User:
+    """先把 User 灌进 identity map（模拟调用方锁行/早读），再结束读事务保持属性陈旧。"""
+    user = (await session.execute(select(User).where(User.id == uid))).scalars().one()
+    await session.commit()          # expire_on_commit=False → 属性保持旧值
+    return user
+
+
+async def _external_update(uid: int, **columns) -> None:
+    async with async_session_maker() as s2:
+        async with s2.begin():
+            row = (await s2.execute(select(User).where(User.id == uid))).scalars().one()
+            for key, value in columns.items():
+                setattr(row, key, value)
+
+
+async def _check_in(session, uid, *, user, deps, post=None, thresholds=TH):
+    if post is None:
+        post = PostTradeState(cash=deps.cash, debt=deps.debt)
+    return await check_new_risk(
+        session, user=user, deps=deps, post=post, thresholds=thresholds,
+        partial_pct=PCT, now=NOW,
+    )
+
+
+async def _check_spend_in(session, uid, spend, *, user, deps, thresholds=TH):
+    return await check_cash_spend(
+        session, user=user, deps=deps, spend=Decimal(str(spend)),
+        thresholds=thresholds, partial_pct=PCT, now=NOW,
+    )
+
+
+async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze():
+    """R1：外部冻结后，同 session 的旧 User 身份映射不得让 check_new_risk 放行。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user, *_ = await _rich_user(s, "r1_freeze", cash="500", debt="100")
+        uid = int(user.id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        assert stale_user.credit_frozen is False
+        await _external_update(uid, credit_frozen=True,
+                               economic_version=int(stale_user.economic_version or 0) + 1)
+        # 机制证明：外部已提交新状态，而 s1 手里仍是旧对象
+        assert stale_user.credit_frozen is False
+        async with async_session_maker() as s_probe:
+            probe = (await s_probe.execute(select(User).where(User.id == uid))).scalars().one()
+            assert probe.credit_frozen is True
+            assert int(probe.economic_version) == int(stale_user.economic_version or 0) + 1
+
+        deps = await discover_dependencies(s1, uid)
+        assert deps.cash == Decimal("500")          # 冻结不改现金
+        assert deps.economic_version == int(probe.economic_version)   # 修复后：权威版本
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps)
+        assert decision.allowed is False and decision.reason == REASON_CREDIT_FROZEN
+
+
+async def test_r1_same_session_stale_cash_cannot_allow_new_risk():
+    """R1：外部抽走现金后，旧身份映射不得让 check_new_risk 用旧 cash 放行。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user, *_ = await _rich_user(s, "r1_cash", cash="500", debt="100", fx_foreign="120")
+        uid = int(user.id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        assert stale_user.cash == Decimal("500")
+        await _external_update(uid, cash=Decimal("50"),
+                               economic_version=int(stale_user.economic_version or 0) + 1)
+        assert stale_user.cash == Decimal("500")     # 旧身份映射
+        async with async_session_maker() as s_probe:
+            probe = (await s_probe.execute(select(User).where(User.id == uid))).scalars().one()
+            assert probe.cash == Decimal("50")
+
+        deps = await discover_dependencies(s1, uid)
+        assert deps.cash == Decimal("50") and deps.economic_version == int(probe.economic_version)
+        post = PostTradeState(cash=deps.cash + Decimal("500"), debt=deps.debt + Decimal("500"))
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps, post=post)
+        assert decision.allowed is False
+        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+
+
+async def test_r1_same_session_stale_cash_cannot_allow_cash_spend():
+    """R1：同一场景下 check_cash_spend 也必须拒绝。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user, *_ = await _rich_user(s, "r1_spend", cash="500", debt="100", fx_foreign="120")
+        uid = int(user.id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        await _external_update(uid, cash=Decimal("50"),
+                               economic_version=int(stale_user.economic_version or 0) + 1)
+        deps = await discover_dependencies(s1, uid)
+        assert deps.cash == Decimal("50")
+        decision = await _check_spend_in(s1, uid, "450", user=stale_user, deps=deps)
+        assert decision.allowed is False
+        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+
+
+async def test_r1_stale_deps_before_external_change_rebases_and_denies():
+    """R1：锁外先发现 deps、随后外部抽现金 → 版本复检应 rebase 并拒绝，而不是用旧 cash 放行。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user, *_ = await _rich_user(s, "r1_rebase", cash="500", debt="100", fx_foreign="120")
+        uid = int(user.id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        deps = await discover_dependencies(s1, uid)      # 锁外发现（cash=500, version=0）
+        await s1.commit()
+        await _external_update(uid, cash=Decimal("50"),
+                               economic_version=int(stale_user.economic_version or 0) + 1)
+
+        post = PostTradeState(cash=deps.cash + Decimal("500"), debt=deps.debt + Decimal("500"))
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps, post=post)
+        assert decision.allowed is False
+        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+
+
+async def test_r1_stale_deps_before_external_freeze_denies_cash_spend():
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user, *_ = await _rich_user(s, "r1_spend_freeze", cash="500", debt="100")
+        uid = int(user.id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        deps = await discover_dependencies(s1, uid)
+        await s1.commit()
+        await _external_update(uid, credit_frozen=True,
+                               economic_version=int(stale_user.economic_version or 0) + 1)
+        decision = await _check_spend_in(s1, uid, "10", user=stale_user, deps=deps)
+        assert decision.allowed is False and decision.reason == REASON_CREDIT_FROZEN
+
+
+async def test_r2_rebase_preserves_explicitly_cleared_group_deny_vs_allow():
+    """R2：强制 rebase 后，显式清仓 `{}` 不能被丢弃后回落旧持仓（会错误放行）。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user = await _user(s, "r2_clear", cash="390", debt="300")
+        market, outcomes = await _market(s, "r2_clear_m", [100, 100])
+        await _position(s, user, outcomes[0], 40)
+        uid, market_id, outcome_id = int(user.id), int(market.id), int(outcomes[0].id)
+    key = GroupKey("lmsr", market_id)
+
+    async with async_session_maker() as s1:
+        user = (await s1.execute(select(User).where(User.id == uid))).scalars().one()
+        deps = await discover_dependencies(s1, uid)
+        # 强制 rebase 路径：把 deps 版本压后一格 → 有界重试重发现 + _rebase_post
+        stale_deps = replace(deps, economic_version=deps.economic_version - 1)
+        assert int(user.economic_version) == stale_deps.economic_version + 1
+
+        # 显式清仓：回款 0，交易后无持仓 → E = 390 − 300 = 90 < R_initial × 300 = 100
+        cleared = PostTradeState(cash=deps.cash, debt=deps.debt, post_holdings={key: {}})
+        denied = await check_new_risk(
+            s1, user=user, deps=stale_deps, post=cleared, thresholds=TH,
+            partial_pct=PCT, now=NOW,
+        )
+        assert denied.allowed is False, denied
+        assert denied.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+
+        # 对照组：显式保留同样持仓 → 允许（证明 deny 来自清仓语义而非整体拒绝）
+        kept = PostTradeState(
+            cash=deps.cash, debt=deps.debt,
+            post_holdings={key: {outcome_id: Decimal("40")}},
+        )
+        allowed = await check_new_risk(
+            s1, user=user, deps=stale_deps, post=kept, thresholds=TH,
+            partial_pct=PCT, now=NOW,
+        )
+        assert allowed.allowed is True, allowed
+
+
+async def test_r3_market_version_change_without_user_bump_rejects_simulated_price():
+    """R3：只改市场（用户版本不变）也必须让 base_versions 过期 → version_conflict。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user = await _user(s, "r3_market", cash="500", debt="100")
+        market, outcomes = await _market(s, "r3_market_m", [100, 100])
+        await _position(s, user, outcomes[0], 40)
+        uid, market_id, outcome_id = int(user.id), int(market.id), int(outcomes[0].id)
+    key = GroupKey("lmsr", market_id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        deps = await discover_dependencies(s1, uid)
+        base_version = deps.snapshots[key].version
+        await s1.commit()
+
+        # 外部只改市场 q（其他用户的成交），**不动我们的 user 行/版本**
+        async with async_session_maker() as s2:
+            async with s2.begin():
+                row = (await s2.execute(
+                    select(Outcome).where(Outcome.id == outcome_id)
+                )).scalars().one()
+                row.total_shares = Decimal("160")
+
+        # 机制证明：市场快照版本已变，而我们的 user 版本没变
+        async with async_session_maker() as s_probe:
+            probe_user = (await s_probe.execute(
+                select(User).where(User.id == uid)
+            )).scalars().one()
+            assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
+            fresh_deps = await discover_dependencies(s_probe, uid)
+        assert fresh_deps.snapshots[key].version != base_version
+
+        post = PostTradeState(
+            cash=deps.cash, debt=deps.debt,
+            lmsr_q={market_id: (Decimal("190"), Decimal("100"))},
+            post_holdings={key: {outcome_id: Decimal("70")}},
+            base_versions={key: base_version},
+        )
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps, post=post)
+        assert decision.allowed is False
+        assert decision.reason == REASON_VERSION_CONFLICT
+
+
+async def test_r3_collateral_market_change_refreshes_snapshot_without_deny():
+    """R3：非模拟品种（纯抵押）的市场变化要刷新快照重估，而不是拿旧价放行/拒绝。"""
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user = await _user(s, "r3_collateral", cash="500", debt="100")
+        market, outcomes = await _market(s, "r3_collateral_m", [100, 100])
+        await _position(s, user, outcomes[0], 40)
+        uid, market_id, outcome_id = int(user.id), int(market.id), int(outcomes[0].id)
+    key = GroupKey("lmsr", market_id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        deps = await discover_dependencies(s1, uid)
+        base_version = deps.snapshots[key].version
+        await s1.commit()
+
+        async with async_session_maker() as s2:
+            async with s2.begin():
+                row = (await s2.execute(
+                    select(Outcome).where(Outcome.id == outcome_id)
+                )).scalars().one()
+                row.total_shares = Decimal("160")     # 价格下跌
+
+        async with async_session_maker() as s_probe:
+            probe_user = (await s_probe.execute(
+                select(User).where(User.id == uid)
+            )).scalars().one()
+            assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
+            fresh_deps = await discover_dependencies(s_probe, uid)
+        assert fresh_deps.snapshots[key].version != base_version
+
+        post = PostTradeState(cash=deps.cash, debt=deps.debt,
+                              base_versions={key: base_version})
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps, post=post)
+        assert decision.reason is None, decision
+
+        async with async_session_maker() as s3:
+            fresh = await value_user_detailed(s3, uid, daily_rate=RATE)
+        assert decision.equity_after == fresh.liquidation_equity
+
+async def test_r3_omitted_collateral_group_quote_is_refreshed_and_rejects():
+    """复审新增：post 完全不提自有抵押组时，外部只改该市场 q（user 版本不变）也必须用新鲜价。
+
+    数值场景：b=100、q=[100,100]、持有 40 股 outcome0（旧 L≈18.0）；外部卖出把
+    q0 打到 40（新 L≈12.4）；cash=386、debt=300、借 5。
+    旧价 E≈104 ≥ R_initial×305≈101.67 → 会错误放行；新鲜价 E≈98.4 → 必须拒绝。
+    """
+    await _seed_config(loan_daily_rate="0.01")
+    async with async_session_maker() as s:
+        user = await _user(s, "r3_collat_omit", cash="386", debt="300")
+        market, outcomes = await _market(s, "r3_collat_omit_m", [100, 100])
+        await _position(s, user, outcomes[0], 40)
+        uid, market_id, outcome_id = int(user.id), int(market.id), int(outcomes[0].id)
+    key = GroupKey("lmsr", market_id)
+
+    async with async_session_maker() as s1:
+        stale_user = await _load_user_stale(s1, uid)
+        deps = await discover_dependencies(s1, uid)      # 锁外旧快照
+        await s1.commit()
+
+        # 外部成交：只改这个市场的 q，**不碰我们的 user 行/版本**
+        async with async_session_maker() as s2:
+            async with s2.begin():
+                row = (await s2.execute(
+                    select(Outcome).where(Outcome.id == outcome_id)
+                )).scalars().one()
+                row.total_shares = Decimal("40")
+
+        async with async_session_maker() as s_probe:
+            probe_user = (await s_probe.execute(
+                select(User).where(User.id == uid)
+            )).scalars().one()
+            assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
+            assert probe_user.cash == Decimal("386")
+            fresh_deps = await discover_dependencies(s_probe, uid)
+        assert fresh_deps.snapshots[key].version != deps.snapshots[key].version
+
+        # post 完全不提这个抵押组（无 post_holdings / lmsr_q / base_versions）
+        borrow = Decimal("5")
+        post = PostTradeState(cash=deps.cash + borrow, debt=deps.debt + borrow)
+        decision = await _check_in(s1, uid, user=stale_user, deps=deps, post=post)
+
+        async with async_session_maker() as s3:
+            fresh_av = await value_user_detailed(s3, uid, daily_rate=RATE)
+        fresh_holdings = fresh_av.liquidation_equity - fresh_av.cash + fresh_av.debt_effective
+        expected_equity = (post.cash + fresh_holdings - post.debt).quantize(Q6)
+
+        assert decision.allowed is False, decision       # 旧引用价会 allow（wrong-allow）
+        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+        assert decision.equity_after == expected_equity  # 与 WP2 新鲜估值逐位一致
