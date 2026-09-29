@@ -86,6 +86,8 @@ def startup(monkeypatch):
     for name in ("loan", "liquidation", "bot_detection", "pve", "fx"):
         monkeypatch.setattr(main, f"start_{name}_scheduler", _starter(name))
         monkeypatch.setattr(main, f"stop_{name}_scheduler", _stopper(name))
+    monkeypatch.setattr(main, "start_fx_publisher", _starter("fx_publisher"))
+    monkeypatch.setattr(main, "stop_fx_publisher", _stopper("fx_publisher"))
     monkeypatch.setattr(market_writer, "WRITER", FakeWriter(events, "WRITER"))
     monkeypatch.setattr(candle_flusher, "CANDLE_FLUSHER", FakeWriter(events, "FLUSHER"))
     monkeypatch.setattr(tick_broadcaster, "TICK_BROADCASTER", FakeWriter(events, "TICK"))
@@ -128,7 +130,7 @@ async def test_read_only_skips_all_startup_writes(startup, monkeypatch):
     assert "acquire" not in startup              # 只读实例不取锁
     for forbidden in ("init_db", "auto_migrate", "resync", "setup_admin",
                       "start:loan", "start:liquidation", "start:bot_detection",
-                      "start:pve", "start:fx",
+                      "start:pve", "start:fx", "start:fx_publisher",
                       "WRITER.start", "FLUSHER.start"):
         assert forbidden not in startup, f"read-only 实例不应执行 {forbidden}"
     assert "TICK.start" in startup               # 广播只读，允许
@@ -155,10 +157,12 @@ async def test_owner_runs_startup_writes_after_acquiring_lock(startup, monkeypat
     assert "setup_admin" in startup
     assert startup.index("setup_admin") < startup.index("resync")
     for expected in ("start:loan", "start:liquidation", "start:bot_detection",
-                     "start:pve", "start:fx", "WRITER.start", "FLUSHER.start",
+                     "start:pve", "start:fx", "start:fx_publisher", "WRITER.start", "FLUSHER.start",
                      "TICK.start"):
         assert expected in startup, f"owner 实例应执行 {expected}"
     assert main.app.state.credit_writes_enabled is True
+    assert startup.index("start:fx") < startup.index("start:fx_publisher")
+    assert startup.index("stop:fx") < startup.index("stop:fx_publisher") < startup.index("TICK.stop")
     assert own.released is True
 
 
@@ -187,7 +191,7 @@ async def test_non_owner_without_unified_credit_runs_without_writes(startup, mon
 
     for forbidden in ("init_db", "auto_migrate", "resync", "setup_admin",
                       "start:loan", "start:liquidation", "start:bot_detection",
-                      "start:pve", "start:fx", "WRITER.start", "FLUSHER.start"):
+                      "start:pve", "start:fx", "start:fx_publisher", "WRITER.start", "FLUSHER.start"):
         assert forbidden not in startup, f"非 owner 不应执行 {forbidden}"
     assert "TICK.start" in startup
     assert main.app.state.credit_writes_enabled is False
@@ -259,7 +263,7 @@ async def test_start_failure_still_runs_cleanup_and_releases_ownership(startup, 
     assert "start:loan" in startup                 # loan 已启动
     assert "start:liquidation" not in startup      # 失败的没启动
     for stopped in ("stop:loan", "stop:liquidation", "stop:bot_detection",
-                    "stop:pve", "stop:fx", "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
+                    "stop:pve", "stop:fx", "stop:fx_publisher", "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
         assert stopped in startup, f"启动失败清理缺少 {stopped}"
     assert own.released is True
 
@@ -276,7 +280,7 @@ async def test_shutdown_step_failure_does_not_block_cleanup(startup, monkeypatch
 
     await _run_lifespan()
 
-    for stopped in ("stop:fx", "stop:bot_detection", "stop:liquidation", "stop:loan",
+    for stopped in ("stop:fx", "stop:fx_publisher", "stop:bot_detection", "stop:liquidation", "stop:loan",
                     "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
         assert stopped in startup, f"单步失败后缺少 {stopped}"
     assert own.released is True

@@ -13,6 +13,7 @@ import pytest
 from app.services.fx import market_data, publisher
 from app.services.fx.publisher import FxPublisher
 from app.services.realtime import BROKER
+from app.services.realtime import MarketEventBroker
 
 
 def _prices(published):
@@ -185,6 +186,28 @@ async def test_default_publish_skips_pair_without_subscribers(monkeypatch):
         assert instance.stats()["published"] == 0
     finally:
         await instance.stop()
+
+
+@pytest.mark.asyncio
+async def test_lmsr_viewer_with_same_id_does_not_trigger_fx_publication(monkeypatch):
+    calls = []
+
+    async def fake_frame(pair_id, post_price, broker=None):
+        calls.append(pair_id)
+
+    monkeypatch.setattr(market_data, "publish_pair_frame", fake_frame)
+    broker = MarketEventBroker()
+    subscriber, _ = await broker.subscribe("lmsr:987654")
+    instance = FxPublisher(broker=broker)
+    await instance.start()
+    try:
+        instance.enqueue(987654, Decimal("2.5"))
+        await instance.drain(2)
+        assert calls == []
+        assert instance.stats()["skipped"] == 1
+    finally:
+        await instance.stop()
+        await broker.unsubscribe("lmsr:987654", subscriber)
 
 
 @pytest.mark.asyncio

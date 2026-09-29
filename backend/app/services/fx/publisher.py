@@ -230,9 +230,10 @@ class FxPublisher:
         # this module never participates in an import cycle with trading.
         from app.services.fx import market_data
         from app.services.realtime import BROKER
+        from app.services.credit.keys import symbol_namespace
 
         broker = self._broker if self._broker is not None else BROKER
-        if broker.subscriber_count(publication.pair_id) == 0:
+        if broker.subscriber_count(symbol_namespace("fx", publication.pair_id)) == 0:
             # Every SSE connection reads a fresh snapshot on connect, so an
             # unwatched pair needs no frame and no 24h volume query.
             self._skipped += 1
