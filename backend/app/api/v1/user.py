@@ -15,11 +15,13 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user
 from app.models.base import User, Position, Transaction, Outcome
+from app.models.fx import FxWallet
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import quantize_cost
 from app.services import site_config as _site_config
 from app.services.rank import RANK_THRESHOLDS
 from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
+from app.services.fx.valuation import compute_fx_mtm
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,13 @@ async def get_user_summary(
     hard = await _site_config.get_decimal_or(db, "liquidation_hard_threshold", Decimal("0.2"))
     soft = await _site_config.get_decimal_or(db, "liquidation_soft_threshold", Decimal("0.5"))
     sell_fee_rate = await _site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
+    fx_mtm = (await compute_fx_mtm(db, user_ids=[user.id])).get(user.id, ZERO)
+    fx_cost_row = (await db.execute(
+        select(FxWallet.cost_basis).where(
+            FxWallet.user_id == user.id, FxWallet.cost_basis > ZERO
+        )
+    )).all()
+    fx_cost_basis = sum((Decimal(row[0]) for row in fx_cost_row), ZERO).quantize(Decimal("0.000001"))
 
     # margin_status 服务端权威（保守 LCV 口径，docs/holdings-value-semantics.md）。
     # 只有 debt>0 才需要跑全仓 LMSR。
@@ -86,6 +95,9 @@ async def get_user_summary(
     return {
         "cash": quantize_cost(user.cash),   # 6dp——客户端 cash 基线
         "debt": quantize_cost(user.debt),
+        "fx_mtm": quantize_cost(fx_mtm),
+        "fx_cost_basis": quantize_cost(fx_cost_basis),
+        "fx_unrealized_pnl": quantize_cost(fx_mtm - fx_cost_basis),
         "positions": positions,
         "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
         "margin_soft_threshold": soft.quantize(Decimal("0.0001")),

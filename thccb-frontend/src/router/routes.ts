@@ -8,6 +8,13 @@ import NotFound from '@/pages/NotFound.vue'
  * 顶层用 layout 组件作为 component，子路由通过 layout 内部的 <router-view /> 渲染。
  */
 export const routes: RouteRecordRaw[] = [
+  // 独立宣传演示页：免登录，全部数据在浏览器内生成，不连接交易 API。
+  {
+    path: '/promo',
+    name: 'promo',
+    component: () => import('@/pages/promo/PromoTrading.vue'),
+    meta: { title: '模拟交易展示', requiresAuth: false },
+  },
   // 主布局：Header + Sidebar + Footer
   {
     path: '/',
@@ -129,6 +136,18 @@ export const routes: RouteRecordRaw[] = [
         }
       },
 
+      // 外汇子游戏（FX 总闸默认关闭，未开市时页面只读）
+      {
+        path: 'fx',
+        name: 'fx',
+        component: () => import('@/pages/Fx.vue'),
+        meta: {
+          title: '幻想外汇',
+          requiresAuth: true,
+          requiresVerified: true
+        }
+      },
+
       // 管理员路由
       {
         path: 'admin',
@@ -143,6 +162,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'admin-markets',
         component: () => import('@/pages/admin/MarketManage.vue'),
         meta: { title: '市场管理', requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: 'admin/fx',
+        name: 'admin-fx',
+        component: () => import('@/pages/admin/FxManage.vue'),
+        meta: { title: 'FX 管理', requiresAuth: true, requiresAdmin: true },
       },
       {
         path: 'admin/site-config',

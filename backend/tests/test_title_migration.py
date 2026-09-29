@@ -91,10 +91,18 @@ def test_upgrade_downgrade_roundtrip():
     # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry + audit_event）
     # ledger_entry / audit_event 由其后续 migration（b2cd21122925 / a7c3e9d1f402）建，
     # before-state 不应预先 create_all，否则 upgrade head 会 "table already exists"。
+    # fx_* 5 张表由 head revision fx_tables_20260928 建（晚于本测试 stamp 的
+    # 679d34cb5986）；conftest 经 app.main 已把 app.models.fx 注册进 metadata，
+    # 同样不能预建，否则 upgrade 到 FX revision 报 "table fx_pair already exists"。
+    # FX migration 的真实 upgrade/downgrade 由 test_fx_migration.py 专项验证。
+    fx_table_names = {
+        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
+    }
     keep_tables = [
         t for name, t in SQLModel.metadata.tables.items()
         if name not in title_table_names
         and name not in ("ledger_entry", "audit_event", "bot_profile")
+        and name not in fx_table_names
     ]
 
     # 2) 保存原 settings，临时 rebind 到 tempfile DB URL

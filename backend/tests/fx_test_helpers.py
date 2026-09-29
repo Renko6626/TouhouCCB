@@ -1,0 +1,79 @@
+from datetime import datetime, timezone
+from decimal import Decimal
+
+import pytest_asyncio
+from sqlalchemy import create_engine
+from sqlmodel import Session, SQLModel
+
+from app.models.audit import AuditEvent
+from app.models.base import SiteConfig, User
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.title import Title
+from app.services import site_config
+
+
+class AsyncCompatSession:
+    """Async-shaped adapter over a real synchronous SQLite transaction."""
+    def __init__(self, session): self._session = session
+    def add(self, value): self._session.add(value)
+    def add_all(self, values): self._session.add_all(values)
+    async def execute(self, statement): return self._session.execute(statement)
+    async def flush(self): self._session.flush()
+    async def commit(self): self._session.commit()
+    async def rollback(self): self._session.rollback()
+    async def refresh(self, value): self._session.refresh(value)
+    async def get(self, model, key): return self._session.get(model, key)
+    def in_transaction(self): return self._session.in_transaction()
+    class _AsyncNested:
+        def __init__(self, session): self.session = session; self.transaction = None
+        async def __aenter__(self):
+            self.transaction = self.session.begin_nested()
+            self.transaction.__enter__()
+            return self
+        async def __aexit__(self, exc_type, exc, tb):
+            if exc_type:
+                self.transaction.__exit__(exc_type, exc, tb)
+            else:
+                self.transaction.__exit__(None, None, None)
+
+    def begin_nested(self):
+        return self._AsyncNested(self._session)
+
+    async def __aenter__(self): return self
+    async def __aexit__(self, exc_type, exc, tb):
+        if exc_type:
+            self._session.rollback()
+
+
+@pytest_asyncio.fixture
+async def fx_db():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
+              FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__, FxEvent.__table__,
+              AuditEvent.__table__]
+    SQLModel.metadata.create_all(engine, tables=tables)
+    with Session(engine) as raw:
+        db = AsyncCompatSession(raw)
+        db.add_all([
+            SiteConfig(key="fx_enabled", value="true", value_type="bool"),
+            SiteConfig(key="fx_daily_budget", value="100000", value_type="decimal"),
+            SiteConfig(key="fx_step_max_ratio", value="0.001", value_type="decimal"),
+        ])
+        await db.commit()
+        site_config.clear_cache()
+        yield db
+    engine.dispose()
+
+
+async def add_pair(db, *, code="TST", gold="100", foreign="100", target="1",
+                   initial="1", target_min="0.5", target_max="2"):
+    pair = FxPair(currency_code=code, currency_name="Test", status="trading",
+                  gold_reserve=Decimal(gold), foreign_reserve=Decimal(foreign),
+                  target_price=Decimal(target), initial_price=Decimal(initial),
+                  target_min=Decimal(target_min), target_max=Decimal(target_max))
+    db.add(pair)
+    await db.flush()
+    treasury = FxTreasury(pair_id=pair.id, gold_balance=Decimal(gold), foreign_balance=Decimal(foreign))
+    db.add(treasury)
+    await db.commit()
+    return pair, treasury

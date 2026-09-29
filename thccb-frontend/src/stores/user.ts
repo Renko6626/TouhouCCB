@@ -29,11 +29,18 @@ export const useUserStore = defineStore('user', () => {
   const holdingsValueLcv = computed(() =>
     computeHoldingsValueLcv(summary.value?.positions ?? [], priceContext.value,
                             summary.value?.sell_fee_rate ?? 0))
+  // FX 展示市值：只并入账面净值/浮盈/rank，不并入 LCV（借款抵押/强平）。
+  const fxMtm = computed(() => summary.value?.fx_mtm ?? 0)
+  const fxCostBasis = computed(() => summary.value?.fx_cost_basis ?? 0)
   const netWorth = computed(() =>
-    summary.value ? summary.value.cash - summary.value.debt + holdingsValueMtm.value : 0)
+    summary.value
+      ? summary.value.cash - summary.value.debt + holdingsValueMtm.value + fxMtm.value
+      : 0)
+  // LCV 口径（服务端 margin_status / 强平抵押）保持不含 FX——FX 不是合格抵押物。
   const netWorthLcv = computed(() =>
     summary.value ? summary.value.cash - summary.value.debt + holdingsValueLcv.value : 0)
-  const unrealizedPnl = computed(() => holdingsValueMtm.value - totalCostBasis.value)
+  const unrealizedPnl = computed(() =>
+    holdingsValueMtm.value - totalCostBasis.value + fxMtm.value - fxCostBasis.value)
   const unrealizedPnlLcv = computed(() => holdingsValueLcv.value - totalCostBasis.value)
   const rankTitle = computed(() =>
     rankFromThresholds(summary.value?.rank_thresholds ?? [], netWorth.value))

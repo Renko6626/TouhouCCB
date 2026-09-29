@@ -1,6 +1,7 @@
 """持仓估值的两套口径。
 
-本项目对"持仓估值"有两种语义，对应不同场景：
+本项目对"持仓估值"有两种语义，对应不同场景。FX 外币估值由
+`services.fx.valuation` 单独计算，不进入本文件的 LMSR LCV 口径：
 
 - **LCV** (Liquidation Value, "立即清算价值")：`compute_users_holdings_value`
   按 LMSR cost diff 算「全部卖出能拿到多少」，含滑点 + 扣卖出 fee。**保守**。

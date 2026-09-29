@@ -38,7 +38,8 @@ from app.services.lmsr import (
     seed_shares_from_prices,
     quantize_price,
 )
-from app.services.wealth import compute_users_holdings_value, compute_users_holdings_value_mtm
+from app.services.wealth import compute_users_holdings_value
+from app.services.fx.valuation import compute_total_net_worth
 from app.services.candle_writer import compute_candle_rows, upsert_candles
 from app.services.market_locks import (
     lock_market as _lock_market,
@@ -1333,14 +1334,8 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
         users = (await db.execute(users_stmt)).scalars().all()
         if not users:
             return []
-        holdings = await compute_users_holdings_value_mtm(
-            db,
-            user_ids=[u.id for u in users],
-        )
-        scored = [
-            (u, u.cash - u.debt + holdings.get(u.id, ZERO))
-            for u in users
-        ]
+        net_worth = await compute_total_net_worth(db, user_ids=[u.id for u in users])
+        scored = [(u, net_worth.get(u.id, u.cash - u.debt)) for u in users]
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[:limit]
         # 批量取 equipped title chip：只查 top N 的 equipped_title_id,避免 N+1

@@ -4,7 +4,7 @@
 快照从已变动的 ORM 对象读取，因此必须在业务值写完之后调用。
 """
 from __future__ import annotations
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Iterable, Optional
 
@@ -15,10 +15,16 @@ from app.models.base import Position, Transaction, User
 
 
 def _j(v: Any) -> Any:
-    """JSON 安全化：Decimal→str（保精度），datetime→iso，list/dict 递归。"""
+    """JSON 安全化：Decimal→str（保精度），datetime/date→iso，list/dict 递归。
+
+    `datetime` 是 `date` 的子类，必须先判断 `datetime`，再把纯 `date`
+    （例如 FX treasury.spend_date）转成 ISO 字符串，否则 JSON 列无法序列化。
+    """
     if isinstance(v, Decimal):
         return format(v, "f")
     if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, date):
         return v.isoformat()
     if isinstance(v, dict):
         return {k: _j(x) for k, x in v.items()}
@@ -188,4 +194,39 @@ def record_liquidation_repay(session: AsyncSession, user: User, repaid: Decimal,
         payload={"repaid": repaid, "interest_accrued": interest, "daily_rate": daily_rate,
                  "trigger_source": trigger_source},
         user_after=user_snapshot(user),
+    )
+
+
+def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], pair: Any,
+                    wallet: Any, treasury: Any) -> AuditEvent:
+    """Record the replay payload for a committed FX pool trade."""
+    payload = {
+            "pair_id": pair.id, "side": trade.side,
+            "input_amount": trade.input_amount, "output_amount": trade.output_amount,
+            "fee_amount": trade.fee_amount,
+            "pre_gold_reserve": trade.pre_gold_reserve,
+            "pre_foreign_reserve": trade.pre_foreign_reserve,
+            "post_gold_reserve": trade.post_gold_reserve,
+            "post_foreign_reserve": trade.post_foreign_reserve,
+            "post_price": trade.post_price,
+            "pool_after": {"gold": pair.gold_reserve, "foreign": pair.foreign_reserve},
+            "pool_version": pair.pool_version,
+            "source": trade.source,
+            "wallet_after": None if wallet is None else {
+                "foreign_amount": wallet.foreign_amount,
+                "cost_basis": wallet.cost_basis,
+                "updated_at": wallet.updated_at,
+            },
+            "treasury_after": {
+                "gold_balance": treasury.gold_balance,
+                "foreign_balance": treasury.foreign_balance,
+                "daily_spend": treasury.daily_spend,
+                "spend_date": treasury.spend_date,
+                "updated_at": treasury.updated_at,
+            },
+        }
+    return record(
+        session, "fx_trade", user_id=None if user is None else user.id,
+        ref_table="fx_trade", ref_id=trade.id,
+        payload=payload, user_after=None if user is None else user_snapshot(user),
     )

@@ -68,6 +68,11 @@ jobs:
               sys.exit(1)
           "
 
+      - name: FX end-to-end tests
+        # FX 使用独立隔离 SQLite + ASGI dependency override，必须以 --noconftest
+        # 运行，避免被既有 async fixture 挂起掩盖。timeout 兜底。
+        run: timeout 180 ./venv/bin/python -m pytest -q --noconftest tests/test_fx_end_to_end.py
+
       - name: Run tests
         # timeout 兜底：pytest-asyncio 退出偶发 hang，超时即杀，stdout 仍可见
         run: timeout 300 ./venv/bin/python -m pytest -q

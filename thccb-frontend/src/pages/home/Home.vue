@@ -22,10 +22,8 @@ const summaryLoading = ref(false)
 
 onMounted(async () => {
   const tasks: Promise<unknown>[] = []
-  if (!marketStore.markets.length) {
-    loading.value = true
-    tasks.push(marketStore.fetchMarkets().finally(() => { loading.value = false }))
-  }
+  loading.value = true
+  tasks.push(marketStore.fetchMarkets().finally(() => { loading.value = false }))
   if (authStore.isAuthenticated && !userStore.summary) {
     summaryLoading.value = true
     tasks.push(userStore.fetchSummary().finally(() => { summaryLoading.value = false }))

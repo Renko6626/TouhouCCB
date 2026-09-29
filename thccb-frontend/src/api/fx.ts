@@ -1,0 +1,645 @@
+// FX 玩家/管理 API 封装 + 可测试纯函数（金额格式化、min-out/滑点、SSE 白名单、
+// 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
+import api from './index'
+import type {
+  FxEventAdmin,
+  FxEventCreate,
+  FxFundRequest,
+  FxIntervention,
+  FxPairAdmin,
+  FxPairAdminDetail,
+  FxPairCreate,
+  FxPairPatch,
+  FxPairPublic,
+  FxPublicFrame,
+  FxPublicNews,
+  FxChartPoint,
+  FxQuote,
+  FxQuoteRequest,
+  FxSide,
+  FxSnapshot,
+  FxTradePublic,
+  FxTradeRequest,
+  FxWalletPublic,
+} from '@/types/fx'
+
+export const FX_EMPTY = '—'
+
+// ── SSE 公开帧白名单（镜像 market_data._FRAME_KEYS / _NEWS_KEYS） ──
+export const FX_PUBLIC_FRAME_KEYS = ['price', 'buy_price', 'sell_price', 'spread', 'volume'] as const
+export const FX_PUBLIC_NEWS_KEYS = ['title', 'body', 'kind', 'published_at'] as const
+
+// 后端 detail → 中文提示。动态文案（如首轮失败原因）走 fallback。
+const FX_ERROR_DETAILS: Record<string, string> = {
+  'FX trading is disabled': 'FX 交易总闸未开启，管理员开市后才能交易',
+  'FX pair is not trading': '该货币对当前暂停或未开市，无法交易',
+  'FX pair not found': 'FX 货币对不存在',
+  'bot accounts cannot trade FX': '机器人账户不能参与 FX 交易',
+  'TOS acceptance required': '请先同意用户协议后再交易',
+  'outstanding debt blocks FX purchases': '有未还借款时不能买入外币（仍可卖出）',
+  'insufficient cash': '金圆券余额不足',
+  'insufficient FX wallet balance': '外币持仓不足',
+  'quoted output is below min_out': '价格变动超过最大滑点，已拒单，请重新报价',
+  'idempotency key parameter mismatch': '重复提交的参数与首次不一致，已拒绝',
+  'only one trading FX pair is allowed': '同一时间只允许一个处于交易状态的货币对',
+  'currency cannot be changed after opening': '开市后不能修改币种代码或名称',
+  'target price must be within target range': '目标价必须落在目标价下限与上限之间',
+  'fee rate must be between 0 and 1': '费率必须在 0 与 1 之间',
+  'event is cancelled': '事件已取消，无法发布',
+  'another FX event is active for this pair': '该货币对已有进行中的事件，请等待窗口结束',
+  'event budget exhausted': '事件预算已用尽，无法发布',
+  'event needs a non-zero first reaction budget': '事件需要有非零的首轮干预预算',
+  'event parameters are outside allowed range': '事件参数超出允许范围',
+  'scheduled event window overlaps existing event; choose a later UTC time':
+    '计划时间与已有事件窗口重叠，请改到更晚的 UTC 时间',
+  'withdrawal would exhaust reserves': '撤资会使池子储备低于安全下限',
+  'withdrawal exceeds treasury balance': '撤资金额超过系统储备余额',
+  'fund amount must be positive': '注资金额必须为正数',
+  'unknown FX config key': '未知的 FX 配置项',
+}
+
+// ── 金额格式化（十进制字符串，half-up，不丢精度） ──
+
+function incrementScaled(intPart: string, fracPart: string): { int: string; frac: string } {
+  const digits = (intPart + fracPart).split('')
+  let i = digits.length - 1
+  while (i >= 0) {
+    const d = digits[i]!
+    if (d === '9') {
+      digits[i] = '0'
+      i -= 1
+    } else {
+      digits[i] = String(Number(d) + 1)
+      break
+    }
+  }
+  if (i < 0) digits.unshift('1')
+  const intLen = digits.length - fracPart.length
+  return { int: digits.slice(0, intLen).join(''), frac: digits.slice(intLen).join('') }
+}
+
+/**
+ * 把十进制字符串/数字格式化为固定小数位（half-up），全程字符串运算，
+ * 避免 `Number()` 在 1e15 级金额上丢精度。非法输入返回 `—`。
+ */
+export function formatFxAmount(
+  value: string | number | null | undefined,
+  digits = 6,
+): string {
+  if (value === null || value === undefined) return FX_EMPTY
+  const raw = String(value).trim()
+  if (raw === '' || raw === '-' || raw === '.' || raw === '-.') return FX_EMPTY
+  if (!/^-?\d*(?:\.\d*)?$/.test(raw)) return FX_EMPTY
+
+  const d = Math.max(0, Math.min(12, Math.floor(digits)))
+  let sign = ''
+  let body = raw
+  if (body.startsWith('-')) {
+    sign = '-'
+    body = body.slice(1)
+  }
+  const dot = body.indexOf('.')
+  let intPart = dot >= 0 ? body.slice(0, dot) : body
+  const fracPart = dot >= 0 ? body.slice(dot + 1) : ''
+  if (intPart === '') intPart = '0'
+  intPart = intPart.replace(/^0+(?=\d)/, '')
+
+  const roundFrac = (fracPart + '0'.repeat(d + 1)).slice(0, d + 1)
+  const keep = roundFrac.slice(0, d)
+  const roundDigit = d < roundFrac.length ? roundFrac.charCodeAt(d) - 48 : 0
+  if (roundDigit >= 5) {
+    const inc = incrementScaled(intPart, keep)
+    return `${sign}${inc.int}${d > 0 ? '.' + inc.frac : ''}`
+  }
+  return `${sign}${intPart}${d > 0 ? '.' + keep : ''}`
+}
+
+function parseScaled(value: string | number | null | undefined, scale: number): bigint | null {
+  if (value === null || value === undefined) return null
+  const raw = String(value).trim()
+  if (raw === '' || raw === '-' || raw === '.' || raw === '-.') return null
+  if (!/^-?\d*(?:\.\d*)?$/.test(raw)) return null
+  let sign = 1n
+  let body = raw
+  if (body.startsWith('-')) {
+    sign = -1n
+    body = body.slice(1)
+  }
+  const dot = body.indexOf('.')
+  const intPart = (dot >= 0 ? body.slice(0, dot) : body) || '0'
+  const fracPart = dot >= 0 ? body.slice(dot + 1) : ''
+  const frac = (fracPart + '0'.repeat(scale)).slice(0, scale)
+  const combined = `${intPart}${frac}`.replace(/^0+(?=\d)/, '')
+  return sign * BigInt(combined === '' ? '0' : combined)
+}
+
+function scaledToString(value: bigint, scale: number): string {
+  const neg = value < 0n
+  const v = neg ? -value : value
+  let s = v.toString()
+  if (scale > 0) s = s.padStart(scale + 1, '0')
+  const intPart = scale > 0 ? s.slice(0, s.length - scale) : s
+  const fracPart = scale > 0 ? s.slice(s.length - scale) : ''
+  return `${neg ? '-' : ''}${intPart}${scale > 0 ? '.' + fracPart : ''}`
+}
+
+function clampBps(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(10000, Math.trunc(value)))
+}
+
+/**
+ * 由报价产出与最大滑点（bps）计算服务端 `min_out`：向下取 6 位（保守）。
+ * 向下取整保证不会因为客户端四舍五入而放宽服务端滑点保护。
+ */
+export function computeMinOut(
+  output: string | number | null | undefined,
+  slippageBps: number,
+): string {
+  const scaled = parseScaled(output, 6)
+  if (scaled === null) return '0.000000'
+  const bps = clampBps(slippageBps)
+  const result = (scaled * BigInt(10000 - bps)) / 10000n
+  return scaledToString(result, 6)
+}
+
+function toFiniteNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** 有效价相对中间价的滑点（bps，绝对值）。中间价非法时返回 null。 */
+export function tradeSlippageBps(
+  midPrice: string | number | null | undefined,
+  effectivePrice: string | number | null | undefined,
+): number | null {
+  const mid = toFiniteNumber(midPrice)
+  const effective = toFiniteNumber(effectivePrice)
+  if (mid === null || effective === null || mid <= 0) return null
+  return (Math.abs(effective - mid) / mid) * 10000
+}
+
+// ── SSE 帧白名单：只保留公开行情/新闻字段 ──
+
+function pickString(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  return undefined
+}
+
+/**
+ * 把任意对象收敛到公开白名单。隐藏字段（target/shock/future orders/random
+ * state/parameter_snapshot 等）不在白名单内，天然被丢弃。
+ */
+export function sanitizeFxFrame(raw: unknown): FxPublicFrame | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
+  const source = raw as Record<string, unknown>
+  const frame: FxPublicFrame = {}
+  for (const key of FX_PUBLIC_FRAME_KEYS) {
+    const value = pickString(source, key)
+    if (value !== undefined) frame[key] = value
+  }
+  const newsRaw = source.news
+  if (typeof newsRaw === 'object' && newsRaw !== null && !Array.isArray(newsRaw)) {
+    const newsSource = newsRaw as Record<string, unknown>
+    const news: FxPublicNews = {}
+    for (const key of FX_PUBLIC_NEWS_KEYS) {
+      const value = pickString(newsSource, key)
+      if (value !== undefined) news[key] = value
+    }
+    if (Object.keys(news).length > 0) frame.news = news
+  }
+  return frame
+}
+
+/** 解析直接的公开帧 JSON 字符串。 */
+export function parseFxFrame(raw: string | null | undefined): FxPublicFrame | null {
+  if (!raw) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  return sanitizeFxFrame(parsed)
+}
+
+/**
+ * 解析 SSE `data:` 行的 JSON：既接受 `{data: frame}` 信封，也接受裸帧。
+ * 信封里的 `type/market_id/seq` 等元数据不会进入返回对象。
+ */
+export function parseFxSsePayload(raw: string | null | undefined): FxPublicFrame | null {
+  if (!raw) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof parsed === 'object' && parsed !== null && 'data' in (parsed as object)) {
+    return sanitizeFxFrame((parsed as { data?: unknown }).data)
+  }
+  return sanitizeFxFrame(parsed)
+}
+
+// ── 图表归一化（/chart 无 response_model，FastAPI 会把 Decimal 转 float） ──
+
+function numberOrZero(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
+  if (!Array.isArray(raw)) return []
+  const points: FxChartPoint[] = []
+  for (const row of raw) {
+    if (typeof row !== 'object' || row === null) continue
+    const r = row as Record<string, unknown>
+    const t =
+      typeof r.bucket_start === 'string'
+        ? r.bucket_start
+        : typeof r.t === 'string'
+          ? r.t
+          : null
+    if (!t) continue
+    points.push({
+      t,
+      o: numberOrZero(r.open),
+      h: numberOrZero(r.high),
+      l: numberOrZero(r.low),
+      c: numberOrZero(r.close),
+      v: numberOrZero(r.volume),
+    })
+  }
+  return points.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime())
+}
+
+// ── 错误映射 ──
+
+interface FxErrorLike {
+  status?: number
+  message?: string
+  data?: { detail?: unknown }
+}
+
+/** 成交/操作是否因行情或幂等冲突返回 409（页面需据此刷新 snapshot）。 */
+export function isConflictError(err: unknown): boolean {
+  return (err as FxErrorLike | null)?.status === 409
+}
+
+export function mapFxError(err: unknown, fallback = '请求失败'): string {
+  const e = (err ?? {}) as FxErrorLike
+  const detail = typeof e.data?.detail === 'string' ? e.data.detail : ''
+  if (detail && FX_ERROR_DETAILS[detail]) return FX_ERROR_DETAILS[detail]
+  if (detail && e.status === 422) return detail
+
+  switch (e.status) {
+    case 400:
+      return '请求不合法或余额不足'
+    case 401:
+      return '登录已过期，请重新登录'
+    case 403:
+      return '当前操作被拒绝（权限或条件不满足）'
+    case 404:
+      return '资源不存在'
+    case 409:
+      return '请求冲突，行情可能已变化，请刷新后重试'
+    case 422:
+      return '输入不合法，请检查金额与参数'
+    case 429:
+      return '操作过于频繁，请稍后再试'
+    case 503:
+      return '服务暂时不可用，请稍后再试'
+    default:
+      if (typeof e.message === 'string' && e.message) return e.message
+      return fallback
+  }
+}
+
+/** 每笔成交使用新的幂等键；重试用同一键由服务端返回原成交。 */
+export function newFxIdempotencyKey(): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+  if (c?.randomUUID) return `fx-${c.randomUUID()}`
+  return `fx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
+}
+
+// ── 管理端本地 pair 视图（公开列表过滤 draft，创建后需本地合并） ──
+
+/**
+ * 合并「管理员写操作返回的 FxPairAdmin」与「公开 pair 列表」。
+ * 后端 `GET /fx/pairs` 过滤 draft，因此刚创建的草稿只能靠本地缓存出现；
+ * 公开列表存在时以公开条目为准（其共享字段更新鲜），草稿等仅本地条目保留。
+ */
+export function mergeFxPairs(
+  adminPairs: Record<number, FxPairPublic>,
+  publicPairs: FxPairPublic[],
+): FxPairPublic[] {
+  const byId = new Map<number, FxPairPublic>()
+  for (const [id, pair] of Object.entries(adminPairs)) byId.set(Number(id), pair)
+  for (const pair of publicPairs) byId.set(pair.id, pair)
+  return [...byId.values()].sort((a, b) => a.id - b.id)
+}
+
+/** 不可变地把管理端写操作返回的 FxPairAdmin 写入本地缓存。 */
+export function upsertFxPairAdmin(
+  store: Record<number, FxPairAdmin>,
+  pair: FxPairAdmin,
+): Record<number, FxPairAdmin> {
+  return { ...store, [pair.id]: pair }
+}
+
+// ── 玩家下单：并发单飞 + 逻辑订单幂等键复用 ──
+
+export interface FxOrderSignatureParams {
+  pairId: number
+  side: FxSide
+  amount: string
+  /** 由报价产出与滑点算出的 min_out；改变即视为新的逻辑订单 */
+  minOut: string
+}
+
+/** 逻辑订单签名：任一参数变化都应生成新的幂等键。 */
+export function fxOrderSignature(params: FxOrderSignatureParams): string {
+  return `${params.pairId}|${params.side}|${params.amount}|${params.minOut}`
+}
+
+/**
+ * 下单单飞控制器。
+ * - `submit` 在第一次 await 前同步占位，因此并发/双击只会真正执行一次 `run`；
+ * - 同一逻辑订单（签名一致）复用同一幂等键，直到成功调用 `reset` 或参数变化；
+ *   409 刷新报价后若参数一致，重试继续复用原键。
+ */
+export class FxOrderSubmitter {
+  private inFlight = false
+  private signature: string | null = null
+  private idempotencyKey: string | null = null
+
+  get busy(): boolean {
+    return this.inFlight
+  }
+
+  /** 参数不变则复用旧键；参数变化生成新键。 */
+  keyFor(signature: string): string {
+    if (this.signature !== signature || !this.idempotencyKey) {
+      this.signature = signature
+      this.idempotencyKey = newFxIdempotencyKey()
+    }
+    return this.idempotencyKey
+  }
+
+  /** 成交成功后调用，让下一笔逻辑订单使用新键。 */
+  reset(): void {
+    this.signature = null
+    this.idempotencyKey = null
+  }
+
+  /**
+   * 并发单飞执行：已在途时返回 null 且不调用 `run`。
+   * 返回 null 表示本次点击被合并，调用方不应做成功处理。
+   */
+  async submit<T>(signature: string, run: (idempotencyKey: string) => Promise<T>): Promise<T | null> {
+    if (this.inFlight) return null
+    this.inFlight = true
+    try {
+      return await run(this.keyFor(signature))
+    } finally {
+      this.inFlight = false
+    }
+  }
+}
+
+// ── 玩家 API（/api/v1/fx） ──
+
+export const fxApi = {
+  listPairs(): Promise<FxPairPublic[]> {
+    return api.get<FxPairPublic[]>('/api/v1/fx/pairs')
+  },
+
+  getSnapshot(pairId: number): Promise<FxSnapshot> {
+    return api.get<FxSnapshot>(`/api/v1/fx/pairs/${pairId}/snapshot`)
+  },
+
+  getQuote(pairId: number, body: FxQuoteRequest): Promise<FxQuote> {
+    return api.post<FxQuote>(`/api/v1/fx/pairs/${pairId}/quote`, body)
+  },
+
+  trade(pairId: number, body: FxTradeRequest): Promise<FxTradePublic> {
+    return api.post<FxTradePublic>(`/api/v1/fx/pairs/${pairId}/trades`, body)
+  },
+
+  getTrades(pairId: number, limit = 50): Promise<FxTradePublic[]> {
+    return api.get<FxTradePublic[]>(`/api/v1/fx/pairs/${pairId}/trades`, {
+      params: { limit },
+    })
+  },
+
+  /** 当前用户在指定 pair 的钱包（未交易过时后端返回零值，不 404）。 */
+  getWallet(pairId: number): Promise<FxWalletPublic> {
+    return api.get<FxWalletPublic>(`/api/v1/fx/pairs/${pairId}/wallet`)
+  },
+
+  /** 当前用户在指定 pair 的个人成交历史（新到旧）。 */
+  getMyTrades(pairId: number, limit = 50): Promise<FxTradePublic[]> {
+    return api.get<FxTradePublic[]>(`/api/v1/fx/pairs/${pairId}/my-trades`, {
+      params: { limit },
+    })
+  },
+
+  async getChart(
+    pairId: number,
+    interval: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<FxChartPoint[]> {
+    const raw = await api.get<unknown>(`/api/v1/fx/pairs/${pairId}/chart`, {
+      params: { interval, from: fromIso, to: toIso },
+    })
+    return normalizeFxCandles(raw)
+  },
+}
+
+// ── 管理员 API（/api/v1/admin/fx，仅超管） ──
+
+export const fxAdminApi = {
+  /** 管理端只读列表：含草稿与 treasury 余额/今日支出（超管）。 */
+  listPairs(): Promise<FxPairAdminDetail[]> {
+    return api.get<FxPairAdminDetail[]>('/api/v1/admin/fx/pairs')
+  },
+
+  createPair(body: FxPairCreate): Promise<FxPairAdmin> {
+    return api.post<FxPairAdmin>('/api/v1/admin/fx/pairs', body)
+  },
+
+  updatePair(pairId: number, body: FxPairPatch): Promise<FxPairAdmin> {
+    return api.patch<FxPairAdmin>(`/api/v1/admin/fx/pairs/${pairId}`, body)
+  },
+
+  fundPair(pairId: number, body: FxFundRequest): Promise<FxPairAdmin> {
+    return api.post<FxPairAdmin>(`/api/v1/admin/fx/pairs/${pairId}/fund`, body)
+  },
+
+  withdrawPair(pairId: number, body: FxFundRequest): Promise<FxPairAdmin> {
+    return api.post<FxPairAdmin>(`/api/v1/admin/fx/pairs/${pairId}/withdraw`, body)
+  },
+
+  getConfig(): Promise<Record<string, string>> {
+    return api.get<Record<string, string>>('/api/v1/admin/fx/config')
+  },
+
+  setConfig(key: string, value: string): Promise<Record<string, string>> {
+    return api.put<Record<string, string>>('/api/v1/admin/fx/config', { key, value })
+  },
+
+  listEvents(): Promise<FxEventAdmin[]> {
+    return api.get<FxEventAdmin[]>('/api/v1/admin/fx/events')
+  },
+
+  createEvent(body: FxEventCreate): Promise<FxEventAdmin> {
+    return api.post<FxEventAdmin>('/api/v1/admin/fx/events', body)
+  },
+
+  publishEvent(eventId: number): Promise<FxEventAdmin> {
+    return api.post<FxEventAdmin>(`/api/v1/admin/fx/events/${eventId}/publish`)
+  },
+
+  cancelEvent(eventId: number): Promise<FxEventAdmin> {
+    return api.post<FxEventAdmin>(`/api/v1/admin/fx/events/${eventId}/cancel`)
+  },
+
+  listInterventions(pairId: number): Promise<FxIntervention[]> {
+    return api.get<FxIntervention[]>(`/api/v1/admin/fx/pairs/${pairId}/interventions`)
+  },
+}
+
+// ── SSE 客户端：/api/v1/fx/stream/{pair_id}（命名事件 `fx`） ──
+
+type FxFrameListener = (frame: FxPublicFrame) => void
+type FxVoidListener = () => void
+type FxErrorListener = (error: unknown) => void
+
+export class FxStream {
+  private source: EventSource | null = null
+  private pairId: number | null = null
+  private reconnectAttempts = 0
+  private readonly baseDelay = 1000
+  private readonly maxDelay = 30000
+  private gen = 0
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  private readonly frameListeners = new Set<FxFrameListener>()
+  private readonly openListeners = new Set<FxVoidListener>()
+  private readonly errorListeners = new Set<FxErrorListener>()
+
+  connect(pairId: number): void {
+    if (this.pairId === pairId && this.source) return
+    this.disconnect()
+    this.reconnectAttempts = 0
+    this.openConnection(pairId)
+  }
+
+  private openConnection(pairId: number): void {
+    if (typeof EventSource === 'undefined') {
+      this.emitError(new Error('EventSource unavailable'))
+      return
+    }
+    this.gen += 1
+    this.pairId = pairId
+    const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004').replace(/\/$/, '')
+    const url = `${baseUrl}/api/v1/fx/stream/${pairId}`
+    try {
+      const source = new EventSource(url)
+      this.source = source
+      source.addEventListener('fx', (event: MessageEvent) => {
+        const frame = parseFxSsePayload(typeof event.data === 'string' ? event.data : null)
+        if (frame) this.frameListeners.forEach((cb) => cb(frame))
+      })
+      source.onopen = () => {
+        this.reconnectAttempts = 0
+        this.openListeners.forEach((cb) => cb())
+      }
+      source.onerror = (error) => {
+        this.emitError(error)
+        this.scheduleReconnect(pairId)
+      }
+    } catch (error) {
+      this.emitError(error)
+      this.scheduleReconnect(pairId)
+    }
+  }
+
+  private scheduleReconnect(pairId: number): void {
+    if (this.source) {
+      this.source.close()
+      this.source = null
+    }
+    if (this.pairId === null) return
+    const gen = this.gen
+    this.reconnectAttempts += 1
+    const base = Math.min(this.baseDelay * 2 ** (this.reconnectAttempts - 1), this.maxDelay)
+    const delay = base * (0.7 + Math.random() * 0.6)
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = setTimeout(() => {
+      if (gen !== this.gen || this.pairId !== pairId) return
+      this.openConnection(pairId)
+    }, delay)
+  }
+
+  private emitError(error: unknown): void {
+    this.errorListeners.forEach((cb) => cb(error))
+  }
+
+  onFrame(cb: FxFrameListener): void {
+    this.frameListeners.add(cb)
+  }
+
+  offFrame(cb: FxFrameListener): void {
+    this.frameListeners.delete(cb)
+  }
+
+  onOpen(cb: FxVoidListener): void {
+    this.openListeners.add(cb)
+  }
+
+  offOpen(cb: FxVoidListener): void {
+    this.openListeners.delete(cb)
+  }
+
+  onError(cb: FxErrorListener): void {
+    this.errorListeners.add(cb)
+  }
+
+  offError(cb: FxErrorListener): void {
+    this.errorListeners.delete(cb)
+  }
+
+  reconnectNow(): void {
+    if (this.pairId === null || this.source !== null) return
+    this.reconnectAttempts = 0
+    this.openConnection(this.pairId)
+  }
+
+  disconnect(): void {
+    this.gen += 1
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    if (this.source) {
+      this.source.close()
+      this.source = null
+    }
+    this.pairId = null
+    this.reconnectAttempts = 0
+  }
+
+  get isConnected(): boolean {
+    return this.source !== null && this.source.readyState === EventSource.OPEN
+  }
+
+  get currentPairId(): number | null {
+    return this.pairId
+  }
+}

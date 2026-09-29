@@ -46,6 +46,18 @@ class Snapshot:
     positions: dict[tuple[int, int], Decimal] = field(default_factory=dict)   # (user_id, outcome_id) → amount
     markets: dict[int, MarketState] = field(default_factory=dict)
     last_event_id: int = 0
+    fx_pairs: dict[int, "FxPairState"] = field(default_factory=dict)
+    fx_wallets: dict[tuple[int, int], Decimal] = field(default_factory=dict)
+
+
+@dataclass
+class FxPairState:
+    gold: Decimal = Decimal("0")
+    foreign: Decimal = Decimal("0")
+    treasury_gold: Decimal = Decimal("0")
+    treasury_foreign: Decimal = Decimal("0")
+    anchored: bool = False
+    last_event_id: int = 0
 
 
 @dataclass
@@ -79,6 +91,10 @@ def _expected_user_delta(ev: AuditEvent) -> Optional[tuple[Decimal, Decimal]]:
         return (-D(p.get("repaid")), D(p.get("interest_accrued")) - D(p.get("repaid")))
     if t in ("redeem_purchase", "danmuku_exchange"):
         return (-D(p.get("amount")), Decimal("0"))
+    if t == "fx_trade":
+        # FX buy spends gold input; sell receives gold output.  Fees are
+        # already represented in the AMM output and never applied twice here.
+        return ((-D(p.get("input_amount")) if str(p.get("side")) == "buy" else D(p.get("output_amount"))), Decimal("0"))
     if t == "liquidation":
         return None   # 汇总事件：快照必须等于当前状态，但不带增量
     return None
@@ -120,8 +136,92 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
     def bad(ev, entity, fld, exp, act):
         mism.append(Mismatch(ev.id, ev.event_type, entity, fld, str(exp), str(act)))
 
+    def fx_after(p: dict[str, Any], key: str) -> tuple[Decimal, Decimal]:
+        value = p.get(key) or {}
+        return D(value.get("gold", value.get("gold_balance"))), D(value.get("foreign", value.get("foreign_balance")))
+
+    def fx_check_after(ev: AuditEvent, state: FxPairState, payload: dict[str, Any]) -> None:
+        pool = payload.get("pool_after")
+        treasury = payload.get("treasury_after")
+        if pool:
+            gold, foreign = fx_after(payload, "pool_after")
+            if gold != state.gold: bad(ev, f"fx_pair:{payload.get('pair_id')}", "pool.gold", state.gold, gold)
+            if foreign != state.foreign: bad(ev, f"fx_pair:{payload.get('pair_id')}", "pool.foreign", state.foreign, foreign)
+        if treasury:
+            gold, foreign = fx_after(payload, "treasury_after")
+            if gold != state.treasury_gold: bad(ev, f"fx_pair:{payload.get('pair_id')}", "treasury.gold", state.treasury_gold, gold)
+            if foreign != state.treasury_foreign: bad(ev, f"fx_pair:{payload.get('pair_id')}", "treasury.foreign", state.treasury_foreign, foreign)
+
+    def fold_fx(ev: AuditEvent) -> None:
+        p = ev.payload or {}
+        if ev.event_type in {"fx_fund", "fx_withdraw"}:
+            pair_id = int(ev.ref_id or p.get("pair_id"))
+            st = snap.fx_pairs.setdefault(pair_id, FxPairState())
+            before_pool = p.get("pool_before") or {}
+            before_treasury = p.get("treasury_before") or {}
+            if not st.anchored:
+                st.gold, st.foreign = D(before_pool.get("gold")), D(before_pool.get("foreign"))
+                st.treasury_gold, st.treasury_foreign = D(before_treasury.get("gold")), D(before_treasury.get("foreign"))
+            if check and st.anchored:
+                if D(before_pool.get("gold")) != st.gold: bad(ev, f"fx_pair:{pair_id}", "pool_before.gold", st.gold, before_pool.get("gold"))
+                if D(before_pool.get("foreign")) != st.foreign: bad(ev, f"fx_pair:{pair_id}", "pool_before.foreign", st.foreign, before_pool.get("foreign"))
+                if D(before_treasury.get("gold")) != st.treasury_gold: bad(ev, f"fx_pair:{pair_id}", "treasury_before.gold", st.treasury_gold, before_treasury.get("gold"))
+                if D(before_treasury.get("foreign")) != st.treasury_foreign: bad(ev, f"fx_pair:{pair_id}", "treasury_before.foreign", st.treasury_foreign, before_treasury.get("foreign"))
+            amount_g, amount_f = D(p.get("gold_amount")), D(p.get("foreign_amount"))
+            sign = Decimal("1") if ev.event_type == "fx_fund" else Decimal("-1")
+            st.gold += sign * amount_g; st.foreign += sign * amount_f
+            st.treasury_gold += sign * amount_g; st.treasury_foreign += sign * amount_f
+            st.anchored, st.last_event_id = True, ev.id
+            after_pool = p.get("pool_after") or {}; after_treasury = p.get("treasury_after") or {}
+            if check:
+                if D(after_pool.get("gold")) != st.gold: bad(ev, f"fx_pair:{pair_id}", "pool_after.gold", st.gold, after_pool.get("gold"))
+                if D(after_pool.get("foreign")) != st.foreign: bad(ev, f"fx_pair:{pair_id}", "pool_after.foreign", st.foreign, after_pool.get("foreign"))
+                if D(after_treasury.get("gold")) != st.treasury_gold: bad(ev, f"fx_pair:{pair_id}", "treasury_after.gold", st.treasury_gold, after_treasury.get("gold"))
+                if D(after_treasury.get("foreign")) != st.treasury_foreign: bad(ev, f"fx_pair:{pair_id}", "treasury_after.foreign", st.treasury_foreign, after_treasury.get("foreign"))
+            return
+        if ev.event_type != "fx_trade":
+            return
+        pair_id = int(p.get("pair_id") or ev.ref_id)
+        st = snap.fx_pairs.setdefault(pair_id, FxPairState())
+        pre_g, pre_f = D(p.get("pre_gold_reserve")), D(p.get("pre_foreign_reserve"))
+        post_g, post_f = D(p.get("post_gold_reserve")), D(p.get("post_foreign_reserve"))
+        if check and st.anchored:
+            if pre_g != st.gold: bad(ev, f"fx_pair:{pair_id}", "pre_gold_reserve", st.gold, pre_g)
+            if pre_f != st.foreign: bad(ev, f"fx_pair:{pair_id}", "pre_foreign_reserve", st.foreign, pre_f)
+        side, inp, out, fee = str(p.get("side")), D(p.get("input_amount")), D(p.get("output_amount")), D(p.get("fee_amount"))
+        system = ev.user_id is None and str(p.get("source", "")).startswith("system_")
+        if not st.anchored:
+            ta = p.get("treasury_after") or {}
+            after_tg, after_tf = D(ta.get("gold_balance")), D(ta.get("foreign_balance"))
+            if side == "buy":
+                st.treasury_gold = after_tg + inp if system else after_tg - fee
+                st.treasury_foreign = after_tf - out if system else after_tf
+            else:
+                st.treasury_gold = after_tg - out if system else after_tg
+                st.treasury_foreign = after_tf + inp if system else after_tf - fee
+        if side == "buy":
+            exp_g, exp_f = pre_g + inp - fee, pre_f - out
+            tg, tf = (st.treasury_gold - inp, st.treasury_foreign + out) if system else (st.treasury_gold + fee, st.treasury_foreign)
+        else:
+            exp_g, exp_f = pre_g - out, pre_f + inp - fee
+            tg, tf = (st.treasury_gold + out, st.treasury_foreign - inp) if system else (st.treasury_gold, st.treasury_foreign + fee)
+        if check:
+            if exp_g != post_g: bad(ev, f"fx_pair:{pair_id}", "post_gold_reserve", exp_g, post_g)
+            if exp_f != post_f: bad(ev, f"fx_pair:{pair_id}", "post_foreign_reserve", exp_f, post_f)
+        st.gold, st.foreign, st.treasury_gold, st.treasury_foreign = post_g, post_f, tg, tf
+        st.anchored, st.last_event_id = True, ev.id
+        if check:
+            fx_check_after(ev, st, p)
+        if ev.user_id is not None and p.get("wallet_after") is not None:
+            key = (ev.user_id, pair_id); prev = snap.fx_wallets.get(key, Decimal("0"))
+            expected = prev + out if side == "buy" else prev - inp
+            actual = D((p.get("wallet_after") or {}).get("foreign_amount"))
+            if check and expected != actual: bad(ev, f"fx_wallet:{ev.user_id}:{pair_id}", "foreign_amount", expected, actual)
+            snap.fx_wallets[key] = actual
+
     for ev in events:
         snap.last_event_id = ev.id
+        fold_fx(ev)
         uid = ev.user_id
 
         # ── user ──
@@ -234,4 +334,23 @@ async def compare_with_live(session, snap: Snapshot) -> list[Mismatch]:
             for oid, q in zip(m.outcome_ids, m.q):
                 if live_q.get(oid) != q:
                     out.append(Mismatch(m.last_event_id, "live", f"market:{mid}", f"q[{oid}]", str(q), str(live_q.get(oid))))
+    if snap.fx_pairs or snap.fx_wallets:
+        from app.models.fx import FxPair, FxTreasury, FxWallet
+        pair_rows = (await session.execute(select(FxPair).where(FxPair.id.in_(list(snap.fx_pairs))))).scalars().all()
+        treasury_rows = (await session.execute(select(FxTreasury).where(FxTreasury.pair_id.in_(list(snap.fx_pairs))))).scalars().all()
+        pairs = {p.id: p for p in pair_rows}; treasuries = {t.pair_id: t for t in treasury_rows}
+        for pid, st in snap.fx_pairs.items():
+            pair, treasury = pairs.get(pid), treasuries.get(pid)
+            if pair is None or treasury is None:
+                out.append(Mismatch(st.last_event_id, "live", f"fx_pair:{pid}", "exists", "true", "false")); continue
+            for fld, expected, actual in (("pool.gold", st.gold, D(pair.gold_reserve)), ("pool.foreign", st.foreign, D(pair.foreign_reserve)),
+                                          ("treasury.gold", st.treasury_gold, D(treasury.gold_balance)), ("treasury.foreign", st.treasury_foreign, D(treasury.foreign_balance))):
+                if expected != actual: out.append(Mismatch(st.last_event_id, "live", f"fx_pair:{pid}", fld, str(expected), str(actual)))
+        if snap.fx_wallets:
+            uids = sorted({u for u, _ in snap.fx_wallets}); pids = sorted({p for _, p in snap.fx_wallets})
+            rows = (await session.execute(select(FxWallet).where(FxWallet.user_id.in_(uids), FxWallet.pair_id.in_(pids)))).scalars().all()
+            live_wallets = {(w.user_id, w.pair_id): D(w.foreign_amount) for w in rows}
+            for key, expected in snap.fx_wallets.items():
+                actual = live_wallets.get(key, Decimal("0"))
+                if expected != actual: out.append(Mismatch(0, "live", f"fx_wallet:{key[0]}:{key[1]}", "foreign_amount", str(expected), str(actual)))
     return out

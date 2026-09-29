@@ -22,6 +22,7 @@ const navItems: NavEntry[] = [
   { label: '首页', path: '/', icon: 'i-mdi-home-outline', activeIcon: 'i-mdi-home' },
   { label: '市场列表', path: '/market/list', icon: 'i-mdi-chart-areaspline', activeIcon: 'i-mdi-chart-areaspline' },
   { label: '排行榜', path: '/market/leaderboard', icon: 'i-mdi-trophy-outline', activeIcon: 'i-mdi-trophy' },
+  { label: '幻想外汇', path: '/fx', icon: 'i-mdi-currency-usd', activeIcon: 'i-mdi-currency-usd' },
   { label: '我的资产', path: '/user/portfolio', icon: 'i-mdi-wallet-outline', activeIcon: 'i-mdi-wallet' },
   { label: '交易记录', path: '/user/transactions', icon: 'i-mdi-history', activeIcon: 'i-mdi-history' },
   { label: '借款', path: '/loan', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
@@ -49,6 +50,7 @@ const adminItems: NavEntry[] = [
     ],
   },
   { label: '市场管理', path: '/admin/markets', icon: 'i-mdi-chart-box-outline', activeIcon: 'i-mdi-chart-box' },
+  { label: 'FX 管理', path: '/admin/fx', icon: 'i-mdi-currency-usd', activeIcon: 'i-mdi-currency-usd' },
   { label: 'PvE 机器人', path: '/admin/pve', icon: 'i-mdi-robot-outline', activeIcon: 'i-mdi-robot' },
   {
     label: '风控', icon: 'i-mdi-shield-outline', activeIcon: 'i-mdi-shield',

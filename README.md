@@ -71,6 +71,7 @@ loadtest/        k6 压测脚本
 | [docs/deploy.md](./docs/deploy.md) | 生产部署 |
 | [docs/development.md](./docs/development.md) | 本地开发环境 |
 | [docs/api.md](./docs/api.md) | API 说明 |
+| [docs/fx.md](./docs/fx.md) | 幻想外汇 (FX) 运维（默认关闭） |
 | [docs/migrations.md](./docs/migrations.md) | 数据库迁移（Alembic） |
 | [docs/schema-conventions.md](./docs/schema-conventions.md) | Schema / 字段约定 |
 | [docs/holdings-value-semantics.md](./docs/holdings-value-semantics.md) | 持仓估值口径（MTM / LCV） |

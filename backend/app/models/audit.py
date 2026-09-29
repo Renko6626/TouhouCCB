@@ -24,6 +24,8 @@ AUDIT_EVENT_TYPES = frozenset({
     "config_set",
     "redeem_purchase", "danmuku_exchange",
     "redeem_fulfill", "redeem_fulfill_revoke",
+    "fx_trade", "fx_fund", "fx_withdraw",
+    "fx_event_publish", "fx_event_complete", "fx_event_cancel",
 })
 
 

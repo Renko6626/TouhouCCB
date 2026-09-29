@@ -35,12 +35,14 @@ from app.core.database import async_session_maker, engine  # noqa: E402
 import app.models.audit  # noqa: F401, E402
 import app.models.ledger  # noqa: F401, E402
 import app.models.redemption  # noqa: F401, E402
+import app.models.fx  # noqa: F401, E402
 from app.models.audit import AuditEvent  # noqa: E402
 from app.models.base import (  # noqa: E402
     BotSuspicion, LiquidationEvent, Market, Outcome, OutcomeCandle, Position, SiteConfig, Transaction, User,
 )
 from app.models.bot import BotProfile  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
 
@@ -52,6 +54,10 @@ CLEAR_ORDER = [
 ]
 
 PRESERVED_AUDIT_TYPES = ("redeem_purchase", "danmuku_exchange", "redeem_fulfill", "redeem_fulfill_revoke")
+FX_AUDIT_TYPES = (
+    "fx_trade", "fx_fund", "fx_withdraw", "fx_event_publish", "fx_event_complete", "fx_event_cancel",
+)
+FX_CLEAR_ORDER = (FxWallet, FxTrade, FxEvent, FxTreasury, FxPair)
 RESET_RULESET = "2026-09-27"
 
 
@@ -97,9 +103,27 @@ class ResetVerificationError(Exception):
     pass
 
 
+async def reset_fx_state(session) -> None:
+    """Remove all FX state and its audit trail within the caller's transaction."""
+    await session.execute(delete(AuditEvent).where(AuditEvent.event_type.in_(FX_AUDIT_TYPES)))
+    for model in FX_CLEAR_ORDER:
+        await session.execute(delete(model))
+    fx = (await session.execute(select(SiteConfig).where(SiteConfig.key == "fx_enabled"))).scalar_one_or_none()
+    if fx is None:
+        fx = SiteConfig(key="fx_enabled", value="false", value_type="bool")
+    else:
+        fx.value = "false"
+        fx.updated_at = datetime.now(timezone.utc)
+    session.add(fx)
+
+
 async def run(dry_run: bool) -> int:
     async with async_session_maker() as s:
         counts = await _counts(s)
+        for model in FX_CLEAR_ORDER:
+            counts[model.__tablename__] = int((await s.execute(
+                select(func.count()).select_from(model)
+            )).scalar_one())
         n_users = int((await s.execute(select(func.count()).select_from(User).where(User.is_bot.is_(False)))).scalar_one())
         n_bots = int((await s.execute(select(func.count()).select_from(User).where(User.is_bot.is_(True)))).scalar_one())
         kept_bots = await _referenced_bot_ids(s)
@@ -129,6 +153,7 @@ async def run(dry_run: bool) -> int:
     try:
         async with async_session_maker() as s:
             async with s.begin():
+                await reset_fx_state(s)
                 # market.winning_outcome_id → outcome 的环形外键：先置空再删。
                 await s.execute(update(Market).values(winning_outcome_id=None))
                 for model in CLEAR_ORDER:
@@ -148,6 +173,8 @@ async def run(dry_run: bool) -> int:
                 s.add(pve)
 
                 users = (await s.execute(select(User).order_by(User.id.asc()))).scalars().all()
+                reset_humans = sum(not user.is_bot for user in users)
+                retained_bots = sum(user.is_bot for user in users)
                 for u in users:
                     u.cash = Decimal("0") if u.is_bot else initial
                     u.debt = Decimal("0")
@@ -175,8 +202,6 @@ async def run(dry_run: bool) -> int:
         print(f"自检失败，全部重置已回滚：{exc}")
         return 2
     site_config.clear_cache()
-    reset_humans = sum(not user.is_bot for user in users)
-    retained_bots = sum(user.is_bot for user in users)
     print(f"\n已重置：清空 {sum(counts.values())} 行，{reset_humans} 个真人现金还原到 {initial}，{retained_bots} 个历史机器人账号停用归零")
     print(f"自检 OK：events={len(evs)}，全员锚定")
     return 0
