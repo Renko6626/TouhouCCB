@@ -352,13 +352,13 @@ class LiquidationAction(SQLModel, table=True):
 Wave 0:  WP1                                   （串行门：schema/配置/接口冻结）
 Wave 1:  WP2 ∥ WP3a(gates,ownership) ∥ WP4a(split,publisher)
 Wave 2:  WP3b(risk,runs) ∥ WP4b(FX 强平卖出)    （均需 WP2；WP3b 另需 WP3a）
-Wave 3:  WP5 ∥ WP6 ∥ WP8a(namespace,≤3 pair)   （WP5 需 WP2+WP3b；WP6 需 WP2+WP3b+WP4b+WP5 的 writer_ops 序列；WP8a 需 WP4a）
+Wave 3:  (WP5 → WP6) ∥ WP8a(namespace,≤3 pair) （WP5/WP6 必须串行；WP8a 在 WP4 完整交接后开始）
 Wave 4:  WP7                                   （需 WP3b+WP4b+WP5+WP6）
 Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 ```
 
 - **必须串行**：WP1 → 其余；`writer_ops.py` / `market_writer.py` WP5 → WP6；`fx/trading.py` WP4 → WP6；`services/fx/market_data.py` WP4 → WP8；`scripts/season_reset.py` WP1 → WP6；`api/v1/loan.py` WP6 → WP8；WP7 → WP8b。
-- **可并行**：Wave 1 的三个包；Wave 2 的两个包；Wave 3 的三个包（文件所有权互不重叠）。
+- **可并行**：Wave 1 的三个包；Wave 2 的两个包；Wave 3 的 WP5→WP6 链与 WP8a（两条并行线，writer 文件链严格串行）。
 - **禁止并行**：任何两个 WP 同时改 `alembic/versions/`（本计划只允许 1 个 revision，归 WP1）；任何两个 WP 同时改同一文件（按上表串行）。
 
 ---
@@ -425,7 +425,7 @@ Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 - `execute_liquidation_sell_in_session`：锁序 `pair→user→wallet→treasury`；`treasury.foreign_balance += fee_foreign`；reserves 取 quote post 值并 `pool_version += 1`；wallet 扣 `foreign_in`、按比例缩 `cost_basis`、清零置 0；`user.cash += gold_out`；写 `FxTrade(source="liquidation", idempotency_key=f"liq:{run_id}:{round_no}")` + `record_fx_trade`；不 commit、不发布。
 - 状态语义（F9 双轴）：`trading + reduce_only=false` 正常；`trading + reduce_only=true` 允许卖/清算、拒绝买与系统干预；`paused + reduce_only=true` 允许清算与用户卖出、拒绝开仓与系统干预；`paused + reduce_only=false` 保持全停（不成交、`L=0`）；`draft`/`closed` 以及无有效报价 → `L=0` 且不成交。**`paused` 不得因新增列而自动变成可卖**。
 
-**包内验收**：玩家行为对等（幂等重放、参数不一致 409、`min_out` 409、gate/pair/bot/TOS/现金/钱包错误码全等）；`execute_trade_in_session` 返回时未提交；发布不在响应路径且队列满不影响交易；FX 强平 `G+T_G`、`F+T_F` 守恒；同 run/round 重放不二次卖；`do_orm_execute` 锁序断言；F9 四象限矩阵 + "存量 `paused` 迁移后仍全停（`L=0`、买入与清算都被阻塞）" + "管理端显式开 `reduce_only` 后才可减仓"。
+**包内验收**：玩家行为对等（幂等重放、参数不一致 409、`min_out` 409、gate/pair/bot/TOS/现金/钱包错误码全等）；`execute_trade_in_session` 返回时未提交；发布不在响应路径且队列满不影响交易；FX 强平金圆券守恒涵盖池、treasury、用户现金与还债回收账户；外币守恒涵盖池、treasury、用户钱包，不能套用只适用于系统自营单的 `G+T_G`/`F+T_F` 检查；同 run/round 重放不二次卖；`do_orm_execute` 锁序断言；F9 四象限矩阵 + "存量 `paused` 迁移后仍全停（`L=0`、买入与清算都被阻塞）" + "管理端显式开 `reduce_only` 后才可减仓"。
 
 **合并门槛**：`TMPDIR=/dev/shm python -m pytest -q --noconftest tests/test_fx_*.py` 全绿；`tests/test_fx_valuation.py::test_summary_exposes_fx_and_keeps_margin_on_lcv` 仍绿（风控切换在 WP6 且由开关控制）。
 
@@ -482,7 +482,7 @@ Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 **步骤要点**
 - 8a 命名空间与多 pair：`realtime.py` topic 由 `int` 改 `str`（`subscribe/publish/current_seq/subscriber_count` 同步），FX 用 `symbol_namespace("fx", pair_id)`、LMSR 用 `symbol_namespace("lmsr", market_id)`，IP 限流键同步；`admin_fx.py` 删除 `:168`/`:195` 唯一限制并强制 F8（`trading` 数量 ≤3，超出 409；上限只在管理端，schema 与估值接口不写死 3）；`schemas/fx.py` 暴露 `reduce_only`（默认 false，公开白名单不变），管理端可显式把 `paused` pair 切到只减仓并留审计。
 - 8b 展示：`api/v1/user.py` summary 增加 `fx_wallets: [{pair_id, currency_code, foreign_amount, mtm_gold}]`、`display_equity`、`liquidation_equity`、`debt_with_interest`、`credit_leverage`、`r_initial`、`r_maintenance`、`equity_to_debt`（`D==0` 为 `null`）、`risk_status`、`credit_frozen`、`unified_credit_enabled`；`debt==0` 走快路径（两 equity 等值）；`api/v1/fx.py` 返回全部非 draft；`api/v1/loan.py` 的 `/liquidation-policy` 返回新门槛/费率/间隔/开关（legacy 字段标 `legacy: true`）、`/recent-liquidations` 只加可空 `product`（F11，不含 run 详情）；前端按 MTM 显示主净值、另显示清算净值与两条门槛、多 pair 钱包、跨产品强平提示；写 `docs/unified-credit-risk-2026-10.md` 并补 `docs/fx.md` 章节（费率按 F5，公示文案与时长由运营在发布时确定）。
-- 8c 性能与切换：同机 PG、同数据集/轨迹/连接池/负载、≥5 轮预热，跑 `unified_credit_enabled=true`，与 WP1 基线对照（无债 P95/P99 增幅 ≤5%、吞吐降幅 ≤5%、错误率无显著上升；single-writer 目标仅作参考；新路径独立报告估值计算、SQL 次数、门闩等待/持有、DB 事务、端到端时延；覆盖同账户跨品种与不同账户独立品种；100 用户 + 多 FX + LMSR + tick + PvE + 批量强平并发；完整扫描 P95 < 周期）；未达标先修瓶颈。切换 runbook：备份 → `credit_new_risk_frozen=true` → `liquidation_enabled=false` → 部署 + `alembic upgrade head` → 只读取证线上 `sell_fee_rate` → 显式设置门槛（20x 前 `credit_maintenance_ratio=0.04`）并审计 → `unified_credit_enabled=true` + run-now 灰度 → `liquidation_enabled=true` → 解冻 → 确认公示。回退演练：开关关闭 + 重启恢复旧执行者；`alembic downgrade -1`（注明丢 run/action 记录）；写明"源码 legacy 分支不能代替数据库回退备份"。
+- 8c 性能与切换：同机 PG、同数据集/轨迹/连接池/负载、≥5 轮预热，跑 `unified_credit_enabled=true`，与 WP1 基线对照（无债 P95/P99 增幅 ≤5%、吞吐降幅 ≤5%、错误率无显著上升；既有 single-writer 验收目标仍保留；若基线未达标单独报告，不能自动降级目标；新路径独立报告估值计算、SQL 次数、门闩等待/持有、DB 事务、端到端时延；覆盖同账户跨品种与不同账户独立品种；100 用户 + 多 FX + LMSR + tick + PvE + 批量强平并发；完整扫描 P95 < 周期）；未达标先修瓶颈。切换 runbook：备份 → `credit_new_risk_frozen=true` → `liquidation_enabled=false` → 部署 + `alembic upgrade head` → 只读取证线上 `sell_fee_rate` → 显式设置门槛（20x 前 `credit_maintenance_ratio=0.04`）并审计 → `unified_credit_enabled=true` + run-now 灰度 → `liquidation_enabled=true` → 解冻 → 确认公示。回退演练：先冻结新增信用，保留统一估值、还款和安全减仓；已有 FX 抵押债务时不得直接恢复只处理 LMSR 的旧强平。降级迁移仅在可丢弃的隔离库测试；生产不删除 run/action 记录。若必须恢复旧代码，需停服并恢复版本匹配的完整数据库备份，明确备份后交易处置，不能仅切开关或 downgrade。
 
 **包内验收**：同号 `market_id == pair_id` 订阅互不串流；`current_seq`/限流键隔离；3 个 pair 各自 reserves/treasury/事件独立；第 4 个 `trading` 返回 409 且迁移不因上限写死品种；F9 四象限（含存量 `paused` 仍全停、显式 `reduce_only` 后才减仓）；账户字段与 `debt==0` 快路径；公开响应无 run 详情；前端 `npm run type-check && npm run test:unit`；性能报告与 runbook 演练记录。
 
@@ -550,7 +550,7 @@ Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 4. 影子对账按发布参数完成，所有差异可归因，无未解释偏差。
 5. `credit_leverage` / `credit_maintenance_ratio` 已显式设定并审计（20x 前 `=0.04`）；`R_maintenance < R_initial` 由管理端与启用校验双重强制。
 6. F5 线上 `sell_fee_rate` 已只读取证；非零时公示已按运营确定的文案与时长发布。
-7. 切换 runbook 演练通过；回退演练（开关关闭 + `alembic downgrade`）通过；备份校验和已记录。
+7. 切换 runbook 演练通过；生产回退以版本匹配的完整数据库备份为准，迁移降级只在隔离库演练；备份校验和已记录。
 8. 单写实例所有权生效；只读副本显式关闭全部写调度器。
 9. 赛季重置 dry-run 覆盖新表与新审计类型，自检通过。
 10. FX `trading` pair 数 ≤3（更多需单独批准）；生产 `fx_enabled` 仍按独立发布决策。
@@ -571,7 +571,7 @@ Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 | Worker G | WP8a → WP8b/c | 命名空间与多 pair 可在 Wave 3 开工；展示/性能/runbook 在 WP7 后 |
 | 主 agent（集成者） | 合并顺序、Review Focus、性能门槛判定、上线前门槛与切换 runbook 复核 | 不并行写业务文件；负责每包合并前的 `pytest -x` 与证据抽查 |
 
-- 同一时刻最多 4 个 worker 并行（Wave 1/2/3 各 3 个）；**同一文件同一时刻只有一个 worker**（§5.1 串行表）。
+- 同一时刻最多 3 个 worker 并行（Wave 1 为 3 个，Wave 2/3 最多 2 个，另留主 agent 集成）；**同一文件同一时刻只有一个 worker**（§5.1 串行表）。
 - 每个 worker 的交付必须包含 `wp-N-report.md`：改动文件、命令、原始输出、未决技术问题；主 agent 抽查后再合并。
 - 若某 worker 提前空闲，可预读下一个 Wave 的接口契约并写测试骨架，但不得改不属于自己的文件。
 
@@ -579,7 +579,7 @@ Wave 5:  WP8b(展示,perf,runbook)               （需 WP7）
 
 ## 12. 实现期间可能浮现的技术问题（只需在发生时记录并解决，不是当前未决决策）
 
-1. **门闩依赖集合过大**：若 WP8c 显示共享抵押品竞争使无债/独立市场延迟超门槛，需要收窄共享门闩集合（例如只对清算价值高于阈值的组取共享），但**不得**退回全局锁；按 spec §6.2 先修瓶颈。
+1. **门闩依赖集合过大**：若 WP8c 显示共享抵押品竞争使无债/独立市场延迟超门槛，可优化批量读取、缓存和持锁时间；不能按价值阈值忽略仍计入抵押的品种锁，也**不得**退回全局锁；按 spec §6.2 先修瓶颈。
 2. **估值缓存命中率不足**：PvE/tick 高频写同一批市场时缓存可能频繁失效；若 WP8c 要求更多优化，再评估按 (market, q) 复用组报价而不是放大 TTL。
 3. **`audit_replay` 对新事件类型的容忍边界**：若赛季重置自检在 `liquidation_action` 与后续 `trade_liquidate` 交错时出现快照不一致，需在 WP1 的 replay 规则里显式声明这些类型的快照语义。
 4. **FX `paused + reduce_only` 与未来三态需求**：F9 用 `status + bool` 表达；若运营后续要区分"暂停开仓/暂停全部/停牌"三态，再评估引入独立状态值（本期不做）。
