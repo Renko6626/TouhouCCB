@@ -15,7 +15,17 @@ def test_fulfillment_migration_preserves_inventory_and_roundtrips(tmp_path, monk
     monkeypatch.setattr(config_module.settings, "DATABASE_URL", url)
     engine = create_engine(url)
     before = MetaData()
-    for table in SQLModel.metadata.tables.values():
+    # FX 表由 head revision fx_tables_20260928 建；本测试 stamp 在 ba3a85c3b675
+    # （FX 之前），before-state 不能预建，否则 upgrade head 撞
+    # "table fx_pair already exists"。env.py 现在会 import app.models.fx，所以
+    # SQLModel.metadata 里含这些表，必须显式剔除。
+    # FX migration 自身的 upgrade/downgrade 由 test_fx_migration.py 专项验证。
+    fx_table_names = {
+        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
+    }
+    for name, table in SQLModel.metadata.tables.items():
+        if name in fx_table_names:
+            continue
         table.to_metadata(before)
     codes = before.tables["redemption_code"]
     for name in ("redeemed_at", "redeemed_by_admin_id", "redemption_note"):
