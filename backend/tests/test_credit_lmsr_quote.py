@@ -38,7 +38,7 @@ def _rolling_expected(outcomes, positions, fee_rate=ZERO):
         after[index[item.outcome_id]] -= float(amount)
         new_cost = calculate_lmsr_cost(after, B)
         gross = quantize_cost(cost - new_cost)
-        fee = quantize_cost(gross * fee_rate)
+        fee = (gross * fee_rate).quantize(Decimal("0.000001"))
         legs.append((item.outcome_id, amount, gross, fee, gross - fee))
         q, cost = after, new_cost
     return legs
@@ -139,10 +139,15 @@ def test_fee_rate_applies_per_leg_with_zero_anchor():
         outcomes, positions, market_id=1, b=B, fee_rate=Decimal("0.02"),
         mode="full", partial_pct=Decimal("1"),
     )
-    assert all(leg.fee == quantize_cost(leg.gross * Decimal("0.02")) for leg in charged.legs)
+    assert all(leg.fee == (leg.gross * Decimal("0.02")).quantize(Decimal("0.000001"))
+               for leg in charged.legs)
     assert charged.fee == sum((leg.fee for leg in charged.legs), ZERO)
     assert charged.net == charged.gross - charged.fee
     assert charged.gross == free.gross
+
+
+def test_fee_half_unit_uses_product_sell_rounding():
+    assert lmsr_quote._sell_fee(Decimal("0.000050"), Decimal("0.01")) == Decimal("0.000000")
 
 
 @pytest.mark.parametrize("status,closes_at", [

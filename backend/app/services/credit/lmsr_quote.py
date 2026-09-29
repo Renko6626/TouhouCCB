@@ -91,6 +91,10 @@ def _partial_amount(amount: Decimal, partial_pct: Decimal, unit: Decimal) -> Dec
     return amount if target > amount else target
 
 
+def _sell_fee(gross: Decimal, fee_rate: Decimal) -> Decimal:
+    return (gross * fee_rate).quantize(Q6)
+
+
 def _blocked(market_id: int, mode: Mode, reason: str | None) -> LmsrGroupQuote:
     return LmsrGroupQuote(
         market_id=market_id, mode=mode, legs=(), gross=ZERO, fee=ZERO, net=ZERO,
@@ -173,7 +177,7 @@ def quote_lmsr_group(
             # 负收益腿：不卖、不改 q 副本、不删持仓；继续处理后续腿。
             skipped_negative = True
             continue
-        leg_fee = quantize_cost(gross * fee)
+        leg_fee = _sell_fee(gross, fee)
         legs.append(LmsrLeg(
             outcome_id=oid, amount=amount, gross=gross, fee=leg_fee, net=gross - leg_fee,
         ))
