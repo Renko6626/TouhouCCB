@@ -11,6 +11,9 @@ class FxPairPublic(BaseModel):
     currency_code: str
     currency_name: str
     status: str
+    # F9：只减仓是显式管理端选项。默认 false 意味着 paused 仍是"全停"旧语义；
+    # 公开响应只多这一个运营状态位，reserve/target/fee 等 operator 字段仍不外露。
+    reduce_only: bool = False
     pool_version: int
     created_at: datetime
     updated_at: datetime

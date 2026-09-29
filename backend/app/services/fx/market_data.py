@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Iterable
 
+from app.services.credit.keys import symbol_namespace
 from app.services.realtime import MarketEventBroker
 
 
@@ -117,7 +118,9 @@ def public_frame_to_wire(frame: dict[str, Any]) -> dict[str, Any]:
 
 async def publish_public_frame(broker: MarketEventBroker, pair_id: int,
                                frame: dict[str, Any]) -> None:
-    await broker.publish(pair_id, "fx", public_frame_to_wire(frame))
+    # WP8a：FX 帧只进 ``fx:{pair_id}`` lane，绝不与同号 LMSR market 串流。
+    await broker.publish(symbol_namespace("fx", int(pair_id)), "fx",
+                         public_frame_to_wire(frame))
 
 
 async def publish_pair_frame(pair_id: int, post_price: Any,

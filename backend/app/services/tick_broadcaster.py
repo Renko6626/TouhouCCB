@@ -6,9 +6,11 @@ writer 新路径与 market.py 老路径在每笔成交/状态变更/强平后 fe
 bytes（阶段 0），tick 帧天然继承。
 
 迁移期兼容不变式（本文件最重要的约束）：tick 帧与老 trade/market_status
-事件共用 BROKER 的同一个 per-market seq 计数器。quant bot 的 SSE 解析器对
-未知事件类型也参与 gap 检测（quant/.../sse.py:74），共用计数器让 bot 收到
-tick 帧时 seq 仍连续、内容被忽略——双发期间 bot 零改动不受影响。
+事件共用 BROKER 的同一个 per-topic seq 计数器。LMSR topic 是
+``symbol_namespace("lmsr", market_id)``（WP8a 命名空间），老路径以裸 int publish
+也会解析到同一 lane。quant bot 的 SSE 解析器对未知事件类型也参与 gap 检测
+（quant/.../sse.py:74），共用计数器让 bot 收到 tick 帧时 seq 仍连续、内容被忽略
+——双发期间 bot 零改动不受影响。
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ from typing import Any, Optional
 from app.core.database import async_session_maker
 from app.models.base import MarketStatus
 from app.services import site_config
+from app.services.credit.keys import symbol_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +108,7 @@ class TickBroadcaster:
             p.trades = []
             p.settlement = None
             p.dirty = False
-            await BROKER.publish(market_id, "tick", data)
+            await BROKER.publish(symbol_namespace("lmsr", market_id), "tick", data)
             sent += 1
         return sent
 

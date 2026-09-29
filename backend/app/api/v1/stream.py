@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.models.base import Market, Outcome, OutcomeCandle
+from app.services.credit.keys import symbol_namespace
 from app.services.history_ring import RING_SPEC, HistoryRing, seal_boundary
 from app.services.lmsr import get_current_price, quantize_price
 from app.services.market_writer import WRITER
@@ -150,6 +151,9 @@ async def stream_market(market_id: int, request: Request):
     归还连接，broker 队列纯内存推送不需要 DB。
     """
 
+    # WP8a：LMSR 行情 topic 带产品前缀，与同号 FX pair 的流彻底隔离。
+    topic = symbol_namespace("lmsr", int(market_id))
+
     # 1) 404 快速预检：response 还未发出，HTTPException 能正确转 404
     async with async_session_maker() as db:
         market = await db.get(Market, market_id)
@@ -157,12 +161,12 @@ async def stream_market(market_id: int, request: Request):
             raise HTTPException(status_code=404, detail="市场不存在")
 
     # 2) 503 预检：满了直接返回，避免进 generator 后无法返非 200
-    if BROKER.subscriber_count(market_id) >= BROKER.MAX_SUBSCRIBERS_PER_MARKET:
+    if BROKER.subscriber_count(topic) >= BROKER.MAX_SUBSCRIBERS_PER_MARKET:
         raise HTTPException(status_code=503, detail="当前市场连接数已满，请稍后重试")
 
     # 3) 429 per-IP 并发限流：防匿名打满 cap（DDoS surface）
     ip = _client_ip(request)
-    if not await IP_LIMITER.try_acquire(market_id, ip):
+    if not await IP_LIMITER.try_acquire(topic, ip):
         raise HTTPException(
             status_code=429,
             detail=f"同一 IP 对单市场的 SSE 并发数已达上限（{IP_LIMITER.MAX_PER_IP}）",
@@ -177,10 +181,10 @@ async def stream_market(market_id: int, request: Request):
             # 后续 event 的 seq 全部 > anchor，client 不再误判 gap_reconnect。
             # （详见 BROKER.subscribe docstring；之前 `current_seq() AFTER subscribe`
             # 的实现有微秒级 race 导致 silent loss。）
-            sub, snap_seq_anchor = await BROKER.subscribe(market_id)
+            sub, snap_seq_anchor = await BROKER.subscribe(topic)
         except RuntimeError:
             # cap race；同时释放 IP 计数，不然这台 IP 一次失败白吃一个名额
-            await IP_LIMITER.release(market_id, ip)
+            await IP_LIMITER.release(topic, ip)
             return
 
         kicked_task: asyncio.Task | None = None
@@ -246,8 +250,8 @@ async def stream_market(market_id: int, request: Request):
             # 避免 "Task was destroyed but it is pending" warning
             if kicked_task is not None and not kicked_task.done():
                 kicked_task.cancel()
-            await BROKER.unsubscribe(market_id, sub)
-            await IP_LIMITER.release(market_id, ip)
+            await BROKER.unsubscribe(topic, sub)
+            await IP_LIMITER.release(topic, ip)
 
     return StreamingResponse(
         gen(),

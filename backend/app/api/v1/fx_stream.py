@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker, get_async_session
 from app.models.fx import FxPair, FxTrade
+from app.services.credit.keys import symbol_namespace
 from app.services.fx import market_data, trading
 from app.services.realtime import BROKER, IP_LIMITER, MarketEvent, Subscriber, sse_pack
 
@@ -49,19 +50,21 @@ def _client_ip(request: Request) -> str:
 
 @router.get("/stream/{pair_id}")
 async def stream(pair_id: int, request: Request):
+    # WP8a：FX 行情 topic 带产品前缀，与同号 LMSR market 的流彻底隔离。
+    topic = symbol_namespace("fx", int(pair_id))
     async with async_session_maker() as db:
         if await db.get(FxPair, pair_id) is None:
             raise HTTPException(status_code=404, detail="FX pair not found")
-    if BROKER.subscriber_count(pair_id) >= BROKER.MAX_SUBSCRIBERS_PER_MARKET:
+    if BROKER.subscriber_count(topic) >= BROKER.MAX_SUBSCRIBERS_PER_MARKET:
         raise HTTPException(status_code=503, detail="FX stream is full")
     ip = _client_ip(request)
-    if not await IP_LIMITER.try_acquire(pair_id, ip):
+    if not await IP_LIMITER.try_acquire(topic, ip):
         raise HTTPException(status_code=429, detail="too many FX streams")
 
     async def gen() -> AsyncGenerator[bytes, None]:
         sub: Subscriber | None = None
         try:
-            sub, anchor = await BROKER.subscribe(pair_id)
+            sub, anchor = await BROKER.subscribe(topic)
             # Anchor first, then read state. Any commit after the anchor is
             # either reflected in this snapshot or remains queued for replay.
             async with async_session_maker() as db:
@@ -86,7 +89,7 @@ async def stream(pair_id: int, request: Request):
                     yield b": ping\n\n"
         finally:
             if sub is not None:
-                await BROKER.unsubscribe(pair_id, sub)
-            await IP_LIMITER.release(pair_id, ip)
+                await BROKER.unsubscribe(topic, sub)
+            await IP_LIMITER.release(topic, ip)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

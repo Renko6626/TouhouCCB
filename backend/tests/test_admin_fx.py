@@ -53,10 +53,12 @@ async def test_superuser_single_trading_pair_and_opened_identity(ctx):
     created = await client.post("/api/v1/admin/fx/pairs", json=PAIR)
     assert created.status_code == 200, created.text
     pair_id = created.json()["id"]
-    assert (await client.post("/api/v1/admin/fx/pairs", json={**PAIR, "currency_code": "EUR"})).status_code == 409
+    second = await client.post("/api/v1/admin/fx/pairs", json={**PAIR, "currency_code": "EUR"})
+    assert second.status_code == 200
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"currency_name": "New"})).status_code == 409
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"status": "paused"})).status_code == 200
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"currency_code": "EUR"})).status_code == 409
+    assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"reduce_only": None})).status_code == 422
     assert (await db.get(FxPair, pair_id)).currency_code == "USD"
 
 
