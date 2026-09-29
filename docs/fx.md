@@ -4,6 +4,8 @@ FX 是预测市场旁边的一个**默认关闭**的子游戏：玩家用金圆�
 AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而是拥有独立的
 `fx_pair` / `fx_treasury` / `fx_wallet` / `fx_trade` / `fx_event` 表。
 
+后续摩拉参数、杠杆与强平准备见 [FX 摩拉参数与强平准备](fx-margin-preparation.md)；该文档为候选方案，不改变本手册的现货运行规则。
+
 > **当前发布：生产总闸必须保持 `fx_enabled=false`，本轮修复不打开 gate。**
 > Task 9 发现的审计日期序列化缺陷已修复；whole-branch review 的 6 个 Important
 > 已在一次 bounded fix 中处理（价格口径、engine 配置、锁序、管理端/玩家读取、前端净值；
