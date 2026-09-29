@@ -864,6 +864,7 @@ class LiquidateGroupCmd:
     fee_rate: Decimal
     daily_rate: Decimal = Decimal("0")
     trigger_source: str = "scheduler"
+    revalidate_account: bool = False
 
 
 def _cmd_decimal(value: object, name: str) -> Decimal:
@@ -1031,6 +1032,35 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 # 已提交动作的轮次在上面 replay 掉了；这里是"终态 run + 新轮次"
                 raise HTTPException(
                     status_code=409, detail=f"强平 run 已处于终态 {run.status}，本轮不得再执行")
+
+            account_pre = None
+            if cmd.revalidate_account:
+                from app.services.credit.execution import prepare_locked
+                from app.services.credit.risk import discover_dependencies
+                from app.services.credit.keys import GroupKey
+                deps = CREDIT_DEPS.get()
+                from app.services.credit.gates import GATES
+                if (deps is None or deps.economic_version != locked_user.economic_version
+                        or not (set(deps.groups) | {GroupKey("lmsr", market_id)})
+                        <= GATES.held_keys_by_current_task()):
+                    raise CreditRetry()
+                fresh = await discover_dependencies(session, cmd.user_id)
+                if set(fresh.groups) != set(deps.groups):
+                    raise CreditRetry()
+                run, account_pre, target, fresh_mode, status = await prepare_locked(
+                    session, locked_user, fresh, rate=cmd.daily_rate, pct=partial_pct,
+                    source=trigger_source, run_id=cmd.run_id, round_no=cmd.round_no)
+                if status != "sell":
+                    return _group_response(mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
+                        net=ZERO, repaid=max(ZERO, account_pre.debt_effective-locked_user.debt),
+                        debt_after=locked_user.debt, cash_after=locked_user.cash,
+                        blocked_reason=None, replayed=status == "replayed")
+                if target != GroupKey("lmsr", market_id):
+                    return _group_response(mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
+                        net=ZERO, repaid=ZERO, debt_after=locked_user.debt,
+                        cash_after=locked_user.cash, blocked_reason="selection_changed", replayed=False)
+                mode = fresh_mode
+                fee_rate = fresh.lmsr_fee_rate
 
             if not market_is_open(state.status, state.closes_at):
                 # 与 legacy op 同语义：HALT/SETTLED/已过 closes_at 不强平（用户自己也卖不了）
@@ -1231,6 +1261,13 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 },
                 user_after=audit_service.user_snapshot(locked_user),
             )
+
+            if account_pre is not None:
+                from app.services.credit.execution import public_event, finish_locked
+                public_event(session, locked_user, run, account_pre, product="lmsr",
+                    mode=mode, sold=len(quote.legs), proceeds=quote.net,
+                    repaid=repaid, source=trigger_source)
+                await finish_locked(session, locked_user, run, cmd.daily_rate)
 
         new_cash = locked_user.cash
         new_debt = locked_user.debt

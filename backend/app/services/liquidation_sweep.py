@@ -195,6 +195,15 @@ async def run_liquidation_sweep_once(trigger_source: str = "scheduler") -> dict:
         logger.info("liquidation sweep skipped: another sweep in progress (trigger=%s)", trigger_source)
         return {"skipped": "sweep_in_progress"}
     async with _SWEEP_LOCK:
+        from app.services.credit.flags import get_flags, CreditConfigError
+        from app.services.credit.ownership import OWNERSHIP
+        OWNERSHIP.require_writes()
+        flags = get_flags()
+        if flags.config_error:
+            raise CreditConfigError(flags.config_error)
+        if flags.unified_credit_enabled:
+            from app.services.credit.sweep import run_sweep
+            return await run_sweep(trigger_source)
         return await _run_liquidation_sweep_once(trigger_source)
 
 
@@ -373,7 +382,7 @@ async def start_scheduler() -> None:
     _scheduler = AsyncIOScheduler(timezone="UTC")
     _scheduler.add_job(
         _tick_safe, "interval", seconds=interval,
-        id=_JOB_ID, max_instances=1,
+        id=_JOB_ID, max_instances=1, coalesce=True,
     )
     _scheduler.start()
     logger.info("liquidation_sweep_started", extra={"interval_sec": interval})
