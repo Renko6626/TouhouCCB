@@ -104,11 +104,13 @@ class ShortRetryCredit(Exception):
 
 
 class ShortPostSettlementMismatch(ShortRetryCredit):
-    """A forced cover failed validation **after** settlement mutated a clock.
+    """A forced cover failed **after** settlement mutated a clock.
 
-    Raised after :func:`_settle_interest_at_T` advanced the gold/foreign interest
-    clocks (and wrote their audit rows), for either an unstorable post-state from
-    :func:`_write_cover_ledger` or a settled tail that disagrees with the pure
+    Raised once :func:`_settle_interest_at_T` has advanced the gold/foreign
+    interest clocks (and written their audit rows), for any ordinary failure in
+    the settlement itself (e.g. a *sibling* short whose pending debt overflows
+    ``Numeric(24,6)`` at T), an unstorable post-state from
+    :func:`_write_cover_ledger`, or a settled tail that disagrees with the pure
     preflight quantity.  The caller contract is unambiguous: roll the whole
     transaction back; this is never a normal ``blocked`` return and must not be
     swallowed into a committable blocked action.  Subclassing
@@ -563,6 +565,12 @@ async def _settle_interest_at_T(
     A dust-only increment leaves the position clock untouched (see
     :func:`accrue_short_interest`) and therefore emits no event; a nonzero one
     is audited with the exact same T that governs later compounding.
+
+    It walks **every** own short row, so a later position's unrepresentable
+    pending debt (or any other ordinary failure) can raise *after* the gold debt
+    and earlier rows already mutated.  A forced-liquidation caller must convert
+    any such failure to :class:`ShortPostSettlementMismatch` and roll the whole
+    transaction back; the player path keeps its own request-level handling.
     """
     before_debt = Decimal(user.debt)
     loan_service.accrue_interest(user, daily_rate, now)
@@ -1122,13 +1130,15 @@ async def execute_liquidation_cover_in_session(
     invariant failure raise :class:`ShortLiquidationRejected` **before** a clock
     moves; a stale economic version or dependency set raises
     :class:`ShortRetryCredit` so the caller re-discovers instead of taking a
-    missing pair GATE under the User lock.  Every validation that can only fail
-    after :func:`_settle_interest_at_T` — a settled tail that disagrees with the
-    preflighted quantity, or an unstorable treasury/pool/lock/basis post-state
-    from :func:`_write_cover_ledger` — raises
-    :class:`ShortPostSettlementMismatch` (a :class:`ShortRetryCredit`): the
-    caller must roll the whole transaction back and must never persist it as a
-    committable blocked round.
+    missing pair GATE under the User lock.  Once settlement starts it settles
+    *all* own short rows, so any ordinary failure from
+    :func:`_settle_interest_at_T` itself — e.g. a sibling pair's pending debt
+    overflowing storage after this target and the gold debt already accrued — is
+    wrapped as :class:`ShortPostSettlementMismatch`.  A settled tail that
+    disagrees with the preflighted quantity and an unstorable
+    treasury/pool/lock/basis post-state from :func:`_write_cover_ledger` raise
+    the same rollback-required type: the caller must roll the whole transaction
+    back and must never persist it as a committable blocked round.
     """
     _require_writes()
     if not credit_flags.get_flags().unified_credit_enabled:
@@ -1317,9 +1327,23 @@ async def execute_liquidation_cover_in_session(
 
     # ── truly executable: advance every clock once at the common T ──────────
     _require_writes()
-    await _settle_interest_at_T(
-        db, user=user, positions=positions, daily_rate=daily_rate,
-        now=now, source="fx_short_liquidation")
+    try:
+        await _settle_interest_at_T(
+            db, user=user, positions=positions, daily_rate=daily_rate,
+            now=now, source="fx_short_liquidation")
+    except Exception as exc:
+        # Settlement accrues the gold debt and then walks *every* own short row
+        # before it can fail, so by the time it raises the clocks and their audit
+        # rows may already have moved — e.g. a sibling pair's pending debt
+        # overflowing storage after this target (lower pair_id) accrued.  From
+        # here on no ordinary failure may escape as the pre-mutation
+        # ShortLiquidationRejected that WP4c could mistake for a committable
+        # blocked round: convert it to the rollback-required type, preserving the
+        # original cause.  BaseException (including asyncio.CancelledError) is
+        # deliberately not caught.
+        raise ShortPostSettlementMismatch(
+            f"forced-cover settlement failed after clocks advanced: {exc}"
+        ) from exc
 
     # The preflight and the settlement read the same pure ``pending_debt`` at
     # the same T, so the settled tail must equal the priced quantity.  A
@@ -1351,7 +1375,7 @@ async def execute_liquidation_cover_in_session(
         "debt_last_accrued_at": user.debt_last_accrued_at,
     }
     short_before = _short_snapshot(target)
-    # This is the forced path's only post-settlement validation.  It must raise
+    # Already past the settlement (and its wrap above): this ledger must raise
     # the rollback-required type, never the pre-mutation ShortLiquidationRejected
     # that a WP4c caller could mistake for a committable blocked round.
     ledger = await _write_cover_ledger(

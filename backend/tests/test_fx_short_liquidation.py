@@ -42,6 +42,7 @@ from app.services.fx.quantize import amount_down
 from app.services.fx.shorts import (
     ShortLiquidationRejected,
     ShortPostSettlementMismatch,
+    ShortRejected,
     ShortRetryCredit,
 )
 
@@ -333,6 +334,8 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
                       treasury_foreign="100000", treasury_gold=None, buy_fee="0",
                       status="trading", reduce_only=False, archived=False,
                       second_short=False, second_restricted="90",
+                      second_principal="10", second_interest="0",
+                      second_age_sec=0,
                       debt="0", gold_age_sec=0, foreign_age_sec=0):
     """One funded pair with a real short row, optionally a second locked short.
 
@@ -340,6 +343,10 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
     positive ``debt`` / foreign tail) so a nonzero daily rate has real elapsed
     interest to settle.  ``treasury_gold`` defaults to the pair reserve but can
     be seeded independently to exercise the treasury storage bound.
+    ``second_principal`` / ``second_interest`` / ``second_age_sec`` size the
+    optional sibling short; its pair is created after the target, so
+    ``pair_id`` order settles the target first and can leave a sibling overflow
+    for T.
     """
     async with async_session_maker() as s:
         now = datetime.now(timezone.utc)
@@ -381,10 +388,14 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
             )
             s.add(other)
             await s.flush()
+            sibling_total = D(second_principal) + D(second_interest)
+            sibling_clock = (
+                now - timedelta(seconds=second_age_sec) if sibling_total > 0 else None)
             s.add(FxShortPosition(
                 user_id=user.id, pair_id=other.id,
-                principal_foreign=D("10"), interest_foreign=D("0"),
-                interest_last_accrued_at=datetime.now(timezone.utc),
+                principal_foreign=D(second_principal),
+                interest_foreign=D(second_interest),
+                interest_last_accrued_at=sibling_clock,
                 restricted_gold=D(second_restricted),
                 proceeds_basis_gold=D(second_restricted),
             ))
@@ -854,6 +865,96 @@ async def test_post_settlement_bound_failure_requires_whole_transaction_rollback
             assert not isinstance(excinfo.value, ShortLiquidationRejected)
             # The settlement already moved the clocks and wrote audits inside this
             # transaction, so a commit would persist interest with no trade.
+            dirty_user = await db.get(User, uid)
+            dirty_target = (await db.execute(select(FxShortPosition).where(
+                FxShortPosition.pair_id == pid))).scalars().one()
+            dirty_audit_count = int((await db.execute(
+                select(func.count()).select_from(AuditEvent))).scalar_one())
+            assert D(dirty_user.debt) > before_econ["gold_debt"]
+            assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
+            assert dirty_audit_count > before_econ["audit_count"]
+            # WP4c's contract: roll the whole transaction back, never commit the
+            # blocked-looking round.
+            await db.rollback()
+
+    async with async_session_maker() as db:
+        after_econ = await _blocked_round_snapshot(db, uid, pid)
+        after_state = await _cover_state(db, uid, pid)
+    assert after_econ == before_econ
+    assert after_state == before_state
+
+
+#: ``principal_foreign`` is ``Numeric(24,6)``; its largest integral principal,
+#: which a nonzero rate then pushes past the foreign storage bound at T.
+_FOREIGN_DEBT_MAX = D("999999999999999999")
+
+
+async def test_sibling_settlement_overflow_requires_whole_transaction_rollback():
+    """A sibling short's T overflow must roll back, never look like a block.
+
+    Real fault (spec §7.3/§8.2, WP4b-fix1 review Minor):
+    ``_settle_interest_at_T`` settles *every* own short row, but only the target
+    quantity is preflighted.  A sibling pair whose pending debt overflows
+    ``Numeric(24,6)`` raises the base :class:`ShortRejected` from
+    ``pending_short_debt`` *during* settlement — after the gold debt and the
+    earlier (lower ``pair_id``) target short already accrued and wrote interest
+    audit rows.  Left as a plain ``ShortRejected`` it is indistinguishable from a
+    pre-mutation rejection, so a WP4c caller could commit a partial settlement
+    with no trade and no economic-version bump.  This seeds a valid target cover
+    plus a sibling at the foreign storage maximum and drives the kernel directly:
+    the failure must be the rollback-required
+    :class:`ShortPostSettlementMismatch` (never the pre-mutation
+    :class:`ShortLiquidationRejected`), preserve the original sibling
+    ``ShortRejected`` as its cause, and, after the caller rolls the whole
+    transaction back, leave every debt/clock/version/audit/pool/treasury/trade row
+    byte-identical.
+    """
+    async with async_session_maker() as s:
+        cfg = (await s.execute(select(SiteConfig).where(
+            SiteConfig.key == 'loan_daily_rate'))).scalar_one()
+        cfg.value = '0.01'
+        await s.commit()
+    site_config.clear_cache()
+
+    uid, pid, other_pid = await _seed_cover(
+        cash="1000", principal="100", interest="0", restricted="100", basis="100",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0",
+        debt="100", gold_age_sec=30 * 86400, foreign_age_sec=30 * 86400,
+        second_short=True, second_restricted="90",
+        second_principal=str(_FOREIGN_DEBT_MAX), second_age_sec=30 * 86400)
+    assert other_pid is not None
+
+    async with async_session_maker() as db:
+        before_econ = await _blocked_round_snapshot(db, uid, pid)
+        before_state = await _cover_state(db, uid, pid)
+    assert before_econ["gold_debt"] == D("100")
+    assert before_econ["foreign_interest"] == D("0")
+
+    from app.services.fx.shorts import execute_liquidation_cover_in_session
+
+    async with async_session_maker() as db:
+        target = GroupKey("fx", pid)
+        deps = await discover_dependencies(db, uid, extra_groups=[target])
+        if db.in_transaction():
+            await db.rollback()
+        async with GATES.hold(
+            exclusive=[target],
+            shared=[g for g in deps.groups if g != target],
+        ):
+            with pytest.raises(ShortPostSettlementMismatch) as excinfo:
+                await execute_liquidation_cover_in_session(
+                    db, user_id=uid, pair_id=pid, run_id=91, round_no=1,
+                    planned_amount=D("100"), max_gold_budget=D("1000000"),
+                    credit_deps=deps,
+                )
+            # A post-settlement sibling overflow is never the pre-mutation type.
+            assert not isinstance(excinfo.value, ShortLiquidationRejected)
+            assert isinstance(excinfo.value, ShortRetryCredit)
+            # The original settlement failure is preserved as the cause.
+            assert isinstance(excinfo.value.__cause__, ShortRejected)
+            # Settlement already moved the gold debt, the target short and audit
+            # inside this transaction, so a commit would persist interest with no
+            # trade and no economic-version bump.
             dirty_user = await db.get(User, uid)
             dirty_target = (await db.execute(select(FxShortPosition).where(
                 FxShortPosition.pair_id == pid))).scalars().one()
