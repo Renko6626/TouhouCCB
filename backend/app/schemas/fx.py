@@ -283,8 +283,14 @@ class FxShortQuoteResponse(BaseModel):
     ``input_amount``/``output_amount`` mirror the AMM direction (open: foreign
     in / gold out; cover: gold in / foreign out).  ``restricted_gold_delta`` is
     signed (positive lock increase on open, negative release on cover).
-    ``estimated_equity``/``estimated_risk_basis`` are ``None`` whenever the full
-    portfolio cannot be priced; ``blocked_reason`` names the reason.
+
+    Order eligibility and portfolio valuation are separate signals:
+    ``executable`` is false only when an order-level gate blocks the action and
+    ``blocked_reason`` then names it.  ``risk_blocked_reason`` carries the
+    risk/valuation reason (credit freeze, another pair's unknown K, engine
+    unavailability) even when ``executable`` is true -- a cover that reduces debt
+    stays executable while its portfolio estimate is unavailable, with
+    ``estimated_equity``/``estimated_risk_basis`` left ``None``.
     ``expires_at`` is advisory only -- execution always re-quotes under lock.
     """
     model_config = ConfigDict(from_attributes=True)
@@ -306,6 +312,7 @@ class FxShortQuoteResponse(BaseModel):
     estimated_equity: Optional[Decimal] = None
     estimated_risk_basis: Optional[Decimal] = None
     risk_status: str
+    risk_blocked_reason: Optional[str] = None
     executable: bool
     blocked_reason: Optional[str] = None
     expires_at: datetime

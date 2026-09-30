@@ -1067,6 +1067,7 @@ class FxShortQuoteRead:
     estimated_equity: Optional[Decimal]
     estimated_risk_basis: Optional[Decimal]
     risk_status: str
+    risk_blocked_reason: Optional[str]
     executable: bool
     blocked_reason: Optional[str]
     expires_at: datetime
@@ -1092,6 +1093,7 @@ def _blocked_quote(
     estimated_equity: Optional[Decimal] = None,
     estimated_risk_basis: Optional[Decimal] = None,
     executable: bool = False,
+    risk_reason: Optional[str] = None,
 ) -> FxShortQuoteRead:
     return FxShortQuoteRead(
         pair_id=pair_id,
@@ -1112,6 +1114,7 @@ def _blocked_quote(
         estimated_equity=estimated_equity,
         estimated_risk_basis=estimated_risk_basis,
         risk_status="blocked",
+        risk_blocked_reason=risk_reason,
         executable=executable,
         blocked_reason=reason,
         expires_at=expires_at,
@@ -1188,14 +1191,21 @@ async def read_short_position(
             executable=False, risk_status="blocked",
             blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
         )
+    # Order eligibility is the intersection of the pair status and the total
+    # player-trading stop, matching the quote/write routes; the mathematical
+    # reference K and ``risk_status`` stay valid even when trading is stopped.
+    if not await site_config.get_bool_or(db, "fx_enabled", False):
+        order_reason: Optional[str] = BLOCKED_FX_DISABLED
+    else:
+        order_reason = quote.blocked_reason
     return FxShortPositionRead(
         pair_id=pair_id, currency_code=str(pair.currency_code),
         principal_foreign=principal, interest_foreign=interest,
         pending_short_debt=pending, restricted_gold=restricted,
         proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
         reference_cover_cost=quote.gold_in, reference_cover_fee=quote.fee_gold,
-        executable=quote.executable, risk_status="ok",
-        blocked_reason=quote.blocked_reason,
+        executable=order_reason is None, risk_status="ok",
+        blocked_reason=order_reason,
     )
 
 
@@ -1435,16 +1445,66 @@ async def quote_short(
             return _blocked(cover_order_reason, **quote_kwargs)
 
     # ── shared-portfolio simulation via credit.risk (no duplication) ──
+    def _result(
+        *,
+        estimated_equity: Optional[Decimal],
+        estimated_basis: Optional[Decimal],
+        risk_reason: Optional[str],
+        order_reason: Optional[str],
+    ) -> FxShortQuoteRead:
+        """Split order eligibility from the portfolio-valuation signal.
+
+        ``blocked_reason`` is populated only when an order-level gate blocks the
+        action; ``risk_blocked_reason`` carries the risk/valuation reason even
+        when the action stays executable.  A reduce-only cover is allowed while
+        frozen, below margin or with another pair's K unknown (spec §5.2/§9), so
+        its ``executable`` must not follow the simulated new-risk decision.
+        """
+        return FxShortQuoteRead(
+            pair_id=pair_id,
+            action=normalized,
+            purpose="short_open" if not cover else "short_cover",
+            requested_foreign_amount=(amount if (not cover or not is_cover_all) else None),
+            cover_all=(is_cover_all if cover else None),
+            actual_foreign_amount=quote_kwargs["actual_foreign_amount"],
+            input_amount=quote_kwargs["input_amount"],
+            output_amount=quote_kwargs["output_amount"],
+            fee_amount=quote_kwargs["fee_amount"],
+            fee_currency="foreign" if not cover else "gold",
+            post_price=quote_kwargs["post_price"],
+            pool_version=quote_kwargs["pool_version"],
+            restricted_gold_delta=quote_kwargs["restricted_gold_delta"],
+            available_cash=quote_kwargs["available_cash"],
+            affordable=quote_kwargs.get("affordable"),
+            estimated_equity=estimated_equity,
+            estimated_risk_basis=estimated_basis,
+            risk_status="ok" if estimated_equity is not None else "blocked",
+            risk_blocked_reason=risk_reason,
+            executable=order_reason is None,
+            blocked_reason=order_reason,
+            expires_at=expires_at,
+        )
+
+    def _risk_unavailable() -> FxShortQuoteRead:
+        # No portfolio simulation: E/B stay null.  A cover's order eligibility is
+        # independent of the risk engine (the write route never consults it), so
+        # only an open is blocked by an unavailable simulation.
+        return _result(
+            estimated_equity=None, estimated_basis=None,
+            risk_reason=BLOCKED_RISK_UNAVAILABLE,
+            order_reason=cover_order_reason if cover else BLOCKED_RISK_UNAVAILABLE,
+        )
+
     thresholds = credit_flags.get_flags().thresholds
     if thresholds is None:
-        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+        return _risk_unavailable()
     target_key = GroupKey("fx", pair_id)
     try:
         deps = await credit_risk.discover_dependencies(
             db, int(user_id), extra_groups=[target_key])
     except Exception:  # pragma: no cover - discovery read failure is fail-closed
         _logger.exception("FX short quote dependency discovery failed")
-        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+        return _risk_unavailable()
     snapshot = deps.snapshots.get(target_key)
     base_versions = {target_key: snapshot.version} if snapshot is not None else {}
     post = credit_risk.PostTradeState(
@@ -1457,7 +1517,7 @@ async def quote_short(
     fresh_user = (await db.execute(
         select(User).where(User.id == int(user_id)))).scalars().first()
     if fresh_user is None:
-        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+        return _risk_unavailable()
     try:
         decision = await credit_risk.check_new_risk(
             db, user=fresh_user, deps=deps, post=post, thresholds=thresholds,
@@ -1465,7 +1525,7 @@ async def quote_short(
         )
     except Exception:  # pragma: no cover - risk read failure is fail-closed
         _logger.exception("FX short quote risk simulation failed")
-        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+        return _risk_unavailable()
 
     if decision.reason in _RISK_SHORT_CIRCUIT_REASONS:
         estimated_equity = None
@@ -1477,33 +1537,14 @@ async def quote_short(
         risk_reason = None if estimated_equity is not None else (
             decision.reason or BLOCKED_RISK_UNKNOWN)
 
-    order_reason = cover_order_reason if cover else None
-    if not cover and not decision.allowed:
+    if cover:
+        order_reason = cover_order_reason
+    elif decision.allowed:
+        order_reason = None
+    else:
+        # Opening/adding is risk-increasing: a denied decision is an order block.
         order_reason = decision.reason or BLOCKED_RISK_UNKNOWN
-    reported_reason = order_reason if order_reason is not None else risk_reason
-    # ``risk_status`` is about whether the full-portfolio math completed; a
-    # reduce-only cover may still be executable with an unknown richer K.
-    risk_status = "ok" if estimated_equity is not None else "blocked"
-    return FxShortQuoteRead(
-        pair_id=pair_id,
-        action=normalized,
-        purpose="short_open" if not cover else "short_cover",
-        requested_foreign_amount=(amount if (not cover or not is_cover_all) else None),
-        cover_all=(is_cover_all if cover else None),
-        actual_foreign_amount=quote_kwargs["actual_foreign_amount"],
-        input_amount=quote_kwargs["input_amount"],
-        output_amount=quote_kwargs["output_amount"],
-        fee_amount=quote_kwargs["fee_amount"],
-        fee_currency="foreign" if not cover else "gold",
-        post_price=quote_kwargs["post_price"],
-        pool_version=quote_kwargs["pool_version"],
-        restricted_gold_delta=quote_kwargs["restricted_gold_delta"],
-        available_cash=quote_kwargs["available_cash"],
-        affordable=quote_kwargs.get("affordable"),
-        estimated_equity=estimated_equity,
-        estimated_risk_basis=estimated_basis,
-        risk_status=risk_status,
-        executable=order_reason is None,
-        blocked_reason=reported_reason,
-        expires_at=expires_at,
+    return _result(
+        estimated_equity=estimated_equity, estimated_basis=estimated_basis,
+        risk_reason=risk_reason, order_reason=order_reason,
     )

@@ -933,6 +933,8 @@ async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(
     # Remaining 90 >= F leaves the full-portfolio risk incomplete/null.
     assert small_body["risk_status"] == "blocked"
     assert small_body["estimated_equity"] is None
+    assert small_body["blocked_reason"] is None
+    assert small_body["risk_blocked_reason"] == "insufficient_pool_foreign"
 
     paused_pair = await _create_pair(client, admin_headers, currency_code="MRO",
                                      status="paused", reduce_only=False,
@@ -1090,3 +1092,132 @@ async def test_quote_status_matrix_gates_reduce_only_and_closed(client):
         body = response.json()
         assert body["executable"] is False
         assert body["blocked_reason"] == "fx_disabled"
+
+
+# ── scenario 7: order eligibility vs risk/valuation reason (fix round 1) ─────
+
+async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(client):
+    """A frozen holder's cover is executable; freeze is a risk reason only.
+
+    Regression: ``blocked_reason`` carrying the risk simulation's ``credit_frozen``
+    while ``executable`` is true, so a client that reads ``blocked_reason``
+    disables the one action that can repay the debt; or the freeze/unknown-K
+    information being dropped instead of surfaced in ``risk_blocked_reason``.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = await s.get(User, user_id)
+            user.credit_frozen = True
+
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    # Order-level: the real cover route permits this, so no order block.
+    assert body["executable"] is True
+    assert body["blocked_reason"] is None
+    assert D(body["input_amount"]) > ZERO
+    # Risk/valuation-level: the simulation short-circuited on the freeze, so the
+    # portfolio estimate stays nullable and the reason is still reported.
+    assert body["risk_status"] == "blocked"
+    assert body["risk_blocked_reason"] == "credit_frozen"
+    assert body["estimated_equity"] is None
+    assert body["estimated_risk_basis"] is None
+
+    # The write route agrees: the frozen holder can still reduce the debt.
+    covered = await _cover(client, user_headers, pair_id, cover_all=True,
+                           max_gold_in="1000000", key="k-frozen-cover")
+    assert covered.status_code == 200, covered.text
+    assert (await _stock(pair_id))["principal"] == ZERO
+
+
+async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(client):
+    """``fx_enabled=false`` makes GET non-executable while K stays numeric.
+
+    Regression: the read advertising an executable cover that the quote and the
+    write route both refuse, or hiding the known mathematical reference cost just
+    because the total trading stop is on.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+
+    live = await _short_get(client, user_headers, pair_id)
+    assert live.status_code == 200, live.text
+    live_body = live.json()
+    assert live_body["executable"] is True
+    assert live_body["risk_status"] == "ok"
+    assert live_body["blocked_reason"] is None
+    assert D(live_body["reference_cover_cost"]) > ZERO
+
+    await _seed_config(fx_enabled="false")
+    blocked = await _short_get(client, user_headers, pair_id)
+    assert blocked.status_code == 200, blocked.text
+    body = blocked.json()
+    # Known math is preserved: same numeric reference cost and risk status.
+    assert D(body["reference_cover_cost"]) == D(live_body["reference_cover_cost"])
+    assert body["risk_status"] == "ok"
+    # Order eligibility follows the total trading stop.
+    assert body["executable"] is False
+    assert body["blocked_reason"] == "fx_disabled"
+
+    # Consistent with the quote and the write route (both refuse).
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["executable"] is False
+    assert quote.json()["blocked_reason"] == "fx_disabled"
+    write = await _cover(client, user_headers, pair_id, cover_all=True,
+                         max_gold_in="1000000", key="k-fx-off")
+    assert write.status_code == 403, write.text
+
+
+async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
+    """Another pair's unquotable debt is a risk reason, not this order's block.
+
+    Regression: a small, affordable fixed-q cover on this pair being reported as
+    non-executable because a different pair's K cannot be priced, or the
+    unknown-K reason being erased once ``blocked_reason`` is reserved for orders.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="100000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    good = await _create_pair(client, admin_headers, gold_reserve="1000",
+                              foreign_reserve="1000", buy_fee_rate="0.02",
+                              sell_fee_rate="0.01",
+                              short_lending_limit_foreign="1000000")
+    # q >= foreign_reserve on the second pair makes the whole-portfolio K unknown.
+    dead = await _create_pair(client, admin_headers, currency_code="MRO",
+                              gold_reserve="1000", foreign_reserve="50",
+                              buy_fee_rate="0.02", sell_fee_rate="0.01",
+                              short_lending_limit_foreign="1000000")
+    await _seed_short_direct(good, user_id, principal="10", restricted="30",
+                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(dead, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+
+    quote = await _quote(client, user_headers, good,
+                         {"action": "cover", "foreign_amount": "5"})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["executable"] is True
+    assert body["blocked_reason"] is None
+    assert body["risk_status"] == "blocked"
+    assert body["risk_blocked_reason"] == "insufficient_pool_foreign"
+    assert body["estimated_equity"] is None
+    assert body["estimated_risk_basis"] is None
