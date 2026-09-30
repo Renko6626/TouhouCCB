@@ -10,12 +10,15 @@ from decimal import Decimal
 from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.core.database import async_session_maker
 from app.models.base import User
-from app.services.loan_service import accrue_interest, _compat_now
+from app.models.fx import FxShortPosition
+from app.services.fx.shorts import accrue_short_interest
+from app.services.loan_service import accrue_interest, _compat_now, _elapsed_seconds
 from app.services import site_config
 from app.services import audit_service
 from app.services.credit.ownership import OWNERSHIP
@@ -27,9 +30,15 @@ logger = logging.getLogger("thccb.loan_sweep")
 _scheduler: Optional[AsyncIOScheduler] = None
 _JOB_ID = "loan_sweep_tick"
 
+_ZERO = Decimal("0")
+
 
 async def run_sweep_once() -> int:
-    """扫一次全体 debt>0 用户，accrue 并 commit。返回结息户数。"""
+    """扫一次欠债用户并计息：有金债，或有任一正外币本金/利息的用户。
+
+    纯外币结息只改本用户空头的 ``interest_foreign``/时点、用户经济版本和审计，
+    不碰池储备、treasury 实际库存、现金或金债。返回本轮发生结息的户数。
+    """
     async with async_session_maker() as session:
         try:
             rate = await site_config.get_decimal(session, "loan_daily_rate")
@@ -47,11 +56,20 @@ async def run_sweep_once() -> int:
     async with async_session_maker() as session:
         min_gap_sec = await site_config.get_int_or(session, "loan_sweep_min_accrual_sec", 3600)
 
-    touched = 0
+    # 候选集合：金债 > 0 或存在正外币本金/利息。子查询命中 fx_short_position.user_id 索引。
+    foreign_users = select(FxShortPosition.user_id).where(
+        or_(
+            FxShortPosition.principal_foreign > _ZERO,
+            FxShortPosition.interest_foreign > _ZERO,
+        )
+    )
     async with async_session_maker() as session:
-        result = await session.execute(select(User.id).where(User.debt > 0))
+        result = await session.execute(
+            select(User.id).where(or_(User.debt > _ZERO, User.id.in_(foreign_users)))
+        )
         ids = list(result.scalars().all())
 
+    touched = 0
     for uid in ids:
         async with async_session_maker() as session:
             async with session.begin():
@@ -60,30 +78,63 @@ async def run_sweep_once() -> int:
                 )
                 u = result.scalar_one()
                 OWNERSHIP.require_writes()
+                now = _compat_now(u)
+                changed = False
+
+                # ── 金债：沿用原有窗口与量化语义 ──
                 before = u.debt
                 before_at = u.debt_last_accrued_at
-                now = _compat_now(u)
-                if before_at is not None and (now - before_at).total_seconds() < min_gap_sec:
-                    continue
-                accrue_interest(u, rate, now)
-                if (u.debt, u.debt_last_accrued_at) != (before, before_at):
+                if before > _ZERO and (
+                    before_at is None or _elapsed_seconds(before_at, now) >= min_gap_sec
+                ):
+                    accrue_interest(u, rate, now)
+                    if u.debt != before:
+                        changed = True
+                        audit_service.record(
+                            session, "interest_accrual",
+                            user_id=u.id,
+                            payload={
+                                "debt_before": before,
+                                "debt_after": u.debt,
+                                "interest": (u.debt - before),
+                                "daily_rate": rate,
+                                "elapsed_sec": (now - before_at).total_seconds() if before_at else None,
+                                "source": "scheduler",
+                            },
+                            user_after=audit_service.user_snapshot(u),
+                        )
+
+                # ── 外币利息：锁 User 后按 pair_id 升序锁本用户自己的空头行；
+                #    不取 pair/GATES，也不在持 User 锁后补取更早的门闩（spec §11）。 ──
+                positions = (await session.execute(
+                    select(FxShortPosition)
+                    .where(FxShortPosition.user_id == uid)
+                    .order_by(FxShortPosition.pair_id.asc())
+                    .with_for_update()
+                )).scalars().all()
+                for pos in positions:
+                    if pos.principal_foreign + pos.interest_foreign <= _ZERO:
+                        continue
+                    accrued_at = pos.interest_last_accrued_at
+                    if accrued_at is not None and _elapsed_seconds(accrued_at, now) < min_gap_sec:
+                        continue
+                    added = accrue_short_interest(pos, rate, now)
+                    if added == 0:
+                        # 量化后无变化：不推进时点、不写审计、不升版本。
+                        continue
+                    changed = True
+                    session.add(pos)
+                    audit_service.record_fx_short_interest(
+                        session, user=u, position=pos, pair_id=pos.pair_id,
+                        interest=added, daily_rate=rate,
+                        elapsed_sec=_elapsed_seconds(accrued_at, now) if accrued_at else None,
+                        source="scheduler",
+                    )
+
+                if changed:
                     bump_economic_version(u)
-                if u.debt != before:
                     session.add(u)
                     touched += 1
-                    audit_service.record(
-                        session, "interest_accrual",
-                        user_id=u.id,
-                        payload={
-                            "debt_before": before,
-                            "debt_after": u.debt,
-                            "interest": (u.debt - before),
-                            "daily_rate": rate,
-                            "elapsed_sec": (now - before_at).total_seconds() if before_at else None,
-                            "source": "scheduler",
-                        },
-                        user_after=audit_service.user_snapshot(u),
-                    )
     if touched:
         logger.info("sweep tick: touched=%s", touched)
     return touched

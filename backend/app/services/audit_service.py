@@ -102,6 +102,46 @@ def record(
     return ev
 
 
+def record_fx_short_interest(
+    session: AsyncSession,
+    *,
+    user: User,
+    position: Any,
+    pair_id: int,
+    interest: Decimal,
+    daily_rate: Decimal,
+    elapsed_sec: Optional[float],
+    source: str,
+) -> AuditEvent:
+    """Append the audit package for accrued foreign (short) interest.
+
+    Foreign interest only moves ``FxShortPosition.interest_foreign`` and its
+    clock, never ``User.cash`` or ``User.debt``.  The event keeps the generic
+    ``interest_accrual`` type so existing replay anchors stay valid; the event's
+    ``interest`` field therefore carries the gold delta (zero here) and the
+    foreign increment is explicit under ``currency='foreign'``.  WP5 replay
+    folds the ``interest_foreign_*`` leg into the short position.
+    """
+    return record(
+        session, "interest_accrual", user_id=user.id,
+        ref_table="fx_short_position", ref_id=position.id,
+        payload={
+            "currency": "foreign",
+            "pair_id": pair_id,
+            "short_position_id": position.id,
+            "interest": Decimal("0"),
+            "interest_foreign_delta": interest,
+            "principal_foreign": position.principal_foreign,
+            "interest_foreign_before": position.interest_foreign - interest,
+            "interest_foreign_after": position.interest_foreign,
+            "daily_rate": daily_rate,
+            "elapsed_sec": elapsed_sec,
+            "source": source,
+        },
+        user_after=user_snapshot(user),
+    )
+
+
 _TX_EVENT = {
     "buy": "trade_buy",
     "sell": "trade_sell",
