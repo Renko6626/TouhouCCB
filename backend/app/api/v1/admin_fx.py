@@ -17,7 +17,7 @@ from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.models.audit import AuditEvent
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
 from app.schemas.fx import FxEventAdmin, FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
 from app.services.fx import scheduler
@@ -338,6 +338,8 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
             raise HTTPException(422, "pair fields cannot be null")
         if values.get("status") == "draft" and pair.status != "draft":
             raise HTTPException(409, "opened FX pair cannot return to draft")
+        if values.get("status") in {"closed", "draft"}:
+            await _ensure_no_short_obligations(db, pair_id)
         if values.get("status") == "trading":
             await _ensure_trading_capacity(db, exclude_pair_id=pair_id)
         if any(key in values for key in ("target_price", "target_min", "target_max")):
@@ -350,7 +352,8 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
         # 借出上限直接影响开空准入，属于 pair 版本输入：改动必须 bump 版本，
         # 使锁内重验的依赖快照失效（spec §11）。统一信贷下所有 PATCH 已 bump。
         if (credit_flags.get_flags().unified_credit_enabled
-                or "short_lending_limit_foreign" in values):
+                or any(key in values for key in ("short_lending_limit_foreign", "status",
+                                                  "reduce_only", "buy_fee_rate", "sell_fee_rate"))):
             pair.pool_version += 1
         pair.updated_at = datetime.now(timezone.utc)
         # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
@@ -373,12 +376,27 @@ async def _has_trade_history(db: AsyncSession, pair_id: int) -> bool:
     return (await db.execute(select(FxTrade.id).where(FxTrade.pair_id == pair_id).limit(1))).first() is not None
 
 
+async def _ensure_no_short_obligations(db: AsyncSession, pair_id: int) -> None:
+    # Called only after the pair gate and authoritative row lock. Opening and
+    # repayment share that gate, so obligations cannot appear during cleanup.
+    outstanding = (await db.execute(select(FxShortPosition.id).where(
+        FxShortPosition.pair_id == pair_id,
+        (FxShortPosition.principal_foreign > 0)
+        | (FxShortPosition.interest_foreign > 0)
+        | (FxShortPosition.restricted_gold > 0)
+        | (FxShortPosition.proceeds_basis_gold != 0),
+    ).limit(1))).first()
+    if outstanding is not None:
+        raise HTTPException(409, "FX pair has outstanding short obligations or restricted gold")
+
+
 async def _cleanup_pair(db: AsyncSession, pair_id: int) -> FxPair:
     # Same lock order as trading/engine: pair before wallets, treasury and events.
     pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
                             .with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None:
         raise HTTPException(404, "FX pair not found")
+    await _ensure_no_short_obligations(db, pair_id)
     held = (await db.execute(select(FxWallet.id).where(
         FxWallet.pair_id == pair_id,
         (FxWallet.foreign_amount != 0) | (FxWallet.cost_basis != 0),
@@ -425,7 +443,7 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
         _require_writes()
         before = FxPairAdmin.model_validate(pair).model_dump(mode="json")
         _admin_audit(db, "fx_pair_delete", admin.id, "fx_pair", pair_id, before, {})
-        for model in (FxWallet, FxEvent, FxTreasury):
+        for model in (FxWallet, FxShortPosition, FxEvent, FxTreasury):
             await db.execute(delete(model).where(model.pair_id == pair_id))
         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
         await db.commit()
@@ -445,7 +463,9 @@ async def withdraw_pair(pair_id: int, req: FundRequest, admin: User = Depends(cu
 @router.get("/config")
 async def get_config(_: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
     rows = await site_config.get_all(db)
-    return {r.key: r.value for r in rows if r.key in FX_CONFIG_KEYS}
+    values = {key: default for key, default, _ in site_config.FX_DEFAULT_CONFIGS}
+    values.update({r.key: r.value for r in rows if r.key in FX_CONFIG_KEYS})
+    return values
 
 
 @router.put("/config")

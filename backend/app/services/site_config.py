@@ -20,6 +20,7 @@ class SiteConfigError(Exception):
 # seeds a new or upgraded database.
 FX_DEFAULT_CONFIGS = [
     ("fx_enabled", "false", "bool"),
+    ("fx_short_enabled", "false", "bool"),
     ("fx_hourly_sigma", "0.002", "decimal"),
     ("fx_step_max_ratio", "0.001", "decimal"),
     ("fx_noise_interval_sec", "30", "int"),

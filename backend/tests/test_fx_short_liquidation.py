@@ -1659,3 +1659,48 @@ async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
         assert second.foreign_reserve + second_treasury.foreign_balance == D('2000')
         trades = list((await s.execute(select(FxTrade))).scalars())
         assert len(trades) == 1 and trades[0].pair_id == second_id
+
+
+async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan():
+    """A reserve withdrawal can make K unknown without erasing borrowed coins."""
+    from app.services.fx import scheduler
+    uid, pair_id = await _seed_foreign_only_overflow(principal='900', cash='50')
+    async with async_session_maker() as s:
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        short.interest_foreign = D('5')
+        short.restricted_gold = D('20')
+        short.proceeds_basis_gold = D('20')
+        treasury = (await s.execute(select(FxTreasury))).scalar_one()
+        # Borrowing consumed real treasury stock, independently of pool reserves.
+        treasury.foreign_balance -= short.principal_foreign
+        await s.commit()
+        pair = await s.get(FxPair, pair_id)
+        original_version = pair.pool_version
+        await scheduler.fund_pair(s, pair_id, D('10'), D('20'), uid)
+        await scheduler.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
+        await s.refresh(pair)
+        assert pair.pool_version == original_version + 2
+        assert pair.gold_reserve == D('1010') and pair.foreign_reserve == D('900')
+        treasury = (await s.execute(select(FxTreasury))).scalar_one()
+        assert treasury.gold_balance == D('1010') and treasury.foreign_balance == D('0')
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get('blocked_count') == 1 and result.get('monetary_action_count') == 0
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        assert run.status == 'active'
+        assert run.pre_liquidation_equity is None and run.pre_risk_basis is None
+        action = (await s.execute(select(LiquidationAction))).scalar_one()
+        assert action.kind == 'blocked' and action.blocked_reason == 'insufficient_pool_foreign'
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        assert (short.principal_foreign, short.interest_foreign, short.restricted_gold,
+                short.proceeds_basis_gold) == (D('900'), D('5'), D('20'), D('20'))
+        user = await s.get(User, uid)
+        assert user.cash == D('50') and user.debt == D('0')
+        treasury = (await s.execute(select(FxTreasury))).scalar_one()
+        assert treasury.foreign_balance == D('0') and treasury.gold_balance == D('1010')
+        pair = await s.get(FxPair, pair_id)
+        assert pair.foreign_reserve == D('900') and pair.pool_version == original_version + 2
+        audits = list((await s.execute(select(AuditEvent).where(
+            AuditEvent.event_type.in_(('fx_fund', 'fx_withdraw'))))).scalars())
+        assert len(audits) == 2
