@@ -297,3 +297,70 @@ def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], 
         ref_table="fx_trade", ref_id=trade.id,
         payload=payload, user_after=None if user is None else user_snapshot(user),
     )
+
+
+def record_fx_short_open(
+    session: AsyncSession,
+    *,
+    trade: Any,
+    user: User,
+    pair: Any,
+    position: Any,
+    treasury: Any,
+    treasury_before: dict[str, Any],
+    user_before: dict[str, Any],
+    short_before: dict[str, Any],
+    pool_before: dict[str, Any],
+) -> AuditEvent:
+    """Purpose-aware replay package for one opening/add-to-short borrow-sell.
+
+    Keeps the generic ``fx_trade`` event so existing user/pool/treasury replay
+    anchors stay valid, but carries the short-specific legs WP5 needs: the
+    borrowed quantity, the gold proceeds that moved into ``User.cash`` and the
+    short lock/basis, the treasury before/after (it really pays Q out) and the
+    short row before/after.  ``wallet_after`` is explicitly ``None``: opening
+    never credits ``FxWallet``, so replay must not expect a spot wallet delta.
+    """
+    payload = {
+        "pair_id": pair.id,
+        "purpose": trade.purpose,
+        "side": trade.side,
+        "input_amount": trade.input_amount,
+        "output_amount": trade.output_amount,
+        "fee_amount": trade.fee_amount,
+        "requested_foreign_amount": trade.requested_foreign_amount,
+        "min_gold_out": trade.min_out,
+        "borrowed_foreign": trade.input_amount,
+        "gold_proceeds": trade.output_amount,
+        "pre_gold_reserve": trade.pre_gold_reserve,
+        "pre_foreign_reserve": trade.pre_foreign_reserve,
+        "post_gold_reserve": trade.post_gold_reserve,
+        "post_foreign_reserve": trade.post_foreign_reserve,
+        "post_price": trade.post_price,
+        "pool_before": pool_before,
+        "pool_after": {"gold": pair.gold_reserve, "foreign": pair.foreign_reserve},
+        "pool_version": pair.pool_version,
+        "source": trade.source,
+        "wallet_after": None,
+        "treasury_before": treasury_before,
+        "user_before": user_before,
+        "user_after": {
+            "cash": user.cash,
+            "debt": user.debt,
+            "debt_last_accrued_at": user.debt_last_accrued_at,
+        },
+        "short_before": short_before,
+        "short_after": {
+            "short_position_id": position.id,
+            "principal_foreign": position.principal_foreign,
+            "interest_foreign": position.interest_foreign,
+            "interest_last_accrued_at": position.interest_last_accrued_at,
+            "restricted_gold": position.restricted_gold,
+            "proceeds_basis_gold": position.proceeds_basis_gold,
+        },
+    }
+    return record(
+        session, "fx_trade", user_id=user.id,
+        ref_table="fx_trade", ref_id=trade.id,
+        payload=payload, user_after=user_snapshot(user),
+    )
