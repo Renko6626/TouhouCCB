@@ -27,6 +27,7 @@ export interface FxPairPublic {
   currency_code: string
   currency_name: string
   status: FxPairStatus
+  reduce_only?: boolean
   pool_version: number
   created_at: string
   updated_at: string

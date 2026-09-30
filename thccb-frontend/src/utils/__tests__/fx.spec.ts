@@ -148,7 +148,7 @@ describe('错误映射', () => {
     expect(mapFxError({ status: 403, data: { detail: 'FX trading is disabled' } })).toContain('总闸')
     expect(
       mapFxError({ status: 409, data: { detail: 'quoted output is below min_out' } }),
-    ).toContain('滑点')
+    ).toContain('最低可接受金额')
     expect(mapFxError({ status: 400, data: { detail: 'insufficient cash' } })).toContain('余额不足')
     expect(
       mapFxError({ status: 403, data: { detail: 'outstanding debt blocks FX purchases' } }),

@@ -11,6 +11,7 @@ import RecentTrades from '@/components/home/RecentTrades.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import RecentLiquidationsPanel from '@/components/home/RecentLiquidationsPanel.vue'
 import FxOverview from '@/components/home/FxOverview.vue'
+import { formatFxAmount } from '@/api/fx'
 
 defineOptions({ name: 'FxHomePage' })
 
@@ -64,6 +65,8 @@ const pnlPercent = computed(() => {
   if (cost <= 0) return null
   return (pnl.value / cost) * 100
 })
+
+const fxHoldings = computed(() => (userStore.summary?.fx_wallets ?? []).filter(wallet => wallet.foreign_amount > 0))
 
 const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summary)
 </script>
@@ -141,7 +144,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
           <div class="hero-eyebrow">当前主玩法 · FX战士</div>
           <h1 class="hero-title">东方炒炒币<br>FX战士</h1>
           <p class="hero-desc">
-            用金圆券买卖幻想外币，跟随行情与新闻变化做出判断。<br>
+            用金圆券买卖幻想外币，跟随汇率变化做出判断。<br>
             查看汇率、管理持仓，在模拟市场中体验交易。
           </p>
           <div class="hero-actions">
@@ -157,6 +160,18 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
       <!-- 装饰角标 -->
       <div class="hero-corner hero-corner-tl"></div>
       <div class="hero-corner hero-corner-br"></div>
+    </section>
+
+    <section v-if="authStore.isAuthenticated && userStore.summary" class="holdings-section" aria-labelledby="holdings-title">
+      <div class="section-header"><h2 id="holdings-title" class="section-title">我的外币持仓</h2><router-link to="/user/portfolio" class="section-more">全部资产 →</router-link></div>
+      <div v-if="fxHoldings.length" class="holdings-strip">
+        <router-link v-for="wallet in fxHoldings" :key="wallet.pair_id" :to="{ path: '/fx', query: { pair: wallet.pair_id } }" class="holding-item">
+          <strong>{{ wallet.currency_name || wallet.currency_code }} <small>{{ wallet.currency_code }}</small></strong>
+          <span>{{ formatFxAmount(wallet.foreign_amount) }} 外币</span>
+          <span class="holding-value">估值 金 {{ formatFxAmount(wallet.mtm_gold, 2) }} <b>交易 →</b></span>
+        </router-link>
+      </div>
+      <p v-else class="holdings-empty">暂无外币持仓，从下方行情选择币种开始。</p>
     </section>
 
     <FxOverview />
@@ -250,6 +265,18 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 </template>
 
 <style scoped>
+.holdings-strip { display: flex; gap: 12px; overflow-x: auto; padding: 12px 2px 6px; }
+.holding-item { flex: 0 0 230px; border: 2px solid #000; padding: 12px; display: flex; flex-direction: column; gap: 5px; color: #000; text-decoration: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+.holding-item:hover { background: #f5f5f5; }
+.holding-item:focus-visible { outline: 3px solid #555; outline-offset: 2px; }
+.holding-item small, .holding-value { color: #666; font-size: 11px; }
+.holding-value { display: flex; justify-content: space-between; gap: 8px; }
+.holding-value b { color: #000; white-space: nowrap; }
+.holdings-empty { color: #666; font-size: 13px; margin: 12px 0 0; }
+.hero-pnl .pnl-note { margin-bottom: 12px; }
+.hero-pnl .pnl-percent { margin-bottom: 14px; }
+.hero-pnl .hero-eyebrow { margin-bottom: 8px; }
+
 .fx-home-title { font-size: 28px; font-weight: 800; margin: 0 0 8px; }
 .prediction-section { border-top: 2px solid #000; padding-top: 16px; }
 .prediction-section > summary { cursor: pointer; font-size: 16px; font-weight: 700; }
@@ -260,7 +287,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 40px;
+  gap: 24px;
 }
 
 /* ── 英雄区 ── */
@@ -268,7 +295,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
   position: relative;
   border: 4px solid #000000;
   background: #ffffff;
-  padding: 56px 48px;
+  padding: 24px 28px;
   overflow: hidden;
 }
 
@@ -365,7 +392,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
 /* ── 盈亏英雄视图 ── */
 .hero-pnl .hero-inner {
-  max-width: 720px;
+  max-width: 100%;
 }
 
 .hero-pnl-up {
@@ -377,7 +404,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 }
 
 .pnl-number {
-  font-size: clamp(44px, 9vw, 88px);
+  font-size: clamp(32px, 5vw, 52px);
   font-weight: 900;
   line-height: 1;
   letter-spacing: -0.02em;
@@ -414,7 +441,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
 .pnl-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 0;
   border: 2px solid #000;
   background: #fff;
@@ -461,7 +488,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 /* 骨架占位 */
 .pnl-skeleton {
   width: 70%;
-  height: clamp(44px, 9vw, 88px);
+  height: clamp(32px, 5vw, 52px);
   background: linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s infinite;
@@ -681,7 +708,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 /* 响应式 */
 @media (max-width: 768px) {
   .hero-section {
-    padding: 32px 24px;
+    padding: 22px 18px;
   }
   /* 盈亏 hero 在手机上缩小辅助信息字号 */
   .pnl-percent {

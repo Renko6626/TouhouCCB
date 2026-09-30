@@ -258,7 +258,7 @@ const holdingsByMarketArray = computed(() => {
       <section class="holdings-section">
         <div class="section-header">
           <h2 class="section-title">FX 持仓明细</h2>
-          <NButton size="small" @click="router.push('/fx')">FX战士</NButton>
+          <NButton size="small" @click="router.push('/fx')">外汇交易</NButton>
         </div>
         <p class="asset-sub">按最近刷新时的边际价估值；账面市值不等于全部卖出后的实际所得。</p>
         <div v-if="userStore.summary?.fx_wallets?.length" class="asset-grid">

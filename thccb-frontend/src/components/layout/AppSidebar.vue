@@ -20,11 +20,11 @@ const isGroup = (e: NavEntry): e is NavGroup => 'children' in e
 
 const navItems: NavEntry[] = [
   { label: '首页', path: '/', icon: 'i-mdi-home-outline', activeIcon: 'i-mdi-home' },
-  { label: 'FX战士', path: '/fx', icon: 'i-mdi-lightning-bolt', activeIcon: 'i-mdi-lightning-bolt' },
-  { label: '市场列表', path: '/market/list', icon: 'i-mdi-chart-areaspline', activeIcon: 'i-mdi-chart-areaspline' },
-  { label: '排行榜', path: '/market/leaderboard', icon: 'i-mdi-trophy-outline', activeIcon: 'i-mdi-trophy' },
+  { label: '外汇交易', path: '/fx', icon: 'i-mdi-lightning-bolt', activeIcon: 'i-mdi-lightning-bolt' },
   { label: '我的资产', path: '/user/portfolio', icon: 'i-mdi-wallet-outline', activeIcon: 'i-mdi-wallet' },
   { label: '交易记录', path: '/user/transactions', icon: 'i-mdi-history', activeIcon: 'i-mdi-history' },
+  { label: '预测市场', path: '/market/list', icon: 'i-mdi-chart-areaspline', activeIcon: 'i-mdi-chart-areaspline' },
+  { label: '排行榜', path: '/market/leaderboard', icon: 'i-mdi-trophy-outline', activeIcon: 'i-mdi-trophy' },
   { label: '借款', path: '/loan', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
   {
     label: '兑换中心',
@@ -94,8 +94,11 @@ const navigate = (path: string) => router.push(path)
 <template>
   <div class="sidebar" :class="{ collapsed: props.collapsed }">
     <!-- 主导航 -->
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" aria-label="主导航">
       <template v-for="(item, idx) in navItems" :key="isGroup(item) ? `g-${idx}-${item.label}` : item.path">
+        <div v-if="idx === 4" class="nav-section-divider">
+          <span v-if="!props.collapsed">探索与服务</span>
+        </div>
         <!-- 分组父项：窄侧栏也可通过图标展开子项 -->
         <template v-if="isGroup(item)">
           <button
@@ -117,6 +120,7 @@ const navigate = (path: string) => router.push(path)
             :class="['nav-item nav-item-child', { active: isActive(child.path) }]"
             @click="navigate(child.path)"
             :title="props.collapsed ? `${item.label} · ${child.label}` : undefined"
+            :aria-label="child.label"
           >
             <i :class="[isActive(child.path) ? child.activeIcon : child.icon, 'nav-icon']"></i>
             <span v-if="!props.collapsed" class="nav-label">{{ child.label }}</span>
@@ -129,10 +133,11 @@ const navigate = (path: string) => router.push(path)
           :class="['nav-item', { active: isActive(item.path), 'nav-item-featured': item.path === '/fx' }]"
           @click="navigate(item.path)"
           :title="props.collapsed ? item.label : undefined"
+          :aria-label="item.label"
         >
           <i :class="[isActive(item.path) ? item.activeIcon : item.icon, 'nav-icon']"></i>
           <span v-if="!props.collapsed" class="nav-label">{{ item.label }}</span>
-          <span v-if="!props.collapsed && item.path === '/fx'" class="nav-featured-badge">主推</span>
+          <span v-if="!props.collapsed && item.path === '/fx'" class="nav-brand-badge">FX战士</span>
         </button>
       </template>
     </nav>
@@ -153,6 +158,7 @@ const navigate = (path: string) => router.push(path)
               :class="['nav-item nav-item-admin nav-item-child', { active: isAdminActive(child.path) }]"
               @click="navigate(child.path)"
               :title="props.collapsed ? `${item.label} · ${child.label}` : undefined"
+              :aria-label="child.label"
             >
               <i :class="[isAdminActive(child.path) ? child.activeIcon : child.icon, 'nav-icon']"></i>
               <span v-if="!props.collapsed" class="nav-label">{{ child.label }}</span>
@@ -163,6 +169,7 @@ const navigate = (path: string) => router.push(path)
             :class="['nav-item nav-item-admin', { active: isAdminActive(item.path) }]"
             @click="navigate(item.path)"
             :title="props.collapsed ? item.label : undefined"
+            :aria-label="item.label"
           >
             <i :class="[isAdminActive(item.path) ? item.activeIcon : item.icon, 'nav-icon']"></i>
             <span v-if="!props.collapsed" class="nav-label">{{ item.label }}</span>
@@ -195,6 +202,7 @@ const navigate = (path: string) => router.push(path)
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 44px;
   padding: 10px 16px;
   font-size: 13px;
   font-weight: 500;
@@ -207,6 +215,20 @@ const navigate = (path: string) => router.push(path)
   border-left: 3px solid transparent;
   transition: background 0.12s, color 0.12s, border-color 0.12s;
   white-space: nowrap;
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid #777;
+  outline-offset: -3px;
+}
+
+.nav-section-divider {
+  margin-top: 12px;
+  padding: 12px 16px 6px;
+  border-top: 1px solid #e8e8e8;
+  color: #777;
+  font-size: 11px;
+  letter-spacing: 0.06em;
 }
 
 .nav-item:hover {
@@ -228,7 +250,7 @@ const navigate = (path: string) => router.push(path)
 .nav-item-featured {
   background: #fff3c4;
   color: #332500;
-  border-left-color: #b57900;
+  border-left-color: #777;
   font-weight: 800;
 }
 .nav-item-featured:hover {
@@ -238,13 +260,12 @@ const navigate = (path: string) => router.push(path)
   background: #000;
   color: #fff;
 }
-.nav-featured-badge {
+
+.nav-brand-badge {
   margin-left: auto;
-  padding: 1px 5px;
-  border: 1px solid currentColor;
   font-size: 10px;
-  line-height: 1.5;
-  flex-shrink: 0;
+  font-weight: 500;
+  opacity: 0.7;
 }
 
 .nav-label {

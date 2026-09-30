@@ -59,6 +59,9 @@ const handleUserMenuClick = (key: string) => {
         class="sidebar-toggle"
         @click="emit('toggleCollapse')"
         :title="props.collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-label="props.collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-expanded="!props.collapsed"
+        aria-controls="app-sidebar"
       >
         <i :class="props.collapsed ? 'i-mdi-menu' : 'i-mdi-menu-open'" class="text-lg"></i>
       </button>
@@ -86,14 +89,14 @@ const handleUserMenuClick = (key: string) => {
           负债 {{ userStore.summary?.debt }}
         </router-link>
         <NDropdown :options="userOptions" @select="handleUserMenuClick" placement="bottom-end">
-          <div class="user-chip">
+          <button type="button" class="user-chip" aria-label="账户菜单">
             <div class="user-avatar">
               {{ authStore.user?.username?.charAt(0).toUpperCase() || 'U' }}
             </div>
             <span class="user-name">{{ authStore.user?.username || '用户' }}</span>
             <TitleChip v-if="equippedTitle" :title="equippedTitle" size="sm" />
             <i class="i-mdi-chevron-down text-xs"></i>
-          </div>
+          </button>
         </NDropdown>
       </template>
     </div>
@@ -128,8 +131,8 @@ const handleUserMenuClick = (key: string) => {
 }
 
 .sidebar-toggle {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   background: none;
   border: 1px solid rgba(255,255,255,0.3);
   color: #ffffff;
@@ -139,6 +142,13 @@ const handleUserMenuClick = (key: string) => {
   justify-content: center;
   transition: background 0.15s;
   flex-shrink: 0;
+}
+.sidebar-toggle:focus-visible,
+.nav-btn:focus-visible,
+.user-chip:focus-visible,
+.debt-badge:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 .sidebar-toggle:hover {
   background: rgba(255,255,255,0.1);
@@ -180,6 +190,8 @@ const handleUserMenuClick = (key: string) => {
 
 /* 未登录按钮 */
 .nav-btn {
+  min-height: 44px;
+  min-width: 44px;
   padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
@@ -205,6 +217,9 @@ const handleUserMenuClick = (key: string) => {
 
 /* 用户菜单 */
 .user-chip {
+  min-height: 44px;
+  color: inherit;
+  font: inherit;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -242,7 +257,9 @@ const handleUserMenuClick = (key: string) => {
 
 /* 负债徽章 */
 .debt-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   padding: 3px 10px;
   border: 2px solid var(--color-down);
   color: var(--color-down);
@@ -277,12 +294,13 @@ const handleUserMenuClick = (key: string) => {
   padding: 10px 16px;
   background: #000;
   color: #fff;
-  border-bottom: 3px solid #f5a623;
+  border-bottom: 3px solid #555;
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 .build-refresh-btn {
+  min-height: 44px;
   padding: 4px 14px;
   border: 2px solid #fff;
   background: #fff;
@@ -291,5 +309,5 @@ const handleUserMenuClick = (key: string) => {
   font-weight: 800;
   cursor: pointer;
 }
-.build-refresh-btn:hover { background: #f5a623; border-color: #f5a623; }
+.build-refresh-btn:hover { background: #555; border-color: #555; }
 </style>

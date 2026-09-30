@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import {
+  compareFxAmounts,
   computeMinOut,
   divideFxAmount,
   formatFxAmount,
@@ -16,6 +17,9 @@ import {
   tradeSlippageBps,
 } from '@/api/fx'
 import { userApi } from '@/api/user'
+import type { UserSummary } from '@/types/user'
+import { useFxResource } from '@/composables/useFxResource'
+import { fxBuyBlockReason, fxGoldPerForeign, fxHoldingValue, fxPairAllowsSide, fxSellAllocation } from '@/utils/fxPresentation'
 import type {
   FxChartInterval,
   FxPairPublic,
@@ -29,29 +33,36 @@ import type {
   FxWalletPublic,
 } from '@/types/fx'
 import FxCandleChart from '@/components/chart/FxCandleChart.vue'
+import MobileTradeDock from '@/components/market/MobileTradeDock.vue'
+import { useMobileTradeEntry } from '@/composables/useMobileTradeEntry'
 
 defineOptions({ name: 'FxPage' })
 
 const msg = useMessage()
 const route = useRoute()
 
-interface FxDisplaySummary {
-  fx_mtm: number
-  fx_cost_basis: number
-  fx_unrealized_pnl: number
-}
-
 const loading = ref(true)
 const error = ref<string | null>(null)
 const pairs = ref<FxPairPublic[]>([])
 const pairId = ref<number | null>(null)
 const snapshot = ref<FxSnapshot | null>(null)
-const trades = ref<FxTradePublic[]>([])
-const wallet = ref<FxWalletPublic | null>(null)
-const walletLoading = ref(false)
-let walletRequestId = 0
+const tradeResource = useFxResource<FxTradePublic[]>()
+const { data: trades, loading: tradesLoading, failed: tradesFailed, updatedAt: tradesUpdatedAt } = tradeResource
+const walletResource = useFxResource<FxWalletPublic>()
+const { data: wallet, loading: walletLoading, failed: walletFailed, updatedAt: walletUpdatedAt } = walletResource
 const newsFeed = ref<FxPublicNews[]>([])
 const streamConnected = ref(false)
+const streamFailed = ref(false)
+const marketUpdatedAt = ref('')
+const snapshotLoading = ref(false)
+const snapshotFailed = ref(false)
+let snapshotGeneration = 0
+let selectionGeneration = 0
+const quoteUpdatedAt = ref(0)
+const now = ref(Date.now())
+let freshnessTimer: ReturnType<typeof setInterval> | null = null
+const quoteExpired = computed(() => !!quoteUpdatedAt.value && now.value - quoteUpdatedAt.value >= 30000)
+const streamLabel = computed(() => streamConnected.value ? '实时已连接' : streamFailed.value ? '连接中断 · 正在重连' : '正在连接实时行情')
 /** 图表周期性刷新/成交后强制重载用；同时把 SSE 价格转发给图表组件 */
 const chartReloadToken = ref(0)
 const lastTick = ref<FxPriceTick | null>(null)
@@ -61,6 +72,7 @@ const intervals: FxChartInterval[] = ['1m', '15m', '1h']
 const interval = ref<FxChartInterval>('1m')
 
 const side = ref<FxSide>('buy')
+const { tradePanelRef, tradePanelVisible, openTrade } = useMobileTradeEntry(setSide)
 const amount = ref('')
 const slippageBps = ref<number>(50)
 const quote = ref<FxQuote | null>(null)
@@ -69,10 +81,14 @@ const submitting = ref(false)
 const tradeError = ref<string | null>(null)
 const orderSubmitter = new FxOrderSubmitter()
 
-const summary = ref<FxDisplaySummary | null>(null)
+const summaryResource = useFxResource<UserSummary>()
+const { data: summary, loading: summaryLoading, failed: summaryFailed, updatedAt: summaryUpdatedAt } = summaryResource
+const receipt = ref<{ trade: FxTradePublic; currency: string; autoRepay: boolean | null } | null>(null)
+const quoteReferencePrice = ref<string | null>(null)
 
-const activePair = computed(() => pairs.value.find((p) => p.id === pairId.value) ?? null)
-const tradable = computed(() => activePair.value?.status === 'trading')
+const activePair = computed(() => snapshot.value?.pair.id === pairId.value
+  ? snapshot.value.pair : pairs.value.find((p) => p.id === pairId.value) ?? null)
+const tradable = computed(() => fxPairAllowsSide(activePair.value, side.value))
 const currencyName = computed(() => activePair.value?.currency_name ?? '外币')
 /** 交易面板顶部按方向显示对应的有效买卖价 */
 const sidePrice = computed(() =>
@@ -80,12 +96,12 @@ const sidePrice = computed(() =>
 )
 
 const amountValid = computed(
-  () => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && Number(amount.value) > 0,
+  () => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && compareFxAmounts(amount.value.trim(), '0') === 1,
 )
-const sellPortions = [25, 50, 75, 100]
+const portions = [25, 50, 75, 100]
 const canFillSell = computed(() => side.value === 'sell' && tradable.value && !submitting.value
-  && !walletLoading.value && wallet.value?.pair_id === pairId.value
-  && Number(wallet.value?.foreign_amount ?? 0) > 0)
+  && !walletLoading.value && !walletFailed.value && wallet.value?.pair_id === pairId.value
+  && compareFxAmounts(wallet.value?.foreign_amount, '0') === 1)
 
 function fillSellPortion(percent: number) {
   if (!canFillSell.value || !wallet.value) return
@@ -100,21 +116,36 @@ const minOut = computed(() =>
   quote.value ? computeMinOut(quote.value.output_amount, effectiveSlippageBps.value) : '',
 )
 const minOutDisplay = computed(() => (minOut.value ? formatFxAmount(minOut.value) : '—'))
-// 后端 effective_price = output/input：buy 是「外币/金」，sell 是「金/外币」。
-// 滑点统一折算成「金/外币」再与 snapshot.price（边际汇率，金/外币）比较。
-const effectiveGoldPerForeign = computed(() => {
-  const q = quote.value
-  if (!q) return null
-  const e = Number(q.effective_price)
-  if (!Number.isFinite(e) || e <= 0) return null
-  return side.value === 'buy' ? 1 / e : e
+const effectiveGoldPerForeign = computed(() => quote.value ? fxGoldPerForeign(quote.value) : null)
+const quotePriceImpact = computed(() => tradeSlippageBps(quoteReferencePrice.value, effectiveGoldPerForeign.value))
+const holdingValue = computed(() => fxHoldingValue(wallet.value, snapshot.value?.price))
+const fxPnlPositive = computed(() => (compareFxAmounts(holdingValue.value?.pnl, '0') ?? 0) >= 0)
+const outputCurrency = computed(() => side.value === 'buy' ? currencyName.value : '金圆券')
+const inputCurrency = computed(() => side.value === 'buy' ? '金圆券' : currencyName.value)
+const sellAllocation = computed(() => side.value === 'sell' && quote.value && !summaryFailed.value && !summaryLoading.value
+  ? fxSellAllocation(quote.value.output_amount, summary.value) : null)
+const buyBlockReason = computed(() => {
+  if (summaryLoading.value) return '正在刷新账户，请稍候'
+  if (summaryFailed.value) return '账户信息刷新失败，请重新加载后买入'
+  return fxBuyBlockReason(summary.value, amount.value.trim())
 })
-const quoteSlippage = computed(() =>
-  effectiveGoldPerForeign.value !== null && snapshot.value
-    ? tradeSlippageBps(snapshot.value.price, effectiveGoldPerForeign.value)
-    : null,
-)
-const fxPnlPositive = computed(() => (summary.value?.fx_unrealized_pnl ?? 0) >= 0)
+const tradeBlockReason = computed(() => {
+  if (!tradable.value) return fxPairAllowsSide(activePair.value, 'sell') ? '当前币种只允许卖出，不能买入' : '当前币种未开放交易'
+  if (!snapshot.value) return '正在读取行情，请稍候'
+  if (side.value === 'buy') return buyBlockReason.value
+  if (walletLoading.value) return '正在读取持仓，请稍候'
+  if (walletFailed.value || !wallet.value) return '持仓读取失败，请重新加载后卖出'
+  if (compareFxAmounts(wallet.value.foreign_amount, '0') !== 1) return '暂无可卖出的持仓'
+  if (compareFxAmounts(amount.value.trim(), wallet.value.foreign_amount) === 1) return '卖出数量超过持仓，请减少数量'
+  return ''
+})
+const canFillBuy = computed(() => side.value === 'buy' && tradable.value && !submitting.value
+  && !summaryLoading.value && !summaryFailed.value && !!summary.value
+  && !fxBuyBlockReason(summary.value, ''))
+function fillBuyPortion(percent: number) {
+  if (!canFillBuy.value || !summary.value) return
+  amount.value = computeMinOut(summary.value.cash, (100 - percent) * 100)
+}
 const walletAvgCost = computed(() => {
   const w = wallet.value
   if (!w) return null
@@ -135,47 +166,35 @@ async function loadPairs() {
 async function loadSnapshot() {
   const pid = pairId.value
   if (!pid) return
-  snapshot.value = await fxApi.getSnapshot(pid)
+  const request = ++snapshotGeneration
+  snapshotLoading.value = true
+  try {
+    const result = await fxApi.getSnapshot(pid)
+    if (pid === pairId.value && request === snapshotGeneration) {
+      snapshot.value = result
+      snapshotFailed.value = false
+      marketUpdatedAt.value = new Date().toLocaleTimeString()
+    }
+  } catch (e) {
+    if (pid === pairId.value && request === snapshotGeneration) snapshotFailed.value = true
+    throw e
+  } finally {
+    if (request === snapshotGeneration) snapshotLoading.value = false
+  }
 }
 
 async function loadTrades() {
   const pid = pairId.value
-  if (!pid) return
-  try {
-    trades.value = await fxApi.getMyTrades(pid, 50)
-  } catch {
-    // 个人成交历史失败不阻塞行情与交易主流程
-    trades.value = []
-  }
+  if (pid) await tradeResource.load(() => fxApi.getMyTrades(pid, 50))
 }
 
 async function loadWallet() {
   const pid = pairId.value
-  if (!pid) return
-  const requestId = ++walletRequestId
-  walletLoading.value = true
-  try {
-    const result = await fxApi.getWallet(pid)
-    if (requestId === walletRequestId && pid === pairId.value) wallet.value = result
-  } catch {
-    // 钱包读取失败时仅隐藏持仓明细，交易与行情仍可用
-    if (requestId === walletRequestId && pid === pairId.value) wallet.value = null
-  } finally {
-    if (requestId === walletRequestId) walletLoading.value = false
-  }
+  if (pid) await walletResource.load(() => fxApi.getWallet(pid))
 }
 
 async function loadSummary() {
-  try {
-    const raw = (await userApi.getSummary()) as unknown as Partial<FxDisplaySummary>
-    summary.value = {
-      fx_mtm: Number(raw.fx_mtm) || 0,
-      fx_cost_basis: Number(raw.fx_cost_basis) || 0,
-      fx_unrealized_pnl: Number(raw.fx_unrealized_pnl) || 0,
-    }
-  } catch {
-    // 净值面板失败不阻塞交易主流程
-  }
+  await summaryResource.load(() => userApi.getSummary())
 }
 
 async function refreshAll() {
@@ -204,7 +223,10 @@ function onFrame(frame: FxPublicFrame) {
     }
   }
   // 价格保持字符串语义转发给图表；图表内部才在适配层转 number
-  if (frame.price !== undefined) lastTick.value = { price: frame.price, ts: Date.now() }
+  if (frame.price !== undefined) {
+    lastTick.value = { price: frame.price, ts: Date.now() }
+    marketUpdatedAt.value = new Date().toLocaleTimeString()
+  }
   if (frame.news) {
     const signature = `${frame.news.published_at ?? ''}|${frame.news.title ?? ''}`
     const exists = newsFeed.value.some(
@@ -220,9 +242,16 @@ function connectStream() {
   if (!stream) {
     stream = new FxStream()
     stream.onOpen(() => {
+      const reconnected = streamFailed.value
       streamConnected.value = true
+      streamFailed.value = false
+      if (reconnected) {
+        void refreshAll()
+        chartReloadToken.value += 1
+      }
     })
     stream.onError(() => {
+      streamFailed.value = true
       streamConnected.value = false
     })
     stream.onFrame(onFrame)
@@ -231,19 +260,40 @@ function connectStream() {
 }
 
 async function selectPair(id: number) {
+  if (submitting.value) return
+  const selection = ++selectionGeneration
+  snapshotGeneration++
+  snapshotFailed.value = false
+  streamFailed.value = false
+  marketUpdatedAt.value = ''
+  stream?.disconnect()
+  streamConnected.value = false
+  error.value = null
   pairId.value = id
   amount.value = ''
   quote.value = null
   tradeError.value = null
   newsFeed.value = []
-  wallet.value = null
+  walletResource.reset()
+  tradeResource.reset()
+  receipt.value = null
   snapshot.value = null
   lastTick.value = null
   try {
     await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary()])
-    connectStream()
+    if (selection === selectionGeneration) connectStream()
   } catch (e) {
-    error.value = mapFxError(e, 'FX 行情加载失败')
+    if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
+  }
+}
+
+async function refreshMarket() {
+  if (snapshotLoading.value || submitting.value) return
+  await refreshAll()
+  chartReloadToken.value += 1
+  if (!streamConnected.value) {
+    stream?.disconnect()
+    connectStream()
   }
 }
 
@@ -267,7 +317,12 @@ let quoteTimer: ReturnType<typeof setTimeout> | null = null
 let quoteGen = 0
 
 function scheduleQuote() {
+  quoteGen++
+  quoting.value = false
   quote.value = null
+  quoteReferencePrice.value = null
+  quoteUpdatedAt.value = 0
+  tradeError.value = null
   if (quoteTimer) clearTimeout(quoteTimer)
   quoteTimer = setTimeout(() => {
     void fetchQuote()
@@ -277,16 +332,26 @@ function scheduleQuote() {
 async function fetchQuote() {
   const pid = pairId.value
   const value = amount.value.trim()
+  const requestedSide = side.value
+  const referencePrice = snapshot.value?.price ?? null
   if (!pid || !tradable.value || !amountValid.value) {
     quote.value = null
     return
   }
   const gen = ++quoteGen
+  quote.value = null
   quoting.value = true
   try {
-    const q = await fxApi.getQuote(pid, { side: side.value, amount: value })
+    const q = await fxApi.getQuote(pid, { side: requestedSide, amount: value })
     if (gen === quoteGen) {
+      if (q.pair_id !== pid || q.side !== requestedSide || compareFxAmounts(q.input_amount, value) !== 0) {
+        tradeError.value = '报价与当前订单不一致，请重新报价'
+        return
+      }
       quote.value = q
+      quoteUpdatedAt.value = Date.now()
+      now.value = Date.now()
+      quoteReferencePrice.value = referencePrice
       tradeError.value = null
     }
   } catch (e) {
@@ -302,8 +367,12 @@ async function fetchQuote() {
 async function submitTrade() {
   const pid = pairId.value
   if (!pid || submitting.value) return
-  if (!tradable.value) {
-    tradeError.value = '该货币对当前暂停或未开市，无法交易'
+  if (quoteExpired.value) {
+    tradeError.value = '报价已超过 30 秒，请重新报价后确认'
+    return
+  }
+  if (tradeBlockReason.value) {
+    tradeError.value = tradeBlockReason.value
     return
   }
   if (!amountValid.value) {
@@ -314,9 +383,10 @@ async function submitTrade() {
   submitting.value = true
   tradeError.value = null
   try {
+    if (quoteTimer) clearTimeout(quoteTimer)
     if (!quote.value) await fetchQuote()
     const q = quote.value
-    if (!q) {
+    if (!q || q.pair_id !== pid || q.side !== side.value || compareFxAmounts(q.input_amount, amount.value.trim()) !== 0) {
       tradeError.value = tradeError.value ?? '暂时拿不到报价，请稍后重试'
       return
     }
@@ -338,11 +408,15 @@ async function submitTrade() {
     )
     if (trade === null) return
     orderSubmitter.reset()
-    msg.success(
-      side.value === 'buy'
-        ? `买入成功，预计到账 ${formatFxAmount(q.output_amount)} ${currencyName.value}`
-        : `卖出成功，预计到账 ${formatFxAmount(q.output_amount)} 金圆券`,
-    )
+    receipt.value = {
+      trade,
+      currency: currencyName.value,
+      autoRepay: summary.value && !summaryFailed.value
+        ? !!summary.value.unified_credit_enabled : null,
+    }
+    msg.success(trade.side === 'buy'
+      ? `买入成功，实际到账 ${formatFxAmount(trade.output_amount)} ${currencyName.value}`
+      : `卖出成功，实际成交所得 ${formatFxAmount(trade.output_amount)} 金圆券`)
     amount.value = ''
     quote.value = null
     await refreshAll()
@@ -360,9 +434,9 @@ async function submitTrade() {
 }
 
 function setSide(next: FxSide) {
-  if (side.value === next) return
+  if (submitting.value || side.value === next) return
+  amount.value = ''
   side.value = next
-  scheduleQuote()
 }
 
 function setChartInterval(next: FxChartInterval) {
@@ -396,12 +470,22 @@ const statusLabel = computed(() => {
   }
 })
 
-watch([amount, side], scheduleQuote)
+watch([amount, side, pairId], scheduleQuote, { flush: 'sync' })
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  freshnessTimer = setInterval(() => { now.value = Date.now() }, 1000)
+})
 
 onUnmounted(() => {
   if (quoteTimer) clearTimeout(quoteTimer)
+  quoteGen++
+  snapshotGeneration++
+  selectionGeneration++
+  if (freshnessTimer) clearInterval(freshnessTimer)
+  walletResource.reset()
+  tradeResource.reset()
+  summaryResource.reset()
   stream?.disconnect()
   stream = null
 })
@@ -412,13 +496,13 @@ onUnmounted(() => {
     <!-- ── 顶部行情条：货币对 / 状态 / 当前价 / 关键报价 ── -->
     <header class="fx-topbar">
       <div class="fx-topbar-id">
-        <h1 class="fx-title">幻想外汇</h1>
+        <h1 class="fx-title">外汇交易 <small>FX战士</small></h1>
         <div class="fx-pair-row">
           <select
             id="fx-pair"
             class="fx-pair-select"
             :value="pairId ?? ''"
-            :disabled="pairs.length === 0"
+            :disabled="pairs.length === 0 || submitting"
             aria-label="选择货币对"
             @change="onPairChange"
           >
@@ -428,13 +512,12 @@ onUnmounted(() => {
             </option>
           </select>
           <span v-if="activePair" class="fx-status" :class="`fx-status-${activePair.status}`">
-            {{ statusLabel }}
+            {{ activePair.reduce_only && ['trading', 'paused'].includes(activePair.status) ? '只允许卖出' : statusLabel }}
           </span>
-          <span
-            class="fx-stream-dot"
-            :class="{ on: streamConnected }"
-            :title="streamConnected ? '实时已连接' : '实时未连接'"
-          ></span>
+          <span class="fx-connection" :class="{ connected: streamConnected }" role="status">
+            <span class="fx-stream-dot" :class="{ on: streamConnected }" aria-hidden="true"></span>
+            {{ streamLabel }}
+          </span>
         </div>
       </div>
 
@@ -445,11 +528,11 @@ onUnmounted(() => {
 
       <div class="fx-topbar-stats">
         <div class="fx-stat">
-          <span>买入价 ask</span>
+          <span>参考买入价</span>
           <b class="up">{{ formatFxPrice(snapshot?.buy_price) }}</b>
         </div>
         <div class="fx-stat">
-          <span>卖出价 bid</span>
+          <span>参考卖出价</span>
           <b class="down">{{ formatFxPrice(snapshot?.sell_price) }}</b>
         </div>
         <div class="fx-stat">
@@ -457,11 +540,17 @@ onUnmounted(() => {
           <b>{{ formatFxPrice(snapshot?.spread) }}</b>
         </div>
         <div class="fx-stat">
-          <span>24h 成交量</span>
+          <span>24h 成交额（金圆券）</span>
           <b>{{ formatFxAmount(snapshot?.volume_24h) }}</b>
         </div>
       </div>
     </header>
+    <div class="fx-freshness-bar">
+      <span>{{ marketUpdatedAt ? `行情最近更新 ${marketUpdatedAt}` : '等待行情数据' }}</span>
+      <span v-if="snapshotFailed" class="fx-error" role="alert">行情刷新失败，所示报价可能已过期。</span>
+      <span v-else-if="streamFailed" class="fx-hint">实时行情暂不可用，可手动刷新。下单前请重新获取报价。</span>
+      <button class="btn-secondary" :disabled="loading || snapshotLoading || submitting || !pairId" @click="refreshMarket">{{ snapshotLoading ? '刷新中…' : '刷新行情与账户' }}</button>
+    </div>
 
     <div v-if="loading" class="fx-state">行情加载中…</div>
     <div v-else-if="error" class="fx-state fx-state-error">
@@ -469,12 +558,12 @@ onUnmounted(() => {
       <button class="btn-secondary" @click="load">重试</button>
     </div>
     <div v-else-if="!activePair" class="fx-state">
-      FX 尚未开市：管理员建立货币对、注资并开市后即可交易。
+      外汇交易暂未开放，请稍后再来查看。
     </div>
 
     <template v-else>
       <div v-if="!tradable" class="fx-notice">
-        当前货币对状态为「{{ statusLabel }}」，仅可查看行情，不能买卖。
+        {{ activePair.reduce_only && ['trading', 'paused'].includes(activePair.status) ? '当前币种仅允许卖出，请切换到卖出。' : `当前货币对状态为「${statusLabel}」，仅可查看行情，不能买卖。` }}
       </div>
 
       <!-- ── 工作台：K 线主区 + 右侧交易面板（移动端堆叠） ── -->
@@ -509,11 +598,14 @@ onUnmounted(() => {
           </div>
         </section>
 
-        <aside class="fx-trade-panel">
+        <aside class="fx-trade-panel" aria-labelledby="fx-trade-heading">
+          <h2 id="fx-trade-heading" ref="tradePanelRef" class="fx-trade-heading" tabindex="-1">交易 {{ currencyName }}</h2>
           <div class="fx-trade-tabs">
             <button
               class="fx-trade-tab"
               :class="{ active: side === 'buy' }"
+              :disabled="submitting"
+              :aria-pressed="side === 'buy'"
               @click="setSide('buy')"
             >
               买入 {{ currencyName }}
@@ -521,6 +613,8 @@ onUnmounted(() => {
             <button
               class="fx-trade-tab"
               :class="{ active: side === 'sell' }"
+              :disabled="submitting"
+              :aria-pressed="side === 'sell'"
               @click="setSide('sell')"
             >
               卖出 {{ currencyName }}
@@ -529,11 +623,34 @@ onUnmounted(() => {
 
           <div class="fx-trade-body">
             <div class="fx-trade-price">
-              <span>{{ side === 'buy' ? '有效买入价（ask）' : '有效卖出价（bid）' }}</span>
+              <span>{{ side === 'buy' ? '参考买入价' : '参考卖出价' }}</span>
               <strong :class="side === 'buy' ? 'up' : 'down'">
                 {{ formatFxPrice(sidePrice) }}
               </strong>
             </div>
+
+            <p class="fx-hint">金圆券 / 1 {{ currencyName }}；本笔成交均价见下方报价。</p>
+
+            <div v-if="side === 'buy'" class="fx-sell-holdings">
+              <div class="fx-preview-row" aria-live="polite">
+                <span>可用金圆券</span>
+                <strong>{{ summaryLoading ? '加载中…' : formatFxAmount(summary?.cash) }}</strong>
+              </div>
+              <div class="fx-sell-shortcuts">
+                <button v-for="percent in portions" :key="percent" class="btn-secondary"
+                  :disabled="!canFillBuy" @click="fillBuyPortion(percent)">
+                  {{ percent === 100 ? '全部' : `${percent}%` }}
+                </button>
+              </div>
+            </div>
+            <p v-if="summaryFailed" class="fx-error" role="alert">
+              账户刷新失败{{ summary ? '，所示余额和规则为上次快照，暂不能买入' : '' }}。
+              <button class="fx-wallet-retry" :disabled="summaryLoading" @click="loadSummary">重新加载账户</button>
+            </p>
+            <p v-if="summary?.unified_credit_enabled && summary.debt > 0" class="fx-hint">
+              当前有借款，买入需通过成交时的风控检查；可用现金不代表可安全投入额度。
+              <router-link to="/loan">查看借款与风控</router-link>
+            </p>
 
             <label class="fx-field">
               <span>{{ side === 'buy' ? '投入金圆券' : `卖出数量（${currencyName}）` }}（最多 6 位小数）</span>
@@ -553,61 +670,73 @@ onUnmounted(() => {
                 <strong>{{ walletLoading ? '加载中…' : wallet ? formatFxAmount(wallet.foreign_amount, 6) : '暂不可用' }}</strong>
               </div>
               <div class="fx-sell-shortcuts">
-                <button v-for="percent in sellPortions" :key="percent" class="btn-secondary"
+                <button v-for="percent in portions" :key="percent" class="btn-secondary"
                   :disabled="!canFillSell" @click="fillSellPortion(percent)">
                   {{ percent === 100 ? '全部' : `${percent}%` }}
                 </button>
               </div>
-              <p v-if="!walletLoading && !wallet" class="fx-hint">
-                持仓读取失败，<button class="fx-wallet-retry" @click="loadWallet">重新加载</button>
+              <p v-if="walletFailed" class="fx-hint">
+                持仓读取失败{{ wallet ? '，显示上次快照' : '' }}，<button class="fx-wallet-retry" :disabled="walletLoading" @click="loadWallet">重新加载</button>
               </p>
             </div>
 
             <label class="fx-field">
-              <span>最大滑点（bps，100 = 1%）</span>
-              <input
-                v-model.number="slippageBps"
-                class="fx-input"
-                type="number"
-                min="0"
-                max="10000"
-                step="1"
-                :disabled="!tradable || submitting"
-              />
+              <span>报价变动容忍度</span>
+              <select v-model.number="slippageBps" class="fx-input" :disabled="!tradable || submitting">
+                <option :value="50">0.5%</option>
+                <option :value="100">1%</option>
+                <option :value="200">2%</option>
+                <option :value="500">5%</option>
+              </select>
             </label>
+            <p class="fx-hint">相对本次报价，实际到账低于下方最低金额时交易会取消。</p>
 
             <div class="fx-preview">
               <div class="fx-preview-row">
-                <span>预计得到</span>
-                <strong>{{ quote ? formatFxAmount(quote.output_amount) : '—' }}</strong>
+                <span>{{ side === 'buy' ? '预计到账' : '预计卖出所得' }}</span>
+                <strong>{{ quote ? formatFxAmount(quote.output_amount) : '—' }} {{ outputCurrency }}</strong>
               </div>
               <div class="fx-preview-row">
                 <span>手续费</span>
-                <strong>{{ quote ? formatFxAmount(quote.fee_amount) : '—' }}</strong>
+                <strong>{{ quote ? formatFxAmount(quote.fee_amount) : '—' }} {{ inputCurrency }}</strong>
               </div>
               <div class="fx-preview-row">
-                <span>有效成交价（{{ side === 'buy' ? '外币/金' : '金/外币' }}）</span>
-                <strong>{{ quote ? formatFxPrice(quote.effective_price) : '—' }}</strong>
+                <span>本笔均价（金圆券 / {{ currencyName }}）</span>
+                <strong>{{ formatFxPrice(effectiveGoldPerForeign) }}</strong>
               </div>
               <div class="fx-preview-row">
-                <span>报价滑点 / 最大滑点</span>
-                <strong>
-                  {{ quoteSlippage === null ? '—' : quoteSlippage.toFixed(2) }} bps /
-                  {{ effectiveSlippageBps }} bps
-                </strong>
+                <span>价格影响（含手续费）</span>
+                <strong>{{ quotePriceImpact === null ? '—' : (quotePriceImpact / 100).toFixed(2) + '%' }}</strong>
               </div>
               <div class="fx-preview-row fx-preview-row--minout">
-                <span>min-out（服务端最低可接受产出）</span>
-                <strong>{{ minOutDisplay }}</strong>
+                <span>{{ side === 'buy' ? '最低到账' : '最低卖出所得' }}</span>
+                <strong>{{ minOutDisplay }} {{ outputCurrency }}</strong>
               </div>
             </div>
 
+            <div class="fx-quote-age" role="status">
+              <span v-if="quoteExpired" class="fx-error">报价已超过 30 秒，请重新报价后确认。</span>
+              <span v-else-if="quoteUpdatedAt">报价更新于 {{ new Date(quoteUpdatedAt).toLocaleTimeString() }} · 30 秒内可提交</span>
+              <span v-else>填写金额后获取报价</span>
+            </div>
+            <details class="fx-quote-explanation">
+              <summary>费用与报价说明</summary>
+              <p>手续费已计入报价，按投入币种收取。价格影响是本笔均价相对参考边际汇率的差异；报价变动容忍度则决定相对本次报价可接受的最低所得。</p>
+            </details>
+            <div v-if="side === 'sell' && summary?.unified_credit_enabled" class="fx-preview">
+              <div class="fx-preview-row"><span>预计用于还债</span><strong>{{ formatFxAmount(sellAllocation?.repayment) }} 金圆券</strong></div>
+              <div class="fx-preview-row"><span>预计现金净增加</span><strong>{{ formatFxAmount(sellAllocation?.cashIncrease) }} 金圆券</strong></div>
+              <p class="fx-hint">卖出所得优先偿还借款。这里按最近账户快照估算，实际还款含成交时利息，以账户记录为准。</p>
+            </div>
+            <p v-if="tradeBlockReason" class="fx-error" role="status">{{ tradeBlockReason }}</p>
+            <p v-if="side === 'buy' && summary && summary.debt > 0" class="fx-hint"><router-link to="/loan">查看借款 / 还款 →</router-link></p>
+
             <div class="fx-submit-state">
               <span v-if="tradeError" class="fx-error">{{ tradeError }}</span>
-              <span v-else-if="submitting" class="fx-hint">提交中…服务端按幂等键防止重复扣款</span>
+              <span v-else-if="submitting" class="fx-hint">订单处理中，请稍候…</span>
               <span v-else-if="quoting" class="fx-hint">报价更新中…</span>
               <span v-else class="fx-hint">
-                成交按钮提交期间会禁用；价格冲突（409）会刷新行情并重新报价。
+                {{ amount && !amountValid ? '请输入正数金额，最多 6 位小数。' : '请核对币种、金额和最低到账后提交。' }}
               </span>
             </div>
 
@@ -615,14 +744,14 @@ onUnmounted(() => {
               <button
                 class="fx-submit"
                 :class="side === 'buy' ? 'fx-submit-buy' : 'fx-submit-sell'"
-                :disabled="!tradable || submitting || !amountValid"
+                :disabled="submitting || !amountValid || !!tradeBlockReason || quoting || !quote || quoteExpired"
                 @click="submitTrade"
               >
                 {{ submitting ? '提交中…' : side === 'buy' ? '买入' : '卖出' }}
               </button>
               <button
                 class="btn-secondary"
-                :disabled="quoting || !amountValid"
+                :disabled="quoting || submitting || !tradable || !amountValid"
                 @click="fetchQuote"
               >
                 重新报价
@@ -632,55 +761,90 @@ onUnmounted(() => {
         </aside>
       </div>
 
+      <section v-if="receipt" class="fx-receipt" role="status" aria-live="polite">
+        <h2>{{ receipt.trade.side === 'buy' ? '买入已成交' : '卖出已成交' }} · {{ receipt.currency }}</h2>
+        <p>实际投入 {{ formatFxAmount(receipt.trade.input_amount) }} {{ receipt.trade.side === 'buy' ? '金圆券' : receipt.currency }}；
+          {{ receipt.trade.side === 'buy' ? '实际到账' : '实际成交所得' }} {{ formatFxAmount(receipt.trade.output_amount) }} {{ receipt.trade.side === 'buy' ? receipt.currency : '金圆券' }}。</p>
+        <p>手续费 {{ formatFxAmount(receipt.trade.fee_amount) }} {{ receipt.trade.side === 'buy' ? '金圆券' : receipt.currency }}（已含）；
+          成交均价 {{ formatFxPrice(fxGoldPerForeign(receipt.trade)) }} 金圆券 / {{ receipt.currency }}。</p>
+        <p v-if="receipt.trade.side === 'sell' && receipt.autoRepay !== false" class="fx-hint">如有借款，统一信贷模式下所得会优先还债，成交所得不等于现金净增加。本笔实际还债明细暂未提供，请核对刷新后的余额和负债。</p>
+        <p class="fx-hint">{{ formatTime(receipt.trade.created_at) }} · 成交编号 {{ receipt.trade.id }} · <router-link to="/user/portfolio">查看账户资产 →</router-link></p>
+      </section>
+
       <!-- ── 下方：持仓估值 / 新闻 / 成交记录 ── -->
       <div class="fx-lower">
         <section class="fx-block">
-          <h2>外币持仓与估值</h2>
+          <h2>{{ currencyName }} · 我的持仓</h2>
+          <p v-if="walletLoading" class="fx-hint" role="status">正在刷新持仓{{ wallet ? '，下方为上次快照' : '' }}…</p>
+          <p v-if="walletFailed" class="fx-error" role="alert">持仓读取失败{{ wallet ? '，下方为上次快照' : '' }}。
+            <button class="fx-wallet-retry" :disabled="walletLoading" @click="loadWallet">重试</button>
+          </p>
           <div class="fx-preview-row">
             <span>持仓数量（{{ currencyName }}）</span>
-            <strong>{{ formatFxAmount(wallet?.foreign_amount ?? 0) }}</strong>
+            <strong>{{ formatFxAmount(wallet?.foreign_amount) }}</strong>
           </div>
           <div class="fx-preview-row">
             <span>持仓成本（金圆券）</span>
-            <strong>{{ formatFxAmount(wallet?.cost_basis ?? 0) }}</strong>
+            <strong>{{ formatFxAmount(wallet?.cost_basis) }}</strong>
           </div>
           <div class="fx-preview-row">
             <span>平均成本（金 / 外币）</span>
             <strong>{{ walletAvgCost === null ? '—' : formatFxPrice(walletAvgCost) }}</strong>
           </div>
           <div class="fx-preview-row">
-            <span>持仓市值（MTM）</span>
-            <strong>{{ formatFxAmount(summary?.fx_mtm ?? 0) }}</strong>
+            <span>本币种账面市值（金圆券）</span>
+            <strong>{{ formatFxAmount(holdingValue?.marketValue) }}</strong>
           </div>
           <div class="fx-preview-row">
-            <span>浮动盈亏</span>
+            <span>本币种浮动盈亏（金圆券）</span>
             <strong :class="fxPnlPositive ? 'up' : 'down'">
-              {{ formatFxAmount(summary?.fx_unrealized_pnl ?? 0) }}
+              {{ formatFxAmount(holdingValue?.pnl) }}
             </strong>
           </div>
-          <p class="fx-collateral-note">
-            FX 外币资产计入展示净值，<strong>不计入借款抵押价值</strong>，也不能直接用于预测市场、兑换商品或还款。
-            有未还借款时不能买入外币，但可以卖出取回金圆券。
+          <p class="fx-hint">{{ walletUpdatedAt ? `持仓读取于 ${walletUpdatedAt}。` : '' }}按当前边际汇率估值，不等于全部卖出的实际所得。</p>
+          <div class="fx-account-total">
+            <h3>全部 FX · 账户快照</h3>
+            <p v-if="summaryLoading" class="fx-hint">正在刷新账户…</p>
+            <p v-if="summaryFailed" class="fx-error" role="alert">账户刷新失败{{ summary ? '，显示上次快照' : '' }}。
+              <button class="fx-wallet-retry" :disabled="summaryLoading" @click="loadSummary">重试</button>
+            </p>
+            <div class="fx-preview-row"><span>全部外币市值（金圆券）</span><strong>{{ formatFxAmount(summary?.fx_mtm) }}</strong></div>
+            <div class="fx-preview-row"><span>全部外币浮盈亏（金圆券）</span><strong>{{ formatFxAmount(summary?.fx_unrealized_pnl) }}</strong></div>
+            <p class="fx-hint">{{ summaryUpdatedAt ? `账户快照读取于 ${summaryUpdatedAt}` : '等待账户数据' }}</p>
+          </div>
+          <p v-if="!summary" class="fx-collateral-note">借款与抵押规则正在读取，账户加载成功后显示。</p>
+          <p v-else-if="summary.unified_credit_enabled" class="fx-collateral-note">
+            当前为统一信贷模式：FX 持仓按可执行卖出报价计入清算估值。负债买入需通过风控检查，卖出所得优先偿还借款。
+            外币不能直接用于预测市场交易或商品兑换。
+            <router-link to="/loan">查看借款与风控规则 →</router-link>
+          </p>
+          <p v-else class="fx-collateral-note">
+            当前为传统信贷模式：FX 计入展示净值，不计入借款抵押价值。有未还借款时不能买入外币，仍可卖出；
+            外币不能直接用于预测市场交易、兑换商品或还款。
+            <router-link to="/loan">查看借款 / 还款 →</router-link>
           </p>
         </section>
 
         <section class="fx-block">
-          <h2>市场新闻</h2>
+          <h2>市场新闻 · {{ currencyName }}</h2>
           <ul v-if="newsFeed.length" class="fx-news">
             <li v-for="(n, i) in newsFeed" :key="`${n.published_at}-${i}`">
               <div class="fx-news-title">{{ n.title || '未命名事件' }}</div>
               <div class="fx-news-body">{{ n.body }}</div>
-              <div class="fx-news-meta">{{ n.kind || 'macro' }} · {{ formatTime(n.published_at) }}</div>
+              <div class="fx-news-meta">{{ formatTime(n.published_at) }}</div>
             </li>
           </ul>
-          <p v-else class="fx-hint">当前没有已发布事件。新闻只包含公开标题与定性正文，不含隐藏冲击数值。</p>
+          <p v-else class="fx-hint">本次连接尚未收到新闻。此处显示进入页面后收到的公开事件，不代表此前没有发生事件。</p>
         </section>
 
         <section class="fx-block fx-trades-block">
           <div class="fx-panel-head">
             <h2>我的成交记录</h2>
-            <button class="btn-secondary" @click="loadTrades">刷新</button>
+            <button class="btn-secondary" :disabled="tradesLoading" @click="loadTrades">{{ tradesLoading ? '刷新中…' : '刷新' }}</button>
           </div>
+          <p v-if="tradesFailed" class="fx-error" role="alert">成交记录读取失败{{ trades ? '，下方为上次快照' : '' }}，请点击刷新重试。</p>
+          <p v-if="tradesLoading" class="fx-hint" role="status">正在读取成交记录…</p>
+          <p v-if="tradesUpdatedAt" class="fx-hint">记录读取于 {{ tradesUpdatedAt }}</p>
           <div class="table-wrap">
             <table class="fx-table">
               <thead>
@@ -690,36 +854,61 @@ onUnmounted(() => {
                   <th>投入</th>
                   <th>产出</th>
                   <th>手续费</th>
-                  <th>成交后价格</th>
+                  <th>本笔均价（金圆券 / 外币）</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="t in trades" :key="t.id">
+                <tr v-for="t in trades ?? []" :key="t.id">
                   <td>{{ formatTime(t.created_at) }}</td>
                   <td :class="t.side === 'buy' ? 'up' : 'down'">
                     {{ t.side === 'buy' ? '买外币' : '卖外币' }}
                   </td>
-                  <td>{{ formatFxAmount(t.input_amount) }}</td>
-                  <td>{{ formatFxAmount(t.output_amount) }}</td>
-                  <td>{{ formatFxAmount(t.fee_amount) }}</td>
-                  <td>{{ formatFxPrice(t.post_price) }}</td>
+                  <td>{{ formatFxAmount(t.input_amount) }} {{ t.side === 'buy' ? '金圆券' : currencyName }}</td>
+                  <td>{{ formatFxAmount(t.output_amount) }} {{ t.side === 'buy' ? currencyName : '金圆券' }}</td>
+                  <td>{{ formatFxAmount(t.fee_amount) }} {{ t.side === 'buy' ? '金圆券' : currencyName }}</td>
+                  <td>{{ formatFxPrice(fxGoldPerForeign(t)) }}</td>
                 </tr>
-                <tr v-if="trades.length === 0">
+                <tr v-if="!tradesLoading && !tradesFailed && trades?.length === 0">
                   <td colspan="6" class="fx-empty-cell">暂无成交</td>
                 </tr>
               </tbody>
             </table>
           </div>
           <p class="fx-hint">
-            只显示当前登录用户的个人成交；公开行情（价格/K 线/新闻）见上方，不包含任何其他用户身份或隐藏事件参数。
+            仅显示你在当前币种最近 50 笔成交。手续费已计入交易金额。
           </p>
         </section>
       </div>
     </template>
+    <MobileTradeDock
+      :visible="!loading && !error && !!activePair && !tradePanelVisible"
+      :label="currencyName" :side="side" :disabled="submitting"
+      @select="openTrade"
+    />
   </div>
 </template>
 
 <style scoped>
+.fx-title small { font-size: 12px; font-weight: 500; color: #666; margin-left: 6px; }
+.fx-connection { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
+.fx-freshness-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; font-size: 12px; color: #555; }
+.fx-freshness-bar button { margin-left: auto; }
+.fx-trade-heading { padding: 12px 14px 8px; font-size: 15px; font-weight: 800; scroll-margin-top: 80px; }
+.fx-trade-heading:focus-visible { outline: 2px solid #000; outline-offset: -2px; }
+.fx-quote-age { font-size: 12px; color: #555; margin-bottom: 10px; }
+.fx-quote-explanation { font-size: 12px; color: #555; margin-bottom: 12px; }
+.fx-quote-explanation summary { cursor: pointer; padding: 6px 0; }
+.fx-quote-explanation p { padding-top: 6px; line-height: 1.6; }
+@media (max-width: 1279px) { .fx-page { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); } }
+
+.fx-receipt { margin-top: 12px; border: 2px solid #000; padding: 14px; background: #fafafa; font-size: 13px; }
+.fx-receipt h2 { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
+.fx-account-total { border-top: 1px solid #ddd; margin-top: 14px; padding-top: 10px; }
+.fx-account-total h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.fx-page a { text-decoration: underline; text-underline-offset: 3px; }
+.fx-trade-body > .fx-hint, .fx-trade-body > .fx-error { margin-bottom: 10px; }
+.fx-trade-tab:disabled { cursor: wait; }
+
 .fx-sell-holdings {
   border: 1px solid #ddd;
   padding: 10px;
@@ -772,6 +961,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .fx-pair-select {
   border: 2px solid #000;
@@ -813,7 +1003,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  min-width: 220px;
+  min-width: 0;
 }
 .fx-topbar-label {
   font-size: 11px;
@@ -835,7 +1025,7 @@ onUnmounted(() => {
   grid-template-columns: repeat(4, minmax(110px, 1fr));
   gap: 6px 22px;
   flex: 1;
-  min-width: 260px;
+  min-width: 0;
 }
 .fx-stat {
   display: flex;
@@ -867,9 +1057,9 @@ onUnmounted(() => {
   color: var(--color-down, #dc2626);
 }
 .fx-notice {
-  border: 2px solid #b45309;
-  background: #fffbeb;
-  color: #92400e;
+  border: 1px solid #888;
+  background: #f5f5f5;
+  color: #333;
   padding: 8px 12px;
   margin-bottom: 12px;
   font-size: 13px;
@@ -1004,8 +1194,8 @@ onUnmounted(() => {
   color: #888;
 }
 .fx-preview {
-  border: 1.5px solid #000;
-  padding: 8px 10px;
+  border: 1px solid #ddd;
+  padding: 12px;
   margin: 2px 0 10px;
   background: #fafafa;
 }
@@ -1141,7 +1331,7 @@ onUnmounted(() => {
 }
 .fx-news-meta {
   font-size: 11px;
-  color: #999;
+  color: #666;
   margin-top: 4px;
 }
 .table-wrap {
@@ -1203,9 +1393,17 @@ onUnmounted(() => {
   .fx-price {
     font-size: 26px;
   }
-  .fx-chart-body {
-    height: 320px;
-  }
+  .fx-chart-body { height: 280px; }
+  .fx-interval, .fx-sell-shortcuts button, .fx-actions button { min-height: 44px; }
+  .fx-input { min-height: 44px; font-size: 16px; }
+  .fx-trade-tabs button { min-height: 48px; }
+  .fx-topbar-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; flex-basis: 100%; }
+  .fx-pair-select { max-width: 100%; }
+  .fx-pair-row { min-width: 0; }
+  .fx-preview-row { font-size: 13px; flex-wrap: wrap; }
+  .fx-preview-row strong { overflow-wrap: anywhere; }
+  .fx-freshness-bar button { min-height: 40px; }
+
   .fx-submit {
     flex-basis: 100%;
   }
