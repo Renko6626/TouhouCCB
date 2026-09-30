@@ -24,7 +24,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.base import LiquidationEvent, User
 from app.models.credit import LiquidationRun
-from app.models.fx import FxPair
+from app.models.fx import FxPair, FxTreasury
 from app.services import audit_service, loan_service
 from app.services.credit.cash import CashInvariantError
 from app.services.credit.flags import get_flags
@@ -367,7 +367,7 @@ def _asset_executable(group, deps, *, mode, pct) -> bool:
     return quote.blocked_reason is None and quote.net > 0 and bool(quote.legs)
 
 
-def _choose_unknown_overflow_cover(pre, deps, *, pct, daily_rate, now):
+async def _choose_unknown_overflow_cover(session, pre, deps, *, pct, daily_rate, now):
     """§8.2: only a trustworthy full-quote storage overflow permits spending.
 
     The AMM distinguishes input precision/range and fee errors from these two
@@ -378,6 +378,15 @@ def _choose_unknown_overflow_cover(pre, deps, *, pct, daily_rate, now):
             or pre.available_cash < ZERO or not pre.debt_effective.is_finite()
             or pre.debt_effective < ZERO):
         return None
+    pair_ids = [g.key.group_id for g in pre.groups if g.role == 'short_cover']
+    # Columns bypass the ORM identity cache: locked revalidation must see current
+    # inventory. Discovery is optimistic; execute_user repeats this read under
+    # all dependency GATES before checking the selected exclusive target. This
+    # read takes no additional pair gate or row lock.
+    rows = (await session.execute(select(
+        FxTreasury.pair_id, FxTreasury.gold_balance, FxTreasury.foreign_balance,
+    ).where(FxTreasury.pair_id.in_(pair_ids)))).all()
+    treasuries = {pid: (Decimal(gold), Decimal(foreign)) for pid, gold, foreign in rows}
     for group in sorted(pre.groups, key=lambda g: (g.key.product, g.key.group_id)):
         if (group.role != 'short_cover'
                 or group.blocked_reason != BLOCKED_SHORT_QUOTE_FAILED):
@@ -418,9 +427,15 @@ def _choose_unknown_overflow_cover(pre, deps, *, pct, daily_rate, now):
             if quote is None or quote.input_amount > plan[1]:
                 quote = quote_buy(plan[1], pair.gold_reserve, pair.foreign_reserve,
                                   pair.buy_fee_rate)
+            # Only a genuinely absent row starts at zero, matching the cover
+            # kernel's treasury creation path. Both physical accumulator legs
+            # must fit, otherwise skip this group and try the next eligible one.
+            treasury_gold, treasury_foreign = treasuries.get(group.key.group_id, (ZERO, ZERO))
             persisted = (quote.input_amount, quote.fee_amount, quote.output_amount,
                          quote.post_gold_reserve, quote.post_foreign_reserve,
-                         quote.post_price)
+                         quote.post_price, treasury_gold, treasury_foreign,
+                         treasury_gold + quote.fee_amount,
+                         treasury_foreign + quote.output_amount)
             if any(not v.is_finite() or v < ZERO or v > _STORAGE_MAX for v in persisted):
                 continue
         except (TypeError, ValueError, ArithmeticError):
@@ -429,11 +444,11 @@ def _choose_unknown_overflow_cover(pre, deps, *, pct, daily_rate, now):
     return None
 
 
-def choose_liquidation_action(pre, deps, *, pct, daily_rate, now):
-    """按 spec §8.1 第 2 步选择第一个实际可执行的组（纯函数，不写库）。"""
+async def choose_liquidation_action(session, pre, deps, *, pct, daily_rate, now):
+    """选择实际可执行组；未知 K 还需读取真实 treasury，始终不写库。"""
     if pre.risk_status != RISK_STATUS_OK:
-        return _choose_unknown_overflow_cover(
-            pre, deps, pct=pct, daily_rate=daily_rate, now=now)
+        return await _choose_unknown_overflow_cover(
+            session, pre, deps, pct=pct, daily_rate=daily_rate, now=now)
     if pre.liquidation_equity is None or pre.available_cash is None:
         return None
     mode = 'full' if pre.liquidation_equity <= 0 else 'partial'
@@ -495,8 +510,8 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
         if created:
             _seed_run_snapshot(run, pre)
             await session.flush()
-        overflow_choice = _choose_unknown_overflow_cover(
-            pre, deps, pct=pct, daily_rate=rate, now=datetime.now(timezone.utc))
+        overflow_choice = await _choose_unknown_overflow_cover(
+            session, pre, deps, pct=pct, daily_rate=rate, now=datetime.now(timezone.utc))
         if choice is not None and not _same_choice(choice, overflow_choice):
             # Interest may move a boundary between revalidation and planning;
             # never switch the exclusive target while holding the old GATE.
@@ -533,7 +548,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
     defer_repay = _pending_cover_exists(pre, deps, mode=mode, pct=pct,
                                         daily_rate=rate, now=now)
     if choice is None:
-        choice = choose_liquidation_action(pre, deps, pct=pct, daily_rate=rate, now=now)
+        choice = await choose_liquidation_action(session, pre, deps, pct=pct, daily_rate=rate, now=now)
 
     # 有待回补空头：绝不自动还金债，现金留作回补预算，直接执行排序第一的组。
     if choice is not None and defer_repay:
@@ -685,8 +700,8 @@ async def execute_user(user_id, *, rate, pct, source):
         async with async_session_maker() as session:
             deps = await discover_dependencies(session, user_id)
             preliminary = await value_user_detailed(session, user_id, daily_rate=rate)
-            guess = choose_liquidation_action(
-                preliminary, deps, pct=pct, daily_rate=rate,
+            guess = await choose_liquidation_action(
+                session, preliminary, deps, pct=pct, daily_rate=rate,
                 now=datetime.now(timezone.utc))
         command = None
         publication = None
@@ -710,8 +725,8 @@ async def execute_user(user_id, *, rate, pct, source):
                             continue
                         current = await value_user_detailed(session, user_id, daily_rate=rate)
                         now = datetime.now(timezone.utc)
-                        current_choice = choose_liquidation_action(
-                            current, fresh, pct=pct, daily_rate=rate, now=now)
+                        current_choice = await choose_liquidation_action(
+                            session, current, fresh, pct=pct, daily_rate=rate, now=now)
                         if not _same_choice(guess, current_choice):
                             continue
                         plan = await prepare_locked(
