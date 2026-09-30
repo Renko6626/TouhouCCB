@@ -1187,6 +1187,64 @@ async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(client)
     assert write.status_code == 403, write.text
 
 
+async def test_read_marks_unified_credit_disabled_matching_quote_and_cover(
+        client, monkeypatch):
+    """Unified credit off makes GET non-executable while the known math stays.
+
+    Regression: a known, coverable short advertised as ``executable`` while the
+    quote route and the cover write both refuse with ``unified_credit_disabled``,
+    or the numeric reference cost / ``risk_status`` being lost because the order
+    gate fired.  Models the invalid startup combination (live debt + unified
+    credit off) that WP5 will refuse; read/quote must still agree meanwhile.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+
+    live = await _short_get(client, user_headers, pair_id)
+    assert live.status_code == 200, live.text
+    live_body = live.json()
+    assert live_body["executable"] is True
+    assert live_body["blocked_reason"] is None
+    assert D(live_body["reference_cover_cost"]) > ZERO
+
+    # Process-global credit flag off while a live short exists.
+    monkeypatch.setattr(credit_flags, "get_flags",
+                        lambda: credit_flags.parse_flags({}))
+
+    blocked = await _short_get(client, user_headers, pair_id)
+    assert blocked.status_code == 200, blocked.text
+    body = blocked.json()
+    # Known math and risk status survive the order gate.
+    assert D(body["reference_cover_cost"]) == D(live_body["reference_cover_cost"])
+    assert body["risk_status"] == "ok"
+    assert body["executable"] is False
+    assert body["blocked_reason"] == "unified_credit_disabled"
+
+    # Same order verdict as the quote and the write route.
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["executable"] is False
+    assert quote.json()["blocked_reason"] == "unified_credit_disabled"
+    write = await _cover(client, user_headers, pair_id, cover_all=True,
+                         max_gold_in="1000000", key="k-unified-off")
+    assert write.status_code == 403, write.text
+
+    # The total trading stop keeps precedence over the sibling credit gate.
+    await _seed_config(fx_enabled="false")
+    total_stop = await _short_get(client, user_headers, pair_id)
+    assert total_stop.status_code == 200, total_stop.text
+    assert total_stop.json()["executable"] is False
+    assert total_stop.json()["blocked_reason"] == "fx_disabled"
+
+
 async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
     """Another pair's unquotable debt is a risk reason, not this order's block.
 

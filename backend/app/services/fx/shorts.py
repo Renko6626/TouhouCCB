@@ -1191,11 +1191,14 @@ async def read_short_position(
             executable=False, risk_status="blocked",
             blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
         )
-    # Order eligibility is the intersection of the pair status and the total
-    # player-trading stop, matching the quote/write routes; the mathematical
-    # reference K and ``risk_status`` stay valid even when trading is stopped.
+    # Order eligibility is the intersection of the pair status, the total
+    # player-trading stop and the process-global unified-credit gate, matching
+    # the quote/write routes; the mathematical reference K and ``risk_status``
+    # stay valid even when trading is stopped.
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         order_reason: Optional[str] = BLOCKED_FX_DISABLED
+    elif not credit_flags.get_flags().unified_credit_enabled:
+        order_reason = BLOCKED_UNIFIED_CREDIT
     else:
         order_reason = quote.blocked_reason
     return FxShortPositionRead(
