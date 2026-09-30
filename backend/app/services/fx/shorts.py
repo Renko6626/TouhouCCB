@@ -61,11 +61,19 @@ SHORT_OPEN_PURPOSE = "short_open"
 SHORT_COVER_PURPOSE = "short_cover"
 
 
-class ShortOpenRejected(ValueError):
-    """Malformed request or a quote the AMM cannot execute."""
+class ShortRejected(ValueError):
+    """Common base for any malformed short request or unexecutable short quote.
+
+    A route that must safely turn every bad short input into a 4xx can catch
+    this base instead of enumerating the open/cover subclasses.
+    """
 
 
-class ShortCoverRejected(ValueError):
+class ShortOpenRejected(ShortRejected):
+    """Malformed open request or a quote the AMM cannot execute."""
+
+
+class ShortCoverRejected(ShortRejected):
     """Malformed cover request or a cover quote the AMM cannot execute."""
 
 
@@ -121,48 +129,60 @@ def _require_writes() -> None:
         OWNERSHIP.require_writes()
 
 
-def _as_decimal(value: object, name: str) -> Decimal:
-    parsed = _finite_decimal(value, name)
+def _as_decimal(
+    value: object, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> Decimal:
+    parsed = _finite_decimal(value, name, reject)
     if -parsed.as_tuple().exponent > 6:
-        raise ShortOpenRejected(f"{name} must have at most 6 fractional digits")
+        raise reject(f"{name} must have at most 6 fractional digits")
     return parsed
 
 
-def _finite_decimal(value: object, name: str) -> Decimal:
+def _finite_decimal(
+    value: object, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> Decimal:
     if isinstance(value, Decimal):
         parsed = value
     else:
         try:
             parsed = Decimal(str(value))
         except (InvalidOperation, TypeError, ValueError) as exc:
-            raise ShortOpenRejected(f"{name} must be decimal") from exc
+            raise reject(f"{name} must be decimal") from exc
     if not parsed.is_finite():
-        raise ShortOpenRejected(f"{name} must be finite")
+        raise reject(f"{name} must be finite")
     return parsed
 
 
-def _positive_six(value: object, name: str) -> Decimal:
-    parsed = _as_decimal(value, name)
+def _positive_six(
+    value: object, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> Decimal:
+    parsed = _as_decimal(value, name, reject)
     if parsed <= 0:
-        raise ShortOpenRejected(f"{name} must be positive")
+        raise reject(f"{name} must be positive")
     return parsed
 
 
-def _nonnegative_six(value: object, name: str) -> Decimal:
-    parsed = _as_decimal(value, name)
+def _nonnegative_six(
+    value: object, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> Decimal:
+    parsed = _as_decimal(value, name, reject)
     if parsed < 0:
-        raise ShortOpenRejected(f"{name} must be non-negative")
+        raise reject(f"{name} must be non-negative")
     return parsed
 
 
-def _require_gold_bound(value: Decimal, name: str) -> None:
-    if value < 0 or value > _MAX_GOLD:
-        raise ShortOpenRejected(f"{name} exceeds storage range")
+def _require_gold_bound(
+    value: Decimal, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> None:
+    if not value.is_finite() or value < 0 or value > _MAX_GOLD:
+        raise reject(f"{name} exceeds storage range")
 
 
-def _require_foreign_bound(value: Decimal, name: str) -> None:
-    if value < 0 or value > _MAX_DEBT:
-        raise ShortOpenRejected(f"{name} exceeds storage range")
+def _require_foreign_bound(
+    value: Decimal, name: str, reject: type[ValueError] = ShortOpenRejected,
+) -> None:
+    if not value.is_finite() or value < 0 or value > _MAX_DEBT:
+        raise reject(f"{name} exceeds storage range")
 
 
 # ── locked reads (pair -> User -> wallet/short rows -> treasury) ─────────────
@@ -553,8 +573,12 @@ async def execute_short_cover_in_session(
         raise ShortCoverRejected("cover_all and foreign_amount are mutually exclusive")
     if not is_cover_all and foreign_amount is None:
         raise ShortCoverRejected("foreign_amount is required unless cover_all")
-    amount = None if is_cover_all else _positive_six(foreign_amount, "foreign_amount")
-    limit_gold = _nonnegative_six(max_gold_in, "max_gold_in")
+    amount = (
+        None if is_cover_all
+        else _positive_six(foreign_amount, "foreign_amount", ShortCoverRejected)
+    )
+    limit_gold = _nonnegative_six(max_gold_in, "max_gold_in", ShortCoverRejected)
+    _require_gold_bound(limit_gold, "max_gold_in", ShortCoverRejected)
     if not idempotency_key or len(idempotency_key) > 128:
         raise ShortCoverRejected("idempotency_key is required")
     if idempotency_key.startswith("liq:"):
@@ -613,7 +637,8 @@ async def execute_short_cover_in_session(
         db.add(treasury)
 
     now = utcnow()
-    daily_rate = _finite_decimal(credit_deps.daily_rate, "daily_rate")
+    daily_rate = _finite_decimal(
+        credit_deps.daily_rate, "daily_rate", ShortCoverRejected)
 
     # One UTC T: settle gold debt and every own foreign position before reading
     # the coverable debt, so cover_all takes the whole post-settlement tail.
@@ -699,6 +724,23 @@ async def execute_short_cover_in_session(
         "debt_last_accrued_at": user.debt_last_accrued_at,
     }
     short_before = _short_snapshot(target)
+
+    # Storage bounds: every post-state accumulator must fit its Numeric column
+    # before a single money/short row moves.  ``quote_buy_exact_out`` already
+    # bounds X, the fee and the post reserves, but it knows nothing about the
+    # treasury balances, cash or the debt tail; SQLite would silently accept an
+    # over-range write while Postgres fails at flush.  Reject as a cover error
+    # so the caller's rollback leaves money/debt/lock/pool/treasury/trade/audit
+    # exactly as it found them.
+    _require_gold_bound(
+        pre_treasury_gold + quote.fee_amount, "treasury gold", ShortCoverRejected)
+    _require_gold_bound(
+        pre_treasury_foreign + q, "treasury foreign", ShortCoverRejected)
+    _require_gold_bound(cash - x, "cash", ShortCoverRejected)
+    _require_gold_bound(
+        quote.post_gold_reserve, "pool gold", ShortCoverRejected)
+    _require_gold_bound(
+        quote.post_foreign_reserve, "pool foreign", ShortCoverRejected)
 
     # Physical settlement: the AMM buys exactly q foreign with X gold; the net
     # gold joins the pool, the gold fee and the returned q go to treasury, cash

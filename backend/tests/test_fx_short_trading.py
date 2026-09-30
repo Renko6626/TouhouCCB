@@ -82,7 +82,8 @@ def _short_row(user_id, pair_id, *, principal="10", interest="0", restricted="0"
 
 async def _seed(*, cash="1000", debt="0", debt_ago_sec=None, rate="0",
                 treasury_foreign="100000",
-                gold="1000", foreign="1000", buy_fee="0", sell_fee="0",
+                gold="1000", treasury_gold=None, foreign="1000",
+                buy_fee="0", sell_fee="0",
                 limit="100000", status="trading", reduce_only=False,
                 archived=False, wallet_foreign=None, short=None,
                 short_enabled=True, loan_enabled=True, fx_enabled=True,
@@ -107,7 +108,8 @@ async def _seed(*, cash="1000", debt="0", debt_ago_sec=None, rate="0",
         )
         db.add(pair)
         await db.flush()
-        db.add(FxTreasury(pair_id=pair.id, gold_balance=D(gold),
+        db.add(FxTreasury(pair_id=pair.id,
+                          gold_balance=D(treasury_gold) if treasury_gold is not None else D(gold),
                           foreign_balance=D(treasury_foreign)))
         configs = [
             ("fx_enabled", "true" if fx_enabled else "false", "bool"),
@@ -974,6 +976,72 @@ async def test_cover_request_shape_must_be_fixed_or_cover_all():
         await _cover(uid, pid, q="5", cover_all=True, key="k-shape")
     with pytest.raises(ShortCoverRejected):
         await _cover(uid, pid, q=None, cover_all=False, key="k-shape")
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+    assert after == before
+    assert not GATES.held_keys()
+
+
+# ── fix round 1: cover rejection type and accumulator storage bounds ─────────
+
+@pytest.mark.parametrize("cover_kwargs", [
+    {"q": "NaN"},
+    {"q": "0"},
+    {"q": "-1"},
+    {"q": "1.0000001"},
+    {"q": "5", "max_gold_in": "NaN"},
+    {"q": "5", "max_gold_in": "-1"},
+    {"q": "5", "max_gold_in": "1.0000001"},
+    {"q": "5", "max_gold_in": "10000000000"},
+])
+async def test_malformed_cover_numbers_are_cover_rejections(cover_kwargs):
+    """Every bad cover number is a documented cover rejection, not an open one.
+
+    A future cover route catches ``ShortCoverRejected`` (or the shared
+    ``ShortRejected`` base) to answer 4xx.  NaN, zero, negative or over-precise
+    quantities must not leak the open-path type and become a 500, and a rejected
+    shape must leave the persisted book untouched.
+    """
+    uid, pid = await _seed(
+        cash="1000", rate="0", treasury_foreign="100000",
+        gold="1000", foreign="1000", limit="100000",
+        short={"principal": "100", "interest": "0", "restricted": "100",
+               "basis": "100"},
+    )
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    with pytest.raises(ShortCoverRejected):
+        await _cover(uid, pid, key="k-bad", **cover_kwargs)
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+    assert after == before
+    assert not GATES.held_keys()
+
+
+async def test_cover_treasury_gold_overflow_rejects_before_any_mutation():
+    """A gold fee that overflows the treasury Numeric(16,6) rejects atomically.
+
+    ``quote_buy_exact_out`` bounds X and the pool, but not treasury.gold_balance.
+    SQLite silently stores a seven-integer-digit Numeric while Postgres would
+    fail at flush; the cover must precheck the accumulator and reject as a cover
+    error with no money/debt/lock/pool/treasury/trade/audit change.
+    """
+    near_max = D("9999999999.9")
+    uid, pid = await _seed(
+        cash="1000", rate="0", buy_fee="0.02",
+        treasury_foreign="100000", gold="1000", foreign="1000",
+        treasury_gold=near_max, limit="100000",
+        short={"principal": "10", "interest": "0", "restricted": "10",
+               "basis": "10"},
+    )
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    with pytest.raises(ShortCoverRejected):
+        await _cover(uid, pid, q="5", key="k-treasury-overflow")
 
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
