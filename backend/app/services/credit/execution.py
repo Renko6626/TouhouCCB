@@ -93,11 +93,13 @@ def _recovered(thresholds, pre: AccountValuation, has_short: bool, *, debt=None)
     与 WP2 的等价性证明一致。
     """
     debt_value = pre.debt_effective if debt is None else debt
+    if not has_short and debt_value <= 0:
+        return True
+    if pre.risk_status != RISK_STATUS_OK or pre.liquidation_equity is None:
+        return False
     if not has_short:
         return thresholds.recovered(pre.liquidation_equity, debt_value)
     cover = pre.short_cover_cost
-    if debt_value <= 0 and (cover is None or cover <= 0):
-        return True
     equity = pre.liquidation_equity
     if equity is None or cover is None:
         return False
@@ -255,6 +257,7 @@ class LockedPlan:
     status: str               # replayed|blocked|recovered|triggered|sell|cover
     repaid: Decimal = ZERO
     defer_repay: bool = False
+    blocked_reason: str | None = None
 
 
 def _ceil6(value: Decimal) -> Decimal:
@@ -430,7 +433,8 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
         await _record_blocked_once(session, user, run,
             group=_blocked_short_group(pre, pre.blocked_reason),
             reason=pre.blocked_reason or 'risk_unquotable')
-        return LockedPlan(run, pre, None, None, None, None, None, 'blocked')
+        return LockedPlan(run, pre, None, None, None, None, None, 'blocked',
+                          blocked_reason=pre.blocked_reason or 'risk_unquotable')
 
     has_short = _has_foreign_obligation(pre)
 
@@ -491,7 +495,8 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
                 status='recovered' if cash_recovers else 'insolvent',
                 now=datetime.now(timezone.utc))
         return LockedPlan(run, pre, None, None, mode, None, None,
-                          'triggered' if paid else 'blocked', repaid=paid)
+                          'triggered' if paid else 'blocked', repaid=paid,
+                          blocked_reason=None if cash_recovers else NO_EXECUTABLE_GROUP)
 
     if choice is not None:
         await session.flush()
@@ -503,7 +508,8 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
 
     # 没有可执行组但仍有待回补空头（只可能是预算恰好为零，无现金可还）：保留 run。
     await _record_blocked_once(session, user, run, group=None, reason=NO_EXECUTABLE_GROUP)
-    return LockedPlan(run, pre, None, None, mode, None, None, 'blocked', defer_repay=True)
+    return LockedPlan(run, pre, None, None, mode, None, None, 'blocked', defer_repay=True,
+                      blocked_reason=NO_EXECUTABLE_GROUP)
 
 
 async def finish_locked(session, user, run, rate):
@@ -513,6 +519,10 @@ async def finish_locked(session, user, run, rate):
     has_short = _has_foreign_obligation(post)
     if _recovered(thresholds, post, has_short):
         await close_run(session, run=run, status='recovered', now=datetime.now(timezone.utc))
+        return
+    if post.risk_status != RISK_STATUS_OK:
+        run.last_blocked_reason = post.blocked_reason or 'risk_unquotable'
+        run.updated_at = datetime.now(timezone.utc)
         return
     executable = any(g.executable and g.value is not None and g.value > 0
                      for g in post.groups)

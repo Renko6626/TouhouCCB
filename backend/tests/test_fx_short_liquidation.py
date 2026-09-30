@@ -1350,3 +1350,77 @@ async def test_lmsr_sale_with_paused_short_repays_gold_from_proceeds():
             FxShortPosition.pair_id == short_pid))).scalars().one()
         assert D(short.principal_foreign) == D("10000")
         assert D(short.restricted_gold) == D("0")
+
+
+async def test_queued_lmsr_sale_revalidation_persists_unknown_short_block(monkeypatch):
+    """A selected LMSR sale must commit its blocked response if K becomes unknown."""
+    from app.services.credit.execution import execute_user
+    from app.services.market_writer import WRITER
+
+    uid, pair_id, _ = await _seed_lmsr_with_unpayable_short()
+    submit = WRITER.submit
+    responses = []
+
+    async def submit_after_pool_drift(cmd):
+        # Gates are released before submission: another pair transaction can
+        # exhaust the full-cover reserve before writer revalidation.
+        async with async_session_maker() as s:
+            pair = await s.get(FxPair, pair_id)
+            pair.foreign_reserve = D('10000')
+            await s.commit()
+        response = await submit(cmd)
+        responses.append(response)
+        return response
+
+    monkeypatch.setattr(WRITER, 'submit', submit_after_pool_drift)
+    await WRITER.start()
+    try:
+        status = await execute_user(uid, rate=D('0'), pct=D('.1'), source='scheduler')
+    finally:
+        await WRITER.stop()
+
+    assert status == 'blocked'
+    assert responses[0]['blocked_reason'] == 'insufficient_pool_foreign'
+    assert responses[0]['sold_count'] == 0
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        action = (await s.execute(select(LiquidationAction))).scalar_one()
+        assert run.status == 'active'
+        assert run.last_blocked_reason == 'insufficient_pool_foreign'
+        assert action.kind == 'blocked'
+        assert action.blocked_reason == 'insufficient_pool_foreign'
+        assert action.group_id == pair_id
+        user = await s.get(User, uid)
+        assert user.cash == 0 and user.debt == D('100')
+        assert (await s.execute(select(Position))).scalar_one().amount == D('100')
+        assert not list((await s.execute(select(LiquidationEvent))).scalars())
+
+
+async def test_finish_locked_keeps_foreign_only_unknown_post_state_active():
+    """Post-action revaluation cannot recover a live foreign obligation at D=0."""
+    from app.services.credit.execution import finish_locked
+    from app.services.credit.runs import get_or_create_active_run
+
+    uid, pair_id = await _seed_foreign_only_overflow()
+    async with async_session_maker() as s:
+        run = await get_or_create_active_run(
+            s, user_id=uid, trigger_source='scheduler', now=datetime.now(timezone.utc))
+        await s.commit()
+        run_id = run.id
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        run = await s.get(LiquidationRun, run_id)
+        await finish_locked(s, user, run, D('0'))
+        await s.commit()
+
+    async with async_session_maker() as s:
+        run = await s.get(LiquidationRun, run_id)
+        assert run.status == 'active'
+        assert run.last_blocked_reason == 'insufficient_pool_foreign'
+        assert run.closed_at is None
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == pair_id))).scalar_one()
+        assert short.principal_foreign == D('1000')
+        user = await s.get(User, uid)
+        assert user.debt == 0 and user.cash == D('50')
