@@ -635,8 +635,13 @@ export const fxAdminApi = {
     return api.post<FxEventAdmin>(`/api/v1/admin/fx/events/${eventId}/cancel`)
   },
 
-  listInterventions(pairId: number): Promise<FxIntervention[]> {
-    return api.get<FxIntervention[]>(`/api/v1/admin/fx/pairs/${pairId}/interventions`)
+  listInterventions(
+    pairId: number,
+    filters: { limit: number; source?: string; side?: FxSide },
+  ): Promise<FxIntervention[]> {
+    return api.get<FxIntervention[]>(`/api/v1/admin/fx/pairs/${pairId}/interventions`, {
+      params: filters,
+    })
   },
 }
 

@@ -16,13 +16,14 @@ const submitting = ref(false)
 const busy = computed(() => store.loading || submitting.value)
 
 const policy = ref<LiquidationPolicy | null>(null)
+const policyError = ref(false)
 
 onMounted(async () => {
   store.refresh()
   try {
     policy.value = await fetchLiquidationPolicy()
   } catch {
-    // policy 拉失败不阻塞主流程；说明卡只是教育用
+    policyError.value = true
   }
 })
 
@@ -119,13 +120,39 @@ async function repayAll() {
         title="借款功能维护中"
       />
 
+      <section v-if="policy" class="panel liq-panel">
+        <h2>{{ policy.unified_credit_enabled ? '统一信贷：预测市场与外汇共用额度' : '预测市场借款' }}</h2>
+        <template v-if="policy.unified_credit_enabled">
+          <p class="liq-intro">
+            借入的是金圆券，可用于预测市场和外汇交易。现金、预测市场持仓及各外汇持仓共同支持同一笔债务，
+            无需另开 FX 贷款。
+          </p>
+          <p v-if="policy.credit_leverage != null" class="liq-intro">
+            当前名义杠杆上限 <strong>{{ policy.credit_leverage }}x</strong>，
+            新增借款时，总负债不得超过清算净值的 <strong>{{ Number((policy.credit_leverage - 1).toFixed(6)) }} 倍</strong>。
+            这是授信上限，借款不会自动买入持仓，也不代表你当前已使用这个倍数。
+          </p>
+          <p class="liq-intro">
+            任一持仓亏损都会影响共用额度；触发强平时，其他预测市场或外汇持仓也可能被卖出还债。
+            外币需先卖成金圆券才能主动还款。
+          </p>
+        </template>
+        <p v-else class="liq-intro">
+          当前未开启统一信贷，FX 持仓不计入借款抵押；有未还借款时不能买入外币。
+          借款和还款均使用金圆券。
+        </p>
+      </section>
+      <NAlert v-else :type="policyError ? 'warning' : 'info'" :title="policyError ? '借款规则暂时加载失败' : '正在读取当前借款规则'">
+        {{ policyError ? '暂无法确认当前杠杆与强平规则，请刷新页面重试。' : '模式、杠杆及强平说明以服务器当前生效配置为准。' }}
+      </NAlert>
+
       <section class="panel">
         <h2>当前负债</h2>
         <div class="debt-number" :class="{ red: debtNumber > 0 }">
           {{ store.quota?.debt ?? '—' }}
         </div>
         <div class="meta">
-          <span>可借额度：<strong>{{ store.quota?.max_borrow ?? '—' }}</strong></span>
+          <span>还可借入：<strong>{{ store.quota?.max_borrow ?? '—' }}</strong></span>
           <span class="sep">·</span>
           <span>日利率：<strong>{{ dailyRatePct }}</strong></span>
           <span class="sep">·</span>
@@ -158,8 +185,12 @@ async function repayAll() {
           >借入</NButton>
         </div>
         <div v-if="store.quota?.enabled" class="meta-small">
-          可借额度：<strong>金 {{ maxBorrowNumber.toFixed(2) }}</strong>
+          还可借入：<strong>金 {{ maxBorrowNumber.toFixed(2) }}</strong>
         </div>
+        <p v-if="policy?.unified_credit_enabled" class="meta-small">
+          额度按清算净值和含利息的负债计算，已扣除已有借款。
+          行情、手续费和滑点都会影响额度；借入和买入时会重新检查，借满后也可能因交易成本而无法继续买入。
+        </p>
       </section>
 
       <section class="panel">
@@ -204,7 +235,7 @@ async function repayAll() {
       <section v-if="policy?.unified_credit_enabled" class="panel liq-panel">
         <h3>跨产品定时强平</h3>
         <p>账面净值：金 {{ store.quota?.display_equity ?? '—' }}；清算净值：金 {{ store.quota?.liquidation_equity ?? '—' }}。</p>
-        <p>清算净值 = 现金 + LMSR 与各外汇实际可变现金额 − 含待结利息的负债。
+        <p>清算净值 = 现金 + 预测市场与各外汇实际可变现金额 − 含待结利息的负债。
           不可卖资产的清算价值为 0，账面市值不代表能立即变现。</p>
         <p>初始 / 恢复率 {{ ((policy.r_initial ?? 0) * 100).toFixed(2) }}%；
           维持率 {{ ((policy.r_maintenance ?? 0) * 100).toFixed(2) }}%。</p>
@@ -212,14 +243,14 @@ async function repayAll() {
           先用现金还债，再按固定顺序选择可卖的一组（一个预测市场或一个外汇交易对）。
           每人每次扫描最多处理一组，通常卖出该组的 {{ (policy.partial_pct * 100).toFixed(2) }}%；清算净值不大于 0 时卖出该组全部。
           下一次扫描继续，恢复到初始率或还清即停止；卖光仍欠债会冻结新增信用，不会免债。</p>
-        <p>强平不另收罚金：LMSR 卖出费率 {{ ((policy.sell_fee_rate ?? 0) * 100).toFixed(2) }}%。
+        <p>强平不另收罚金：预测市场卖出费率 {{ ((policy.sell_fee_rate ?? 0) * 100).toFixed(2) }}%。
           <span v-for="pair in policy.fx_sell_fee_rates" :key="pair.pair_id">
             {{ pair.currency_code }} 卖出费率 {{ (pair.sell_fee_rate * 100).toFixed(2) }}%。
           </span>
         </p>
         <p>机制{{ policy.enabled ? '已开启' : '已暂停' }}。交易或行情变化不会额外触发强平。</p>
       </section>
-      <section v-else class="panel liq-panel">
+      <section v-else-if="policy" class="panel liq-panel">
         <h3>强制平仓机制</h3>
         <p class="liq-intro">
           有负债时，系统会按下面规则定期检查你的保证金率

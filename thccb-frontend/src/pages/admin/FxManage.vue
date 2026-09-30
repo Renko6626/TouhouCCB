@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useMessage } from 'naive-ui'
 import { formatFxAmount, fxAdminApi, fxApi, mapFxError, mergeFxPairs } from '@/api/fx'
+import { getConfigMeta } from '@/utils/configMeta'
+import { buildFxPairSetup } from '@/utils/fxPairSetup'
 import type {
   FxEventAdmin,
   FxIntervention,
@@ -10,6 +12,7 @@ import type {
   FxPairPublic,
   FxPairStatus,
   FxSnapshot,
+  FxSide,
 } from '@/types/fx'
 
 const msg = useMessage()
@@ -27,6 +30,11 @@ const snapshots = ref<Record<number, FxSnapshot>>({})
 const events = ref<FxEventAdmin[]>([])
 const interventions = ref<FxIntervention[]>([])
 const interventionPairId = ref<number | null>(null)
+const interventionLimit = ref(50)
+const interventionSource = ref('')
+const interventionSide = ref<FxSide | ''>('')
+const interventionsLoading = ref(false)
+let interventionRequestId = 0
 
 // 公开列表过滤 draft；合并本地写操作返回的管理员记录，保证本会话内
 // 「创建草稿 → 注资 → 开市」全程可见、可选。公开条目存在时优先（字段更新鲜）。
@@ -73,6 +81,45 @@ const pairForm = ref({
   sell_fee_rate: '0.002',
   status: 'draft' as FxPairStatus,
 })
+
+const pairMode = ref<'quick' | 'manual'>('quick')
+const quickPair = ref({ price: '1', gold: '1000', downPct: '50', upPct: '100', buyPct: '0.2', sellPct: '0.2' })
+const quickResult = computed(() => {
+  try {
+    return { values: buildFxPairSetup(quickPair.value), error: '' }
+  } catch (e) {
+    return { values: null, error: e instanceof Error ? e.message : '请检查快捷参数' }
+  }
+})
+const pairToCreate = computed(() => pairMode.value === 'quick'
+  ? { ...pairForm.value, ...quickResult.value.values }
+  : pairForm.value)
+const poolPricePreview = computed(() => {
+  const f = pairToCreate.value
+  const price = Number(f.gold_reserve) / Number(f.foreign_reserve)
+  return Number.isFinite(price) && price > 0 ? formatFxAmount(String(price), 6) : '—'
+})
+const sampleBuyAmount = ref('1000')
+const sampleBuyPreview = computed(() => {
+  // 仅为规模感知预览；提交参数始终使用十进制字符串，成交由服务端计算。
+  const f = pairToCreate.value
+  const gold = Number(f.gold_reserve)
+  const foreign = Number(f.foreign_reserve)
+  const fee = Number(f.buy_fee_rate)
+  const amount = Number(sampleBuyAmount.value)
+  if (![gold, foreign, amount].every(v => Number.isFinite(v) && v > 0) || !Number.isFinite(fee) || fee < 0 || fee >= 1) return null
+  const net = amount * (1 - fee)
+  const output = foreign * net / (gold + net)
+  const move = ((1 + net / gold) ** 2 - 1) * 100
+  if (!Number.isFinite(output) || !Number.isFinite(move)) return null
+  return { output: formatFxAmount(String(output), 6), move: move.toFixed(2) }
+})
+
+function editPairManually() {
+  if (!quickResult.value.values) return
+  Object.assign(pairForm.value, quickResult.value.values)
+  pairMode.value = 'manual'
+}
 
 const fundForm = ref({ pair_id: 0, gold_amount: '0', foreign_amount: '0' })
 
@@ -208,7 +255,11 @@ async function toggleGate() {
 // ── 货币对 ──
 async function createPair() {
   createPairError.value = null
-  const f = pairForm.value
+  if (pairMode.value === 'quick' && quickResult.value.error) {
+    createPairError.value = quickResult.value.error
+    return
+  }
+  const f = pairToCreate.value
   if (!/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
     createPairError.value = '币种代码只能包含大写字母、数字与下划线'
     return
@@ -368,15 +419,25 @@ async function cancelEvent(event: FxEventAdmin) {
 
 // ── 干预日志 ──
 async function loadInterventions() {
+  const requestId = ++interventionRequestId
   const id = interventionPairId.value
+  interventions.value = []
   if (!id) {
-    interventions.value = []
+    interventionsLoading.value = false
     return
   }
+  interventionsLoading.value = true
   try {
-    interventions.value = await fxAdminApi.listInterventions(id)
+    const rows = await fxAdminApi.listInterventions(id, {
+      limit: interventionLimit.value,
+      source: interventionSource.value || undefined,
+      side: interventionSide.value || undefined,
+    })
+    if (requestId === interventionRequestId) interventions.value = rows
   } catch (e) {
-    msg.error(mapFxError(e, '干预日志加载失败'))
+    if (requestId === interventionRequestId) msg.error(mapFxError(e, '干预日志加载失败'))
+  } finally {
+    if (requestId === interventionRequestId) interventionsLoading.value = false
   }
 }
 
@@ -430,6 +491,7 @@ onMounted(async () => {
         <div class="fx-config-grid">
           <label v-for="key in CONFIG_ORDER" :key="key" class="fx-config-item">
             <span>{{ CONFIG_LABELS[key] }}<code>{{ key }}</code></span>
+            <small class="fx-config-description">{{ getConfigMeta(key).description }}</small>
             <div class="fx-config-row">
               <input v-model="configDraft[key]" class="fx-input" :disabled="key === 'fx_enabled'" />
               <button class="btn-sm" @click="saveConfigValue(key, configDraft[key] ?? '')">保存</button>
@@ -528,20 +590,59 @@ onMounted(async () => {
         </div>
 
         <div class="fx-form-grid">
-          <div class="fx-form-card">
-            <h3>创建货币对（草稿）</h3>
-            <label>币种代码<input v-model="pairForm.currency_code" class="fx-input" /></label>
-            <label>币种名称<input v-model="pairForm.currency_name" class="fx-input" /></label>
-            <label>金圆券储备<input v-model="pairForm.gold_reserve" class="fx-input" /></label>
-            <label>外币储备<input v-model="pairForm.foreign_reserve" class="fx-input" /></label>
-            <label>目标价<input v-model="pairForm.target_price" class="fx-input" /></label>
-            <label>初始价<input v-model="pairForm.initial_price" class="fx-input" /></label>
-            <label>目标下限<input v-model="pairForm.target_min" class="fx-input" /></label>
-            <label>目标上限<input v-model="pairForm.target_max" class="fx-input" /></label>
-            <label>买入费率<input v-model="pairForm.buy_fee_rate" class="fx-input" /></label>
-            <label>卖出费率<input v-model="pairForm.sell_fee_rate" class="fx-input" /></label>
-            <p v-if="createPairError" class="fx-error">{{ createPairError }}</p>
-            <button class="btn-primary" @click="createPair">创建草稿</button>
+          <div class="fx-form-card fx-pair-setup">
+            <div class="fx-setup-head">
+              <h3>创建新币种</h3>
+              <span class="fx-setup-badge">{{ pairMode === 'quick' ? '快捷配置' : '手动配置' }}</span>
+            </div>
+            <p class="fx-hint">先定汇率与池子规模，确认参数后创建草稿，再单独开市。</p>
+            <div class="fx-setup-fields">
+              <label>币种代码<input v-model="pairForm.currency_code" class="fx-input" placeholder="例如 MORA" maxlength="16" /></label>
+              <label>币种名称<input v-model="pairForm.currency_name" class="fx-input" placeholder="例如 摩拉" maxlength="64" /></label>
+            </div>
+            <template v-if="pairMode === 'quick'">
+              <div class="fx-setup-fields">
+                <label>开盘汇率<input v-model="quickPair.price" class="fx-input" inputmode="decimal" /><small>1 外币值多少金圆券</small></label>
+                <label>池子金圆券规模<input v-model="quickPair.gold" class="fx-input" inputmode="decimal" /><small>池子越大，同额买卖推动价格越小</small></label>
+                <label>目标价下跌范围（%）<input v-model="quickPair.downPct" class="fx-input" inputmode="decimal" /></label>
+                <label>目标价上涨范围（%）<input v-model="quickPair.upPct" class="fx-input" inputmode="decimal" /></label>
+                <label>买入手续费（%）<input v-model="quickPair.buyPct" class="fx-input" inputmode="decimal" /><small>填写 0.2 即 0.2%</small></label>
+                <label>卖出手续费（%）<input v-model="quickPair.sellPct" class="fx-input" inputmode="decimal" /></label>
+              </div>
+              <p class="fx-hint">目标价默认等于开盘汇率。涨跌范围约束系统目标价，不限制玩家成交价；系统目标价还受初始价 0.5–2 倍的边界限制。</p>
+              <p v-if="quickResult.error" class="fx-error" role="alert">{{ quickResult.error }}</p>
+            </template>
+            <template v-else>
+              <p class="fx-hint">已带入快捷结果，以下数值可独立修改。实际开盘汇率由两侧储备之比决定。</p>
+              <div class="fx-setup-fields">
+                <label>金圆券储备<input v-model="pairForm.gold_reserve" class="fx-input" inputmode="decimal" /></label>
+                <label>外币储备<input v-model="pairForm.foreign_reserve" class="fx-input" inputmode="decimal" /></label>
+                <label>系统目标价<input v-model="pairForm.target_price" class="fx-input" inputmode="decimal" /></label>
+                <label>初始参考价<input v-model="pairForm.initial_price" class="fx-input" inputmode="decimal" /></label>
+                <label>目标下限<input v-model="pairForm.target_min" class="fx-input" inputmode="decimal" /></label>
+                <label>目标上限<input v-model="pairForm.target_max" class="fx-input" inputmode="decimal" /></label>
+                <label>买入费率（小数）<input v-model="pairForm.buy_fee_rate" class="fx-input" inputmode="decimal" /><small>0.002 即 0.2%</small></label>
+                <label>卖出费率（小数）<input v-model="pairForm.sell_fee_rate" class="fx-input" inputmode="decimal" /></label>
+              </div>
+            </template>
+            <div v-if="pairMode === 'manual' || !quickResult.error" class="fx-setup-preview" aria-live="polite">
+              <h4>创建预览</h4>
+              <dl>
+                <div><dt>实际开盘汇率（约）</dt><dd>1 外币 = {{ poolPricePreview }} 金圆券</dd></div>
+                <div><dt>交易池储备</dt><dd>{{ pairToCreate.gold_reserve }} 金圆券 / {{ pairToCreate.foreign_reserve }} 外币</dd></div>
+                <div><dt>系统目标价</dt><dd>{{ pairToCreate.target_price }}（{{ pairToCreate.target_min }}–{{ pairToCreate.target_max }}）</dd></div>
+              </dl>
+              <p class="fx-hint">创建时还会配发同额的系统干预资金：{{ pairToCreate.gold_reserve }} 金圆券与 {{ pairToCreate.foreign_reserve }} 外币，和交易池分开记账。</p>
+              <label>试算买入金额（金圆券）<input v-model="sampleBuyAmount" class="fx-input" inputmode="decimal" /></label>
+              <p v-if="sampleBuyPreview" class="fx-hint">预计收到约 {{ sampleBuyPreview.output }} 外币，池子价格上升约 {{ sampleBuyPreview.move }}%。仅为规模预览，实际成交按服务端手续费与精度计算。</p>
+              <p class="fx-hint">自动计算的储备和目标边界向下保留最多 6 位小数，实际汇率可能有微小偏差。</p>
+            </div>
+            <div class="fx-form-actions">
+              <button v-if="pairMode === 'quick'" class="btn-secondary" :disabled="!!quickResult.error" @click="editPairManually">手动调整全部参数</button>
+              <button v-else class="btn-secondary" @click="pairMode = 'quick'">使用快捷参数</button>
+              <button class="btn-primary" :disabled="pairMode === 'quick' && !!quickResult.error" @click="createPair">创建草稿</button>
+            </div>
+            <p v-if="createPairError" class="fx-error" role="alert">{{ createPairError }}</p>
           </div>
 
           <div class="fx-form-card">
@@ -651,12 +752,30 @@ onMounted(async () => {
         <div class="fx-panel-head">
           <h2>系统干预日志</h2>
           <div class="fx-config-row">
-            <select v-model.number="interventionPairId" class="fx-input">
+            <select v-model.number="interventionPairId" class="fx-input" aria-label="货币对" @change="loadInterventions">
               <option v-for="p in visiblePairs" :key="p.id" :value="p.id">
                 {{ p.currency_name }}（{{ p.currency_code }}）
               </option>
             </select>
-            <button class="btn-secondary" @click="loadInterventions">加载</button>
+            <select v-model="interventionSource" class="fx-input" aria-label="来源" @change="loadInterventions">
+              <option value="">全部来源</option>
+              <option value="system_target">目标调节</option>
+              <option value="system_event">事件</option>
+              <option value="system_noise">噪声</option>
+              <option value="liquidation">强平</option>
+            </select>
+            <select v-model="interventionSide" class="fx-input" aria-label="方向" @change="loadInterventions">
+              <option value="">全部方向</option>
+              <option value="buy">买入</option>
+              <option value="sell">卖出</option>
+            </select>
+            <select v-model.number="interventionLimit" class="fx-input" aria-label="显示条数" @change="loadInterventions">
+              <option :value="20">最近 20 条</option>
+              <option :value="50">最近 50 条</option>
+              <option :value="100">最近 100 条</option>
+              <option :value="200">最近 200 条</option>
+            </select>
+            <button class="btn-secondary" :disabled="interventionsLoading" @click="loadInterventions">刷新</button>
           </div>
         </div>
         <div class="table-wrap">
@@ -681,7 +800,7 @@ onMounted(async () => {
                 <td>{{ row.source }}</td>
               </tr>
               <tr v-if="interventions.length === 0">
-                <td colspan="6" class="fx-empty-cell">暂无系统干预记录</td>
+                <td colspan="6" class="fx-empty-cell">{{ interventionsLoading ? '加载中…' : '暂无符合条件的系统干预记录' }}</td>
               </tr>
             </tbody>
           </table>
@@ -772,6 +891,12 @@ onMounted(async () => {
   color: #444;
   margin-bottom: 3px;
 }
+.fx-config-description {
+  display: block;
+  color: #555;
+  font-size: 12px;
+  line-height: 1.45;
+}
 .fx-config-item code {
   color: #999;
   margin-left: 6px;
@@ -808,6 +933,57 @@ onMounted(async () => {
 .fx-form-card h3 {
   margin: 0 0 10px;
   font-size: 14px;
+}
+.fx-pair-setup {
+  grid-column: 1 / -1;
+}
+.fx-setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 2px solid #000;
+  margin-bottom: 12px;
+}
+.fx-setup-badge {
+  font-size: 12px;
+  font-weight: 700;
+}
+.fx-setup-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+}
+.fx-setup-fields small {
+  color: #555;
+  font-weight: 400;
+}
+.fx-setup-preview {
+  background: #f5f5f5;
+  border: 1px solid #bbb;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.fx-setup-preview h4 {
+  margin: 0 0 12px;
+}
+.fx-setup-preview dl {
+  margin: 0;
+  font-size: 13px;
+}
+.fx-setup-preview dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ddd;
+}
+.fx-setup-preview dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .fx-form-card label,
 .fx-event-grid label,
@@ -918,6 +1094,9 @@ onMounted(async () => {
   color: #888;
 }
 @media (max-width: 900px) {
+  .fx-setup-fields {
+    grid-template-columns: 1fr;
+  }
   .fx-config-grid,
   .fx-form-grid,
   .fx-event-grid {

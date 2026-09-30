@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -388,5 +388,17 @@ async def cancel_event(event_id: int, admin: User = Depends(current_superuser), 
 
 
 @router.get("/pairs/{pair_id}/interventions", response_model=list[Intervention])
-async def interventions(pair_id: int, _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    return (await db.execute(select(FxTrade).where(FxTrade.pair_id == pair_id, FxTrade.source != "player").order_by(FxTrade.id.desc()))).scalars().all()
+async def interventions(
+    pair_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    source: str | None = Query(None, max_length=24),
+    side: str | None = Query(None, pattern="^(buy|sell)$"),
+    _: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    query = select(FxTrade).where(FxTrade.pair_id == pair_id, FxTrade.source != "player")
+    if source:
+        query = query.where(FxTrade.source == source)
+    if side:
+        query = query.where(FxTrade.side == side)
+    return (await db.execute(query.order_by(FxTrade.id.desc()).limit(limit))).scalars().all()

@@ -382,6 +382,40 @@ async def test_player_wallet_and_personal_trades_are_scoped_to_owner(ctx):
 
 
 @pytest.mark.asyncio
+async def test_admin_interventions_are_limited_and_filtered_in_database(ctx):
+    pair_id = await _create_pair(ctx)
+    for index in range(52):
+        ctx.db.add(FxTrade(
+            pair_id=pair_id, side="buy" if index % 2 == 0 else "sell",
+            input_amount=Decimal("1"), output_amount=Decimal("1"),
+            pre_gold_reserve=Decimal("1000"), pre_foreign_reserve=Decimal("1000"),
+            post_gold_reserve=Decimal("1000"), post_foreign_reserve=Decimal("1000"),
+            post_price=Decimal("1"),
+            source="system_target" if index % 2 == 0 else "system_noise",
+        ))
+    await ctx.db.commit()
+    url = f"/api/v1/admin/fx/pairs/{pair_id}/interventions"
+    headers = _auth(ctx.admin)
+
+    recent = await ctx.client.get(url, headers=headers)
+    assert recent.status_code == 200, recent.text
+    assert len(recent.json()) == 50
+    assert [row["id"] for row in recent.json()] == sorted(
+        [row["id"] for row in recent.json()], reverse=True)
+
+    filtered = await ctx.client.get(
+        url, params={"source": "system_target", "side": "buy", "limit": 10}, headers=headers)
+    assert filtered.status_code == 200, filtered.text
+    assert len(filtered.json()) == 10
+    assert all(row["source"] == "system_target" and row["side"] == "buy"
+               for row in filtered.json())
+
+    for bad_limit in (0, 201):
+        response = await ctx.client.get(url, params={"limit": bad_limit}, headers=headers)
+        assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_public_trade_feed_hides_system_source_but_admin_interventions_expose_it(ctx):
     """M1: internal system sources must never reach public trade payloads."""
     client, db = ctx.client, ctx.db

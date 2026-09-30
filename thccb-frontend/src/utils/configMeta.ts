@@ -24,6 +24,81 @@ export interface ConfigMeta {
 
 /** 显式 metadata。未列出的 key 用 fallback (group=general, label=key)。*/
 const META: Record<string, ConfigMeta> = {
+  unified_credit_enabled: {
+    group: 'loan',
+    label: '统一信贷模式',
+    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率。',
+  },
+  credit_leverage: {
+    group: 'loan',
+    label: '名义杠杆',
+    description: '1 < 倍数 <= 20；10x 对应最多借入净值的 9 倍。提高倍数会提高可借额度。',
+    unit: 'x',
+  },
+  credit_maintenance_ratio: {
+    group: 'loan',
+    label: '强平维持率',
+    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)。',
+    unit: '比例',
+  },
+  credit_new_risk_frozen: {
+    group: 'loan',
+    label: '冻结新增风险',
+    description: '开启后停止新增借款和买入等增险操作；还款与减仓仍应保留。',
+  },
+  credit_risk_retry_limit: {
+    group: 'loan',
+    label: '风险检查重试次数',
+    description: '并发更新时风险检查允许重试的次数；通常无需调整。',
+    unit: '次',
+  },
+  fx_enabled: {
+    group: 'economy',
+    label: 'FX 交易总闸',
+    description: '关闭时不允许 FX 成交，系统不发布计划事件，也不执行噪声订单或常规干预。',
+  },
+  fx_hourly_sigma: {
+    group: 'economy',
+    label: '目标价每小时波动率',
+    description: '目标价格随机游走的波动强度；0.002 表示每小时约 0.2%。调高后目标价变化更剧烈。',
+    unit: '比例/小时',
+  },
+  fx_step_max_ratio: {
+    group: 'economy',
+    label: '目标价单步变动上限',
+    description: '每次系统 tick 目标价最多变化的比例；0.001 表示单步最多 0.1%。',
+    unit: '比例/tick',
+  },
+  fx_noise_interval_sec: {
+    group: 'economy',
+    label: '噪声订单平均间隔',
+    description: '系统噪声订单的平均等待时间，实际间隔随机；数值越小，噪声订单越频繁。',
+    unit: '秒',
+  },
+  fx_noise_pool_ratio: {
+    group: 'economy',
+    label: '噪声订单池子占比',
+    description: '单笔系统噪声订单最多使用池子储备的比例；0.0001 表示最多 0.01%。',
+    unit: '比例',
+  },
+  fx_system_half_life_sec: {
+    group: 'economy',
+    label: '常规干预半衰期',
+    description: '系统将市场价向目标价拉回的时间尺度；数值越小，常规干预越快。',
+    unit: '秒',
+  },
+  fx_default_price_move_limit: {
+    group: 'economy',
+    label: '常规干预价格步长上限',
+    description: '非事件干预每次 tick 可推动价格的最大比例，同时限制系统订单规模；0.005 表示 0.5%。',
+    unit: '比例/tick',
+  },
+  fx_daily_budget: {
+    group: 'economy',
+    label: 'FX 系统每日支出上限',
+    description: '每个货币对 treasury 每日可供系统订单支出的金圆券上限，按 UTC 日期重置。',
+    unit: '金圆券/日',
+  },
   // ── 借款系统 ─────────────────────────────────────────────────────
   loan_enabled: {
     group: 'loan',
