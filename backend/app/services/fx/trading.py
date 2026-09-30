@@ -305,7 +305,12 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
     ))).scalars().first()
     if old is not None:
-        if (old.pair_id != pair_id or old.side != normalized
+        # A spot request may only replay a spot trade.  Without the purpose
+        # check a spot buy could replay a same-pair short_cover (or a spot sell
+        # a short_open) merely because pair/side/amount/min_out happen to match
+        # (spec §11: spot and short share the (user_id, key) uniqueness, so they
+        # must be treated as distinct identities).
+        if (old.purpose != "spot" or old.pair_id != pair_id or old.side != normalized
                 or old.input_amount != amount or old.min_out != min_out):
             raise HTTPException(status_code=409, detail="idempotency key parameter mismatch")
         # Materialize before returning: the wrapper rolls back to release the

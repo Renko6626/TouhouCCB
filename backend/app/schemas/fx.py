@@ -2,7 +2,22 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+#: Storage ceilings mirrored from the ORM columns so a bad request is a 422
+#: before it reaches the ledger (``FxTrade.min_out``/``max_gold_in`` are
+#: ``Numeric(16,6)``; short principal/requests are ``Numeric(24,6)``).
+_MAX_GOLD = Decimal("9999999999.999999")
+_MAX_FOREIGN = Decimal("999999999999999999.999999")
+
+
+def _finite_six(value: Decimal, *, positive: bool = False) -> Decimal:
+    if not value.is_finite() or (value <= 0 if positive else value < 0):
+        raise ValueError("amount must be finite and positive" if positive
+                         else "amount must be finite and non-negative")
+    if -value.as_tuple().exponent > 6:
+        raise ValueError("amount must have at most 6 fractional digits")
+    return value
 
 
 class FxPairPublic(BaseModel):
@@ -30,6 +45,8 @@ class FxPairAdmin(FxPairPublic):
     target_max: Decimal
     buy_fee_rate: Decimal
     sell_fee_rate: Decimal
+    # Hidden from ``FxPairPublic``: only operators see the pair short capacity.
+    short_lending_limit_foreign: Decimal = Decimal("0")
 
 
 class FxPairAdminDetail(FxPairAdmin):
@@ -117,6 +134,79 @@ class FxTradePublic(BaseModel):
     output_amount: Decimal
     fee_amount: Decimal
     post_price: Decimal
+    created_at: datetime
+
+
+class FxShortOpenRequest(BaseModel):
+    """One borrow-and-sell short open request (spec §7.1 / §10)."""
+    foreign_amount: Decimal
+    min_gold_out: Decimal = Decimal("0")
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator("foreign_amount")
+    @classmethod
+    def valid_foreign_amount(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value, positive=True)
+        if value > _MAX_FOREIGN:
+            raise ValueError("foreign_amount exceeds storage range")
+        return value
+
+    @field_validator("min_gold_out")
+    @classmethod
+    def valid_min_gold_out(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        if value > _MAX_GOLD:
+            raise ValueError("min_gold_out exceeds storage range")
+        return value
+
+
+class FxShortCoverRequest(BaseModel):
+    """Exactly one of a fixed quantity or ``cover_all`` (spec §7.2 / §10)."""
+    foreign_amount: Optional[Decimal] = None
+    cover_all: bool = False
+    max_gold_in: Decimal = Decimal("0")
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator("foreign_amount")
+    @classmethod
+    def valid_foreign_amount(cls, value: Optional[Decimal]) -> Optional[Decimal]:
+        if value is None:
+            return value
+        value = _finite_six(value, positive=True)
+        if value > _MAX_FOREIGN:
+            raise ValueError("foreign_amount exceeds storage range")
+        return value
+
+    @field_validator("max_gold_in")
+    @classmethod
+    def valid_max_gold_in(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        if value > _MAX_GOLD:
+            raise ValueError("max_gold_in exceeds storage range")
+        return value
+
+    @model_validator(mode="after")
+    def exactly_one_shape(self) -> "FxShortCoverRequest":
+        if (self.foreign_amount is not None) == bool(self.cover_all):
+            raise ValueError("exactly one of foreign_amount or cover_all is required")
+        return self
+
+
+class FxShortTradeResponse(BaseModel):
+    """Player-facing short action result; money/quantity serialize as strings."""
+    trade_id: int
+    pair_id: int
+    purpose: str
+    side: str
+    requested_foreign_amount: Optional[Decimal] = None
+    cover_all: Optional[bool] = None
+    input_amount: Decimal
+    output_amount: Decimal
+    fee_amount: Decimal
+    min_out: Decimal
+    max_gold_in: Optional[Decimal] = None
+    post_price: Decimal
+    replay: bool
     created_at: datetime
 
 

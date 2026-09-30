@@ -16,12 +16,15 @@ from app.schemas.fx import (
     FxPersonalTrade,
     FxQuote,
     FxQuoteRequest,
+    FxShortCoverRequest,
+    FxShortOpenRequest,
+    FxShortTradeResponse,
     FxSnapshot,
     FxTradePublic,
     FxTradeRequest,
     FxWalletPublic,
 )
-from app.services.fx import trading
+from app.services.fx import shorts, trading
 
 router = APIRouter()
 
@@ -73,6 +76,50 @@ async def create_trade(pair_id: int, req: FxTradeRequest,
     except trading.TradeRejected as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/pairs/{pair_id}/short/open", response_model=FxShortTradeResponse)
+async def open_short(pair_id: int, req: FxShortOpenRequest,
+                     user: User = Depends(current_active_user),
+                     db: AsyncSession = Depends(get_async_session)):
+    """Borrow real treasury foreign, sell it and lock the proceeds (spec §7.1)."""
+    try:
+        return await shorts.execute_short_open(
+            db, user_id=user.id, pair_id=pair_id,
+            foreign_amount=req.foreign_amount, min_gold_out=req.min_gold_out,
+            idempotency_key=req.idempotency_key,
+        )
+    except shorts.ShortRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except shorts.ShortRetryCredit:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="version_conflict; retry") from None
+
+
+@router.post("/pairs/{pair_id}/short/cover", response_model=FxShortTradeResponse)
+async def cover_short(pair_id: int, req: FxShortCoverRequest,
+                      user: User = Depends(current_active_user),
+                      db: AsyncSession = Depends(get_async_session)):
+    """Buy back exactly the requested (or entire) foreign debt (spec §7.2).
+
+    Cover is deliberately its own risk-reducing executor: it is never routed
+    through the ordinary spot buy path, works with the opening/loan gates off
+    and with credit frozen, and only the total ``fx_enabled=false`` user-trading
+    stop or a non-coverable pair state can refuse it.
+    """
+    try:
+        return await shorts.execute_short_cover(
+            db, user_id=user.id, pair_id=pair_id,
+            foreign_amount=req.foreign_amount, cover_all=req.cover_all,
+            max_gold_in=req.max_gold_in, idempotency_key=req.idempotency_key,
+        )
+    except shorts.ShortRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except shorts.ShortRetryCredit:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="version_conflict; retry") from None
 
 
 @router.get("/pairs/{pair_id}/trades", response_model=list[FxTradePublic])

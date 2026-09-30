@@ -25,6 +25,7 @@ debt.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -36,6 +37,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
+from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
@@ -49,6 +51,8 @@ from app.services.market_locks import lock_user
 
 if TYPE_CHECKING:  # risk imports this module, so only type-check the cycle.
     from app.services.credit.risk import DependencySet
+
+_logger = logging.getLogger(__name__)
 
 _MAX_DEBT = Decimal('999999999999999999.999999')
 _MAX_GOLD = Decimal('9999999999.999999')
@@ -99,11 +103,21 @@ class FxShortExecution:
 
 
 def pending_short_debt(position: FxShortPosition, daily_rate: Decimal, now: datetime) -> Decimal:
-    """Read with the same UTC, compound rate and six-place semantics as gold."""
+    """Read with the same UTC, compound rate and six-place semantics as gold.
+
+    Raises :class:`ShortRejected` (not a bare ``ValueError``) when the accrued
+    obligation overflows ``Numeric(24,6)`` so a player write route maps it to a
+    clear 4xx instead of a 500 or a silently truncated/zero debt.
+    """
     total = position.principal_foreign + position.interest_foreign
-    result = pending_debt(SimpleNamespace(debt=total, debt_last_accrued_at=position.interest_last_accrued_at), daily_rate, now)
+    try:
+        result = pending_debt(SimpleNamespace(debt=total, debt_last_accrued_at=position.interest_last_accrued_at), daily_rate, now)
+    except (ArithmeticError, InvalidOperation) as exc:
+        # Compound interest can overflow the Decimal context before the range
+        # check below ever sees a value; that is still an unrepresentable debt.
+        raise ShortRejected('foreign debt exceeds storage range') from exc
     if not result.is_finite() or result < 0 or result > _MAX_DEBT:
-        raise ValueError('foreign debt exceeds storage range')
+        raise ShortRejected('foreign debt exceeds storage range')
     return result
 
 
@@ -813,3 +827,129 @@ async def execute_short_cover_in_session(
         trade=trade, replay=False, pair_id=int(pair_id),
         post_price=post_price, trade_id=int(trade.id),
     )
+
+
+# ── request-path wrappers (transaction boundary, gates, retry, publication) ──
+
+async def _rollback_quietly(db: AsyncSession) -> None:
+    """Best-effort rollback that never masks the original failure."""
+    try:
+        await db.rollback()
+    except Exception:  # pragma: no cover - rollback must not hide the root cause
+        _logger.exception("FX short rollback failed")
+
+
+def _short_response(execution: FxShortExecution) -> FxShortTradeResponse:
+    """Materialize the action response before any replay rollback expires the row."""
+    trade = execution.trade
+    return FxShortTradeResponse(
+        trade_id=int(trade.id),
+        pair_id=int(trade.pair_id),
+        purpose=str(trade.purpose),
+        side=str(trade.side),
+        requested_foreign_amount=(
+            None if trade.requested_foreign_amount is None
+            else Decimal(trade.requested_foreign_amount)
+        ),
+        cover_all=None if trade.cover_all is None else bool(trade.cover_all),
+        input_amount=Decimal(trade.input_amount),
+        output_amount=Decimal(trade.output_amount),
+        fee_amount=Decimal(trade.fee_amount),
+        min_out=Decimal(trade.min_out),
+        max_gold_in=None if trade.max_gold_in is None else Decimal(trade.max_gold_in),
+        post_price=Decimal(trade.post_price),
+        replay=bool(execution.replay),
+        created_at=trade.created_at,
+    )
+
+
+async def _execute_player_short_write(
+    db: AsyncSession, *, user_id: int, pair_id: int, run_in_session,
+) -> FxShortTradeResponse:
+    """Shared player-write wrapper for short open and cover (spec §7 / §11).
+
+    Discovers the complete :class:`DependencySet` before taking gates, releases
+    the discovery transaction, then holds the target FX GATE exclusive plus every
+    other dependency group shared in total order and runs the kernel inside one
+    caller-owned transaction.  ``ShortRetryCredit`` rolls back, releases row
+    locks/GATES, rediscovers and retries within ``credit_risk_retry_limit``; no
+    pair GATE is ever acquired while holding the User lock because the kernel
+    raises instead of taking one.  A same-key replay rolls back to release locks
+    and returns the saved trade with no second borrow/buy/commit.  On a fresh
+    success the transaction commits once and only then is the real
+    ``FxTrade`` price frame handed to the bounded publisher.
+    """
+    _require_writes()
+    # Imported lazily: credit.risk imports this module at module load.
+    from app.services.credit.risk import discover_dependencies
+    from app.services.fx import publisher
+
+    target = GroupKey("fx", pair_id)
+    retry_limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
+    attempt = 0
+    while True:
+        deps = await discover_dependencies(db, user_id, extra_groups=[target])
+        if db.in_transaction():
+            await db.rollback()
+        try:
+            async with GATES.hold(
+                exclusive=[target],
+                shared=[group for group in deps.groups if group != target],
+            ):
+                try:
+                    execution = await run_in_session(db, deps)
+                    # Materialize before commit/replay-rollback: a rollback
+                    # expires the live ORM row.
+                    response = _short_response(execution)
+                    if execution.replay:
+                        await db.rollback()
+                        return response
+                    _require_writes()
+                    await db.commit()
+                except BaseException:
+                    await _rollback_quietly(db)
+                    raise
+        except ShortRetryCredit:
+            attempt += 1
+            if attempt > retry_limit:
+                raise HTTPException(
+                    status_code=409, detail="version_conflict; retry") from None
+            continue
+        publisher.enqueue_publication(
+            pair_id=execution.pair_id, post_price=execution.post_price,
+            trade_id=execution.trade_id)
+        return response
+
+
+async def execute_short_open(
+    db: AsyncSession, *, user_id: int, pair_id: int, foreign_amount: Decimal,
+    min_gold_out: Decimal, idempotency_key: str,
+) -> FxShortTradeResponse:
+    """Request-path short open: owns gates, one commit, retry and publication."""
+    async def run_in_session(session: AsyncSession, deps: "DependencySet") -> FxShortExecution:
+        return await execute_short_open_in_session(
+            session, user_id=user_id, pair_id=pair_id,
+            foreign_amount=foreign_amount, min_gold_out=min_gold_out,
+            idempotency_key=idempotency_key, credit_deps=deps,
+        )
+
+    return await _execute_player_short_write(
+        db, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
+
+
+async def execute_short_cover(
+    db: AsyncSession, *, user_id: int, pair_id: int,
+    foreign_amount: Optional[Decimal], cover_all: bool, max_gold_in: Decimal,
+    idempotency_key: str,
+) -> FxShortTradeResponse:
+    """Request-path short cover: risk-reducing, never routed through spot buy."""
+    async def run_in_session(session: AsyncSession, deps: "DependencySet") -> FxShortExecution:
+        return await execute_short_cover_in_session(
+            session, user_id=user_id, pair_id=pair_id,
+            foreign_amount=foreign_amount, cover_all=cover_all,
+            max_gold_in=max_gold_in, idempotency_key=idempotency_key,
+            credit_deps=deps,
+        )
+
+    return await _execute_player_short_write(
+        db, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)

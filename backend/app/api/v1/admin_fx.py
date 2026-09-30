@@ -104,6 +104,17 @@ def _amount(v: Decimal, *, positive: bool = False) -> Decimal:
     return v
 
 
+#: ``FxPair.short_lending_limit_foreign`` is ``Numeric(24,6)``.
+_MAX_SHORT_LENDING_LIMIT = Decimal("999999999999999999.999999")
+
+
+def _short_lending_limit(v: Decimal) -> Decimal:
+    v = _amount(v)
+    if v > _MAX_SHORT_LENDING_LIMIT:
+        raise ValueError("short lending limit exceeds storage range")
+    return v
+
+
 def _validate_target_range(target: Decimal, minimum: Decimal, maximum: Decimal, initial: Decimal) -> None:
     if minimum > target or target > maximum:
         raise HTTPException(422, "target price must be within target range")
@@ -125,10 +136,16 @@ class PairCreate(BaseModel):
     target_max: Decimal = Decimal("2")
     buy_fee_rate: Decimal = Decimal("0")
     sell_fee_rate: Decimal = Decimal("0")
+    # 默认零：完整读写与强平能力到位前不得开空（spec §9/§13）。
+    short_lending_limit_foreign: Decimal = Decimal("0")
 
     @field_validator("gold_reserve", "foreign_reserve", "target_price", "initial_price", "target_min", "target_max")
     @classmethod
     def positive(cls, v): return _amount(v, positive=True)
+
+    @field_validator("short_lending_limit_foreign")
+    @classmethod
+    def short_limit(cls, v): return _short_lending_limit(v)
 
     @field_validator("buy_fee_rate", "sell_fee_rate")
     @classmethod
@@ -149,10 +166,16 @@ class PairPatch(BaseModel):
     target_max: Optional[Decimal] = None
     buy_fee_rate: Optional[Decimal] = None
     sell_fee_rate: Optional[Decimal] = None
+    short_lending_limit_foreign: Optional[Decimal] = None
 
     @field_validator("target_price", "target_min", "target_max")
     @classmethod
     def positive(cls, v): return None if v is None else _amount(v, positive=True)
+
+    @field_validator("short_lending_limit_foreign")
+    @classmethod
+    def short_limit(cls, v):
+        return None if v is None else _short_lending_limit(v)
 
     @field_validator("buy_fee_rate", "sell_fee_rate")
     @classmethod
@@ -279,7 +302,8 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
         db.add(FxTreasury(pair_id=pair.id, gold_balance=req.gold_reserve, foreign_balance=req.foreign_reserve))
         _admin_audit(db, "fx_pair_create", admin.id, "fx_pair", pair.id, {},
                      {"currency_code": pair.currency_code, "currency_name": pair.currency_name,
-                      "status": pair.status, "reduce_only": str(pair.reduce_only)})
+                      "status": pair.status, "reduce_only": str(pair.reduce_only),
+                      "short_lending_limit_foreign": str(pair.short_lending_limit_foreign)})
         audit_service.record(db, "fx_fund", operator_user_id=admin.id, ref_table="fx_pair", ref_id=pair.id,
                              payload={"action": "initial_issuance", "gold_amount": str(req.gold_reserve), "foreign_amount": str(req.foreign_reserve),
                                       "pool_after": {"gold": str(req.gold_reserve), "foreign": str(req.foreign_reserve)},
@@ -323,7 +347,10 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
         _require_writes()
         before = {key: str(getattr(pair, key)) for key in values}
         for key, value in values.items(): setattr(pair, key, value)
-        if credit_flags.get_flags().unified_credit_enabled:
+        # 借出上限直接影响开空准入，属于 pair 版本输入：改动必须 bump 版本，
+        # 使锁内重验的依赖快照失效（spec §11）。统一信贷下所有 PATCH 已 bump。
+        if (credit_flags.get_flags().unified_credit_enabled
+                or "short_lending_limit_foreign" in values):
             pair.pool_version += 1
         pair.updated_at = datetime.now(timezone.utc)
         # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
