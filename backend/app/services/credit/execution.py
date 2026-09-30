@@ -28,7 +28,7 @@ from app.models.fx import FxPair
 from app.services import audit_service, loan_service
 from app.services.credit.cash import CashInvariantError
 from app.services.credit.flags import get_flags
-from app.services.credit.fx_quote import quote_fx_group
+from app.services.credit.fx_quote import BLOCKED_SHORT_QUOTE_FAILED, quote_fx_group
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.lmsr_quote import quote_lmsr_group
@@ -47,7 +47,7 @@ from app.services.credit.valuation import (
     value_user_detailed,
 )
 from app.services.credit.version import bump_economic_version
-from app.services.fx.amm import quote_buy, quote_buy_exact_out
+from app.services.fx.amm import _STORAGE_MAX, quote_buy, quote_buy_exact_out
 from app.services.fx.shorts import (
     ShortRejected,
     ShortRetryCredit,
@@ -367,8 +367,73 @@ def _asset_executable(group, deps, *, mode, pct) -> bool:
     return quote.blocked_reason is None and quote.net > 0 and bool(quote.legs)
 
 
+def _choose_unknown_overflow_cover(pre, deps, *, pct, daily_rate, now):
+    """§8.2: only a trustworthy full-quote storage overflow permits spending.
+
+    The AMM distinguishes input precision/range and fee errors from these two
+    output/post-state range errors. Do not turn every ``short_quote_failed``
+    (which also includes invalid fees) into permission to liquidate.
+    """
+    if (pre.available_cash is None or not pre.available_cash.is_finite()
+            or pre.available_cash < ZERO or not pre.debt_effective.is_finite()
+            or pre.debt_effective < ZERO):
+        return None
+    for group in sorted(pre.groups, key=lambda g: (g.key.product, g.key.group_id)):
+        if (group.role != 'short_cover'
+                or group.blocked_reason != BLOCKED_SHORT_QUOTE_FAILED):
+            continue
+        snap = deps.snapshots.get(group.key)
+        if snap is None or snap.short_pair is None or snap.short_debt is None:
+            continue
+        pair = snap.short_pair
+        status = str(pair.status or '').strip().lower()
+        if status != 'trading' and not (status == 'paused' and pair.reduce_only):
+            continue
+        try:
+            q = pending_short_debt(snap.short_debt, daily_rate, now).quantize(Q6)
+            # This validates reserves, debt precision and fees before identifying
+            # overflow; Q>=F and invalid data remain mutation-free blocks.
+            quote_buy_exact_out(q, pair.gold_reserve, pair.foreign_reserve,
+                                pair.buy_fee_rate)
+        except ValueError as exc:
+            if str(exc) not in ('quote exceeds storage range',
+                                'post price exceeds storage range'):
+                continue
+        except (TypeError, ArithmeticError):
+            continue
+        else:
+            continue
+        plan = _short_cover_plan(group, deps, pre.available_cash, mode='partial',
+                                 pct=pct, daily_rate=daily_rate, now=now)
+        if plan is None:
+            continue
+        # Exact-input does not enforce Numeric bounds itself. Reject an illegal
+        # batch before settlement, and allow a later overflow group to be tried.
+        try:
+            try:
+                quote = quote_buy_exact_out(plan[0], pair.gold_reserve,
+                                            pair.foreign_reserve, pair.buy_fee_rate)
+            except (TypeError, ValueError, ArithmeticError):
+                quote = None
+            if quote is None or quote.input_amount > plan[1]:
+                quote = quote_buy(plan[1], pair.gold_reserve, pair.foreign_reserve,
+                                  pair.buy_fee_rate)
+            persisted = (quote.input_amount, quote.fee_amount, quote.output_amount,
+                         quote.post_gold_reserve, quote.post_foreign_reserve,
+                         quote.post_price)
+            if any(not v.is_finite() or v < ZERO or v > _STORAGE_MAX for v in persisted):
+                continue
+        except (TypeError, ValueError, ArithmeticError):
+            continue
+        return Choice(group.key, 'short_cover', 'partial', plan[0], plan[1])
+    return None
+
+
 def choose_liquidation_action(pre, deps, *, pct, daily_rate, now):
     """按 spec §8.1 第 2 步选择第一个实际可执行的组（纯函数，不写库）。"""
+    if pre.risk_status != RISK_STATUS_OK:
+        return _choose_unknown_overflow_cover(
+            pre, deps, pct=pct, daily_rate=daily_rate, now=now)
     if pre.liquidation_equity is None or pre.available_cash is None:
         return None
     mode = 'full' if pre.liquidation_equity <= 0 else 'partial'
@@ -421,7 +486,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
             raise ValueError('stale liquidation round')
     thresholds = get_flags().thresholds
 
-    # 未知 K / 数据错误：不做任何数值比较或恢复判定；建/续唯一 active run 并记录原因。
+    # 未知 K 不比较门槛、不还金债/卖资产；仅完整报价溢出可固定比例回补。
     if pre.risk_status != RISK_STATUS_OK:
         created = run is None
         if run is None:
@@ -430,6 +495,18 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
         if created:
             _seed_run_snapshot(run, pre)
             await session.flush()
+        overflow_choice = _choose_unknown_overflow_cover(
+            pre, deps, pct=pct, daily_rate=rate, now=datetime.now(timezone.utc))
+        if choice is not None and not _same_choice(choice, overflow_choice):
+            # Interest may move a boundary between revalidation and planning;
+            # never switch the exclusive target while holding the old GATE.
+            raise ShortRetryCredit()
+        choice = overflow_choice
+        if choice is not None:
+            # Unknown E never authorizes asset sales, gold repayment or a full
+            # batch. The target was selected and revalidated under its GATE.
+            return LockedPlan(run, pre, choice.target, 'short_cover', 'partial',
+                              choice.planned, choice.budget, 'cover', defer_repay=True)
         await _record_blocked_once(session, user, run,
             group=_blocked_short_group(pre, pre.blocked_reason),
             reason=pre.blocked_reason or 'risk_unquotable')

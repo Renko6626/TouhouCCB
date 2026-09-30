@@ -1424,3 +1424,63 @@ async def test_finish_locked_keeps_foreign_only_unknown_post_state_active():
         assert short.principal_foreign == D('1000')
         user = await s.get(User, uid)
         assert user.debt == 0 and user.cash == D('50')
+
+
+@pytest.mark.parametrize('cash, expected_limited', [('600000000', False), ('100000000', True)])
+async def test_unknown_full_quote_overflow_covers_only_fixed_budgeted_short(cash, expected_limited):
+    """A storable partial cover must reduce an overflow debt without selling collateral.
+
+    Covers both an affordable fixed 10% batch and an exact-input cash fallback;
+    persisted physical gold/foreign legs must conserve value, with K still unknown.
+    """
+    from app.services.credit.valuation import value_user_detailed
+
+    uid, pid = await _seed_foreign_only_overflow(
+        principal='500', cash=cash, with_asset=True)
+    async with async_session_maker() as s:
+        pair = await s.get(FxPair, pid)
+        pair.gold_reserve = D('9000000000')
+        user = await s.get(User, uid)
+        user.debt = D('100')
+        await s.commit()
+        pre = await value_user_detailed(s, uid, daily_rate=D('0'))
+        assert pre.risk_status == 'blocked' and pre.short_cover_cost is None
+        assert pre.blocked_reason == 'short_quote_failed'
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get('monetary_action_count') == 1
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        assert run.status == 'active'
+        assert run.pre_liquidation_equity is None and run.pre_risk_basis is None
+        action = (await s.execute(select(LiquidationAction))).scalar_one()
+        assert action.kind == 'cover_group' and action.group_id == pid
+        assert action.mode == 'partial' and action.repaid == 0
+        assert D(action.requested['planned_amount']) == D('50')
+        assert action.executed['limited_by_cash'] is expected_limited
+        assert D(action.executed['repaid_foreign']) == action.foreign_repaid
+        assert D(action.executed['paid_gold']) == action.gold_spent
+        assert 0 < action.foreign_repaid <= D('50')
+        assert 0 < action.gold_spent <= D(cash)
+        assert not action.executed['full_cover']
+        user = await s.get(User, uid)
+        pair = await s.get(FxPair, pid)
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        treasury = (await s.execute(select(FxTreasury))).scalar_one()
+        assert user.debt == D('100')
+        assert user.cash + pair.gold_reserve + treasury.gold_balance == D(cash) + D('9000001000')
+        assert pair.foreign_reserve + treasury.foreign_balance == D('2000')
+        assert short.principal_foreign + action.foreign_repaid == D('500')
+        assert short.restricted_gold == 0 and short.interest_foreign == 0
+        assert (await s.execute(select(Position))).scalar_one().amount == D('10')
+        post = await value_user_detailed(s, uid, daily_rate=D('0'))
+        assert post.short_cover_cost is None and post.liquidation_equity is None
+        assert post.risk_basis is None and run.last_blocked_reason == 'short_quote_failed'
+        run_id = run.id
+    # A subsequent scan reuses the active run; it never recovers from D alone.
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        runs = list((await s.execute(select(LiquidationRun))).scalars())
+        assert len(runs) == 1 and runs[0].id == run_id and runs[0].status == 'active'
+        assert (await s.get(User, uid)).debt == D('100')
+        assert (await s.execute(select(Position))).scalar_one().amount == D('10')
