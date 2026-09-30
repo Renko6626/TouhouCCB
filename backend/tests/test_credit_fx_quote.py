@@ -7,8 +7,13 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.services.credit.fx_quote import FxPairSnapshot, quote_fx_group
-from app.services.fx.amm import quote_sell
+from app.services.credit.fx_quote import (
+    FxPairSnapshot,
+    FxShortPairSnapshot,
+    quote_fx_group,
+    quote_fx_short_group,
+)
+from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -171,3 +176,71 @@ def test_invalid_mode_and_partial_pct_raise():
     ):
         with pytest.raises(ValueError):
             quote_fx_group(_pair(), foreign_amount=Decimal("10"), **kwargs)
+
+
+def _short_pair(*, status="trading", reduce_only=False, gold="100",
+                foreign="100", buy_fee="0"):
+    return FxShortPairSnapshot(
+        pair_id=1, status=status, reduce_only=reduce_only,
+        gold_reserve=Decimal(gold), foreign_reserve=Decimal(foreign),
+        buy_fee_rate=Decimal(buy_fee),
+    )
+
+
+def test_short_quote_is_exact_output_whole_debt_cost():
+    """K 来自 quote_buy_exact_out（含买入费用），不是 q×边际价或 exact-input。"""
+    pair = _short_pair(gold="120", foreign="80", buy_fee="0.01")
+    debt = Decimal("7.5")
+    quote = quote_fx_short_group(pair, foreign_debt=debt)
+    expected = quote_buy_exact_out(debt, Decimal("120"), Decimal("80"), Decimal("0.01"))
+    assert quote.blocked_reason is None and quote.executable is True
+    assert quote.gold_in == expected.input_amount
+    assert quote.fee_gold == expected.fee_amount
+    assert quote.gold_in > debt * (Decimal("120") / Decimal("80"))  # slippage + fee
+    # marginal estimate is sourced but is not the executable cover cost
+    assert quote.marginal_gold == (debt * Decimal("120") / Decimal("80")).quantize(
+        Decimal("0.000001"),
+    )
+    assert quote.marginal_gold != quote.gold_in
+
+
+def test_short_quote_keeps_finite_k_for_paused_but_marks_nonexecutable():
+    paused = quote_fx_short_group(
+        _short_pair(status="paused", reduce_only=False), foreign_debt=Decimal("10"),
+    )
+    expected = quote_buy_exact_out(
+        Decimal("10"), Decimal("100"), Decimal("100"), ZERO,
+    ).input_amount
+    assert paused.gold_in == expected       # math is finite...
+    assert paused.executable is False       # ...but the market is fully paused
+    assert paused.blocked_reason == "pair_paused"
+
+    reduce_only = quote_fx_short_group(
+        _short_pair(status="paused", reduce_only=True), foreign_debt=Decimal("10"),
+    )
+    assert reduce_only.gold_in == expected and reduce_only.executable is True
+
+
+def test_short_quote_q_ge_foreign_reserve_and_invalid_inputs_are_unknown():
+    trading = _short_pair(gold="100", foreign="100")
+    unquotable = quote_fx_short_group(trading, foreign_debt=Decimal("100"))
+    assert unquotable.gold_in is None and unquotable.fee_gold is None
+    assert unquotable.executable is False
+    assert unquotable.blocked_reason == "insufficient_pool_foreign"
+    # a sourced marginal estimate may still exist, but K must stay None
+    assert unquotable.marginal_gold == Decimal("100.000000")
+
+    for gold, foreign in (("0", "100"), ("100", "0")):
+        invalid = quote_fx_short_group(
+            _short_pair(gold=gold, foreign=foreign), foreign_debt=Decimal("5"),
+        )
+        assert invalid.gold_in is None
+        assert invalid.executable is False
+        assert invalid.blocked_reason == "invalid_short_reserve"
+
+
+def test_short_quote_negative_or_nonfinite_debt_raises_or_blocks():
+    with pytest.raises(ValueError):
+        quote_fx_short_group(_short_pair(), foreign_debt=Decimal("-1"))
+    with pytest.raises(ValueError):
+        quote_fx_short_group(_short_pair(), foreign_debt=Decimal("NaN"))

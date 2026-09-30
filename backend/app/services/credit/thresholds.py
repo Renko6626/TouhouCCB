@@ -72,6 +72,32 @@ class RiskThresholds:
         # 最多差 1e-6，方向永远是"更严"）。
         return headroom.quantize(Q6, rounding=ROUND_FLOOR)
 
+    @property
+    def alpha(self) -> Decimal:
+        """空头共享风险系数 ``α = (L−1)/L``（spec §6.1），prec=28 计算。"""
+        with localcontext() as ctx:
+            ctx.prec = PREC
+            return (self.leverage - Decimal(1)) / self.leverage
+
+    def risk_basis(
+        self,
+        *,
+        debt: Number,
+        positive_assets: Number,
+        short_cover: Number,
+    ) -> Decimal:
+        """共享风险基数 ``B = max(D, α×A) + α×K``（spec §6.1）。
+
+        B 是风险基数而非债务余额：真实负债仍是 D 与各币种欠币数量。未知 K 不
+        得传 0 进来伪装成已知；调用方在 K 未知时整体把 E/B 标为未知。金额
+        量化（保守方向）由展示层负责，这里保持高精度。
+        """
+        debt_value = _finite_decimal(debt, "debt")
+        assets_value = _finite_decimal(positive_assets, "positive_assets")
+        cover_value = _finite_decimal(short_cover, "short_cover")
+        alpha = self.alpha
+        return max(debt_value, alpha * assets_value) + alpha * cover_value
+
 
 def validate_thresholds(leverage: Number, maintenance: Number) -> None:
     """校验配置合法性；非法抛 ``ValueError``（计划 §3.2）。

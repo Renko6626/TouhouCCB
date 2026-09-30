@@ -18,6 +18,9 @@ Product = Literal["lmsr", "fx"]
 # 与 GroupKey 的字典序一致（"fx" < "lmsr"），F12 冻结：组排序 (-L, product, group_id)。
 PRODUCTS: tuple[Product, ...] = ("fx", "lmsr")
 
+#: 未知组值（空头 K 不可报价）的排序幅度：``-magnitude`` 为 +Infinity，排到最后。
+_UNKNOWN_MAGNITUDE = Decimal("-Infinity")
+
 
 @dataclass(frozen=True, order=True)
 class GroupKey:
@@ -44,8 +47,15 @@ def symbol_namespace(product: Product, group_id: int) -> str:
 
 
 def group_sort_key(group) -> tuple[Decimal, str, int]:
-    """F12 冻结排序键：``(-L, product, group_id)``。"""
-    return (-group.value, group.key.product, group.key.group_id)
+    """F12 冻结排序键：``(-L, product, group_id)``。
+
+    WP2b1：空头回补组的 ``value`` 是**正的回补成本 K**（不是负回收），未知 K 为
+    ``None``。未知组排在最后（排序幅度取 −Infinity，使 ``-magnitude`` 为
+    +Infinity），不参与数值比较；已知的空头成本与正资产净回收共用同一"按绝对
+    金额降序"顺序（spec §8.1 第 2 步）。
+    """
+    magnitude = _UNKNOWN_MAGNITUDE if group.value is None else group.value
+    return (-magnitude, group.key.product, group.key.group_id)
 
 
 def sort_groups_by_liquidation(groups: Sequence["GroupLiquidation"]) -> list["GroupLiquidation"]:

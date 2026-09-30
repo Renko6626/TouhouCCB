@@ -147,3 +147,35 @@ def test_legacy_equivalence_fractional_k_never_loosens_credit():
             cash + holdings - debt, debt
         )
         assert Decimal("0") <= legacy - new <= Q6, (k, legacy, new)
+
+
+def test_alpha_is_high_precision_short_leverage_share():
+    """α = (L−1)/L（spec §6.1）：10x 恰好 0.9，3x 用 prec=28 倒数。"""
+    assert derive_thresholds(Decimal("10"), R_MAINT).alpha == Decimal("0.9")
+    three_x = derive_thresholds(Decimal("3"), R_MAINT)
+    assert three_x.alpha == Decimal(2) / Decimal(3)
+    assert str(three_x.alpha) == "0.6666666666666666666666666667"
+
+
+def test_risk_basis_max_of_debt_and_alpha_assets_plus_alpha_short():
+    """B = max(D, αA) + αK：多头资产项与空头成本共享风险基数，不按方向抵消。"""
+    t = derive_thresholds(Decimal("10"), R_MAINT)  # alpha = 0.9
+    assert t.risk_basis(
+        debt=Decimal("4000"), positive_assets=Decimal("100"),
+        short_cover=Decimal("500"),
+    ) == Decimal("4000") + Decimal("0.9") * Decimal("500")
+    # alpha*A 占主导时用资产项
+    assert t.risk_basis(
+        debt=Decimal("1"), positive_assets=Decimal("10000"),
+        short_cover=Decimal("500"),
+    ) == Decimal("0.9") * Decimal("10000") + Decimal("0.9") * Decimal("500")
+    # 无空头且无资产时退化为旧 D
+    assert t.risk_basis(
+        debt=Decimal("123.456789"), positive_assets=Decimal("0"),
+        short_cover=Decimal("0"),
+    ) == Decimal("123.456789")
+    with pytest.raises(ValueError):
+        t.risk_basis(
+            debt=Decimal("NaN"), positive_assets=Decimal("0"),
+            short_cover=Decimal("0"),
+        )
