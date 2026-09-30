@@ -462,14 +462,19 @@ async def execute_short_open_in_session(
     # One UTC T: settle gold debt and every relevant foreign position before
     # adding principal, so the new Q never inherits an older accrual base.
     before_debt = Decimal(user.debt)
+    gold_clock_before = user.debt_last_accrued_at
     loan_service.accrue_interest(user, daily_rate, now)
     if Decimal(user.debt) != before_debt:
         audit_service.record(
             db, "interest_accrual", user_id=user.id,
             payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
                      "interest": Decimal(user.debt) - before_debt,
-                     "daily_rate": daily_rate, "source": "fx_short_open"},
+                     "daily_rate": daily_rate, "source": "fx_short_open",
+                     "debt_last_accrued_at_before": audit_service._utc_iso(gold_clock_before),
+                     "debt_last_accrued_at_after": audit_service._utc_iso(user.debt_last_accrued_at),
+                     "accrued_at": audit_service._utc_iso(now)},
             user_after=audit_service.user_snapshot(user),
+            ts=now,
         )
 
     for pos in positions:
@@ -542,6 +547,7 @@ async def execute_short_open_in_session(
         treasury_before=treasury_before,
         user_before=user_before, short_before=short_before,
         pool_before={"gold": pre_gold, "foreign": pre_foreign},
+        accrued_at=now,
     )
     return FxShortExecution(
         trade=trade, replay=False, pair_id=int(pair_id),
@@ -573,14 +579,19 @@ async def _settle_interest_at_T(
     transaction back; the player path keeps its own request-level handling.
     """
     before_debt = Decimal(user.debt)
+    gold_clock_before = user.debt_last_accrued_at
     loan_service.accrue_interest(user, daily_rate, now)
     if Decimal(user.debt) != before_debt:
         audit_service.record(
             db, "interest_accrual", user_id=user.id,
             payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
                      "interest": Decimal(user.debt) - before_debt,
-                     "daily_rate": daily_rate, "source": source},
+                     "daily_rate": daily_rate, "source": source,
+                     "debt_last_accrued_at_before": audit_service._utc_iso(gold_clock_before),
+                     "debt_last_accrued_at_after": audit_service._utc_iso(user.debt_last_accrued_at),
+                     "accrued_at": audit_service._utc_iso(now)},
             user_after=audit_service.user_snapshot(user),
+            ts=now,
         )
     for pos in positions:
         if Decimal(pos.principal_foreign) + Decimal(pos.interest_foreign) <= 0:

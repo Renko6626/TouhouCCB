@@ -311,6 +311,7 @@ def record_fx_short_open(
     user_before: dict[str, Any],
     short_before: dict[str, Any],
     pool_before: dict[str, Any],
+    accrued_at: datetime,
 ) -> AuditEvent:
     """Purpose-aware replay package for one opening/add-to-short borrow-sell.
 
@@ -324,6 +325,7 @@ def record_fx_short_open(
     expect a spot wallet delta.
     """
     payload = {
+        "accrued_at": _utc_iso(accrued_at),
         "pair_id": pair.id,
         "purpose": trade.purpose,
         "side": trade.side,
@@ -379,6 +381,7 @@ def record_fx_short_open(
         session, "fx_trade", user_id=user.id,
         ref_table="fx_trade", ref_id=trade.id,
         payload=payload, user_after=user_snapshot(user),
+        ts=accrued_at,
     )
 
 

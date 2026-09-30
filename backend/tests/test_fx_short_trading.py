@@ -1047,3 +1047,38 @@ async def test_cover_treasury_gold_overflow_rejects_before_any_mutation():
         after = await _full_state(db, uid, pid)
     assert after == before
     assert not GATES.held_keys()
+
+
+@pytest.mark.parametrize("operation", ["open", "cover"])
+async def test_short_trade_audit_preserves_one_authoritative_accrual_clock(operation):
+    """Historical replay must accrue both debt currencies at the persisted T."""
+    uid, pid = await _seed(
+        cash="1000", debt="100", debt_ago_sec=86400, rate="0.1",
+        short={"principal": "100", "restricted": "100", "basis": "100",
+               "accrued_ago_sec": 86400},
+    )
+    async with async_session_maker() as db:
+        before_clock = _utc((await db.get(User, uid)).debt_last_accrued_at)
+    if operation == "open":
+        await _open(uid, pid, "10")
+    else:
+        await _cover(uid, pid, q="5")
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        pos = await _position(db, uid, pid)
+        events = (await db.execute(select(AuditEvent).where(
+            AuditEvent.user_id == uid).order_by(AuditEvent.id))).scalars().all()
+        trade = next(e for e in events if e.event_type == "fx_trade")
+        gold = next(e for e in events if e.event_type == "interest_accrual"
+                    and e.payload.get("currency") != "foreign")
+        foreign = next(e for e in events if e.payload.get("currency") == "foreign")
+        authoritative = _utc(pos.interest_last_accrued_at)
+        assert D(user.debt) > D("100")
+        assert D(foreign.payload["interest_foreign_delta"]) > 0
+        assert _utc(user.debt_last_accrued_at) == authoritative
+        assert _utc(trade.ts) == datetime.fromisoformat(trade.payload["accrued_at"]) == authoritative
+        assert _utc(gold.ts) == datetime.fromisoformat(gold.payload["accrued_at"]) == authoritative
+        assert datetime.fromisoformat(gold.payload["debt_last_accrued_at_before"]) == before_clock
+        assert datetime.fromisoformat(gold.payload["debt_last_accrued_at_after"]) == authoritative
+        assert _utc(foreign.ts) == authoritative
+        assert gold.id < foreign.id < trade.id
