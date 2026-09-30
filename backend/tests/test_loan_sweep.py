@@ -15,6 +15,16 @@ from sqlalchemy import select
 RATE = Decimal("0.01")
 
 
+def _as_utc(dt: datetime) -> datetime:
+    """SQLite drops tzinfo on read; interpret naive values as UTC. No tolerance."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _parse_clock(raw) -> datetime:
+    assert isinstance(raw, str), f"authoritative clock must be an ISO string, got {raw!r}"
+    return _as_utc(datetime.fromisoformat(raw))
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _seed_loan_rate(setup_db):
     """conftest 的 setup_db 负责清库；此 fixture 仅追加 loan_daily_rate 种子。"""
@@ -152,6 +162,7 @@ async def test_sweep_accrues_foreign_interest_only_and_is_idempotent():
     async with async_session_maker() as s:
         seeded = await s.get(FxShortPosition, sid)
         read_before = pending_short_debt(seeded, RATE, now)
+        clock_before = seeded.interest_last_accrued_at
     assert read_before > seeded.principal_foreign + seeded.interest_foreign
 
     touched = await run_sweep_once()
@@ -190,6 +201,15 @@ async def test_sweep_accrues_foreign_interest_only_and_is_idempotent():
     assert event.payload["pair_id"] == pid
     assert Decimal(event.payload["interest_foreign_delta"]) == pos.interest_foreign
     assert Decimal(event.payload["interest"]) == Decimal("0")
+
+    # WP5 replay needs the exact foreign-interest clock, not a later wall clock
+    # or a drifting float. The payload must carry the row's before/after clocks
+    # and the very T used to accrue; AuditEvent.ts must be that same T.
+    assert _parse_clock(event.payload["interest_last_accrued_at_before"]) == _as_utc(clock_before)
+    assert _parse_clock(event.payload["interest_last_accrued_at_after"]) == _as_utc(pos.interest_last_accrued_at)
+    assert _parse_clock(event.payload["accrued_at"]) == _as_utc(pos.interest_last_accrued_at)
+    assert _as_utc(event.ts) == _as_utc(pos.interest_last_accrued_at)
+    assert pos.interest_last_accrued_at > clock_before
 
     # Immediate second tick: still inside loan_sweep_min_accrual_sec -> no-op.
     assert await run_sweep_once() == 0

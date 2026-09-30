@@ -4,7 +4,7 @@
 快照从已变动的 ORM 对象读取，因此必须在业务值写完之后调用。
 """
 from __future__ import annotations
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable, Optional
 
@@ -31,6 +31,20 @@ def _j(v: Any) -> Any:
     if isinstance(v, (list, tuple)):
         return [_j(x) for x in v]
     return v
+
+
+def _utc_iso(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize a timestamp as an unambiguous UTC ISO-8601 string.
+
+    SQLite does not persist ``tzinfo``, so a value written as UTC reads back
+    naive.  Replay must not have to guess the zone; treat naive input as UTC
+    and always emit an explicit offset instead of a floating local string.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 def user_snapshot(u: User) -> dict[str, Any]:
@@ -111,6 +125,8 @@ def record_fx_short_interest(
     interest: Decimal,
     daily_rate: Decimal,
     elapsed_sec: Optional[float],
+    interest_last_accrued_at_before: Optional[datetime],
+    accrued_at: datetime,
     source: str,
 ) -> AuditEvent:
     """Append the audit package for accrued foreign (short) interest.
@@ -121,6 +137,13 @@ def record_fx_short_interest(
     ``interest`` field therefore carries the gold delta (zero here) and the
     foreign increment is explicit under ``currency='foreign'``.  WP5 replay
     folds the ``interest_foreign_*`` leg into the short position.
+
+    ``accrued_at`` is the exact UTC T handed to ``accrue_short_interest``.
+    ``interest_last_accrued_at_after`` is read from the committed row, so a
+    nonzero event records the clock that actually governs later compounding
+    (``accrue_short_interest`` leaves that clock untouched when the quantized
+    increment is zero, and the caller then emits no event).  ``AuditEvent.ts``
+    is the same T, not a second ``datetime.now()`` sample.
     """
     return record(
         session, "interest_accrual", user_id=user.id,
@@ -134,11 +157,15 @@ def record_fx_short_interest(
             "principal_foreign": position.principal_foreign,
             "interest_foreign_before": position.interest_foreign - interest,
             "interest_foreign_after": position.interest_foreign,
+            "interest_last_accrued_at_before": _utc_iso(interest_last_accrued_at_before),
+            "interest_last_accrued_at_after": _utc_iso(position.interest_last_accrued_at),
+            "accrued_at": _utc_iso(accrued_at),
             "daily_rate": daily_rate,
             "elapsed_sec": elapsed_sec,
             "source": source,
         },
         user_after=user_snapshot(user),
+        ts=accrued_at,
     )
 
 

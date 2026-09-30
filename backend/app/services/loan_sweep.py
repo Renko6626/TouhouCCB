@@ -115,8 +115,8 @@ async def run_sweep_once() -> int:
                 for pos in positions:
                     if pos.principal_foreign + pos.interest_foreign <= _ZERO:
                         continue
-                    accrued_at = pos.interest_last_accrued_at
-                    if accrued_at is not None and _elapsed_seconds(accrued_at, now) < min_gap_sec:
+                    accrued_before = pos.interest_last_accrued_at
+                    if accrued_before is not None and _elapsed_seconds(accrued_before, now) < min_gap_sec:
                         continue
                     added = accrue_short_interest(pos, rate, now)
                     if added == 0:
@@ -127,7 +127,9 @@ async def run_sweep_once() -> int:
                     audit_service.record_fx_short_interest(
                         session, user=u, position=pos, pair_id=pos.pair_id,
                         interest=added, daily_rate=rate,
-                        elapsed_sec=_elapsed_seconds(accrued_at, now) if accrued_at else None,
+                        elapsed_sec=_elapsed_seconds(accrued_before, now) if accrued_before else None,
+                        interest_last_accrued_at_before=accrued_before,
+                        accrued_at=now,
                         source="scheduler",
                     )
 
