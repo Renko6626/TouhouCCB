@@ -46,7 +46,7 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.version import bump_economic_version, economic_version_of
-from app.services.fx.amm import quote_buy_exact_out, quote_sell
+from app.services.fx.amm import FxQuoteMath, quote_buy, quote_buy_exact_out, quote_sell
 from app.services.fx.quantize import amount_down
 from app.services.loan_service import _elapsed_seconds, pending_debt
 from app.services.market_locks import lock_user
@@ -66,6 +66,9 @@ SHORT_OPEN_PURPOSE = "short_open"
 #: ``FxTrade.purpose`` for the exact-output buy-back/repay cover action.
 SHORT_COVER_PURPOSE = "short_cover"
 
+#: ``FxTrade.source`` for forced-liquidation covers (WP4, spec §8/§10).
+LIQUIDATION_SOURCE = "liquidation"
+
 
 class ShortRejected(ValueError):
     """Common base for any malformed short request or unexecutable short quote.
@@ -83,8 +86,27 @@ class ShortCoverRejected(ShortRejected):
     """Malformed cover request or a cover quote the AMM cannot execute."""
 
 
+class ShortLiquidationRejected(ShortRejected):
+    """A forced cover that is malformed or produces an unstorable post-state.
+
+    Pre-mutation validation failures raise this so the orchestrating caller's
+    rollback leaves money/pool/treasury/debt/lock/trade/audit untouched.
+    """
+
+
 class ShortRetryCredit(Exception):
     """Release every lock/gate, re-discover dependencies, then retry."""
+
+
+class ShortPostSettlementMismatch(ShortRetryCredit):
+    """A settled short tail disagreed with the pure preflight quantity.
+
+    Only raised *after* :func:`_settle_interest_at_T` advanced a clock, so the
+    caller must roll the whole transaction back; it is never a normal blocked
+    return.  Subclassing :class:`ShortRetryCredit` lets an orchestrator that
+    already releases locks and re-discovers on a stale version handle it the
+    same way.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -517,6 +539,186 @@ async def execute_short_open_in_session(
     )
 
 
+# ── shared cover settlement (player + forced liquidation) ───────────────────
+
+async def _settle_interest_at_T(
+    db: AsyncSession,
+    *,
+    user: User,
+    positions: list[FxShortPosition],
+    daily_rate: Decimal,
+    now: datetime,
+    source: str,
+) -> None:
+    """Accrue gold debt and every own foreign position once at one UTC T.
+
+    A dust-only increment leaves the position clock untouched (see
+    :func:`accrue_short_interest`) and therefore emits no event; a nonzero one
+    is audited with the exact same T that governs later compounding.
+    """
+    before_debt = Decimal(user.debt)
+    loan_service.accrue_interest(user, daily_rate, now)
+    if Decimal(user.debt) != before_debt:
+        audit_service.record(
+            db, "interest_accrual", user_id=user.id,
+            payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
+                     "interest": Decimal(user.debt) - before_debt,
+                     "daily_rate": daily_rate, "source": source},
+            user_after=audit_service.user_snapshot(user),
+        )
+    for pos in positions:
+        if Decimal(pos.principal_foreign) + Decimal(pos.interest_foreign) <= 0:
+            continue
+        clock_before = pos.interest_last_accrued_at
+        added = accrue_short_interest(pos, daily_rate, now)
+        if added:
+            audit_service.record_fx_short_interest(
+                db, user=user, position=pos, pair_id=int(pos.pair_id),
+                interest=added, daily_rate=daily_rate,
+                elapsed_sec=(_elapsed_seconds(clock_before, now) if clock_before else None),
+                interest_last_accrued_at_before=clock_before,
+                accrued_at=now, source=source,
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _CoverLedger:
+    """Mutation result shared by the player and forced-liquidation covers."""
+
+    trade: FxTrade
+    post_price: Decimal
+    release: Decimal
+    allocated_basis: Decimal
+    realized_pl: Decimal
+    interest_paid: Decimal
+    principal_paid: Decimal
+
+
+async def _write_cover_ledger(
+    db: AsyncSession,
+    *,
+    pair: FxPair,
+    user: User,
+    target: FxShortPosition,
+    positions: list[FxShortPosition],
+    treasury: FxTreasury,
+    now: datetime,
+    quote: FxQuoteMath,
+    q: Decimal,
+    x: Decimal,
+    q_effective: Decimal,
+    release: Decimal,
+    full_cover: bool,
+    limited_by_cash: bool,
+    requested_foreign_amount: Optional[Decimal],
+    cover_all: Optional[bool],
+    max_gold_in: Decimal,
+    idempotency_key: str,
+    source: str,
+    treasury_before: dict,
+    user_before: dict,
+    short_before: dict,
+    pre_gold: Decimal,
+    pre_foreign: Decimal,
+    reject: type[ValueError],
+) -> _CoverLedger:
+    """Validate every post-state, then post one cover in the caller's txn.
+
+    Both the player cover and the forced-liquidation cover call this so they
+    move identical physical legs (pool gold/foreign, treasury fee and returned
+    q, user cash, economic version), repay interest before principal, apportion
+    the lock and the historical proceeds basis independently and emit one
+    replayable ``fx_trade`` audit package.  Every accumulator is range-checked
+    **before** a single row moves: a validation failure raises ``reject`` with
+    the caller's transaction still untouched, so a rollback cannot leave a
+    half-posted ledger.
+    """
+    cash = Decimal(user.cash)
+    position_lock = Decimal(target.restricted_gold)
+    basis_before = Decimal(target.proceeds_basis_gold)
+    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
+    pre_treasury_gold = Decimal(treasury_before["gold_balance"])
+    pre_treasury_foreign = Decimal(treasury_before["foreign_balance"])
+
+    interest_before = Decimal(target.interest_foreign)
+    principal_before = Decimal(target.principal_foreign)
+    interest_paid = min(q, interest_before)
+    principal_paid = (q - interest_paid).quantize(_Q6)
+    if full_cover:
+        allocated_basis = basis_before
+    else:
+        allocated_basis = amount_down(basis_before * q / q_effective)
+    realized_pl = (allocated_basis - x).quantize(_Q6)
+    post_lock = (position_lock - release).quantize(_Q6)
+    post_basis = (basis_before - allocated_basis).quantize(_Q6)
+
+    _require_gold_bound(pre_treasury_gold + quote.fee_amount, "treasury gold", reject)
+    _require_gold_bound(pre_treasury_foreign + q, "treasury foreign", reject)
+    _require_gold_bound(cash - x, "cash", reject)
+    _require_gold_bound(quote.post_gold_reserve, "pool gold", reject)
+    _require_gold_bound(quote.post_foreign_reserve, "pool foreign", reject)
+    _require_gold_bound(post_lock, "restricted gold", reject)
+    _require_gold_bound(post_basis, "proceeds basis", reject)
+    if post_lock < 0 or post_basis < 0:
+        raise reject("cover would leave a negative short tail")
+    if total_lock - release < 0 or total_lock - release > cash - x:
+        raise reject("restricted gold exceeds total cash")
+
+    pair.gold_reserve = quote.post_gold_reserve
+    pair.foreign_reserve = quote.post_foreign_reserve
+    pair.pool_version = int(pair.pool_version) + 1
+    pair.updated_at = now
+    treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
+    treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
+    treasury.updated_at = now
+    user.cash = (cash - x).quantize(_Q6)
+    bump_economic_version(user)
+
+    # q repays interest first, then principal.
+    target.interest_foreign = (interest_before - interest_paid).quantize(_Q6)
+    target.principal_foreign = (principal_before - principal_paid).quantize(_Q6)
+    target.restricted_gold = post_lock
+    target.proceeds_basis_gold = post_basis
+    if full_cover:
+        target.principal_foreign = Decimal("0")
+        target.interest_foreign = Decimal("0")
+        target.restricted_gold = Decimal("0")
+        target.proceeds_basis_gold = Decimal("0")
+        target.interest_last_accrued_at = None
+    target.updated_at = now
+
+    post_price = quote.post_price.quantize(_Q6)
+    trade = FxTrade(
+        pair_id=int(pair.id), user_id=int(user.id), side="buy",
+        purpose=SHORT_COVER_PURPOSE,
+        requested_foreign_amount=requested_foreign_amount,
+        cover_all=cover_all, max_gold_in=max_gold_in,
+        input_amount=x, output_amount=q, min_out=Decimal("0"),
+        fee_amount=quote.fee_amount,
+        pre_gold_reserve=pre_gold, pre_foreign_reserve=pre_foreign,
+        post_gold_reserve=quote.post_gold_reserve,
+        post_foreign_reserve=quote.post_foreign_reserve,
+        post_price=post_price, source=source, idempotency_key=idempotency_key,
+    )
+    db.add(trade)
+    await db.flush()
+    audit_service.record_fx_short_cover(
+        db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
+        treasury_before=treasury_before, user_before=user_before,
+        short_before=short_before,
+        pool_before={"gold": pre_gold, "foreign": pre_foreign},
+        interest_paid_foreign=interest_paid, principal_paid_foreign=principal_paid,
+        released_lock=release, allocated_proceeds_basis=allocated_basis,
+        realized_pl=realized_pl, accrued_at=now, full_cover=full_cover,
+        limited_by_cash=limited_by_cash,
+    )
+    return _CoverLedger(
+        trade=trade, post_price=post_price, release=release,
+        allocated_basis=allocated_basis, realized_pl=realized_pl,
+        interest_paid=interest_paid, principal_paid=principal_paid,
+    )
+
+
 def _cover_identity_matches(
     old: FxTrade,
     *,
@@ -658,29 +860,9 @@ async def execute_short_cover_in_session(
 
     # One UTC T: settle gold debt and every own foreign position before reading
     # the coverable debt, so cover_all takes the whole post-settlement tail.
-    before_debt = Decimal(user.debt)
-    loan_service.accrue_interest(user, daily_rate, now)
-    if Decimal(user.debt) != before_debt:
-        audit_service.record(
-            db, "interest_accrual", user_id=user.id,
-            payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
-                     "interest": Decimal(user.debt) - before_debt,
-                     "daily_rate": daily_rate, "source": "fx_short_cover"},
-            user_after=audit_service.user_snapshot(user),
-        )
-    for pos in positions:
-        if Decimal(pos.principal_foreign) + Decimal(pos.interest_foreign) <= 0:
-            continue
-        clock_before = pos.interest_last_accrued_at
-        added = accrue_short_interest(pos, daily_rate, now)
-        if added:
-            audit_service.record_fx_short_interest(
-                db, user=user, position=pos, pair_id=int(pos.pair_id),
-                interest=added, daily_rate=daily_rate,
-                elapsed_sec=(_elapsed_seconds(clock_before, now) if clock_before else None),
-                interest_last_accrued_at_before=clock_before,
-                accrued_at=now, source="fx_short_cover",
-            )
+    await _settle_interest_at_T(
+        db, user=user, positions=positions, daily_rate=daily_rate,
+        now=now, source="fx_short_cover")
 
     q_effective = (
         Decimal(target.principal_foreign) + Decimal(target.interest_foreign)
@@ -725,8 +907,420 @@ async def execute_short_cover_in_session(
 
     _require_writes()
     pre_gold, pre_foreign = gold_reserve, foreign_reserve
-    pre_treasury_gold = Decimal(treasury.gold_balance)
-    pre_treasury_foreign = Decimal(treasury.foreign_balance)
+    treasury_before = {
+        "gold_balance": Decimal(treasury.gold_balance),
+        "foreign_balance": Decimal(treasury.foreign_balance),
+        "daily_spend": treasury.daily_spend,
+        "spend_date": treasury.spend_date,
+        "updated_at": treasury.updated_at,
+    }
+    user_before = {
+        "cash": cash,
+        "debt": Decimal(user.debt),
+        "debt_last_accrued_at": user.debt_last_accrued_at,
+    }
+    short_before = _short_snapshot(target)
+    ledger = await _write_cover_ledger(
+        db, pair=pair, user=user, target=target, positions=positions,
+        treasury=treasury, now=now, quote=quote, q=q, x=x,
+        q_effective=q_effective, release=release, full_cover=full_cover,
+        limited_by_cash=False,
+        requested_foreign_amount=(None if is_cover_all else q),
+        cover_all=(True if is_cover_all else None), max_gold_in=limit_gold,
+        idempotency_key=idempotency_key, source="player",
+        treasury_before=treasury_before, user_before=user_before,
+        short_before=short_before, pre_gold=pre_gold, pre_foreign=pre_foreign,
+        reject=ShortCoverRejected,
+    )
+    return FxShortExecution(
+        trade=ledger.trade, replay=False, pair_id=int(pair_id),
+        post_price=ledger.post_price, trade_id=int(ledger.trade.id),
+    )
+
+
+#: Stable blocked reasons WP4c can persist on a forced-cover action (spec §8).
+LIQ_COVER_BLOCKED_PAIR = "pair_not_coverable"
+LIQ_COVER_BLOCKED_NO_SHORT = "no_outstanding_short"
+LIQ_COVER_BLOCKED_POOL = "insufficient_pool_foreign"
+LIQ_COVER_BLOCKED_RESERVE = "invalid_short_reserve"
+LIQ_COVER_BLOCKED_CASH = "insufficient_cash"
+LIQ_COVER_BLOCKED_QUOTE = "quote_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class FxLiquidationCoverExecution:
+    """Result of one budgeted forced cover inside the caller's transaction.
+
+    Exactly one shape is returned:
+
+    - **blocked**: ``blocked_reason`` is set, ``trade`` is None and no row was
+      mutated; the caller may record the reason and commit the round.
+    - **executed / replay**: ``trade`` is set.  ``replay`` is True when the
+      ``(user_id, liq:{run_id}:{round_no})`` key already had a committed trade,
+      so the caller must not debit/repay a second time nor create a second
+      action; the post-state legs are re-read from the saved audit package.
+    """
+
+    trade: Optional[FxTrade]
+    replay: bool
+    blocked_reason: Optional[str]
+    pair_id: int
+    idempotency_key: str
+    post_price: Optional[Decimal]
+    trade_id: Optional[int]
+    repaid_foreign: Decimal
+    paid_gold: Decimal
+    fee_gold: Decimal
+    released_lock: Decimal
+    limited_by_cash: bool
+    full_cover: bool
+    interest_paid_foreign: Decimal
+    principal_paid_foreign: Decimal
+    allocated_proceeds_basis: Decimal
+    realized_pl: Decimal
+    principal_foreign_after: Decimal
+    interest_foreign_after: Decimal
+    restricted_gold_after: Decimal
+    proceeds_basis_gold_after: Decimal
+    accrued_at: Optional[datetime]
+
+
+def _liquidation_cover_identity_matches(
+    old: FxTrade, *, pair_id: int, planned: Decimal, budget_cap: Decimal,
+) -> bool:
+    """Whether a same-key trade is exactly this forced-cover request.
+
+    The raw request identity (planned quantity and gold budget) is part of the
+    key, so a crash-retry with changed parameters, a prior forced *sell* on the
+    same round, or a player trade can never replay this execution.
+    """
+    return (
+        old.purpose == SHORT_COVER_PURPOSE
+        and int(old.pair_id) == int(pair_id)
+        and old.side == "buy"
+        and old.source == LIQUIDATION_SOURCE
+        and old.cover_all is None
+        and old.requested_foreign_amount is not None
+        and Decimal(old.requested_foreign_amount) == planned
+        and old.max_gold_in is not None
+        and Decimal(old.max_gold_in) == budget_cap
+    )
+
+
+def _liquidation_cover_blocked(
+    *, pair_id: int, idempotency_key: str, reason: str,
+) -> FxLiquidationCoverExecution:
+    return FxLiquidationCoverExecution(
+        trade=None, replay=False, blocked_reason=reason,
+        pair_id=pair_id, idempotency_key=idempotency_key,
+        post_price=None, trade_id=None,
+        repaid_foreign=Decimal("0"), paid_gold=Decimal("0"),
+        fee_gold=Decimal("0"), released_lock=Decimal("0"),
+        limited_by_cash=False, full_cover=False,
+        interest_paid_foreign=Decimal("0"), principal_paid_foreign=Decimal("0"),
+        allocated_proceeds_basis=Decimal("0"), realized_pl=Decimal("0"),
+        principal_foreign_after=Decimal("0"), interest_foreign_after=Decimal("0"),
+        restricted_gold_after=Decimal("0"), proceeds_basis_gold_after=Decimal("0"),
+        accrued_at=None,
+    )
+
+
+async def _replay_cover_metadata(db: AsyncSession, trade: FxTrade) -> dict:
+    """Re-read the saved audit legs so a replay reports the original post-state."""
+    from app.models.audit import AuditEvent
+
+    event = (await db.execute(select(AuditEvent).where(
+        AuditEvent.event_type == "fx_trade",
+        AuditEvent.ref_table == "fx_trade",
+        AuditEvent.ref_id == int(trade.id),
+    ))).scalars().first()
+    payload = {} if event is None else (event.payload or {})
+    short_after = payload.get("short_after") or {}
+
+    def _d(value) -> Decimal:
+        return Decimal(str(value)) if value is not None else Decimal("0")
+
+    accrued_raw = payload.get("accrued_at")
+    try:
+        accrued_at = datetime.fromisoformat(accrued_raw) if accrued_raw else None
+    except (TypeError, ValueError):  # pragma: no cover - malformed legacy audit
+        accrued_at = None
+    return {
+        "released_lock": _d(payload.get("released_lock")),
+        "limited_by_cash": bool(payload.get("limited_by_cash")),
+        "full_cover": bool(payload.get("full_cover")),
+        "interest_paid_foreign": _d(payload.get("interest_paid_foreign")),
+        "principal_paid_foreign": _d(payload.get("principal_paid_foreign")),
+        "allocated_proceeds_basis": _d(payload.get("allocated_proceeds_basis")),
+        "realized_pl": _d(payload.get("realized_pl")),
+        "principal_foreign_after": _d(short_after.get("principal_foreign")),
+        "interest_foreign_after": _d(short_after.get("interest_foreign")),
+        "restricted_gold_after": _d(short_after.get("restricted_gold")),
+        "proceeds_basis_gold_after": _d(short_after.get("proceeds_basis_gold")),
+        "accrued_at": accrued_at,
+    }
+
+
+async def execute_liquidation_cover_in_session(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    pair_id: int,
+    run_id: int,
+    round_no: int,
+    planned_amount: Decimal,
+    max_gold_budget: Decimal,
+    credit_deps: "DependencySet",
+) -> FxLiquidationCoverExecution:
+    """Buy back foreign debt with a hard gold budget inside the caller's txn.
+
+    Forced-liquidation twin of :func:`execute_short_cover_in_session` (spec
+    §7.3/§8.1–8.2).  The caller (WP4c) already holds the target pair's
+    exclusive GATE plus every dependency shared GATE and owns the single
+    transaction; this function never commits, rolls back, publishes or creates a
+    ``LiquidationAction``.
+
+    - All player gates except the process-global ``unified_credit_enabled``
+      fail-closed check are deliberately ignored: ``fx_enabled``, the loan gate,
+      the short-opening gate and the credit freeze never block a forced cover.
+      The real pair coverability matrix still applies (``trading`` or
+      ``paused`` + ``reduce_only``; ``closed``/``draft``/``archived``/paused
+      non-reduce-only retain the debt but block the action).
+    - One UTC T settles the gold debt and every own foreign position once; the
+      requested plan is capped by the *post-settlement* actual debt.
+    - The budget is ``min(max_gold_budget, free_cash + own_restricted_gold)``;
+      another short's lock is never touched and no gold debt is originated.
+    - If the exact plan is quotable within budget it buys exactly the plan;
+      otherwise it falls back to an exact-input buy bounded by the budget whose
+      output must be a positive amount not above the plan.  If that input could
+      over-deliver, it switches back to exact-output.  A zero budget or an
+      output that rounds to zero blocks without any write.
+    - Idempotent per ``(user_id, liq:{run_id}:{round_no})``: a replay returns the
+      saved trade and the audit post-state with no second debit/repayment; a
+      parameter mismatch is a 409 conflict.
+
+    Every normal blocked return is **mutation-free**: the post-T debt, quote and
+    budget are preflighted with the pure :func:`pending_short_debt` at the common
+    T, so no debt, interest clock, economic version, audit event, cash or
+    reserve moves before the block is decided; WP4c can persist the blocked round
+    and commit safely.  Only a truly executable cover advances the clocks, once
+    at T.  Every accumulator is range-checked before a row moves.  Malformed
+    inputs or unstorable post-states raise :class:`ShortLiquidationRejected`; a
+    stale economic version or dependency set raises :class:`ShortRetryCredit` so
+    the caller re-discovers instead of taking a missing pair GATE under the User
+    lock.  If the settled tail ever disagreed with the preflighted quantity the
+    kernel raises :class:`ShortPostSettlementMismatch` (a
+    :class:`ShortRetryCredit`), which is only reachable after a mutation and
+    therefore requires the caller to roll back.
+    """
+    _require_writes()
+    if not credit_flags.get_flags().unified_credit_enabled:
+        raise HTTPException(status_code=403, detail="unified credit is not enabled")
+    target_key = GroupKey("fx", pair_id)
+    if target_key not in GATES.held_keys_by_current_task():
+        raise RuntimeError(
+            "liquidation-cover caller must hold the target pair gate through commit")
+
+    # Imported lazily: ``fx.trading`` imports ``credit.risk`` which imports this
+    # module at load time, so a module-level import would be a cycle.
+    from app.services.fx.trading import liquidation_idempotency_key
+
+    key = liquidation_idempotency_key(run_id, round_no)
+    planned = _positive_six(
+        planned_amount, "planned_amount", ShortLiquidationRejected)
+    _require_foreign_bound(planned, "planned_amount", ShortLiquidationRejected)
+    budget_cap = _nonnegative_six(
+        max_gold_budget, "max_gold_budget", ShortLiquidationRejected)
+    _require_gold_bound(budget_cap, "max_gold_budget", ShortLiquidationRejected)
+
+    pair = await _lock_pair(db, pair_id)
+    user = await lock_user(db, user_id)
+
+    old = (await db.execute(select(FxTrade).where(
+        FxTrade.user_id == user_id, FxTrade.idempotency_key == key,
+    ))).scalars().first()
+    if old is not None:
+        if not _liquidation_cover_identity_matches(
+            old, pair_id=pair_id, planned=planned, budget_cap=budget_cap,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="liquidation idempotency key parameter mismatch",
+            )
+        metadata = await _replay_cover_metadata(db, old)
+        return FxLiquidationCoverExecution(
+            trade=old, replay=True, blocked_reason=None,
+            pair_id=int(old.pair_id), idempotency_key=key,
+            post_price=Decimal(old.post_price), trade_id=int(old.id),
+            repaid_foreign=Decimal(old.output_amount),
+            paid_gold=Decimal(old.input_amount),
+            fee_gold=Decimal(old.fee_amount),
+            **metadata,
+        )
+
+    held = GATES.held_keys_by_current_task()
+    if economic_version_of(user) != credit_deps.economic_version:
+        raise ShortRetryCredit()
+    if not set(credit_deps.groups).issubset(held):
+        raise ShortRetryCredit()
+    if credit_deps.snapshots.get(target_key) is None:
+        raise ShortRetryCredit()
+
+    status = str(pair.status or "").strip().lower()
+    coverable = (
+        not bool(pair.archived)
+        and (status == "trading" or (status == "paused" and bool(pair.reduce_only)))
+    )
+    if not coverable:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_PAIR)
+
+    positions = await _lock_short_rows(db, user_id)
+    target = next((p for p in positions if int(p.pair_id) == pair_id), None)
+    if target is None or (
+        Decimal(target.principal_foreign) + Decimal(target.interest_foreign) <= 0
+    ):
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_NO_SHORT)
+
+    treasury = await _lock_treasury(db, pair_id)
+    pre_treasury_gold = (
+        Decimal("0") if treasury is None else Decimal(treasury.gold_balance))
+    pre_treasury_foreign = (
+        Decimal("0") if treasury is None else Decimal(treasury.foreign_balance))
+
+    # The cash budget depends only on cash and the locked gold, neither of which
+    # interest accrual changes; an unpayable or invariant-breaking attempt is
+    # rejected before advancing any clock so even the T settlement is untouched.
+    cash = Decimal(user.cash)
+    position_lock = Decimal(target.restricted_gold)
+    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
+    if cash < total_lock:
+        raise ShortLiquidationRejected("restricted gold exceeds total cash")
+    free_cash = cash - total_lock
+    budget = amount_down(min(budget_cap, free_cash + position_lock))
+    if budget <= 0:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
+
+    now = utcnow()
+    daily_rate = _finite_decimal(
+        credit_deps.daily_rate, "daily_rate", ShortLiquidationRejected)
+
+    # ── pure preflight: no clock is advanced until the cover is executable ──
+    # ``pending_short_debt`` is the exact post-T tail ``_settle_interest_at_T``
+    # will produce, so the q/quote/budget decision (and therefore every normal
+    # blocked return below) happens before any debt, clock or audit row moves.
+    # That keeps a blocked round committable by WP4c with zero economic change.
+    try:
+        q_effective = pending_short_debt(target, daily_rate, now).quantize(_Q6)
+    except ShortRejected as exc:
+        # An unrepresentable pending obligation is a data error: reject with no
+        # write instead of settling and persisting a false q.
+        raise ShortLiquidationRejected(str(exc)) from exc
+    if q_effective <= 0:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_NO_SHORT)
+
+    gold_reserve = Decimal(pair.gold_reserve)
+    foreign_reserve = Decimal(pair.foreign_reserve)
+    if (not gold_reserve.is_finite() or not foreign_reserve.is_finite()
+            or gold_reserve <= 0 or foreign_reserve <= 0):
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_RESERVE)
+    if q_effective >= foreign_reserve:
+        # Q>=F cannot be fully bought no matter how often we partially cover:
+        # record the pool block instead of spending cash (spec §8.2).
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_POOL)
+
+    requested = amount_down(min(planned, q_effective))
+    if requested <= 0:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_NO_SHORT)
+
+    buy_fee_rate = Decimal(pair.buy_fee_rate)
+    planned_quote: Optional[FxQuoteMath] = None
+    try:
+        planned_quote = quote_buy_exact_out(
+            requested, gold_reserve, foreign_reserve, buy_fee_rate)
+    except (TypeError, ValueError, ArithmeticError):
+        planned_quote = None
+
+    if planned_quote is not None and planned_quote.input_amount <= budget:
+        quote = planned_quote
+        q = requested
+        limited_by_cash = False
+    else:
+        try:
+            exact_in = quote_buy(budget, gold_reserve, foreign_reserve, buy_fee_rate)
+        except (TypeError, ValueError, ArithmeticError):
+            reason = (
+                LIQ_COVER_BLOCKED_POOL if planned_quote is None
+                else LIQ_COVER_BLOCKED_QUOTE
+            )
+            return _liquidation_cover_blocked(
+                pair_id=pair_id, idempotency_key=key, reason=reason)
+        if exact_in.output_amount > requested:
+            # Exact-input over-delivers: switch back to buying exactly the plan.
+            if planned_quote is None or planned_quote.input_amount > budget:
+                return _liquidation_cover_blocked(
+                    pair_id=pair_id, idempotency_key=key,
+                    reason=LIQ_COVER_BLOCKED_QUOTE)
+            quote = planned_quote
+            q = requested
+            limited_by_cash = False
+        else:
+            quote = exact_in
+            q = exact_in.output_amount
+            limited_by_cash = q < requested
+
+    if q <= 0 or q > q_effective:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_QUOTE)
+    x = quote.input_amount
+    if x <= 0 or x > budget:
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
+
+    full_cover = q == q_effective
+    base_release = (
+        position_lock if full_cover else amount_down(position_lock * q / q_effective)
+    )
+    if x <= free_cash + base_release:
+        release = base_release
+    elif x <= free_cash + position_lock:
+        # A losing forced cover may spend extra gold from this position's own
+        # lock (never another short's) but never originates a gold loan.
+        release = max(base_release, x - free_cash)
+    else:  # pragma: no cover - budget <= free_cash + own lock makes this unreachable
+        return _liquidation_cover_blocked(
+            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
+    release = release.quantize(_Q6)
+
+    # ── truly executable: advance every clock once at the common T ──────────
+    _require_writes()
+    await _settle_interest_at_T(
+        db, user=user, positions=positions, daily_rate=daily_rate,
+        now=now, source="fx_short_liquidation")
+
+    # The preflight and the settlement read the same pure ``pending_debt`` at
+    # the same T, so the settled tail must equal the priced quantity.  A
+    # disagreement means a clock moved during settlement: the caller must roll
+    # back rather than treat this as a normal blocked round.
+    settled_q_effective = (
+        Decimal(target.principal_foreign) + Decimal(target.interest_foreign)
+    ).quantize(_Q6)
+    if settled_q_effective != q_effective or not (Decimal("0") < q <= settled_q_effective):
+        raise ShortPostSettlementMismatch(
+            "settled short debt disagrees with the preflighted cover quantity")
+
+    if treasury is None:
+        treasury = FxTreasury(pair_id=pair_id)
+        db.add(treasury)
+        pre_treasury_gold = Decimal("0")
+        pre_treasury_foreign = Decimal("0")
+    pre_gold, pre_foreign = gold_reserve, foreign_reserve
     treasury_before = {
         "gold_balance": pre_treasury_gold,
         "foreign_balance": pre_treasury_foreign,
@@ -740,94 +1334,32 @@ async def execute_short_cover_in_session(
         "debt_last_accrued_at": user.debt_last_accrued_at,
     }
     short_before = _short_snapshot(target)
-
-    # Storage bounds: every post-state accumulator must fit its Numeric column
-    # before a single money/short row moves.  ``quote_buy_exact_out`` already
-    # bounds X, the fee and the post reserves, but it knows nothing about the
-    # treasury balances, cash or the debt tail; SQLite would silently accept an
-    # over-range write while Postgres fails at flush.  Reject as a cover error
-    # so the caller's rollback leaves money/debt/lock/pool/treasury/trade/audit
-    # exactly as it found them.
-    _require_gold_bound(
-        pre_treasury_gold + quote.fee_amount, "treasury gold", ShortCoverRejected)
-    _require_gold_bound(
-        pre_treasury_foreign + q, "treasury foreign", ShortCoverRejected)
-    _require_gold_bound(cash - x, "cash", ShortCoverRejected)
-    _require_gold_bound(
-        quote.post_gold_reserve, "pool gold", ShortCoverRejected)
-    _require_gold_bound(
-        quote.post_foreign_reserve, "pool foreign", ShortCoverRejected)
-
-    # Physical settlement: the AMM buys exactly q foreign with X gold; the net
-    # gold joins the pool, the gold fee and the returned q go to treasury, cash
-    # falls, and the user wallet is untouched.
-    pair.gold_reserve = quote.post_gold_reserve
-    pair.foreign_reserve = quote.post_foreign_reserve
-    pair.pool_version = int(pair.pool_version) + 1
-    pair.updated_at = now
-    treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
-    treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
-    treasury.updated_at = now
-    user.cash = (cash - x).quantize(_Q6)
-    bump_economic_version(user)
-
-    # q repays interest first, then principal.
-    interest_before = Decimal(target.interest_foreign)
-    principal_before = Decimal(target.principal_foreign)
-    interest_paid = min(q, interest_before)
-    principal_paid = (q - interest_paid).quantize(_Q6)
-    target.interest_foreign = (interest_before - interest_paid).quantize(_Q6)
-    target.principal_foreign = (principal_before - principal_paid).quantize(_Q6)
-
-    # Lock release and the historical proceeds basis are apportioned
-    # independently; a full cover settles both rounding tails.
-    if full_cover:
-        allocated_basis = Decimal(target.proceeds_basis_gold)
-    else:
-        allocated_basis = amount_down(Decimal(target.proceeds_basis_gold) * q / q_effective)
-    target.restricted_gold = (position_lock - release).quantize(_Q6)
-    target.proceeds_basis_gold = (
-        Decimal(target.proceeds_basis_gold) - allocated_basis
-    ).quantize(_Q6)
-    realized_pl = (allocated_basis - x).quantize(_Q6)
-    if full_cover:
-        target.principal_foreign = Decimal("0")
-        target.interest_foreign = Decimal("0")
-        target.restricted_gold = Decimal("0")
-        target.proceeds_basis_gold = Decimal("0")
-        target.interest_last_accrued_at = None
-    target.updated_at = now
-
-    # 0 <= ΣS <= C after the release; other positions' locks are unchanged.
-    if total_lock - release < 0 or total_lock - release > Decimal(user.cash):
-        raise ShortCoverRejected("restricted gold exceeds total cash")
-
-    post_price = quote.post_price.quantize(_Q6)
-    trade = FxTrade(
-        pair_id=pair_id, user_id=user_id, side="buy", purpose=SHORT_COVER_PURPOSE,
-        requested_foreign_amount=(None if is_cover_all else q),
-        cover_all=(True if is_cover_all else None), max_gold_in=limit_gold,
-        input_amount=x, output_amount=q, min_out=Decimal("0"),
-        fee_amount=quote.fee_amount,
-        pre_gold_reserve=pre_gold, pre_foreign_reserve=pre_foreign,
-        post_gold_reserve=quote.post_gold_reserve,
-        post_foreign_reserve=quote.post_foreign_reserve,
-        post_price=post_price, source="player", idempotency_key=idempotency_key,
-    )
-    db.add(trade)
-    await db.flush()
-    audit_service.record_fx_short_cover(
-        db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
+    ledger = await _write_cover_ledger(
+        db, pair=pair, user=user, target=target, positions=positions,
+        treasury=treasury, now=now, quote=quote, q=q, x=x,
+        q_effective=q_effective, release=release, full_cover=full_cover,
+        limited_by_cash=limited_by_cash, requested_foreign_amount=planned,
+        cover_all=None, max_gold_in=budget_cap,
+        idempotency_key=key, source=LIQUIDATION_SOURCE,
         treasury_before=treasury_before, user_before=user_before,
-        short_before=short_before,
-        pool_before={"gold": pre_gold, "foreign": pre_foreign},
-        interest_paid_foreign=interest_paid, principal_paid_foreign=principal_paid,
-        released_lock=release, allocated_proceeds_basis=allocated_basis,
-        realized_pl=realized_pl, accrued_at=now, full_cover=full_cover,
+        short_before=short_before, pre_gold=pre_gold, pre_foreign=pre_foreign,
+        reject=ShortLiquidationRejected,
     )
-    return FxShortExecution(
-        trade=trade, replay=False, pair_id=int(pair_id),
-        post_price=post_price, trade_id=int(trade.id),
+    return FxLiquidationCoverExecution(
+        trade=ledger.trade, replay=False, blocked_reason=None,
+        pair_id=int(pair_id), idempotency_key=key,
+        post_price=ledger.post_price, trade_id=int(ledger.trade.id),
+        repaid_foreign=q, paid_gold=x, fee_gold=quote.fee_amount,
+        released_lock=release, limited_by_cash=limited_by_cash,
+        full_cover=full_cover, interest_paid_foreign=ledger.interest_paid,
+        principal_paid_foreign=ledger.principal_paid,
+        allocated_proceeds_basis=ledger.allocated_basis,
+        realized_pl=ledger.realized_pl,
+        principal_foreign_after=Decimal(target.principal_foreign),
+        interest_foreign_after=Decimal(target.interest_foreign),
+        restricted_gold_after=Decimal(target.restricted_gold),
+        proceeds_basis_gold_after=Decimal(target.proceeds_basis_gold),
+        accrued_at=now,
     )
 
 

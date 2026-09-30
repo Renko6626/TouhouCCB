@@ -401,6 +401,7 @@ def record_fx_short_cover(
     realized_pl: Decimal,
     accrued_at: datetime,
     full_cover: bool,
+    limited_by_cash: bool = False,
 ) -> AuditEvent:
     """Purpose-aware replay package for one exact-output short cover.
 
@@ -413,7 +414,9 @@ def record_fx_short_cover(
     actually received q, the user cash/debt before/after, the short row before/
     after, the operation key and the user economic version.  ``wallet_after`` is
     explicitly ``None``: covering never moves the spot wallet.  ``accrued_at`` is
-    the common UTC T used for every interest leg.  WP5 folds these legs into the
+    the common UTC T used for every interest leg.  ``limited_by_cash`` is True
+    only for a forced cover whose budget capped the output below the planned
+    quantity; a player cover always passes False.  WP5 folds these legs into the
     purpose-aware replay.
     """
     payload = {
@@ -435,6 +438,7 @@ def record_fx_short_cover(
         "allocated_proceeds_basis": allocated_proceeds_basis,
         "realized_pl": realized_pl,
         "full_cover": full_cover,
+        "limited_by_cash": bool(limited_by_cash),
         "pre_gold_reserve": trade.pre_gold_reserve,
         "pre_foreign_reserve": trade.pre_foreign_reserve,
         "post_gold_reserve": trade.post_gold_reserve,
