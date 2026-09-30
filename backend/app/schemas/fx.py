@@ -21,6 +21,7 @@ class FxPairPublic(BaseModel):
 
 class FxPairAdmin(FxPairPublic):
     """Operator view; reserve and target controls stay out of public payloads."""
+    archived: bool = False
     gold_reserve: Decimal
     foreign_reserve: Decimal
     target_price: Decimal

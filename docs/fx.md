@@ -35,12 +35,12 @@ AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而�
 
 1. **总闸默认关闭**：`site_config.fx_enabled` 默认 `false`；没有建立并注资货币对之前不得开市。
 2. **多货币对**：当前管理端同一时间最多允许三个 `status='trading'` 的货币对；开市后不可再改
-   `currency_code` / `currency_name`。
+   `currency_code`，显示名称 `currency_name` 可以修正。
 3. **分币种守恒**：系统订单前后 `G + T_G` 与 `F + T_F` 分别不变（G=池子金圆券储备，
    T_G=treasury 金圆券；F/T_F 同理）。系统输入从 treasury 扣、输出进 treasury；玩家交易、
    手续费和注/撤资全部写审计并可回放。
 4. **事件支出只算本事件**：`fx_event.parameter_snapshot["spent"]` 只累计该事件实际的金圆券
-   名义支出，不能用 `treasury.daily_spend`（全局）代替。
+   名义支出，不能用 `treasury.daily_spend`（该货币对所有系统订单）代替。
 5. **事务与锁**：池子行锁先于用户行锁；系统订单失败用 savepoint 隔离，不中止其他货币对；
    公开 SSE 只在事务提交后广播。
 6. **公开字段白名单**：公开 API/SSE 只返回行情与已发布新闻，绝不泄露
@@ -61,6 +61,7 @@ FX 使用的 Alembic revision：
 | 依赖 | `0d0ac23efa85` | `2026_09_26_2301-0d0ac23efa85_add_administrator_redemption_fulfillment.py` | 兑换履约（FX 的前置） |
 | FX | `fx_tables_20260928` | `2026_09_28_1200-fx_tables_add_fx_tables.py` | 创建 5 张 FX 表 |
 | 统一信贷 | `credit_foundation_20260930` | `2026_09_30_1200-credit_foundation_20260930_unified_credit_risk_foundation.py` | additive 用户版本/冻结、run/action、FX reduce_only 等 |
+| 市场归档 | `fx_pair_archive_20260930` | `2026_09_30_1600-fx_pair_archive.py` | 新增 archived 标记，现有市场默认 false |
 
 `fx_tables_20260928` 的 `down_revision = "0d0ac23efa85"`，所以只要按顺序执行即可：
 
@@ -71,8 +72,8 @@ bash deploy/deploy.sh
 # 手动 / 本地
 cd backend
 alembic current          # 查看当前 revision
-alembic history          # 确认 0d0ac23efa85 -> fx_tables_20260928 -> credit_foundation_20260930
-alembic upgrade head     # 应用至统一信贷最新迁移
+alembic history          # 确认 FX -> 统一信贷 -> fx_pair_archive_20260930
+alembic upgrade head     # 应用最新迁移（含 FX 归档标记）
 ```
 
 规则：
@@ -135,6 +136,17 @@ alembic upgrade head     # 应用至统一信贷最新迁移
    本任务范围内总闸保持 `false`，开市需要单独的发布批准。Task 9 已修复审计日期序列化缺陷。
 
 ---
+
+### 修改、删除与归档市场
+
+管理页每行提供编辑、删除和归档入口。名称、目标价、目标区间与手续费可编辑；币种代码仅允许在无成交历史的草稿阶段修改，已开市市场不能退回草稿。修改不重置池子或账目。
+
+- `DELETE /api/v1/admin/fx/pairs/{id}`：仅无成交和已发布新闻历史的市场可删除，同时清理零余额钱包、未发布事件与 treasury；操作审计保留，SQLite 新建市场及事件不会复用清理对象的 ID。
+- `POST /api/v1/admin/fx/pairs/{id}/archive`：关闭并隐藏市场，保留交易、钱包与新闻历史。玩家交易记录仍可查询；管理员勾选“显示已归档”查看市场。归档市场不可重新开市、编辑、注资或创建新事件。
+- 两种清理都要求所有钱包数量与成本为零，且没有已排期或进行中的事件；已成交但清空持仓的测试市场使用归档。
+- 升级须先应用 `fx_pair_archive_20260930` 迁移，已有市场默认不归档，不自动清理历史数据。
+
+黑天鹅等新闻事件的预算尾差按六位金额精度和实际汇率判断可执行性。无法形成最小精度订单时正常完成并保留实际 `spent`，不再误报金库为空；真正储备不足仍保留失败原因。已完成事件的旧错误字段不会被自动改写。
 
 ## 4. 注资 / 撤资只能走 admin service
 

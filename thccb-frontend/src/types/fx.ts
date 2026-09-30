@@ -137,6 +137,7 @@ export interface FxPriceTick {
 // ── 管理员 schema（仅在 /admin/fx 使用；含 reserves / 隐藏事件参数） ──
 
 export interface FxPairAdmin extends FxPairPublic {
+  archived?: boolean
   gold_reserve: string
   foreign_reserve: string
   target_price: string

@@ -154,6 +154,15 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
 
     def fold_fx(ev: AuditEvent) -> None:
         p = ev.payload or {}
+        if ev.event_type == "fx_pair_delete":
+            # Preserve the original events for historical cutoffs, while the
+            # latest replay reflects the intentional removal from live storage.
+            pair_id = int(ev.ref_id or p.get("pair_id"))
+            snap.fx_pairs.pop(pair_id, None)
+            for key in list(snap.fx_wallets):
+                if key[1] == pair_id:
+                    del snap.fx_wallets[key]
+            return
         if ev.event_type in {"fx_fund", "fx_withdraw"}:
             pair_id = int(ev.ref_id or p.get("pair_id"))
             st = snap.fx_pairs.setdefault(pair_id, FxPairState())

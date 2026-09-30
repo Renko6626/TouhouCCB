@@ -60,6 +60,8 @@ async def schedule_event(db: AsyncSession, event_id: int, scheduled_at: datetime
     )).scalars().first()
     if pair is None:
         raise HTTPException(404, "FX pair not found")
+    if pair.archived:
+        raise HTTPException(409, "FX pair is archived")
     event = (await db.execute(
         select(FxEvent).where(FxEvent.id == event_id).with_for_update().execution_options(populate_existing=True)
     )).scalars().first()
@@ -122,6 +124,8 @@ async def _publish_event_impl(
         return FxEventAdmin.model_validate(event)
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(403, "FX trading is disabled")
+    if pair.archived:
+        raise HTTPException(409, "FX pair is archived")
     if unified and (str(pair.status).strip().lower() != "trading" or bool(pair.reduce_only)):
         # F9：halted（paused 且未显式 reduce_only）与 reduce_only 都不允许系统干预
         raise HTTPException(409, "pair is halted or reduce-only: system intervention disabled")
@@ -214,6 +218,7 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
                           operator_user_id: int, unified: bool):
     pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
+    if pair.archived: raise HTTPException(409, "FX pair is archived")
     gold_amount, foreign_amount = Decimal(gold_amount), Decimal(foreign_amount)
     if gold_amount < 0 or foreign_amount < 0 or (gold_amount == 0 and foreign_amount == 0): raise HTTPException(422, "fund amount must be positive")
     treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id).with_for_update().execution_options(populate_existing=True))).scalars().first()
@@ -251,6 +256,7 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
                               operator_user_id: int, unified: bool):
     pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
+    if pair.archived: raise HTTPException(409, "FX pair is archived")
     gold_amount, foreign_amount = Decimal(gold_amount), Decimal(foreign_amount)
     if gold_amount < 0 or foreign_amount < 0 or pair.gold_reserve - gold_amount <= 0 or pair.foreign_reserve - foreign_amount <= 0:
         raise HTTPException(409, "withdrawal would exhaust reserves")

@@ -49,8 +49,16 @@ const FX_ERROR_DETAILS: Record<string, string> = {
   'quoted output is below min_out': '实际所得低于最低可接受金额，交易已取消，请查看新报价后重试',
   'idempotency key parameter mismatch': '重复提交的参数与首次不一致，已拒绝',
   'only one trading FX pair is allowed': '同一时间只允许一个处于交易状态的货币对',
-  'currency cannot be changed after opening': '开市后不能修改币种代码或名称',
+  'currency cannot be changed after opening': '开市后不能修改币种代码，名称仍可修改',
+  'opened FX pair cannot return to draft': '已开市的市场不能退回草稿，请使用暂停、关闭或归档',
+  'currency code already exists': '币种代码已存在，请使用其他代码',
+  'pair fields cannot be null': '请填写完整的货币对参数',
+  'FX pair is archived': '该市场已归档，无法继续修改或运营',
+  'FX pair has outstanding holdings': '仍有玩家持仓或成本余额，请清空后再删除或归档',
+  'FX pair has active events': '仍有已排期或进行中的事件，请取消排期或等待事件结束',
+  'FX pair has history; archive it instead': '该市场已有成交或新闻历史，请使用归档保留账目',
   'target price must be within target range': '目标价必须落在目标价下限与上限之间',
+  'target range must overlap initial price bounds': '目标区间必须与初始参考价的 0.5–2 倍范围有交集，否则系统无法干预',
   'fee rate must be between 0 and 1': '费率必须在 0 与 1 之间',
   'event is cancelled': '事件已取消，无法发布',
   'another FX event is active for this pair': '该货币对已有进行中的事件，请等待窗口结束',
@@ -632,6 +640,14 @@ export const fxAdminApi = {
 
   updatePair(pairId: number, body: FxPairPatch): Promise<FxPairAdmin> {
     return api.patch<FxPairAdmin>(`/api/v1/admin/fx/pairs/${pairId}`, body)
+  },
+
+  archivePair(pairId: number): Promise<FxPairAdmin> {
+    return api.post<FxPairAdmin>(`/api/v1/admin/fx/pairs/${pairId}/archive`)
+  },
+
+  deletePair(pairId: number): Promise<void> {
+    return api.delete<void>(`/api/v1/admin/fx/pairs/${pairId}`)
   },
 
   fundPair(pairId: number, body: FxFundRequest): Promise<FxPairAdmin> {

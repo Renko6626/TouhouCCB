@@ -72,7 +72,101 @@ async def test_tick_completes_active_event_when_budget_is_spent(fx_db, monkeypat
     from app.services.fx.engine import FxEngine
     result = await FxEngine(session_factory=lambda: fx_db).tick(datetime.now(timezone.utc))
     assert (await fx_db.get(FxEvent, event.id)).status == "completed"
+    assert saved.error_message is None
     assert any("event_budget_exhausted" in reason for reason in result.reasons)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("gold,price,target_min,target_max,remainder", [
+    ("198394", "0.198394", "0.09", "0.4", "0.000000086606"),
+    ("10123456", "10.123456", "5", "20", "0.000005582656"),
+])
+async def test_black_swan_budget_dust_completes_without_false_treasury_failure(
+    fx_db, monkeypatch, gold, price, target_min, target_max, remainder,
+):
+    from datetime import timedelta
+    from app.services.fx.engine import FxEngine
+
+    async def no_publish(_trade): return None
+    monkeypatch.setattr("app.services.fx.market_data.publish_trade", no_publish)
+    pair, treasury = await add_pair(
+        fx_db, code="DUST", gold=gold, foreign="1000000", target=price,
+        initial=price, target_min=target_min, target_max=target_max)
+    event = FxEvent(pair_id=pair.id, title="black swan", kind="black_swan",
+                    shock_ratio=Decimal("-0.1"), first_reaction_ratio=Decimal("0.25"),
+                    window_sec=180, budget=Decimal("100"))
+    fx_db.add(event); await fx_db.commit()
+    now = datetime.now(timezone.utc)
+    await scheduler.publish_event(fx_db, event.id, now)
+    await fx_db.refresh(pair)
+    await fx_db.refresh(treasury)
+    spent = Decimal(event.parameter_snapshot["spent"])
+    # At the higher rate, the remainder exceeds one gold quantum but cannot
+    # pay for a single six-decimal foreign unit.
+    assert Decimal("100") - spent == Decimal(remainder)
+    assert treasury.foreign_balance > Decimal("100")
+    before = (pair.gold_reserve, pair.foreign_reserve, pair.pool_version,
+              treasury.gold_balance, treasury.foreign_balance, treasury.daily_spend)
+    trades_before = (await fx_db.execute(select(FxTrade))).scalars().all()
+    engine = FxEngine(session_factory=lambda: fx_db)
+    engine._next_noise_at[pair.id] = now + timedelta(days=1)
+
+    result = await engine.tick(now + timedelta(seconds=30))
+
+    await fx_db.refresh(event)
+    await fx_db.refresh(pair)
+    await fx_db.refresh(treasury)
+    assert event.status == "completed"
+    assert event.error_message is None
+    assert any("event_budget_exhausted" in reason for reason in result.reasons)
+    assert not any("treasury_empty" in reason for reason in result.reasons)
+    assert Decimal(event.parameter_snapshot["spent"]) == spent
+    assert before == (pair.gold_reserve, pair.foreign_reserve, pair.pool_version,
+                      treasury.gold_balance, treasury.foreign_balance, treasury.daily_spend)
+    assert len((await fx_db.execute(select(FxTrade))).scalars().all()) == len(trades_before)
+    completions = (await fx_db.execute(select(AuditEvent).where(
+        AuditEvent.event_type == "fx_event_complete", AuditEvent.ref_id == event.id))).scalars().all()
+    assert len(completions) == 1
+    assert completions[0].payload["reason"] == "budget_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_event_with_unspent_budget_still_reports_empty_foreign_treasury(fx_db, monkeypatch):
+    from datetime import timedelta
+    from app.services.fx.engine import FxEngine
+
+    async def no_publish(_trade): return None
+    monkeypatch.setattr("app.services.fx.market_data.publish_trade", no_publish)
+    pair, treasury = await add_pair(fx_db, code="EMPTYEVENT")
+    event = FxEvent(pair_id=pair.id, title="no funding", kind="black_swan",
+                    shock_ratio=Decimal("-0.1"), first_reaction_ratio=Decimal("0.25"),
+                    window_sec=180, budget=Decimal("100"))
+    fx_db.add(event); await fx_db.commit()
+    now = datetime.now(timezone.utc)
+    await scheduler.publish_event(fx_db, event.id, now)
+    await fx_db.refresh(pair)
+    await fx_db.refresh(treasury)
+    spent = event.parameter_snapshot["spent"]
+    assert Decimal(spent) < Decimal("99")
+    treasury.foreign_balance = Decimal("0")
+    await fx_db.commit()
+    before = (pair.gold_reserve, pair.foreign_reserve, pair.pool_version,
+              treasury.gold_balance, treasury.foreign_balance, treasury.daily_spend)
+    engine = FxEngine(session_factory=lambda: fx_db)
+    engine._next_noise_at[pair.id] = now + timedelta(days=1)
+
+    result = await engine.tick(now + timedelta(seconds=30))
+
+    await fx_db.refresh(event)
+    await fx_db.refresh(pair)
+    await fx_db.refresh(treasury)
+    assert event.status == "completed"
+    assert event.error_message == "event intervention failed: foreign_treasury_empty"
+    assert any("foreign_treasury_empty" in reason for reason in result.reasons)
+    assert event.parameter_snapshot["spent"] == spent
+    assert before == (pair.gold_reserve, pair.foreign_reserve, pair.pool_version,
+                      treasury.gold_balance, treasury.foreign_balance, treasury.daily_spend)
+    assert len((await fx_db.execute(select(FxTrade))).scalars().all()) == 1
 
 
 @pytest.mark.asyncio
