@@ -98,6 +98,94 @@ class RiskThresholds:
         alpha = self.alpha
         return max(debt_value, alpha * assets_value) + alpha * cover_value
 
+    def basis_measure(
+        self,
+        *,
+        debt: Number,
+        positive_assets: Number,
+        short_cover: Number,
+    ) -> tuple[Decimal, Decimal]:
+        """返回 ``(B, W)``；``B`` 仅供展示，准入比较必须用未截断的 ``W``。
+
+        ``W = max(L×D, (L−1)×A) + (L−1)×K`` 与 ``B`` 同源（``W = L×B``），
+        但直接用乘法比较避免先算 ``B = W/L`` 再取倒数的舍入放宽授信。
+        """
+        debt_value = _finite_decimal(debt, "debt")
+        assets_value = _finite_decimal(positive_assets, "positive_assets")
+        cover_value = _finite_decimal(short_cover, "short_cover")
+        one = Decimal(1)
+        alpha = self.alpha
+        basis = max(debt_value, alpha * assets_value) + alpha * cover_value
+        w = (
+            max(self.leverage * debt_value, (self.leverage - one) * assets_value)
+            + (self.leverage - one) * cover_value
+        )
+        return basis, w
+
+    def admits(
+        self,
+        *,
+        equity: Number,
+        debt: Number,
+        positive_assets: Number,
+        short_cover: Number,
+    ) -> bool:
+        """新增风险准入：``L×(L−1)×E >= W``（spec §6.1，用未量化 E 比较）。"""
+        equity_value = _finite_decimal(equity, "equity")
+        _, w = self.basis_measure(
+            debt=debt, positive_assets=positive_assets, short_cover=short_cover,
+        )
+        return self.leverage * (self.leverage - Decimal(1)) * equity_value >= w
+
+    def triggered_basis(
+        self,
+        *,
+        equity: Number,
+        debt: Number,
+        positive_assets: Number,
+        short_cover: Number,
+    ) -> bool:
+        """强平触发：有金债或欠币时 ``L×E < m×W``；无任何负债不触发。"""
+        equity_value = _finite_decimal(equity, "equity")
+        debt_value = _finite_decimal(debt, "debt")
+        cover_value = _finite_decimal(short_cover, "short_cover")
+        if debt_value <= 0 and cover_value <= 0:
+            return False
+        _, w = self.basis_measure(
+            debt=debt_value, positive_assets=positive_assets, short_cover=cover_value,
+        )
+        return self.leverage * equity_value < self.r_maintenance * w
+
+    def max_new_gold_loan(
+        self,
+        *,
+        equity: Number,
+        debt: Number,
+        positive_assets: Number,
+        short_cover: Number,
+    ) -> Decimal:
+        """现金借款理论额度 ``max(0, (L−1)E − D − αK)``，6dp 向下量化。
+
+        当前已低于初始门槛（或用未知 K 无法判定）时为零。它不是可开仓数量或
+        可消费额度：新买入还会增加 A，必须另做交易后检查（spec §6.3）。
+        """
+        equity_value = _finite_decimal(equity, "equity")
+        debt_value = _finite_decimal(debt, "debt")
+        cover_value = _finite_decimal(short_cover, "short_cover")
+        admitted = self.admits(
+            equity=equity_value, debt=debt_value,
+            positive_assets=positive_assets, short_cover=cover_value,
+        )
+        if not admitted:
+            return Decimal("0")
+        headroom = (
+            (self.leverage - Decimal(1)) * equity_value
+            - debt_value - self.alpha * cover_value
+        )
+        if headroom <= 0:
+            return Decimal("0")
+        return headroom.quantize(Q6, rounding=ROUND_FLOOR)
+
 
 def validate_thresholds(leverage: Number, maintenance: Number) -> None:
     """校验配置合法性；非法抛 ``ValueError``（计划 §3.2）。
