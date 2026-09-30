@@ -317,9 +317,11 @@ def record_fx_short_open(
     Keeps the generic ``fx_trade`` event so existing user/pool/treasury replay
     anchors stay valid, but carries the short-specific legs WP5 needs: the
     borrowed quantity, the gold proceeds that moved into ``User.cash`` and the
-    short lock/basis, the treasury before/after (it really pays Q out) and the
-    short row before/after.  ``wallet_after`` is explicitly ``None``: opening
-    never credits ``FxWallet``, so replay must not expect a spot wallet delta.
+    short lock/basis, the treasury before/after (it really pays Q out and takes
+    the fee back), the operation identity (``idempotency_key``), the user
+    economic version and the short row before/after.  ``wallet_after`` is
+    explicitly ``None``: opening never credits ``FxWallet``, so replay must not
+    expect a spot wallet delta.
     """
     payload = {
         "pair_id": pair.id,
@@ -341,8 +343,22 @@ def record_fx_short_open(
         "pool_after": {"gold": pair.gold_reserve, "foreign": pair.foreign_reserve},
         "pool_version": pair.pool_version,
         "source": trade.source,
+        "idempotency_key": trade.idempotency_key,
+        "user_economic_version": user.economic_version,
         "wallet_after": None,
         "treasury_before": treasury_before,
+        # ``gold``/``foreign`` mirror the fund/withdraw snapshot shape; the
+        # ``*_balance`` spelling is what the generic ``fx_trade`` fold anchors
+        # on (same as ``record_fx_trade``), so carry both from the locked row.
+        "treasury_after": {
+            "gold": treasury.gold_balance,
+            "foreign": treasury.foreign_balance,
+            "gold_balance": treasury.gold_balance,
+            "foreign_balance": treasury.foreign_balance,
+            "daily_spend": treasury.daily_spend,
+            "spend_date": treasury.spend_date,
+            "updated_at": treasury.updated_at,
+        },
         "user_before": user_before,
         "user_after": {
             "cash": user.cash,

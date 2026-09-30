@@ -23,7 +23,7 @@ from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
-from app.services import site_config
+from app.services import audit_replay, site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
 from app.services.credit.gates import GATES
@@ -269,6 +269,85 @@ async def test_open_and_add_conserve_stock_move_price_and_keep_wallet_empty():
     assert after_second["price"] < after_first["price"]
     assert after_second["locked"] <= after_second["cash"]
     assert after_second["cash"] == before["cash"] + after_second["locked"]
+
+
+# ── scenario 1b: fee leg, conservation and treasury after-state audit ────────
+
+async def test_sell_fee_open_conserves_foreign_and_audits_treasury_after():
+    """A fee-bearing open must return the foreign fee to treasury, keep
+    pool+treasury+wallet foreign conserved, credit exactly the net gold P once,
+    and persist a treasury_after snapshot the generic FX replay can anchor.
+
+    A regression here means the fee leg is dropped (money created/destroyed),
+    proceeds are double-credited, or the audit after-state is missing so replay
+    folds the treasury to zero and reports false mismatches on later pair
+    events.
+    """
+    uid, pid = await _seed(cash="1000", sell_fee="0.02", treasury_foreign="100000",
+                           gold="1000", foreign="1000", limit="100000")
+    async with async_session_maker() as db:
+        before = await _stocks(db, pid)
+        user_before = await db.get(User, uid)
+
+    key = "k-fee"
+    opened = await _open(uid, pid, "100", key=key)
+
+    async with async_session_maker() as db:
+        after = await _stocks(db, pid)
+        user = await db.get(User, uid)
+        pos = await _position(db, uid, pid)
+        trade = (await db.execute(select(FxTrade).where(
+            FxTrade.id == opened.trade_id))).scalars().one()
+        treasury = (await db.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == pid))).scalars().one()
+        audit = (await db.execute(select(AuditEvent).where(
+            AuditEvent.event_type == "fx_trade",
+            AuditEvent.ref_id == trade.id))).scalars().one()
+        events = (await db.execute(select(AuditEvent).order_by(AuditEvent.id))).scalars().all()
+
+        borrowed = D(trade.input_amount)
+        fee = D(trade.fee_amount)
+        proceeds = D(trade.output_amount)
+        assert borrowed == D("100")
+        assert fee > 0
+
+        # Foreign: treasury pays Q out and the fee comes back; pool receives Q-fee.
+        assert D(treasury.foreign_balance) == before["treasury_foreign"] - borrowed + fee
+        assert D(treasury.foreign_balance) == after["treasury_foreign"]
+        assert D(trade.post_foreign_reserve) == before["pool_foreign"] + borrowed - fee
+        assert D(trade.post_foreign_reserve) == after["pool_foreign"]
+        assert (after["pool_foreign"] + after["treasury_foreign"] + after["wallet_foreign"]
+                == before["pool_foreign"] + before["treasury_foreign"]
+                + before["wallet_foreign"])
+
+        # Gold: net P enters cash exactly once and locks the target once; stock conserved.
+        assert D(user.cash) == D(user_before.cash) + proceeds
+        assert D(pos.principal_foreign) == borrowed
+        assert D(pos.restricted_gold) == proceeds
+        assert D(pos.proceeds_basis_gold) == proceeds
+        assert (after["pool_gold"] + after["treasury_gold"] + D(user.cash)
+                == before["pool_gold"] + before["treasury_gold"] + D(user_before.cash))
+
+        # Replay must anchor the short event's treasury from the audit after-state,
+        # not (0, 0); otherwise this and every later pair event mismatch live.
+        snap, mismatches = audit_replay.fold(events, check=True)
+        assert mismatches == []
+        assert await audit_replay.compare_with_live(db, snap) == []
+
+        # Spec §12 identity + after-state pinned to the committed rows.
+        payload = audit.payload
+        assert payload["purpose"] == "short_open"
+        assert D(payload["fee_amount"]) == fee
+        assert payload["idempotency_key"] == key
+        assert payload["user_economic_version"] == int(user.economic_version)
+        assert payload["pool_version"] == int(after["pool_version"])
+        assert payload["wallet_after"] is None
+        after_state = payload["treasury_after"]
+        assert D(after_state["gold"]) == D(treasury.gold_balance)
+        assert D(after_state["foreign"]) == D(treasury.foreign_balance)
+        # The generic fx_trade fold anchors on the record_fx_trade key spelling.
+        assert D(after_state["gold_balance"]) == D(treasury.gold_balance)
+        assert D(after_state["foreign_balance"]) == D(treasury.foreign_balance)
 
 
 # ── scenario 2: settle old foreign debt at T before adding new principal ─────
