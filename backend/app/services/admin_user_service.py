@@ -915,8 +915,13 @@ async def _amnesty_one(
                     )
                     if decision.reason == REASON_VERSION_CONFLICT:
                         raise _RiskRetry()
-                    writeoff = forgive_debt and post_debt <= ZERO
                     freeze_reason = decision.reason in (REASON_CREDIT_FROZEN, REASON_FROZEN_BY_OPERATOR)
+                    # 冻结豁免仅属于"真实核销金债"：操作前无金债则没有可核销的债务，
+                    # 不得把额外的外币欠币当作已处理。仍有外币义务时金债免债不豁免外币
+                    # 风险（spec §6.3/§8.3/§12），必须按冻结拒绝、账务不变。
+                    writeoff = forgive_debt and debt_before > ZERO and post_debt <= ZERO
+                    if not decision.allowed and writeoff and freeze_reason:
+                        writeoff = not await has_foreign_debt(db, user_id)
                     if not decision.allowed and not (writeoff and freeze_reason):
                         return False, {
                             "user_id": u.id, "username": u.username,

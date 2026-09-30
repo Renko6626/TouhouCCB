@@ -129,6 +129,19 @@ async def _seed_short_pairs(
     return keys
 
 
+async def _short_state(uid: int) -> list[tuple[Decimal, Decimal, Decimal]]:
+    """Persisted foreign obligation/lock per short: (principal, interest, restricted)."""
+    async with async_session_maker() as s:
+        rows = (await s.execute(
+            select(FxShortPosition).where(FxShortPosition.user_id == uid)
+            .order_by(FxShortPosition.id)
+        )).scalars().all()
+    return [
+        (Decimal(p.principal_foreign), Decimal(p.interest_foreign), Decimal(p.restricted_gold))
+        for p in rows
+    ]
+
+
 # ────────────────────────── 单用户 adjust_cash ──────────────────────────
 
 
@@ -541,6 +554,73 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
     assert GATES.metrics().holders == 0
     cash, debt, version = await _state(uid)
     assert cash == Decimal("100.000000") and debt == ZERO and version == 0
+
+
+async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(writes_enabled):
+    """A gold-writeoff freeze waiver must not cover foreign-only debt.
+
+    The account is frozen and holds only foreign short debt (``User.debt==0``).
+    ``forgive_debt=True`` with the cash reset to its lock floor forgives no gold
+    debt, so the freeze denial must stand: cash, locks, foreign obligation, version
+    and ledger all stay unchanged rather than silently skipping cover pricing.
+    """
+    await _seed_loan_config()
+    admin = await _seed_admin()
+    uid = await _seed_user(cash=Decimal("100"), frozen=True)
+    await _seed_short_pairs(uid)  # S = 80, principal = 10, User.debt = 0
+    credit_flags.set_flags(UNIFIED)
+    short_before = await _short_state(uid)
+
+    f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
+    async with async_session_maker() as s:
+        r = await svc.amnesty(
+            s, f=f, reset_cash_to=Decimal("80"), forgive_debt=True,
+            reason="frozen foreign-only reset", admin_id=admin, dry_run=False,
+        )
+    assert r["updated_count"] == 0 and r["failed_count"] == 1
+    assert "冻结" in r["failed"][0]["reason"]
+    assert GATES.metrics().holders == 0
+    cash, debt, version = await _state(uid)
+    assert cash == Decimal("100.000000") and debt == ZERO and version == 0
+    assert await _short_state(uid) == short_before
+    async with async_session_maker() as s:
+        entries = (await s.execute(
+            select(LedgerEntry).where(LedgerEntry.user_id == uid)
+        )).scalars().all()
+    assert entries == []
+
+
+async def test_unified_amnesty_mixed_gold_foreign_writeoff_does_not_bypass_freeze(
+    writes_enabled,
+):
+    """Real gold debt alone cannot waive a freeze while foreign debt remains.
+
+    A frozen user with both gold and foreign debt must keep the freeze denial: the
+    real gold writeoff must not leave the foreign obligation unpriced.
+    """
+    await _seed_loan_config()
+    admin = await _seed_admin()
+    uid = await _seed_user(cash=Decimal("100"), debt=Decimal("100"), frozen=True)
+    await _seed_short_pairs(uid)  # S = 80, principal = 10
+    credit_flags.set_flags(UNIFIED)
+    short_before = await _short_state(uid)
+
+    f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
+    async with async_session_maker() as s:
+        r = await svc.amnesty(
+            s, f=f, reset_cash_to=Decimal("80"), forgive_debt=True,
+            reason="frozen mixed reset", admin_id=admin, dry_run=False,
+        )
+    assert r["updated_count"] == 0 and r["failed_count"] == 1
+    assert "冻结" in r["failed"][0]["reason"]
+    cash, debt, version = await _state(uid)
+    assert cash == Decimal("100.000000") and debt == Decimal("100.000000") and version == 0
+    assert await _short_state(uid) == short_before
+    async with async_session_maker() as s:
+        entries = (await s.execute(
+            select(LedgerEntry).where(LedgerEntry.user_id == uid)
+        )).scalars().all()
+    assert entries == []
 
 
 async def test_flag_off_amnesty_resets_without_version_bump():
