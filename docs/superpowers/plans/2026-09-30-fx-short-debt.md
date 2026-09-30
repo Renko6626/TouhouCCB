@@ -35,7 +35,7 @@
 
 ---
 
-### WP1：持久化、外币计息与 exact-output 报价
+### Task 1: WP1 持久化、外币计息与 exact-output 报价
 
 **Files:** `backend/app/models/fx.py`、`backend/app/models/credit.py`、`backend/app/services/fx/amm.py`、`backend/app/services/fx/shorts.py`（先放纯计息）、新增 Alembic revision（接当前 head `fx_pair_archive_20260930`）、`backend/tests/test_fx_migration.py`、`backend/tests/test_fx_amm.py`、`backend/tests/test_credit_pending_debt.py`。
 
@@ -46,7 +46,7 @@
 - [ ] **实现：** 新表含唯一 `(user_id,pair_id)`、非负与时间状态约束、按用户/pair 索引；预检负 `FxWallet` 中止迁移。用 spec §5 的两次向上量化计算净金及总金，验证费用、储备、精度和 Numeric 存储范围；计息复用金债的时间/量化语义。`LiquidationAction.kind` 增 `cover_group` 并迁移 CHECK，原有历史值仍可读。
 - [ ] **绿灯与提交：** 重跑上述测试和 `git diff --check`，检查升级后写一笔债的降级拒绝及清债后的降级；只提交本包文件。此包不启用开空。
 
-### WP2：统一估值、授信与现金用途边界
+### Task 2: WP2 统一估值、授信与现金用途边界
 
 **Files:** `backend/app/services/credit/{risk,valuation,thresholds,fx_quote,flags}.py`、新增 `backend/app/services/credit/cash.py`、`backend/app/services/{loan_service,loan_sweep,redemption,danmuku,writer_ops,admin_user_service}.py`、`backend/app/api/v1/loan.py`、`backend/app/services/fx/trading.py`；测试沿用 `test_credit_{risk,valuation,thresholds}.py`、`test_credit_wp6b_consumption.py`、`test_credit_wp6b_admin.py`、`test_loan_sweep.py`，必要时增加一个跨产品场景文件。
 
@@ -57,7 +57,7 @@
 - [ ] **实现：** 批量加载空头、两侧费率和版本，按 pair 报整组 K；用精确乘法比较 §6 门槛并向下量化可借额度。统一现金服务卡住所有实际扣款和还金债路径；原有无债快路径增加“无任何欠币”的锁内条件。扩大定时结息候选集合，纯结息只改变债务和经济版本。卖出/回补的减险准入与普通买入的增险准入分开；未知报价拒绝增险，不误伤允许的充值和减仓。
 - [ ] **绿灯与提交：** 运行本包测试及受影响的现有 `test_loan_service.py`、`test_credit_wp6a1_admission.py`、`test_credit_wp6b_fx_ops.py`；检查无空头旧行为和 SQL 批量读取，提交本包文件。开空闸仍关闭。
 
-### WP3：真实开空/回补事务、API 与幂等审计
+### Task 3: WP3 真实开空/回补事务、API 与幂等审计
 
 **Files:** `backend/app/services/fx/shorts.py`、`backend/app/services/fx/trading.py`、`backend/app/api/v1/fx.py`、`backend/app/schemas/fx.py`（或独立 `fx_short.py`）、`backend/app/services/audit_service.py`、`backend/app/services/site_config.py`、`backend/app/api/v1/site_config.py`、`backend/app/models/fx.py`；测试集中到 `backend/tests/test_fx_short_trading.py` 与现有 `test_fx_api.py`。WP1–2 的模型、报价和准入接口是本包前提。
 
@@ -68,7 +68,7 @@
 - [ ] **实现：** 新增默认关闭的全站开空配置、pair 零借出额度管理，遵守贷款闸；pair→User→空头/钱包→treasury 锁序内统一结息、重新报价、检查本金上限/库存/交易后风险；原子更新钱币债锁金、`FxTrade.purpose`/请求身份、审计和版本。spot 与 short 共用 `(user_id,idempotency_key)` 冲突检测；`cover_all` 重试返回原成交，不操作后来新开的仓；提交后异步公开真实成交。用户回补资金不足明确拒绝，强平预算回补留给 WP4。
 - [ ] **绿灯与提交：** 运行本包测试与 `test_fx_trading_in_session.py`、`test_fx_publication_e2e.py`；验证失败/回滚不改库存、债、现金或锁金，再提交。资金费、借出/归还外币必须已经写入可重放审计包，WP5 做全历史重放对账。
 
-### WP4：定时强平、未知估值与坏账续接
+### Task 4: WP4 定时强平、未知估值与坏账续接
 
 **Files:** `backend/app/services/credit/{sweep,execution,runs,valuation}.py`、`backend/app/services/fx/shorts.py`、`backend/app/models/credit.py`、`backend/app/services/credit/flags.py`；测试集中 `backend/tests/test_fx_short_liquidation.py`、现有 `test_credit_{sweep,execution,runs}.py` 与 `backend/tests/pg/test_pg_credit_liquidation.py`。依赖 WP1–3。
 
@@ -79,7 +79,7 @@
 - [ ] **实现：** 扫描候选加入外币义务；已知 E/B 用共享门槛，未知 K 用 spec §8.2 的状态表；按绝对金额排序但跳过本轮无法成交的组。出售多头后在有待回补空头时留存未锁现金；回补用本仓 S+未锁现金并记录 `limited_by_cash`。只有完整可信估值及实际资产耗尽才能判资不抵债；清仓/报价恢复按 §8 的门槛关闭 run。扩展 action/event 的可空快照、cover 金支出和外币归还，历史字段语义不变。
 - [ ] **绿灯与提交：** 运行本包测试和现有强平回归；有独立测试 PG 时运行 `cd backend && TEST_PG_DATABASE_URL=... venv/bin/python -m pytest -q -m pg tests/pg/test_pg_credit_liquidation.py`，没有则记录未验证，绝不把 skip 计作通过。检查锁内重验及无连接等待 writer，提交。
 
-### WP5：全站运营入口、审计重放与生命周期
+### Task 5: WP5 全站运营入口、审计重放与生命周期
 
 **Files:** `backend/app/services/{audit_replay,admin_user_service,site_config}.py`、`backend/app/api/v1/{admin_fx,site_config}.py`、`backend/app/services/fx/{scheduler,engine}.py`、`backend/scripts/season_reset.py`、启动能力检查所在 `backend/app/services/credit/flags.py`/`backend/app/main.py`；测试复用 `test_fx_audit_replay.py`、`test_admin_fx.py`、`test_fx_season_reset.py`、`test_credit_startup_gating.py`，仅在真实行为缺口处增加用例。依赖 WP1–4。
 
@@ -90,7 +90,7 @@
 - [ ] **实现：** audit replay 按 purpose 重放借币、售空、回补、外币利息和显式核销；各资金入口统一校验 `C>=S` 和有债禁消费；pair 状态、费率、注撤资在门闩及 pool_version 下重验。旧率维护只在停写条件下以同一 T 完成全金/外币结息并审计；重启与回滚门检查存量欠币/锁金，不能仅凭新 flag 保护旧实例。赛季重置处理新表和审计锚点。
 - [ ] **绿灯与提交：** 运行上述测试及 `test_credit_wp6b_admin.py`、`test_redemption_debt_guard.py`；检查反例实际被拒，提交。
 
-### WP6：玩家读模型、财富口径与最小 UI
+### Task 6: WP6 玩家读模型、财富口径与最小 UI
 
 **Files:** `backend/app/api/v1/{loan,user,market,admin_stats,fx}.py`、`backend/app/services/fx/valuation.py`、相关 Pydantic schemas；`thccb-frontend/src/{api/fx.ts,types/fx.ts,pages/Fx.vue,pages/loan/Loan.vue,stores/loan.ts}`，按实际组件位置补资产/账户头部；如确有消费榜和称号财富计算入口一并更新。依赖 WP2–5 的权威状态。
 
@@ -101,7 +101,7 @@
 - [ ] **实现：** 统一展示净值口径扣外币边际义务，风险读模型展示可执行 K 或 blocked；FX 页明确分“卖现货/开空/回补”，显示本仓欠币、锁金、回补成本与真实收益基准。贷款页显示总/可用现金并限制可还金额；资产/排行榜/称号统计复用同一债务扣减定义，不重复统计售空所得。
 - [ ] **绿灯与提交：** 后端目标测试通过；运行 `npm --prefix thccb-frontend run build` 与已有相关单测。UI 验证遵守项目约定，默认最多看截图，不自动点击或填表。提交。
 
-### WP7：跨产品验证与可回退发布准备
+### Task 7: WP7 跨产品验证与可回退发布准备
 
 **Files:** 按发现的真实缺口修补对应文件；记录检查证据到 `docs/fx-short-debt-validation-2026-09-30.md`（或执行日期）。依赖 WP1–6；这是验收包，不为检查本身新增永久测试。
 
