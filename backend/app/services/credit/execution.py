@@ -24,7 +24,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.base import LiquidationEvent, User
 from app.models.credit import LiquidationRun
-from app.models.fx import FxPair, FxTreasury
+from app.models.fx import FxPair, FxShortPosition, FxTreasury
 from app.services import audit_service, loan_service
 from app.services.credit.cash import CashInvariantError
 from app.services.credit.flags import get_flags
@@ -142,12 +142,33 @@ def _recovered(thresholds, pre: AccountValuation, has_short: bool, *, debt=None)
     )
 
 
-def _seed_run_snapshot(run, pre):
+async def _seed_run_snapshot(session, run, pre):
     """run 起点快照；未知 E/B 时保持 None，绝不写成 0。"""
     run.pre_cash = pre.cash
     run.pre_debt = pre.debt_effective
     run.pre_liquidation_equity = pre.liquidation_equity
     run.pre_risk_basis = pre.risk_basis
+    run.pre_equity_to_risk_basis = (
+        pre.liquidation_equity / pre.risk_basis
+        if pre.liquidation_equity is not None and pre.risk_basis is not None
+        and pre.risk_basis > ZERO else None
+    )
+    # The User lock and full dependency GATES already guard these rows. This
+    # read adds no row locks and preserves pair → User → short/treasury order.
+    positions = (await session.execute(select(FxShortPosition).where(
+        FxShortPosition.user_id == run.user_id).order_by(FxShortPosition.pair_id)
+    )).scalars().all()
+    run.pre_short_positions = {
+        str(position.pair_id): {
+            'principal_foreign': str(position.principal_foreign),
+            'interest_foreign': str(position.interest_foreign),
+            'restricted_gold': str(position.restricted_gold),
+            'proceeds_basis_gold': str(position.proceeds_basis_gold),
+            'interest_last_accrued_at': (
+                position.interest_last_accrued_at.isoformat()
+                if position.interest_last_accrued_at is not None else None),
+        } for position in positions
+    }
 
 
 def _blocked_short_group(pre: AccountValuation, reason):
@@ -559,7 +580,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
             run = await get_or_create_active_run(session, user_id=user.id,
                 trigger_source=source, now=datetime.now(timezone.utc))
         if created:
-            _seed_run_snapshot(run, pre)
+            await _seed_run_snapshot(session, run, pre)
             await session.flush()
         overflow_choice = await _choose_unknown_overflow_cover(
             session, pre, deps, pct=pct, daily_rate=rate, now=datetime.now(timezone.utc))
@@ -595,7 +616,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
     if run is None:
         run = await get_or_create_active_run(session, user_id=user.id, trigger_source=source,
                                              now=datetime.now(timezone.utc))
-        _seed_run_snapshot(run, pre)
+        await _seed_run_snapshot(session, run, pre)
         await session.flush()
 
     # 活跃 run 只在共享初始门槛恢复；有空头时绝不因 D==0 快路径伪恢复。
@@ -641,7 +662,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
                 and pre.liquidation_equity is not None and pre.liquidation_equity <= 0):
             user.credit_frozen = True
             bump_economic_version(user)
-        await record_action(session, run=run, round_no=run.next_round,
+        action = await record_action(session, run=run, round_no=run.next_round,
             kind='repay_cash' if paid else 'blocked', repaid=paid, debt_after=user.debt,
             cash_after=user.cash, economic_version_after=user.economic_version,
             blocked_reason=None if cash_recovers else (
@@ -656,6 +677,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
             await close_run(session, run=run,
                 status='recovered' if cash_recovers else 'insolvent',
                 now=datetime.now(timezone.utc))
+        action.economic_version_after = user.economic_version
         return LockedPlan(run, pre, None, None, mode, None, None,
                           'triggered' if paid else 'blocked', repaid=paid,
                           blocked_reason=None if cash_recovers else (
@@ -735,7 +757,7 @@ async def _execute_cover_locked(session, user, plan, fresh, *, rate, source):
         await _record_blocked_once(session, user, run, group=blocked_group,
                                    reason=execution.blocked_reason)
         return None, 'blocked'
-    await record_action(
+    action = await record_action(
         session, run=run, round_no=round_no, kind='cover_group',
         product='fx', group_id=plan.target.group_id, mode=plan.mode,
         requested={'planned_amount': str(plan.planned), 'max_gold_budget': str(plan.budget)},
@@ -761,6 +783,7 @@ async def _execute_cover_locked(session, user, plan, fresh, *, rate, source):
                  sold=0, proceeds=ZERO, repaid=ZERO, source=source,
                  foreign_repaid=execution.repaid_foreign)
     await finish_locked(session, user, run, rate)
+    action.economic_version_after = user.economic_version
     return (plan.target.group_id, execution.post_price, execution.trade_id), 'triggered'
 
 
@@ -844,7 +867,7 @@ async def execute_user(user_id, *, rate, pct, source):
                                 repaid = await repay(session, user, rate, source,
                                                      cash_cap=cash_cap)
                             quote = result.quote
-                            await record_action(
+                            action = await record_action(
                                 session, run=plan.run, round_no=round_no, kind='sell_group',
                                 product='fx', group_id=plan.target.group_id, mode=plan.mode,
                                 proceeds=quote.gold_out, fee=quote.fee_foreign,
@@ -857,6 +880,7 @@ async def execute_user(user_id, *, rate, pct, source):
                                          mode=plan.mode, sold=1, proceeds=quote.gold_out,
                                          repaid=repaid, source=source)
                             await finish_locked(session, user, plan.run, rate)
+                            action.economic_version_after = user.economic_version
                             publication = (result.public.pair_id, result.public.post_price,
                                            result.public.id)
                         else:

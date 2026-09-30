@@ -1310,6 +1310,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     mode=mode, sold=len(quote.legs), proceeds=quote.net,
                     repaid=repaid, source=trigger_source)
                 await finish_locked(session, locked_user, run, cmd.daily_rate)
+                action.economic_version_after = locked_user.economic_version
 
         new_cash = locked_user.cash
         new_debt = locked_user.debt

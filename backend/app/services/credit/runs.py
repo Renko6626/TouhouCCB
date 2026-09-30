@@ -133,6 +133,7 @@ async def get_or_create_active_run(
     run = LiquidationRun(
         user_id=uid,
         status="active",
+        margin_version=2,
         trigger_source=str(trigger_source),
         started_at=now,
         updated_at=now,
@@ -289,6 +290,8 @@ async def record_action(
         locked.last_group_id = None if group_id is None else int(group_id)
     if blocked_reason is not None:
         locked.last_blocked_reason = str(blocked_reason)
+    elif kind != "blocked":
+        locked.last_blocked_reason = None
     locked.updated_at = _utcnow()
     return action
 

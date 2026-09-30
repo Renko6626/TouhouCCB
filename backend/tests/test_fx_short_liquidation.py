@@ -1103,6 +1103,7 @@ async def test_known_foreign_only_triggers_and_covers_without_false_recovery_at_
         action = (await s.execute(select(LiquidationAction))).scalars().one()
         assert action.kind == "cover_group"
         assert D(action.foreign_repaid) == covered
+        assert action.economic_version_after == user.economic_version
 
 
 async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_charge():
@@ -1704,3 +1705,37 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         audits = list((await s.execute(select(AuditEvent).where(
             AuditEvent.event_type.in_(('fx_fund', 'fx_withdraw'))))).scalars())
         assert len(audits) == 2
+
+
+async def test_blocked_run_resumes_cover_with_current_provenance():
+    """A paused obligation resumes on the same run with usable start provenance."""
+    uid, pid, _ = await _seed_cover(
+        cash="114", principal="100", restricted="20", basis="30",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
+    async with async_session_maker() as s:
+        pair = await s.get(FxPair, pid)
+        pair.status = "paused"
+        await s.commit()
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalars().one()
+        run_id = run.id
+        assert run.last_blocked_reason == "pair_paused"
+        assert run.margin_version == 2
+        assert run.pre_risk_basis > 0
+        assert run.pre_equity_to_risk_basis is not None
+        snapshot = run.pre_short_positions[str(pid)]
+        assert D(snapshot["principal_foreign"]) == D("100")
+        assert D(snapshot["restricted_gold"]) == D("20")
+        pair = await s.get(FxPair, pid)
+        pair.status = "trading"
+        await s.commit()
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get("monetary_action_count") == 1
+    async with async_session_maker() as s:
+        run = await s.get(LiquidationRun, run_id)
+        assert run.status == "active"
+        assert run.last_blocked_reason is None
+        actions = list((await s.execute(select(LiquidationAction).where(
+            LiquidationAction.run_id == run_id).order_by(LiquidationAction.round_no))).scalars())
+        assert [a.kind for a in actions] == ["blocked", "cover_group"]
