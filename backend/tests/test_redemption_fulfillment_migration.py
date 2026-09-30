@@ -15,19 +15,19 @@ def test_fulfillment_migration_preserves_inventory_and_roundtrips(tmp_path, monk
     monkeypatch.setattr(config_module.settings, "DATABASE_URL", url)
     engine = create_engine(url)
     before = MetaData()
-    # FX 表由 head revision fx_tables_20260928 建；本测试 stamp 在 ba3a85c3b675
-    # （FX 之前），before-state 不能预建，否则 upgrade head 撞
+    # FX 表（fx_pair/fx_treasury/fx_wallet/fx_trade/fx_event 及其后新增的
+    # fx_short_position 等）由 fx_tables_20260928 及更晚的 revision 建；本测试 stamp
+    # 在 ba3a85c3b675（FX 之前），before-state 不能预建，否则 upgrade head 撞
     # "table fx_pair already exists"。env.py 现在会 import app.models.fx，所以
-    # SQLModel.metadata 里含这些表，必须显式剔除。
+    # SQLModel.metadata 里含这些表，必须按 fx_ 前缀整类剔除——只列固定表名会漏掉
+    # 后续新增的表，而且 fx_short_position.pair_id → fx_pair.id 的外键会因 fx_pair
+    # 缺席让 create_all 抛 NoReferencedTableError。
     # FX migration 自身的 upgrade/downgrade 由 test_fx_migration.py 专项验证。
-    fx_table_names = {
-        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
-    }
     # 同理：liquidation_run/action 由 head revision credit_foundation_20260930 建，
     # 本测试 stamp 在它之前，before-state 不能预建（WP1 新增）。
     credit_table_names = {"liquidation_run", "liquidation_action"}
     for name, table in SQLModel.metadata.tables.items():
-        if name in fx_table_names:
+        if name.startswith("fx_"):
             continue
         table.to_metadata(before)
 
