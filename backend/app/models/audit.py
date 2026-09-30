@@ -26,6 +26,7 @@ AUDIT_EVENT_TYPES = frozenset({
     #    未知类型不校验增量但会把它当作新的 user 锚点，顺序反了会让后续资金事件对不上。 ──
     "liquidation_run_start", "liquidation_action", "liquidation_blocked",
     "liquidation_run_close", "credit_freeze_set",
+    "admin_fx_short_writeoff",
     "admin_set_role", "admin_ban", "admin_unban",
     "config_set",
     "redeem_purchase", "danmuku_exchange",

@@ -7,7 +7,7 @@
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 
 import pytest
@@ -27,6 +27,7 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import WriteOwnership
 from app.services.credit.version import bump_economic_version, economic_version_of
+from app.services.credit.cash import available_cash
 
 pytestmark = pytest.mark.asyncio
 
@@ -692,3 +693,78 @@ async def test_owner_loss_while_waiting_for_gate_rejects_deduction(writes_enable
     with pytest.raises(EconomicWritesDisabled):
         await task
     assert await _state(uid) == (Decimal("1000.000000"), Decimal("10.000000"), 0)
+
+async def test_explicit_short_writeoff_preserves_gold_and_other_pair(client, writes_enabled):
+    from app.main import app
+    from app.core.users import current_superuser
+    from app.models.audit import AuditEvent
+    from app.models.fx import FxTreasury
+    admin_id = await _seed_admin()
+    uid = await _seed_user(cash=Decimal('100'), debt=Decimal('17'), frozen=True)
+    pairs = await _seed_short_pairs(uid)
+    async with async_session_maker() as s:
+        admin = await s.get(User, admin_id)
+        s.add(SiteConfig(key='loan_daily_rate', value='0.01', value_type='decimal'))
+        s.add(FxTreasury(pair_id=pairs[0].group_id, gold_balance=Decimal('23'), foreign_balance=Decimal('29')))
+        target = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid, FxShortPosition.pair_id == pairs[0].group_id))).scalar_one()
+        target.interest_foreign = Decimal('2')
+        target.interest_last_accrued_at = datetime.now(timezone.utc) - timedelta(days=1)
+        target.proceeds_basis_gold = Decimal('45')
+        await s.commit()
+    app.dependency_overrides[current_superuser] = lambda: admin
+    path = f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff'
+    try:
+        response = await client.post(path, json={'reason': 'operator recovery'})
+        assert response.status_code == 200, response.text
+        assert (await client.post(path, json={'reason': 'retry'})).status_code == 200
+        assert (await client.post(path, json={'reason': '   '})).status_code == 422
+    finally:
+        app.dependency_overrides.pop(current_superuser, None)
+    assert await _state(uid) == (Decimal('100'), Decimal('17'), 1)
+    rows = await _short_state(uid)
+    assert rows == [(ZERO, ZERO, ZERO), (Decimal('10'), ZERO, Decimal('30'))]
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert user.credit_frozen
+        treasury = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pairs[0].group_id))).scalar_one()
+        assert (treasury.gold_balance, treasury.foreign_balance) == (Decimal('23'), Decimal('29'))
+        assert await available_cash(s, user) == Decimal('70')
+        target = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid, FxShortPosition.pair_id == pairs[0].group_id))).scalar_one()
+        assert target.proceeds_basis_gold == ZERO and target.interest_last_accrued_at is None
+        events = (await s.execute(select(AuditEvent).where(
+            AuditEvent.user_id == uid, AuditEvent.event_type == 'admin_fx_short_writeoff'))).scalars().all()
+        assert len(events) == 1
+        assert events[0].operator_user_id == admin_id
+        assert events[0].payload['reason'] == 'operator recovery'
+        assert Decimal(events[0].payload['principal_written_off_foreign']) == Decimal('10')
+        assert Decimal(events[0].payload['interest_written_off_foreign']) >= Decimal('2.12')
+        assert 'realized_pl' not in events[0].payload
+
+
+async def test_short_writeoff_overflow_fails_without_partial_changes(client, writes_enabled):
+    from app.main import app
+    from app.core.users import current_superuser
+    from app.models.audit import AuditEvent
+    from app.models.fx import FxTreasury
+    admin_id = await _seed_admin()
+    uid = await _seed_user(cash=Decimal('100'), frozen=True)
+    pairs = await _seed_short_pairs(uid, locks=('50',))
+    async with async_session_maker() as s:
+        admin = await s.get(User, admin_id)
+        s.add(SiteConfig(key='loan_daily_rate', value='1', value_type='decimal'))
+        s.add(FxTreasury(pair_id=pairs[0].group_id, foreign_balance=Decimal('29')))
+        short = (await s.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
+        short.interest_last_accrued_at = datetime.now(timezone.utc) - timedelta(days=100)
+        await s.commit()
+    app.dependency_overrides[current_superuser] = lambda: admin
+    try:
+        response = await client.post(f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff', json={'reason': 'overflow'})
+        assert response.status_code == 409, response.text
+    finally:
+        app.dependency_overrides.pop(current_superuser, None)
+    assert await _state(uid) == (Decimal('100'), ZERO, 0)
+    assert await _short_state(uid) == [(Decimal('10'), ZERO, Decimal('50'))]
+    async with async_session_maker() as s:
+        assert not (await s.execute(select(AuditEvent).where(AuditEvent.user_id == uid))).scalars().all()

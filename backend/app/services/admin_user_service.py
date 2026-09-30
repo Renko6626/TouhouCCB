@@ -970,3 +970,110 @@ async def _amnesty_one(
             if attempt >= limit:
                 raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
     raise AssertionError("unreachable")
+
+
+async def writeoff_fx_short(
+    db: AsyncSession, *, target_id: int, pair_id: int, reason: str, admin_id: int,
+) -> Dict[str, Any]:
+    """Explicit full administrative writeoff, never a trade or minted repayment.
+
+    Pending foreign interest is computed at one UTC T without persisting an
+    intermediate tail. Unrepresentable pending debt fails closed with 409.
+    Frozen users and active liquidation runs remain unchanged.
+    """
+    from app.models.fx import FxPair, FxTreasury
+    from app.services.credit.keys import GroupKey
+    from app.services.fx.shorts import pending_short_debt, ShortRejected
+
+    reason = reason.strip()
+    if not reason:
+        raise AdminUserError(422, "reason must not be blank")
+    OWNERSHIP.require_writes()
+    # Authentication/discovery can leave a read transaction. No row lock may
+    # survive into the pair GATE wait.
+    if db.in_transaction():
+        await db.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
+        async with managed_transaction(db):
+            pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if pair is None:
+                raise AdminUserError(404, "FX pair not found")
+            user = await _lock_user(db, target_id)
+            position = (await db.execute(select(FxShortPosition).where(
+                FxShortPosition.user_id == target_id, FxShortPosition.pair_id == pair_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if position is None:
+                raise AdminUserError(404, "FX short position not found")
+            total_locks = (await db.execute(select(func.coalesce(func.sum(
+                FxShortPosition.restricted_gold), ZERO)).where(
+                FxShortPosition.user_id == target_id))).scalar_one()
+            principal = Decimal(position.principal_foreign)
+            interest = Decimal(position.interest_foreign)
+            lock = Decimal(position.restricted_gold)
+            basis = Decimal(position.proceeds_basis_gold)
+            if min(principal, interest, lock, basis) < ZERO or Decimal(user.cash) < total_locks:
+                raise AdminUserError(409, "inconsistent FX short cash locks")
+            if principal + interest == ZERO:
+                if lock or basis or position.interest_last_accrued_at is not None:
+                    raise AdminUserError(409, "inconsistent zero FX short debt")
+                return {"user_id": target_id, "pair_id": pair_id, "written_off": False}
+            if position.interest_last_accrued_at is None:
+                raise AdminUserError(409, "FX short interest clock missing")
+            treasury = (await db.execute(select(FxTreasury).where(
+                FxTreasury.pair_id == pair_id))).scalar_one_or_none()
+            now = _utcnow()
+            try:
+                rate = await site_config.get_decimal(db, "loan_daily_rate")
+            except (site_config.SiteConfigError, ArithmeticError, ValueError) as exc:
+                raise AdminUserError(409, "invalid FX short interest configuration") from exc
+            if not rate.is_finite() or rate < ZERO:
+                raise AdminUserError(409, "invalid FX short interest configuration")
+            try:
+                effective_total = pending_short_debt(position, rate, now)
+            except ShortRejected as exc:
+                raise AdminUserError(409, str(exc)) from exc
+            before = {
+                "short_position_id": position.id, "principal_foreign": principal,
+                "interest_foreign": interest, "restricted_gold": lock,
+                "proceeds_basis_gold": basis,
+                "interest_last_accrued_at": audit_service._utc_iso(position.interest_last_accrued_at),
+            }
+            treasury_state = None if treasury is None else {
+                "treasury_id": treasury.id, "gold_balance": treasury.gold_balance,
+                "foreign_balance": treasury.foreign_balance,
+                "daily_spend": treasury.daily_spend, "spend_date": treasury.spend_date,
+            }
+            user_before = audit_service.user_snapshot(user)
+            version_before = economic_version_of(user)
+            position.principal_foreign = ZERO
+            position.interest_foreign = ZERO
+            position.restricted_gold = ZERO
+            position.proceeds_basis_gold = ZERO
+            position.interest_last_accrued_at = None
+            position.updated_at = now
+            bump_economic_version(user)
+            after = dict(before, principal_foreign=ZERO, interest_foreign=ZERO,
+                restricted_gold=ZERO, proceeds_basis_gold=ZERO, interest_last_accrued_at=None)
+            audit_service.record(db, "admin_fx_short_writeoff", user_id=target_id,
+                operator_user_id=admin_id, ref_table="fx_short_position", ref_id=position.id,
+                ts=now, user_after=audit_service.user_snapshot(user), payload={
+                    "purpose": "short_writeoff", "pair_id": pair_id, "reason": reason,
+                    "accrued_at": audit_service._utc_iso(now), "daily_rate": rate,
+                    "principal_written_off_foreign": principal,
+                    "interest_written_off_foreign": effective_total - principal,
+                    "pending_interest_foreign": effective_total - principal - interest,
+                    "released_lock": lock, "written_off_proceeds_basis_gold": basis,
+                    "short_before": before, "short_after": after,
+                    "treasury_before": treasury_state, "treasury_after": treasury_state,
+                    "user_before": user_before,
+                    "economic_version_before": version_before,
+                    "economic_version": economic_version_of(user),
+                    "cash_delta": ZERO, "debt_delta": ZERO,
+                    "restricted_cash_before": total_locks,
+                    "restricted_cash_after": total_locks - lock,
+                })
+            OWNERSHIP.require_writes()
+            return {"user_id": target_id, "pair_id": pair_id, "written_off": True,
+                "principal_foreign": str(principal),
+                "interest_foreign": str(effective_total - principal), "released_lock": str(lock)}

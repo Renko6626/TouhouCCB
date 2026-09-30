@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -243,3 +243,28 @@ async def amnesty(
         logger.warning("AMNESTY_DONE admin_id=%s count=%s total_cash_delta=%s total_debt_forgiven=%s reason=%s",
                        admin.id, r["updated_count"], r["total_cash_delta"], r["total_debt_forgiven"], req.reason)
     return r
+
+
+class FxShortWriteoffRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("reason must not be blank")
+        return value
+
+
+@router.post("/{user_id}/fx-shorts/{pair_id}/writeoff", summary="完整核销选定外币欠币（仅管理员）")
+async def writeoff_fx_short(
+    user_id: int, pair_id: int, req: FxShortWriteoffRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    try:
+        return await svc.writeoff_fx_short(
+            db, target_id=user_id, pair_id=pair_id, reason=req.reason, admin_id=admin.id)
+    except AdminUserError as e:
+        raise _http(e)
