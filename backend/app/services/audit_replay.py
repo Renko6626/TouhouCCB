@@ -10,7 +10,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal, ROUND_DOWN, InvalidOperation
 from typing import Any, Iterable, Optional
 
 from app.models.audit import AuditEvent
@@ -186,15 +186,32 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
     def required(p, key):
         if key not in p or p[key] is None:
             raise ValueError(f"missing required short replay field: {key}")
-        value = D(p[key])
+        try:
+            value = D(p[key])
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError(f"invalid short replay field: {key}") from exc
         if not value.is_finite():
             raise ValueError(f"non-finite short replay field: {key}")
         return value
 
+    def required_balances(p, name):
+        value = p.get(name)
+        if not isinstance(value, dict):
+            raise ValueError(f"missing required short replay snapshot: {name}")
+        gold_key = "gold" if "gold" in value else "gold_balance"
+        foreign_key = "foreign" if "foreign" in value else "foreign_balance"
+        required(value, gold_key); required(value, foreign_key)
+        for key in ("gold", "foreign", "gold_balance", "foreign_balance"):
+            if key in value:
+                required(value, key)
+
     def short_snapshot(p):
         if not isinstance(p, dict) or "interest_last_accrued_at" not in p:
             raise ValueError("missing required short replay snapshot/clock")
-        return FxShortState(*(required(p, f) for f in short_fields), utc_clock(p["interest_last_accrued_at"]))
+        values = [required(p, f) for f in short_fields]
+        if any(value < 0 for value in values):
+            raise ValueError("negative short replay snapshot balance")
+        return FxShortState(*values, utc_clock(p["interest_last_accrued_at"]))
 
     def compare_short(ev, expected, actual, prefix=""):
         for f in (*short_fields, "interest_last_accrued_at"):
@@ -209,7 +226,21 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
         foreign_interest = ev.event_type == "interest_accrual" and p.get("currency") == "foreign"
         if purpose not in {"short_open", "short_cover", "short_writeoff"} and not foreign_interest:
             return
+        if not isinstance(ev.user_after, dict) or "debt_last_accrued_at" not in ev.user_after:
+            raise ValueError("missing required short replay user_after/clock")
+        required(ev.user_after, "cash"); required(ev.user_after, "debt")
         key = (ev.user_id, int(p["pair_id"]))
+        if purpose in {"short_open", "short_cover", "short_writeoff"}:
+            for name in ("treasury_before", "treasury_after"):
+                if name not in p:
+                    raise ValueError(f"missing required short replay snapshot: {name}")
+                if purpose != "short_writeoff" or p[name] is not None:
+                    required_balances(p, name)
+        if purpose in {"short_cover", "short_writeoff"} and not p.get("accrued_at"):
+            raise ValueError("missing required short replay clock: accrued_at")
+        if purpose in {"short_open", "short_cover"} and p.get("accrued_at") and check:
+            if utc_clock(p["accrued_at"]) != utc_clock(ev.ts):
+                bad(ev, f"fx_short:{key[0]}:{key[1]}", "accrued_at", utc_clock(ev.ts), utc_clock(p["accrued_at"]))
         if purpose in {"short_open", "short_cover"}:
             for f in ("input_amount", "output_amount", "fee_amount", "pre_gold_reserve", "pre_foreign_reserve", "post_gold_reserve", "post_foreign_reserve"):
                 required(p, f)
@@ -218,6 +249,9 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
             if p.get("wallet_after") is not None:
                 raise ValueError("short replay must not move spot wallet")
         if foreign_interest:
+            for name in ("interest_last_accrued_at_before", "interest_last_accrued_at_after", "accrued_at"):
+                if name not in p or p[name] is None:
+                    raise ValueError(f"missing required short replay clock: {name}")
             if key not in snap.fx_shorts:
                 raise ValueError("foreign interest has no prior short replay anchor")
             st = snap.fx_shorts[key]
@@ -237,6 +271,8 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
                 actual = replace(st, interest_foreign=required(p, "interest_foreign_after"),
                                  interest_last_accrued_at=utc_clock(p["interest_last_accrued_at_after"]))
                 compare_short(ev, st, actual)
+            st = replace(st, principal_foreign=required(p, "principal_foreign"), interest_foreign=required(p, "interest_foreign_after"),
+                         interest_last_accrued_at=utc_clock(p["interest_last_accrued_at_after"]))
         else:
             before, after = short_snapshot(p.get("short_before")), short_snapshot(p.get("short_after"))
             prev = snap.fx_shorts.get(key)
@@ -264,8 +300,11 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
                 basis = st.proceeds_basis_gold if q == total else (st.proceeds_basis_gold * q / total).quantize(Q6, rounding=ROUND_DOWN)
                 base_release = st.restricted_gold if q == total else (st.restricted_gold * q / total).quantize(Q6, rounding=ROUND_DOWN)
                 cash = required(p.get("user_before") or {}, "cash")
-                other_locks = sum((v.restricted_gold for k, v in snap.fx_shorts.items() if k[0] == key[0] and k != key), D(0))
-                free = cash - st.restricted_gold - other_locks
+                total_lock = required(p, "total_restricted_gold_before")
+                known_locks = sum((v.restricted_gold for k, v in snap.fx_shorts.items() if k[0] == key[0] and k != key), D(0)) + st.restricted_gold
+                if total_lock < 0 or total_lock < known_locks or total_lock > cash:
+                    raise ValueError("invalid total_restricted_gold_before short replay baseline")
+                free = cash - total_lock
                 release = max(base_release, D(p["input_amount"]) - free)
                 if check:
                     for f, expected in (("allocated_proceeds_basis", basis), ("released_lock", release)):
@@ -299,7 +338,13 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
                 if check and p.get("treasury_before") != p.get("treasury_after"):
                     bad(ev, f"fx_pair:{key[1]}", "treasury(writeoff)", p.get("treasury_before"), p.get("treasury_after"))
             if check: compare_short(ev, st, after)
-            pre_interest.pop(key, None)
+            st = replace(after)
+            if purpose == "short_open":
+                for cached in list(pre_interest):
+                    if cached[0] == ev.user_id:
+                        del pre_interest[cached]
+            else:
+                pre_interest.pop(key, None)
         st.last_event_id = ev.id
         snap.fx_shorts[key] = st
 
@@ -380,10 +425,12 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
         if check:
             if exp_g != post_g: bad(ev, f"fx_pair:{pair_id}", "post_gold_reserve", exp_g, post_g)
             if exp_f != post_f: bad(ev, f"fx_pair:{pair_id}", "post_foreign_reserve", exp_f, post_f)
-        st.gold, st.foreign, st.treasury_gold, st.treasury_foreign = exp_g, exp_f, tg, tf
+        st.gold, st.foreign, st.treasury_gold, st.treasury_foreign = post_g, post_f, tg, tf
         st.anchored, st.last_event_id = True, ev.id
         if check:
             fx_check_after(ev, st, p)
+        if short:
+            st.treasury_gold, st.treasury_foreign = fx_after(p, "treasury_after")
         if ev.user_id is not None and p.get("wallet_after") is not None:
             key = (ev.user_id, pair_id); prev = snap.fx_wallets.get(key, Decimal("0"))
             expected = prev + out if side == "buy" else prev - inp

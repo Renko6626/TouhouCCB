@@ -741,7 +741,7 @@ async def _write_cover_ledger(
         short_before=short_before,
         pool_before={"gold": pre_gold, "foreign": pre_foreign},
         interest_paid_foreign=interest_paid, principal_paid_foreign=principal_paid,
-        released_lock=release, allocated_proceeds_basis=allocated_basis,
+        released_lock=release, total_restricted_gold_before=total_lock, allocated_proceeds_basis=allocated_basis,
         realized_pl=realized_pl, accrued_at=now, full_cover=full_cover,
         limited_by_cash=limited_by_cash,
     )
