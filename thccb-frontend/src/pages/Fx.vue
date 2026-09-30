@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
+import { useRoute } from 'vue-router'
 import {
   computeMinOut,
   divideFxAmount,
@@ -32,6 +33,7 @@ import FxCandleChart from '@/components/chart/FxCandleChart.vue'
 defineOptions({ name: 'FxPage' })
 
 const msg = useMessage()
+const route = useRoute()
 
 interface FxDisplaySummary {
   fx_mtm: number
@@ -46,6 +48,8 @@ const pairId = ref<number | null>(null)
 const snapshot = ref<FxSnapshot | null>(null)
 const trades = ref<FxTradePublic[]>([])
 const wallet = ref<FxWalletPublic | null>(null)
+const walletLoading = ref(false)
+let walletRequestId = 0
 const newsFeed = ref<FxPublicNews[]>([])
 const streamConnected = ref(false)
 /** 图表周期性刷新/成交后强制重载用；同时把 SSE 价格转发给图表组件 */
@@ -78,6 +82,15 @@ const sidePrice = computed(() =>
 const amountValid = computed(
   () => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && Number(amount.value) > 0,
 )
+const sellPortions = [25, 50, 75, 100]
+const canFillSell = computed(() => side.value === 'sell' && tradable.value && !submitting.value
+  && !walletLoading.value && wallet.value?.pair_id === pairId.value
+  && Number(wallet.value?.foreign_amount ?? 0) > 0)
+
+function fillSellPortion(percent: number) {
+  if (!canFillSell.value || !wallet.value) return
+  amount.value = computeMinOut(wallet.value.foreign_amount, (100 - percent) * 100)
+}
 const effectiveSlippageBps = computed(() => {
   const v = Number(slippageBps.value)
   if (!Number.isFinite(v)) return 0
@@ -112,6 +125,7 @@ const walletAvgCost = computed(() => {
 async function loadPairs() {
   pairs.value = await fxApi.listPairs()
   const preferred =
+    pairs.value.find((p) => p.id === Number(route.query.pair)) ??
     pairs.value.find((p) => p.status === 'trading') ??
     pairs.value.find((p) => p.status !== 'draft') ??
     pairs.value[0]
@@ -138,11 +152,16 @@ async function loadTrades() {
 async function loadWallet() {
   const pid = pairId.value
   if (!pid) return
+  const requestId = ++walletRequestId
+  walletLoading.value = true
   try {
-    wallet.value = await fxApi.getWallet(pid)
+    const result = await fxApi.getWallet(pid)
+    if (requestId === walletRequestId && pid === pairId.value) wallet.value = result
   } catch {
     // 钱包读取失败时仅隐藏持仓明细，交易与行情仍可用
-    wallet.value = null
+    if (requestId === walletRequestId && pid === pairId.value) wallet.value = null
+  } finally {
+    if (requestId === walletRequestId) walletLoading.value = false
   }
 }
 
@@ -213,6 +232,7 @@ function connectStream() {
 
 async function selectPair(id: number) {
   pairId.value = id
+  amount.value = ''
   quote.value = null
   tradeError.value = null
   newsFeed.value = []
@@ -516,7 +536,7 @@ onUnmounted(() => {
             </div>
 
             <label class="fx-field">
-              <span>{{ side === 'buy' ? '投入金圆券' : '投入外币' }}（最多 6 位小数）</span>
+              <span>{{ side === 'buy' ? '投入金圆券' : `卖出数量（${currencyName}）` }}（最多 6 位小数）</span>
               <input
                 v-model="amount"
                 class="fx-input"
@@ -526,6 +546,22 @@ onUnmounted(() => {
                 :disabled="!tradable || submitting"
               />
             </label>
+
+            <div v-if="side === 'sell'" class="fx-sell-holdings">
+              <div class="fx-preview-row" aria-live="polite">
+                <span>当前持仓（{{ currencyName }}）</span>
+                <strong>{{ walletLoading ? '加载中…' : wallet ? formatFxAmount(wallet.foreign_amount, 6) : '暂不可用' }}</strong>
+              </div>
+              <div class="fx-sell-shortcuts">
+                <button v-for="percent in sellPortions" :key="percent" class="btn-secondary"
+                  :disabled="!canFillSell" @click="fillSellPortion(percent)">
+                  {{ percent === 100 ? '全部' : `${percent}%` }}
+                </button>
+              </div>
+              <p v-if="!walletLoading && !wallet" class="fx-hint">
+                持仓读取失败，<button class="fx-wallet-retry" @click="loadWallet">重新加载</button>
+              </p>
+            </div>
 
             <label class="fx-field">
               <span>最大滑点（bps，100 = 1%）</span>
@@ -684,6 +720,28 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.fx-sell-holdings {
+  border: 1px solid #ddd;
+  padding: 10px;
+  margin-bottom: 16px;
+}
+.fx-sell-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+.fx-sell-shortcuts button {
+  padding: 6px 0;
+  min-width: 0;
+}
+.fx-wallet-retry {
+  color: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
 .fx-page {
   padding: 4px;
   max-width: 1360px;

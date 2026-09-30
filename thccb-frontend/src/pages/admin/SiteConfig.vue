@@ -403,7 +403,7 @@ onMounted(load)
                       </NTooltip>
                       <code class="config-key-mono">{{ c.key }}</code>
                     </div>
-                    <p v-if="c.key.startsWith('fx_') || c.key.startsWith('credit_') || c.key === 'unified_credit_enabled'" class="config-description">
+                    <p v-if="c.key.startsWith('fx_') || c.key.startsWith('credit_') || c.key === 'unified_credit_enabled' || c.key === 'homepage_fx_enabled'" class="config-description">
                       {{ getConfigMeta(c.key).description }}
                     </p>
                   </td>

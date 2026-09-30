@@ -119,6 +119,12 @@ class FxTradePublic(BaseModel):
     created_at: datetime
 
 
+class FxPersonalTrade(FxTradePublic):
+    currency_code: str
+    currency_name: str
+    is_liquidation: bool
+
+
 class FxSnapshot(BaseModel):
     pair: FxPairPublic
     price: Decimal

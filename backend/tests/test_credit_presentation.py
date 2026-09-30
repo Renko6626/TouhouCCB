@@ -24,7 +24,7 @@ async def test_summary_debt_free_still_uses_actual_lcv_and_multiple_wallets(clie
                           gold_reserve=Decimal('1000'), foreign_reserve=Decimal('5000'))
             db.add(pair)
             await db.flush()
-            db.add(FxWallet(user_id=uid, pair_id=pair.id, foreign_amount=Decimal('100')))
+            db.add(FxWallet(user_id=uid, pair_id=pair.id, foreign_amount=Decimal('100'), cost_basis=Decimal('15')))
         await db.commit()
     response = await client.get('/api/v1/user/summary', headers=headers)
     assert response.status_code == 200, response.text
@@ -36,6 +36,9 @@ async def test_summary_debt_free_still_uses_actual_lcv_and_multiple_wallets(clie
     assert data['risk_status'] == 'healthy'
     assert {w['currency_code'] for w in data['fx_wallets']} == {'MORA', 'LMD'}
     assert all(w['mtm_gold'] == 20 for w in data['fx_wallets'])
+    assert all(w['cost_basis'] == 15 and w['currency_name'] == w['currency_code'] for w in data['fx_wallets'])
+    assert data['fx_cost_basis'] == 30
+    assert data['fx_unrealized_pnl'] == 10
 
 @pytest.mark.asyncio
 async def test_policy_reports_running_thresholds_and_marks_old_fields(client):

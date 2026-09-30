@@ -66,6 +66,8 @@ async def get_user_summary(
     )).all()
     fx_wallets = [{
         "pair_id": pair.id, "currency_code": pair.currency_code,
+        "currency_name": pair.currency_name,
+        "cost_basis": quantize_cost(wallet.cost_basis),
         "foreign_amount": quantize_cost(wallet.foreign_amount),
         "mtm_gold": quantize_cost(wallet.foreign_amount * marginal_price(
             pair.gold_reserve, pair.foreign_reserve)),

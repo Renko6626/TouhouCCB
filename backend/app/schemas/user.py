@@ -36,6 +36,8 @@ class RankThresholdItem(BaseModel):
 class FxWalletSummary(BaseModel):
     pair_id: int
     currency_code: str
+    currency_name: str = ""
+    cost_basis: Money = Decimal("0")
     foreign_amount: Money
     mtm_gold: Money
 

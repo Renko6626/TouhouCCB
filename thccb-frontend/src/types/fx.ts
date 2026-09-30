@@ -77,6 +77,12 @@ export interface FxWalletPublic {
   updated_at?: string | null
 }
 
+export interface FxPersonalTrade extends FxTradePublic {
+  currency_code: string
+  currency_name: string
+  is_liquidation: boolean
+}
+
 export interface FxQuoteRequest {
   side: FxSide
   amount: string

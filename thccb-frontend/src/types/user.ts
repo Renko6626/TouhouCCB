@@ -42,7 +42,7 @@ export interface UserSummary {
   equity_to_debt?: number | null
   risk_status?: 'healthy' | 'warning' | 'danger' | null
   credit_frozen?: boolean
-  fx_wallets?: { pair_id: number; currency_code: string; foreign_amount: number; mtm_gold: number }[]
+  fx_wallets?: { pair_id: number; currency_code: string; currency_name?: string; cost_basis?: number; foreign_amount: number; mtm_gold: number }[]
   /** FX 展示市值；统一模式清算净值来自服务端产品报价 */
   fx_mtm: number
   fx_cost_basis: number

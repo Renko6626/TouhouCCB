@@ -24,6 +24,11 @@ export interface ConfigMeta {
 
 /** 显式 metadata。未列出的 key 用 fallback (group=general, label=key)。*/
 const META: Record<string, ConfigMeta> = {
+  homepage_fx_enabled: {
+    group: 'general',
+    label: '首页使用 FX 模式',
+    description: '开启展示外汇首页，关闭恢复原预测市场首页。保存后刷新首页即可生效；只改变首页展示，不改变交易或借款开关。',
+  },
   unified_credit_enabled: {
     group: 'loan',
     label: '统一信贷模式',

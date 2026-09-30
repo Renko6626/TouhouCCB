@@ -13,6 +13,7 @@ from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
     FxPairPublic,
+    FxPersonalTrade,
     FxQuote,
     FxQuoteRequest,
     FxSnapshot,
@@ -23,6 +24,24 @@ from app.schemas.fx import (
 from app.services.fx import trading
 
 router = APIRouter()
+
+
+@router.get("/my-trades", response_model=list[FxPersonalTrade])
+async def all_my_trades(
+    limit: int = Query(100, ge=1, le=200),
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    rows = (await db.execute(
+        select(FxTrade, FxPair).join(FxPair, FxPair.id == FxTrade.pair_id)
+        .where(FxTrade.user_id == user.id)
+        .order_by(FxTrade.created_at.desc(), FxTrade.id.desc()).limit(limit)
+    )).all()
+    return [FxPersonalTrade(
+        **FxTradePublic.model_validate(trade).model_dump(),
+        currency_code=pair.currency_code, currency_name=pair.currency_name,
+        is_liquidation=trade.source == "liquidation",
+    ) for trade, pair in rows]
 
 
 @router.get("/pairs", response_model=list[FxPairPublic])

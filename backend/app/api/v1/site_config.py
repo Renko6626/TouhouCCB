@@ -6,17 +6,20 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.database import get_async_session
 from app.core.users import current_superuser
-from app.models.base import User
+from app.models.base import User, SiteConfig
 from app.schemas.loan import SiteConfigItem, SiteConfigUpdate
 from app.services import site_config, loan_sweep, liquidation_sweep
 
 router = APIRouter()
+public_router = APIRouter()
 logger = logging.getLogger("thccb.site_config")
 
 _WHITELIST = {
+    "homepage_fx_enabled": "bool",
     "loan_enabled": "bool",
     "loan_leverage_k": "decimal",
     "loan_daily_rate": "decimal",
@@ -57,6 +60,15 @@ _CREDIT_CROSS_CHECK_KEYS = frozenset({
     "credit_leverage",
     "credit_maintenance_ratio",
 })
+
+
+@public_router.get("/homepage")
+async def homepage_mode(db: AsyncSession = Depends(get_async_session)):
+    # 只公开首页模式，直接读库以免切换受进程缓存影响。
+    value = (await db.execute(select(SiteConfig.value).where(
+        SiteConfig.key == "homepage_fx_enabled"))).scalar_one_or_none()
+    enabled = value is None or value.strip().lower() == "true"
+    return {"mode": "fx" if enabled else "prediction"}
 
 
 def _validate(key: str, value: str) -> None:

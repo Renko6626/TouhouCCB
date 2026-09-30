@@ -6,6 +6,7 @@ import type {
   FxEventCreate,
   FxFundRequest,
   FxIntervention,
+  FxPersonalTrade,
   FxPairAdmin,
   FxPairAdminDetail,
   FxPairCreate,
@@ -540,6 +541,9 @@ export class FxOrderSubmitter {
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
+  getAllMyTrades(limit = 100): Promise<FxPersonalTrade[]> {
+    return api.get<FxPersonalTrade[]>('/api/v1/fx/my-trades', { params: { limit } })
+  },
   listPairs(): Promise<FxPairPublic[]> {
     return api.get<FxPairPublic[]>('/api/v1/fx/pairs')
   },

@@ -382,6 +382,37 @@ async def test_player_wallet_and_personal_trades_are_scoped_to_owner(ctx):
 
 
 @pytest.mark.asyncio
+async def test_all_personal_fx_trades_are_scoped_named_and_limited(ctx):
+    pair_id = await _create_pair(ctx)
+    second_id = await _create_pair(ctx, currency_code='MORA', currency_name='摩拉')
+    for owner, source in [(ctx.trader.id, 'player'), (ctx.normal.id, 'player'),
+                          (ctx.trader.id, 'liquidation'), (None, 'system_noise')]:
+        ctx.db.add(FxTrade(
+            pair_id=second_id if source == 'liquidation' else pair_id,
+            user_id=owner, source=source, side='sell',
+            input_amount=Decimal('2'), output_amount=Decimal('1'),
+            pre_gold_reserve=Decimal('1000'), pre_foreign_reserve=Decimal('1000'),
+            post_gold_reserve=Decimal('999'), post_foreign_reserve=Decimal('1002'),
+            post_price=Decimal('0.997'),
+        ))
+    await ctx.db.commit()
+    url = '/api/v1/fx/my-trades'
+    response = await ctx.client.get(url, headers=_auth(ctx.trader))
+    assert response.status_code == 200, response.text
+    rows = response.json()
+    assert len(rows) == 2
+    assert rows[0]['is_liquidation'] is True
+    assert rows[1]['is_liquidation'] is False
+    assert {r['currency_code'] for r in rows} == {'USD', 'MORA'}
+    assert rows[0]['currency_name'] == '摩拉'
+    assert all('source' not in r and 'user_id' not in r for r in rows)
+    limited = await ctx.client.get(url, params={'limit': 1}, headers=_auth(ctx.trader))
+    assert [r['id'] for r in limited.json()] == [rows[0]['id']]
+    assert (await ctx.client.get(url)).status_code == 401
+    assert (await ctx.client.get(url, params={'limit': 201}, headers=_auth(ctx.trader))).status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_admin_interventions_are_limited_and_filtered_in_database(ctx):
     pair_id = await _create_pair(ctx)
     for index in range(52):
