@@ -39,7 +39,11 @@ from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import discover_dependencies
 from app.services.fx.quantize import amount_down
-from app.services.fx.shorts import ShortRetryCredit
+from app.services.fx.shorts import (
+    ShortLiquidationRejected,
+    ShortPostSettlementMismatch,
+    ShortRetryCredit,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -326,7 +330,7 @@ def _utc(value):
 
 async def _seed_cover(*, cash="1000", principal="100", interest="0",
                       restricted="100", basis="100", gold="1000", foreign="1000",
-                      treasury_foreign="100000", buy_fee="0",
+                      treasury_foreign="100000", treasury_gold=None, buy_fee="0",
                       status="trading", reduce_only=False, archived=False,
                       second_short=False, second_restricted="90",
                       debt="0", gold_age_sec=0, foreign_age_sec=0):
@@ -334,7 +338,8 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
 
     ``gold_age_sec`` / ``foreign_age_sec`` backdate the accrual clocks (with a
     positive ``debt`` / foreign tail) so a nonzero daily rate has real elapsed
-    interest to settle.
+    interest to settle.  ``treasury_gold`` defaults to the pair reserve but can
+    be seeded independently to exercise the treasury storage bound.
     """
     async with async_session_maker() as s:
         now = datetime.now(timezone.utc)
@@ -354,7 +359,8 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
         )
         s.add(pair)
         await s.flush()
-        s.add(FxTreasury(pair_id=pair.id, gold_balance=D(gold),
+        s.add(FxTreasury(pair_id=pair.id,
+                         gold_balance=D(gold if treasury_gold is None else treasury_gold),
                          foreign_balance=D(treasury_foreign)))
         total = D(principal) + D(interest)
         foreign_clock = (
@@ -782,3 +788,86 @@ async def test_blocked_liquidation_cover_commits_with_zero_interest_and_audit_mu
     async with async_session_maker() as db:
         after = await _blocked_round_snapshot(db, uid, pid)
     assert after == before
+
+
+#: ``FxTreasury.gold_balance`` is ``Numeric(16,6)``; this is its largest value.
+_TREASURY_GOLD_MAX = D("9999999999.999999")
+
+
+async def test_post_settlement_bound_failure_requires_whole_transaction_rollback():
+    """A forced cover whose *post*-settlement bound fails must roll back, not block.
+
+    Real fault (spec §7.3/§8.2, review I1): ``_write_cover_ledger`` runs its
+    storage-bound checks after ``_settle_interest_at_T`` already advanced the
+    gold/foreign interest clocks and wrote their audit rows.  Raising the
+    pre-mutation ``ShortLiquidationRejected`` there lets a WP4c caller mistake
+    the failure for a normal blocked round and commit interest with no trade and
+    no economic-version bump.  This seeds 1%/day with 30 elapsed days plus a
+    treasury gold balance at the ``Numeric(16,6)`` maximum (so
+    ``treasury_gold + fee`` overflows only after settlement), drives the kernel
+    directly, and requires:
+
+    - the distinct rollback-required :class:`ShortPostSettlementMismatch`
+      (never the pre-mutation :class:`ShortLiquidationRejected`), and
+    - after catching it and rolling the whole transaction back, every clock,
+      debt, cash, pool, treasury, short row, trade and audit row byte-identical.
+    """
+    async with async_session_maker() as s:
+        cfg = (await s.execute(select(SiteConfig).where(
+            SiteConfig.key == 'loan_daily_rate'))).scalar_one()
+        cfg.value = '0.01'
+        await s.commit()
+    site_config.clear_cache()
+
+    uid, pid, _ = await _seed_cover(
+        cash="1000", principal="100", interest="0", restricted="100", basis="100",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0.01",
+        treasury_gold=str(_TREASURY_GOLD_MAX), debt="100",
+        gold_age_sec=30 * 86400, foreign_age_sec=30 * 86400)
+
+    async with async_session_maker() as db:
+        before_econ = await _blocked_round_snapshot(db, uid, pid)
+        before_state = await _cover_state(db, uid, pid)
+    assert before_econ["gold_debt"] == D("100")
+    assert before_econ["foreign_interest"] == D("0")
+    assert before_econ["treasury_gold"] > D("9999999999")
+
+    from app.services.fx.shorts import execute_liquidation_cover_in_session
+
+    async with async_session_maker() as db:
+        target = GroupKey("fx", pid)
+        deps = await discover_dependencies(db, uid, extra_groups=[target])
+        if db.in_transaction():
+            await db.rollback()
+        async with GATES.hold(
+            exclusive=[target],
+            shared=[g for g in deps.groups if g != target],
+        ):
+            with pytest.raises(ShortPostSettlementMismatch) as excinfo:
+                await execute_liquidation_cover_in_session(
+                    db, user_id=uid, pair_id=pid, run_id=81, round_no=1,
+                    planned_amount=D("100"), max_gold_budget=D("1000000"),
+                    credit_deps=deps,
+                )
+            # Distinct from every pre-mutation rejection: a caller that recorded
+            # this as a committable blocked round would be wrong by type.
+            assert not isinstance(excinfo.value, ShortLiquidationRejected)
+            # The settlement already moved the clocks and wrote audits inside this
+            # transaction, so a commit would persist interest with no trade.
+            dirty_user = await db.get(User, uid)
+            dirty_target = (await db.execute(select(FxShortPosition).where(
+                FxShortPosition.pair_id == pid))).scalars().one()
+            dirty_audit_count = int((await db.execute(
+                select(func.count()).select_from(AuditEvent))).scalar_one())
+            assert D(dirty_user.debt) > before_econ["gold_debt"]
+            assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
+            assert dirty_audit_count > before_econ["audit_count"]
+            # WP4c's contract: roll the whole transaction back, never commit the
+            # blocked-looking round.
+            await db.rollback()
+
+    async with async_session_maker() as db:
+        after_econ = await _blocked_round_snapshot(db, uid, pid)
+        after_state = await _cover_state(db, uid, pid)
+    assert after_econ == before_econ
+    assert after_state == before_state

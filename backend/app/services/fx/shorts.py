@@ -87,10 +87,15 @@ class ShortCoverRejected(ShortRejected):
 
 
 class ShortLiquidationRejected(ShortRejected):
-    """A forced cover that is malformed or produces an unstorable post-state.
+    """A forced cover rejected **before** any economic row is mutated.
 
-    Pre-mutation validation failures raise this so the orchestrating caller's
-    rollback leaves money/pool/treasury/debt/lock/trade/audit untouched.
+    Malformed inputs, an unrepresentable pending debt, an unpayable cash/lock
+    invariant and every normal ``blocked`` preflight condition are decided
+    before :func:`_settle_interest_at_T` advances a clock, so the orchestrating
+    caller's rollback (or a committed blocked round) leaves
+    money/pool/treasury/debt/lock/trade/audit untouched.  A validation failure
+    that can only be seen *after* settlement is never this type: it is a
+    :class:`ShortPostSettlementMismatch` and requires caller rollback.
     """
 
 
@@ -99,13 +104,16 @@ class ShortRetryCredit(Exception):
 
 
 class ShortPostSettlementMismatch(ShortRetryCredit):
-    """A settled short tail disagreed with the pure preflight quantity.
+    """A forced cover failed validation **after** settlement mutated a clock.
 
-    Only raised *after* :func:`_settle_interest_at_T` advanced a clock, so the
-    caller must roll the whole transaction back; it is never a normal blocked
-    return.  Subclassing :class:`ShortRetryCredit` lets an orchestrator that
-    already releases locks and re-discovers on a stale version handle it the
-    same way.
+    Raised after :func:`_settle_interest_at_T` advanced the gold/foreign interest
+    clocks (and wrote their audit rows), for either an unstorable post-state from
+    :func:`_write_cover_ledger` or a settled tail that disagrees with the pure
+    preflight quantity.  The caller contract is unambiguous: roll the whole
+    transaction back; this is never a normal ``blocked`` return and must not be
+    swallowed into a committable blocked action.  Subclassing
+    :class:`ShortRetryCredit` lets an orchestrator that already releases locks
+    and re-discovers on a stale version catch it with the same rollback path.
     """
 
 
@@ -210,14 +218,14 @@ def _nonnegative_six(
 
 
 def _require_gold_bound(
-    value: Decimal, name: str, reject: type[ValueError] = ShortOpenRejected,
+    value: Decimal, name: str, reject: type[Exception] = ShortOpenRejected,
 ) -> None:
     if not value.is_finite() or value < 0 or value > _MAX_GOLD:
         raise reject(f"{name} exceeds storage range")
 
 
 def _require_foreign_bound(
-    value: Decimal, name: str, reject: type[ValueError] = ShortOpenRejected,
+    value: Decimal, name: str, reject: type[Exception] = ShortOpenRejected,
 ) -> None:
     if not value.is_finite() or value < 0 or value > _MAX_DEBT:
         raise reject(f"{name} exceeds storage range")
@@ -620,7 +628,7 @@ async def _write_cover_ledger(
     short_before: dict,
     pre_gold: Decimal,
     pre_foreign: Decimal,
-    reject: type[ValueError],
+    reject: type[Exception],
 ) -> _CoverLedger:
     """Validate every post-state, then post one cover in the caller's txn.
 
@@ -629,9 +637,15 @@ async def _write_cover_ledger(
     q, user cash, economic version), repay interest before principal, apportion
     the lock and the historical proceeds basis independently and emit one
     replayable ``fx_trade`` audit package.  Every accumulator is range-checked
-    **before** a single row moves: a validation failure raises ``reject`` with
-    the caller's transaction still untouched, so a rollback cannot leave a
+    **before** a single row of this ledger moves, so a failure cannot leave a
     half-posted ledger.
+
+    ``reject`` carries the caller's boundary contract.  The player path keeps
+    its request-level :class:`ShortCoverRejected`; the forced path passes
+    :class:`ShortPostSettlementMismatch` because this function is only reached
+    *after* :func:`_settle_interest_at_T` advanced the clocks, so every failure
+    here is rollback-required and must never be treated as a committable blocked
+    round.
     """
     cash = Decimal(user.cash)
     position_lock = Decimal(target.restricted_gold)
@@ -1104,14 +1118,17 @@ async def execute_liquidation_cover_in_session(
     T, so no debt, interest clock, economic version, audit event, cash or
     reserve moves before the block is decided; WP4c can persist the blocked round
     and commit safely.  Only a truly executable cover advances the clocks, once
-    at T.  Every accumulator is range-checked before a row moves.  Malformed
-    inputs or unstorable post-states raise :class:`ShortLiquidationRejected`; a
-    stale economic version or dependency set raises :class:`ShortRetryCredit` so
-    the caller re-discovers instead of taking a missing pair GATE under the User
-    lock.  If the settled tail ever disagreed with the preflighted quantity the
-    kernel raises :class:`ShortPostSettlementMismatch` (a
-    :class:`ShortRetryCredit`), which is only reachable after a mutation and
-    therefore requires the caller to roll back.
+    at T.  Malformed inputs, an unrepresentable pending debt and every preflight
+    invariant failure raise :class:`ShortLiquidationRejected` **before** a clock
+    moves; a stale economic version or dependency set raises
+    :class:`ShortRetryCredit` so the caller re-discovers instead of taking a
+    missing pair GATE under the User lock.  Every validation that can only fail
+    after :func:`_settle_interest_at_T` — a settled tail that disagrees with the
+    preflighted quantity, or an unstorable treasury/pool/lock/basis post-state
+    from :func:`_write_cover_ledger` — raises
+    :class:`ShortPostSettlementMismatch` (a :class:`ShortRetryCredit`): the
+    caller must roll the whole transaction back and must never persist it as a
+    committable blocked round.
     """
     _require_writes()
     if not credit_flags.get_flags().unified_credit_enabled:
@@ -1334,6 +1351,9 @@ async def execute_liquidation_cover_in_session(
         "debt_last_accrued_at": user.debt_last_accrued_at,
     }
     short_before = _short_snapshot(target)
+    # This is the forced path's only post-settlement validation.  It must raise
+    # the rollback-required type, never the pre-mutation ShortLiquidationRejected
+    # that a WP4c caller could mistake for a committable blocked round.
     ledger = await _write_cover_ledger(
         db, pair=pair, user=user, target=target, positions=positions,
         treasury=treasury, now=now, quote=quote, q=q, x=x,
@@ -1343,7 +1363,7 @@ async def execute_liquidation_cover_in_session(
         idempotency_key=key, source=LIQUIDATION_SOURCE,
         treasury_before=treasury_before, user_before=user_before,
         short_before=short_before, pre_gold=pre_gold, pre_foreign=pre_foreign,
-        reject=ShortLiquidationRejected,
+        reject=ShortPostSettlementMismatch,
     )
     return FxLiquidationCoverExecution(
         trade=ledger.trade, replay=False, blocked_reason=None,
