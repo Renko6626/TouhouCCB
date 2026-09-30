@@ -34,6 +34,7 @@ from app.models.base import SiteConfig, User
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxTradePublic, FxWalletPublic
 from app.services import site_config
+from app.services.credit.ownership import WriteOwnership
 from app.services.fx import market_data, scheduler
 from app.services.fx.amm import marginal_price
 from app.services.fx.engine import FxEngine
@@ -76,6 +77,13 @@ def _decimal(payload: dict, key: str) -> Decimal:
 @pytest_asyncio.fixture
 async def ctx(fx_db, monkeypatch):
     """Real ASGI app over one isolated SQLite session with production auth."""
+    # --noconftest omits setup_db's ownership lifecycle. Use a disposable
+    # SQLite owner rather than touching the configured database/global owner.
+    owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
+    await owner.acquire()
+    for module in ("app.api.v1.admin_fx", "app.services.fx.trading",
+                   "app.services.fx.engine", "app.services.fx.scheduler"):
+        monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     now = _utcnow()
     admin = User(username="fx-admin", casdoor_id="fx-admin", is_superuser=True,
                  cash=Decimal("0"), tos_accepted_at=now)
@@ -105,11 +113,25 @@ async def ctx(fx_db, monkeypatch):
     # point it at the isolated database so a real trade emits a real frame.
     monkeypatch.setattr("app.core.database.async_session_maker", lambda: fx_db)
 
-    async with AsyncClient(transport=ASGITransport(app=application),
-                           base_url="http://fx.test") as client:
-        yield SimpleNamespace(client=client, db=fx_db, app=application, admin=admin,
-                              normal=normal, trader=trader, bot=bot, no_tos=no_tos,
-                              debtor=debtor)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=application),
+                               base_url="http://fx.test") as client:
+            yield SimpleNamespace(client=client, db=fx_db, app=application, admin=admin,
+                                  normal=normal, trader=trader, bot=bot, no_tos=no_tos,
+                                  debtor=debtor)
+    finally:
+        await owner.release()
+
+
+@pytest.mark.asyncio
+async def test_isolated_owner_keeps_write_guard_active(ctx):
+    from app.services.credit.ownership import EconomicWritesDisabled
+    from app.services.fx.engine import OWNERSHIP
+
+    OWNERSHIP.require_writes()
+    await OWNERSHIP.release()
+    with pytest.raises(EconomicWritesDisabled):
+        OWNERSHIP.require_writes()
 
 
 async def _create_pair(ctx, **overrides) -> int:
