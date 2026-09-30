@@ -1218,43 +1218,6 @@ def _accounted_short_pair_ids(deps: DependencySet, post: PostTradeState) -> set[
     return _known_short_pair_ids(deps) | {int(pid) for pid in post.short_debt}
 
 
-async def _augment_short_dependencies(
-    session: AsyncSession,
-    *,
-    user_id: int,
-    deps: DependencySet,
-    pair_ids: set[int],
-) -> DependencySet:
-    """把锁内索引才发现、deps 未含的持久空头 pair 补进依赖（保守重读）。
-
-    现金写路径（如管理扣款）在 ``User.debt==0`` 时可能只带最小依赖集；外币欠币
-    仍必须完整判定。这里按权威行补 pair 快照与欠币，而不是把义务当 0。
-    """
-    rows = await _load_short_snapshots(session, user_id, sorted(pair_ids))
-    if not rows:
-        return deps
-    groups = set(deps.groups)
-    holdings = dict(deps.holdings)
-    snapshots = dict(deps.snapshots)
-    for pid, (short_pair, short_debt) in rows.items():
-        key = GroupKey("fx", pid)
-        pair = FxPairSnapshot(
-            pair_id=pid, status=short_pair.status, reduce_only=short_pair.reduce_only,
-            gold_reserve=short_pair.gold_reserve,
-            foreign_reserve=short_pair.foreign_reserve,
-            sell_fee_rate=short_pair.sell_fee_rate,
-        )
-        snapshots[key] = _fx_group_snapshot(
-            key, pair=pair, pool_version=short_pair.pool_version,
-            short_pair=short_pair, short_debt=short_debt,
-        )
-        groups.add(key)
-        holdings.setdefault(key, {})
-    return replace(
-        deps, groups=tuple(sorted(groups)), holdings=holdings, snapshots=snapshots,
-    )
-
-
 def _short_risk_after(
     deps: DependencySet, post: PostTradeState, now: datetime,
 ) -> tuple[Optional[Decimal], Decimal, Optional[str], Optional[str]]:
@@ -1391,13 +1354,14 @@ async def check_new_risk(
     deps = current
     # R1：版本/冻结/现金一律以数据库权威行为准（刷新 identity map）
     authority = await _refresh_user_authority(session, uid)
-    # 锁内索引确认外币义务：补上 discovery 未含的持久空头 pair（spec §11）。
+    # 调用方已持 GATE 的组：discovery 组 + extra_groups 预取快照 + 本次声明的交易后组。
+    # 重发现若引入此外的新组，说明门闩集不完整，保守退出重试（spec §11）。
+    gated_groups = set(deps.snapshots) | set(_needed_groups(deps, post))
+    # 锁内索引确认外币义务：发现 discovery 未含的持久空头 pair 时，绝不能在 User
+    # 锁下补拿 pair GATE 再报价；退出并让调用方释放锁、重新发现完整依赖后有限重试。
     persisted_short = await _persisted_short_pair_ids(session, uid)
-    missing_short = persisted_short - _accounted_short_pair_ids(deps, post)
-    if missing_short:
-        deps = await _augment_short_dependencies(
-            session, user_id=uid, deps=deps, pair_ids=missing_short,
-        )
+    if persisted_short - _accounted_short_pair_ids(deps, post):
+        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=post.debt)
     has_short = _has_short_obligation(deps, post)
     # 无债快路径只对"无金债且无欠币"成立（spec §11）。
     pre_debt = _effective_debt(
@@ -1423,11 +1387,15 @@ async def check_new_risk(
         )
         return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
     deps, post = revalidated
-
-    reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     debt_after = _effective_debt(
         post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
     )
+
+    # 重发现引入了未 GATE 的新组（新持仓/钱包/持久空头）：不得缺门闩报价。
+    if set(_needed_groups(deps, post)) - gated_groups:
+        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
+
+    reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     if reason is not None:
         return _deny(reason, cash=post.cash, debt_after=debt_after)
 
@@ -1505,12 +1473,17 @@ async def check_cash_spend(
     deps = await _current_rates(session, deps)
     # R1：权威 user 行；R3 同族：重读全部持仓组快照，避免旧抵押价/旧 K
     authority = await _refresh_user_authority(session, uid)
-    # 锁内索引确认外币义务：消费路径的 deps 可能因金债为零而只含最小集。
+    # 调用方已持 GATE 的组集合（消费路径的 deps 可能因金债为零而只含最小集）。
+    gated_groups = set(deps.groups) | set(deps.snapshots)
+    # 锁内索引确认外币义务：发现 discovery 未含的持久空头 pair 时，绝不能在 User
+    # 锁下补拿 pair GATE 再报价；退出并让调用方释放锁、重新发现完整依赖后有限重试。
     persisted_short = await _persisted_short_pair_ids(session, uid)
-    missing_short = persisted_short - _known_short_pair_ids(deps)
-    if missing_short:
-        deps = await _augment_short_dependencies(
-            session, user_id=uid, deps=deps, pair_ids=missing_short,
+    if persisted_short - _known_short_pair_ids(deps):
+        return _deny(
+            REASON_VERSION_CONFLICT, cash=deps.cash - amount,
+            debt_after=_effective_debt(
+                deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
+            ),
         )
     has_short = _has_short_obligation(
         deps, PostTradeState(cash=deps.cash, debt=deps.debt),
@@ -1536,6 +1509,10 @@ async def check_cash_spend(
         deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
     )
     cash_after = deps.cash - amount
+
+    # 重发现引入了未 GATE 的新组：不得缺门闩报价，保守重试。
+    if set(deps.groups) - gated_groups:
+        return _deny(REASON_VERSION_CONFLICT, cash=cash_after, debt_after=debt_after)
 
     reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     if reason is not None:
