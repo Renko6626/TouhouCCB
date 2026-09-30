@@ -6,6 +6,7 @@ import type {
   FxEventCreate,
   FxFundRequest,
   FxIntervention,
+  FxPersonalTrade,
   FxPairAdmin,
   FxPairAdminDetail,
   FxPairCreate,
@@ -33,13 +34,19 @@ export const FX_PUBLIC_NEWS_KEYS = ['title', 'body', 'kind', 'published_at'] as 
 const FX_ERROR_DETAILS: Record<string, string> = {
   'FX trading is disabled': 'FX 交易总闸未开启，管理员开市后才能交易',
   'FX pair is not trading': '该货币对当前暂停或未开市，无法交易',
+  'FX pair is reduce-only': '当前币种只允许卖出，暂不能买入',
+  'insufficient_initial_margin': '本笔买入后不满足初始保证金要求，请减少投入或先还款',
+  'credit_frozen': '账户已冻结新增信用，请先还款或安全减仓',
+  'frozen_by_operator': '当前暂停新增信用风险，暂不能负债买入；仍可还款或安全减仓',
+  'version_conflict': '账户或行情已变化，请刷新后重新确认报价',
+  'version_conflict; retry': '账户或行情已变化，请刷新后重新确认报价',
   'FX pair not found': 'FX 货币对不存在',
   'bot accounts cannot trade FX': '机器人账户不能参与 FX 交易',
   'TOS acceptance required': '请先同意用户协议后再交易',
   'outstanding debt blocks FX purchases': '有未还借款时不能买入外币（仍可卖出）',
   'insufficient cash': '金圆券余额不足',
   'insufficient FX wallet balance': '外币持仓不足',
-  'quoted output is below min_out': '价格变动超过最大滑点，已拒单，请重新报价',
+  'quoted output is below min_out': '实际所得低于最低可接受金额，交易已取消，请查看新报价后重试',
   'idempotency key parameter mismatch': '重复提交的参数与首次不一致，已拒绝',
   'only one trading FX pair is allowed': '同一时间只允许一个处于交易状态的货币对',
   'currency cannot be changed after opening': '开市后不能修改币种代码或名称',
@@ -250,6 +257,27 @@ function scaledToString(value: bigint, scale: number): string {
   const intPart = scale > 0 ? s.slice(0, s.length - scale) : s
   const fracPart = scale > 0 ? s.slice(s.length - scale) : ''
   return `${neg ? '-' : ''}${intPart}${scale > 0 ? '.' + fracPart : ''}`
+}
+
+/** 金额比较保持十进制语义；非法输入不参与比较。 */
+export function compareFxAmounts(a: string | number | null | undefined, b: string | number | null | undefined): number | null {
+  const left = parseScaled(a, 6)
+  const right = parseScaled(b, 6)
+  if (left === null || right === null) return null
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+export function subtractFxAmounts(a: string | number, b: string | number): string | null {
+  const left = parseScaled(a, 6)
+  const right = parseScaled(b, 6)
+  return left === null || right === null ? null : scaledToString(left - right, 6)
+}
+
+/** 仅用于账面估值，数量 6dp × 汇率 12dp，结果截断到资金 6dp。 */
+export function multiplyFxAmount(amount: string, price: string): string | null {
+  const quantity = parseScaled(amount, 6)
+  const rate = parseScaled(price, 12)
+  return quantity === null || rate === null ? null : scaledToString(quantity * rate / 10n ** 12n, 6)
 }
 
 function clampBps(value: number): number {
@@ -540,6 +568,9 @@ export class FxOrderSubmitter {
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
+  getAllMyTrades(limit = 100): Promise<FxPersonalTrade[]> {
+    return api.get<FxPersonalTrade[]>('/api/v1/fx/my-trades', { params: { limit } })
+  },
   listPairs(): Promise<FxPairPublic[]> {
     return api.get<FxPairPublic[]>('/api/v1/fx/pairs')
   },
@@ -635,8 +666,13 @@ export const fxAdminApi = {
     return api.post<FxEventAdmin>(`/api/v1/admin/fx/events/${eventId}/cancel`)
   },
 
-  listInterventions(pairId: number): Promise<FxIntervention[]> {
-    return api.get<FxIntervention[]>(`/api/v1/admin/fx/pairs/${pairId}/interventions`)
+  listInterventions(
+    pairId: number,
+    filters: { limit: number; source?: string; side?: FxSide },
+  ): Promise<FxIntervention[]> {
+    return api.get<FxIntervention[]>(`/api/v1/admin/fx/pairs/${pairId}/interventions`, {
+      params: filters,
+    })
   },
 }
 
@@ -677,16 +713,23 @@ export class FxStream {
     const url = `${baseUrl}/api/v1/fx/stream/${pairId}`
     try {
       const source = new EventSource(url)
+      const generation = this.gen
       this.source = source
-      source.addEventListener('fx', (event: MessageEvent) => {
+      const current = () => this.source === source && this.gen === generation
+      const receive = (event: MessageEvent) => {
+        if (!current()) return
         const frame = parseFxSsePayload(typeof event.data === 'string' ? event.data : null)
         if (frame) this.frameListeners.forEach((cb) => cb(frame))
-      })
+      }
+      source.addEventListener('fx', receive)
+      source.addEventListener('snapshot', receive)
       source.onopen = () => {
+        if (!current()) return
         this.reconnectAttempts = 0
         this.openListeners.forEach((cb) => cb())
       }
       source.onerror = (error) => {
+        if (!current()) return
         this.emitError(error)
         this.scheduleReconnect(pairId)
       }
@@ -743,6 +786,8 @@ export class FxStream {
 
   reconnectNow(): void {
     if (this.pairId === null || this.source !== null) return
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
     this.reconnectAttempts = 0
     this.openConnection(this.pairId)
   }

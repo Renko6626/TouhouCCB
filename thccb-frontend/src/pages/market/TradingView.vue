@@ -7,6 +7,8 @@ import { useAuthStore } from '@/stores/auth'
 import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, NModal, useMessage } from 'naive-ui'
 import { useMarketRealtime, MarketRealtimeKey } from '@/composables/useMarketRealtime'
 import TradePanel from '@/components/market/TradePanel.vue'
+import MobileTradeDock from '@/components/market/MobileTradeDock.vue'
+import { useMobileTradeEntry } from '@/composables/useMobileTradeEntry'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import OutcomeCard from '@/components/market/OutcomeCard.vue'
 import PriceChart from '@/components/chart/PriceChart.vue'
@@ -53,14 +55,9 @@ const candleIntervalOptions = [
 
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
-// 手机端悬浮交易按钮：面板可见时自动隐藏
-const tradePanelRef = ref<HTMLElement | null>(null)
-const tradePanelVisible = ref(false)
-let tradePanelObserver: IntersectionObserver | null = null
-
-const scrollToTradePanel = () => {
-  tradePanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
+const { tradePanelRef, tradePanelVisible, openTrade } = useMobileTradeEntry((side) => {
+  tradeType.value = side
+})
 
 // 加载市场数据
 const loadError = ref('')
@@ -125,30 +122,11 @@ onMounted(() => {
   loadUserData()
 })
 
-// 交易面板可见性观察：挂载后按 ref 启用
-watch(tradePanelRef, (el) => {
-  if (tradePanelObserver) {
-    tradePanelObserver.disconnect()
-    tradePanelObserver = null
-  }
-  if (el && typeof IntersectionObserver !== 'undefined') {
-    tradePanelObserver = new IntersectionObserver(
-      ([entry]) => { tradePanelVisible.value = entry!.isIntersecting },
-      { threshold: 0.15 }
-    )
-    tradePanelObserver.observe(el)
-  }
-})
-
 onBeforeUnmount(() => {
   // useMarketRealtime 自己有 onBeforeUnmount disconnect
   if (realtimeRefreshTimer) {
     clearTimeout(realtimeRefreshTimer)
     realtimeRefreshTimer = null
-  }
-  if (tradePanelObserver) {
-    tradePanelObserver.disconnect()
-    tradePanelObserver = null
   }
 })
 
@@ -534,9 +512,9 @@ const relTime = (iso: string): string => {
 
         <!-- 3. 交易面板 (手机 row3，紧跟选项；桌面 col2 row1 sticky 跨3行) -->
         <div
-          ref="tradePanelRef"
           class="space-y-4 self-start xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-6"
         >
+          <h2 ref="tradePanelRef" tabindex="-1" class="trade-entry-anchor">交易面板</h2>
           <TradePanel
             :market="marketStore.currentMarket"
             :selected-outcome-id="selectedOutcomeId"
@@ -592,18 +570,13 @@ const relTime = (iso: string): string => {
       </div>
     </div>
 
-    <!-- 手机端悬浮交易按钮（xl 以下显示，面板可见时自动隐藏） -->
-    <button
-      v-if="marketStore.currentMarket && !tradePanelVisible"
-      type="button"
-      class="mobile-trade-fab xl:hidden"
-      :class="tradeType === 'buy' ? 'fab-buy' : 'fab-sell'"
-      aria-label="滚动到交易面板"
-      @click="scrollToTradePanel"
-    >
-      <span class="fab-label">{{ tradeType === 'buy' ? '买入' : '卖出' }}</span>
-      <span class="fab-arrow" aria-hidden="true">↓</span>
-    </button>
+    <MobileTradeDock
+      :visible="!!marketStore.currentMarket && !loading && !tradePanelVisible"
+      :label="selectedOutcome?.label || '选择交易选项'"
+      :side="tradeType"
+      :disabled="marketStore.tradeLoading"
+      @select="openTrade"
+    />
 
     <!-- 加载失败（网络/接口故障，和真 404 区分）-->
     <div v-if="!loading && !marketStore.currentMarket && loadError" class="text-center py-12">
@@ -615,7 +588,7 @@ const relTime = (iso: string): string => {
       </NAlert>
     </div>
 
-    <!-- 市场不存在（显式条件：避免 v-else 错配到上方 FAB 的 v-if 链） -->
+    <!-- 市场不存在（显式条件：避免 v-else 错配到其他 v-if 链） -->
     <div v-else-if="!loading && !marketStore.currentMarket" class="text-center py-12">
       <NEmpty description="市场不存在或已被删除">
         <template #extra>
@@ -1056,47 +1029,19 @@ const relTime = (iso: string): string => {
   }
 }
 
-/* 手机端悬浮交易按钮 */
-.mobile-trade-fab {
-  position: fixed;
-  right: 16px;
-  /* 底部导航 h-12=48px + 16px 呼吸 + iOS 安全区 */
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-  z-index: 90;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 22px;
-  border: 2px solid #000;
-  background: #000;
-  color: #fff;
-  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.25);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  animation: fab-in 0.2s ease-out;
-}
-
-.mobile-trade-fab:active {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
-}
-
-.mobile-trade-fab.fab-sell {
-  background: var(--color-down);
-  border-color: var(--color-down);
-}
-
-.fab-arrow {
+/* Leave enough room for the shared dock and keep the entry below the sticky header. */
+.trade-entry-anchor {
+  scroll-margin-top: 80px;
   font-size: 16px;
-  font-weight: 700;
-  opacity: 0.85;
+  font-weight: 800;
 }
-
-@keyframes fab-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+.trade-entry-anchor:focus-visible {
+  outline: 3px solid #555;
+  outline-offset: 4px;
+}
+@media (max-width: 1279px) {
+  .trading-view-page {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
 }
 </style>

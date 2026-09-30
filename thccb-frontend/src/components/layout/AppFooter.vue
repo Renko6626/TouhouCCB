@@ -8,15 +8,15 @@ const emit = defineEmits<{ openTos: [] }>()
     <div class="footer-left">
       <span class="footer-copy">© {{ currentYear }} 东方炒炒币</span>
       <span class="footer-sep" aria-hidden="true">/</span>
-      <span class="footer-tagline">预测市场学习平台</span>
+      <span class="footer-tagline">外汇与预测市场模拟交易</span>
       <span class="footer-sep" aria-hidden="true">/</span>
       <button type="button" class="footer-link" @click="emit('openTos')">
         用户协议
       </button>
     </div>
     <div class="footer-right">
-      <span class="footer-badge">LMSR</span>
-      <span class="footer-text">对数市场评分规则</span>
+      <span class="footer-badge">FX</span>
+      <span class="footer-text">预测市场采用 LMSR</span>
     </div>
   </div>
 </template>

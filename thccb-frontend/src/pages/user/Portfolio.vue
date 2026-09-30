@@ -212,14 +212,14 @@ const holdingsByMarketArray = computed(() => {
           <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
         </div>
         <div class="asset-card">
-          <span class="asset-label">持仓成本</span>
-          <span class="asset-value">金 {{ userStore.totalCostBasis.toFixed(2) }}</span>
+          <span class="asset-label">持仓成本（预测 + FX）</span>
+          <span class="asset-value">金 {{ (userStore.totalCostBasis + (userStore.summary.fx_cost_basis ?? 0)).toFixed(2) }}</span>
         </div>
         <div class="asset-card">
-          <span class="asset-label">持仓市值</span>
-          <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
+          <span class="asset-label">持仓市值（预测 + FX）</span>
+          <span class="asset-value">金 {{ (userStore.holdingsValueMtm + (userStore.summary.fx_mtm ?? 0)).toFixed(2) }}</span>
         </div>
-        <div class="asset-card" title="账面浮盈：按 LMSR 瞬时价 × 持仓数量计（不含全卖滑点）">
+        <div class="asset-card" title="预测市场与 FX 的账面浮盈，按当前边际价格估值，不含全部卖出的滑点与手续费">
           <span class="asset-label">浮动盈亏</span>
           <span class="asset-value" :style="{ color: pnlColor(userStore.unrealizedPnl) }">
             {{ pnlSign(userStore.unrealizedPnl) }}金 {{ userStore.unrealizedPnl.toFixed(2) }}
@@ -227,9 +227,9 @@ const holdingsByMarketArray = computed(() => {
           <span
             v-if="Math.abs(userStore.unrealizedPnl - userStore.unrealizedPnlLcv) > 0.01"
             class="asset-sub"
-            :title="`立即变现浮盈 = 全部卖出可得 - 成本（含 LMSR 滑点 + 扣手续费）`"
+            title="仅预测市场立即变现浮盈，未包含 FX"
           >
-            立即变现 {{ pnlSign(userStore.unrealizedPnlLcv) }}金 {{ userStore.unrealizedPnlLcv.toFixed(2) }}
+            预测市场立即变现 {{ pnlSign(userStore.unrealizedPnlLcv) }}金 {{ userStore.unrealizedPnlLcv.toFixed(2) }}
           </span>
         </div>
         <div
@@ -255,12 +255,26 @@ const holdingsByMarketArray = computed(() => {
           · 维持率 {{ ((userStore.summary.r_maintenance ?? 0) * 100).toFixed(2) }}%</span>
         <span v-if="userStore.summary.credit_frozen">账户已冻结新增信用；可还款及安全减仓。</span>
       </section>
-      <section v-if="userStore.summary?.fx_wallets?.length" class="asset-grid">
-        <div v-for="wallet in userStore.summary.fx_wallets" :key="wallet.pair_id" class="asset-card">
-          <span class="asset-label">{{ wallet.currency_code }}</span>
-          <span class="asset-value">{{ wallet.foreign_amount.toFixed(6) }}</span>
-          <span>账面市值 金 {{ wallet.mtm_gold.toFixed(2) }}</span>
+      <section class="holdings-section">
+        <div class="section-header">
+          <h2 class="section-title">FX 持仓明细</h2>
+          <NButton size="small" @click="router.push('/fx')">外汇交易</NButton>
         </div>
+        <p class="asset-sub">按最近刷新时的边际价估值；账面市值不等于全部卖出后的实际所得。</p>
+        <div v-if="userStore.summary?.fx_wallets?.length" class="asset-grid">
+        <div v-for="wallet in userStore.summary.fx_wallets" :key="wallet.pair_id" class="asset-card">
+          <span class="asset-label">{{ wallet.currency_name || wallet.currency_code }} · {{ wallet.currency_code }}</span>
+          <span class="asset-value">{{ wallet.foreign_amount.toFixed(6) }} {{ wallet.currency_code }}</span>
+          <template v-if="wallet.cost_basis != null">
+            <span>持仓成本 金 {{ wallet.cost_basis.toFixed(2) }}</span>
+            <span>买入均价 金 {{ (wallet.cost_basis / wallet.foreign_amount).toFixed(6) }}</span>
+            <span :style="{ color: pnlColor(wallet.mtm_gold - wallet.cost_basis) }">浮动盈亏 {{ pnlSign(wallet.mtm_gold - wallet.cost_basis) }}金 {{ (wallet.mtm_gold - wallet.cost_basis).toFixed(2) }}</span>
+          </template>
+          <span>账面市值 金 {{ wallet.mtm_gold.toFixed(2) }}</span>
+          <NButton size="small" @click="router.push({ path: '/fx', query: { pair: wallet.pair_id } })">查看 / 交易</NButton>
+        </div>
+        </div>
+        <NEmpty v-else description="暂无 FX 持仓" class="empty-state" />
       </section>
 
       <!-- 保证金率详情（debt > 0 时才显示） -->
@@ -291,7 +305,7 @@ const holdingsByMarketArray = computed(() => {
     <!-- 持仓详情 -->
     <div class="holdings-section">
       <div class="section-header">
-        <h2 class="section-title">持仓明细</h2>
+        <h2 class="section-title">预测市场持仓明细</h2>
         <NButton :loading="loading" @click="loadData">刷新</NButton>
       </div>
 
@@ -330,7 +344,7 @@ const holdingsByMarketArray = computed(() => {
       </div>
 
       <div v-else class="empty-state">
-        <NEmpty description="暂无持仓">
+        <NEmpty description="暂无预测市场持仓">
           <template #extra>
             <NButton type="primary" @click="router.push('/market/list')">去市场看看</NButton>
           </template>

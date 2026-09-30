@@ -417,6 +417,7 @@ from app.api.v1 import history as history_api
 app.include_router(history_api.router, prefix="/history", tags=["History"])  # 不在 /api/v1 下：绕开 no-store 中间件（见 history.py 模块注释）
 app.include_router(loan.router, prefix="/api/v1/loan", tags=["Loan"])
 app.include_router(site_config_api.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(site_config_api.public_router, prefix="/api/v1/site", tags=["Site"])
 
 from app.api.v1 import redemption as redemption_api, admin_redemption as admin_redemption_api
 app.include_router(redemption_api.router, prefix="/api/v1/redemption", tags=["Redemption"])

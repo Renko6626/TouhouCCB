@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { NBreadcrumb, NBreadcrumbItem } from 'naive-ui'
 import { useAuthStore } from '@/stores/auth'
@@ -14,16 +14,19 @@ const authStore = useAuthStore()
 // 用户协议查看模式开关（footer 点击触发；与 needsTos 的强制模式互斥）
 const tosViewOpen = ref(false)
 
-// 侧栏折叠
-const collapsed = ref(false)
-
-// 移动端：默认折叠、路由切换自动收起
+// 外汇工作台默认收窄侧栏，仍可通过顶栏随时展开。
 const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth <= 768 : false)
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 768 })
+const collapsed = ref(isMobile.value || route.name === 'fx')
+const updateViewport = () => {
+  const mobile = window.innerWidth <= 768
+  if (mobile !== isMobile.value) collapsed.value = mobile || route.name === 'fx'
+  isMobile.value = mobile
 }
-if (isMobile.value) collapsed.value = true
-watch(() => route.path, () => { if (isMobile.value) collapsed.value = true })
+onMounted(() => window.addEventListener('resize', updateViewport))
+onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
+watch(() => route.path, () => {
+  if (isMobile.value || route.name === 'fx') collapsed.value = true
+})
 
 // 面包屑（空则隐藏，避免首页只显示"首页"一个字）
 const breadcrumbs = computed(() =>
@@ -66,6 +69,7 @@ const sidebarActive = computed(() =>
       <!-- 侧栏 -->
       <aside
         v-if="sidebarActive"
+        id="app-sidebar"
         class="app-sidebar-wrap"
         :class="{ collapsed, 'mobile-open': isMobile && !collapsed }"
       >

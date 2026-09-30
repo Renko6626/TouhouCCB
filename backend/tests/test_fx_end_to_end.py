@@ -34,6 +34,7 @@ from app.models.base import SiteConfig, User
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxTradePublic, FxWalletPublic
 from app.services import site_config
+from app.services.credit.ownership import WriteOwnership
 from app.services.fx import market_data, scheduler
 from app.services.fx.amm import marginal_price
 from app.services.fx.engine import FxEngine
@@ -76,6 +77,13 @@ def _decimal(payload: dict, key: str) -> Decimal:
 @pytest_asyncio.fixture
 async def ctx(fx_db, monkeypatch):
     """Real ASGI app over one isolated SQLite session with production auth."""
+    # --noconftest omits setup_db's ownership lifecycle. Use a disposable
+    # SQLite owner rather than touching the configured database/global owner.
+    owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
+    await owner.acquire()
+    for module in ("app.api.v1.admin_fx", "app.services.fx.trading",
+                   "app.services.fx.engine", "app.services.fx.scheduler"):
+        monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     now = _utcnow()
     admin = User(username="fx-admin", casdoor_id="fx-admin", is_superuser=True,
                  cash=Decimal("0"), tos_accepted_at=now)
@@ -105,11 +113,25 @@ async def ctx(fx_db, monkeypatch):
     # point it at the isolated database so a real trade emits a real frame.
     monkeypatch.setattr("app.core.database.async_session_maker", lambda: fx_db)
 
-    async with AsyncClient(transport=ASGITransport(app=application),
-                           base_url="http://fx.test") as client:
-        yield SimpleNamespace(client=client, db=fx_db, app=application, admin=admin,
-                              normal=normal, trader=trader, bot=bot, no_tos=no_tos,
-                              debtor=debtor)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=application),
+                               base_url="http://fx.test") as client:
+            yield SimpleNamespace(client=client, db=fx_db, app=application, admin=admin,
+                                  normal=normal, trader=trader, bot=bot, no_tos=no_tos,
+                                  debtor=debtor)
+    finally:
+        await owner.release()
+
+
+@pytest.mark.asyncio
+async def test_isolated_owner_keeps_write_guard_active(ctx):
+    from app.services.credit.ownership import EconomicWritesDisabled
+    from app.services.fx.engine import OWNERSHIP
+
+    OWNERSHIP.require_writes()
+    await OWNERSHIP.release()
+    with pytest.raises(EconomicWritesDisabled):
+        OWNERSHIP.require_writes()
 
 
 async def _create_pair(ctx, **overrides) -> int:
@@ -379,6 +401,71 @@ async def test_player_wallet_and_personal_trades_are_scoped_to_owner(ctx):
     public = (await client.get(f"/api/v1/fx/pairs/{pair_id}/trades")).json()
     assert len(public) == 2
     assert all("user_id" not in row for row in public)
+
+
+@pytest.mark.asyncio
+async def test_all_personal_fx_trades_are_scoped_named_and_limited(ctx):
+    pair_id = await _create_pair(ctx)
+    second_id = await _create_pair(ctx, currency_code='MORA', currency_name='摩拉')
+    for owner, source in [(ctx.trader.id, 'player'), (ctx.normal.id, 'player'),
+                          (ctx.trader.id, 'liquidation'), (None, 'system_noise')]:
+        ctx.db.add(FxTrade(
+            pair_id=second_id if source == 'liquidation' else pair_id,
+            user_id=owner, source=source, side='sell',
+            input_amount=Decimal('2'), output_amount=Decimal('1'),
+            pre_gold_reserve=Decimal('1000'), pre_foreign_reserve=Decimal('1000'),
+            post_gold_reserve=Decimal('999'), post_foreign_reserve=Decimal('1002'),
+            post_price=Decimal('0.997'),
+        ))
+    await ctx.db.commit()
+    url = '/api/v1/fx/my-trades'
+    response = await ctx.client.get(url, headers=_auth(ctx.trader))
+    assert response.status_code == 200, response.text
+    rows = response.json()
+    assert len(rows) == 2
+    assert rows[0]['is_liquidation'] is True
+    assert rows[1]['is_liquidation'] is False
+    assert {r['currency_code'] for r in rows} == {'USD', 'MORA'}
+    assert rows[0]['currency_name'] == '摩拉'
+    assert all('source' not in r and 'user_id' not in r for r in rows)
+    limited = await ctx.client.get(url, params={'limit': 1}, headers=_auth(ctx.trader))
+    assert [r['id'] for r in limited.json()] == [rows[0]['id']]
+    assert (await ctx.client.get(url)).status_code == 401
+    assert (await ctx.client.get(url, params={'limit': 201}, headers=_auth(ctx.trader))).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_interventions_are_limited_and_filtered_in_database(ctx):
+    pair_id = await _create_pair(ctx)
+    for index in range(52):
+        ctx.db.add(FxTrade(
+            pair_id=pair_id, side="buy" if index % 2 == 0 else "sell",
+            input_amount=Decimal("1"), output_amount=Decimal("1"),
+            pre_gold_reserve=Decimal("1000"), pre_foreign_reserve=Decimal("1000"),
+            post_gold_reserve=Decimal("1000"), post_foreign_reserve=Decimal("1000"),
+            post_price=Decimal("1"),
+            source="system_target" if index % 2 == 0 else "system_noise",
+        ))
+    await ctx.db.commit()
+    url = f"/api/v1/admin/fx/pairs/{pair_id}/interventions"
+    headers = _auth(ctx.admin)
+
+    recent = await ctx.client.get(url, headers=headers)
+    assert recent.status_code == 200, recent.text
+    assert len(recent.json()) == 50
+    assert [row["id"] for row in recent.json()] == sorted(
+        [row["id"] for row in recent.json()], reverse=True)
+
+    filtered = await ctx.client.get(
+        url, params={"source": "system_target", "side": "buy", "limit": 10}, headers=headers)
+    assert filtered.status_code == 200, filtered.text
+    assert len(filtered.json()) == 10
+    assert all(row["source"] == "system_target" and row["side"] == "buy"
+               for row in filtered.json())
+
+    for bad_limit in (0, 201):
+        response = await ctx.client.get(url, params={"limit": bad_limit}, headers=headers)
+        assert response.status_code == 422
 
 
 @pytest.mark.asyncio

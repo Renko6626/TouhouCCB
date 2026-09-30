@@ -110,7 +110,7 @@ export const routes: RouteRecordRaw[] = [
         name: 'market-list',
         component: () => import('@/pages/market/MarketList.vue'),
         meta: {
-          title: '市场列表',
+          title: '预测市场',
           requiresAuth: true,
           requiresVerified: true
         }
@@ -142,7 +142,7 @@ export const routes: RouteRecordRaw[] = [
         name: 'fx',
         component: () => import('@/pages/Fx.vue'),
         meta: {
-          title: '幻想外汇',
+          title: '外汇交易',
           requiresAuth: true,
           requiresVerified: true
         }

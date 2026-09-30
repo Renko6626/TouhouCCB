@@ -6,12 +6,20 @@ import type { Transaction } from '@/types/api'
 import { useUserStore } from '@/stores/user'
 import { redemptionApi } from '@/api/redemption'
 import type { MyRedemptionItem } from '@/types/redemption'
+import { fxApi, formatFxAmount } from '@/api/fx'
+import type { FxPersonalTrade } from '@/types/fx'
+
+defineOptions({ name: 'UserTransactions' })
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const loading = ref(false)
 const loadError = ref('')
+const fxError = ref('')
+const fxTrades = ref<FxPersonalTrade[]>([])
+const productFilter = ref<'all' | 'fx' | 'prediction'>('all')
+const productOptions = [{ label: '全部产品', value: 'all' }, { label: 'FX 外汇', value: 'fx' }, { label: '预测市场', value: 'prediction' }]
 const redemptionItems = ref<MyRedemptionItem[]>([])
 const tradeTypeFilter = ref<'all' | 'buy' | 'sell' | 'settle' | 'liquidate'>('all')
 const timeRangeFilter = ref<'all' | '7d' | '30d' | '90d'>('all')
@@ -41,9 +49,16 @@ const pageSizeOptions: SelectOption[] = [
 const loadTransactions = async () => {
   loading.value = true
   loadError.value = ''
+  fxError.value = ''
   userStore.clearError()
   try {
-    await userStore.fetchTransactions(pageSize.value)
+    await Promise.all([
+      userStore.fetchTransactions(pageSize.value),
+      fxApi.getAllMyTrades(pageSize.value).then(rows => { fxTrades.value = rows }).catch(() => {
+        fxError.value = 'FX 交易记录加载失败，请刷新重试。'
+        fxTrades.value = []
+      }),
+    ])
     if (userStore.error) {
       loadError.value = userStore.error
     }
@@ -81,6 +96,22 @@ const filteredTransactions = computed(() => {
   })
 })
 
+const filteredFxTrades = computed(() => fxTrades.value.filter(row => {
+  const type = row.is_liquidation ? 'liquidate' : row.side
+  return (tradeTypeFilter.value === 'all' || tradeTypeFilter.value === type)
+    && isWithinRange(row.created_at, timeRangeFilter.value)
+}))
+const resultCount = computed(() => (productFilter.value !== 'fx' ? filteredTransactions.value.length : 0)
+  + (productFilter.value !== 'prediction' ? filteredFxTrades.value.length : 0))
+const fxColumns: DataTableColumns<FxPersonalTrade> = [
+  { title: '类型', key: 'side', render: row => row.is_liquidation ? '强制平仓' : row.side === 'buy' ? '买入' : '卖出' },
+  { title: '币种', key: 'currency_code', render: row => h(NButton, { text: true, onClick: () => router.push({ path: '/fx', query: { pair: row.pair_id } }) }, { default: () => `${row.currency_name}（${row.currency_code}）` }) },
+  { title: '外币数量', key: 'quantity', render: row => `${formatFxAmount(row.side === 'buy' ? row.output_amount : row.input_amount, 6)} ${row.currency_code}` },
+  { title: '金圆券收支', key: 'gold', render: row => `${row.side === 'buy' ? '−' : '+'}${formatFxAmount(row.side === 'buy' ? row.input_amount : row.output_amount, 6)} 金` },
+  { title: '手续费（已含）', key: 'fee_amount', render: row => `${formatFxAmount(row.fee_amount, 6)} ${row.side === 'buy' ? '金圆券' : row.currency_code}` },
+  { title: '时间', key: 'created_at', render: row => new Date(row.created_at).toLocaleString('zh-CN') },
+]
+
 const columns: DataTableColumns<Transaction> = [
   {
     title: '类型',
@@ -97,7 +128,7 @@ const columns: DataTableColumns<Transaction> = [
       if (row.type === 'liquidate') {
         return h('span', { class: 'tx-type-liquidate' }, '强制平仓')
       }
-      const style: Record<string, any> = {
+      const style: Record<string, string> = {
         display: 'inline-block',
         padding: '1px 8px',
         fontSize: '12px',
@@ -215,20 +246,34 @@ const redemptionTotal = computed(() =>
     <!-- 工具栏 -->
     <div class="filter-bar">
       <div class="toolbar-filters">
+        <NSelect v-model:value="productFilter" :options="productOptions" style="width: 140px" />
         <NSelect v-model:value="tradeTypeFilter" :options="tradeTypeOptions" style="width: 140px" />
         <NSelect v-model:value="timeRangeFilter" :options="timeRangeOptions" style="width: 140px" />
-        <NSelect v-model:value="pageSize" :options="pageSizeOptions" style="width: 140px" />
+        <NSelect v-model:value="pageSize" :options="pageSizeOptions" :disabled="loading" style="width: 140px" />
       </div>
       <div class="toolbar-actions">
         <NButton @click="router.push('/user/portfolio')">← 我的资产</NButton>
-        <NButton type="primary" :loading="loading" @click="loadTransactions">刷新</NButton>
+        <NButton type="primary" :loading="loading" :disabled="loading" @click="loadTransactions">刷新</NButton>
       </div>
     </div>
 
     <!-- 结果数 -->
     <div class="result-count">
-      共 <strong>{{ filteredTransactions.length }}</strong> 条记录
+      共 <strong>{{ resultCount }}</strong> 条记录；每类产品最多读取最近 {{ pageSize }} 条，类型和时间筛选作用于已加载记录。
     </div>
+
+    <section v-if="productFilter !== 'prediction'" class="tx-product">
+      <h2>FX 外汇交易</h2>
+      <p>买入数量为到账外币，卖出数量为扣除外币；金圆券收支已包含手续费影响。手续费按投入币种收取。</p>
+      <NAlert v-if="fxError" type="error" :title="fxError" />
+      <NDataTable v-else-if="filteredFxTrades.length" :columns="fxColumns" :data="filteredFxTrades" :loading="loading" :row-key="(row: FxPersonalTrade) => row.id" :scroll-x="1000" size="small" />
+      <NSpin v-else-if="loading" />
+      <NEmpty v-else description="暂无符合条件的 FX 成交" />
+    </section>
+
+    <section v-if="productFilter !== 'fx'" class="tx-product">
+      <h2>预测市场交易</h2>
+      <NAlert v-if="loadError && userStore.transactions.length" type="error" :title="loadError" />
 
     <!-- 加载 -->
     <div v-if="loading && !userStore.transactions.length" class="text-center py-12">
@@ -262,10 +307,14 @@ const redemptionTotal = computed(() =>
     <div v-else class="empty-state">
       <NEmpty description="暂无相关交易" />
     </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
+.tx-product { margin-top: 24px; }
+.tx-product h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+.tx-product p, .result-count { font-size: 12px; color: #555; margin: 12px 0; }
 .transactions-page {
   max-width: 1100px;
   margin: 0 auto;

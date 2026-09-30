@@ -38,6 +38,7 @@ CREDIT_MIGRATION_SOURCE = "credit_migration"
 
 
 DEFAULT_CONFIGS = [
+    ("homepage_fx_enabled", "true", "bool"),  # 仅首页展示，保留管理员已有选择
     ("loan_enabled", "true", "bool"),
     ("loan_leverage_k", "1.0", "decimal"),
     ("loan_daily_rate", "0.01", "decimal"),
