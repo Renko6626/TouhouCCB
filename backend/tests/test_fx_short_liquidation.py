@@ -1604,3 +1604,58 @@ async def test_unknown_run_recovers_at_initial_only_after_pool_funding(cash, exp
         short = (await s.execute(select(FxShortPosition))).scalar_one()
         assert D(short.principal_foreign) == 2 and D(short.interest_foreign) == 0
         assert D((await s.get(User, uid)).cash) == D(cash)
+
+
+async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
+    """A high-ranked inventory overflow must not starve a legal lower-ranked short."""
+    from app.services.credit.valuation import value_user_detailed
+
+    uid, first_id = await _seed_foreign_only_overflow(principal='100', cash='100')
+    async with async_session_maker() as s:
+        first_treasury = (await s.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == first_id))).scalar_one()
+        first_treasury.foreign_balance = D('9999999990')
+        second = FxPair(currency_code='KN2', currency_name='Second known short',
+            status='trading', gold_reserve=D('1000'), foreign_reserve=D('1000'),
+            buy_fee_rate=D('0'), sell_fee_rate=D('0'))
+        s.add(second)
+        await s.flush()
+        second_id = second.id
+        s.add(FxTreasury(pair_id=second_id, gold_balance=D('1000'),
+                         foreign_balance=D('1000')))
+        s.add(FxShortPosition(user_id=uid, pair_id=second_id,
+            principal_foreign=D('10'), interest_foreign=D('0'),
+            interest_last_accrued_at=datetime.now(timezone.utc),
+            restricted_gold=D('0'), proceeds_basis_gold=D('0')))
+        await s.commit()
+        pre = await value_user_detailed(s, uid, daily_rate=D('0'))
+        assert pre.risk_status == 'ok' and pre.liquidation_equity < 0
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get('monetary_action_count') == 1 and result.get('errors') == 0
+    async with async_session_maker() as s:
+        action = (await s.execute(select(LiquidationAction))).scalar_one()
+        assert action.kind == 'cover_group' and action.group_id == second_id
+        assert action.mode == 'full' and action.foreign_repaid == D('10')
+        assert action.repaid == 0 and not action.executed['limited_by_cash']
+        first = await s.get(FxPair, first_id)
+        assert first.gold_reserve == D('1000') and first.foreign_reserve == D('1000')
+        first_short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == first_id))).scalar_one()
+        assert first_short.principal_foreign == D('100') and first_short.interest_foreign == 0
+        first_treasury = (await s.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == first_id))).scalar_one()
+        assert first_treasury.gold_balance == D('1000')
+        assert first_treasury.foreign_balance == D('9999999990')
+        second = await s.get(FxPair, second_id)
+        second_treasury = (await s.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == second_id))).scalar_one()
+        second_short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == second_id))).scalar_one()
+        assert second_short.principal_foreign == 0 and second_short.interest_foreign == 0
+        user = await s.get(User, uid)
+        assert user.debt == 0 and user.cash + action.gold_spent == D('100')
+        assert user.cash + second.gold_reserve + second_treasury.gold_balance == D('2100')
+        assert second.foreign_reserve + second_treasury.foreign_balance == D('2000')
+        trades = list((await s.execute(select(FxTrade))).scalars())
+        assert len(trades) == 1 and trades[0].pair_id == second_id

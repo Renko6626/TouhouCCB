@@ -400,6 +400,49 @@ def _asset_executable(group, deps, *, mode, pct) -> bool:
     return quote.blocked_reason is None and quote.net > 0 and bool(quote.legs)
 
 
+async def _cover_treasury_balances(session, pre):
+    pair_ids = [g.key.group_id for g in pre.groups if g.role == 'short_cover']
+    if not pair_ids:
+        return {}
+    # Columns bypass the ORM identity cache: locked revalidation must see current
+    # inventory. Discovery is optimistic; execute_user repeats this read under
+    # all dependency GATES before checking the selected exclusive target. This
+    # read takes no additional pair gate or row lock.
+    rows = (await session.execute(select(
+        FxTreasury.pair_id, FxTreasury.gold_balance, FxTreasury.foreign_balance,
+    ).where(FxTreasury.pair_id.in_(pair_ids)))).all()
+    treasuries = {pid: (Decimal(gold), Decimal(foreign)) for pid, gold, foreign in rows}
+    return treasuries
+
+
+def _cover_quote_storable(pair, plan, treasury):
+    """Preflight the actual budget quote and both physical treasury legs.
+
+    This supplements the kernel's rollback-required final bound checks so an
+    illegal high-ranked group can be skipped before interest settlement.
+    """
+    try:
+        try:
+            quote = quote_buy_exact_out(plan[0], pair.gold_reserve,
+                                        pair.foreign_reserve, pair.buy_fee_rate)
+        except (TypeError, ValueError, ArithmeticError):
+            quote = None
+        if quote is None or quote.input_amount > plan[1]:
+            quote = quote_buy(plan[1], pair.gold_reserve, pair.foreign_reserve,
+                              pair.buy_fee_rate)
+        # Only a genuinely absent row starts at zero, matching the kernel's
+        # treasury creation path. quote_buy does not enforce Numeric bounds.
+        treasury_gold, treasury_foreign = treasury
+        persisted = (quote.input_amount, quote.fee_amount, quote.output_amount,
+                     quote.post_gold_reserve, quote.post_foreign_reserve,
+                     quote.post_price, treasury_gold, treasury_foreign,
+                     treasury_gold + quote.fee_amount,
+                     treasury_foreign + quote.output_amount)
+        return not any(not v.is_finite() or v < ZERO or v > _STORAGE_MAX for v in persisted)
+    except (TypeError, ValueError, ArithmeticError):
+        return False
+
+
 async def _choose_unknown_overflow_cover(session, pre, deps, *, pct, daily_rate, now):
     """§8.2: only a trustworthy full-quote storage overflow permits spending.
 
@@ -411,15 +454,7 @@ async def _choose_unknown_overflow_cover(session, pre, deps, *, pct, daily_rate,
             or pre.available_cash < ZERO or not pre.debt_effective.is_finite()
             or pre.debt_effective < ZERO):
         return None
-    pair_ids = [g.key.group_id for g in pre.groups if g.role == 'short_cover']
-    # Columns bypass the ORM identity cache: locked revalidation must see current
-    # inventory. Discovery is optimistic; execute_user repeats this read under
-    # all dependency GATES before checking the selected exclusive target. This
-    # read takes no additional pair gate or row lock.
-    rows = (await session.execute(select(
-        FxTreasury.pair_id, FxTreasury.gold_balance, FxTreasury.foreign_balance,
-    ).where(FxTreasury.pair_id.in_(pair_ids)))).all()
-    treasuries = {pid: (Decimal(gold), Decimal(foreign)) for pid, gold, foreign in rows}
+    treasuries = await _cover_treasury_balances(session, pre)
     for group in sorted(pre.groups, key=lambda g: (g.key.product, g.key.group_id)):
         if (group.role != 'short_cover'
                 or group.blocked_reason != BLOCKED_SHORT_QUOTE_FAILED):
@@ -449,42 +484,21 @@ async def _choose_unknown_overflow_cover(session, pre, deps, *, pct, daily_rate,
                                  pct=pct, daily_rate=daily_rate, now=now)
         if plan is None:
             continue
-        # Exact-input does not enforce Numeric bounds itself. Reject an illegal
-        # batch before settlement, and allow a later overflow group to be tried.
-        try:
-            try:
-                quote = quote_buy_exact_out(plan[0], pair.gold_reserve,
-                                            pair.foreign_reserve, pair.buy_fee_rate)
-            except (TypeError, ValueError, ArithmeticError):
-                quote = None
-            if quote is None or quote.input_amount > plan[1]:
-                quote = quote_buy(plan[1], pair.gold_reserve, pair.foreign_reserve,
-                                  pair.buy_fee_rate)
-            # Only a genuinely absent row starts at zero, matching the cover
-            # kernel's treasury creation path. Both physical accumulator legs
-            # must fit, otherwise skip this group and try the next eligible one.
-            treasury_gold, treasury_foreign = treasuries.get(group.key.group_id, (ZERO, ZERO))
-            persisted = (quote.input_amount, quote.fee_amount, quote.output_amount,
-                         quote.post_gold_reserve, quote.post_foreign_reserve,
-                         quote.post_price, treasury_gold, treasury_foreign,
-                         treasury_gold + quote.fee_amount,
-                         treasury_foreign + quote.output_amount)
-            if any(not v.is_finite() or v < ZERO or v > _STORAGE_MAX for v in persisted):
-                continue
-        except (TypeError, ValueError, ArithmeticError):
+        if not _cover_quote_storable(pair, plan, treasuries.get(group.key.group_id, (ZERO, ZERO))):
             continue
         return Choice(group.key, 'short_cover', 'partial', plan[0], plan[1])
     return None
 
 
 async def choose_liquidation_action(session, pre, deps, *, pct, daily_rate, now):
-    """选择实际可执行组；未知 K 还需读取真实 treasury，始终不写库。"""
+    """按完整性分支选择可执行组；批量读真实 treasury，始终不写库。"""
     if pre.risk_status != RISK_STATUS_OK:
         return await _choose_unknown_overflow_cover(
             session, pre, deps, pct=pct, daily_rate=daily_rate, now=now)
     if pre.liquidation_equity is None or pre.available_cash is None:
         return None
     mode = 'full' if pre.liquidation_equity <= 0 else 'partial'
+    treasuries = await _cover_treasury_balances(session, pre)
     for group in pre.groups:
         if group.value is None or group.value <= 0 or not group.executable:
             continue
@@ -492,6 +506,10 @@ async def choose_liquidation_action(session, pre, deps, *, pct, daily_rate, now)
             plan = _short_cover_plan(group, deps, pre.available_cash, mode=mode,
                                      pct=pct, daily_rate=daily_rate, now=now)
             if plan is None:
+                continue
+            pair = deps.snapshots[group.key].short_pair
+            if not _cover_quote_storable(
+                    pair, plan, treasuries.get(group.key.group_id, (ZERO, ZERO))):
                 continue
             return Choice(target=group.key, role='short_cover', mode=mode,
                           planned=plan[0], budget=plan[1])
