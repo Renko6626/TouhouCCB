@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
@@ -37,6 +37,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.base import User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
@@ -986,3 +987,523 @@ async def execute_short_cover(
 
     return await _execute_player_short_write(
         db, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
+
+
+# ── read-only current position and indicative quote (Task 3c2) ───────────────
+
+#: Advisory validity window; execution always re-quotes under lock and never
+#: trusts this value (spec §10: the quote is a short-lived indication).
+SHORT_QUOTE_TTL = timedelta(seconds=15)
+
+#: ``RiskDecision`` reasons that mean "the risk engine short-circuited instead
+#: of producing a numeric post-state"; their ``equity_after`` is not trustworthy.
+_RISK_SHORT_CIRCUIT_REASONS = frozenset({
+    "version_conflict", "credit_frozen", "frozen_by_operator",
+})
+
+#: Player-facing blocked reasons for the quote (stable strings, not i18n text).
+BLOCKED_FX_DISABLED = "fx_disabled"
+BLOCKED_UNIFIED_CREDIT = "unified_credit_disabled"
+BLOCKED_LOANS_DISABLED = "loans_disabled"
+BLOCKED_SHORT_DISABLED = "short_disabled"
+BLOCKED_PAIR_NOT_OPEN = "pair_not_open"
+BLOCKED_PAIR_NOT_COVERABLE = "pair_not_coverable"
+BLOCKED_BOT_ACCOUNT = "bot_account"
+BLOCKED_TOS_REQUIRED = "tos_required"
+BLOCKED_CREDIT_FROZEN = "credit_frozen"
+BLOCKED_SPOT_POSITION = "spot_position_exists"
+BLOCKED_TREASURY_FOREIGN = "insufficient_treasury_foreign"
+BLOCKED_LENDING_LIMIT = "short_lending_limit"
+BLOCKED_NO_OUTSTANDING_SHORT = "no_outstanding_short"
+BLOCKED_AMOUNT_EXCEEDS_DEBT = "foreign_amount_exceeds_outstanding"
+BLOCKED_INSUFFICIENT_POOL = "insufficient_pool_foreign"
+BLOCKED_INVALID_RESERVE = "invalid_short_reserve"
+BLOCKED_INVALID_DEBT = "invalid_short_debt"
+BLOCKED_QUOTE_FAILED = "quote_failed"
+BLOCKED_INSUFFICIENT_CASH = "insufficient_cash"
+BLOCKED_RESTRICTED_EXCEEDS_CASH = "restricted_cash_exceeds_cash"
+BLOCKED_RISK_UNAVAILABLE = "risk_engine_unavailable"
+BLOCKED_RISK_UNKNOWN = "short_quote_failed"
+
+
+@dataclass(frozen=True, slots=True)
+class FxShortPositionRead:
+    """Materialized current-user short read (no ORM objects escape the session)."""
+
+    pair_id: int
+    currency_code: str
+    principal_foreign: Decimal
+    interest_foreign: Decimal
+    pending_short_debt: Optional[Decimal]
+    restricted_gold: Decimal
+    proceeds_basis_gold: Decimal
+    interest_last_accrued_at: Optional[datetime]
+    reference_cover_cost: Optional[Decimal]
+    reference_cover_fee: Optional[Decimal]
+    executable: bool
+    risk_status: str
+    blocked_reason: Optional[str]
+
+
+@dataclass(frozen=True, slots=True)
+class FxShortQuoteRead:
+    """Materialized indicative quote, safe to serialize after the session ends."""
+
+    pair_id: int
+    action: str
+    purpose: str
+    requested_foreign_amount: Optional[Decimal]
+    cover_all: Optional[bool]
+    actual_foreign_amount: Optional[Decimal]
+    input_amount: Optional[Decimal]
+    output_amount: Optional[Decimal]
+    fee_amount: Optional[Decimal]
+    fee_currency: str
+    post_price: Optional[Decimal]
+    pool_version: Optional[int]
+    restricted_gold_delta: Optional[Decimal]
+    available_cash: Optional[Decimal]
+    affordable: Optional[bool]
+    estimated_equity: Optional[Decimal]
+    estimated_risk_basis: Optional[Decimal]
+    risk_status: str
+    executable: bool
+    blocked_reason: Optional[str]
+    expires_at: datetime
+
+
+def _blocked_quote(
+    *,
+    pair_id: int,
+    action: str,
+    requested: Optional[Decimal],
+    cover_all: Optional[bool],
+    reason: str,
+    expires_at: datetime,
+    actual_foreign_amount: Optional[Decimal] = None,
+    input_amount: Optional[Decimal] = None,
+    output_amount: Optional[Decimal] = None,
+    fee_amount: Optional[Decimal] = None,
+    post_price: Optional[Decimal] = None,
+    pool_version: Optional[int] = None,
+    restricted_gold_delta: Optional[Decimal] = None,
+    available_cash: Optional[Decimal] = None,
+    affordable: Optional[bool] = None,
+    estimated_equity: Optional[Decimal] = None,
+    estimated_risk_basis: Optional[Decimal] = None,
+    executable: bool = False,
+) -> FxShortQuoteRead:
+    return FxShortQuoteRead(
+        pair_id=pair_id,
+        action=action,
+        purpose="short_open" if action == "open" else "short_cover",
+        requested_foreign_amount=requested,
+        cover_all=cover_all,
+        actual_foreign_amount=actual_foreign_amount,
+        input_amount=input_amount,
+        output_amount=output_amount,
+        fee_amount=fee_amount,
+        fee_currency="foreign" if action == "open" else "gold",
+        post_price=post_price,
+        pool_version=pool_version,
+        restricted_gold_delta=restricted_gold_delta,
+        available_cash=available_cash,
+        affordable=affordable,
+        estimated_equity=estimated_equity,
+        estimated_risk_basis=estimated_risk_basis,
+        risk_status="blocked",
+        executable=executable,
+        blocked_reason=reason,
+        expires_at=expires_at,
+    )
+
+
+async def read_short_position(
+    db: AsyncSession, *, user_id: int, pair_id: int,
+) -> FxShortPositionRead:
+    """Current user's row for one pair plus a reference whole-debt cover quote.
+
+    Read-only: interest is computed with the pure :func:`pending_short_debt`, the
+    stored clock is never advanced and nothing is committed.  A missing row is a
+    zeroed position (like the wallet read), not a 404.  Treasury stock, the pair
+    lending cap and other users' rows are never read or exposed.
+    """
+    from app.services.credit.fx_quote import FxShortPairSnapshot, quote_fx_short_group
+
+    pair = (await db.execute(
+        select(FxPair).where(FxPair.id == pair_id))).scalars().first()
+    if pair is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    position = (await db.execute(select(FxShortPosition).where(
+        FxShortPosition.user_id == user_id,
+        FxShortPosition.pair_id == pair_id,
+    ))).scalars().first()
+
+    principal = Decimal(position.principal_foreign) if position is not None else Decimal("0")
+    interest = Decimal(position.interest_foreign) if position is not None else Decimal("0")
+    restricted = Decimal(position.restricted_gold) if position is not None else Decimal("0")
+    basis = Decimal(position.proceeds_basis_gold) if position is not None else Decimal("0")
+    accrued = position.interest_last_accrued_at if position is not None else None
+
+    pending: Optional[Decimal]
+    if position is None or principal + interest <= 0:
+        pending = Decimal("0")
+    else:
+        try:
+            daily_rate = await site_config.get_decimal_or(
+                db, "loan_daily_rate", Decimal("0"))
+            pending = pending_short_debt(position, daily_rate, utcnow())
+        except ShortRejected:
+            pending = None
+
+    if pending is None:
+        return FxShortPositionRead(
+            pair_id=pair_id, currency_code=str(pair.currency_code),
+            principal_foreign=principal, interest_foreign=interest,
+            pending_short_debt=None, restricted_gold=restricted,
+            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
+            reference_cover_cost=None, reference_cover_fee=None,
+            executable=False, risk_status="blocked",
+            blocked_reason=BLOCKED_INVALID_DEBT,
+        )
+
+    snapshot = FxShortPairSnapshot(
+        pair_id=pair_id,
+        status=str(pair.status),
+        reduce_only=bool(pair.reduce_only),
+        gold_reserve=Decimal(pair.gold_reserve),
+        foreign_reserve=Decimal(pair.foreign_reserve),
+        buy_fee_rate=Decimal(pair.buy_fee_rate),
+        sell_fee_rate=Decimal(pair.sell_fee_rate),
+        pool_version=int(pair.pool_version),
+    )
+    quote = quote_fx_short_group(snapshot, foreign_debt=pending)
+    if quote.gold_in is None:
+        return FxShortPositionRead(
+            pair_id=pair_id, currency_code=str(pair.currency_code),
+            principal_foreign=principal, interest_foreign=interest,
+            pending_short_debt=pending, restricted_gold=restricted,
+            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
+            reference_cover_cost=None, reference_cover_fee=None,
+            executable=False, risk_status="blocked",
+            blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
+        )
+    return FxShortPositionRead(
+        pair_id=pair_id, currency_code=str(pair.currency_code),
+        principal_foreign=principal, interest_foreign=interest,
+        pending_short_debt=pending, restricted_gold=restricted,
+        proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
+        reference_cover_cost=quote.gold_in, reference_cover_fee=quote.fee_gold,
+        executable=quote.executable, risk_status="ok",
+        blocked_reason=quote.blocked_reason,
+    )
+
+
+async def _quote_open_block(
+    db: AsyncSession, *, pair: FxPair, user_id: int, amount: Decimal,
+) -> Optional[str]:
+    """First player gate that blocks opening/adding a short, if any (spec §9)."""
+    status = str(pair.status or "").strip().lower()
+    if not await site_config.get_bool_or(db, "loan_enabled", False):
+        return BLOCKED_LOANS_DISABLED
+    if not await site_config.get_bool_or(db, "fx_short_enabled", False):
+        return BLOCKED_SHORT_DISABLED
+    if status != "trading" or bool(pair.reduce_only) or bool(pair.archived):
+        return BLOCKED_PAIR_NOT_OPEN
+    user = (await db.execute(select(User).where(User.id == int(user_id)))).scalars().first()
+    if user is None:
+        return BLOCKED_RISK_UNAVAILABLE
+    if bool(user.is_bot):
+        return BLOCKED_BOT_ACCOUNT
+    if user.tos_accepted_at is None:
+        return BLOCKED_TOS_REQUIRED
+    if bool(user.credit_frozen):
+        return BLOCKED_CREDIT_FROZEN
+    wallet = (await db.execute(select(FxWallet).where(
+        FxWallet.user_id == user_id, FxWallet.pair_id == int(pair.id),
+    ))).scalars().first()
+    if wallet is not None and Decimal(wallet.foreign_amount) > 0:
+        return BLOCKED_SPOT_POSITION
+    treasury = (await db.execute(select(FxTreasury).where(
+        FxTreasury.pair_id == int(pair.id)))).scalars().first()
+    if treasury is None or Decimal(treasury.foreign_balance) < amount:
+        return BLOCKED_TREASURY_FOREIGN
+    outstanding = await _pair_principal_sum(db, int(pair.id))
+    if outstanding + amount > Decimal(pair.short_lending_limit_foreign):
+        return BLOCKED_LENDING_LIMIT
+    return None
+
+
+async def quote_short(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    pair_id: int,
+    action: str,
+    foreign_amount: Optional[Decimal],
+    cover_all: bool,
+) -> FxShortQuoteRead:
+    """Indicative open/cover quote; purely read-only (spec §5/§6/§9/§10).
+
+    Reuses the real AMM exact math and ``credit.risk.check_new_risk`` for the
+    full-portfolio post-order state, so W/K/E/B are never re-derived here.  A
+    cover is reduce-only: its numerical post-state is reported even when the
+    initial-margin admission fails.  Every value is advisory; the write routes
+    re-quote and re-check min/max under lock.
+    """
+    from app.services.credit import risk as credit_risk
+
+    now = utcnow()
+    expires_at = now + SHORT_QUOTE_TTL
+    normalized = str(action or "").strip().lower()
+    if normalized not in ("open", "cover"):
+        raise ShortOpenRejected("action must be open or cover")
+    cover = normalized == "cover"
+    is_cover_all = bool(cover_all) if cover else False
+    reject = ShortCoverRejected if cover else ShortOpenRejected
+    if cover:
+        if is_cover_all and foreign_amount is not None:
+            raise ShortCoverRejected("cover_all and foreign_amount are mutually exclusive")
+        if not is_cover_all and foreign_amount is None:
+            raise ShortCoverRejected("foreign_amount is required unless cover_all")
+    else:
+        if foreign_amount is None:
+            raise ShortOpenRejected("foreign_amount is required for open")
+        if is_cover_all:
+            raise ShortOpenRejected("cover_all is not valid for open")
+    amount: Optional[Decimal] = None
+    if foreign_amount is not None:
+        amount = _positive_six(foreign_amount, "foreign_amount", reject)
+        _require_foreign_bound(amount, "foreign_amount", reject)
+
+    pair = (await db.execute(
+        select(FxPair).where(FxPair.id == pair_id))).scalars().first()
+    if pair is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+
+    def _blocked(reason, **kwargs) -> FxShortQuoteRead:
+        return _blocked_quote(
+            pair_id=pair_id, action=normalized,
+            requested=(amount if not cover or not is_cover_all else None),
+            cover_all=(is_cover_all if cover else None),
+            reason=reason, expires_at=expires_at, **kwargs)
+
+    if not await site_config.get_bool_or(db, "fx_enabled", False):
+        return _blocked(BLOCKED_FX_DISABLED)
+    if not credit_flags.get_flags().unified_credit_enabled:
+        return _blocked(BLOCKED_UNIFIED_CREDIT)
+
+    positions = list((await db.execute(select(FxShortPosition).where(
+        FxShortPosition.user_id == int(user_id)))).scalars().all())
+    from app.services.credit import cash as credit_cash
+    try:
+        total_lock = await credit_cash.restricted_cash(db, int(user_id))
+    except credit_cash.CashInvariantError:
+        return _blocked(BLOCKED_RESTRICTED_EXCEEDS_CASH)
+    user_cash = Decimal((await db.execute(
+        select(User.cash).where(User.id == int(user_id)))).scalar_one_or_none()
+        or Decimal("0"))
+    user_debt = Decimal((await db.execute(
+        select(User.debt).where(User.id == int(user_id)))).scalar_one_or_none()
+        or Decimal("0"))
+    daily_rate = await site_config.get_decimal_or(db, "loan_daily_rate", Decimal("0"))
+    free_cash = user_cash - total_lock
+    available_cash = free_cash if free_cash >= 0 else None
+    pool_version = int(pair.pool_version)
+
+    if not cover:
+        assert amount is not None
+        blocked = await _quote_open_block(
+            db, pair=pair, user_id=user_id, amount=amount)
+        if blocked is not None:
+            return _blocked(blocked, available_cash=available_cash,
+                            pool_version=pool_version)
+        gold_reserve = Decimal(pair.gold_reserve)
+        foreign_reserve = Decimal(pair.foreign_reserve)
+        try:
+            sell = quote_sell(amount, gold_reserve, foreign_reserve,
+                              Decimal(pair.sell_fee_rate))
+        except (TypeError, ValueError, ArithmeticError):
+            return _blocked(BLOCKED_QUOTE_FAILED, available_cash=available_cash,
+                            pool_version=pool_version)
+        target = next((p for p in positions if int(p.pair_id) == pair_id), None)
+        if target is not None and (
+                Decimal(target.principal_foreign) + Decimal(target.interest_foreign) > 0):
+            try:
+                settled = pending_short_debt(target, daily_rate, now)
+            except ShortRejected:
+                return _blocked(BLOCKED_INVALID_DEBT, available_cash=available_cash,
+                                pool_version=pool_version)
+        else:
+            settled = Decimal("0")
+        short_debt_after = settled + amount
+        try:
+            _require_foreign_bound(short_debt_after, "short debt")
+        except ShortRejected:
+            return _blocked(BLOCKED_INVALID_DEBT, available_cash=available_cash,
+                            pool_version=pool_version)
+        post_cash = user_cash + sell.output_amount
+        post_gold = sell.post_gold_reserve
+        post_foreign = sell.post_foreign_reserve
+        restricted_delta = sell.output_amount
+        quote_kwargs = dict(
+            actual_foreign_amount=amount,
+            input_amount=sell.input_amount,
+            output_amount=sell.output_amount,
+            fee_amount=sell.fee_amount,
+            post_price=sell.post_price.quantize(_Q6),
+            pool_version=pool_version,
+            restricted_gold_delta=restricted_delta,
+            available_cash=available_cash,
+        )
+    else:
+        status = str(pair.status or "").strip().lower()
+        coverable = (
+            not bool(pair.archived)
+            and (status == "trading" or (status == "paused" and bool(pair.reduce_only)))
+        )
+        target = next((p for p in positions if int(p.pair_id) == pair_id), None)
+        if target is None or (
+                Decimal(target.principal_foreign) + Decimal(target.interest_foreign) <= 0):
+            return _blocked(BLOCKED_NO_OUTSTANDING_SHORT,
+                            available_cash=available_cash, pool_version=pool_version)
+        try:
+            q_effective = pending_short_debt(target, daily_rate, now)
+        except ShortRejected:
+            return _blocked(BLOCKED_INVALID_DEBT,
+                            available_cash=available_cash, pool_version=pool_version)
+        if q_effective <= 0:
+            return _blocked(BLOCKED_NO_OUTSTANDING_SHORT,
+                            available_cash=available_cash, pool_version=pool_version)
+        q = q_effective if is_cover_all else amount
+        if q is None or q > q_effective:
+            return _blocked(BLOCKED_AMOUNT_EXCEEDS_DEBT,
+                            available_cash=available_cash, pool_version=pool_version)
+        full_cover = q == q_effective
+        gold_reserve = Decimal(pair.gold_reserve)
+        foreign_reserve = Decimal(pair.foreign_reserve)
+        if (not gold_reserve.is_finite() or not foreign_reserve.is_finite()
+                or gold_reserve <= 0 or foreign_reserve <= 0):
+            return _blocked(BLOCKED_INVALID_RESERVE, actual_foreign_amount=q,
+                            available_cash=available_cash, pool_version=pool_version)
+        if q >= foreign_reserve:
+            return _blocked(BLOCKED_INSUFFICIENT_POOL, actual_foreign_amount=q,
+                            available_cash=available_cash, pool_version=pool_version)
+        try:
+            buy = quote_buy_exact_out(
+                q, gold_reserve, foreign_reserve, Decimal(pair.buy_fee_rate))
+        except (TypeError, ValueError, ArithmeticError):
+            return _blocked(BLOCKED_QUOTE_FAILED, actual_foreign_amount=q,
+                            available_cash=available_cash, pool_version=pool_version)
+        cover_order_reason = None if coverable else BLOCKED_PAIR_NOT_COVERABLE
+        if user_cash < total_lock:
+            return _blocked(BLOCKED_RESTRICTED_EXCEEDS_CASH, actual_foreign_amount=q,
+                            available_cash=None, pool_version=pool_version)
+        position_lock = Decimal(target.restricted_gold)
+        base_release = (
+            position_lock if full_cover
+            else amount_down(position_lock * q / q_effective)
+        )
+        if buy.input_amount <= free_cash + base_release:
+            release = base_release
+            affordable = True
+        elif buy.input_amount <= free_cash + position_lock:
+            release = max(base_release, buy.input_amount - free_cash)
+            affordable = True
+        else:
+            release = None
+            affordable = False
+            cover_order_reason = cover_order_reason or BLOCKED_INSUFFICIENT_CASH
+        release = None if release is None else release.quantize(_Q6)
+        post_cash = user_cash - buy.input_amount
+        post_gold = buy.post_gold_reserve
+        post_foreign = buy.post_foreign_reserve
+        short_debt_after = (q_effective - q).quantize(_Q6)
+        quote_kwargs = dict(
+            actual_foreign_amount=q,
+            input_amount=buy.input_amount,
+            output_amount=q,
+            fee_amount=buy.fee_amount,
+            post_price=buy.post_price.quantize(_Q6),
+            pool_version=pool_version,
+            restricted_gold_delta=(None if release is None else -release),
+            available_cash=available_cash,
+            affordable=affordable,
+        )
+        if release is None:
+            # Unaffordable: the AMM cost is real, but no valid post cash exists.
+            return _blocked(cover_order_reason, **quote_kwargs)
+
+    # ── shared-portfolio simulation via credit.risk (no duplication) ──
+    thresholds = credit_flags.get_flags().thresholds
+    if thresholds is None:
+        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+    target_key = GroupKey("fx", pair_id)
+    try:
+        deps = await credit_risk.discover_dependencies(
+            db, int(user_id), extra_groups=[target_key])
+    except Exception:  # pragma: no cover - discovery read failure is fail-closed
+        _logger.exception("FX short quote dependency discovery failed")
+        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+    snapshot = deps.snapshots.get(target_key)
+    base_versions = {target_key: snapshot.version} if snapshot is not None else {}
+    post = credit_risk.PostTradeState(
+        cash=post_cash,
+        debt=user_debt,
+        short_debt={pair_id: short_debt_after},
+        short_reserves={pair_id: (post_gold, post_foreign)},
+        base_versions=base_versions,
+    )
+    fresh_user = (await db.execute(
+        select(User).where(User.id == int(user_id)))).scalars().first()
+    if fresh_user is None:
+        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+    try:
+        decision = await credit_risk.check_new_risk(
+            db, user=fresh_user, deps=deps, post=post, thresholds=thresholds,
+            partial_pct=Decimal("1"), now=now,
+        )
+    except Exception:  # pragma: no cover - risk read failure is fail-closed
+        _logger.exception("FX short quote risk simulation failed")
+        return _blocked(BLOCKED_RISK_UNAVAILABLE, **quote_kwargs)
+
+    if decision.reason in _RISK_SHORT_CIRCUIT_REASONS:
+        estimated_equity = None
+        estimated_basis = None
+        risk_reason = decision.reason
+    else:
+        estimated_equity = decision.equity_after
+        estimated_basis = decision.risk_basis
+        risk_reason = None if estimated_equity is not None else (
+            decision.reason or BLOCKED_RISK_UNKNOWN)
+
+    order_reason = cover_order_reason if cover else None
+    if not cover and not decision.allowed:
+        order_reason = decision.reason or BLOCKED_RISK_UNKNOWN
+    reported_reason = order_reason if order_reason is not None else risk_reason
+    # ``risk_status`` is about whether the full-portfolio math completed; a
+    # reduce-only cover may still be executable with an unknown richer K.
+    risk_status = "ok" if estimated_equity is not None else "blocked"
+    return FxShortQuoteRead(
+        pair_id=pair_id,
+        action=normalized,
+        purpose="short_open" if not cover else "short_cover",
+        requested_foreign_amount=(amount if (not cover or not is_cover_all) else None),
+        cover_all=(is_cover_all if cover else None),
+        actual_foreign_amount=quote_kwargs["actual_foreign_amount"],
+        input_amount=quote_kwargs["input_amount"],
+        output_amount=quote_kwargs["output_amount"],
+        fee_amount=quote_kwargs["fee_amount"],
+        fee_currency="foreign" if not cover else "gold",
+        post_price=quote_kwargs["post_price"],
+        pool_version=quote_kwargs["pool_version"],
+        restricted_gold_delta=quote_kwargs["restricted_gold_delta"],
+        available_cash=quote_kwargs["available_cash"],
+        affordable=quote_kwargs.get("affordable"),
+        estimated_equity=estimated_equity,
+        estimated_risk_basis=estimated_basis,
+        risk_status=risk_status,
+        executable=order_reason is None,
+        blocked_reason=reported_reason,
+        expires_at=expires_at,
+    )

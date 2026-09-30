@@ -210,6 +210,107 @@ class FxShortTradeResponse(BaseModel):
     created_at: datetime
 
 
+class FxShortPositionPublic(BaseModel):
+    """Current user's own short row plus a reference full-cover quote.
+
+    Money/quantity fields serialize as decimal strings.  ``reference_cover_cost``
+    is ``None`` (never 0/Infinity) when the whole debt cannot be quoted;
+    ``risk_status`` distinguishes that from a known-but-not-executable paused
+    market.  Operator-only data (treasury stock, pair lending cap) is absent.
+    """
+    model_config = ConfigDict(from_attributes=True)
+    pair_id: int
+    currency_code: str
+    principal_foreign: Decimal
+    interest_foreign: Decimal
+    pending_short_debt: Optional[Decimal] = None
+    restricted_gold: Decimal
+    proceeds_basis_gold: Decimal
+    interest_last_accrued_at: Optional[datetime] = None
+    reference_cover_cost: Optional[Decimal] = None
+    reference_cover_fee: Optional[Decimal] = None
+    executable: bool
+    risk_status: str
+    blocked_reason: Optional[str] = None
+
+
+class FxShortQuoteRequest(BaseModel):
+    """Indicative short quote input (spec §10).
+
+    ``open`` requires a fixed six-place ``foreign_amount``.  ``cover`` requires
+    exactly one of a fixed ``foreign_amount`` or ``cover_all=true``.  Invalid
+    shapes are rejected by validation before any ledger access.
+    """
+    action: str
+    foreign_amount: Optional[Decimal] = None
+    cover_all: bool = False
+
+    @field_validator("action")
+    @classmethod
+    def valid_action(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"open", "cover"}:
+            raise ValueError("action must be open or cover")
+        return normalized
+
+    @field_validator("foreign_amount")
+    @classmethod
+    def valid_foreign_amount(cls, value: Optional[Decimal]) -> Optional[Decimal]:
+        if value is None:
+            return value
+        value = _finite_six(value, positive=True)
+        if value > _MAX_FOREIGN:
+            raise ValueError("foreign_amount exceeds storage range")
+        return value
+
+    @model_validator(mode="after")
+    def valid_shape(self) -> "FxShortQuoteRequest":
+        if self.action == "open":
+            if self.foreign_amount is None:
+                raise ValueError("foreign_amount is required for open")
+            if self.cover_all:
+                raise ValueError("cover_all is not valid for open")
+        else:
+            if (self.foreign_amount is not None) == bool(self.cover_all):
+                raise ValueError(
+                    "exactly one of foreign_amount or cover_all is required for cover")
+        return self
+
+
+class FxShortQuoteResponse(BaseModel):
+    """Advisory short quote; never a promise that the order will execute.
+
+    ``input_amount``/``output_amount`` mirror the AMM direction (open: foreign
+    in / gold out; cover: gold in / foreign out).  ``restricted_gold_delta`` is
+    signed (positive lock increase on open, negative release on cover).
+    ``estimated_equity``/``estimated_risk_basis`` are ``None`` whenever the full
+    portfolio cannot be priced; ``blocked_reason`` names the reason.
+    ``expires_at`` is advisory only -- execution always re-quotes under lock.
+    """
+    model_config = ConfigDict(from_attributes=True)
+    pair_id: int
+    action: str
+    purpose: str
+    requested_foreign_amount: Optional[Decimal] = None
+    cover_all: Optional[bool] = None
+    actual_foreign_amount: Optional[Decimal] = None
+    input_amount: Optional[Decimal] = None
+    output_amount: Optional[Decimal] = None
+    fee_amount: Optional[Decimal] = None
+    fee_currency: str
+    post_price: Optional[Decimal] = None
+    pool_version: Optional[int] = None
+    restricted_gold_delta: Optional[Decimal] = None
+    available_cash: Optional[Decimal] = None
+    affordable: Optional[bool] = None
+    estimated_equity: Optional[Decimal] = None
+    estimated_risk_basis: Optional[Decimal] = None
+    risk_status: str
+    executable: bool
+    blocked_reason: Optional[str] = None
+    expires_at: datetime
+
+
 class FxPersonalTrade(FxTradePublic):
     currency_code: str
     currency_name: str

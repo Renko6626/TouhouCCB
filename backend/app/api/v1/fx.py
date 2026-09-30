@@ -18,6 +18,9 @@ from app.schemas.fx import (
     FxQuoteRequest,
     FxShortCoverRequest,
     FxShortOpenRequest,
+    FxShortPositionPublic,
+    FxShortQuoteRequest,
+    FxShortQuoteResponse,
     FxShortTradeResponse,
     FxSnapshot,
     FxTradePublic,
@@ -120,6 +123,34 @@ async def cover_short(pair_id: int, req: FxShortCoverRequest,
     except shorts.ShortRetryCredit:
         await db.rollback()
         raise HTTPException(status_code=409, detail="version_conflict; retry") from None
+
+
+@router.get("/pairs/{pair_id}/short", response_model=FxShortPositionPublic)
+async def get_short_position(pair_id: int,
+                             user: User = Depends(current_active_user),
+                             db: AsyncSession = Depends(get_async_session)):
+    """Current user's foreign debt for one pair plus a reference cover cost.
+
+    Read-only: the stored interest clock is never advanced and an absent row is
+    a zeroed position (like the wallet read), not a 404.  Treasury stock, the
+    pair lending cap and other users' rows are never read or exposed.
+    """
+    return await shorts.read_short_position(db, user_id=user.id, pair_id=pair_id)
+
+
+@router.post("/pairs/{pair_id}/short/quote", response_model=FxShortQuoteResponse)
+async def create_short_quote(pair_id: int, req: FxShortQuoteRequest,
+                             user: User = Depends(current_active_user),
+                             db: AsyncSession = Depends(get_async_session)):
+    """Advisory open/cover quote; the write routes always re-quote under lock."""
+    try:
+        return await shorts.quote_short(
+            db, user_id=user.id, pair_id=pair_id, action=req.action,
+            foreign_amount=req.foreign_amount, cover_all=req.cover_all,
+        )
+    except shorts.ShortRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/pairs/{pair_id}/trades", response_model=list[FxTradePublic])

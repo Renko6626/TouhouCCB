@@ -1,4 +1,4 @@
-"""Task 3c1: authenticated FX short write routes, wrappers and operator gates.
+"""Tasks 3c1/3c2: authenticated FX short write routes, read/quote APIs and gates.
 
 Real HTTP + persisted-state scenarios against the FastAPI app, the real gate
 registry, the real AMM and the real SQLite database.  They assert actual
@@ -10,8 +10,10 @@ pair lending cap is off; a same-key retry borrows/sells/buys twice or lets a
 spot request replay a short trade (in either direction); a reduce-only pair
 still lets an ordinary buy or a new short through; turning the opening gate or
 the loan gate off strands an existing short with no cover path; a malformed or
-overflowing request becomes a 500 or mutates the book; or the admin pair limit
-leaks into the public pair payload.
+overflowing request becomes a 500 or mutates the book; the admin pair limit
+leaks into the public pair payload; the read route advances an interest clock or
+shows another account's obligation; or a quote prices a different amount/cost
+than the AMM or claims a reduce-only cover is disallowed.
 """
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D
@@ -29,11 +31,14 @@ from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
+from app.services.credit.valuation import value_user_detailed
 from app.services.fx import publisher, shorts
+from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 pytestmark = pytest.mark.asyncio
 
 ZERO = D("0")
+Q6 = D("0.000001")
 
 PAIR = {
     "currency_code": "USD", "currency_name": "Dollar", "status": "trading",
@@ -151,6 +156,29 @@ async def _cover(client, headers, pair_id, *, amount=None, cover_all=False,
         body["cover_all"] = True
     return await client.post(
         f"/api/v1/fx/pairs/{pair_id}/short/cover", json=body, headers=headers)
+
+
+async def _short_get(client, headers, pair_id):
+    return await client.get(f"/api/v1/fx/pairs/{pair_id}/short", headers=headers)
+
+
+async def _quote(client, headers, pair_id, payload):
+    return await client.post(
+        f"/api/v1/fx/pairs/{pair_id}/short/quote", json=payload, headers=headers)
+
+
+async def _seed_short_direct(pair_id, user_id, *, principal="0", interest="0",
+                             restricted="0", proceeds=None, accrued=None):
+    """Seed a persisted short row without going through the open route."""
+    async with async_session_maker() as s:
+        async with s.begin():
+            s.add(FxShortPosition(
+                user_id=user_id, pair_id=pair_id,
+                principal_foreign=D(principal), interest_foreign=D(interest),
+                interest_last_accrued_at=accrued,
+                restricted_gold=D(restricted),
+                proceeds_basis_gold=D(restricted if proceeds is None else proceeds),
+            ))
 
 
 async def _seed_overflow_short(pair_id, user_id, *, principal="999999999999999000"):
@@ -631,3 +659,434 @@ async def test_short_wrapper_reraises_unrelated_integrity_error(client):
         with pytest.raises(IntegrityError):
             await shorts._execute_player_short_write(
                 s, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
+
+
+# ══════════════════════ Task 3c2: short read and indicative quote ═════════════
+
+async def test_short_read_is_own_position_and_reference_cover_without_clock_advance(client):
+    """A user only ever sees their own pending foreign debt and reference K.
+
+    Regression: reading another account's obligation, leaking treasury stock or
+    the pair lending cap, using a stored/zero reference cost, or advancing the
+    persisted interest clock as a side effect of a GET.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    other_id, other_headers = await _make_user(cash="1000")
+    fresh_id, fresh_headers = await _make_user(cash="10")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0.01")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+    assert (await _open(client, user_headers, pair_id, amount="100",
+                        key="k-read-own")).status_code == 200
+    assert (await _open(client, other_headers, pair_id, amount="40",
+                        key="k-read-other")).status_code == 200
+
+    # No row for this pair: zeroed position, not a 404, and no treasury leak.
+    empty = await _short_get(client, fresh_headers, pair_id)
+    assert empty.status_code == 200, empty.text
+    empty_body = empty.json()
+    assert D(empty_body["principal_foreign"]) == ZERO
+    assert D(empty_body["pending_short_debt"]) == ZERO
+    assert D(empty_body["reference_cover_cost"]) == ZERO
+    assert empty_body["risk_status"] == "ok"
+
+    async with async_session_maker() as s:
+        own = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == user_id,
+            FxShortPosition.pair_id == pair_id))).scalars().one()
+        principal_before = D(own.principal_foreign)
+        interest_before = D(own.interest_foreign)
+        accrued_before = own.interest_last_accrued_at
+        pair_row = await s.get(FxPair, pair_id)
+
+    response = await _short_get(client, user_headers, pair_id)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Only this user's obligation (not the other user's 40) is present.
+    assert D(body["principal_foreign"]) == principal_before
+    assert isinstance(body["principal_foreign"], str)
+    assert isinstance(body["pending_short_debt"], str)
+    assert isinstance(body["restricted_gold"], str)
+    assert isinstance(body["reference_cover_cost"], str)
+    assert D(body["interest_foreign"]) == interest_before
+    assert D(body["pending_short_debt"]) >= principal_before
+    locked = D(body["restricted_gold"])
+    assert locked > ZERO
+    assert D(body["proceeds_basis_gold"]) == locked
+    assert D(body["reference_cover_cost"]) > ZERO
+    assert body["executable"] is True
+    assert body["risk_status"] == "ok"
+    assert body["blocked_reason"] is None
+
+    # Hidden operator/system fields never leak through the player read.
+    for hidden in ("foreign_balance", "gold_balance",
+                   "short_lending_limit_foreign", "pool_version"):
+        assert hidden not in body
+    # The reference K quotes exactly this user's pending debt at the live pool.
+    k = quote_buy_exact_out(
+        D(body["pending_short_debt"]), D(pair_row.gold_reserve),
+        D(pair_row.foreign_reserve), D(pair_row.buy_fee_rate)).input_amount
+    assert D(body["reference_cover_cost"]) == k
+
+    # GET never advances or writes the stored debt clock.
+    async with async_session_maker() as s:
+        after = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == user_id,
+            FxShortPosition.pair_id == pair_id))).scalars().one()
+    assert D(after.interest_foreign) == interest_before
+    assert after.interest_last_accrued_at == accrued_before
+    assert D(after.principal_foreign) == principal_before
+
+
+async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(client):
+    """An open quote is real ``quote_sell`` math and execution re-quotes.
+
+    Regression: quoting total cash instead of the net AMM sell price, returning
+    a stale price at execution time, or a quote that secretly reserves the pool.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+
+    before = await _stock(pair_id)
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "open", "foreign_amount": "100"})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["action"] == "open"
+    assert body["purpose"] == "short_open"
+    assert body["executable"] is True
+    assert D(body["requested_foreign_amount"]) == D("100")
+    assert D(body["actual_foreign_amount"]) == D("100")
+    assert body["fee_currency"] == "foreign"
+    # New money/quantity fields stay decimal strings, never JSON numbers.
+    for field in ("input_amount", "output_amount", "fee_amount",
+                  "restricted_gold_delta", "estimated_equity"):
+        assert isinstance(body[field], str), field
+    expected_sell = quote_sell(D("100"), D("1000"), D("1000"), D("0.01"))
+    assert D(body["input_amount"]) == expected_sell.input_amount
+    assert D(body["output_amount"]) == expected_sell.output_amount
+    assert D(body["fee_amount"]) == expected_sell.fee_amount
+    assert D(body["post_price"]) == expected_sell.post_price.quantize(Q6)
+    assert D(body["restricted_gold_delta"]) == expected_sell.output_amount
+    assert body["estimated_equity"] is not None
+    assert body["estimated_risk_basis"] is not None
+    assert body["pool_version"] == before["pool_version"]
+    assert body["expires_at"] is not None
+    # Advisory: the quote neither reserves the pool nor writes a trade/short.
+    assert await _stock(pair_id) == before
+
+    opened = await _open(client, user_headers, pair_id, amount="100",
+                         min_out="0", key="k-open-quote")
+    assert opened.status_code == 200, opened.text
+    assert D(opened.json()["output_amount"]) == D(body["output_amount"])
+    assert D(opened.json()["fee_amount"]) == D(body["fee_amount"])
+    assert D(opened.json()["post_price"]) == D(body["post_price"])
+
+    # The quote's simulated post-order risk equals the persisted post-open
+    # valuation: same W/K math, no second model.
+    async with async_session_maker() as s:
+        actual = await value_user_detailed(s, user_id, daily_rate=D("0"))
+    assert actual.liquidation_equity == D(body["estimated_equity"])
+    assert actual.risk_basis == D(body["estimated_risk_basis"])
+
+    # Move the pool with another account's spot buy; the next open order must
+    # re-quote against the moved pool rather than reuse the earlier quote.
+    _, mover_headers = await _make_user(cash="1000")
+    moved_response = await client.post(
+        f"/api/v1/fx/pairs/{pair_id}/trades",
+        json={"side": "buy", "amount": "200", "min_out": "0",
+              "idempotency_key": "k-move-pool"},
+        headers=mover_headers,
+    )
+    assert moved_response.status_code == 200, moved_response.text
+    moved = await _stock(pair_id)
+
+    quote2 = await _quote(client, user_headers, pair_id,
+                          {"action": "open", "foreign_amount": "50"})
+    assert quote2.status_code == 200, quote2.text
+    body2 = quote2.json()
+    expected_moved = quote_sell(D("50"), moved["pool_gold"], moved["pool_foreign"], D("0.01"))
+    assert D(body2["output_amount"]) == expected_moved.output_amount
+    assert D(body2["output_amount"]) != D(body["output_amount"])
+
+    opened2 = await _open(client, user_headers, pair_id, amount="50",
+                          key="k-open-quote-2")
+    assert opened2.status_code == 200, opened2.text
+    assert D(opened2.json()["output_amount"]) == D(body2["output_amount"])
+
+
+async def test_cover_all_quote_uses_pending_interest_exact_cost_and_release(client):
+    """``cover_all`` prices the settled principal+interest and releases only its lock.
+
+    Regression: quoting the stored principal, an exact-input (slippage-losing)
+    buy, or refusing a reduce-only cover because post-trade admission fails.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="1000", buy_fee_rate="0.02",
+                                 sell_fee_rate="0.01",
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+    assert (await _open(client, user_headers, pair_id, amount="100",
+                        key="k-cover-all")).status_code == 200
+    async with async_session_maker() as s:
+        async with s.begin():
+            row = (await s.execute(select(FxShortPosition).where(
+                FxShortPosition.user_id == user_id,
+                FxShortPosition.pair_id == pair_id))).scalars().one()
+            row.interest_foreign = D("1.5")
+            row.interest_last_accrued_at = datetime.now(timezone.utc)
+
+    stock = await _stock(pair_id)
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["action"] == "cover"
+    assert body["purpose"] == "short_cover"
+    assert body["cover_all"] is True
+    assert body["requested_foreign_amount"] is None
+    assert D(body["actual_foreign_amount"]) == D("101.5")
+    expected_buy = quote_buy_exact_out(
+        D("101.5"), stock["pool_gold"], stock["pool_foreign"], D("0.02"))
+    assert D(body["input_amount"]) == expected_buy.input_amount
+    assert D(body["output_amount"]) == D("101.5")
+    assert D(body["fee_amount"]) == expected_buy.fee_amount
+    assert body["fee_currency"] == "gold"
+    # A full cover releases exactly this position's own lock.
+    assert D(body["restricted_gold_delta"]) == -stock["locked"].quantize(Q6)
+    assert body["executable"] is True
+    assert body["blocked_reason"] is None
+    assert body["estimated_equity"] is not None
+
+    # A cover that leaves the account below the initial-margin admission is
+    # still a reduce-only quote: numeric post-state, not a refusal.
+    margin_user_id, margin_headers = await _make_user(cash="200")
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = await s.get(User, margin_user_id)
+            user.debt = D("1000")
+    margin_pair = await _create_pair(client, admin_headers, currency_code="MRO",
+                                     gold_reserve="1000", foreign_reserve="1000",
+                                     short_lending_limit_foreign="0")
+    await _seed_short_direct(margin_pair, margin_user_id, principal="100",
+                             restricted="200",
+                             accrued=datetime.now(timezone.utc))
+    margin_quote = await _quote(client, margin_headers, margin_pair,
+                                {"action": "cover", "cover_all": True})
+    assert margin_quote.status_code == 200, margin_quote.text
+    margin_body = margin_quote.json()
+    assert margin_body["executable"] is True
+    assert margin_body["blocked_reason"] is None
+    assert margin_body["risk_status"] == "ok"
+    assert margin_body["estimated_equity"] is not None
+    assert D(margin_body["estimated_equity"]) < ZERO
+
+
+async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(client):
+    """q >= F is a null-cost block; a smaller q still quotes; paused differs.
+
+    Regression: emitting a zero/Infinity cover cost for an unquotable debt,
+    blocking every partial cover because the full debt is unquotable, or
+    collapsing "known but not executable" into "unknown cost".
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                 foreign_reserve="50",
+                                 short_lending_limit_foreign="0")
+    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+
+    full = await _quote(client, user_headers, pair_id,
+                        {"action": "cover", "cover_all": True})
+    assert full.status_code == 200, full.text
+    full_body = full.json()
+    assert full_body["input_amount"] is None
+    assert full_body["output_amount"] is None
+    assert full_body["fee_amount"] is None
+    assert full_body["risk_status"] == "blocked"
+    assert full_body["blocked_reason"] == "insufficient_pool_foreign"
+    assert full_body["executable"] is False
+
+    small = await _quote(client, user_headers, pair_id,
+                         {"action": "cover", "foreign_amount": "10"})
+    assert small.status_code == 200, small.text
+    small_body = small.json()
+    expected = quote_buy_exact_out(D("10"), D("1000"), D("50"), ZERO)
+    assert D(small_body["input_amount"]) == expected.input_amount
+    assert D(small_body["output_amount"]) == D("10")
+    assert small_body["executable"] is True
+    # Remaining 90 >= F leaves the full-portfolio risk incomplete/null.
+    assert small_body["risk_status"] == "blocked"
+    assert small_body["estimated_equity"] is None
+
+    paused_pair = await _create_pair(client, admin_headers, currency_code="MRO",
+                                     status="paused", reduce_only=False,
+                                     gold_reserve="1000", foreign_reserve="1000",
+                                     short_lending_limit_foreign="0")
+    paused_user_id, paused_headers = await _make_user(cash="1000")
+    await _seed_short_direct(paused_pair, paused_user_id, principal="100",
+                             restricted="300",
+                             accrued=datetime.now(timezone.utc))
+    paused = await _quote(client, paused_headers, paused_pair,
+                          {"action": "cover", "cover_all": True})
+    assert paused.status_code == 200, paused.text
+    paused_body = paused.json()
+    # Finite math K is known; only execution is unavailable.
+    assert paused_body["input_amount"] is not None
+    assert paused_body["risk_status"] == "ok"
+    assert paused_body["executable"] is False
+    assert paused_body["blocked_reason"] == "pair_not_coverable"
+    assert paused_body["estimated_equity"] is not None
+
+    # The read model keeps "known but not executable" distinct from "unknown".
+    paused_read = (await _short_get(client, paused_headers, paused_pair)).json()
+    assert paused_read["reference_cover_cost"] is not None
+    assert paused_read["risk_status"] == "ok"
+    assert paused_read["executable"] is False
+    assert paused_read["blocked_reason"] == "pair_paused"
+
+    unknown_read = (await _short_get(client, user_headers, pair_id)).json()
+    assert unknown_read["reference_cover_cost"] is None
+    assert unknown_read["risk_status"] == "blocked"
+    assert unknown_read["blocked_reason"] == "insufficient_pool_foreign"
+    assert unknown_read["executable"] is False
+
+
+@pytest.mark.parametrize("payload", [
+    {"action": "open"},
+    {"action": "open", "foreign_amount": "NaN"},
+    {"action": "open", "foreign_amount": "0"},
+    {"action": "open", "foreign_amount": "-1"},
+    {"action": "open", "foreign_amount": "1.0000001"},
+    {"action": "open", "foreign_amount": "1", "cover_all": True},
+    {"action": "cover"},
+    {"action": "cover", "foreign_amount": "1", "cover_all": True},
+    {"action": "cover", "foreign_amount": "0"},
+    {"action": "cover", "foreign_amount": "1.0000001"},
+    {"action": "bogus", "foreign_amount": "1"},
+])
+async def test_invalid_quote_shape_is_422_without_writes(client, payload):
+    """NaN / overprecision / wrong action shape never reaches the ledger."""
+    _, admin_headers = await _make_user(superuser=True)
+    _, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers,
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+
+    response = await _quote(client, user_headers, pair_id, payload)
+    assert response.status_code == 422, (payload, response.text)
+    async with async_session_maker() as s:
+        assert (await s.execute(select(FxTrade))).scalars().all() == []
+        assert (await s.execute(select(FxShortPosition))).scalars().all() == []
+
+
+async def test_cover_quote_without_short_is_blocked_without_writes(client):
+    """A cover quote with no short never becomes a spot buy or a wallet."""
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers,
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+
+    for payload in ({"action": "cover", "cover_all": True},
+                    {"action": "cover", "foreign_amount": "1"}):
+        response = await _quote(client, user_headers, pair_id, payload)
+        assert response.status_code == 200, (payload, response.text)
+        body = response.json()
+        assert body["executable"] is False
+        assert body["blocked_reason"] == "no_outstanding_short"
+        assert body["input_amount"] is None
+        assert body["actual_foreign_amount"] is None
+
+    async with async_session_maker() as s:
+        assert (await s.execute(select(FxTrade))).scalars().all() == []
+        assert (await s.execute(select(FxShortPosition))).scalars().all() == []
+        wallet = (await s.execute(select(FxWallet).where(
+            FxWallet.user_id == user_id))).scalars().all()
+        assert wallet == []
+
+
+async def test_quote_status_matrix_gates_reduce_only_and_closed(client):
+    """The quote status matrix matches the write-route execution matrix.
+
+    Regression: a closed/short-gate-off pair still advertising an executable
+    open, a cover being suppressed with opening debt on the books, or
+    ``fx_enabled=false`` failing to stop player quote execution.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    _, user_headers = await _make_user(cash="100000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers,
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+    assert (await _open(client, user_headers, pair_id, amount="100",
+                        key="k-matrix-open")).status_code == 200
+
+    # Opening gate off must not suppress a cover for the live debt.
+    assert (await _set_gate(client, admin_headers, "false")).status_code == 200
+    open_quote = await _quote(client, user_headers, pair_id,
+                              {"action": "open", "foreign_amount": "10"})
+    assert open_quote.status_code == 200, open_quote.text
+    assert open_quote.json()["executable"] is False
+    assert open_quote.json()["blocked_reason"] == "short_disabled"
+    cover_quote = await _quote(client, user_headers, pair_id,
+                               {"action": "cover", "cover_all": True})
+    assert cover_quote.status_code == 200, cover_quote.text
+    assert cover_quote.json()["executable"] is True
+
+    # The pair lending cap of zero blocks a new open quote but not the cover.
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+    assert (await _patch_pair(client, admin_headers, pair_id,
+                              short_lending_limit_foreign="0")).status_code == 200
+    capped = await _quote(client, user_headers, pair_id,
+                          {"action": "open", "foreign_amount": "10"})
+    assert capped.status_code == 200, capped.text
+    assert capped.json()["executable"] is False
+    assert capped.json()["blocked_reason"] == "short_lending_limit"
+    still_cover = await _quote(client, user_headers, pair_id,
+                               {"action": "cover", "foreign_amount": "10"})
+    assert still_cover.status_code == 200, still_cover.text
+    assert still_cover.json()["executable"] is True
+
+    # paused + reduce_only allows cover; paused full-stop / closed do not.
+    assert (await _patch_pair(client, admin_headers, pair_id, status="paused",
+                              reduce_only=True)).status_code == 200
+    paused_ro = await _quote(client, user_headers, pair_id,
+                             {"action": "cover", "cover_all": True})
+    assert paused_ro.status_code == 200, paused_ro.text
+    assert paused_ro.json()["executable"] is True
+
+    assert (await _patch_pair(client, admin_headers, pair_id, status="paused",
+                              reduce_only=False)).status_code == 200
+    paused = await _quote(client, user_headers, pair_id,
+                          {"action": "cover", "cover_all": True})
+    assert paused.status_code == 200, paused.text
+    assert paused.json()["executable"] is False
+    assert paused.json()["blocked_reason"] == "pair_not_coverable"
+
+    # fx_enabled=false is the total user-trading stop: both actions blocked.
+    await _seed_config(fx_enabled="false")
+    for payload in ({"action": "open", "foreign_amount": "10"},
+                    {"action": "cover", "cover_all": True}):
+        response = await _quote(client, user_headers, pair_id, payload)
+        assert response.status_code == 200, (payload, response.text)
+        body = response.json()
+        assert body["executable"] is False
+        assert body["blocked_reason"] == "fx_disabled"
