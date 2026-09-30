@@ -7,15 +7,41 @@ from sqlalchemy import select, or_, exists
 from app.core.database import async_session_maker
 from app.models.base import User
 from app.models.credit import LiquidationRun
+from app.models.fx import FxShortPosition
 from app.services import site_config
 from app.services.credit.flags import get_flags
 from app.services.credit.ownership import OWNERSHIP
-from app.services.credit.valuation import value_users_batch
+from app.services.credit.valuation import RISK_STATUS_OK, value_users_batch
 from app.services.credit.execution import execute_user
 
 logger = logging.getLogger(__name__)
 PAGE_SIZE = 20
 WORKERS = 3
+ZERO = Decimal('0')
+
+
+def _has_foreign_obligation(value):
+    """估值里存在空头组 ⇔ 该账户有正的外币本金/利息（spec §8.2 候选）。"""
+    return any(group.role == 'short_cover' for group in value.groups)
+
+
+def _positive_assets(value):
+    """权威正资产整组净回收 A（不可执行/阻塞资产按 0 计，见 valuation.py）。"""
+    return sum(
+        (group.value for group in value.groups
+         if group.role == 'asset_sale' and group.value is not None),
+        ZERO,
+    )
+
+
+def _triggered(value, thresholds):
+    """已知完整估值才比较：共享 E/B 门槛，K 来自权威估值而非金债 D。"""
+    return thresholds.triggered_basis(
+        equity=value.liquidation_equity,
+        debt=value.debt_effective,
+        positive_assets=_positive_assets(value),
+        short_cover=value.short_cover_cost,
+    )
 
 
 async def run_sweep(trigger_source='scheduler'):
@@ -72,15 +98,34 @@ async def run_sweep(trigger_source='scheduler'):
         async with async_session_maker() as session:
             active = exists(select(LiquidationRun.id).where(
                 LiquidationRun.user_id == User.id, LiquidationRun.status == 'active'))
+            # 外币本金/利息任一 > 0 也有义务，即使 User.debt=0 且没有活跃 run。
+            foreign_debt = exists(select(FxShortPosition.id).where(
+                FxShortPosition.user_id == User.id,
+                or_(FxShortPosition.principal_foreign > ZERO,
+                    FxShortPosition.interest_foreign > ZERO)))
             ids = list((await session.execute(select(User.id).where(User.id > cursor,
-                User.id <= upper, or_(User.debt > 0, active)).order_by(User.id).limit(PAGE_SIZE))).scalars())
+                User.id <= upper, or_(User.debt > 0, active, foreign_debt)).order_by(User.id).limit(PAGE_SIZE))).scalars())
             if not ids:
                 break
             values = await value_users_batch(session, ids, daily_rate=rate)
             active_ids = set((await session.execute(select(LiquidationRun.user_id).where(
                 LiquidationRun.user_id.in_(ids), LiquidationRun.status == 'active'))).scalars())
-            candidates = [uid for uid in ids if uid in active_ids or
-                get_flags().thresholds.triggered(values[uid].liquidation_equity, values[uid].debt_effective)]
+            thresholds = get_flags().thresholds
+            candidates = []
+            for uid in ids:
+                value = values.get(uid)
+                if value is None:
+                    continue
+                if uid in active_ids:
+                    candidates.append(uid)
+                    continue
+                # 未知 K：不能比门槛、不能当 0；有外币义务就送执行器建/续 run。
+                if value.risk_status != RISK_STATUS_OK:
+                    if _has_foreign_obligation(value):
+                        candidates.append(uid)
+                    continue
+                if _triggered(value, thresholds):
+                    candidates.append(uid)
         # Session/connection released before workers wait for gates or writer queues.
         result['scanned_count'] += len(ids)
         cursor = ids[-1]

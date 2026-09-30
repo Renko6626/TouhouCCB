@@ -166,6 +166,26 @@ async def find_action_for_round(
     ).scalars().first()
 
 
+async def find_latest_action(
+    session: AsyncSession,
+    *,
+    run: LiquidationRun,
+) -> Optional[LiquidationAction]:
+    """该 run 已提交的最后一个动作（按 round 降序）；无动作返回 ``None``。
+
+    调用方用来判断"连续扫描仍是同一阻塞状态"，避免重复堆积 blocked action。
+    """
+    run_id = _run_id_of(run)
+    return (
+        await session.execute(
+            select(LiquidationAction)
+            .where(LiquidationAction.run_id == run_id)
+            .order_by(LiquidationAction.round_no.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+
+
 async def record_action(
     session: AsyncSession,
     *,
