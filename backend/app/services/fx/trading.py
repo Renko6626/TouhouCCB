@@ -287,6 +287,12 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         # Price snapshots from discovery can age while waiting for gates. Refresh
         # inside the complete gate set before simulating this transaction.
         credit_deps = await discover_dependencies(db, user_id, extra_groups=[key])
+        # 锁内重发现若引入当前 GATE 集合之外的新依赖组（例如并发新增的外币空头/
+        # 资产 pair，即使 User economic_version 未变），其快照没有门闩保护，绝不能用
+        # 于风险报价：退出让外层释放锁与 GATES 后重新发现并一次性取全有序门闩。
+        # 禁止在持 User 锁时补拿新的 pair GATE（spec §11）。
+        if not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task()):
+            raise _RetryCredit()
         # 同一 pair 已欠币时普通现货买入不得建立多头（spec §1/§9），必须走回补
         # 入口；判定放在幂等回放之后，保证重试返回原成交而不是被新规则误拒。
         snapshot = credit_deps.snapshots.get(key)
