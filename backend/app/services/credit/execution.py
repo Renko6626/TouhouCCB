@@ -67,6 +67,39 @@ def _has_foreign_obligation(pre: AccountValuation) -> bool:
     return any(group.role == 'short_cover' for group in pre.groups)
 
 
+def _foreign_resources_exhausted(pre: AccountValuation) -> bool:
+    """Only complete, unblocked obligations with no remaining resources are bad debt.
+
+    Keep even zero-output asset holdings for later repair/resumption; current
+    batch output or budget does not establish permanent exhaustion.
+    """
+    return (pre.risk_status == RISK_STATUS_OK
+            and pre.liquidation_equity is not None
+            and pre.short_cover_cost is not None
+            and pre.cash == ZERO
+            and _has_foreign_obligation(pre)
+            and all(g.role == 'short_cover' and g.executable
+                    and g.blocked_reason is None for g in pre.groups))
+
+
+def _waiting_reason(pre: AccountValuation) -> str:
+    return pre.blocked_reason or ','.join(sorted({
+        g.blocked_reason for g in pre.groups if g.blocked_reason
+    })) or NO_EXECUTABLE_GROUP
+
+
+def _freeze_foreign_debtor(user):
+    if not user.credit_frozen:
+        user.credit_frozen = True
+        bump_economic_version(user)
+
+
+async def _close_foreign_insolvent(session, user, run):
+    _freeze_foreign_debtor(user)
+    run.last_blocked_reason = NO_EXECUTABLE_GROUP
+    await close_run(session, run=run, status='insolvent', now=datetime.now(timezone.utc))
+
+
 def _positive_assets(pre: AccountValuation) -> Decimal:
     return sum(
         (group.value for group in pre.groups
@@ -532,6 +565,15 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
 
     if run is None and not _triggered(pre, thresholds):
         return LockedPlan(None, pre, None, None, None, None, None, 'recovered')
+    if run is None and _foreign_resources_exhausted(pre):
+        # Terminal debt remains a scan candidate. Reuse its terminal outcome
+        # while exhausted, but reconsider any later cash or asset resource.
+        latest = (await session.execute(select(LiquidationRun).where(
+            LiquidationRun.user_id == user.id).order_by(LiquidationRun.id.desc())
+            .limit(1).with_for_update())).scalars().first()
+        if latest is not None and latest.status == 'insolvent':
+            return LockedPlan(latest, pre, None, None, None, None, None, 'blocked',
+                              blocked_reason=latest.last_blocked_reason)
     if run is None:
         run = await get_or_create_active_run(session, user_id=user.id, trigger_source=source,
                                              now=datetime.now(timezone.utc))
@@ -542,6 +584,13 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
     if _recovered(thresholds, pre, has_short):
         await close_run(session, run=run, status='recovered', now=datetime.now(timezone.utc))
         return LockedPlan(run, pre, None, None, None, None, None, 'recovered')
+
+    if _foreign_resources_exhausted(pre):
+        _freeze_foreign_debtor(user)
+        await _record_blocked_once(session, user, run, group=None, reason=NO_EXECUTABLE_GROUP)
+        await _close_foreign_insolvent(session, user, run)
+        return LockedPlan(run, pre, None, None, None, None, None, 'blocked',
+                          blocked_reason=NO_EXECUTABLE_GROUP)
 
     now = datetime.now(timezone.utc)
     mode = 'full' if pre.liquidation_equity <= 0 else 'partial'
@@ -577,18 +626,22 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
         await record_action(session, run=run, round_no=run.next_round,
             kind='repay_cash' if paid else 'blocked', repaid=paid, debt_after=user.debt,
             cash_after=user.cash, economic_version_after=user.economic_version,
-            blocked_reason=None if cash_recovers else NO_EXECUTABLE_GROUP)
+            blocked_reason=None if cash_recovers else (
+                _waiting_reason(after) if has_short else NO_EXECUTABLE_GROUP))
         public_event(session, user, run, pre, product=None, mode=mode, sold=0,
                      proceeds=ZERO, repaid=paid, source=source)
         # A paused/unquotable holding can recover later. Keep its run active:
         # otherwise resumption between maintenance and initial loses hysteresis.
-        if cash_recovers or not after.groups:
+        if has_short and _foreign_resources_exhausted(after):
+            await _close_foreign_insolvent(session, user, run)
+        elif cash_recovers or not after.groups:
             await close_run(session, run=run,
                 status='recovered' if cash_recovers else 'insolvent',
                 now=datetime.now(timezone.utc))
         return LockedPlan(run, pre, None, None, mode, None, None,
                           'triggered' if paid else 'blocked', repaid=paid,
-                          blocked_reason=None if cash_recovers else NO_EXECUTABLE_GROUP)
+                          blocked_reason=None if cash_recovers else (
+                              _waiting_reason(after) if has_short else NO_EXECUTABLE_GROUP))
 
     if choice is not None:
         await session.flush()
@@ -599,9 +652,10 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
                           defer_repay=defer_repay)
 
     # 没有可执行组但仍有待回补空头（只可能是预算恰好为零，无现金可还）：保留 run。
-    await _record_blocked_once(session, user, run, group=None, reason=NO_EXECUTABLE_GROUP)
+    reason = _waiting_reason(pre)
+    await _record_blocked_once(session, user, run, group=None, reason=reason)
     return LockedPlan(run, pre, None, None, mode, None, None, 'blocked', defer_repay=True,
-                      blocked_reason=NO_EXECUTABLE_GROUP)
+                      blocked_reason=reason)
 
 
 async def finish_locked(session, user, run, rate):
@@ -616,13 +670,15 @@ async def finish_locked(session, user, run, rate):
         run.last_blocked_reason = post.blocked_reason or 'risk_unquotable'
         run.updated_at = datetime.now(timezone.utc)
         return
+    if has_short and _foreign_resources_exhausted(post):
+        await _close_foreign_insolvent(session, user, run)
+        return
     executable = any(g.executable and g.value is not None and g.value > 0
                      for g in post.groups)
     if executable:
         return
     if has_short:
-        # 外币义务的资不抵债判定属于 WP4d；这里只保留 active run 交接续扫。
-        run.last_blocked_reason = NO_EXECUTABLE_GROUP
+        run.last_blocked_reason = _waiting_reason(post)
         run.updated_at = datetime.now(timezone.utc)
         return
     if post.liquidation_equity is not None and post.liquidation_equity <= 0:

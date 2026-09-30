@@ -1098,7 +1098,8 @@ async def test_known_foreign_only_triggers_and_covers_without_false_recovery_at_
         covered = D("100") - D(short.principal_foreign)
         assert covered > 0, "known foreign-only short must actually be covered"
         run = (await s.execute(select(LiquidationRun))).scalars().one()
-        assert run.status == "active", "must not falsely recover at D=0"
+        assert run.status == "insolvent", "exhausted foreign debt must not recover at D=0"
+        assert user.credit_frozen and D(user.cash) == 0
         action = (await s.execute(select(LiquidationAction))).scalars().one()
         assert action.kind == "cover_group"
         assert D(action.foreign_repaid) == covered
@@ -1541,3 +1542,65 @@ async def test_unknown_overflow_skips_unstorable_treasury_and_covers_next_pair()
         assert (await s.execute(select(Position))).scalar_one().amount == D('10')
         trades = list((await s.execute(select(FxTrade))).scalars())
         assert len(trades) == 1 and trades[0].pair_id == second_id
+
+
+async def test_complete_foreign_insolvency_preserves_debt_and_resumes_after_deposit():
+    uid, pid, _ = await _seed_cover(
+        cash="0", principal="100", interest="2", restricted="0", basis="0",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        assert run.status == "insolvent"
+        user = await s.get(User, uid)
+        assert user.credit_frozen and D(user.cash) == 0 and D(user.debt) == 0
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        assert D(short.principal_foreign) == 100 and D(short.interest_foreign) == 2
+        treasury = (await s.execute(select(FxTreasury))).scalar_one()
+        assert D(treasury.foreign_balance) == 100000 and D(treasury.gold_balance) == 1000
+    for _ in range(2):
+        await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        assert (await s.execute(select(func.count(LiquidationRun.id)))).scalar_one() == 1
+        user = await s.get(User, uid)
+        user.cash = D("20")
+        await s.commit()
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result["monetary_action_count"] == 1
+    async with async_session_maker() as s:
+        runs = list((await s.execute(select(LiquidationRun).order_by(LiquidationRun.id))).scalars())
+        assert len(runs) == 2 and runs[0].status == "insolvent"
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        assert 0 < D(short.principal_foreign) < 100 and D(short.interest_foreign) == 0
+        assert (await s.get(User, uid)).credit_frozen
+
+
+async def test_complete_paused_short_with_no_resources_waits_for_market():
+    uid, pid, _ = await _seed_cover(
+        cash="0", principal="100", restricted="0", basis="0",
+        gold="1000", foreign="1000", status="paused", buy_fee="0")
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        assert run.status == "active" and run.pre_risk_basis is not None
+        assert run.last_blocked_reason == "pair_paused"
+        assert not (await s.get(User, uid)).credit_frozen
+
+
+@pytest.mark.parametrize("cash,expected", [("2.085", "active"), ("2.12", "recovered")])
+async def test_unknown_run_recovers_at_initial_only_after_pool_funding(cash, expected):
+    uid, pid = await _seed_foreign_only_overflow(principal="2", foreign_reserve="2", cash=cash)
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        pair = await s.get(FxPair, pid)
+        pair.foreign_reserve = D("1000")
+        pair.status = "paused"
+        # Explicit pool funding repairs full-cover quotation; no cover trade.
+        await s.commit()
+    await liquidation_sweep.run_liquidation_sweep_once()
+    async with async_session_maker() as s:
+        run = (await s.execute(select(LiquidationRun))).scalar_one()
+        assert run.status == expected
+        short = (await s.execute(select(FxShortPosition))).scalar_one()
+        assert D(short.principal_foreign) == 2 and D(short.interest_foreign) == 0
+        assert D((await s.get(User, uid)).cash) == D(cash)
