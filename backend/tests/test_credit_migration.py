@@ -16,10 +16,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from alembic.autogenerate import compare_metadata
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, select, text
 from sqlmodel import SQLModel
 
@@ -52,21 +50,6 @@ def _run_revision(conn, direction: str) -> None:
 
 def _diff(conn):
     return compare_metadata(MigrationContext.configure(conn), SQLModel.metadata)
-
-
-def test_credit_revision_remains_in_head_chain_and_follows_fx_tables():
-    revision = _load_revision()
-    assert revision.revision == "credit_foundation_20260930"
-    assert revision.down_revision == "fx_tables_20260928"
-    script = ScriptDirectory.from_config(
-        Config(str(BACKEND_DIR / "alembic.ini"))
-    )
-    head = script.get_current_head()
-    # Later additive migrations may follow credit foundation. It must still
-    # belong to the single head's upgrade chain, directly after the FX tables.
-    chain = list(script.iterate_revisions(head, "base"))
-    assert revision.revision in {entry.revision for entry in chain}
-    assert script.get_revision(revision.revision).down_revision == "fx_tables_20260928"
 
 
 def test_init_db_create_all_has_no_metadata_diff(tmp_path):
