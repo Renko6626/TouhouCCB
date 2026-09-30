@@ -67,14 +67,13 @@ async def _trading_count(db) -> int:
 
 
 @pytest.mark.asyncio
-async def test_unified_pair_status_update_holds_gate_through_commit(monkeypatch):
+async def test_unified_pair_status_update_holds_gate_through_commit(monkeypatch, fx_db):
     from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
-    from app.core.database import async_session_maker
     from app.services.credit import flags
     from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
 
-    async with async_session_maker() as db:
+    async with fx_db as db:
         admin = User(username="gate_admin", casdoor_id="gate_admin", is_superuser=True)
         db.add(admin)
         await db.commit()
@@ -123,12 +122,12 @@ async def test_three_trading_pairs_allowed_and_fourth_rejected(ctx):
     public = (await client.get("/api/v1/fx/pairs")).json()
     assert {row["currency_code"] for row in public} == {"AAA", "BBB", "CCC", "EEE", "GGG"}
 
-    # 已开仓 pair 的 identity 仍不可改（旧 `:195` 唯一限制删除后此保护不变）。
+    # 已开市 pair 代码不可改，但显示名称允许修正。
     aaa_id = next(row["id"] for row in public if row["currency_code"] == "AAA")
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{aaa_id}",
                                json={"currency_code": "ZZZ"})).status_code == 409
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{aaa_id}",
-                               json={"currency_name": "Renamed"})).status_code == 409
+                               json={"currency_name": "Renamed"})).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -204,8 +203,8 @@ async def test_capacity_lock_uses_transactional_advisory_lock_on_postgres(ctx):
     await admin_fx._lock_trading_capacity(lite)
     assert lite.statements == []
 
-    # 测试替身（无 bind 的 session 适配器）不触发 PG 分支也不会崩。
-    assert admin_fx._dialect_name(db) == ""
+    # 隔离 SQLite session 适配器不触发 PG 分支。
+    assert admin_fx._dialect_name(db) == "sqlite"
 
 
 @pytest.mark.asyncio

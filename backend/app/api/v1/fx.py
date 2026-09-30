@@ -46,7 +46,7 @@ async def all_my_trades(
 
 @router.get("/pairs", response_model=list[FxPairPublic])
 async def list_pairs(db: AsyncSession = Depends(get_async_session)):
-    rows = (await db.execute(select(FxPair).where(FxPair.status != "draft").order_by(FxPair.id))).scalars().all()
+    rows = (await db.execute(select(FxPair).where(FxPair.status != "draft", FxPair.archived.is_(False)).order_by(FxPair.id))).scalars().all()
     return rows
 
 

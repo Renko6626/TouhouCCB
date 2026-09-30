@@ -273,19 +273,23 @@ class FxEngine:
             # Event intervention follows exponential decay toward the normal target.
             spent = Decimal(str((event.parameter_snapshot or {}).get("spent", "0")))
             remaining_budget = max(ZERO, Decimal(event.budget or 0) - spent)
-            if remaining_budget <= 0:
+            target_after = Decimal((event.parameter_snapshot or {}).get("target_after", old_target))
+            current_price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
+            # Both inputs and outputs have six decimals. For sells the budget
+            # is gold, while the input is foreign: at a high rate even several
+            # gold quanta may not pay for one foreign quantum.
+            input_budget = remaining_budget if target_after >= current_price else remaining_budget / current_price
+            if amount_down(remaining_budget) <= ZERO or amount_down(input_budget) <= ZERO:
                 reasons.append(f"pair:{pair.id}:event:{event.id}:event_budget_exhausted")
-                event.error_message = "event budget exhausted"
+                event.error_message = None
                 event.status, event.completed_at = "completed", now
                 audit_service.record(db, "fx_event_complete", ref_table="fx_event", ref_id=event.id,
                                       payload={"pair_id": pair.id, "reason": "budget_exhausted"})
                 continue
-            target_after = Decimal((event.parameter_snapshot or {}).get("target_after", old_target))
             previous_tick = (event.parameter_snapshot or {}).get("last_tick_at")
             previous_at = _utc(datetime.fromisoformat(previous_tick)) if previous_tick else _utc(event.published_at)
             dt = max(0.0, (now - previous_at).total_seconds())
             progress = event_progress(dt, window)
-            current_price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
             desired = current_price * ((target_after / current_price).ln() * progress).exp()
             try:
                 moved = await self._safe_system_move(db, pair, treasury, desired, remaining_budget,

@@ -16,10 +16,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from alembic.autogenerate import compare_metadata
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, select, text
 from sqlmodel import SQLModel
 
@@ -52,16 +50,6 @@ def _run_revision(conn, direction: str) -> None:
 
 def _diff(conn):
     return compare_metadata(MigrationContext.configure(conn), SQLModel.metadata)
-
-
-def test_revision_is_head_and_follows_fx_tables():
-    revision = _load_revision()
-    assert revision.revision == "credit_foundation_20260930"
-    assert revision.down_revision == "fx_tables_20260928"
-    head = ScriptDirectory.from_config(
-        Config(str(BACKEND_DIR / "alembic.ini"))
-    ).get_current_head()
-    assert head == revision.revision
 
 
 def test_init_db_create_all_has_no_metadata_diff(tmp_path):

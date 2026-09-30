@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useMessage } from 'naive-ui'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useDialog, useMessage } from 'naive-ui'
 import { formatFxAmount, fxAdminApi, fxApi, mapFxError, mergeFxPairs } from '@/api/fx'
 import { getConfigMeta } from '@/utils/configMeta'
 import { buildFxPairSetup } from '@/utils/fxPairSetup'
@@ -10,12 +10,14 @@ import type {
   FxPairAdmin,
   FxPairAdminDetail,
   FxPairPublic,
+  FxPairPatch,
   FxPairStatus,
   FxSnapshot,
   FxSide,
 } from '@/types/fx'
 
 const msg = useMessage()
+const dialog = useDialog()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -38,7 +40,15 @@ let interventionRequestId = 0
 
 // 公开列表过滤 draft；合并本地写操作返回的管理员记录，保证本会话内
 // 「创建草稿 → 注资 → 开市」全程可见、可选。公开条目存在时优先（字段更新鲜）。
-const visiblePairs = computed<FxPairPublic[]>(() => mergeFxPairs(adminPairs.value, pairs.value))
+const allPairs = computed<FxPairPublic[]>(() => mergeFxPairs(adminPairs.value, pairs.value))
+const visiblePairs = computed(() => allPairs.value.filter(p => !adminPairs.value[p.id]?.archived))
+const showArchived = ref(false)
+const tablePairs = computed(() => showArchived.value ? allPairs.value : visiblePairs.value)
+const pairBusy = ref(false)
+const editingPairId = ref<number | null>(null)
+const editPanel = ref<HTMLElement | null>(null)
+const editError = ref<string | null>(null)
+const editForm = ref({ currency_code: '', currency_name: '', target_price: '', target_min: '', target_max: '', buy_fee_rate: '', sell_fee_rate: '' })
 
 const CONFIG_LABELS: Record<string, string> = {
   fx_enabled: 'FX 总闸（默认关闭）',
@@ -201,11 +211,15 @@ async function loadPairs() {
 /** 下拉默认选中第一个可见 pair（含本地草稿）。 */
 function syncDefaultSelections() {
   const list = visiblePairs.value
-  if (list.length === 0) return
-  const firstId = list[0]!.id
-  if (fundForm.value.pair_id === 0) fundForm.value.pair_id = firstId
-  if (eventForm.value.pair_id === 0) eventForm.value.pair_id = firstId
-  if (interventionPairId.value === null) interventionPairId.value = firstId
+  const ids = new Set(list.map(p => p.id))
+  const firstId = list[0]?.id ?? 0
+  if (!ids.has(fundForm.value.pair_id)) fundForm.value.pair_id = firstId
+  if (!ids.has(eventForm.value.pair_id)) eventForm.value.pair_id = firstId
+  if (interventionPairId.value === null || !ids.has(interventionPairId.value)) {
+    interventionPairId.value = firstId || null
+    interventions.value = []
+    interventionRequestId++
+  }
 }
 
 async function loadPublicSnapshots() {
@@ -308,13 +322,98 @@ async function createPair() {
   }
 }
 
+async function startEditingPair(pair: FxPairPublic) {
+  const detail = detailOf(pair.id)
+  if (!detail || detail.archived) return
+  editingPairId.value = pair.id
+  editError.value = null
+  editForm.value = {
+    currency_code: detail.currency_code, currency_name: detail.currency_name,
+    target_price: detail.target_price, target_min: detail.target_min, target_max: detail.target_max,
+    buy_fee_rate: detail.buy_fee_rate, sell_fee_rate: detail.sell_fee_rate,
+  }
+  await nextTick()
+  editPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function savePairEdit() {
+  const id = editingPairId.value
+  const original = detailOf(id)
+  if (id === null || !original || pairBusy.value) return
+  editError.value = null
+  const f = editForm.value
+  if (!f.currency_name.trim() || !/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
+    editError.value = '请填写币种名称，代码仅支持大写字母、数字与下划线'
+    return
+  }
+  if (![f.target_price, f.target_min, f.target_max].every(v => Number.isFinite(toNumber(v)) && toNumber(v) > 0)) {
+    editError.value = '目标价及上下限必须为正数'
+    return
+  }
+  if (toNumber(f.target_min) > toNumber(f.target_price) || toNumber(f.target_price) > toNumber(f.target_max)) {
+    editError.value = '目标价必须落在目标区间内'
+    return
+  }
+  if (![f.buy_fee_rate, f.sell_fee_rate].every(v => v.trim() !== '' && Number.isFinite(toNumber(v)) && toNumber(v) >= 0 && toNumber(v) < 1)) {
+    editError.value = '买卖费率必须在 0（含）与 1（不含）之间'
+    return
+  }
+  const body: FxPairPatch = { ...f }
+  if (f.currency_code === original.currency_code) delete body.currency_code
+  pairBusy.value = true
+  try {
+    await fxAdminApi.updatePair(id, body)
+    editingPairId.value = null
+    await loadPairs()
+    await loadPublicSnapshots()
+    msg.success('市场参数已更新')
+  } catch (e) {
+    editError.value = mapFxError(e, '市场参数更新失败')
+  } finally {
+    pairBusy.value = false
+  }
+}
+
+function confirmPairCleanup(pair: FxPairPublic, archive: boolean) {
+  if (pairBusy.value) return
+  dialog.warning({
+    title: `${archive ? '归档' : '删除'} ${pair.currency_name}（${pair.currency_code}）`,
+    content: archive
+      ? '归档会关闭市场，并从玩家列表和管理员默认列表隐藏。成交、持仓账目和新闻历史保留。所有玩家持仓须已清空，且没有已排期或进行中的事件。'
+      : '仅无成交和已发布新闻历史的市场可删除。删除会清理空钱包、未发布事件及系统储备，保留操作审计；不能撤销。有历史记录时请使用归档。',
+    positiveText: archive ? '确认归档' : '确认删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      if (pairBusy.value) return false
+      pairBusy.value = true
+      try {
+        if (archive) await fxAdminApi.archivePair(pair.id)
+        else await fxAdminApi.deletePair(pair.id)
+        if (editingPairId.value === pair.id) editingPairId.value = null
+        await loadPairs()
+        await Promise.all([loadPublicSnapshots(), loadEvents()])
+        msg.success(archive ? '市场已归档，历史记录保留' : '测试市场已删除')
+      } catch (e) {
+        msg.error(mapFxError(e, archive ? '归档失败' : '删除失败'))
+        return false
+      } finally {
+        pairBusy.value = false
+      }
+    },
+  })
+}
+
 async function changePairStatus(pair: FxPairPublic, status: FxPairStatus) {
+  if (pairBusy.value) return
+  pairBusy.value = true
   try {
     await fxAdminApi.updatePair(pair.id, { status })
     await loadPairs()
     msg.success(`${pair.currency_code} 状态已改为 ${combinePairStatus(status)}`)
   } catch (e) {
     msg.error(mapFxError(e, '状态更新失败'))
+  } finally {
+    pairBusy.value = false
   }
 }
 
@@ -504,10 +603,11 @@ onMounted(async () => {
       <section class="fx-panel">
         <div class="fx-panel-head">
           <h2>货币对 / 池子 / 系统储备</h2>
+          <label class="fx-hint"><input v-model="showArchived" type="checkbox" /> 显示已归档</label>
           <button class="btn-secondary" @click="loadPairs().then(loadPublicSnapshots)">刷新</button>
         </div>
         <p class="fx-hint">
-          数据来自 GET /api/v1/admin/fx/pairs（含草稿与系统 treasury），刷新后不再丢失运营状态。
+          可编辑名称、目标价与费率；币种代码仅在草稿阶段可修改。空测试市场可删除，有历史记录且已清空持仓的市场可归档。
           池子买卖价/价差来自公开 snapshot，单位统一为「金 / 1 外币」：买入价为 ask、卖出价为 bid，
           价差 = 买入价 − 卖出价 ≥ 0。
         </p>
@@ -528,10 +628,10 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in visiblePairs" :key="p.id">
+              <tr v-for="p in tablePairs" :key="p.id">
                 <td>{{ p.id }}</td>
                 <td>{{ p.currency_name }}（{{ p.currency_code }}）</td>
-                <td>{{ combinePairStatus(p.status) }}</td>
+                <td>{{ adminPairs[p.id]?.archived ? '已归档' : combinePairStatus(p.status) }}</td>
                 <td>
                   <template v-if="detailOf(p.id)">
                     {{ formatFxAmount(detailOf(p.id)!.gold_reserve) }} /
@@ -573,20 +673,41 @@ onMounted(async () => {
                   <template v-else>—</template>
                 </td>
                 <td class="fx-actions-cell">
-                  <template v-if="p.status !== 'trading'">
-                    <button class="btn-sm" @click="changePairStatus(p, 'trading')">开市</button>
+                  <template v-if="!adminPairs[p.id]?.archived">
+                    <button class="btn-sm" :disabled="pairBusy" @click="startEditingPair(p)">编辑</button>
+                    <button v-if="p.status !== 'trading'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'trading')">开市</button>
+                    <button v-else class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'paused')">暂停</button>
+                    <button v-if="p.status !== 'closed'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'closed')">关闭</button>
+                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, true)">归档</button>
+                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, false)">删除</button>
                   </template>
-                  <template v-else>
-                    <button class="btn-sm" @click="changePairStatus(p, 'paused')">暂停</button>
-                  </template>
-                  <button v-if="p.status !== 'closed'" class="btn-sm" @click="changePairStatus(p, 'closed')">关闭</button>
+                  <span v-else class="fx-hint">历史保留</span>
                 </td>
               </tr>
-              <tr v-if="visiblePairs.length === 0">
-                <td colspan="10" class="fx-empty-cell">还没有货币对，请先创建草稿并注资</td>
+              <tr v-if="tablePairs.length === 0">
+                <td colspan="10" class="fx-empty-cell">暂无市场；可创建草稿或勾选“显示已归档”查看历史市场</td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <div v-if="editingPairId !== null" ref="editPanel" class="fx-form-card fx-edit-panel">
+          <h3>编辑 {{ detailOf(editingPairId)?.currency_code }} · #{{ editingPairId }}</h3>
+          <p class="fx-hint">调整目标价与费率不会重置池子储备或成交历史。费率填写小数，例如 0.002 表示 0.2%。</p>
+          <div class="fx-setup-fields">
+            <label>币种代码<input v-model="editForm.currency_code" class="fx-input" maxlength="16" :disabled="detailOf(editingPairId)?.status !== 'draft' || pairBusy" /></label>
+            <label>币种名称<input v-model="editForm.currency_name" class="fx-input" maxlength="64" :disabled="pairBusy" /></label>
+            <label>系统目标价<input v-model="editForm.target_price" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+            <label>目标下限<input v-model="editForm.target_min" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+            <label>目标上限<input v-model="editForm.target_max" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+            <label>买入费率（小数）<input v-model="editForm.buy_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+            <label>卖出费率（小数）<input v-model="editForm.sell_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+          </div>
+          <p v-if="editError" class="fx-error" role="alert">{{ editError }}</p>
+          <div class="fx-form-actions">
+            <button class="btn-primary" :disabled="pairBusy" @click="savePairEdit">{{ pairBusy ? '保存中…' : '保存修改' }}</button>
+            <button class="btn-secondary" :disabled="pairBusy" @click="editingPairId = null">取消</button>
+          </div>
         </div>
 
         <div class="fx-form-grid">
@@ -929,6 +1050,9 @@ onMounted(async () => {
   border: 1.5px solid #000;
   padding: 12px;
   background: #fafafa;
+}
+.fx-edit-panel {
+  margin-top: 16px;
 }
 .fx-form-card h3 {
   margin: 0 0 10px;

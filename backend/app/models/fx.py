@@ -49,6 +49,7 @@ class FxPair(SQLModel, table=True):
     currency_code: str = Field(max_length=16, nullable=False, unique=True)
     currency_name: str = Field(max_length=64, nullable=False)
     status: str = Field(default=FxPairStatus.DRAFT.value, max_length=16, nullable=False)
+    archived: bool = Field(default=False, nullable=False, sa_column_kwargs={"server_default": text("false")})
     gold_reserve: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
     foreign_reserve: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
     target_price: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)

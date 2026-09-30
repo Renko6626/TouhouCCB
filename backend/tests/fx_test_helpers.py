@@ -10,6 +10,7 @@ from app.models.base import SiteConfig, User
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
+from app.services.credit.ownership import WriteOwnership
 
 
 class AsyncCompatSession:
@@ -23,6 +24,14 @@ class AsyncCompatSession:
     async def rollback(self): self._session.rollback()
     async def refresh(self, value): self._session.refresh(value)
     async def get(self, model, key): return self._session.get(model, key)
+    def get_bind(self): return self._session.get_bind()
+    async def close(self): self._session.close()
+    @property
+    def new(self): return self._session.new
+    @property
+    def dirty(self): return self._session.dirty
+    @property
+    def deleted(self): return self._session.deleted
     def in_transaction(self): return self._session.in_transaction()
     class _AsyncNested:
         def __init__(self, session): self.session = session; self.transaction = None
@@ -46,23 +55,30 @@ class AsyncCompatSession:
 
 
 @pytest_asyncio.fixture
-async def fx_db():
+async def fx_db(monkeypatch):
+    owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
+    await owner.acquire()
+    for module in ("app.api.v1.admin_fx", "app.services.fx.engine", "app.services.fx.scheduler", "app.services.fx.trading"):
+        monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__, FxEvent.__table__,
               AuditEvent.__table__]
     SQLModel.metadata.create_all(engine, tables=tables)
-    with Session(engine) as raw:
-        db = AsyncCompatSession(raw)
-        db.add_all([
-            SiteConfig(key="fx_enabled", value="true", value_type="bool"),
-            SiteConfig(key="fx_daily_budget", value="100000", value_type="decimal"),
-            SiteConfig(key="fx_step_max_ratio", value="0.001", value_type="decimal"),
-        ])
-        await db.commit()
-        site_config.clear_cache()
-        yield db
-    engine.dispose()
+    try:
+        with Session(engine, expire_on_commit=False) as raw:
+            db = AsyncCompatSession(raw)
+            db.add_all([
+                SiteConfig(key="fx_enabled", value="true", value_type="bool"),
+                SiteConfig(key="fx_daily_budget", value="100000", value_type="decimal"),
+                SiteConfig(key="fx_step_max_ratio", value="0.001", value_type="decimal"),
+            ])
+            await db.commit()
+            site_config.clear_cache()
+            yield db
+    finally:
+        engine.dispose()
+        await owner.release()
 
 
 async def add_pair(db, *, code="TST", gold="100", foreign="100", target="1",

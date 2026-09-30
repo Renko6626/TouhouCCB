@@ -4,20 +4,26 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.api.v1.admin_fx import router
 from app.api.v1.fx import router as public_router
 from app.core.database import get_async_session
-from app.core.users import current_superuser
+from app.core.users import current_active_user, current_superuser
 from app.models.audit import AuditEvent
 from app.models.base import User
-from app.models.fx import FxPair, FxTreasury
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.services.credit.ownership import EconomicWritesDisabled, WriteOwnership
 from tests.fx_test_helpers import fx_db
 
 
 @pytest_asyncio.fixture
-async def ctx(fx_db):
+async def ctx(fx_db, monkeypatch):
+    owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
+    await owner.acquire()
+    for module in ("app.api.v1.admin_fx", "app.services.fx.scheduler", "app.services.fx.engine"):
+        monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
+    await fx_db.execute(text("PRAGMA foreign_keys=ON"))
     admin = User(username="fx_admin", casdoor_id="fx_admin", is_superuser=True)
     normal = User(username="fx_normal", casdoor_id="fx_normal", is_superuser=False)
     fx_db.add_all([admin, normal]); await fx_db.commit()
@@ -34,8 +40,10 @@ async def ctx(fx_db):
     application.state.current_user = admin
     application.dependency_overrides[get_async_session] = session_override
     application.dependency_overrides[current_superuser] = admin_override
+    application.dependency_overrides[current_active_user] = admin_override
     async with AsyncClient(transport=ASGITransport(app=application), base_url="http://test") as client:
         yield client, fx_db, application, admin, normal
+    await owner.release()
 
 
 PAIR = {"currency_code": "USD", "currency_name": "Dollar", "status": "trading",
@@ -55,7 +63,7 @@ async def test_superuser_single_trading_pair_and_opened_identity(ctx):
     pair_id = created.json()["id"]
     second = await client.post("/api/v1/admin/fx/pairs", json={**PAIR, "currency_code": "EUR"})
     assert second.status_code == 200
-    assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"currency_name": "New"})).status_code == 409
+    assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"currency_name": "New"})).status_code == 200
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"status": "paused"})).status_code == 200
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"currency_code": "EUR"})).status_code == 409
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"reduce_only": None})).status_code == 422
@@ -203,3 +211,209 @@ async def test_manual_publish_delegates_to_shared_event_service(ctx, monkeypatch
     retry = await client.post(f"/api/v1/admin/fx/events/{event.json()['id']}/publish")
     assert retry.status_code == 200
     assert retry.json()["parameter_snapshot"]["first_trade_id"] == published.json()["parameter_snapshot"]["first_trade_id"]
+
+
+@pytest.mark.asyncio
+async def test_delete_unused_pair_cleans_dependents_and_keeps_audit(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    db.add(FxWallet(user_id=admin.id, pair_id=pair_id))
+    db.add(FxEvent(pair_id=pair_id, title='Unused draft', kind='macro'))
+    await db.commit()
+    response = await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')
+    assert response.status_code == 204, response.text
+    assert await db.get(FxPair, pair_id) is None
+    for model in (FxWallet, FxTreasury, FxEvent):
+        assert not (await db.execute(select(model).where(model.pair_id == pair_id))).scalars().all()
+    assert (await client.get('/api/v1/fx/pairs')).json() == []
+    audits = (await db.execute(select(AuditEvent).where(AuditEvent.event_type == 'fx_pair_delete'))).scalars().all()
+    assert len(audits) == 1 and audits[0].operator_user_id == admin.id
+    assert audits[0].payload['before']['currency_code'] == 'USD'
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 404
+
+
+async def _cleared_trade(db, pair_id, user_id):
+    trade = FxTrade(pair_id=pair_id, user_id=user_id, side='sell', input_amount=Decimal('1'),
+                    output_amount=Decimal('1'), pre_gold_reserve=Decimal('101'),
+                    pre_foreign_reserve=Decimal('99'), post_gold_reserve=Decimal('100'),
+                    post_foreign_reserve=Decimal('100'), post_price=Decimal('1'))
+    db.add(trade)
+    db.add(FxWallet(pair_id=pair_id, user_id=user_id))
+    await db.commit()
+    return trade
+
+
+@pytest.mark.asyncio
+async def test_archive_cleared_pair_hides_market_and_preserves_history(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    trade = await _cleared_trade(db, pair_id, admin.id)
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 409
+    response = await client.post(f'/api/v1/admin/fx/pairs/{pair_id}/archive')
+    assert response.status_code == 200, response.text
+    assert response.json()['archived'] is True
+    assert response.json()['status'] == 'closed'
+    assert (await client.get('/api/v1/fx/pairs')).json() == []
+    assert (await client.get('/api/v1/admin/fx/pairs')).json()[0]['archived'] is True
+    assert (await client.get('/api/v1/fx/my-trades')).json()[0]['id'] == trade.id
+    assert (await client.get(f'/api/v1/fx/pairs/{pair_id}/trades')).json()[0]['id'] == trade.id
+    assert (await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={'status': 'trading'})).status_code == 409
+    assert (await client.post(f'/api/v1/admin/fx/pairs/{pair_id}/fund', json={'gold_amount': '1'})).status_code == 409
+    assert (await client.post('/api/v1/admin/fx/events', json={'pair_id': pair_id, 'title': 'Later', 'budget': '1'})).status_code == 409
+    assert await db.get(FxTrade, trade.id) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['archive', 'delete'])
+@pytest.mark.parametrize('blocker', ['holding', 'cost_basis', 'scheduled', 'published'])
+async def test_cleanup_blocks_live_holdings_or_active_events(ctx, action, blocker):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    if blocker in {'holding', 'cost_basis'}:
+        db.add(FxWallet(pair_id=pair_id, user_id=normal.id,
+                        foreign_amount=Decimal('1') if blocker == 'holding' else Decimal('0'),
+                        cost_basis=Decimal('1') if blocker == 'cost_basis' else Decimal('0')))
+    else:
+        db.add(FxEvent(pair_id=pair_id, title='Active', kind='macro', status=blocker))
+    await db.commit()
+    url = f'/api/v1/admin/fx/pairs/{pair_id}'
+    response = await client.post(url + '/archive') if action == 'archive' else await client.delete(url)
+    assert response.status_code == 409, response.text
+    assert (await client.get('/api/v1/fx/pairs')).json()[0]['status'] == 'trading'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['archive', 'delete'])
+async def test_cleanup_is_superuser_only_and_read_only_guarded(ctx, action, monkeypatch):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    url = f'/api/v1/admin/fx/pairs/{pair_id}'
+    async def cleanup():
+        return await client.post(url + '/archive') if action == 'archive' else await client.delete(url)
+    app.state.current_user = normal
+    assert (await cleanup()).status_code == 403
+    app.state.current_user = admin
+    from app.api.v1.admin_fx import OWNERSHIP
+    OWNERSHIP.mark_read_only()
+    with pytest.raises(EconomicWritesDisabled):
+        await cleanup()
+    assert await db.get(FxPair, pair_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_does_not_reuse_pair_id_or_cross_audit_history(ctx):
+    client, db, app, admin, normal = ctx
+    deleted_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{deleted_id}')).status_code == 204
+    recreated = await client.post('/api/v1/admin/fx/pairs', json={**PAIR, 'currency_name': 'New market'})
+    assert recreated.status_code == 200, recreated.text
+    assert recreated.json()['id'] > deleted_id
+
+
+@pytest.mark.asyncio
+async def test_used_pair_cannot_change_code_by_reverting_to_draft(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    await _cleared_trade(db, pair_id, admin.id)
+    assert (await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={'status': 'draft'})).status_code == 409
+    response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={'currency_code': 'EUR'})
+    assert response.status_code == 409
+    assert (await db.get(FxPair, pair_id)).currency_code == 'USD'
+
+
+@pytest.mark.asyncio
+async def test_edit_draft_duplicate_currency_code_leaves_original_intact(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json={**PAIR, 'status': 'draft'})).json()['id']
+    await client.post('/api/v1/admin/fx/pairs', json={**PAIR, 'currency_code': 'EUR'})
+    response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={'currency_code': 'EUR'})
+    assert response.status_code == 409
+    assert (await db.get(FxPair, pair_id)).currency_code == 'USD'
+
+
+@pytest.mark.asyncio
+async def test_published_news_history_requires_archive_even_without_trades(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    db.add(FxEvent(pair_id=pair_id, title='History', kind='macro', status='completed'))
+    await db.commit()
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 409
+    assert (await client.post(f'/api/v1/admin/fx/pairs/{pair_id}/archive')).status_code == 200
+    assert len((await client.get('/api/v1/admin/fx/events')).json()) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['archive', 'delete'])
+async def test_cleanup_holds_unified_gate_until_commit(ctx, action, monkeypatch):
+    from app.services.credit import flags
+    from app.services.credit.gates import GATES
+    from app.services.credit.keys import GroupKey
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    settings = flags.parse_flags({'unified_credit_enabled': 'true', 'credit_leverage': '20',
+                                  'credit_maintenance_ratio': '0.04'})
+    monkeypatch.setattr(flags, 'get_flags', lambda: settings)
+    commit = db.commit
+    gates_at_commit = []
+    async def checked_commit():
+        gates_at_commit.append(GroupKey('fx', pair_id) in GATES.held_keys_by_current_task())
+        await commit()
+    monkeypatch.setattr(db, 'commit', checked_commit)
+    url = f'/api/v1/admin/fx/pairs/{pair_id}'
+    response = await client.post(url + '/archive') if action == 'archive' else await client.delete(url)
+    assert response.status_code == (200 if action == 'archive' else 204), response.text
+    assert gates_at_commit == [True]
+    assert not GATES.held_keys_by_current_task()
+
+
+@pytest.mark.asyncio
+async def test_opened_unused_pair_cannot_revert_to_draft_and_change_code(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={'status': 'draft'})
+    assert response.status_code == 409
+    assert (await db.get(FxPair, pair_id)).status == 'trading'
+
+
+@pytest.mark.asyncio
+async def test_delete_draft_event_does_not_cross_audit_history_on_recreate(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    event = await client.post('/api/v1/admin/fx/events', json={'pair_id': pair_id, 'title': 'Old draft', 'budget': '1'})
+    old_event_id = event.json()['id']
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 204
+    new_pair = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    event = await client.post('/api/v1/admin/fx/events', json={'pair_id': new_pair, 'title': 'New draft', 'budget': '1'})
+    assert event.status_code == 200, event.text
+    assert event.json()['id'] > old_event_id
+
+
+@pytest.mark.asyncio
+async def test_delete_replay_matches_live_and_keeps_historical_snapshot(ctx):
+    from app.services import audit_replay
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    await client.post(f'/api/v1/admin/fx/pairs/{pair_id}/fund', json={'gold_amount': '10'})
+    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 204
+    events = await audit_replay.load_events(db)
+    deletion = next(e for e in events if e.event_type == 'fx_pair_delete')
+    historical, errors = audit_replay.fold([e for e in events if e.id < deletion.id], check=True)
+    assert errors == []
+    assert historical.fx_pairs[pair_id].gold == Decimal('110')
+    latest, errors = audit_replay.fold(events, check=True)
+    assert errors == []
+    assert await audit_replay.compare_with_live(db, latest) == []
+    assert pair_id not in latest.fx_pairs
+
+
+@pytest.mark.asyncio
+async def test_target_range_outside_initial_bounds_rejected_without_changes(ctx):
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}', json={
+        'target_min': '3', 'target_price': '3.5', 'target_max': '4'})
+    assert response.status_code == 422
+    assert (await db.get(FxPair, pair_id)).target_price == Decimal('1')
+    response = await client.post('/api/v1/admin/fx/pairs', json={**PAIR, 'currency_code': 'BAD',
+        'target_min': '0.1', 'target_price': '0.2', 'target_max': '0.4'})
+    assert response.status_code == 422
