@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select, update as sa_update
 
 from app.core.database import async_session_maker
+from app.services.credit.cash import available_cash
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
@@ -171,7 +172,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
             OWNERSHIP.require_writes()
             # title 门槛：与老路径同位置（锁内、扣款前），语义不变
             await assert_user_can_trade_market(session, cmd.user_id, state.market_id)
-            if locked_user.cash < pay:
+            if await available_cash(session, locked_user) < pay:
                 raise HTTPException(status_code=400, detail="现金不足")
             await check_credit_buy(session, locked_user, state.market_id, cmd.outcome_id,
                                    shares_d, pay, new_q_dec)

@@ -7,7 +7,7 @@ from sqlmodel import Session, SQLModel
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxShortPosition, FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
 from app.services.credit.ownership import WriteOwnership
@@ -62,7 +62,7 @@ async def fx_db(monkeypatch):
         monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-              FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__, FxEvent.__table__,
+              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__, FxEvent.__table__,
               AuditEvent.__table__]
     SQLModel.metadata.create_all(engine, tables=tables)
     try:

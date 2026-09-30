@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from app.models.base import User
 from app.services import audit_service, ledger_service
 from app.services.credit.version import bump_economic_version
+from app.services.credit.cash import available_cash
 
 
 _QUANT = Decimal("0.000001")
@@ -189,7 +190,7 @@ async def decrease_debt_locked(
     effective = (user.debt if amount is None else min(amount, user.debt)).quantize(_QUANT)
     if consume_cash:
         # 杜绝复利场景下「pre-accrual 快照通过预检 + post-accrual 实际超 cash」导致 cash 跑负
-        effective = min(effective, user.cash).quantize(_QUANT)
+        effective = min(effective, await available_cash(session, user)).quantize(_QUANT)
     if effective <= 0:
         if before != (user.cash, user.debt, user.debt_last_accrued_at):
             bump_economic_version(user)

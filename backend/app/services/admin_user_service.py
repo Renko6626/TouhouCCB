@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import managed_transaction
+from app.services.credit.cash import available_cash
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
 from app.services import audit_service
@@ -131,12 +132,20 @@ async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
     )
 
 
+async def _cash_floor_ok(db: AsyncSession, user: User, new_cash: Decimal) -> bool:
+    """Mandatory cash-purpose check, including explicit debt writeoff exceptions."""
+    free = await available_cash(db, user)
+    return new_cash >= user.cash - free
+
+
 async def _apply_cash_change(
     db: AsyncSession, *, user: User, amount: Decimal, reason: str, admin_id: int,
 ) -> Decimal:
-    """写现金 + ledger 审计（同事务）；返回变更后现金。不做负数围栏。"""
+    """写现金 + ledger 审计（同事务）；现金不能低于空头锁金。"""
     OWNERSHIP.require_writes()
     new_cash = user.cash + amount
+    if not await _cash_floor_ok(db, user, new_cash):
+        raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
     user.cash = new_cash
     await ledger_service.record_entry(
         db, user=user, entry_type="admin_adjust_cash",
@@ -182,6 +191,8 @@ async def _adjust_cash_legacy(
         new_cash = u.cash + amount
         if new_cash < 0:
             raise AdminUserError(400, f"操作后现金为 {new_cash}，不能为负")
+        if not await _cash_floor_ok(db, u, new_cash):
+            raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
         u.cash = new_cash
         await ledger_service.record_entry(
             db, user=u, entry_type="admin_adjust_cash",
@@ -208,6 +219,8 @@ async def _adjust_cash_unified(
                 u = await _lock_user(db, target_id)
                 if economic_version_of(u) != deps.economic_version:
                     raise AdminUserError(409, "经济版本冲突，请重试")
+                if not await _cash_floor_ok(db, u, u.cash + amount):
+                    raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
                 decision = await check_cash_spend(
                     db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
                     partial_pct=ONE, now=_utcnow(),
@@ -517,10 +530,11 @@ async def _batch_adjust_cash_legacy(
         for u in await _lock_users(db, f):
             OWNERSHIP.require_writes()
             new_cash = u.cash + amount
-            if new_cash < 0:
+            if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
                 failed.append({
                     "user_id": u.id, "username": u.username,
-                    "reason": "操作后现金为负，已跳过",
+                    "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                               else "操作后现金低于空头锁金，已跳过"),
                     "cash_before": _money(u.cash), "would_be": _money(new_cash),
                 })
                 continue
@@ -588,10 +602,11 @@ async def _batch_adjust_one(
                 if economic_version_of(u) != deps.economic_version:
                     raise AdminUserError(409, "经济版本冲突，请重试")
                 new_cash = u.cash + amount
-                if new_cash < 0:
+                if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
                     return False, {
                         "user_id": u.id, "username": u.username,
-                        "reason": "操作后现金为负，已跳过",
+                        "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                               else "操作后现金低于空头锁金，已跳过"),
                         "cash_before": _money(u.cash), "would_be": _money(new_cash),
                     }
                 decision = await check_cash_spend(
@@ -616,10 +631,11 @@ async def _batch_adjust_one(
     async with managed_transaction(db):
         u = await _lock_user(db, user_id)
         new_cash = u.cash + amount
-        if new_cash < 0:
+        if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
             return False, {
                 "user_id": u.id, "username": u.username,
-                "reason": "操作后现金为负，已跳过",
+                "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                               else "操作后现金低于空头锁金，已跳过"),
                 "cash_before": _money(u.cash), "would_be": _money(new_cash),
             }
         before = u.cash
@@ -688,9 +704,14 @@ async def _amnesty_legacy(
     updated: List[Dict[str, Any]] = []
     total_cash_delta = Decimal("0")
     total_forgiven = Decimal("0")
+    failed: List[Dict[str, Any]] = []
     async with managed_transaction(db):
         for u in await _lock_users(db, f):
             OWNERSHIP.require_writes()
+            if not await _cash_floor_ok(db, u, reset_cash_to):
+                failed.append({"user_id": u.id, "username": u.username,
+                               "reason": "现金重置低于空头锁金，已跳过"})
+                continue
             cash_before, debt_before = u.cash, u.debt
             OWNERSHIP.require_writes()
             forgiven = Decimal("0")
@@ -732,6 +753,7 @@ async def _amnesty_legacy(
         "total_cash_delta": _money(total_cash_delta),
         "total_debt_forgiven": _money(total_forgiven),
         "updated": updated,
+        **({"failed_count": len(failed), "failed": failed} if failed else {}),
     }
 
 
@@ -794,6 +816,10 @@ async def _amnesty_one(
                     "reason": "经济版本冲突（并发写入），已跳过",
                 }, ZERO, ZERO
             cash_before, debt_before = u.cash, u.debt
+            if not await _cash_floor_ok(db, u, reset_cash_to):
+                return False, {"user_id": u.id, "username": u.username,
+                               "cash_before": _money(cash_before), "debt_before": _money(debt_before),
+                               "reason": "现金重置低于空头锁金，已跳过"}, ZERO, ZERO
             now = loan_service._compat_now(u)
             # check_new_risk itself accrues interest from the persistent debt.
             post_debt = ZERO if forgive_debt else u.debt

@@ -34,6 +34,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.credit.cash import available_cash
 from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
@@ -319,6 +320,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
 
     if q.input_amount <= 0 or q.output_amount <= 0:
         raise TradeRejected("trade amount must be positive")
+    if normalized == "buy" and await available_cash(db, user) < q.input_amount:
+        raise HTTPException(status_code=400, detail="insufficient cash")
     wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
     trade_now = utcnow()
     if unified and normalized == "buy" and user.debt > 0:
@@ -350,8 +353,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                 user_after=audit_service.user_snapshot(user))
     _require_writes()
     if normalized == "buy":
-        if user.cash < q.input_amount:
-            raise HTTPException(status_code=400, detail="insufficient cash")
         user.cash -= q.input_amount
         wallet.foreign_amount += q.output_amount
         wallet.cost_basis += q.input_amount

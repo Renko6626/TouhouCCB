@@ -10,6 +10,7 @@ from sqlmodel import select
 
 from app.core.database import get_async_session
 from app.core.users import current_active_user
+from app.services.credit.cash import available_cash
 from app.models.base import User, LiquidationEvent
 from app.models.fx import FxPair
 from app.models.title import Title as _Title
@@ -216,7 +217,7 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     # 实际扣减由 effective 字段返回，前端可展示"实际还款 金 N"。
     # 现金预检也使用锁内最新值，避免另一个会话的转账/成交使页面快照过期。
     locked = await lock_user(db, user.id)
-    if locked.cash <= 0 and locked.debt > 0:
+    if await available_cash(db, locked) <= 0 and locked.debt > 0:
         await db.rollback()
         raise HTTPException(status_code=400, detail="现金为 0，无法还款；请先卖出持仓变现")
 

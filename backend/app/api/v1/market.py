@@ -17,6 +17,7 @@ from app.services.realtime import BROKER
 from app.services.rank import rank_title
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
+from app.services.credit.cash import available_cash
 from app.models.base import User, Market, Outcome, Position, Transaction, MarketStatus, TransactionType
 from app.schemas.market import (
     MarketCreate,
@@ -713,7 +714,7 @@ async def buy_shares(
             req.max_cost, req.max_slippage_bps, req.accept_any_slippage,
         )
 
-        if locked_user.cash < pay:
+        if await available_cash(db, locked_user) < pay:
             raise HTTPException(status_code=400, detail="现金不足")
 
         # Decimal 精确运算

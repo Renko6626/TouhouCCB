@@ -29,6 +29,7 @@ from app.core.database import managed_transaction
 from sqlalchemy.future import select
 
 from app.core.config import settings
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import User
 from app.models.redemption import DanmukuExchange
 from app.services.credit import flags as credit_flags
@@ -192,10 +193,10 @@ async def _exchange_impl(
     user_stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     user = (await session.execute(user_stmt)).scalar_one()
 
-    if user.debt > 0:
+    if user.debt > 0 or await has_foreign_debt(session, user.id):
         raise ExchangeError("OUTSTANDING_DEBT", "请先还清全部借款（含利息），再购买或兑换激活码")
 
-    if user.cash < amount:
+    if await available_cash(session, user) < amount:
         raise ExchangeError("INSUFFICIENT_CASH", "现金不足")
 
     if thresholds is not None:
