@@ -1739,3 +1739,56 @@ async def test_blocked_run_resumes_cover_with_current_provenance():
         actions = list((await s.execute(select(LiquidationAction).where(
             LiquidationAction.run_id == run_id).order_by(LiquidationAction.round_no))).scalars())
         assert [a.kind for a in actions] == ["blocked", "cover_group"]
+
+
+async def test_lmsr_last_asset_audit_records_final_insolvency_version():
+    """The action audit describes the committed freeze, not its intermediate version."""
+    from app.services.credit.execution import execute_user
+    from app.services.market_writer import WRITER
+
+    async with async_session_maker() as s:
+        user = User(username=uuid4().hex, casdoor_id=uuid4().hex,
+                    cash=D("0"), debt=D("200"),
+                    debt_last_accrued_at=datetime.now(timezone.utc))
+        market = Market(title=uuid4().hex[:12], liquidity_b=100,
+                        status=MarketStatus.TRADING)
+        s.add_all([user, market])
+        await s.flush()
+        a = Outcome(market_id=market.id, label="a", total_shares=D("100"))
+        b = Outcome(market_id=market.id, label="b", total_shares=D("0"))
+        s.add_all([a, b])
+        await s.flush()
+        s.add(Position(user_id=user.id, outcome_id=a.id,
+                       amount=D("100"), cost_basis=D("0")))
+        uid = int(user.id)
+        await s.commit()
+
+    await WRITER.start()
+    try:
+        assert await execute_user(uid, rate=D("0"), pct=D(".1"),
+                                  source="scheduler") == "triggered"
+    finally:
+        await WRITER.stop()
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert user.credit_frozen and user.debt > 0 and user.cash == 0
+        assert not list((await s.execute(select(Position).where(
+            Position.user_id == uid))).scalars())
+        run = (await s.execute(select(LiquidationRun).where(
+            LiquidationRun.user_id == uid))).scalars().one()
+        assert run.status == "insolvent"
+        action = (await s.execute(select(LiquidationAction).where(
+            LiquidationAction.run_id == run.id))).scalars().one()
+        audit = (await s.execute(select(AuditEvent).where(
+            AuditEvent.event_type == "liquidation_action",
+            AuditEvent.user_id == uid))).scalars().one()
+        assert action.kind == "sell_group" and action.product == "lmsr"
+        assert (user.economic_version == action.economic_version_after
+                == audit.payload["economic_version_after"])
+        assert audit.ref_id == action.id
+        assert D(audit.user_after["cash"]) == user.cash
+        assert D(audit.user_after["debt"]) == user.debt
+        events = list((await s.execute(select(LiquidationEvent).where(
+            LiquidationEvent.user_id == uid))).scalars())
+        assert len(events) == 1 and run.rounds == 1

@@ -1285,6 +1285,15 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             if action.executed != executed:
                 # 用户行锁下理论不可达；DB 唯一键兜底防"卖出后才发现本轮已被占用"
                 raise HTTPException(status_code=409, detail="强平轮次已被占用，本次已回滚")
+
+            if account_pre is not None:
+                from app.services.credit.execution import public_event, finish_locked
+                public_event(session, locked_user, run, account_pre, product="lmsr",
+                    mode=mode, sold=len(quote.legs), proceeds=quote.net,
+                    repaid=repaid, source=trigger_source)
+                await finish_locked(session, locked_user, run, cmd.daily_rate)
+                action.economic_version_after = locked_user.economic_version
+
             audit_service.record(
                 session, "liquidation_action",
                 user_id=int(locked_user.id),
@@ -1298,19 +1307,11 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     "repaid": format(repaid, "f"),
                     "debt_after": format(locked_user.debt, "f"),
                     "cash_after": format(locked_user.cash, "f"),
-                    "economic_version_after": int(version),
+                    "economic_version_after": int(action.economic_version_after),
                     "trigger_source": trigger_source,
                 },
                 user_after=audit_service.user_snapshot(locked_user),
             )
-
-            if account_pre is not None:
-                from app.services.credit.execution import public_event, finish_locked
-                public_event(session, locked_user, run, account_pre, product="lmsr",
-                    mode=mode, sold=len(quote.legs), proceeds=quote.net,
-                    repaid=repaid, source=trigger_source)
-                await finish_locked(session, locked_user, run, cmd.daily_rate)
-                action.economic_version_after = locked_user.economic_version
 
         new_cash = locked_user.cash
         new_debt = locked_user.debt
