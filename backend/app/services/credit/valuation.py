@@ -4,7 +4,8 @@
 
 - ``display_equity = cash + MTM_lmsr + MTM_fx − D_effective − 有来源的边际空头债``：
   展示口径，MTM 含 HALT / paused 资产（账面价，不关心能否变现）。边际空头债
-  不是可执行回补成本。
+  不是可执行回补成本。任一正空头缺少有来源的边际估计时整本 ``display_equity``
+  为 ``None``：不扣已知部分、不写 0，避免高估净值。
 - ``liquidation_equity = cash + Σ L_asset − D_effective − K``：风控口径，
   每个 LMSR market / FX pair 用各自真实整组清算算法，不可执行资产 ``L = 0``；
   ``K = Σ quote_buy_exact_out(各 pair 全部含息欠币)``。任一空头无法完整报价时
@@ -92,7 +93,7 @@ class AccountValuation:
     debt_effective: Decimal
     mtm_lmsr: Decimal
     mtm_fx: Decimal
-    display_equity: Decimal
+    display_equity: Decimal | None
     liquidation_equity: Decimal | None
     groups: tuple[GroupLiquidation, ...]
     economic_version: int
@@ -352,6 +353,8 @@ async def _account_valuations(
                 foreign_debt = pending_short_debt(position, daily_rate, now)
             except (ValueError, ArithmeticError):
                 unknown_reasons.append(REASON_INVALID_SHORT_DEBT)
+                # 负债本身无法解析：不可能有有来源的边际估计，展示净值必须未知。
+                marginal_incomplete = True
                 groups.append(GroupLiquidation(
                     key=GroupKey("fx", snapshot.pair_id),
                     value=None,
@@ -407,9 +410,14 @@ async def _account_valuations(
                 short_cover=short_cover_cost,
             ).quantize(Q6, rounding=ROUND_CEILING)
 
-        display_equity = cash + mtm_lmsr + mtm_fx - debt_effective
-        if short_marginal_debt is not None:
-            display_equity -= short_marginal_debt
+        # 任一正空头缺少有来源的边际估计时，整本书的展示净值都不可信：绝不把
+        # 未知负债当作 0 只扣已知部分（spec §5.2）。
+        if short_marginal_debt is None:
+            display_equity: Decimal | None = None
+        else:
+            display_equity = (
+                cash + mtm_lmsr + mtm_fx - debt_effective - short_marginal_debt
+            ).quantize(Q6)
 
         result[uid] = AccountValuation(
             user_id=uid,
@@ -418,7 +426,7 @@ async def _account_valuations(
             debt_effective=debt_effective,
             mtm_lmsr=mtm_lmsr,
             mtm_fx=mtm_fx,
-            display_equity=display_equity.quantize(Q6),
+            display_equity=display_equity,
             liquidation_equity=liquidation_equity,
             groups=tuple(sort_groups_by_liquidation(groups)),
             economic_version=int(user.economic_version or 0),

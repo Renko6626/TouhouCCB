@@ -9,6 +9,7 @@ write during read-only valuation.
 import os
 import sys
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_CEILING, Decimal
 
@@ -21,6 +22,7 @@ from app.core.database import async_session_maker, engine
 from app.models.base import User
 from app.models.fx import FxPair, FxShortPosition, FxWallet
 from app.services.credit import flags as credit_flags
+from app.services.credit import valuation as valuation_mod
 from app.services.credit.flags import CreditFlags
 from app.services.credit.valuation import value_user_detailed, value_users_batch
 from app.services.fx.amm import marginal_price, quote_buy_exact_out, quote_sell
@@ -291,6 +293,90 @@ async def test_paused_finite_k_is_known_but_not_executable():
         assert blocked.short_cover_cost is None
         assert blocked.liquidation_equity is None
         assert blocked.blocked_reason == "insufficient_pool_foreign"
+
+
+async def test_display_equity_subtracts_sourced_marginal_not_executable_cover():
+    """Display net worth uses the sourced marginal debt, never the executable K."""
+    async with async_session_maker() as session:
+        user = await _user(session, cash="1000", debt="100")
+        short_pair = await _pair(session, gold="100", foreign="100", buy_fee="0.05")
+        asset_pair = await _pair(session, gold="120", foreign="80")
+        session.add(FxWallet(user_id=user.id, pair_id=asset_pair.id,
+                             foreign_amount=Decimal("3"), cost_basis=ZERO))
+        await session.commit()
+        row = await _short(session, user, short_pair, principal="10")
+
+        v = await value_user_detailed(session, user.id, daily_rate=RATE)
+
+        q = pending_short_debt(row, RATE, datetime.now(timezone.utc))
+        marginal = (q * marginal_price(Decimal("100"), Decimal("100"))).quantize(Q6)
+        k = quote_buy_exact_out(
+            q, Decimal("100"), Decimal("100"), Decimal("0.05"),
+        ).input_amount
+        mtm = (Decimal("3") * marginal_price(
+            Decimal("120"), Decimal("80"),
+        )).quantize(Q6)
+
+        # Sourced display estimate and executable cover are deliberately different.
+        assert marginal < k
+        assert v.short_cover_cost == k
+        assert v.short_marginal_debt == marginal
+
+        expected = (
+            Decimal("1000") + mtm - Decimal("100") - marginal
+        ).quantize(Q6)
+        assert v.display_equity == expected
+        # Subtracting K instead of the sourced marginal, or dropping the
+        # marginal entirely, would silently misstate net worth.
+        assert v.display_equity != (
+            Decimal("1000") + mtm - Decimal("100") - k
+        ).quantize(Q6)
+        assert v.display_equity != (
+            Decimal("1000") + mtm - Decimal("100")
+        ).quantize(Q6)
+
+
+async def test_unsourced_marginal_makes_display_equity_unknown(monkeypatch):
+    """Any unsourced short marginal poisons display for the whole short book.
+
+    The schema keeps persisted reserves positive, so force one pair's snapshot to
+    an invalid reserve at the quote boundary to exercise the real
+    ``invalid_short_reserve`` path: the valid pair keeps its finite executable K,
+    but display equity must be ``None`` rather than subtracting only the known
+    part and silently overstating the rest.
+    """
+    async with async_session_maker() as session:
+        user = await _user(session, cash="1000")
+        good = await _pair(session, gold="100", foreign="100")
+        bad = await _pair(session, gold="100", foreign="100")
+        await _short(session, user, good, principal="5")
+        await _short(session, user, bad, principal="7")
+
+        real_quote = valuation_mod.quote_fx_short_group
+
+        def poisoned_quote(pair, *, foreign_debt):
+            if pair.pair_id == bad.id:
+                pair = replace(pair, gold_reserve=ZERO)
+            return real_quote(pair, foreign_debt=foreign_debt)
+
+        monkeypatch.setattr(valuation_mod, "quote_fx_short_group", poisoned_quote)
+
+        v = await value_user_detailed(session, user.id, daily_rate=RATE)
+
+        assert v.risk_status == "blocked"
+        assert v.blocked_reason == "invalid_short_reserve"
+        assert v.short_cover_cost is None
+        assert v.short_marginal_debt is None
+        assert v.display_equity is None
+        assert v.liquidation_equity is None
+
+        # The valid pair still gets its own finite cover cost; the invalid one
+        # is never zeroed.
+        by_pair = {g.key.group_id: g for g in _cover_groups(v)}
+        assert by_pair[good.id].value == quote_buy_exact_out(
+            Decimal("5"), Decimal("100"), Decimal("100"), ZERO,
+        ).input_amount
+        assert by_pair[bad.id].value is None
 
 
 async def test_no_short_account_keeps_old_values_and_neutral_short_fields():
