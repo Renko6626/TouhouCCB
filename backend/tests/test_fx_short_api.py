@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
@@ -28,6 +29,7 @@ from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
+from app.services.fx import publisher, shorts
 
 pytestmark = pytest.mark.asyncio
 
@@ -519,3 +521,113 @@ async def test_admin_short_gate_toggle_and_spot_contract_unchanged(client):
         "id", "currency_code", "currency_name", "status", "reduce_only",
         "pool_version", "created_at", "updated_at",
     }
+
+
+# ── scenario 6: cross-pair same-key unique race maps to 409, never 500 ───────
+
+async def _commit_winner_short_open(*, user_id, pair_id, key, foreign="100"):
+    """Commit the row a concurrent winner request would have produced.
+
+    SQLite gives no deterministic cross-connection interleaving, so the loser
+    request's post-lookup window is opened by committing this real ``FxTrade``
+    from a second session while the loser already passed its idempotency lookup.
+    The unique ``uq_fx_trade_user_idempotency`` violation the loser then hits at
+    flush is the genuine database error; only its timing is arranged.
+    """
+    async with async_session_maker() as s:
+        async with s.begin():
+            trade = FxTrade(
+                pair_id=pair_id, user_id=user_id, side="sell", purpose="short_open",
+                requested_foreign_amount=D(foreign), input_amount=D(foreign),
+                output_amount=D("99"), min_out=ZERO, fee_amount=ZERO,
+                pre_gold_reserve=D("1000"), pre_foreign_reserve=D("1000"),
+                post_gold_reserve=D("1901"), post_foreign_reserve=D("900"),
+                post_price=D("1"), source="player", idempotency_key=key,
+            )
+            s.add(trade)
+            await s.flush()
+            return int(trade.id)
+
+
+async def test_cross_pair_same_key_race_maps_unique_violation_to_409(
+        client, monkeypatch):
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    loser_pair = await _create_pair(client, admin_headers, currency_code="AAA",
+                                    short_lending_limit_foreign="1000000")
+    winner_pair = await _create_pair(client, admin_headers, currency_code="BBB")
+    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+
+    key = "k-concurrent-cross-pair"
+    published: list[tuple] = []
+    monkeypatch.setattr(publisher, "enqueue_publication",
+                        lambda *a, **k: published.append((a, k)))
+
+    # The winner appears only after the loser has locked/read and missed its
+    # idempotency lookup, so the loser cannot replay it and reaches flush.
+    real_get_bool_or = site_config.get_bool_or
+    injected = {"winner_id": None}
+
+    async def _seam(session, config_key, default):
+        if injected["winner_id"] is None:
+            injected["winner_id"] = await _commit_winner_short_open(
+                user_id=user_id, pair_id=winner_pair, key=key)
+        return await real_get_bool_or(session, config_key, default)
+
+    monkeypatch.setattr(site_config, "get_bool_or", _seam)
+
+    before = await _stock(loser_pair)
+    async with async_session_maker() as s:
+        audit_before = int((await s.execute(
+            select(func.count()).select_from(AuditEvent)
+            .where(AuditEvent.user_id == user_id))).scalar_one())
+
+    loser = await _open(client, user_headers, loser_pair, amount="100", key=key)
+    assert loser.status_code == 409, loser.text
+    winner_id = injected["winner_id"]
+    assert winner_id is not None
+
+    # The losing request rolled back every pending money/lock/audit mutation.
+    assert await _stock(loser_pair) == before
+    async with async_session_maker() as s:
+        trades = (await s.execute(select(FxTrade)
+                                  .where(FxTrade.user_id == user_id))).scalars().all()
+        shorts = (await s.execute(select(FxShortPosition)
+                                  .where(FxShortPosition.user_id == user_id))).scalars().all()
+        audit_after = int((await s.execute(
+            select(func.count()).select_from(AuditEvent)
+            .where(AuditEvent.user_id == user_id))).scalar_one())
+    assert [int(t.id) for t in trades] == [winner_id]
+    assert shorts == []
+    assert audit_after == audit_before
+    assert published == [] and not GATES.held_keys()
+
+    # The winner's row is the saved trade a same-key retry can retrieve; it
+    # replays without a second borrow.
+    replay = await _open(client, user_headers, winner_pair, amount="100", key=key)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["replay"] is True
+    assert replay.json()["trade_id"] == winner_id
+    assert published == []
+
+
+async def test_short_wrapper_reraises_unrelated_integrity_error(client):
+    """A non-idempotency DB integrity failure must stay a server error."""
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, _ = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers,
+                                 short_lending_limit_foreign="1000000")
+
+    async def run_in_session(db, deps):
+        # Real unique violation from an unrelated table (site_config.key).
+        db.add(SiteConfig(key="dup-key", value="a", value_type="string"))
+        await db.flush()
+        db.add(SiteConfig(key="dup-key", value="b", value_type="string"))
+        await db.flush()
+
+    async with async_session_maker() as s:
+        with pytest.raises(IntegrityError):
+            await shorts._execute_player_short_write(
+                s, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)

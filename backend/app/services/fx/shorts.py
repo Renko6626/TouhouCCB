@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
@@ -831,6 +832,26 @@ async def execute_short_cover_in_session(
 
 # ── request-path wrappers (transaction boundary, gates, retry, publication) ──
 
+def _is_fx_trade_idempotency_conflict(exc: IntegrityError) -> bool:
+    """Whether ``exc`` is the known ``(user_id, idempotency_key)`` unique race.
+
+    Two requests for the same key on different pairs can both miss the replay
+    lookup (they hold different pair GATES) and one loses the
+    ``uq_fx_trade_user_idempotency`` insert at flush/commit.  Only the Postgres
+    constraint name and the SQLite column-pair message are matched, so unrelated
+    numeric/CHECK/FK integrity failures keep their 500 rather than becoming a
+    misleading 409.  Reads the DBAPI ``orig`` text only: the full SQLAlchemy
+    message embeds bind parameters, and a crafted idempotency key must not be
+    able to spoof a conflict.
+    """
+    orig = getattr(exc, "orig", None)
+    text = "" if orig is None else str(orig)
+    return (
+        "uq_fx_trade_user_idempotency" in text
+        or "fx_trade.user_id, fx_trade.idempotency_key" in text
+    )
+
+
 async def _rollback_quietly(db: AsyncSession) -> None:
     """Best-effort rollback that never masks the original failure."""
     try:
@@ -906,6 +927,18 @@ async def _execute_player_short_write(
                         return response
                     _require_writes()
                     await db.commit()
+                except IntegrityError as exc:
+                    await _rollback_quietly(db)
+                    if not _is_fx_trade_idempotency_conflict(exc):
+                        raise
+                    # Expected same-key race: the winner committed elsewhere.
+                    # All pending money/locks/audit are rolled back above; a
+                    # same-key retry can read the saved trade (replay or a
+                    # parameter-mismatch 409), never a second borrow.
+                    raise HTTPException(
+                        status_code=409,
+                        detail="idempotency key conflict; retry",
+                    ) from None
                 except BaseException:
                     await _rollback_quietly(db)
                     raise
