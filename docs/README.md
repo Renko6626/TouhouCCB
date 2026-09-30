@@ -156,6 +156,8 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | `docs/development.md` | 本地开发环境搭建与技术栈约束 |
 | `docs/deploy.md` | 部署：Docker Compose / CI-CD / nginx / 回滚 |
 | `docs/fx.md` | 幻想外汇 (FX) 迁移、开市护栏、事件运营与赛季重置 |
+| [FX 一周活动参数草案](fx-week-activity-config.md) | 50 人窗口活动的池子、波动、新闻、统一信贷参数及测算 |
+| [FX 做空与统一债务风控设计](superpowers/specs/2026-09-30-fx-short-debt-design.md) | 待审阅 spec：借币、锁金、统一额度、回补与反向强平 |
 | `docs/migrations.md` | Alembic 数据库迁移工作流 |
 | `docs/schema-conventions.md` | 数据库字段 / Decimal 序列化约定 |
 | `docs/holdings-value-semantics.md` | 持仓估值双口径（MTM 展示 / LCV 风控） |
