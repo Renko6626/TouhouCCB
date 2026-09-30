@@ -27,7 +27,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from sqlalchemy import delete, func, select, update  # noqa: E402
+from sqlalchemy import delete, func, or_, select, update  # noqa: E402
 from sqlmodel import SQLModel  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
@@ -44,7 +44,7 @@ from app.models.base import (  # noqa: E402
 from app.models.bot import BotProfile  # noqa: E402
 from app.models.credit import LiquidationAction, LiquidationRun  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
 from app.services.credit.version import bump_economic_version  # noqa: E402
@@ -62,8 +62,9 @@ CLEAR_ORDER = [
 PRESERVED_AUDIT_TYPES = ("redeem_purchase", "danmuku_exchange", "redeem_fulfill", "redeem_fulfill_revoke")
 FX_AUDIT_TYPES = (
     "fx_trade", "fx_fund", "fx_withdraw", "fx_event_publish", "fx_event_complete", "fx_event_cancel",
+    "admin_fx_short_writeoff",
 )
-FX_CLEAR_ORDER = (FxWallet, FxTrade, FxEvent, FxTreasury, FxPair)
+FX_CLEAR_ORDER = (FxShortPosition, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair)
 RESET_RULESET = "2026-09-27"
 
 
@@ -111,16 +112,21 @@ class ResetVerificationError(Exception):
 
 async def reset_fx_state(session) -> None:
     """Remove all FX state and its audit trail within the caller's transaction."""
-    await session.execute(delete(AuditEvent).where(AuditEvent.event_type.in_(FX_AUDIT_TYPES)))
+    await session.execute(delete(AuditEvent).where(or_(
+        AuditEvent.event_type.in_(FX_AUDIT_TYPES),
+        (AuditEvent.event_type == "interest_accrual")
+        & (AuditEvent.ref_table == "fx_short_position"),
+    )))
     for model in FX_CLEAR_ORDER:
         await session.execute(delete(model))
-    fx = (await session.execute(select(SiteConfig).where(SiteConfig.key == "fx_enabled"))).scalar_one_or_none()
-    if fx is None:
-        fx = SiteConfig(key="fx_enabled", value="false", value_type="bool")
-    else:
-        fx.value = "false"
-        fx.updated_at = datetime.now(timezone.utc)
-    session.add(fx)
+    for key in ("fx_enabled", "fx_short_enabled"):
+        flag = (await session.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
+        if flag is None:
+            flag = SiteConfig(key=key, value="false", value_type="bool")
+        else:
+            flag.value = "false"
+            flag.updated_at = datetime.now(timezone.utc)
+        session.add(flag)
 
 
 async def run(dry_run: bool) -> int:

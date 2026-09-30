@@ -307,3 +307,60 @@ async def test_unified_sqladmin_economic_views_are_read_only():
     finally:
         main._configure_admin_economic_writes(False)
     assert all(view.can_create and view.can_edit and view.can_delete for view in views)
+
+
+async def _persist_short(*, principal="0", interest="1", restricted="0"):
+    from datetime import datetime, timezone
+    from decimal import Decimal
+    from app.core.database import async_session_maker
+    from app.models.base import SiteConfig, User
+    from app.models.fx import FxPair, FxShortPosition
+    async with async_session_maker() as db:
+        async with db.begin():
+            db.add(SiteConfig(key="unified_credit_enabled", value="false", value_type="bool"))
+            user = User(username="gate-short", casdoor_id="gate-short", cash=Decimal("10"))
+            pair = FxPair(currency_code="GATE", currency_name="gate")
+            db.add_all([user, pair])
+            await db.flush()
+            db.add(FxShortPosition(user_id=user.id, pair_id=pair.id,
+                principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
+                restricted_gold=Decimal(restricted), interest_last_accrued_at=datetime.now(timezone.utc)))
+            return user.id
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+@pytest.mark.parametrize("obligation", [{"interest": "1"}, {"principal": "1", "interest": "0", "restricted": "2"}])
+async def test_live_foreign_obligation_refuses_legacy_startup(startup, monkeypatch, read_only, obligation):
+    await _persist_short(**obligation)
+    own = _install_ownership(monkeypatch, owner=True, events=startup)
+    if read_only:
+        monkeypatch.setenv(credit_flags.READ_ONLY_ENV, "true")
+    with pytest.raises(credit_flags.CreditConfigError, match="fx_short"):
+        await _run_lifespan()
+    assert "setup_admin" not in startup and "resync" not in startup
+    assert not any(e.startswith("start:") or e.endswith(".start") for e in startup)
+    assert own.released
+
+
+async def test_disable_unified_with_short_preserves_config_and_audit(startup):
+    from fastapi import HTTPException
+    from sqlalchemy import select, func
+    from app.core.database import async_session_maker
+    from app.models.base import User, SiteConfig
+    from app.models.audit import AuditEvent
+    from app.schemas.loan import SiteConfigUpdate
+    from app.api.v1.site_config import update_config
+    user_id = await _persist_short()
+    async with async_session_maker() as db:
+        row = (await db.execute(select(SiteConfig).where(SiteConfig.key == "unified_credit_enabled"))).scalar_one()
+        row.value = "true"
+        await db.commit()
+        before = (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one()
+        admin = await db.get(User, user_id)
+        with pytest.raises(HTTPException) as rejected:
+            await update_config("unified_credit_enabled", SiteConfigUpdate(value="false"), admin, db)
+        assert rejected.value.status_code == 400
+        await db.refresh(row)
+        assert row.value == "true"
+        assert (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one() == before
+        await update_config("fx_short_enabled", SiteConfigUpdate(value="false"), admin, db)

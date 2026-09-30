@@ -9,7 +9,7 @@ from sqlmodel import SQLModel
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
 from app.models.redemption import DanmukuExchange, RedemptionTransaction
 from app.services import audit_service
 
@@ -38,6 +38,10 @@ async def seed_fx_state(monkeypatch):
     from scripts import season_reset
 
     local_engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+    from sqlalchemy import event
+    @event.listens_for(local_engine, "connect")
+    def enable_foreign_keys(conn, _):
+        conn.execute("PRAGMA foreign_keys=ON")
     SQLModel.metadata.create_all(local_engine)
     def local_sessions(): return AsyncCompatSession(Session(local_engine))
     monkeypatch.setattr(season_reset, "async_session_maker", local_sessions)
@@ -146,3 +150,48 @@ async def test_fx_identity_sequence_is_not_reset(monkeypatch, seed_fx_state):
             new_id = pair.id
     # SQLite integer rowids may reuse deleted IDs; production PostgreSQL preserves sequences.
     assert new_id >= old_id
+
+
+@pytest.mark.asyncio
+async def test_reset_live_short_clears_obligation_and_short_audit(monkeypatch, seed_fx_state, capsys):
+    from datetime import datetime, timezone
+    from scripts import season_reset
+    async with seed_fx_state() as db:
+        async with db.begin():
+            user = (await db.execute(select(User))).scalar_one()
+            pair = (await db.execute(select(FxPair))).scalar_one()
+            db.add(FxShortPosition(user_id=user.id, pair_id=pair.id,
+                principal_foreign=Decimal("2"), interest_foreign=Decimal("1"),
+                restricted_gold=Decimal("8"), interest_last_accrued_at=datetime.now(timezone.utc)))
+            db.add(SiteConfig(key="fx_short_enabled", value="true", value_type="bool"))
+            audit_service.record(db, "admin_fx_short_writeoff", user_id=user.id, payload={"pair_id": pair.id})
+            audit_service.record(db, "interest_accrual", user_id=user.id, ref_table="fx_short_position", payload={"currency": "foreign", "pair_id": pair.id})
+    assert await season_reset.run(dry_run=True) == 0
+    assert "fx_short_position" in capsys.readouterr().out
+    assert await count(FxShortPosition, seed_fx_state) == 1
+    # The self-check is inside the transaction: corruption must restore the
+    # live liability, pool and both opening gates, then a clean retry succeeds.
+    original = season_reset.audit_service.record
+    def corrupt(*args, **kwargs):
+        event = original(*args, **kwargs)
+        if event.event_type == "user_register":
+            event.user_after = {**event.user_after, "cash": "9999"}
+        return event
+    monkeypatch.setattr("builtins.input", lambda *_: "RESET")
+    monkeypatch.setattr(season_reset.audit_service, "record", corrupt)
+    assert await season_reset.run(dry_run=False) == 2
+    assert await count(FxShortPosition, seed_fx_state) == 1
+    assert await count(FxPair, seed_fx_state) == 1
+    async with seed_fx_state() as db:
+        assert (await db.execute(select(SiteConfig.value).where(SiteConfig.key == "fx_short_enabled"))).scalar_one() == "true"
+        assert (await db.execute(select(User.cash))).scalar_one() == Decimal("12")
+    monkeypatch.setattr(season_reset.audit_service, "record", original)
+    assert await season_reset.run(dry_run=False) == 0
+    assert await count(FxShortPosition, seed_fx_state) == 0
+    async with seed_fx_state() as db:
+        assert (await db.execute(select(SiteConfig.value).where(SiteConfig.key == "fx_short_enabled"))).scalar_one() == "false"
+        user = (await db.execute(select(User))).scalar_one()
+        assert user.cash == Decimal("500") and user.debt == 0 and not user.credit_frozen
+        events = (await db.execute(select(AuditEvent))).scalars().all()
+        assert any(e.event_type == "redeem_purchase" for e in events)
+        assert all(e.event_type != "admin_fx_short_writeoff" and not e.event_type.startswith("fx_") for e in events)

@@ -152,6 +152,11 @@ async def _validate_credit_update(db: AsyncSession, key: str, value: str) -> Non
                     status_code=400,
                     detail=f"拒绝启用 unified_credit_enabled：{parsed.disabled_reason}",
                 )
+        elif await credit_flags.has_live_fx_short_obligation(db):
+            raise HTTPException(
+                status_code=400,
+                detail="存量 fx_short 欠币或锁金存在，拒绝关闭 unified_credit_enabled",
+            )
         return
 
     if key == "loan_leverage_k" and unified_on:

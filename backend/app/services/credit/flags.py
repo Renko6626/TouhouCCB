@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Mapping, Optional
 
-from sqlalchemy import select
+from sqlalchemy import inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.credit.thresholds import RiskThresholds, derive_thresholds
@@ -38,7 +38,7 @@ logger = logging.getLogger("thccb.credit.flags")
 
 
 class CreditConfigError(RuntimeError):
-    """``unified_credit_enabled=true`` 但配置非法：必须让启动失败，不得回落 legacy。"""
+    """Unsafe credit capability/configuration: refuse startup instead of legacy fallback."""
 
 #: site_config keys（计划 §3.4 冻结，后续 WP 不得改名）
 KEY_UNIFIED_CREDIT_ENABLED = "unified_credit_enabled"
@@ -235,10 +235,37 @@ def write_schedulers_enabled() -> bool:
     return not _current.read_only_instance
 
 
+async def has_live_fx_short_obligation(session: AsyncSession) -> bool:
+    """Probe persisted foreign debt/locked cash; real database errors propagate.
+
+    Inspect first so a legitimately pre-short-migration database can boot to
+    migrate without executing a SELECT against a table that does not exist.
+    """
+    from app.models.fx import FxShortPosition
+
+    connection = await session.connection()
+    exists = await connection.run_sync(
+        lambda sync: inspect(sync).has_table(FxShortPosition.__tablename__)
+    )
+    if not exists:
+        return False
+    return (await session.execute(
+        select(FxShortPosition.id).where(or_(
+            FxShortPosition.principal_foreign > 0,
+            FxShortPosition.interest_foreign > 0,
+            FxShortPosition.restricted_gold > 0,
+        )).limit(1)
+    )).first() is not None
+
+
 async def load_flags(session: AsyncSession) -> CreditFlags:
     """启动时读一次 site_config 并缓存；返回解析结果。
 
-    ``enable_requested=true`` 但配置非法时：
+    Persisted foreign principal, interest or restricted gold requires unified
+    credit even on read-only instances (gold-only risk reads are unsafe).
+    Database errors propagate; the cache is published only after this check.
+
+    ``enable_requested=true`` 但配置非法且无存量外币义务时：
     - 非只读实例 → 抛 ``CreditConfigError``，启动失败（不允许回落 legacy 强平）；
     - 只读实例 → CRITICAL 日志后继续（写已由 ownership 冻结）。
     """
@@ -246,6 +273,10 @@ async def load_flags(session: AsyncSession) -> CreditFlags:
 
     raw = await site_config_service.get_many(session, list(FLAG_KEYS))
     flags = parse_flags(raw, read_only=read_only_from_env())
+    if not flags.unified_credit_enabled and await has_live_fx_short_obligation(session):
+        raise CreditConfigError(
+            "live fx_short obligation requires unified_credit_enabled=true"
+        )
     if flags.config_error is not None:
         logger.critical(
             "unified_credit_enabled=true 但配置非法（%s）：拒绝降级到 legacy 强平"
