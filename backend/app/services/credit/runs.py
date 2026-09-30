@@ -174,6 +174,10 @@ async def find_latest_action(
     """该 run 已提交的最后一个动作（按 round 降序）；无动作返回 ``None``。
 
     调用方用来判断"连续扫描仍是同一阻塞状态"，避免重复堆积 blocked action。
+
+    只读、不加锁：调用方**必须已持有该 run 的行锁**（如 ``prepare_locked`` 已
+    ``FOR UPDATE`` 锁定 active run），否则并发扫描下该查询结果不是 race-safe 的
+    幂等依据；``(run_id, round_no)`` 唯一键仍是最终防线。
     """
     run_id = _run_id_of(run)
     return (

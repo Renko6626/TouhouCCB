@@ -35,8 +35,22 @@ def _has_foreign_obligation(pre):
     return any(group.role == 'short_cover' for group in pre.groups)
 
 
-def _short_group(pre):
-    return next((group for group in pre.groups if group.role == 'short_cover'), None)
+def _blocked_short_group(pre, reason):
+    """*reason* 真正归属的空头 pair；无法唯一确定时返回 ``None``。
+
+    ``pre.blocked_reason`` 是估值聚合出的逗号分隔原因集合，而每个
+    ``short_cover`` 组各自只带一条 ``blocked_reason``。按排序取第一个空头会把
+    健康/最高 K 的 pair 记到别的 pair 的失败原因旁，而且 K 排序漂移会让同一
+    逻辑阻塞换 pair、重复记 blocked 轮。只有恰好一个空头组自身原因出现在
+    *reason* 中时才归属到它；全局原因（如 ``restricted_cash_exceeds_cash``）
+    或多个同原因 pair 一律返回 ``None``，由调用方中性记录，绝不认领健康 pair。
+    """
+    reasons = {part for part in (reason or '').split(',') if part}
+    if not reasons:
+        return None
+    matched = [group for group in pre.groups
+               if group.role == 'short_cover' and group.blocked_reason in reasons]
+    return matched[0] if len(matched) == 1 else None
 
 
 def _positive_assets(pre):
@@ -179,7 +193,8 @@ async def prepare_locked(session, user, deps, *, rate, pct, source, run_id=None,
             _seed_run_snapshot(run, pre)
             await session.flush()
         await _record_blocked_once(session, user, run,
-            group=_short_group(pre), reason=pre.blocked_reason or 'risk_unquotable')
+            group=_blocked_short_group(pre, pre.blocked_reason),
+            reason=pre.blocked_reason or 'risk_unquotable')
         return run, pre, None, None, 'blocked'
 
     if run is None and not _triggered(pre, thresholds):
@@ -191,9 +206,11 @@ async def prepare_locked(session, user, deps, *, rate, pct, source, run_id=None,
         await session.flush()
 
     # 已知完整估值的空头：资金顺序/组选择属 WP4c/d；此处只维持 active run 不丢状态。
+    # 通用 deferred 原因不属于任何单个 pair，不能按排序认领一个（否则 idempotency 随 K 漂移）。
     if _has_foreign_obligation(pre):
         await _record_blocked_once(session, user, run,
-            group=_short_group(pre), reason=SHORT_DEFERRED_REASON)
+            group=_blocked_short_group(pre, SHORT_DEFERRED_REASON),
+            reason=SHORT_DEFERRED_REASON)
         return run, pre, None, None, 'blocked'
 
     if thresholds.recovered(pre.liquidation_equity, pre.debt_effective):

@@ -194,3 +194,111 @@ async def test_foreign_short_included_by_shared_basis_even_with_zero_gold_debt(m
     result = await liquidation_sweep.run_liquidation_sweep_once()
     assert uid in seen
     assert result['scanned_count'] >= 1
+
+
+async def _seed_healthy_and_overflow_shorts(*, cash='50'):
+    """同一账户两个空头对：一个可完整报价（健康），一个 Q>=F（未知 K）。"""
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as s:
+        user = User(username='fx_multi', casdoor_id='fx_multi',
+                    cash=D(cash), debt=D('0'))
+        s.add(user)
+        await s.flush()
+        healthy = FxPair(
+            currency_code='HLT', currency_name='Healthy',
+            status='trading',
+            gold_reserve=D('100000'), foreign_reserve=D('100000'),
+            buy_fee_rate=D('0'), sell_fee_rate=D('0'),
+        )
+        overflow = FxPair(
+            currency_code='OVR', currency_name='Overflow',
+            status='trading',
+            gold_reserve=D('1000'), foreign_reserve=D('1000'),
+            buy_fee_rate=D('0'), sell_fee_rate=D('0'),
+        )
+        s.add_all([healthy, overflow])
+        await s.flush()
+        s.add_all([
+            FxTreasury(pair_id=healthy.id, gold_balance=D('100000'),
+                       foreign_balance=D('100000')),
+            FxTreasury(pair_id=overflow.id, gold_balance=D('1000'),
+                       foreign_balance=D('1000')),
+            FxShortPosition(
+                user_id=user.id, pair_id=healthy.id,
+                principal_foreign=D('100'), interest_foreign=D('0'),
+                interest_last_accrued_at=now,
+                restricted_gold=D('0'), proceeds_basis_gold=D('0'),
+            ),
+            FxShortPosition(
+                user_id=user.id, pair_id=overflow.id,
+                principal_foreign=D('1000'), interest_foreign=D('0'),
+                interest_last_accrued_at=now,
+                restricted_gold=D('0'), proceeds_basis_gold=D('0'),
+            ),
+        ])
+        await s.commit()
+        return user.id, healthy.id, overflow.id
+
+
+async def test_multi_pair_unknown_k_blocked_action_names_the_blocked_pair_once():
+    """健康空头排在最前，也不能把 Q>=F 那对的阻塞原因记到健康 pair 上。
+
+    真实故障：`_short_group` 取排序后第一个空头，而排序按 K 降序、未知 K 排最后，
+    于是「健康且高 K」的 pair 会被写进 `insufficient_pool_foreign` 动作的 group_id，
+    审计/运维误判；K 漂移换 pair 还会重复记 blocked 轮。这里断言 durable 动作绑定
+    真正阻塞的 Q>=F pair，且重复实际扫描只有一轮、无资金动作。
+    """
+    uid, healthy_id, overflow_id = await _seed_healthy_and_overflow_shorts()
+
+    first = await liquidation_sweep.run_liquidation_sweep_once()
+    assert first.get('blocked_count') == 1
+    assert first.get('monetary_action_count') == 0
+
+    async with async_session_maker() as s:
+        runs = list((await s.execute(select(LiquidationRun))).scalars())
+        assert len(runs) == 1
+        run = runs[0]
+        assert run.status == 'active'
+        assert run.pre_liquidation_equity is None
+        assert run.pre_risk_basis is None
+
+        actions = list((await s.execute(select(LiquidationAction))).scalars())
+        assert len(actions) == 1
+        action = actions[0]
+        assert action.kind == 'blocked'
+        assert action.blocked_reason == 'insufficient_pool_foreign'
+        assert action.product == 'fx'
+        assert action.group_id == overflow_id
+        assert action.group_id != healthy_id
+        assert action.round_no == 1
+        assert action.repaid == 0
+        assert not list((await s.execute(select(LiquidationEvent))).scalars())
+
+        user = await s.get(User, uid)
+        assert user.cash == D('50') and user.debt == D('0')
+        shorts = {s_.pair_id: s_ for s_ in
+                  (await s.execute(select(FxShortPosition))).scalars()}
+        assert shorts[healthy_id].principal_foreign == D('100')
+        assert shorts[overflow_id].principal_foreign == D('1000')
+        treasuries = {t.pair_id: t for t in
+                      (await s.execute(select(FxTreasury))).scalars()}
+        assert treasuries[healthy_id].gold_balance == D('100000')
+        assert treasuries[healthy_id].foreign_balance == D('100000')
+        assert treasuries[overflow_id].gold_balance == D('1000')
+        assert treasuries[overflow_id].foreign_balance == D('1000')
+
+    # 第二次实际扫描：同一阻塞状态不新增 run/轮，pair 归属不变，资金仍不动。
+    second = await liquidation_sweep.run_liquidation_sweep_once()
+    assert second.get('blocked_count') == 1
+    assert second.get('monetary_action_count') == 0
+
+    async with async_session_maker() as s:
+        runs = list((await s.execute(select(LiquidationRun))).scalars())
+        assert len(runs) == 1 and runs[0].status == 'active'
+        actions = list((await s.execute(select(LiquidationAction))).scalars())
+        assert len(actions) == 1
+        assert actions[0].group_id == overflow_id
+        assert actions[0].blocked_reason == 'insufficient_pool_foreign'
+        user = await s.get(User, uid)
+        assert user.cash == D('50') and user.debt == D('0')
+        assert not list((await s.execute(select(LiquidationEvent))).scalars())
