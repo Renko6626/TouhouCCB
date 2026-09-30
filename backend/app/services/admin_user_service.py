@@ -1012,7 +1012,10 @@ async def writeoff_fx_short(
             interest = Decimal(position.interest_foreign)
             lock = Decimal(position.restricted_gold)
             basis = Decimal(position.proceeds_basis_gold)
-            if min(principal, interest, lock, basis) < ZERO or Decimal(user.cash) < total_locks:
+            amounts = (principal, interest, lock, basis, Decimal(user.cash), Decimal(total_locks))
+            if (not all(amount.is_finite() for amount in amounts)
+                    or min(principal, interest, lock, basis) < ZERO
+                    or Decimal(user.cash) < total_locks):
                 raise AdminUserError(409, "inconsistent FX short cash locks")
             if principal + interest == ZERO:
                 if lock or basis or position.interest_last_accrued_at is not None:
