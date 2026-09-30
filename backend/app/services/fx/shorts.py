@@ -1,6 +1,6 @@
-"""Foreign-debt primitives and the atomic short-opening ledger.
+"""Foreign-debt primitives and the atomic short open/cover ledgers.
 
-Transaction contract (spec §7.1 / §11):
+Transaction contract (spec §7.1–7.3 / §11):
 
 - ``pending_short_debt`` / ``accrue_short_interest`` are pure debt primitives.
 - ``execute_short_open_in_session`` performs every validation, lock and balance
@@ -11,11 +11,17 @@ Transaction contract (spec §7.1 / §11):
   a concurrently changed price raises :class:`ShortRetryCredit` so the caller
   releases every lock and re-discovers rather than taking a missing pair GATE
   while holding the User lock (spec §11).
+- ``execute_short_cover_in_session`` is the risk-reducing twin: it settles the
+  debt at one UTC T, buys exactly q foreign through the AMM, releases only this
+  position's lock (plus free cash) and repays interest then principal.  It is
+  allowed below margin, while frozen and with the opening/loan gates off.
 
-Lock order is ``pair -> User -> wallet/short rows (pair_id asc) -> treasury``.
-Opening deliberately borrows real treasury foreign, sells it through the same
-AMM and locks the net gold proceeds; it never credits ``FxWallet`` and never
-auto-repays gold debt.
+Lock order is ``pair -> User -> wallet/short rows (pair_id asc) -> treasury``
+for opening and ``pair -> User -> short rows (pair_id asc) -> treasury`` for
+covering; cover never touches or creates the spot wallet.  Opening deliberately
+borrows real treasury foreign, sells it through the same AMM and locks the net
+gold proceeds; covering never credits ``FxWallet`` and never auto-repays gold
+debt.
 """
 from __future__ import annotations
 
@@ -36,7 +42,8 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.version import bump_economic_version, economic_version_of
-from app.services.fx.amm import quote_sell
+from app.services.fx.amm import quote_buy_exact_out, quote_sell
+from app.services.fx.quantize import amount_down
 from app.services.loan_service import _elapsed_seconds, pending_debt
 from app.services.market_locks import lock_user
 
@@ -50,9 +57,16 @@ _Q6 = Decimal('0.000001')
 #: ``FxTrade.purpose`` for the borrow-and-sell opening action (spec §10).
 SHORT_OPEN_PURPOSE = "short_open"
 
+#: ``FxTrade.purpose`` for the exact-output buy-back/repay cover action.
+SHORT_COVER_PURPOSE = "short_cover"
+
 
 class ShortOpenRejected(ValueError):
     """Malformed request or a quote the AMM cannot execute."""
+
+
+class ShortCoverRejected(ValueError):
+    """Malformed cover request or a cover quote the AMM cannot execute."""
 
 
 class ShortRetryCredit(Exception):
@@ -460,6 +474,298 @@ async def execute_short_open_in_session(
         treasury_before=treasury_before,
         user_before=user_before, short_before=short_before,
         pool_before={"gold": pre_gold, "foreign": pre_foreign},
+    )
+    return FxShortExecution(
+        trade=trade, replay=False, pair_id=int(pair_id),
+        post_price=post_price, trade_id=int(trade.id),
+    )
+
+
+def _cover_identity_matches(
+    old: FxTrade,
+    *,
+    pair_id: int,
+    cover_all: bool,
+    amount: Optional[Decimal],
+    max_gold_in: Decimal,
+) -> bool:
+    """Whether a same-key trade is exactly this cover request (see spec §11).
+
+    Fixed q and ``cover_all`` are distinct identities, and the purpose/pair/max
+    gold cap are part of the key so a spot trade, a short open or a changed
+    request can never replay this execution.
+    """
+    if (old.purpose != SHORT_COVER_PURPOSE or int(old.pair_id) != int(pair_id)
+            or old.side != "buy" or old.source != "player"):
+        return False
+    if bool(old.cover_all) != cover_all:
+        return False
+    if cover_all:
+        if old.requested_foreign_amount is not None:
+            return False
+    else:
+        if old.requested_foreign_amount is None:
+            return False
+        if Decimal(old.requested_foreign_amount) != amount:
+            return False
+    if old.max_gold_in is None or Decimal(old.max_gold_in) != max_gold_in:
+        return False
+    return True
+
+
+async def execute_short_cover_in_session(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    pair_id: int,
+    foreign_amount: Optional[Decimal],
+    cover_all: bool,
+    max_gold_in: Decimal,
+    idempotency_key: str,
+    credit_deps: "DependencySet",
+) -> FxShortExecution:
+    """Buy back exactly the requested (or entire) foreign debt and repay it.
+
+    Risk-reducing, so it is allowed below the initial margin, while credit is
+    frozen or with the opening/loan gates off (spec §9); only total
+    ``fx_enabled=false`` stops user trading.  The caller must hold the target
+    pair's exclusive gate and every dependency shared gate, and owns the single
+    transaction.  Lock order for cover is
+    ``pair -> User -> short rows (pair_id asc) -> treasury``; the spot wallet is
+    deliberately never touched and never created.
+
+    At one common UTC T the gold debt and every own foreign position are settled
+    first; ``cover_all`` then locks the **post-settlement** ``principal+interest``
+    so a new interest leg cannot leave a dust remainder.  The exact-output quote
+    is always re-run from the locked reserves, and the gold cost is allocated
+    against ``F_cash + S_position`` (never another short's lock).  This function
+    never commits, never rolls back and never publishes.
+    """
+    _require_writes()
+    if not credit_flags.get_flags().unified_credit_enabled:
+        raise HTTPException(status_code=403, detail="unified credit is not enabled")
+    target_key = GroupKey("fx", pair_id)
+    if target_key not in GATES.held_keys_by_current_task():
+        raise RuntimeError("short-cover caller must hold the target pair gate through commit")
+
+    is_cover_all = bool(cover_all)
+    if is_cover_all and foreign_amount is not None:
+        raise ShortCoverRejected("cover_all and foreign_amount are mutually exclusive")
+    if not is_cover_all and foreign_amount is None:
+        raise ShortCoverRejected("foreign_amount is required unless cover_all")
+    amount = None if is_cover_all else _positive_six(foreign_amount, "foreign_amount")
+    limit_gold = _nonnegative_six(max_gold_in, "max_gold_in")
+    if not idempotency_key or len(idempotency_key) > 128:
+        raise ShortCoverRejected("idempotency_key is required")
+    if idempotency_key.startswith("liq:"):
+        raise ShortCoverRejected("idempotency_key prefix is reserved")
+
+    pair = await _lock_pair(db, pair_id)
+    user = await lock_user(db, user_id)
+
+    # A replay after the position is fully closed returns the saved execution
+    # and never buys foreign again.  Purpose/pair/cover_all/q/max identity must
+    # all match; a spot trade or changed request on the same key is a conflict.
+    old = (await db.execute(select(FxTrade).where(
+        FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
+    ))).scalars().first()
+    if old is not None:
+        if not _cover_identity_matches(
+            old, pair_id=pair_id, cover_all=is_cover_all,
+            amount=amount, max_gold_in=limit_gold,
+        ):
+            raise HTTPException(status_code=409, detail="idempotency key parameter mismatch")
+        return FxShortExecution(
+            trade=old, replay=True, pair_id=int(old.pair_id),
+            post_price=Decimal(old.post_price), trade_id=int(old.id),
+        )
+
+    held = GATES.held_keys_by_current_task()
+    if economic_version_of(user) != credit_deps.economic_version:
+        raise ShortRetryCredit()
+    if not set(credit_deps.groups).issubset(held):
+        raise ShortRetryCredit()
+    if credit_deps.snapshots.get(target_key) is None:
+        raise ShortRetryCredit()
+
+    if not await site_config.get_bool_or(db, "fx_enabled", False):
+        raise HTTPException(status_code=403, detail="FX trading is disabled")
+    status = str(pair.status or "").strip().lower()
+    coverable = (
+        not bool(pair.archived)
+        and (status == "trading" or (status == "paused" and bool(pair.reduce_only)))
+    )
+    if not coverable:
+        # paused without reduce_only, closed/draft/archived: block the user
+        # action but retain the debt and locks (spec §9).
+        raise HTTPException(status_code=403, detail="FX pair is not coverable")
+
+    positions = await _lock_short_rows(db, user_id)
+    target = next((p for p in positions if int(p.pair_id) == pair_id), None)
+    if target is None or (
+        Decimal(target.principal_foreign) + Decimal(target.interest_foreign) <= 0
+    ):
+        # Never turn an absent short into a spot buy or create a positive wallet.
+        raise HTTPException(status_code=400, detail="no outstanding short to cover")
+    treasury = await _lock_treasury(db, pair_id)
+    if treasury is None:
+        treasury = FxTreasury(pair_id=pair_id)
+        db.add(treasury)
+
+    now = utcnow()
+    daily_rate = _finite_decimal(credit_deps.daily_rate, "daily_rate")
+
+    # One UTC T: settle gold debt and every own foreign position before reading
+    # the coverable debt, so cover_all takes the whole post-settlement tail.
+    before_debt = Decimal(user.debt)
+    loan_service.accrue_interest(user, daily_rate, now)
+    if Decimal(user.debt) != before_debt:
+        audit_service.record(
+            db, "interest_accrual", user_id=user.id,
+            payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
+                     "interest": Decimal(user.debt) - before_debt,
+                     "daily_rate": daily_rate, "source": "fx_short_cover"},
+            user_after=audit_service.user_snapshot(user),
+        )
+    for pos in positions:
+        if Decimal(pos.principal_foreign) + Decimal(pos.interest_foreign) <= 0:
+            continue
+        clock_before = pos.interest_last_accrued_at
+        added = accrue_short_interest(pos, daily_rate, now)
+        if added:
+            audit_service.record_fx_short_interest(
+                db, user=user, position=pos, pair_id=int(pos.pair_id),
+                interest=added, daily_rate=daily_rate,
+                elapsed_sec=(_elapsed_seconds(clock_before, now) if clock_before else None),
+                interest_last_accrued_at_before=clock_before,
+                accrued_at=now, source="fx_short_cover",
+            )
+
+    q_effective = (
+        Decimal(target.principal_foreign) + Decimal(target.interest_foreign)
+    ).quantize(_Q6)
+    if q_effective <= 0:
+        raise HTTPException(status_code=400, detail="no outstanding short to cover")
+    q = q_effective if is_cover_all else amount
+    if q > q_effective:
+        raise HTTPException(status_code=400, detail="foreign_amount exceeds outstanding short")
+    full_cover = q == q_effective
+
+    gold_reserve = Decimal(pair.gold_reserve)
+    foreign_reserve = Decimal(pair.foreign_reserve)
+    try:
+        quote = quote_buy_exact_out(
+            q, gold_reserve, foreign_reserve, Decimal(pair.buy_fee_rate))
+    except (TypeError, ValueError, ArithmeticError) as exc:
+        raise ShortCoverRejected(str(exc)) from exc
+    x = quote.input_amount
+    if x > limit_gold:
+        raise HTTPException(status_code=409, detail="quoted gold cost exceeds max_gold_in")
+
+    # Cash purpose boundary: this cover may spend only F_cash + its own lock.
+    cash = Decimal(user.cash)
+    position_lock = Decimal(target.restricted_gold)
+    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
+    if cash < total_lock:
+        raise ShortCoverRejected("restricted gold exceeds total cash")
+    free_cash = cash - total_lock
+    base_release = (
+        position_lock if full_cover else amount_down(position_lock * q / q_effective)
+    )
+    if x <= free_cash + base_release:
+        release = base_release
+    elif x <= free_cash + position_lock:
+        # A losing cover may consume extra gold from this position's own lock,
+        # never another short's, and never a new gold loan.
+        release = max(base_release, x - free_cash)
+    else:
+        raise HTTPException(status_code=400, detail="insufficient cash to cover")
+    release = release.quantize(_Q6)
+
+    _require_writes()
+    pre_gold, pre_foreign = gold_reserve, foreign_reserve
+    pre_treasury_gold = Decimal(treasury.gold_balance)
+    pre_treasury_foreign = Decimal(treasury.foreign_balance)
+    treasury_before = {
+        "gold_balance": pre_treasury_gold,
+        "foreign_balance": pre_treasury_foreign,
+        "daily_spend": treasury.daily_spend,
+        "spend_date": treasury.spend_date,
+        "updated_at": treasury.updated_at,
+    }
+    user_before = {
+        "cash": cash,
+        "debt": Decimal(user.debt),
+        "debt_last_accrued_at": user.debt_last_accrued_at,
+    }
+    short_before = _short_snapshot(target)
+
+    # Physical settlement: the AMM buys exactly q foreign with X gold; the net
+    # gold joins the pool, the gold fee and the returned q go to treasury, cash
+    # falls, and the user wallet is untouched.
+    pair.gold_reserve = quote.post_gold_reserve
+    pair.foreign_reserve = quote.post_foreign_reserve
+    pair.pool_version = int(pair.pool_version) + 1
+    pair.updated_at = now
+    treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
+    treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
+    treasury.updated_at = now
+    user.cash = (cash - x).quantize(_Q6)
+    bump_economic_version(user)
+
+    # q repays interest first, then principal.
+    interest_before = Decimal(target.interest_foreign)
+    principal_before = Decimal(target.principal_foreign)
+    interest_paid = min(q, interest_before)
+    principal_paid = (q - interest_paid).quantize(_Q6)
+    target.interest_foreign = (interest_before - interest_paid).quantize(_Q6)
+    target.principal_foreign = (principal_before - principal_paid).quantize(_Q6)
+
+    # Lock release and the historical proceeds basis are apportioned
+    # independently; a full cover settles both rounding tails.
+    if full_cover:
+        allocated_basis = Decimal(target.proceeds_basis_gold)
+    else:
+        allocated_basis = amount_down(Decimal(target.proceeds_basis_gold) * q / q_effective)
+    target.restricted_gold = (position_lock - release).quantize(_Q6)
+    target.proceeds_basis_gold = (
+        Decimal(target.proceeds_basis_gold) - allocated_basis
+    ).quantize(_Q6)
+    realized_pl = (allocated_basis - x).quantize(_Q6)
+    if full_cover:
+        target.principal_foreign = Decimal("0")
+        target.interest_foreign = Decimal("0")
+        target.restricted_gold = Decimal("0")
+        target.proceeds_basis_gold = Decimal("0")
+        target.interest_last_accrued_at = None
+    target.updated_at = now
+
+    # 0 <= ΣS <= C after the release; other positions' locks are unchanged.
+    if total_lock - release < 0 or total_lock - release > Decimal(user.cash):
+        raise ShortCoverRejected("restricted gold exceeds total cash")
+
+    post_price = quote.post_price.quantize(_Q6)
+    trade = FxTrade(
+        pair_id=pair_id, user_id=user_id, side="buy", purpose=SHORT_COVER_PURPOSE,
+        requested_foreign_amount=(None if is_cover_all else q),
+        cover_all=(True if is_cover_all else None), max_gold_in=limit_gold,
+        input_amount=x, output_amount=q, min_out=Decimal("0"),
+        fee_amount=quote.fee_amount,
+        pre_gold_reserve=pre_gold, pre_foreign_reserve=pre_foreign,
+        post_gold_reserve=quote.post_gold_reserve,
+        post_foreign_reserve=quote.post_foreign_reserve,
+        post_price=post_price, source="player", idempotency_key=idempotency_key,
+    )
+    db.add(trade)
+    await db.flush()
+    audit_service.record_fx_short_cover(
+        db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
+        treasury_before=treasury_before, user_before=user_before,
+        short_before=short_before,
+        pool_before={"gold": pre_gold, "foreign": pre_foreign},
+        interest_paid_foreign=interest_paid, principal_paid_foreign=principal_paid,
+        released_lock=release, allocated_proceeds_basis=allocated_basis,
+        realized_pl=realized_pl, accrued_at=now, full_cover=full_cover,
     )
     return FxShortExecution(
         trade=trade, replay=False, pair_id=int(pair_id),

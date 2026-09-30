@@ -30,8 +30,11 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.risk import discover_dependencies
 from app.services.fx import trading
+from app.services.fx.quantize import amount_down
 from app.services.fx.shorts import (
+    ShortCoverRejected,
     ShortRetryCredit,
+    execute_short_cover_in_session,
     execute_short_open_in_session,
 )
 
@@ -82,7 +85,8 @@ async def _seed(*, cash="1000", debt="0", debt_ago_sec=None, rate="0",
                 gold="1000", foreign="1000", buy_fee="0", sell_fee="0",
                 limit="100000", status="trading", reduce_only=False,
                 archived=False, wallet_foreign=None, short=None,
-                short_enabled=True):
+                short_enabled=True, loan_enabled=True, fx_enabled=True,
+                credit_frozen=False):
     async with async_session_maker() as db:
         debt_clock = (
             datetime.now(timezone.utc) - timedelta(seconds=debt_ago_sec)
@@ -90,6 +94,7 @@ async def _seed(*, cash="1000", debt="0", debt_ago_sec=None, rate="0",
         )
         user = User(username=uuid4().hex, cash=D(cash), debt=D(debt),
                     debt_last_accrued_at=debt_clock,
+                    credit_frozen=credit_frozen,
                     tos_accepted_at=datetime.now(timezone.utc))
         db.add(user)
         await db.flush()
@@ -105,8 +110,8 @@ async def _seed(*, cash="1000", debt="0", debt_ago_sec=None, rate="0",
         db.add(FxTreasury(pair_id=pair.id, gold_balance=D(gold),
                           foreign_balance=D(treasury_foreign)))
         configs = [
-            ("fx_enabled", "true", "bool"),
-            ("loan_enabled", "true", "bool"),
+            ("fx_enabled", "true" if fx_enabled else "false", "bool"),
+            ("loan_enabled", "true" if loan_enabled else "false", "bool"),
             ("loan_daily_rate", rate, "decimal"),
         ]
         if short_enabled:
@@ -151,6 +156,66 @@ async def _open(uid, pid, q, *, min_out="0", key=None, attempts=5):
                     await db.rollback()
                     raise
     raise AssertionError("short-open retries exhausted")
+
+
+async def _cover(uid, pid, *, q=None, cover_all=False, max_gold_in="1000000",
+                 key=None, attempts=5):
+    """One caller-owned cover transaction and complete gate set.
+
+    Mirrors the API contract: the caller discovers dependencies, rolls the
+    discovery transaction back, holds the target exclusive gate plus every other
+    dependency shared, then commits once.  Rejections roll back and re-raise so a
+    scenario can assert that no money/debt/lock moved.
+    """
+    key = key or uuid4().hex
+    for _ in range(attempts):
+        async with async_session_maker() as db:
+            target = GroupKey("fx", pid)
+            deps = await discover_dependencies(db, uid, extra_groups=[target])
+            if db.in_transaction():
+                await db.rollback()
+            async with GATES.hold(
+                exclusive=[target],
+                shared=[g for g in deps.groups if g != target],
+            ):
+                try:
+                    execution = await execute_short_cover_in_session(
+                        db, user_id=uid, pair_id=pid,
+                        foreign_amount=None if q is None else D(q),
+                        cover_all=cover_all, max_gold_in=D(max_gold_in),
+                        idempotency_key=key, credit_deps=deps,
+                    )
+                    await db.commit()
+                    return execution
+                except ShortRetryCredit:
+                    await db.rollback()
+                    continue
+                except BaseException:
+                    await db.rollback()
+                    raise
+    raise AssertionError("short-cover retries exhausted")
+
+
+async def _add_second_short(uid, *, principal="10", restricted="90", basis="90",
+                            gold="1000", foreign="1000"):
+    """A second pair with its own short lock, to prove cover cannot touch it."""
+    async with async_session_maker() as db:
+        pair = FxPair(
+            currency_code=uuid4().hex[:16], currency_name="T2",
+            status="trading", gold_reserve=D(gold), foreign_reserve=D(foreign),
+            buy_fee_rate=ZERO, sell_fee_rate=ZERO,
+            short_lending_limit_foreign=D("100000"),
+        )
+        db.add(pair)
+        await db.flush()
+        db.add(FxShortPosition(
+            user_id=uid, pair_id=pair.id,
+            principal_foreign=D(principal), interest_foreign=ZERO,
+            interest_last_accrued_at=datetime.now(timezone.utc),
+            restricted_gold=D(restricted), proceeds_basis_gold=D(basis),
+        ))
+        await db.commit()
+        return int(pair.id)
 
 
 async def _stocks(db, pid):
@@ -547,6 +612,368 @@ async def test_positive_spot_wallet_blocks_short_without_mutation():
     with pytest.raises(HTTPException) as exc:
         await _open(uid, pid, "100")
     assert exc.value.status_code == 400
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+    assert after == before
+    assert not GATES.held_keys()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Task 3b: exact-output short cover ledger (user-requested quantity / full)
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def test_partial_then_full_cover_conserves_stock_and_settles_interest():
+    """Buy exactly q foreign back into treasury; only gold/foreign stock moves.
+
+    A regression here means the AMM leg, the treasury return, the fee currency,
+    the lock release or the debt repayment is booked against the wrong side, or
+    accrued interest is dropped when cover_all locks the tail.
+    """
+    uid, pid = await _seed(
+        cash="1000", rate="0.1", buy_fee="0.02",
+        treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
+        short={"principal": "100", "interest": "0", "restricted": "100",
+               "basis": "100", "accrued_ago_sec": 86400},
+    )
+    async with async_session_maker() as db:
+        before = await _stocks(db, pid)
+        pre_pos = await _position(db, uid, pid)
+        pre_lock = D(pre_pos.restricted_gold)
+        pre_basis = D(pre_pos.proceeds_basis_gold)
+
+    partial = await _cover(uid, pid, q="50", key="k-cover-1")
+
+    async with async_session_maker() as db:
+        after = await _stocks(db, pid)
+        pos = await _position(db, uid, pid)
+        trade = (await db.execute(select(FxTrade).where(
+            FxTrade.id == partial.trade_id))).scalars().one()
+        audit = (await db.execute(select(AuditEvent).where(
+            AuditEvent.event_type == "fx_trade",
+            AuditEvent.ref_id == trade.id))).scalars().one()
+        payload = audit.payload
+        q = D(trade.output_amount)
+        x = D(trade.input_amount)
+        fee = D(trade.fee_amount)
+
+        assert trade.purpose == "short_cover" and trade.side == "buy"
+        assert trade.source == "player"
+        assert D(trade.requested_foreign_amount) == D("50")
+        assert trade.cover_all is None
+        assert q == D("50") and fee > 0 and x > 0
+
+        # Exact physical legs: AMM takes X gold (net + fee), treasury gains the
+        # gold fee and the exact q foreign returned, wallet never moves.
+        assert D(after["treasury_foreign"]) == before["treasury_foreign"] + q
+        assert D(after["pool_foreign"]) == before["pool_foreign"] - q
+        assert D(after["pool_gold"]) == before["pool_gold"] + x - fee
+        assert D(after["treasury_gold"]) == before["treasury_gold"] + fee
+        assert D(after["cash"]) == before["cash"] - x
+        assert D(after["wallet_foreign"]) == ZERO
+        assert D(trade.post_foreign_reserve) == before["pool_foreign"] - q
+        assert (after["pool_gold"] + after["treasury_gold"] + after["cash"]
+                == before["pool_gold"] + before["treasury_gold"] + before["cash"])
+        assert (after["pool_foreign"] + after["treasury_foreign"]
+                + after["wallet_foreign"]
+                == before["pool_foreign"] + before["treasury_foreign"]
+                + before["wallet_foreign"])
+
+        # q repays accrued interest first (~10 for the day-old 100), then principal.
+        interest_paid = D(payload["interest_paid_foreign"])
+        principal_paid = D(payload["principal_paid_foreign"])
+        assert D("9.9") < interest_paid < D("10.1")
+        assert interest_paid + principal_paid == q
+        assert D(pos.interest_foreign) == ZERO
+        assert D(payload["repaid_foreign"]) == q
+
+        # Lock release and proceeds basis apportion independently; realized P/L is
+        # allocated basis minus real gold paid, never lock release minus X.
+        q_effective = q + D(pos.principal_foreign) + D(pos.interest_foreign)
+        expected_release = amount_down(pre_lock * q / q_effective)
+        expected_basis = amount_down(pre_basis * q / q_effective)
+        assert D(payload["released_lock"]) == expected_release
+        assert D(pos.restricted_gold) == pre_lock - expected_release
+        assert D(payload["allocated_proceeds_basis"]) == expected_basis
+        assert D(pos.proceeds_basis_gold) == pre_basis - expected_basis
+        assert D(payload["realized_pl"]) == expected_basis - x
+        assert D(after["pool_version"]) == before["pool_version"] + 1
+
+    # Full cover locks the entire post-settlement debt and clears every tail.
+    full = await _cover(uid, pid, cover_all=True, max_gold_in="100000",
+                        key="k-cover-2")
+    async with async_session_maker() as db:
+        after_full = await _stocks(db, pid)
+        pos_full = await _position(db, uid, pid)
+        trade_full = (await db.execute(select(FxTrade).where(
+            FxTrade.id == full.trade_id))).scalars().one()
+        q_full = D(trade_full.output_amount)
+        assert trade_full.cover_all is True
+        assert trade_full.requested_foreign_amount is None
+        assert q_full > ZERO
+        assert D(pos_full.principal_foreign) == ZERO
+        assert D(pos_full.interest_foreign) == ZERO
+        assert D(pos_full.restricted_gold) == ZERO
+        assert D(pos_full.proceeds_basis_gold) == ZERO
+        assert pos_full.interest_last_accrued_at is None
+        assert D(after_full["treasury_foreign"]) == D(after["treasury_foreign"]) + q_full
+        assert D(after_full["pool_foreign"]) == D(after["pool_foreign"]) - q_full
+        assert D(after_full["locked"]) == ZERO
+        assert (after_full["pool_gold"] + after_full["treasury_gold"] + after_full["cash"]
+                == before["pool_gold"] + before["treasury_gold"] + before["cash"])
+        assert (after_full["pool_foreign"] + after_full["treasury_foreign"]
+                + after_full["wallet_foreign"]
+                == before["pool_foreign"] + before["treasury_foreign"]
+                + before["wallet_foreign"])
+
+
+async def test_losing_partial_cover_consumes_own_lock_only_and_uses_basis():
+    """A losing cover may spend extra gold from *this* lock, never another short.
+
+    The realized loss uses the historical proceeds basis, not the extra lock
+    released, so a loss cannot be hidden or turned into a book profit.
+    """
+    uid, pid = await _seed(
+        cash="120", rate="0", buy_fee="0",
+        treasury_foreign="100000", gold="1000", foreign="205", limit="100000",
+        short={"principal": "10", "interest": "0", "restricted": "20",
+               "basis": "5", "accrued_ago_sec": 0},
+    )
+    other_pid = await _add_second_short(uid, restricted="90", basis="90")
+
+    execution = await _cover(uid, pid, q="5", key="k-loss")
+
+    async with async_session_maker() as db:
+        target = await _position(db, uid, pid)
+        other = await _position(db, uid, other_pid)
+        trade = (await db.execute(select(FxTrade).where(
+            FxTrade.id == execution.trade_id))).scalars().one()
+        audit = (await db.execute(select(AuditEvent).where(
+            AuditEvent.event_type == "fx_trade",
+            AuditEvent.ref_id == trade.id))).scalars().one()
+        payload = audit.payload
+        x = D(trade.input_amount)
+        # G=1000, F=205, fee=0, q=5 -> X=25; F_cash=10, S_base=10, so 15 of the
+        # target's own lock is released and the other pair's 90 is untouched.
+        assert x == D("25")
+        assert D(target.restricted_gold) == D("5")
+        assert D(target.proceeds_basis_gold) == D("2.5")
+        assert D(other.restricted_gold) == D("90")
+        assert D(other.proceeds_basis_gold) == D("90")
+        assert D((await db.get(User, uid)).cash) == D("95")
+        assert D(payload["released_lock"]) == D("15")
+        assert D(payload["allocated_proceeds_basis"]) == D("2.5")
+        assert D(payload["realized_pl"]) == D("-22.5")
+        # Fault mode: substituting the released lock for historical basis gives
+        # -10; the ledger must book the basis-based -22.5 instead.
+        assert D(payload["realized_pl"]) != D(payload["released_lock"]) - x
+
+
+async def test_cover_all_settles_tail_replays_and_rejects_conflicts():
+    """cover_all locks the current interest, replays as a no-op, and conflicts.
+
+    A regression means a fully closed position loses the interest tail (dust),
+    a retry buys foreign again, or a changed request/other purpose is treated as
+    the same idempotent operation.
+    """
+    uid, pid = await _seed(
+        cash="1000", rate="0.1", buy_fee="0.02",
+        treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
+        short={"principal": "100", "interest": "0", "restricted": "100",
+               "basis": "100", "accrued_ago_sec": 86400},
+    )
+    first = await _cover(uid, pid, cover_all=True, max_gold_in="1000000", key="k-all")
+
+    async with async_session_maker() as db:
+        before_replay = await _full_state(db, uid, pid)
+        pos = await _position(db, uid, pid)
+        first_trade = (await db.execute(select(FxTrade).where(
+            FxTrade.id == first.trade_id))).scalars().one()
+        # cover_all took the post-settlement principal+interest (>100), so the
+        # day-old interest cannot survive as a dust remainder.
+        assert D(first_trade.output_amount) > D("100")
+        assert D(pos.principal_foreign) == ZERO
+        assert D(pos.interest_foreign) == ZERO
+        assert D(pos.restricted_gold) == ZERO
+        assert D(pos.proceeds_basis_gold) == ZERO
+        assert pos.interest_last_accrued_at is None
+
+    replay = await _cover(uid, pid, cover_all=True, max_gold_in="1000000", key="k-all")
+    assert replay.replay is True
+    assert replay.trade_id == first.trade_id
+    async with async_session_maker() as db:
+        after_replay = await _full_state(db, uid, pid)
+    assert after_replay == before_replay  # no second buy / audit on replay
+
+    # Same key, different request identity: cover_all vs fixed q and a changed
+    # max_gold_in must both conflict instead of mutating a later position.
+    with pytest.raises(HTTPException) as fixed_exc:
+        await _cover(uid, pid, q="50", key="k-all")
+    assert fixed_exc.value.status_code == 409
+    with pytest.raises(HTTPException) as max_exc:
+        await _cover(uid, pid, cover_all=True, max_gold_in="999", key="k-all")
+    assert max_exc.value.status_code == 409
+
+    # Cross-purpose: a spot key cannot be reused for a cover.
+    async with async_session_maker() as db:
+        await trading.execute_trade(db, uid, pid, "buy", D("1"), D("0"), "k-spot-cover")
+    with pytest.raises(HTTPException) as cross_exc:
+        await _cover(uid, pid, q="1", key="k-spot-cover")
+    assert cross_exc.value.status_code == 409
+
+
+@pytest.mark.parametrize("seed_overrides, cover_kwargs, kind", [
+    ({"cash": "20", "foreign": "205",
+      "short": {"principal": "10", "interest": "0", "restricted": "15",
+                "basis": "15"}}, {"q": "5"}, "cash"),
+    ({"buy_fee": "0.02"}, {"q": "50", "max_gold_in": "0"}, "max_gold_in"),
+    ({"foreign": "5"}, {"q": "5"}, "pool"),
+    ({}, {"q": "200"}, "excess"),
+])
+async def test_cover_rejections_change_nothing(seed_overrides, cover_kwargs, kind):
+    """Insufficient cash, a too-low cap, q>=F or q>debt leaves the whole book.
+
+    A regression here means a rejected cover still moves cash, debt, locks,
+    pool, treasury, trades or audit rows (a partial ledger).
+    """
+    seed_kwargs = dict(
+        cash="1000", rate="0", treasury_foreign="100000",
+        gold="1000", foreign="1000", limit="100000",
+        short={"principal": "100", "interest": "0", "restricted": "100",
+               "basis": "100"},
+    )
+    seed_kwargs.update(seed_overrides)
+    uid, pid = await _seed(**seed_kwargs)
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    if kind == "pool":
+        with pytest.raises(ShortCoverRejected):
+            await _cover(uid, pid, key="k-rej", **cover_kwargs)
+    else:
+        with pytest.raises(HTTPException) as exc:
+            await _cover(uid, pid, key="k-rej", **cover_kwargs)
+        assert exc.value.status_code == (409 if kind == "max_gold_in" else 400)
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+    assert after == before
+    assert not GATES.held_keys()
+
+
+@pytest.mark.parametrize("status", ["trading", "paused"])
+async def test_reduce_only_allows_cover_but_blocks_ordinary_buy(status):
+    """Cover is risk-reducing, so reduce_only permits it; a spot buy still 403s."""
+    uid, pid = await _seed(
+        cash="1000", rate="0", buy_fee="0",
+        treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
+        status=status, reduce_only=True,
+        short={"principal": "10", "interest": "0", "restricted": "100",
+               "basis": "100"},
+    )
+    execution = await _cover(uid, pid, q="5", key="k-ro-cover")
+    assert execution.replay is False
+    async with async_session_maker() as db:
+        pos = await _position(db, uid, pid)
+        assert D(pos.principal_foreign) == D("5")
+
+    with pytest.raises(HTTPException) as exc:
+        async with async_session_maker() as db:
+            await trading.execute_trade(db, uid, pid, "buy", D("1"), D("0"), "k-ro-buy")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("status, reduce_only, archived", [
+    ("paused", False, False),
+    ("closed", False, False),
+    ("trading", False, True),
+])
+async def test_non_coverable_pair_state_blocks_cover_and_retains_debt(
+        status, reduce_only, archived):
+    """paused without reduce_only, closed and archived keep the obligation but
+    block user cover; no leg of the book may move."""
+    uid, pid = await _seed(
+        cash="1000", rate="0",
+        treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
+        status=status, reduce_only=reduce_only, archived=archived,
+        short={"principal": "10", "interest": "0", "restricted": "100",
+               "basis": "100"},
+    )
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    with pytest.raises(HTTPException) as exc:
+        await _cover(uid, pid, q="5", key="k-blocked")
+    assert exc.value.status_code == 403
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+    assert after == before
+    assert after["shorts"][0][1] == D("10")  # debt retained
+
+
+async def test_cover_allowed_with_gates_off_frozen_and_below_margin():
+    """The opening gate, loan gate and credit freeze never block a cover.
+
+    Cover is the only way an underwater, frozen short can be reduced; closing
+    those gates must not trap the obligation.
+    """
+    uid, pid = await _seed(
+        cash="1000", debt="2000", debt_ago_sec=86400, rate="0.1",
+        short_enabled=False, loan_enabled=False, credit_frozen=True,
+        treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
+        short={"principal": "100", "interest": "0", "restricted": "100",
+               "basis": "100", "accrued_ago_sec": 86400},
+    )
+    execution = await _cover(uid, pid, q="50", max_gold_in="1000", key="k-off")
+    assert execution.replay is False
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        pos = await _position(db, uid, pid)
+        assert D(pos.principal_foreign) < D("100")
+        assert D(pos.interest_foreign) == ZERO
+        assert D(user.cash) < D("1000")
+        # Gold interest still settles at T even with the loan gate closed, but
+        # the cover never borrows the ~53 gold it spends.
+        assert D(user.debt) > D("2000")
+        assert D(user.debt) < D("2210")
+
+
+async def test_cover_without_short_rejects_and_creates_nothing():
+    """No outstanding debt means no cover and never an implicit spot buy."""
+    uid, pid = await _seed(cash="1000", rate="0", treasury_foreign="100000",
+                           gold="1000", foreign="1000", limit="100000")
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    with pytest.raises(HTTPException) as exc:
+        await _cover(uid, pid, q="5", key="k-noshort")
+    assert exc.value.status_code == 400
+    assert "short" in str(exc.value.detail).lower()
+
+    async with async_session_maker() as db:
+        after = await _full_state(db, uid, pid)
+        assert after == before
+        assert (await db.execute(select(FxWallet))).scalars().all() == []
+        assert (await db.execute(select(FxShortPosition))).scalars().all() == []
+    assert not GATES.held_keys()
+
+
+async def test_cover_request_shape_must_be_fixed_or_cover_all():
+    """cover_all and a fixed quantity are mutually exclusive and one is required."""
+    uid, pid = await _seed(
+        cash="1000", rate="0", treasury_foreign="100000",
+        gold="1000", foreign="1000", limit="100000",
+        short={"principal": "10", "interest": "0", "restricted": "100",
+               "basis": "100"},
+    )
+    async with async_session_maker() as db:
+        before = await _full_state(db, uid, pid)
+
+    with pytest.raises(ShortCoverRejected):
+        await _cover(uid, pid, q="5", cover_all=True, key="k-shape")
+    with pytest.raises(ShortCoverRejected):
+        await _cover(uid, pid, q=None, cover_all=False, key="k-shape")
 
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
