@@ -972,3 +972,381 @@ async def test_sibling_settlement_overflow_requires_whole_transaction_rollback()
         after_state = await _cover_state(db, uid, pid)
     assert after_econ == before_econ
     assert after_state == before_state
+
+
+# ── WP4c: known-E ordering, cash retention and one-group execution ───────────
+#
+# 真实故障（spec §8.1）：最大空头当前买不起时若直接还金债/判恢复，会把卖资产
+# 所得立刻还债，下一轮空头仍无预算；或对金债为零的空头账户走 `debt==0` 快路径
+# 伪恢复，永久不再处置外币义务；或同一 (run_id,round_no) 重复扣款。
+
+async def _seed_rotation(*, cash="0", debt="50", short_principal="10000",
+                         short_gold="10000", short_foreign="100000",
+                         asset_foreign="500", asset_gold="1000",
+                         asset_reserve="10000"):
+    """零未锁现金的最大空头 + 两组正 FX 资产 + 正金债（rotation 场景）。"""
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as s:
+        user = User(username=uuid4().hex, casdoor_id=uuid4().hex,
+                    cash=D(cash), debt=D(debt),
+                    debt_last_accrued_at=now if D(debt) > 0 else None)
+        s.add(user)
+        await s.flush()
+        short_pair = FxPair(
+            currency_code=uuid4().hex[:16], currency_name="S", status="trading",
+            gold_reserve=D(short_gold), foreign_reserve=D(short_foreign),
+            buy_fee_rate=D("0"), sell_fee_rate=D("0"),
+            short_lending_limit_foreign=D("10000000"))
+        s.add(short_pair)
+        await s.flush()
+        s.add(FxTreasury(pair_id=short_pair.id, gold_balance=D(short_gold),
+                         foreign_balance=D(short_foreign)))
+        s.add(FxShortPosition(
+            user_id=user.id, pair_id=short_pair.id,
+            principal_foreign=D(short_principal), interest_foreign=D("0"),
+            interest_last_accrued_at=now, restricted_gold=D("0"),
+            proceeds_basis_gold=D("0")))
+        asset_ids = []
+        for _ in range(2):
+            ap = FxPair(
+                currency_code=uuid4().hex[:16], currency_name="A", status="trading",
+                gold_reserve=D(asset_gold), foreign_reserve=D(asset_reserve),
+                buy_fee_rate=D("0"), sell_fee_rate=D("0"))
+            s.add(ap)
+            await s.flush()
+            s.add(FxTreasury(pair_id=ap.id, gold_balance=D(asset_gold),
+                             foreign_balance=D(asset_reserve)))
+            s.add(FxWallet(user_id=user.id, pair_id=ap.id,
+                           foreign_amount=D(asset_foreign), cost_basis=D("0")))
+            asset_ids.append(int(ap.id))
+        await s.commit()
+        return int(user.id), int(short_pair.id), asset_ids
+
+
+async def test_rotation_sells_one_asset_retains_cash_then_covers_foreign_debt():
+    """spec §8.1 零预算最大空头示例：卖一组、留现金、下一轮回补，不借新金债。"""
+    uid, short_pid, asset_ids = await _seed_rotation()
+
+    first = await liquidation_sweep.run_liquidation_sweep_once()
+    assert first.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert D(user.debt) == D("50"), "sale proceeds must not auto-repay gold debt"
+        cash_after_sale = D(user.cash)
+        assert cash_after_sale > D("0")
+        wallets = {int(w.pair_id): D(w.foreign_amount)
+                   for w in (await s.execute(select(FxWallet))).scalars()}
+        assert sum(1 for pid in asset_ids if wallets[pid] == D("0")) == 1
+        assert sum(1 for pid in asset_ids if wallets[pid] > D("0")) == 1
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        assert D(short.principal_foreign) == D("10000"), "unpayable short untouched"
+        actions = list((await s.execute(select(LiquidationAction).order_by(
+            LiquidationAction.round_no))).scalars())
+        assert len(actions) == 1
+        assert actions[0].kind == "sell_group" and actions[0].repaid == 0
+        run_id = int(actions[0].run_id)
+
+    second = await liquidation_sweep.run_liquidation_sweep_once()
+    assert second.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert D(user.debt) == D("50"), "no gold repayment and no new gold loan"
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        covered = D("10000") - D(short.principal_foreign)
+        assert covered > 0
+        assert D(short.interest_foreign) == D("0")
+        actions = list((await s.execute(select(LiquidationAction).order_by(
+            LiquidationAction.round_no))).scalars())
+        assert [a.kind for a in actions] == ["sell_group", "cover_group"]
+        cover = actions[1]
+        assert int(cover.run_id) == run_id
+        assert cover.product == "fx" and int(cover.group_id) == short_pid
+        assert D(cover.foreign_repaid) == covered
+        assert D(cover.gold_spent) == cash_after_sale - D(user.cash)
+        assert cover.executed["limited_by_cash"] is True
+        assert D(cover.short_after["principal_foreign"]) == D(short.principal_foreign)
+        # Only one asset sold per round; the second is untouched by the cover.
+        wallets = {int(w.pair_id): D(w.foreign_amount)
+                   for w in (await s.execute(select(FxWallet))).scalars()}
+        assert sum(1 for pid in asset_ids if wallets[pid] > D("0")) == 1
+        # Physical foreign conservation on the covered pair.
+        pair = await s.get(FxPair, short_pid)
+        treasury = (await s.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == short_pid))).scalars().one()
+        assert D(pair.foreign_reserve) + D(treasury.foreign_balance) == D("200000")
+        assert D(pair.gold_reserve) == D("10000") + D(cover.gold_spent)
+
+
+async def test_known_foreign_only_triggers_and_covers_without_false_recovery_at_d0():
+    """D=0 的已知外币义务必须触发并回补，绝不走金债零快路径伪恢复。"""
+    uid, pid, _ = await _seed_cover(
+        cash="100", principal="100", restricted="0", basis="0",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert D(user.debt) == D("0")
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == pid))).scalars().one()
+        covered = D("100") - D(short.principal_foreign)
+        assert covered > 0, "known foreign-only short must actually be covered"
+        run = (await s.execute(select(LiquidationRun))).scalars().one()
+        assert run.status == "active", "must not falsely recover at D=0"
+        action = (await s.execute(select(LiquidationAction))).scalars().one()
+        assert action.kind == "cover_group"
+        assert D(action.foreign_repaid) == covered
+
+
+async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_charge():
+    """cover_group 落库真实 q/x/limited_by_cash；同轮重放与重复扫描不二次扣款。"""
+    uid, pid, _ = await _seed_cover(
+        cash="111.111112", principal="100", restricted="100", basis="100",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
+
+    first = await liquidation_sweep.run_liquidation_sweep_once()
+    assert first.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        action = (await s.execute(select(LiquidationAction))).scalars().one()
+        run = await s.get(LiquidationRun, action.run_id)
+        assert action.kind == "cover_group"
+        assert action.product == "fx" and int(action.group_id) == pid
+        assert D(action.foreign_repaid) == D("100")
+        assert action.executed["limited_by_cash"] is False
+        assert action.executed["full_cover"] is True
+        assert D(action.short_after["principal_foreign"]) == D("0")
+        assert D(action.short_after["restricted_gold"]) == D("0")
+        trade = (await s.execute(select(FxTrade).where(
+            FxTrade.idempotency_key == f"liq:{run.id}:{action.round_no}"))).scalars().one()
+        assert D(action.gold_spent) == D(trade.input_amount)
+        assert D(action.foreign_repaid) == D(trade.output_amount)
+        planned = str(trade.requested_foreign_amount)
+        budget = str(trade.max_gold_in)
+        run_id, round_no = int(run.id), int(action.round_no)
+        before = await _cover_state(s, uid, pid)
+
+    replay = await _liq_cover(uid, pid, run_id=run_id, round_no=round_no,
+                              planned=planned, budget=budget)
+    assert replay.replay is True
+
+    async with async_session_maker() as s:
+        assert await _cover_state(s, uid, pid) == before
+        assert len(list((await s.execute(select(FxTrade))).scalars())) == 1
+        assert len(list((await s.execute(select(LiquidationAction))).scalars())) == 1
+
+    # After the full cover the run is recovered: a duplicate scan is inert.
+    second = await liquidation_sweep.run_liquidation_sweep_once()
+    assert second.get("monetary_action_count") == 0
+    async with async_session_maker() as s:
+        assert await _cover_state(s, uid, pid) == before
+        assert len(list((await s.execute(select(FxTrade))).scalars())) == 1
+        assert len(list((await s.execute(select(LiquidationAction))).scalars())) == 1
+
+
+async def test_gold_repay_leaves_locked_short_s_untouched():
+    """无可执行空头时自动还金债只花未锁现金，绝不消费空头锁金 S。"""
+    uid, pid, _ = await _seed_cover(
+        cash="200", principal="100", restricted="150", basis="150",
+        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0",
+        debt="100", status="paused")
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == pid))).scalars().one()
+        # Only the unlocked 50 was spent; the 150 lock is intact and cash>=S.
+        assert D(user.cash) == D("150")
+        assert D(user.debt) == D("50")
+        assert D(short.restricted_gold) == D("150")
+        assert D(user.cash) >= D(short.restricted_gold)
+        action = (await s.execute(select(LiquidationAction))).scalars().one()
+        assert action.kind == "repay_cash" and D(action.repaid) == D("50")
+
+
+async def _seed_sale_with_paused_short(*, cash="200", debt="300", restricted="150",
+                                       short_principal="100",
+                                       short_gold="1000", short_foreign="1000",
+                                       asset_foreign="200",
+                                       asset_gold="1000", asset_reserve="10000"):
+    """一组可卖 FX 资产 + 一个已知定价但 ``paused`` 不可回补的空头 + 正金债。
+
+    真实故障（spec §8.1 第 1/4 步）：卖出资产后到手的净回款已经是自由现金，但
+    仍拿卖出**前**的 ``available_cash`` 当还金债上限，会把新现金当成不可用而少还
+    金债、无谓地让 run 保持 active。这里 ``paused && !reduce_only`` 的空头定价
+    已知（K 数值）但不可执行，因此不触发留存、也不该挡住按自由现金还债。
+    """
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as s:
+        user = User(username=uuid4().hex, casdoor_id=uuid4().hex,
+                    cash=D(cash), debt=D(debt), debt_last_accrued_at=now)
+        s.add(user)
+        await s.flush()
+        sp = FxPair(
+            currency_code=uuid4().hex[:16], currency_name="S", status="paused",
+            gold_reserve=D(short_gold), foreign_reserve=D(short_foreign),
+            buy_fee_rate=D("0"), sell_fee_rate=D("0"),
+            short_lending_limit_foreign=D("10000000"))
+        s.add(sp)
+        await s.flush()
+        s.add(FxTreasury(pair_id=sp.id, gold_balance=D(short_gold),
+                         foreign_balance=D(short_foreign)))
+        s.add(FxShortPosition(
+            user_id=user.id, pair_id=sp.id,
+            principal_foreign=D(short_principal), interest_foreign=D("0"),
+            interest_last_accrued_at=now, restricted_gold=D(restricted),
+            proceeds_basis_gold=D(restricted)))
+        ap = FxPair(
+            currency_code=uuid4().hex[:16], currency_name="A", status="trading",
+            gold_reserve=D(asset_gold), foreign_reserve=D(asset_reserve),
+            buy_fee_rate=D("0"), sell_fee_rate=D("0"))
+        s.add(ap)
+        await s.flush()
+        s.add(FxTreasury(pair_id=ap.id, gold_balance=D(asset_gold),
+                         foreign_balance=D(asset_reserve)))
+        s.add(FxWallet(user_id=user.id, pair_id=ap.id,
+                       foreign_amount=D(asset_foreign), cost_basis=D("0")))
+        await s.commit()
+        return int(user.id), int(sp.id), int(ap.id)
+
+
+async def test_sale_proceeds_repay_gold_debt_despite_paused_short():
+    """paused 不可回补空头持有 S 时，卖出资产的净回款仍是可还债自由现金。"""
+    uid, short_pid, asset_pid = await _seed_sale_with_paused_short()
+
+    async with async_session_maker() as s:
+        user_before = await s.get(User, uid)
+        short_before = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        pre_sale_free = D(user_before.cash) - D(short_before.restricted_gold)
+        assert pre_sale_free == D("50") < D(user_before.debt)
+
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result.get("monetary_action_count") == 1
+
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        actions = list((await s.execute(select(LiquidationAction))).scalars())
+        assert [a.kind for a in actions] == ["sell_group"], "exactly one group/round"
+        action = actions[0]
+        assert action.product == "fx" and int(action.group_id) == asset_pid
+        # The sale proceeds are spendable now: repay more than the pre-sale free cash.
+        assert D(action.repaid) > pre_sale_free, "post-sale free cash must cap repayment"
+        # Short lock S is never spent and stays intact.
+        assert D(short.restricted_gold) == D("150")
+        assert D(user.cash) >= D(short.restricted_gold), "locked S must remain covered"
+        # Gold debt is reduced by exactly the recorded actual repayment.
+        assert D(user.debt) == D("300") - D(action.repaid)
+        # Foreign obligation untouched: paused short and its pair/treasury unchanged.
+        assert D(short.principal_foreign) == D("100")
+        assert D(short.interest_foreign) == D("0")
+        paused_pair = await s.get(FxPair, short_pid)
+        assert D(paused_pair.gold_reserve) == D("1000")
+        assert D(paused_pair.foreign_reserve) == D("1000")
+        paused_treasury = (await s.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == short_pid))).scalars().one()
+        assert D(paused_treasury.gold_balance) == D("1000")
+        assert D(paused_treasury.foreign_balance) == D("1000")
+        # The sold asset wallet is empty; no cover was attempted.
+        wallet = (await s.execute(select(FxWallet).where(
+            FxWallet.pair_id == asset_pid))).scalars().one()
+        assert D(wallet.foreign_amount) == D("0")
+
+
+async def _seed_lmsr_with_unpayable_short(*, debt="100", shares="100",
+                                          pair_status="trading"):
+    now = datetime.now(timezone.utc)
+    async with async_session_maker() as s:
+        user = User(username=uuid4().hex, casdoor_id=uuid4().hex,
+                    cash=D("0"), debt=D(debt), debt_last_accrued_at=now)
+        s.add(user)
+        await s.flush()
+        sp = FxPair(
+            currency_code=uuid4().hex[:16], currency_name="S", status=pair_status,
+            gold_reserve=D("10000"), foreign_reserve=D("100000"),
+            buy_fee_rate=D("0"), sell_fee_rate=D("0"),
+            short_lending_limit_foreign=D("10000000"))
+        s.add(sp)
+        await s.flush()
+        s.add(FxTreasury(pair_id=sp.id, gold_balance=D("10000"),
+                         foreign_balance=D("100000")))
+        s.add(FxShortPosition(
+            user_id=user.id, pair_id=sp.id, principal_foreign=D("10000"),
+            interest_foreign=D("0"), interest_last_accrued_at=now,
+            restricted_gold=D("0"), proceeds_basis_gold=D("0")))
+        market = Market(title=uuid4().hex[:12], liquidity_b=100,
+                        status=MarketStatus.TRADING)
+        s.add(market)
+        await s.flush()
+        a = Outcome(market_id=market.id, label="a", total_shares=D(shares))
+        b = Outcome(market_id=market.id, label="b", total_shares=D("0"))
+        s.add_all([a, b])
+        await s.flush()
+        s.add(Position(user_id=user.id, outcome_id=a.id, amount=D(shares),
+                       cost_basis=D("0")))
+        await s.commit()
+        return int(user.id), int(sp.id), int(market.id)
+
+
+async def test_lmsr_sale_with_pending_short_retains_proceeds_for_cover():
+    """LMSR writer 路线同样留存净回款：有待回补空头时不自动还金债。"""
+    from app.services.credit.execution import execute_user
+    from app.services.market_writer import WRITER
+
+    uid, short_pid, _market_id = await _seed_lmsr_with_unpayable_short()
+    await WRITER.start()
+    try:
+        status = await execute_user(uid, rate=D("0"), pct=D("0.1"), source="scheduler")
+    finally:
+        await WRITER.stop()
+
+    assert status == "triggered"
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert D(user.debt) == D("100"), "LMSR proceeds must not auto-repay gold debt"
+        assert D(user.cash) > D("0"), "proceeds retained as free cash"
+        assert (await s.execute(select(Position))).scalars().first() is None
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        assert D(short.principal_foreign) == D("10000")
+        action = (await s.execute(select(LiquidationAction))).scalars().one()
+        assert action.kind == "sell_group" and action.product == "lmsr"
+        assert action.repaid == 0
+
+
+async def test_lmsr_sale_with_paused_short_repays_gold_from_proceeds():
+    """LMSR writer 路线：paused 不可回补空头不触发留存，净回款按自由现金还金债。"""
+    from app.services.credit.execution import execute_user
+    from app.services.market_writer import WRITER
+
+    uid, short_pid, _market_id = await _seed_lmsr_with_unpayable_short(pair_status="paused")
+    await WRITER.start()
+    try:
+        status = await execute_user(uid, rate=D("0"), pct=D("0.1"), source="scheduler")
+    finally:
+        await WRITER.stop()
+
+    assert status == "triggered"
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        action = (await s.execute(select(LiquidationAction))).scalars().one()
+        assert action.kind == "sell_group" and action.product == "lmsr"
+        # Pre-sale free cash is zero; the proceeds themselves must repay gold debt.
+        assert D(action.repaid) > D("0"), "post-sale proceeds must repay gold debt"
+        assert D(user.debt) == D("100") - D(action.repaid)
+        assert D(user.cash) >= D("0")
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == short_pid))).scalars().one()
+        assert D(short.principal_foreign) == D("10000")
+        assert D(short.restricted_gold) == D("0")

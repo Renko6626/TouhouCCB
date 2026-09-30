@@ -202,6 +202,9 @@ async def record_action(
     requested: Optional[dict] = None,
     executed: Optional[dict] = None,
     proceeds: Decimal = ZERO,
+    gold_spent: Decimal = ZERO,
+    foreign_repaid: Decimal = ZERO,
+    short_after: Optional[dict] = None,
     fee: Decimal = ZERO,
     fee_currency: Optional[str] = None,
     repaid: Decimal = ZERO,
@@ -210,7 +213,12 @@ async def record_action(
     economic_version_after: int = 0,
     blocked_reason: Optional[str] = None,
 ) -> LiquidationAction:
-    """记录本轮动作；``(run_id, round_no)`` 已存在时幂等返回既有动作。"""
+    """记录本轮动作；``(run_id, round_no)`` 已存在时幂等返回既有动作。
+
+    ``gold_spent`` / ``foreign_repaid`` / ``short_after`` 是 WP4c 强平回补的
+    实际后态（与计划列 ``cover_group`` 同事务落库）；正资产卖出仍只写
+    ``proceeds`` / ``fee`` / ``repaid``，旧字段语义不变。
+    """
     run_id = _run_id_of(run)
     if kind not in ACTION_KINDS:
         raise ValueError(f"未知 action kind: {kind!r}（允许 {ACTION_KINDS}）")
@@ -224,6 +232,8 @@ async def record_action(
         raise ValueError(f"未知 mode: {mode!r}（允许 partial/full）")
     if blocked_reason is not None and len(str(blocked_reason)) > 255:
         raise ValueError("blocked_reason 超过 255 字符")
+    if short_after is not None and not isinstance(short_after, dict):
+        raise ValueError("short_after 必须是 dict")
 
     # 锁 run 行并**刷新**实例：串行化并发重放，且 totals/rounds 用数据库当前值
     # 累计（reviewer blocker 2：expire_on_commit=False 下旧对象会覆盖已提交值）。
@@ -252,6 +262,9 @@ async def record_action(
         requested=requested,
         executed=executed,
         proceeds=_as_decimal(proceeds, "proceeds"),
+        gold_spent=_as_decimal(gold_spent, "gold_spent"),
+        foreign_repaid=_as_decimal(foreign_repaid, "foreign_repaid"),
+        short_after=short_after,
         fee=_as_decimal(fee, "fee"),
         fee_currency=fee_currency,
         repaid=_as_decimal(repaid, "repaid"),
@@ -271,7 +284,7 @@ async def record_action(
     locked.total_proceeds = _as_decimal(locked.total_proceeds, "total_proceeds") + action.proceeds
     locked.total_repaid = _as_decimal(locked.total_repaid, "total_repaid") + action.repaid
     locked.total_fee = _as_decimal(locked.total_fee, "total_fee") + action.fee
-    if kind == "sell_group":
+    if kind in ("sell_group", "cover_group"):
         locked.last_group_product = product
         locked.last_group_id = None if group_id is None else int(group_id)
     if blocked_reason is not None:
