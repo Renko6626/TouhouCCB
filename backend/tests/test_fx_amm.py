@@ -127,3 +127,20 @@ def test_apply_quote_rejects_non_finite_post_reserves(post_gold, post_foreign):
     )
     with pytest.raises(ValueError, match="finite"):
         apply_quote(FxReserves(D("100"), D("100")), malformed)
+
+
+@pytest.mark.parametrize('q,fee', [('0.000001','0.03'), ('199.990000','0.001'), ('17.123456','0.33333333')])
+def test_exact_output_buys_requested_amount_and_preserves_stock(q, fee):
+    from app.services.fx.amm import quote_buy_exact_out
+    result = quote_buy_exact_out(D(q), D('100'), D('200'), D(fee))
+    assert result.output_amount == D(q)
+    assert result.post_foreign_reserve + result.output_amount == D('200')
+    assert result.post_gold_reserve * result.post_foreign_reserve >= D('20000')
+    assert quote_buy(result.input_amount, D('100'), D('200'), D(fee)).output_amount >= D(q)
+
+
+@pytest.mark.parametrize('q,g,f,fee', [('200','100','200','0'), ('0.0000001','100','200','0'), ('199.999999','9999999999','200','0'), ('1','100','200','1')])
+def test_exact_output_rejects_unexecutable_or_unstorable_quote(q,g,f,fee):
+    from app.services.fx.amm import quote_buy_exact_out
+    with pytest.raises(ValueError):
+        quote_buy_exact_out(D(q), D(g), D(f), D(fee))

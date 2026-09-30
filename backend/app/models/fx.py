@@ -42,6 +42,7 @@ class FxPair(SQLModel, table=True):
         CheckConstraint("target_price > 0 AND target_min > 0 AND target_max > 0", name="ck_fx_pair_targets_positive"),
         CheckConstraint("target_min <= target_price AND target_price <= target_max", name="ck_fx_pair_target_range"),
         CheckConstraint("buy_fee_rate >= 0 AND buy_fee_rate <= 1 AND sell_fee_rate >= 0 AND sell_fee_rate <= 1", name="ck_fx_pair_fee_rate"),
+        CheckConstraint("short_lending_limit_foreign >= 0", name="ck_fx_pair_short_limit_non_negative"),
         Index("ix_fx_pair_status", "status"),
     )
 
@@ -58,6 +59,7 @@ class FxPair(SQLModel, table=True):
     target_max: Decimal = Field(default=Decimal("2"), sa_type=Numeric(16, 6), nullable=False)
     buy_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
     sell_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
+    short_lending_limit_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False, sa_column_kwargs={"server_default": text("0")})
     pool_version: int = Field(default=1, nullable=False)
     # ── 统一信贷风险 F9：paused/reduce_only 双轴语义 ──
     # reduce_only=True：只允许卖出/强平，拒绝开仓与系统干预（L 仍按可执行报价计算）。
@@ -87,7 +89,8 @@ class FxTreasury(SQLModel, table=True):
 
 class FxWallet(SQLModel, table=True):
     __tablename__ = "fx_wallet"
-    __table_args__ = (UniqueConstraint("user_id", "pair_id", name="uq_fx_wallet_user_pair"),)
+    __table_args__ = (UniqueConstraint("user_id", "pair_id", name="uq_fx_wallet_user_pair"),
+        CheckConstraint("foreign_amount >= 0 AND cost_basis >= 0", name="ck_fx_wallet_non_negative"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", nullable=False, index=True)
@@ -101,6 +104,7 @@ class FxTrade(SQLModel, table=True):
     __tablename__ = "fx_trade"
     __table_args__ = (
         UniqueConstraint("user_id", "idempotency_key", name="uq_fx_trade_user_idempotency"),
+        CheckConstraint("purpose IN ('spot','short_open','short_cover')", name="ck_fx_trade_purpose"),
         CheckConstraint("side IN ('buy','sell')", name="ck_fx_trade_side"),
         CheckConstraint("input_amount > 0 AND output_amount > 0", name="ck_fx_trade_amounts_positive"),
         Index("ix_fx_trade_pair_created", "pair_id", "created_at"),
@@ -113,6 +117,10 @@ class FxTrade(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     pair_id: int = Field(foreign_key="fx_pair.id", nullable=False)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+    purpose: str = Field(default="spot", max_length=16, nullable=False, sa_column_kwargs={"server_default": text("'spot'")})
+    requested_foreign_amount: Optional[Decimal] = Field(default=None, sa_type=Numeric(24, 6))
+    max_gold_in: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    cover_all: Optional[bool] = Field(default=None)
     side: str = Field(max_length=8, nullable=False)
     input_amount: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
     output_amount: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
@@ -157,3 +165,23 @@ class FxEvent(SQLModel, table=True):
     parameter_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
     error_message: Optional[str] = Field(default=None, max_length=1000)
     operator_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class FxShortPosition(SQLModel, table=True):
+    """Foreign obligation; restricted gold is already included in User.cash."""
+    __tablename__ = "fx_short_position"
+    __table_args__ = (
+        UniqueConstraint("user_id", "pair_id", name="uq_fx_short_position_user_pair"),
+        CheckConstraint("principal_foreign >= 0 AND interest_foreign >= 0 AND restricted_gold >= 0 AND proceeds_basis_gold >= 0", name="ck_fx_short_position_non_negative"),
+        CheckConstraint("(principal_foreign + interest_foreign > 0 AND interest_last_accrued_at IS NOT NULL) OR (principal_foreign = 0 AND interest_foreign = 0 AND restricted_gold = 0 AND proceeds_basis_gold = 0 AND interest_last_accrued_at IS NULL)", name="ck_fx_short_position_state"),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", nullable=False, index=True)
+    pair_id: int = Field(foreign_key="fx_pair.id", nullable=False, index=True)
+    principal_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False)
+    interest_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False)
+    interest_last_accrued_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    restricted_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
+    proceeds_basis_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+    updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)

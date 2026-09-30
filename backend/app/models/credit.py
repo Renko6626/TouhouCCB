@@ -37,7 +37,7 @@ def _utcnow() -> datetime:
 # 冻结取值（credits §3.3）：run 终态与 action 种类。DDL 里以 CheckConstraint 固化，
 # 后续 WP 不得再改；若必须新增取值，回 WP1 走一次 additive revision。
 RUN_STATUSES = ("active", "recovered", "insolvent", "blocked", "stopped")
-ACTION_KINDS = ("sell_group", "repay_cash", "repay_only", "blocked", "stopped")
+ACTION_KINDS = ("sell_group", "cover_group", "repay_cash", "repay_only", "blocked", "stopped")
 FEE_CURRENCIES = ("gold", "foreign")
 
 
@@ -84,9 +84,11 @@ class LiquidationRun(SQLModel, table=True):
     # run 起点快照（只读参考，不参与判定；判定永远用当轮实时值）。
     pre_cash: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     pre_debt: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
-    pre_liquidation_equity: Decimal = Field(
-        default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False
-    )
+    pre_liquidation_equity: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    pre_short_positions: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
+    pre_risk_basis: Optional[Decimal] = Field(default=None, sa_type=Numeric(24, 6))
+    pre_equity_to_risk_basis: Optional[Decimal] = Field(default=None, sa_type=Numeric(24, 6))
+    margin_version: int = Field(default=1, nullable=False, sa_column_kwargs={"server_default": text("1")})
     total_proceeds: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     total_repaid: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     total_fee: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
@@ -100,7 +102,7 @@ class LiquidationAction(SQLModel, table=True):
         UniqueConstraint("run_id", "round_no", name="uq_liquidation_action_run_round"),
         Index("ix_liquidation_action_user_created", "user_id", "created_at"),
         CheckConstraint(
-            "kind IN ('sell_group','repay_cash','repay_only','blocked','stopped')",
+            "kind IN ('sell_group','cover_group','repay_cash','repay_only','blocked','stopped')",
             name="ck_liquidation_action_kind",
         ),
         CheckConstraint(
@@ -125,6 +127,9 @@ class LiquidationAction(SQLModel, table=True):
     requested: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
     executed: Optional[dict[str, Any]] = Field(default=None, sa_column=Column(JSON, nullable=True))
     proceeds: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
+    gold_spent: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False, sa_column_kwargs={"server_default": text("0")})
+    foreign_repaid: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False, sa_column_kwargs={"server_default": text("0")})
+    short_after: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
     fee: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     fee_currency: Optional[str] = Field(default=None, max_length=8)
     repaid: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)

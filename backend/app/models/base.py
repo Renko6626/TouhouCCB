@@ -300,8 +300,8 @@ class LiquidationEvent(SQLModel, table=True):
 
     pre_cash: Decimal = Field(sa_type=Numeric(16, 6))
     pre_debt: Decimal = Field(sa_type=Numeric(16, 6))
-    pre_holdings_value: Decimal = Field(sa_type=Numeric(16, 6))
-    pre_net_worth: Decimal = Field(sa_type=Numeric(16, 6))
+    pre_holdings_value: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    pre_net_worth: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
     pre_margin_ratio: Optional[Decimal] = Field(
         default=None, sa_type=Numeric(10, 6),
     )

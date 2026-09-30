@@ -138,3 +138,49 @@ def apply_quote(reserves: FxReserves, quote: FxQuoteMath) -> FxReserves:
     _validate_amount(quote.post_gold_reserve, "post gold reserve")
     _validate_amount(quote.post_foreign_reserve, "post foreign reserve")
     return FxReserves(quote.post_gold_reserve, quote.post_foreign_reserve)
+
+
+_STORAGE_MAX = Decimal('9999999999.999999')
+
+
+def quote_buy_exact_out(
+    foreign_out: Decimal,
+    gold_reserve: Decimal,
+    foreign_reserve: Decimal,
+    fee_rate: Decimal,
+) -> FxQuoteMath:
+    """Buy exactly the requested six-place foreign quantity, including fees.
+
+    All persisted amounts and reserves must fit the existing Numeric(16,6)
+    pool/trade storage. Overflow is an unexecutable quote, never a clipped debt.
+    """
+    for value, name in ((foreign_out, 'output'), (gold_reserve, 'gold reserve'),
+                        (foreign_reserve, 'foreign reserve')):
+        _validate_amount(value, name)
+        if value > _STORAGE_MAX or value != amount_down(value):
+            raise ValueError(f'{name} exceeds storage precision or range')
+    if not isinstance(fee_rate, Decimal):
+        raise TypeError('fee rate must be Decimal')
+    if not fee_rate.is_finite() or fee_rate < ZERO or fee_rate >= ONE:
+        raise ValueError('fee rate must be >= 0 and < 1')
+    if fee_rate != fee_rate.quantize(Decimal('0.00000001')):
+        raise ValueError('fee rate exceeds storage precision')
+    if foreign_out >= foreign_reserve:
+        raise ValueError('output must be less than foreign reserve')
+    with localcontext() as ctx:
+        ctx.prec = 80
+        required_net = amount_up(gold_reserve * foreign_out / (foreign_reserve - foreign_out))
+        gross = amount_up(required_net / (ONE - fee_rate))
+        fee = _fee(gross, fee_rate)
+        net = gross - fee
+        post_gold = gold_reserve + net
+        post_foreign = foreign_reserve - foreign_out
+        if any(v > _STORAGE_MAX for v in (gross, fee, net, post_gold)):
+            raise ValueError('quote exceeds storage range')
+        if net < required_net or post_gold * post_foreign < gold_reserve * foreign_reserve:
+            raise ValueError('quote cannot satisfy constant product')
+        price = marginal_price(post_gold, post_foreign)
+        if price > _STORAGE_MAX:
+            raise ValueError('post price exceeds storage range')
+        return FxQuoteMath(gross, fee, net, foreign_out, post_gold, post_foreign,
+                           price, foreign_out / gross)
