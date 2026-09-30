@@ -58,17 +58,34 @@ async def _unified_quota(db: AsyncSession, user_id: int):
                             .execution_options(populate_existing=True))).scalar_one()
     await credit_flags.refresh_new_risk_frozen(db)
     frozen = user.credit_frozen or credit_flags.new_risk_frozen()
+    # 整组正资产 A 与空头回补成本 K 与 valuation 同源；K 未知（或现金用途不变量
+    # 被破坏）时 liquidation_equity 为 None，不得折算成 0 或抛 500（spec §5.2）。
+    positive_assets = sum(
+        (group.value for group in valuation.groups
+         if group.role == "asset_sale" and group.value is not None),
+        Decimal("0"),
+    )
+    cover = valuation.short_cover_cost
+    equity = valuation.liquidation_equity
+    if frozen or cover is None or equity is None:
+        max_borrow = Decimal("0")
+    else:
+        # 共享空头公式 max(0, (L-1)E - D - αK)；绝不退回金债-only max_borrow。
+        max_borrow = thresholds.max_new_gold_loan(
+            equity=equity, debt=valuation.debt_effective,
+            positive_assets=positive_assets, short_cover=cover,
+        )
     return LoanQuotaResponse(
         enabled=await site_config.get_bool(db, "loan_enabled"),
         cash=valuation.cash, debt=valuation.debt_effective,
         net_worth=valuation.liquidation_equity,
         leverage_k=thresholds.leverage - Decimal("1"), daily_rate=rate,
-        max_borrow=(Decimal("0") if frozen else thresholds.max_borrow(
-            valuation.liquidation_equity, valuation.debt_effective)),
+        max_borrow=max_borrow,
         last_accrued_at=user.debt_last_accrued_at,
         display_equity=valuation.display_equity,
         liquidation_equity=valuation.liquidation_equity,
         r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
+        blocked_reason=valuation.blocked_reason,
     )
 
 

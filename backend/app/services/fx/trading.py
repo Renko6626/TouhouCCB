@@ -34,7 +34,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.credit.cash import available_cash
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
@@ -272,7 +272,14 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     normalized = str(side).lower()
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
-    if unified and normalized == "buy" and user.debt > 0:
+    # 无金债不再等于无风险（spec §6.3/§11）：乐观首试在 User 锁内按索引确认外币
+    # 欠币，存在欠币则释放锁与门闩、重新发现完整依赖后带 GATES 重试。金债>0 时
+    # 短路，不额外查询外币表，保持旧的债务人路径 SQL 形状。
+    requires_credit = unified and normalized == "buy" and (
+        user.debt > 0 or await has_foreign_debt(db, user_id)
+    )
+    same_pair_short = False
+    if requires_credit:
         if (credit_deps is None
                 or economic_version_of(user) != credit_deps.economic_version
                 or not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task())):
@@ -280,6 +287,13 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         # Price snapshots from discovery can age while waiting for gates. Refresh
         # inside the complete gate set before simulating this transaction.
         credit_deps = await discover_dependencies(db, user_id, extra_groups=[key])
+        # 同一 pair 已欠币时普通现货买入不得建立多头（spec §1/§9），必须走回补
+        # 入口；判定放在幂等回放之后，保证重试返回原成交而不是被新规则误拒。
+        snapshot = credit_deps.snapshots.get(key)
+        if (snapshot is not None and snapshot.short_debt is not None
+                and (snapshot.short_debt.principal_foreign > 0
+                     or snapshot.short_debt.interest_foreign > 0)):
+            same_pair_short = True
 
     old = (await db.execute(select(FxTrade).where(
         FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
@@ -308,6 +322,13 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
     if user.tos_accepted_at is None:
         raise HTTPException(status_code=403, detail="TOS acceptance required")
+    if same_pair_short:
+        # 同 pair 单方向：有欠币时普通买入不得建立多头，须走回补入口（spec §1/§9）。
+        raise HTTPException(
+            status_code=400,
+            detail=("this pair has an outstanding short; ordinary buys are "
+                    "disabled, use the short-cover entry"),
+        )
     if not unified and normalized == "buy" and user.debt > 0:
         raise HTTPException(status_code=403, detail="outstanding debt blocks FX purchases")
 
@@ -324,7 +345,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         raise HTTPException(status_code=400, detail="insufficient cash")
     wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
     trade_now = utcnow()
-    if unified and normalized == "buy" and user.debt > 0:
+    if requires_credit:
         holdings = Decimal(wallet.foreign_amount) + q.output_amount
         decision = await check_new_risk(
             db, user=user, deps=credit_deps,

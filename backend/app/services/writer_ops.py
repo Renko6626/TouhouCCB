@@ -17,7 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select, update as sa_update
 
 from app.core.database import async_session_maker
-from app.services.credit.cash import available_cash
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
@@ -61,7 +61,12 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
     from app.services.credit import flags, risk
     from app.services.credit.keys import GroupKey
     from app.services.credit.gates import GATES
-    if not flags.get_flags().unified_credit_enabled or user.debt <= ZERO:
+    if not flags.get_flags().unified_credit_enabled:
+        return
+    # 无金债不再等于无风险（spec §6.3/§11）：锁内按索引确认外币欠币。金债>0 时
+    # 短路，不额外查询外币表。乐观首试 deps 为 None 时会 CreditRetry，由外层
+    # 释放门闩、重新发现完整依赖后再带 GATES 重试。
+    if user.debt <= ZERO and not await has_foreign_debt(session, user.id):
         return
     deps = CREDIT_DEPS.get()
     if deps is None or deps.economic_version != user.economic_version:
