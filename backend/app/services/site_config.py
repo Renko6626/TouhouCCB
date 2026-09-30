@@ -32,6 +32,7 @@ FX_DEFAULT_CONFIGS = [
 
 FX_CONFIG_RULES = {
     "fx_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
+    "fx_short_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
     "fx_hourly_sigma": lambda v: Decimal(v) >= 0 and Decimal(v) <= Decimal("1"),
     "fx_step_max_ratio": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
     "fx_noise_interval_sec": lambda v: int(v) >= 1,
