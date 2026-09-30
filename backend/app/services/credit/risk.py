@@ -83,6 +83,8 @@ REASON_VERSION_CONFLICT = "version_conflict"
 REASON_SHORT_SNAPSHOT_MISSING = "short_snapshot_missing"
 #: 持久外币欠币无法解析/超出存储范围：K 未知，绝不按 0 处理。
 REASON_INVALID_SHORT_DEBT = "invalid_short_debt"
+#: 正资产组补不到快照（品种被删/未迁移）：A 无法完整估值，E/B 未知。
+REASON_INCOMPLETE_ASSET_VALUATION = "incomplete_asset_valuation"
 
 
 class _StalePostState(Exception):
@@ -203,6 +205,23 @@ class RiskDecision:
     risk_basis: Optional[Decimal] = None
     short_cover_cost: Optional[Decimal] = None
     short_debt_after: Decimal = ZERO
+
+
+@dataclass(frozen=True)
+class PostStateValuation:
+    """只读的交易后完整组合估值 ``A/K/E/B``（不经过任何准入快路径）。
+
+    与 ``check_new_risk`` 的放行判定解耦：``equity`` / ``risk_basis`` /
+    ``short_cover_cost`` 在任一组件无法定价时为 ``None``，``blocked_reason``
+    给出明确原因；绝不返回"看起来合理"的残缺数值（spec §5.2）。
+    """
+
+    equity: Optional[Decimal]
+    risk_basis: Optional[Decimal]
+    short_cover_cost: Optional[Decimal]
+    holdings_value: Optional[Decimal]
+    debt_after: Decimal
+    blocked_reason: Optional[str]
 
 
 # ────────────────────────────── 版本化缓存 ──────────────────────────────
@@ -866,9 +885,11 @@ async def _collateral_value(
 ) -> tuple[Decimal, bool]:
     """全组合清算价值 Σ L_group（LMSR + FX 一起算）。
 
-    返回 ``(value, complete)``：``complete=False`` 表示有组缺缓存/缺快照，
-    ``value`` 是已完成部分的保守下界（缺的部分按 0）。``cache_only=True``
-    时**不做任何报价**（无债快路径），只命中缓存。
+    返回 ``(value, complete)``：``value`` 是已完成部分的清算价值。``cache_only=True``
+    时**不做任何报价**（无债快路径），只命中缓存，``complete=False`` 表示有组缺缓存
+    或缺快照。``cache_only=False`` 时缺快照现补现算，只有**补不到快照**（品种被删/
+    未迁移）才 ``complete=False``；此时 ``value`` 是缺该组的下界，调用方若需要完整
+    净值必须把整本书标为未知，不得把下界当完整估值（spec §5.2）。
     """
     needed = _needed_groups(deps, post)
     snapshots = dict(deps.snapshots) if cache_only else await _ensure_snapshots(session, deps, needed)
@@ -886,8 +907,9 @@ async def _collateral_value(
             if cached is not None:
                 total += cached
                 continue
-            complete = False
             if cache_only:
+                # 无债快路径：不做任何报价，缺缓存即视为不完整（保守）。
+                complete = False
                 continue
         value = _quote_group_value(snapshot, _positions_after(key, deps, post), post)
         total += value
@@ -1447,6 +1469,67 @@ async def check_new_risk(
         thresholds=thresholds, cash_after=post.cash,
         holdings_value=holdings_value, debt_after=debt_after,
         cover=cover, short_total=short_total, not_executable=not_exec,
+    )
+
+
+async def value_post_state(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    deps: DependencySet,
+    post: PostTradeState,
+    thresholds: RiskThresholds,
+    now: datetime,
+) -> PostStateValuation:
+    """完整交易后 ``A/K/E/B``（只读、advisory）：缓存缺失也现算。
+
+    与 ``check_new_risk`` 共用 ``_collateral_value`` / ``_short_risk_after`` /
+    ``thresholds.risk_basis``，因此不是第二套风险公式；区别在于它**不套用**
+    无债/无空头准入快路径，也不返回放行判定，只回答"这笔交易后组合值多少"。
+
+    - 正资产任一组补不到快照 → ``equity``/``risk_basis``/``short_cover_cost``
+      为 ``None``，原因是 :data:`REASON_INCOMPLETE_ASSET_VALUATION`；
+    - 任一空头无法完整报价 → 同上并把 ``_short_risk_after`` 的原因透出；
+    - 已知但不可执行的资产按 ``L=0`` 计（与准入估值一致），不算未知。
+    """
+    debt_after = _effective_debt(
+        post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
+    )
+    holdings_value, complete = await _collateral_value(
+        session, user_id=int(user_id), deps=deps, post=post, partial_pct=ONE,
+    )
+    if not complete:
+        return PostStateValuation(
+            equity=None,
+            risk_basis=None,
+            short_cover_cost=None,
+            holdings_value=None,
+            debt_after=debt_after,
+            blocked_reason=REASON_INCOMPLETE_ASSET_VALUATION,
+        )
+    cover, _short_total, unknown, _not_executable = _short_risk_after(
+        deps, post, now,
+    )
+    if unknown is not None:
+        return PostStateValuation(
+            equity=None,
+            risk_basis=None,
+            short_cover_cost=None,
+            holdings_value=holdings_value,
+            debt_after=debt_after,
+            blocked_reason=unknown,
+        )
+    equity = _q6(post.cash + holdings_value - debt_after - cover)
+    risk_basis = thresholds.risk_basis(
+        debt=debt_after, positive_assets=holdings_value, short_cover=cover,
+    ).quantize(Q6, rounding=ROUND_CEILING)
+    return PostStateValuation(
+        equity=equity,
+        risk_basis=risk_basis,
+        short_cover_cost=cover,
+        holdings_value=holdings_value,
+        debt_after=debt_after,
+        blocked_reason=None,
     )
 
 

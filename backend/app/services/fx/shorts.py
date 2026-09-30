@@ -1258,11 +1258,14 @@ async def quote_short(
 ) -> FxShortQuoteRead:
     """Indicative open/cover quote; purely read-only (spec §5/§6/§9/§10).
 
-    Reuses the real AMM exact math and ``credit.risk.check_new_risk`` for the
-    full-portfolio post-order state, so W/K/E/B are never re-derived here.  A
-    cover is reduce-only: its numerical post-state is reported even when the
-    initial-margin admission fails.  Every value is advisory; the write routes
-    re-quote and re-check min/max under lock.
+    Order eligibility reuses the real AMM exact math; an open/adding follows the
+    authoritative ``credit.risk.check_new_risk`` verdict, while a cover is
+    reduce-only and stays executable even when admission fails.  The simulated
+    ``estimated_equity`` / ``estimated_risk_basis`` come from
+    ``credit.risk.value_post_state``: a **complete** post-order ``A/K/E/B``
+    valuation that never takes the no-debt admission fast path, so uncached
+    positive holdings and gold debt are always priced (spec §5.2).  Every value
+    is advisory; the write routes re-quote and re-check min/max under lock.
     """
     from app.services.credit import risk as credit_risk
 
@@ -1531,14 +1534,23 @@ async def quote_short(
         return _risk_unavailable()
 
     if decision.reason in _RISK_SHORT_CIRCUIT_REASONS:
+        # 风控短路（冻结/版本冲突）不是可信的完整净值：不报价，透出原因。
         estimated_equity = None
         estimated_basis = None
         risk_reason = decision.reason
     else:
-        estimated_equity = decision.equity_after
-        estimated_basis = decision.risk_basis
-        risk_reason = None if estimated_equity is not None else (
-            decision.reason or BLOCKED_RISK_UNKNOWN)
+        # 与放行判定解耦：完整交易后 A/K/E/B，不吃无债/无空头快路径。
+        try:
+            valuation = await credit_risk.value_post_state(
+                db, user_id=int(user_id), deps=deps, post=post,
+                thresholds=thresholds, now=now,
+            )
+        except Exception:  # pragma: no cover - valuation read failure is fail-closed
+            _logger.exception("FX short quote post-state valuation failed")
+            return _risk_unavailable()
+        estimated_equity = valuation.equity
+        estimated_basis = valuation.risk_basis
+        risk_reason = valuation.blocked_reason
 
     if cover:
         order_reason = cover_order_reason

@@ -16,6 +16,7 @@ shows another account's obligation; or a quote prices a different amount/cost
 than the AMM or claims a reduce-only cover is disallowed.
 """
 from datetime import datetime, timedelta, timezone
+from decimal import ROUND_CEILING
 from decimal import Decimal as D
 from uuid import uuid4
 
@@ -30,6 +31,7 @@ from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import site_config
 from app.services.credit import flags as credit_flags
+from app.services.credit import risk as credit_risk
 from app.services.credit.gates import GATES
 from app.services.credit.valuation import value_user_detailed
 from app.services.fx import publisher, shorts
@@ -189,6 +191,16 @@ async def _seed_overflow_short(pair_id, user_id, *, principal="99999999999999900
                 principal_foreign=D(principal), interest_foreign=ZERO,
                 interest_last_accrued_at=datetime.now(timezone.utc) - timedelta(days=400),
                 restricted_gold=ZERO, proceeds_basis_gold=ZERO,
+            ))
+
+
+async def _seed_wallet(pair_id, user_id, foreign_amount):
+    """Seed another pair's positive spot holding without a real spot buy."""
+    async with async_session_maker() as s:
+        async with s.begin():
+            s.add(FxWallet(
+                user_id=user_id, pair_id=pair_id,
+                foreign_amount=D(foreign_amount), cost_basis=D("0"),
             ))
 
 
@@ -1279,3 +1291,129 @@ async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
     assert body["risk_blocked_reason"] == "insufficient_pool_foreign"
     assert body["estimated_equity"] is None
     assert body["estimated_risk_basis"] is None
+
+
+# ── scenario 8: complete post-cover valuation (WP3 stage finding) ─────────────
+
+async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis(client):
+    """Post-cover E/B must price every positive holding, not just cached ones.
+
+    Regression: a full cover that removes the last short takes the risk engine's
+    no-debt fast path, which values uncached positive holdings at zero and omits
+    ``risk_basis``.  After a restart (empty risk LRU) a user holding another spot
+    FX asset would see ``risk_status="ok"`` with an equity that silently drops
+    that asset and a missing B.  The quote must instead value the exact
+    post-order state with the shared A/K/E/B primitives.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    short_pair = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                    foreign_reserve="1000", buy_fee_rate="0",
+                                    sell_fee_rate="0",
+                                    short_lending_limit_foreign="0")
+    asset_pair = await _create_pair(client, admin_headers, currency_code="EUR",
+                                    gold_reserve="1000", foreign_reserve="1000",
+                                    buy_fee_rate="0", sell_fee_rate="0",
+                                    short_lending_limit_foreign="0")
+    await _seed_short_direct(short_pair, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+    await _seed_wallet(asset_pair, user_id, "100")
+    # Reproduce the post-restart / asset-version-change cache state explicitly:
+    # the other positive group has no cached group value.
+    credit_risk.clear_risk_cache()
+
+    quote = await _quote(client, user_headers, short_pair,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["executable"] is True
+    assert body["risk_status"] == "ok", body
+    assert body["risk_blocked_reason"] is None
+
+    expected_buy = quote_buy_exact_out(D("100"), D("1000"), D("1000"), D("0"))
+    expected_cash = D("1000") - expected_buy.input_amount
+    expected_asset = quote_sell(
+        D("100"), D("1000"), D("1000"), D("0")).output_amount
+    alpha = credit_flags.get_flags().thresholds.alpha
+    expected_basis = (alpha * expected_asset).quantize(Q6, rounding=ROUND_CEILING)
+
+    # The regression: a cache-only fast path reports only post-cover cash.
+    assert D(body["estimated_equity"]) > expected_cash
+    assert D(body["estimated_equity"]) == expected_cash + expected_asset
+    assert D(body["estimated_risk_basis"]) == expected_basis
+    assert D(body["estimated_risk_basis"]) > ZERO
+
+    # The advisory quote equals the persisted post-cover valuation: one model.
+    covered = await _cover(client, user_headers, short_pair, cover_all=True,
+                           max_gold_in="1000000", key="k-uncached-cover")
+    assert covered.status_code == 200, covered.text
+    async with async_session_maker() as s:
+        actual = await value_user_detailed(s, user_id, daily_rate=D("0"))
+    assert actual.liquidation_equity == D(body["estimated_equity"])
+    assert actual.risk_basis == D(body["estimated_risk_basis"])
+
+
+async def test_cover_quote_gold_debt_basis_is_max_debt_alpha_assets_and_frozen_kept(
+        client):
+    """With gold debt, post-cover B is ``max(D, αA)``, never just D/None.
+
+    Regression: eliminating the last short routes through the legacy no-short
+    branch, which omits ``risk_basis`` (or implies ``B=D``) even when the user's
+    own positive assets dominate ``αA > D``; a frozen holder must still get an
+    executable cover with a null estimate and the freeze as the risk reason.
+    """
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    short_pair = await _create_pair(client, admin_headers, gold_reserve="1000",
+                                    foreign_reserve="1000", buy_fee_rate="0",
+                                    sell_fee_rate="0",
+                                    short_lending_limit_foreign="0")
+    asset_pair = await _create_pair(client, admin_headers, currency_code="EUR",
+                                    gold_reserve="1000", foreign_reserve="1000",
+                                    buy_fee_rate="0", sell_fee_rate="0",
+                                    short_lending_limit_foreign="0")
+    await _seed_short_direct(short_pair, user_id, principal="100", restricted="300",
+                             accrued=datetime.now(timezone.utc))
+    await _seed_wallet(asset_pair, user_id, "1000")
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = await s.get(User, user_id)
+            user.debt = D("50")
+    credit_risk.clear_risk_cache()
+
+    quote = await _quote(client, user_headers, short_pair,
+                         {"action": "cover", "cover_all": True})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["executable"] is True
+    assert body["risk_status"] == "ok", body
+
+    expected_buy = quote_buy_exact_out(D("100"), D("1000"), D("1000"), D("0"))
+    expected_cash = D("1000") - expected_buy.input_amount
+    expected_asset = quote_sell(
+        D("1000"), D("1000"), D("1000"), D("0")).output_amount
+    alpha = credit_flags.get_flags().thresholds.alpha
+    expected_basis = max(D("50"), alpha * expected_asset).quantize(
+        Q6, rounding=ROUND_CEILING)
+    assert expected_basis > D("50")  # assets dominate, so B is not just debt
+    assert D(body["estimated_equity"]) == expected_cash + expected_asset - D("50")
+    assert D(body["estimated_risk_basis"]) == expected_basis
+
+    # Existing frozen semantics survive: reduce-only cover stays executable with
+    # nullable estimates and the freeze reported as the risk reason only.
+    async with async_session_maker() as s:
+        async with s.begin():
+            user = await s.get(User, user_id)
+            user.credit_frozen = True
+    frozen = await _quote(client, user_headers, short_pair,
+                          {"action": "cover", "cover_all": True})
+    assert frozen.status_code == 200, frozen.text
+    frozen_body = frozen.json()
+    assert frozen_body["executable"] is True
+    assert frozen_body["blocked_reason"] is None
+    assert frozen_body["risk_status"] == "blocked"
+    assert frozen_body["risk_blocked_reason"] == "credit_frozen"
+    assert frozen_body["estimated_equity"] is None
+    assert frozen_body["estimated_risk_basis"] is None
