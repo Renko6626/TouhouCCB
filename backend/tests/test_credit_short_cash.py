@@ -30,7 +30,10 @@ def clean_flags():
     flags.set_new_risk_frozen(None)
 
 
-async def seed(*, debt="0", frozen=False):
+async def seed(*, debt="0", frozen=False, pair_status="trading"):
+    # A real, coverable short lives on a trading pair; draft pairs keep the
+    # obligation but must block increased risk (spec §9), so the healthy
+    # fixture cannot rely on the model's draft default.
     async with async_session_maker() as s:
         user = User(username=uuid.uuid4().hex, email=f"{uuid.uuid4().hex}@test.com",
                     casdoor_id=uuid.uuid4().hex, cash=D("100"), debt=D(debt),
@@ -41,6 +44,7 @@ async def seed(*, debt="0", frozen=False):
         await s.flush()
         for lock in ("50", "30"):
             pair = FxPair(currency_code=uuid.uuid4().hex[:16], currency_name="test",
+                          status=pair_status,
                           gold_reserve=D("10000"), foreign_reserve=D("10000"))
             s.add(pair)
             await s.flush()
@@ -84,6 +88,26 @@ async def test_admin_cash_debit_rejects_locked_proceeds_but_allows_exact_availab
         await admin.adjust_cash(s, target_id=uid, amount=D("-20"),
                                 reason="cash purpose", admin_id=operator)
     assert await state(uid) == (D("80"), D("0"), D("80"))
+
+
+async def test_draft_short_debt_blocks_increased_risk_debit():
+    """Draft pair keeps the obligation but cannot be covered: increased risk denied.
+
+    Explicit drafting regression guard for spec §9: the healthy fixture above is
+    ``trading``; here a draft short with the same free cash must be rejected
+    instead of the production path quietly allowing it.
+    """
+    uid, operator = await seed(pair_status="draft")
+    flags.set_flags(CreditFlags(unified_credit_enabled=True, credit_leverage=D("4"),
+                                credit_maintenance_ratio=D("0.1")))
+    async with async_session_maker() as s:
+        with pytest.raises(admin.AdminUserError) as exc:
+            await admin.adjust_cash(s, target_id=uid, amount=D("-20"),
+                                    reason="draft short", admin_id=operator)
+        await s.rollback()
+    assert exc.value.status == 409
+    assert "draft" in exc.value.detail
+    assert await state(uid) == (D("100"), D("0"), D("80"))
 
 
 @pytest.mark.parametrize("unified", [False, True])
