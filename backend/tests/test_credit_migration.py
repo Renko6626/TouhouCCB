@@ -54,14 +54,19 @@ def _diff(conn):
     return compare_metadata(MigrationContext.configure(conn), SQLModel.metadata)
 
 
-def test_revision_is_head_and_follows_fx_tables():
+def test_credit_revision_remains_in_head_chain_and_follows_fx_tables():
     revision = _load_revision()
     assert revision.revision == "credit_foundation_20260930"
     assert revision.down_revision == "fx_tables_20260928"
-    head = ScriptDirectory.from_config(
+    script = ScriptDirectory.from_config(
         Config(str(BACKEND_DIR / "alembic.ini"))
-    ).get_current_head()
-    assert head == revision.revision
+    )
+    head = script.get_current_head()
+    # Later additive migrations may follow credit foundation. It must still
+    # belong to the single head's upgrade chain, directly after the FX tables.
+    chain = list(script.iterate_revisions(head, "base"))
+    assert revision.revision in {entry.revision for entry in chain}
+    assert script.get_revision(revision.revision).down_revision == "fx_tables_20260928"
 
 
 def test_init_db_create_all_has_no_metadata_diff(tmp_path):
