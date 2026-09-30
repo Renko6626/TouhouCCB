@@ -1,6 +1,6 @@
 # 幻想外汇 (FX) 运维与部署手册
 
-FX 是预测市场旁边的一个**默认关闭**的子游戏：玩家用金圆券（G）与单一「幻想外币」（F）按恒定乘积
+FX 是预测市场旁边的一个**默认关闭**的子游戏：玩家用金圆券（G）与各交易对的「幻想外币」（F）按恒定乘积
 AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而是拥有独立的
 `fx_pair` / `fx_treasury` / `fx_wallet` / `fx_trade` / `fx_event` 表。
 
@@ -27,12 +27,14 @@ AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而�
 | 玩家 / 管理 API | `backend/app/api/v1/fx.py`、`backend/app/api/v1/admin_fx.py` |
 | 端到端测试 | `backend/tests/test_fx_end_to_end.py` |
 
+后续报价快照和内存加速方案见 [`docs/fx-quote-snapshot-plan.md`](fx-quote-snapshot-plan.md)。当前 FX 不使用内存储备作为成交权威；报价缓存若未来启用，也必须在成交事务内重新读取和报价。
+
 ---
 
 ## 1. 不可动摇的约束
 
 1. **总闸默认关闭**：`site_config.fx_enabled` 默认 `false`；没有建立并注资货币对之前不得开市。
-2. **单货币对**：第一版同一时间只允许一个 `status='trading'` 的货币对；开市后不可再改
+2. **多货币对**：当前管理端同一时间最多允许三个 `status='trading'` 的货币对；开市后不可再改
    `currency_code` / `currency_name`。
 3. **分币种守恒**：系统订单前后 `G + T_G` 与 `F + T_F` 分别不变（G=池子金圆券储备，
    T_G=treasury 金圆券；F/T_F 同理）。系统输入从 treasury 扣、输出进 treasury；玩家交易、
@@ -45,7 +47,7 @@ AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而�
    `target_price` / `shock_ratio` / `first_reaction_ratio` / `parameter_snapshot` /
    未来订单 / 随机状态。
 7. **净值口径**：FX 按最新 AMM 边际价 MTM 进入展示净值 / 排行榜 / rank；
-   **不进入** LCV、借款额度或强平抵押物。`debt > 0` 的用户不能买入，但可以卖出已有外币。
+   统一信贷关闭时不进入 LCV、借款额度或强平抵押物，有债用户不能买入；统一信贷开启时按真实 AMM 清算值参与抵押，有债买入须满足交易后初始保证金。两种模式均支持按各自规则卖出。
 8. **生产 gate 关闭**：生产环境任何阶段都不得打开 `fx_enabled`，除非本次发布明确获批。
 
 ---
@@ -58,6 +60,7 @@ FX 使用的 Alembic revision：
 | --- | --- | --- | --- |
 | 依赖 | `0d0ac23efa85` | `2026_09_26_2301-0d0ac23efa85_add_administrator_redemption_fulfillment.py` | 兑换履约（FX 的前置） |
 | FX | `fx_tables_20260928` | `2026_09_28_1200-fx_tables_add_fx_tables.py` | 创建 5 张 FX 表 |
+| 统一信贷 | `credit_foundation_20260930` | `2026_09_30_1200-credit_foundation_20260930_unified_credit_risk_foundation.py` | additive 用户版本/冻结、run/action、FX reduce_only 等 |
 
 `fx_tables_20260928` 的 `down_revision = "0d0ac23efa85"`，所以只要按顺序执行即可：
 
@@ -68,8 +71,8 @@ bash deploy/deploy.sh
 # 手动 / 本地
 cd backend
 alembic current          # 查看当前 revision
-alembic history          # 确认 0d0ac23efa85 -> fx_tables_20260928
-alembic upgrade head     # 应用兑换履约 + FX 迁移
+alembic history          # 确认 0d0ac23efa85 -> fx_tables_20260928 -> credit_foundation_20260930
+alembic upgrade head     # 应用至统一信贷最新迁移
 ```
 
 规则：
@@ -111,7 +114,7 @@ alembic upgrade head     # 应用兑换履约 + FX 迁移
      -H "Authorization: Bearer <admin>" -H 'Content-Type: application/json' \
      -d '{"gold_amount":"1000","foreign_amount":"1000"}'
 
-   # 2.3 开市：唯一一个 trading pair
+   # 2.3 开市：同时 trading 不超过三个 pair
    curl -s -X PATCH http://127.0.0.1:8004/api/v1/admin/fx/pairs/<id> \
      -H "Authorization: Bearer <admin>" -H 'Content-Type: application/json' \
      -d '{"status":"trading"}'
@@ -179,7 +182,7 @@ DB / service 层护栏：
   `first_reaction_ratio ∈ [0.1, 0.9]`、`window_sec ∈ [30, 1800]`、`budget > 0`。
 - 事件 `spent` 达到 `budget` 后事件完成；`daily_spend` 达到 `fx_daily_budget` 后
   系统订单停手并记录原因。
-- 单货币对约束由 admin API 强制。
+- 最多三个 trading 货币对的运营上限由 admin API 强制。
 
 **公开价格口径**：`GET /fx/pairs/{id}/snapshot` 的 `price`（边际价）、`buy_price`、
 `sell_price` 统一为「金圆券 / 1 外币」。`buy_price` 是买入外币的有效 ask
