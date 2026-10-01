@@ -1432,7 +1432,7 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
         if not users:
             return []
         net_worth = await compute_total_net_worth(db, user_ids=[u.id for u in users])
-        scored = [(u, net_worth.get(u.id, u.cash - u.debt)) for u in users]
+        scored = [(u, net_worth[u.id]) for u in users if net_worth.get(u.id) is not None]
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[:limit]
         # 批量取 equipped title chip：只查 top N 的 equipped_title_id,避免 N+1

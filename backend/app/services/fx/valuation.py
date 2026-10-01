@@ -52,8 +52,11 @@ async def compute_fx_mtm(
 async def compute_total_net_worth(
     db: AsyncSession,
     user_ids: Optional[Iterable[int]] = None,
-) -> Dict[int, Decimal]:
-    """Return display net worth: cash - debt + LMSR MTM + FX MTM."""
+) -> Dict[int, Decimal | None]:
+    """Return display wealth, retaining unknown unified liability estimates."""
+    from app.services.credit import flags
+    from app.services.credit.valuation import value_users_batch
+    from app.services import site_config
     from app.services.wealth import compute_users_holdings_value_mtm
 
     ids = list(user_ids) if user_ids is not None else None
@@ -65,6 +68,10 @@ async def compute_total_net_worth(
     users = (await db.execute(stmt)).all()
     if not users:
         return {}
+    if flags.get_flags().unified_credit_enabled:
+        rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+        valuations = await value_users_batch(db, [int(u[0]) for u in users], daily_rate=rate)
+        return {uid: value.display_equity for uid, value in valuations.items()}
     lmsr = await compute_users_holdings_value_mtm(db, user_ids=ids)
     fx = await compute_fx_mtm(db, user_ids=ids)
     return {

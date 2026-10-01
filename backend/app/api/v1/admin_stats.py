@@ -15,6 +15,8 @@ from app.models.base import User
 from app.services import site_config
 from app.services.wealth import compute_users_holdings_value
 from app.services.wealth_stats import compute_wealth_distribution
+from app.services.credit import flags
+from app.services.credit.valuation import value_users_batch
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,12 +29,7 @@ async def wealth_stats(
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """汇总所有 is_active=True 用户的 net_worth（cash + 持仓清算价 - debt），
-    返回均值/中位数/方差/分位数/基尼系数/按称号阈值分桶统计。
-
-    口径与 /user/summary、/market/leaderboard 一致——持仓清算价 = LMSR 全部
-    卖出 gross × (1-fee)，统一走 services.wealth.compute_users_holdings_value。
-    """
+    """Active users' display wealth distribution; unknown unified values are excluded."""
     # PvE：wealth_stats_include_bots=false 时宏观统计只看真人
     include_bots = await site_config.get_bool_or(db, "wealth_stats_include_bots", True)
     users_stmt = select(User).where(User.is_active == True)  # noqa: E712
@@ -40,9 +37,30 @@ async def wealth_stats(
         users_stmt = users_stmt.where(User.is_bot == False)  # noqa: E712
     users = (await db.execute(users_stmt)).scalars().all()
     if not users:
-        return compute_wealth_distribution(
+        result = compute_wealth_distribution(
             [], total_cash=0.0, total_debt=0.0, total_holdings_value=0.0,
         )
+        if flags.get_flags().unified_credit_enabled:
+            result["unknown_user_count"] = 0
+            result["total_short_marginal_debt"] = 0.0
+        return result
+
+    if flags.get_flags().unified_credit_enabled:
+        rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+        valuations = await value_users_batch(db, [u.id for u in users], daily_rate=rate)
+        known = [v for v in valuations.values() if v.display_equity is not None]
+        result = compute_wealth_distribution(
+            [float(v.display_equity) for v in known],
+            total_cash=float(sum((v.cash for v in known), ZERO)),
+            total_debt=float(sum((v.debt_effective for v in known), ZERO)),
+            total_holdings_value=float(sum((v.mtm_lmsr + v.mtm_fx for v in known), ZERO)),
+        )
+        # Known display equity guarantees a sourced marginal liability.
+        result["total_short_marginal_debt"] = float(sum(
+            (v.short_marginal_debt for v in known), ZERO,
+        ))
+        result["unknown_user_count"] = len(users) - len(known)
+        return result
 
     holdings_by_user = await compute_users_holdings_value(
         db,
