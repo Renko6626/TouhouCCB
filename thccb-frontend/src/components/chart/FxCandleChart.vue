@@ -271,6 +271,28 @@ const findIndexByTime = (seconds: number): number => {
   return hi >= 0 ? hi : -1
 }
 
+/** 立即清空渲染序列（不改变缓冲/加载标志），供 pair/周期切换与历史版本切换用。 */
+const clearRenderedSeries = () => {
+  candleSeries?.setData([])
+  volumeSeries?.setData([])
+  for (const period of FX_MA_PERIODS) maSeries[period]?.setData([])
+  candleCount.value = 0
+  legend.value = null
+}
+
+/**
+ * 同步作废当前图与覆盖：新 pair/周期或新 history_version 时旧序列不再代表当前数据。
+ * 只保留实时成交缓冲（同 pair 的全局成交 id 仍有效），由随后加载按新覆盖游标补放。
+ */
+const resetChartState = () => {
+  engine = new FxCandleEngine(INTERVAL_SECONDS[props.interval], FX_MA_PERIODS)
+  sealedBoundary = null
+  sealedPoints = []
+  loadedFromSec = 0
+  loadedVersion = null
+  clearRenderedSeries()
+}
+
 // ── 覆盖游标 / 尾段上下文 ──
 
 /** 当前时间的封存边界（与后端 segment 对齐）。 */
@@ -478,6 +500,21 @@ async function refreshTail(forceHttp: boolean): Promise<void> {
   try {
     const result = await loadFxHistoryTailResult(pairId, props.interval, tailForLoad(forceHttp))
     if (gen !== loadGen) return
+    if (result.historyVersion !== loadedVersion) {
+      // 尾段属于新的 history_version：旧 sealedPoints/旧尾段整代作废，绝不拼接。
+      // 强制 /chart 整窗自洽重读；缓冲保留，由 loadFull 的 finally/generation 收尾。
+      if (snapshotTail) {
+        snapshotTail = {
+          ...snapshotTail,
+          history_tail: null,
+          history_tail_at: null,
+          history_tail_through_trade_id: null,
+        }
+      }
+      resetChartState()
+      await loadFull()
+      return
+    }
     const stepSec = INTERVAL_SECONDS[props.interval]
     const nowSec = Math.floor(Date.now() / 1000)
     // 对齐的 exclusive 结束桶：now 未对齐时不产出一个未来空桶（与适配层一致）。
@@ -625,7 +662,11 @@ watch(
   (env) => {
     if (!env) return
     syncTailFromEnvelope(env)
-    if (currentLoadKey() !== attemptedKey) void loadFull()
+    if (currentLoadKey() !== attemptedKey) {
+      // 只有 history_version 真正变化才作废旧序列；同版本 ready 翻转仍保留旧数据。
+      if ((snapshotTail?.history_version ?? null) !== loadedVersion) resetChartState()
+      void loadFull()
+    }
     if (env.history_invalidated) {
       markTailInvalidated()
       void refreshTail(true)
@@ -643,15 +684,13 @@ watch(
 watch(
   () => [props.pairId, props.interval],
   () => {
-    // 新 pair/周期：清空覆盖与缓冲，重新完整加载。
+    // 新 pair/周期：旧图与旧覆盖同步作废，避免切换失败时仍显示上一个 pair 的 K 线。
     snapshotTail = null
     attemptedKey = null
-    sealedBoundary = null
-    sealedPoints = []
-    loadedVersion = null
     pendingTrades = []
     pendingOverflow = false
     queuedTailRefresh = false
+    resetChartState()
     void loadFull()
   },
 )
