@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -9,6 +10,8 @@ from typing import Any, Iterable
 
 from app.services.credit.keys import symbol_namespace
 from app.services.realtime import MarketEventBroker
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,14 @@ def build_price_buckets(trades: Iterable[Any], interval: str,
 
 _FRAME_KEYS = ("price", "buy_price", "sell_price", "spread", "volume")
 _NEWS_KEYS = ("title", "body", "kind", "published_at")
+#: Additive SSE envelope fields (frozen with the frontend in task-5).  The old
+#: quote/news frame stays byte-identical when the runtime has no tail/deltas.
+_HISTORY_SCALAR_KEYS = (
+    "history_version", "history_ready", "history_tail_at",
+    "history_tail_through_trade_id",
+)
+_SEGMENT_KEYS = ("t0", "step", "n_buckets", "t", "o", "h", "l", "c", "v", "trades")
+_TRADE_KEYS = ("id", "ts", "post_price", "gold_volume")
 
 
 def build_public_frame(snapshot: Any, news: Any = None) -> dict[str, Any]:
@@ -98,22 +109,89 @@ def build_public_frame(snapshot: Any, news: Any = None) -> dict[str, Any]:
     return frame
 
 
-def public_frame_to_wire(frame: dict[str, Any]) -> dict[str, Any]:
-    """Convert an allowlisted frame to JSON-safe values at the wire boundary."""
-    public = {key: frame[key] for key in _FRAME_KEYS if key in frame}
-    if "news" in frame and isinstance(frame["news"], dict):
-        public["news"] = {key: frame["news"][key] for key in _NEWS_KEYS
-                           if key in frame["news"]}
+def build_public_envelope(snapshot: Any, *, history: dict[str, Any] | None = None,
+                          trades: Iterable[dict[str, Any]] | None = None,
+                          history_invalidated: bool = False) -> dict[str, Any]:
+    """Old quote/news frame plus the additive history/delta envelope fields.
 
-    def wire(value: Any) -> Any:
-        if isinstance(value, Decimal):
-            return str(value)
-        if isinstance(value, datetime):
-            return value.isoformat()
-        if isinstance(value, dict):
-            return {key: wire(item) for key, item in value.items()}
-        return value
-    return wire(public)
+    Only the fields we produced or explicitly allowlisted are copied; private
+    system state never rides along.
+    """
+    frame = build_public_frame(snapshot)
+    if history:
+        for key in ("history_version", "history_ready", "history_tail",
+                    "history_tail_at", "history_tail_through_trade_id"):
+            if history.get(key) is not None:
+                frame[key] = history[key]
+    if trades:
+        frame["trades"] = list(trades)
+    if history_invalidated:
+        frame["history_invalidated"] = True
+    return frame
+
+
+def _wire_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _wire_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_wire_value(item) for item in value]
+    return value
+
+
+def _wire_segment(segment: Any) -> dict[str, Any] | None:
+    if not isinstance(segment, dict):
+        return None
+    wired = {key: _wire_value(segment[key]) for key in _SEGMENT_KEYS if key in segment}
+    return wired if "t0" in wired and "step" in wired else None
+
+
+def _wire_tail(tail: Any) -> dict[str, Any] | None:
+    if not isinstance(tail, dict):
+        return None
+    wired = {interval: segment for interval, value in tail.items()
+             if (segment := _wire_segment(value)) is not None}
+    return wired or None
+
+
+def _wire_trade(trade: Any) -> dict[str, Any] | None:
+    if not isinstance(trade, dict):
+        return None
+    wired = {key: _wire_value(trade[key]) for key in _TRADE_KEYS if key in trade}
+    return wired if "id" in wired and "ts" in wired else None
+
+
+def public_frame_to_wire(frame: dict[str, Any]) -> dict[str, Any]:
+    """Convert an allowlisted frame to JSON-safe values at the wire boundary.
+
+    The allowlist is retained while recursing into the nested tail map and the
+    trade array, so no private runtime field can be spread onto the wire.
+    """
+    public: dict[str, Any] = {}
+    for key in _FRAME_KEYS:
+        if key in frame:
+            public[key] = _wire_value(frame[key])
+    if "news" in frame and isinstance(frame["news"], dict):
+        public["news"] = {key: _wire_value(frame["news"][key]) for key in _NEWS_KEYS
+                          if key in frame["news"]}
+    for key in _HISTORY_SCALAR_KEYS:
+        if key in frame:
+            public[key] = _wire_value(frame[key])
+    if "history_tail" in frame:
+        tail = _wire_tail(frame["history_tail"])
+        if tail:
+            public["history_tail"] = tail
+    if frame.get("trades"):
+        trades = [wired for trade in frame["trades"]
+                  if (wired := _wire_trade(trade)) is not None]
+        if trades:
+            public["trades"] = trades
+    if frame.get("history_invalidated"):
+        public["history_invalidated"] = True
+    return public
 
 
 async def publish_public_frame(broker: MarketEventBroker, pair_id: int,
@@ -129,9 +207,15 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
 
     Reads the committed snapshot in its own session, so callers must only
     invoke it after commit.  ``post_price`` is the event price the frame
-    carries.  This is the function the background publisher calls; keeping it
-    separate from ``publish_trade`` lets the post-commit path receive plain
-    values instead of an ORM row that may already be expired.
+    carries.  This is the function the background publisher calls after its
+    subscriber gate, so a frame is only built when someone is watching.
+
+    With a witness the runtime is advanced **incrementally** when this process
+    owns the writer (``catch_up`` only queues new trades; a read-only instance
+    is left untouched) and its bounded, discardable public-trade buffer is
+    drained exactly once.  The frame then combines the current quote, the small
+    tail metadata and those deltas.  A buffer overflow surfaces as an explicit
+    ``history_invalidated`` so the client refetches only the tail.
     """
     if broker is None:
         from app.services.realtime import BROKER
@@ -140,10 +224,34 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
     # cumulative 24h volume and includes the current public quote fields.
     from app.core.database import async_session_maker
     from app.services.fx import trading
+    from app.services.fx.market_state import FX_MARKET_DATA
 
     async with async_session_maker() as db:
         snapshot = await trading.get_public_snapshot(db, pair_id)
-    frame = build_public_frame(snapshot)
+
+    history: dict[str, Any] | None = None
+    trades: list[dict[str, Any]] = []
+    invalidated = False
+    runtime = FX_MARKET_DATA
+    if runtime is not None:
+        if runtime.write_owner:
+            try:
+                await runtime.catch_up(int(pair_id))
+            except Exception:  # noqa: BLE001 - publication must never fail a trade
+                logger.exception("fx runtime catch-up before publication failed for pair %s",
+                                 pair_id)
+        trades, invalidated = runtime.drain_public_trades(int(pair_id))
+        state = runtime.state(int(pair_id))
+        if state is not None:
+            history = {
+                "history_version": state["history_version"],
+                "history_ready": state["history_ready"],
+                "history_tail_at": datetime.now(timezone.utc).isoformat(),
+                "history_tail_through_trade_id": state["applied_trade_id"],
+            }
+
+    frame = build_public_envelope(snapshot, history=history, trades=trades,
+                                  history_invalidated=invalidated)
     # The trade's post marginal price is the event price; snapshot quotes and
     # cumulative volume describe the committed state around that trade.
     frame["price"] = Decimal(post_price)

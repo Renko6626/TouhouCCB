@@ -332,6 +332,12 @@ class FxSnapshot(BaseModel):
     sell_price: Decimal
     spread: Decimal
     volume_24h: Decimal = Decimal("0")
+    # Additive public cached-history bootstrap for pages without a per-card SSE
+    # connection.  ``None``/``False`` means the pair is not backfilled yet and
+    # the client must fall back to lightweight ``/chart``; never a fabricated
+    # coverage claim.
+    history_version: Optional[str] = None
+    history_ready: bool = False
 
 
 class FxEventPublic(BaseModel):

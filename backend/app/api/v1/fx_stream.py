@@ -6,41 +6,40 @@ import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker, get_async_session
-from app.models.fx import FxPair, FxTrade
+from app.models.fx import FxPair
 from app.services.credit.keys import symbol_namespace
 from app.services.fx import market_data, trading
+from app.services.fx.market_reads import read_fx_chart_with_meta
+from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.realtime import BROKER, IP_LIMITER, MarketEvent, Subscriber, sse_pack
 
 router = APIRouter()
 MAX_SSE_DURATION = 3600
+FX_THROUGH_HEADER = "X-FX-Through-Trade-ID"
+FX_VERSION_HEADER = "X-FX-History-Version"
 
 
 @router.get("/pairs/{pair_id}/chart")
-async def chart(pair_id: int, interval: str = Query("1m"), from_: datetime = Query(..., alias="from"),
-                to: datetime = Query(..., alias="to"), db: AsyncSession = Depends(get_async_session)):
-    # Database drivers and Python comparisons disagree on mixed naive/aware
-    # datetimes; normalize at the API boundary so invalid ranges are 422s.
-    from_ = market_data._utc(from_)
-    to = market_data._utc(to)
-    if from_ >= to:
-        raise HTTPException(status_code=422, detail="from must be earlier than to")
-    pair = await db.get(FxPair, pair_id)
-    if pair is None:
-        raise HTTPException(status_code=404, detail="FX pair not found")
-    rows = (await db.execute(select(FxTrade).where(
-        FxTrade.pair_id == pair_id, FxTrade.created_at >= from_, FxTrade.created_at < to,
-    ).order_by(FxTrade.created_at, FxTrade.id))).scalars().all()
-    try:
-        candles = market_data.build_price_buckets(rows, interval, from_, to)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return [c.__dict__ for c in candles]
+async def chart(pair_id: int, response: Response, interval: str = Query("1m"),
+                from_: datetime = Query(..., alias="from"),
+                to: datetime = Query(..., alias="to"),
+                db: AsyncSession = Depends(get_async_session)):
+    # Validation, ring read and the materialised-candle + unflushed-tail merge
+    # all live in the read helper.  The body keeps the old response shape
+    # (bucket_start/interval/open/high/low/close/volume) and the exact coverage
+    # metadata travels in headers so a cached-history fallback cannot stamp an
+    # old SSE cursor onto newer rows.  An unfinished history is an explicit
+    # retryable 503, never a raw full-day trade rebuild.
+    body, through_trade_id, history_version = await read_fx_chart_with_meta(
+        db, pair_id, interval, from_, to)
+    response.headers[FX_THROUGH_HEADER] = str(through_trade_id)
+    response.headers[FX_VERSION_HEADER] = str(history_version)
+    return body
 
 
 def _client_ip(request: Request) -> str:
@@ -69,9 +68,15 @@ async def stream(pair_id: int, request: Request):
             # either reflected in this snapshot or remains queued for replay.
             async with async_session_maker() as db:
                 snapshot = await trading.get_public_snapshot(db, pair_id)
-            initial = MarketEvent("snapshot", pair_id, datetime.now(timezone.utc).isoformat(),
-                                  market_data.public_frame_to_wire(
-                                      market_data.build_public_frame(snapshot)), anchor)
+            now = datetime.now(timezone.utc)
+            # The first packet carries the current ring tail (version, readiness
+            # and per-interval segments) plus the coverage cursor.  Trades that
+            # overlap the tail arrive as later ``fx`` deltas and are de-duplicated
+            # by the client against ``history_tail_through_trade_id``.
+            history = FX_MARKET_DATA.tail(pair_id, now)
+            wire = market_data.public_frame_to_wire(
+                market_data.build_public_envelope(snapshot, history=history))
+            initial = MarketEvent("snapshot", pair_id, now.isoformat(), wire, anchor)
             yield sse_pack(initial).encode()
             started = time.monotonic()
             while time.monotonic() - started < MAX_SSE_DURATION:
