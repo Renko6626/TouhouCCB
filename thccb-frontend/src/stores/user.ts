@@ -207,6 +207,17 @@ export const useUserStore = defineStore('user', () => {
     if (!s) return
     localApplyVersion += 1
     s.cash = args.newCash
+    if (s.unified_credit_enabled) {
+      // Local cash/positions do not reconstruct shared FX debt or spendable cash.
+      // Keep risk and spending unavailable even if the following refresh fails.
+      s.available_cash = null
+      s.display_equity = null
+      s.liquidation_equity = null
+      s.risk_basis = null
+      s.equity_to_risk_basis = null
+      s.risk_status = 'blocked'
+      s.blocked_reason = '成交后账户估值待刷新，请刷新资产概览。'
+    }
     const fill = { side: args.side, outcomeId: args.outcomeId,
                    shares: args.shares, pay: args.pay }
     if (!applyFillToRows(s.positions, fill)) {

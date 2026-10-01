@@ -4,8 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ isAuthenticated: false }),
+  useAuthStore: () => ({ isAuthenticated: true }),
 }))
+
+vi.mock('@/api/user', () => ({ userApi: { getSummary: vi.fn() } }))
+vi.mock('@/api/market', () => ({ marketApi: { getMarkets: vi.fn().mockResolvedValue([]) } }))
+import { userApi } from '@/api/user'
 
 import { useUserStore } from '@/stores/user'
 import type { UserSummary } from '@/types/user'
@@ -90,5 +94,32 @@ describe('unknown short valuation', () => {
     store.summary.display_equity = 100
     expect(store.netWorth).toBe(100)
     expect(store.rankTitle).toBe('Rookie')
+  })
+})
+
+// A failed post-fill refresh must not leave pre-buy spendable cash actionable.
+describe('unified local fill refresh failure', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  it('blocks spending and equity until a fresh summary replaces the pre-fill snapshot', async () => {
+    const store = useUserStore()
+    store.summary = makeSummary({ unified_credit_enabled: true, cash: 5500,
+      available_cash: '500', restricted_cash: '5000', display_equity: 500,
+      liquidation_equity: 450, risk_basis: '4500', equity_to_risk_basis: 0.1,
+      risk_status: 'healthy' })
+    vi.mocked(userApi.getSummary).mockRejectedValueOnce(new Error('refresh unavailable'))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      store.applyTradeFill({ side: 'buy', outcomeId: 1, marketId: 1, shares: 10,
+        pay: 400, newCash: 5100, outcomeLabel: 'A', marketTitle: 'Market' })
+      await store.fetchSummary(false)
+      expect(store.summary?.cash).toBe(5100)
+      expect(store.summary?.available_cash).toBeNull()
+      expect(store.netWorth).toBeNull()
+      expect(store.netWorthLcv).toBeNull()
+      expect(store.marginRatioEstimate).toBeNull()
+      expect(store.summary?.risk_status).toBe('blocked')
+    } finally {
+      log.mockRestore()
+    }
   })
 })
