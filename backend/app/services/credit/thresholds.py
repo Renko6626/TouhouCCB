@@ -18,8 +18,8 @@ from decimal import Decimal, InvalidOperation, ROUND_FLOOR, localcontext
 from typing import Union
 
 Q6 = Decimal("0.000001")
-#: 名义杠杆上限（计划 §3.4 / F6：20x 需运营显式启用，代码只做上限校验）。
-MAX_LEVERAGE = Decimal("20")
+#: 统一信贷名义杠杆上限；实际倍数仍需运营显式配置。
+MAX_LEVERAGE = Decimal("50")
 #: R_initial 倒数精度（spec §4："保存名义杠杆并在计算中使用高精度倒数"）。
 PREC = 28
 
@@ -190,7 +190,7 @@ class RiskThresholds:
 def validate_thresholds(leverage: Number, maintenance: Number) -> None:
     """校验配置合法性；非法抛 ``ValueError``（计划 §3.2）。
 
-    - ``1 < leverage <= 20``（20x 是目标上限，见 F6）
+    - ``1 < leverage <= 50``
     - ``0 < maintenance < r_initial``（维持率必须严格小于初始率）
     """
     lev = _finite_decimal(leverage, "leverage")

@@ -7,7 +7,7 @@
 - **默认全关**：未加载 / 未 seed 时 ``CreditFlags()`` 全为旧行为 —— 开关 false 时
   WP1 的落地对现有交易零行为变化。
 - **拒绝带病启用（WP3 收紧）**：``unified_credit_enabled=true`` 但缺
-  ``credit_maintenance_ratio``、``credit_leverage`` 非法（含 > 20）、或
+  ``credit_maintenance_ratio``、``credit_leverage`` 非法（含 > 50）、或
   ``maintenance >= R_initial`` 时，``parse_flags`` 记 ``enable_requested=True``
   + ``disabled_reason``，且 ``unified_credit_enabled=False``（管理端 API 依赖该
   判定继续返回 400）。**启动时**（非只读实例）``load_flags`` 直接抛

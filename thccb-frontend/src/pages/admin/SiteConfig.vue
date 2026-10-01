@@ -5,7 +5,7 @@ import {
   NInputNumber, NDivider, NSwitch, NTooltip, NTag,
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
-import { getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
+import { compareConfigKeys, getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
 // ─── 杠杆预设套餐 ─────────────────────────────────────────────────────────
 // 一次性 update 6 个配套 site_config keys，避免 admin 手动逐项调时漏配。
@@ -290,15 +290,15 @@ async function toggleBool(c: SiteConfigItem) {
 // 把 configs 按 group 分组
 const configsByGroup = computed<Record<ConfigGroup, SiteConfigItem[]>>(() => {
   const groups: Record<ConfigGroup, SiteConfigItem[]> = {
-    loan: [], liquidation: [], anti_bot: [], economy: [], general: [],
+    display: [], fx: [], loan: [], liquidation: [], anti_bot: [], economy: [], general: [],
   }
   for (const c of configs.value) {
     const meta = getConfigMeta(c.key)
     groups[meta.group].push(c)
   }
-  // 每组内部按 key 字母排序，UI 稳定
-  for (const g in groups) {
-    groups[g as ConfigGroup].sort((a, b) => a.key.localeCompare(b.key))
+  // 常用开关与相关参数相邻，未登记的配置保留在各组末尾。
+  for (const group of groupOrder()) {
+    groups[group].sort((a, b) => compareConfigKeys(a.key, b.key))
   }
   return groups
 })

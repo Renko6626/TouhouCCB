@@ -11,7 +11,9 @@ import RecentTrades from '@/components/home/RecentTrades.vue'
 import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import RecentLiquidationsPanel from '@/components/home/RecentLiquidationsPanel.vue'
 import FxOverview from '@/components/home/FxOverview.vue'
-import { formatFxAmount } from '@/api/fx'
+import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
+import { compareFxAmounts, divideFxAmount, formatFxAmount, subtractFxAmounts } from '@/api/fx'
+import { fxHomeHoldings } from '@/utils/fxPresentation'
 
 defineOptions({ name: 'FxHomePage' })
 
@@ -50,23 +52,28 @@ const featuredMarkets = computed(() =>
 )
 
 // 盈亏相关
-const pnl = computed(() => userStore.summary?.fx_unrealized_pnl ?? 0)
-const fxCost = computed(() => userStore.summary?.fx_cost_basis ?? 0)
+const holdings = computed(() => fxHomeHoldings(userStore.summary))
+const pnl = computed(() => holdings.value.pnl)
+const fxCost = computed(() => holdings.value.basis)
 const pnlDirection = computed<'up' | 'down' | 'flat'>(() => {
-  if (pnl.value > 0) return 'up'
-  if (pnl.value < 0) return 'down'
+  const direction = compareFxAmounts(pnl.value, '0')
+  if (direction === 1) return 'up'
+  if (direction === -1) return 'down'
   return 'flat'
 })
-const pnlSign = computed(() => pnl.value > 0 ? '+' : pnl.value < 0 ? '−' : '')
-const pnlAbs = computed(() => Math.abs(pnl.value))
+const pnlSign = computed(() => pnlDirection.value === 'up' ? '+' : pnlDirection.value === 'down' ? '−' : '')
+const pnlAbs = computed(() => pnl.value == null ? null
+  : pnlDirection.value === 'down' ? subtractFxAmounts('0', pnl.value) : pnl.value)
 
 const pnlPercent = computed(() => {
-  const cost = fxCost.value
-  if (cost <= 0) return null
-  return (pnl.value / cost) * 100
+  if (pnl.value == null || fxCost.value == null || compareFxAmounts(fxCost.value, '0') !== 1) return null
+  const ratio = divideFxAmount(pnl.value, fxCost.value)
+  return ratio == null ? null : Number(ratio) * 100
 })
 
-const fxHoldings = computed(() => (userStore.summary?.fx_wallets ?? []).filter(wallet => wallet.foreign_amount > 0))
+const fxHoldings = computed(() => holdings.value.longHoldings)
+const shortPositions = computed(() => holdings.value.shortPositions)
+const hasFxHoldings = computed(() => fxHoldings.value.length > 0 || shortPositions.value.length > 0)
 
 const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summary)
 </script>
@@ -90,17 +97,23 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             <span>FX战士 · 当前主玩法</span>
           </div>
           <h1 class="fx-home-title">我的外汇</h1>
-          <p class="pnl-note">FX 持仓浮动盈亏</p>
+          <p class="pnl-note">FX 多空持仓浮动盈亏</p>
           <div class="pnl-number" :class="`pnl-${pnlDirection}`">
-            <span class="pnl-sign">{{ pnlSign }}</span>金 {{ pnlAbs.toFixed(2) }}
+            <template v-if="pnl !== null"><span class="pnl-sign">{{ pnlSign }}</span>金 {{ formatFxAmount(pnlAbs, 2) }}</template>
+            <template v-else>估值待恢复</template>
           </div>
           <div v-if="pnlPercent !== null" class="pnl-percent" :class="`pnl-${pnlDirection}`">
             {{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%
-            <span class="pnl-percent-base">基于 金 {{ fxCost.toFixed(2) }} 持仓成本</span>
+            <span class="pnl-percent-base">基于 金 {{ formatFxAmount(fxCost, 2) }} {{ shortPositions.length ? '多头成本与空头开仓所得' : '持仓成本' }}</span>
           </div>
-          <div v-else class="pnl-percent pnl-flat">
+          <div v-else-if="!hasFxHoldings" class="pnl-percent pnl-flat">
             暂无外汇持仓，去行情页选择币种
           </div>
+          <div v-else-if="pnl === null" class="pnl-percent pnl-flat">部分空头回补成本暂不可用，合计盈亏无法估算。</div>
+          <p v-if="shortPositions.length" class="pnl-note">
+            多头 {{ compareFxAmounts(holdings.longPnl, '0') === 1 ? '+' : '' }}金 {{ formatFxAmount(holdings.longPnl, 2) }}
+            · 空头 {{ compareFxAmounts(holdings.shortPnl, '0') === 1 ? '+' : '' }}金 {{ formatFxAmount(holdings.shortPnl, 2) }}
+          </p>
 
           <div class="pnl-stats">
             <div class="pnl-stat">
@@ -110,6 +123,10 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             <div class="pnl-stat">
               <span class="pnl-stat-label">外币市值</span>
               <span class="pnl-stat-value">金 {{ (userStore.summary?.fx_mtm ?? 0).toFixed(2) }}</span>
+            </div>
+            <div v-if="shortPositions.length" class="pnl-stat">
+              <span class="pnl-stat-label">空头回补参考成本</span>
+              <span class="pnl-stat-value">金 {{ formatFxAmount(userStore.summary?.short_cover_cost, 2) }}</span>
             </div>
             <div v-if="Number(userStore.summary!.debt) > 0" class="pnl-stat pnl-stat-debt">
               <span class="pnl-stat-label">负债</span>
@@ -121,7 +138,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             </div>
           </div>
 
-          <p class="pnl-note">以上 FX 估值为最近账户快照，不含已实现收益；全账户净资产包含预测市场持仓。</p>
+          <p class="pnl-note">以上为最近账户快照，不含已实现收益；多头按账面市值估算，空头按剩余开仓所得减回补参考成本估算（含利息、手续费与滑点），实际以成交为准。全账户净资产包含预测市场持仓。</p>
 
 
 
@@ -164,11 +181,17 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 
     <section v-if="authStore.isAuthenticated && userStore.summary" class="holdings-section" aria-labelledby="holdings-title">
       <div class="section-header"><h2 id="holdings-title" class="section-title">我的外币持仓</h2><router-link to="/user/portfolio" class="section-more">全部资产 →</router-link></div>
-      <div v-if="fxHoldings.length" class="holdings-strip">
-        <router-link v-for="wallet in fxHoldings" :key="wallet.pair_id" :to="{ path: '/fx', query: { pair: wallet.pair_id } }" class="holding-item">
-          <strong>{{ wallet.currency_name || wallet.currency_code }} <small>{{ wallet.currency_code }}</small></strong>
+      <div v-if="hasFxHoldings" class="holdings-strip">
+        <router-link v-for="wallet in fxHoldings" :key="`long-${wallet.pair_id}`" :to="{ path: '/fx', query: { pair: wallet.pair_id } }" class="holding-item">
+          <strong>{{ wallet.currency_name || wallet.currency_code }} <small>{{ wallet.currency_code }} · 多头</small></strong>
           <span>{{ formatFxAmount(wallet.foreign_amount) }} 外币</span>
           <span class="holding-value">估值 金 {{ formatFxAmount(wallet.mtm_gold, 2) }} <b>交易 →</b></span>
+        </router-link>
+        <router-link v-for="position in shortPositions" :key="`short-${position.pair_id}`" :to="{ path: '/fx', query: { pair: position.pair_id, action: 'cover' } }" class="holding-item">
+          <strong>{{ position.currency_code }} <small>空头</small></strong>
+          <span>含息欠币 {{ formatFxAmount(position.pending_short_debt) }} {{ position.currency_code }}</span>
+          <ShortPositionPnl :proceeds-basis-gold="position.proceeds_basis_gold" :reference-cover-cost="position.reference_cover_cost" />
+          <span class="holding-value">回补参考 金 {{ formatFxAmount(position.reference_cover_cost, 2) }} <b>回补 →</b></span>
         </router-link>
       </div>
       <p v-else class="holdings-empty">暂无外币持仓，从下方行情选择币种开始。</p>
@@ -272,6 +295,9 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 .holding-item small, .holding-value { color: #666; font-size: 11px; }
 .holding-value { display: flex; justify-content: space-between; gap: 8px; }
 .holding-value b { color: #000; white-space: nowrap; }
+.holding-item :deep(.short-pnl) { padding: 6px 0; }
+.holding-item :deep(.short-pnl-amount) { margin: 2px 0; font-size: 18px; }
+.holding-item :deep(.short-pnl-note) { font-size: 11px; }
 .holdings-empty { color: #666; font-size: 13px; margin: 12px 0 0; }
 .hero-pnl .pnl-note { margin-bottom: 12px; }
 .hero-pnl .pnl-percent { margin-bottom: 14px; }
