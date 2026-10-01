@@ -294,6 +294,17 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
             return FakeDB()
 
     class TailRuntime:
+        def __init__(self):
+            self.caught_up: list[int] = []
+
+        def state(self, pair_id):
+            return {"history_version": "V", "history_ready": True,
+                    "applied_trade_id": 12, "durable_trade_id": 12}
+
+        async def catch_up(self, pair_id):
+            self.caught_up.append(pair_id)
+            return 13
+
         def tail(self, pair_id, now):
             return {
                 "history_version": "V", "history_ready": True,
@@ -307,8 +318,9 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
                 "history_tail_through_trade_id": 12,
             }
 
+    runtime = TailRuntime()
     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
-    monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", TailRuntime())
+    monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
     async def fake_snapshot(db, pair_id):
         return {"price": Decimal("1.10"), "spread": Decimal("0.02"),
                 "volume_24h": Decimal("4"), "target_price": Decimal("9")}
@@ -323,4 +335,55 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
     assert data["history_tail_through_trade_id"] == 12
     assert data["history_tail"]["1m"]["c"] == ["1.15"]
     assert "target_price" not in data
+    # A ready runtime is caught up before the tail so a just-committed trade
+    # cannot be omitted from the first snapshot.
+    assert runtime.caught_up == [93]
+    await response.body_iterator.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fx_stream_snapshot_does_not_backfill_unknown_pair(monkeypatch):
+    """A GET must not create/backfill derived state for an unknown pair."""
+    from app.api.v1 import fx_stream
+
+    class FakeDB:
+        async def get(self, model, pair_id):
+            return SimpleNamespace(id=pair_id)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeMaker:
+        def __call__(self):
+            return FakeDB()
+
+    class UnknownRuntime:
+        def __init__(self):
+            self.catch_up_calls = 0
+
+        def state(self, pair_id):
+            return None
+
+        async def catch_up(self, pair_id):
+            self.catch_up_calls += 1
+            return 0
+
+        def tail(self, pair_id, now):
+            return None
+
+    runtime = UnknownRuntime()
+    monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
+    monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
+    async def fake_snapshot(db, pair_id):
+        return {"price": Decimal("1.10"), "volume_24h": Decimal("4")}
+    monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
+    request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
+
+    response = await fx_stream.stream(94, request)
+    payload = json.loads((await response.body_iterator.__anext__()).decode().split("data: ", 1)[1])
+    assert "history_version" not in payload["data"]
+    assert runtime.catch_up_calls == 0
     await response.body_iterator.aclose()

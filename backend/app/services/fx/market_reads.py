@@ -37,6 +37,7 @@ from typing import Any, Iterable
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
@@ -273,27 +274,25 @@ async def _load_candles_with_state(db: AsyncSession, pair_id: int, interval: str
     return rows, state
 
 
-async def _pair_max_trade_id(db: AsyncSession, pair_id: int) -> int:
-    """Indexed observed highwater of committed pair trades (never a global max)."""
+async def _window_max_trade_id(db: AsyncSession, pair_id: int,
+                               start: datetime, end: datetime) -> int:
+    """Max committed pair trade id contributing to ``[start, end)``, or ``0``.
+
+    This is the *coverage* highwater: it is computed over exactly the aligned
+    window the chart serves, so an id is never claimed from a trade that is
+    outside the window or not committed.  It is deliberately not the
+    chronological ``last_trade_id`` (ids may skip / be backdated) nor a global
+    ``MAX(id)`` (which would over-claim).  Uses the ``(pair_id, created_at)``
+    index.
+    """
     value = (await db.execute(
-        select(func.max(FxTrade.id)).where(FxTrade.pair_id == int(pair_id))
+        select(func.max(FxTrade.id)).where(
+            FxTrade.pair_id == int(pair_id),
+            FxTrade.created_at >= start,
+            FxTrade.created_at < end,
+        )
     )).scalar()
     return int(value or 0)
-
-
-async def _capture_highwater(db: AsyncSession, pair_id: int, version: str) -> int:
-    """Highwater cap for the DB-fallback raw tail.
-
-    Prefers the runtime's in-memory applied cursor when it knows the **same**
-    generation; otherwise observes the committed pair max.  Either way it is
-    captured after the candle+state statement, so the tail can only extend the
-    body beyond the durable cursor, never re-describe candles we already have.
-    """
-    rt = FX_MARKET_DATA.state(int(pair_id))
-    if (rt is not None and rt.get("history_ready")
-            and str(rt.get("history_version")) == str(version)):
-        return int(rt.get("applied_trade_id") or 0)
-    return await _pair_max_trade_id(db, pair_id)
 
 
 async def _has_trade_in_segment_after(db: AsyncSession, pair_id: int, after_id: int,
@@ -328,15 +327,19 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
                                   start: datetime, end: datetime) -> tuple[list[dict], int, str]:
     """Old ``/chart`` body **plus** the exact coverage cursor and generation.
 
-    Returns ``(body, through_trade_id, history_version)``.  ``through_trade_id``
-    is the pair highwater whose data the returned rows fully describe: every
-    committed trade with ``id <= through`` inside the window is in ``body`` and
-    no trade above it is.  The route exposes the pair as the
-    ``X-FX-Through-Trade-ID`` / ``X-FX-History-Version`` response headers; the
-    body itself stays the legacy JSON list.
+    Returns ``(body, coverage_trade_id, history_version)``.  ``coverage`` is the
+    max committed trade id whose data is actually inside the served aligned
+    window, so every id it claims is present in ``body`` and no later live delta
+    is silently swallowed.  The route exposes it as
+    ``X-FX-Through-Trade-ID`` / ``X-FX-History-Version``; the body stays the
+    legacy JSON list.
 
-    Validation (range, interval, 20,000-bucket ceiling) happens before any query.
-    Missing metadata is an explicit 503, never a fabricated coverage value.
+    Bounds are full-bucket provisional semantics: the stored bars and the raw
+    tail share the same aligned ``[first_bucket, query_end)`` window, so a
+    near-``to`` trade is either inside the body (and covered) or outside it (and
+    left to the live delta).  Validation (range, interval, output and fine
+    source bucket ceiling) happens before any query.  Missing metadata is an
+    explicit 503, never a fabricated coverage value.
     """
     start, end = _utc(start), _utc(end)
     if start >= end:
@@ -349,6 +352,19 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         raise HTTPException(
             status_code=422,
             detail=f"chart window exceeds {MAX_CHART_BUCKETS} buckets",
+        )
+    # Aligned, full-bucket served window shared by stored bars, raw tail and
+    # coverage.  ``plan.base_step`` is the fine stored interval (== the output
+    # interval for native periods), so a legacy rollup is bounded on its source
+    # scan too and cannot fan a small output into millions of ORM rows.
+    first_bucket = _bucket_start(start, plan.seconds)
+    last_bucket = _bucket_start(end - timedelta(microseconds=1), plan.seconds)
+    query_end = last_bucket + timedelta(seconds=plan.seconds)
+    source_buckets = int(math.ceil((query_end - first_bucket).total_seconds() / plan.base_step))
+    if source_buckets > MAX_CHART_BUCKETS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"chart source window exceeds {MAX_CHART_BUCKETS} fine buckets",
         )
 
     pair_id = int(pair_id)
@@ -363,19 +379,22 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         # ``get_candles`` and ``state`` are synchronous and back-to-back with no
         # await between them, so the copied ring rows and the applied cursor are
         # captured atomically under the same event-loop step.
-        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, start, end)
+        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, first_bucket, query_end)
         rt = FX_MARKET_DATA.state(pair_id)
         if (ring_rows is not None and rt is not None and rt.get("history_ready")
                 and str(rt.get("history_version")) == version):
+            # Coverage is the committed max inside the aligned window, further
+            # capped by the ring's applied cursor so a trade that committed just
+            # after the copy is left to the live delta instead of being claimed.
+            window_max = await _window_max_trade_id(db, pair_id, first_bucket, query_end)
+            coverage = min(window_max, int(rt.get("applied_trade_id") or 0))
             return ([_chart_row(plan.interval, row) for row in ring_rows],
-                    int(rt.get("applied_trade_id") or 0), version)
+                    coverage, version)
 
     # Persisted base candles + the persisted state in ONE statement, then only
-    # the projected unflushed tail above the durable cursor capped at a captured
-    # highwater.  A flush that commits mid-request can only appear in the tail.
-    first_bucket = _bucket_start(start, plan.seconds)
-    last_bucket = _bucket_start(end - timedelta(microseconds=1), plan.seconds)
-    query_end = last_bucket + timedelta(seconds=plan.seconds)
+    # the projected unflushed tail above the durable cursor capped at the
+    # window's committed max.  A flush that commits mid-request can only appear
+    # in the tail.
     base_interval = plan.base or plan.native or plan.interval
     base_rows, db_state = await _load_candles_with_state(
         db, pair_id, base_interval, first_bucket, query_end,
@@ -386,27 +405,38 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
     # rebuild in flight can never mix two generations in one body.
     db_version = str(db_state.history_version)
     durable = int(db_state.last_trade_id)
-
-    highwater = await _capture_highwater(db, pair_id, db_version)
-    through = max(durable, highwater)
+    coverage = await _window_max_trade_id(db, pair_id, first_bucket, query_end)
 
     merged: dict[datetime, dict] = {}
     for row in base_rows:
-        agg = _row_to_agg(row)
-        bucket = _bucket_start(agg["bucket_start"], plan.seconds)
-        existing = merged.get(bucket)
-        merged[bucket] = agg if existing is None else merge_row(existing, agg)
+        agg = _aggregate_bucket(_row_to_agg(row), plan.seconds)
+        existing = merged.get(agg["bucket_start"])
+        merged[agg["bucket_start"]] = agg if existing is None else merge_row(existing, agg)
 
-    tail_trades = await _load_tail_trades(db, pair_id, durable, start, end, max_id=through)
+    tail_trades = await _load_tail_trades(
+        db, pair_id, durable, first_bucket, query_end, max_id=coverage)
     for row in compute_fx_candle_rows(tail_trades):
         if row["interval"] != base_interval:
             continue
-        bucket = _bucket_start(row["bucket_start"], plan.seconds)
-        existing = merged.get(bucket)
-        merged[bucket] = row if existing is None else merge_row(existing, row)
+        agg = _aggregate_bucket(row, plan.seconds)
+        existing = merged.get(agg["bucket_start"])
+        merged[agg["bucket_start"]] = agg if existing is None else merge_row(existing, agg)
 
     return ([_chart_row(plan.interval, merged[bucket]) for bucket in sorted(merged)],
-            through, db_version)
+            coverage, db_version)
+
+
+def _aggregate_bucket(row: dict, seconds: int) -> dict:
+    """Align a fine row's ``bucket_start`` to the requested output bucket.
+
+    Without this the merged chart point would report the *first fine row's*
+    timestamp (e.g. 12:03 for an off-boundary 5m rollup) instead of the aligned
+    bucket start the legacy chart contract uses.
+    """
+    bucket = _bucket_start(row["bucket_start"], seconds)
+    if row["bucket_start"] == bucket:
+        return row
+    return {**row, "bucket_start": bucket}
 
 
 async def read_fx_chart(db: AsyncSession, pair_id: int, interval: str,
@@ -478,6 +508,32 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
     if cached is not None:
         return cached
 
+    # Cache miss: take a short shared lock on the pair row for the proof + body.
+    # Every producer takes ``FOR UPDATE`` on this row *before* constructing its
+    # ``FxTrade`` and holds it until commit, so the shared lock waits out any
+    # in-flight producer whose trade was born before ``seg_end``; once held, no
+    # such transaction can commit between the ``EXISTS`` proof and the candle
+    # load.  The lock is held only for this short read transaction and released
+    # (``commit``) before the response is serialised/returned.
+    try:
+        await db.execute(
+            select(FxPair.id).where(FxPair.id == pair_id).with_for_update(read=True)
+        )
+    except SQLAlchemyError as exc:
+        # A true SQL read-only / standby connection cannot take the lock.  A
+        # non-cache 503 (client falls back to lightweight /chart) is safer than
+        # poisoning the immutable cache with an unproven segment.
+        raise HTTPException(
+            status_code=503, detail="历史段一致性锁不可用；请稍后重试或使用图表回退"
+        ) from exc
+
+    # Re-read under the lock: the generation may have rotated while waiting.
+    state = await _read_state(db, pair_id)
+    if state is None or not state.history_ready:
+        raise HTTPException(status_code=503, detail="FX 历史未就绪，请稍后重试")
+    if str(state.history_version) != str(history_version):
+        raise HTTPException(status_code=404, detail="历史版本已失效")
+
     seg_start_dt = datetime.fromtimestamp(segment_epoch, tz=UTC)
     seg_end_dt = datetime.fromtimestamp(seg_end, tz=UTC)
 
@@ -493,6 +549,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
             if not await _has_trade_in_segment_after(db, pair_id, applied,
                                                      seg_start_dt, seg_end_dt):
                 enc = _encode_segment(ring_rows, interval, segment_epoch, seg_end)
+                await db.commit()
                 _lru_put(key, enc)
                 return enc
 
@@ -508,6 +565,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
     rows = await _load_candles(db, pair_id, interval, seg_start_dt, seg_end_dt)
     enc = _encode_segment((_row_to_agg(row) for row in rows), interval,
                           segment_epoch, seg_end)
+    await db.commit()
     _lru_put(key, enc)
     return enc
 
@@ -542,35 +600,18 @@ def _gold_sum_expr():
     )
 
 
-async def _raw_gold_sum(db: AsyncSession, pair_id: int, start: datetime, end: datetime,
-                        *, after_id: int | None = None) -> Decimal:
-    if start >= end:
-        return Decimal("0")
-    stmt = select(_gold_sum_expr()).where(
-        FxTrade.pair_id == int(pair_id),
-        FxTrade.created_at >= start,
-        FxTrade.created_at < end,
-    )
-    if after_id is not None:
-        stmt = stmt.where(FxTrade.id > int(after_id))
-    value = (await db.execute(stmt)).scalar_one()
-    return Decimal(value) if value is not None else Decimal("0")
-
-
 async def fx_volume_24h(db: AsyncSession, pair_id: int, now: datetime) -> Decimal | None:
     """Exact rolling-24h gold-side volume, or ``None`` when history is not ready.
 
     ``None`` lets the caller keep the exact SQL ``SUM`` fallback.  When ready,
-    the sum is a minute-candle aggregate for the fully-covered minutes plus raw
-    SQL sums for the two partial window edges and for committed trades past the
-    durable cursor that are still inside the full-minute range.
+    the durable cursor, the fully-covered minute-candle aggregate and the raw
+    sums for the two partial edges and the outstanding tail are all read in a
+    **single SQL statement**, so they share one snapshot.  Reading the cursor
+    separately from the candle sum could otherwise count zero for a batch that a
+    concurrent flush commits between the two observations.
     """
     now = _utc(now)
     since = now - timedelta(hours=24)
-    state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready:
-        return None
-
     b_start = _ceil_bucket(since, 60)
     b_end = _bucket_start(now, 60)
     if b_start > b_end:
@@ -578,25 +619,57 @@ async def fx_volume_24h(db: AsyncSession, pair_id: int, now: datetime) -> Decima
         # is a partial range.
         b_start = b_end
 
-    total = Decimal("0")
-    if b_start < b_end:
-        candle_sum = (await db.execute(
-            select(func.coalesce(func.sum(FxCandle.gold_volume), Decimal("0"))).where(
-                FxCandle.pair_id == int(pair_id),
-                FxCandle.interval == "1m",
-                FxCandle.bucket_start >= b_start,
-                FxCandle.bucket_start < b_end,
-            )
-        )).scalar_one()
-        total += Decimal(candle_sum) if candle_sum is not None else Decimal("0")
-        # Read the durable cursor after the candle aggregate so a flush that
-        # commits mid-request can only be omitted, never double-counted.
-        fresh = await _read_state(db, pair_id)
-        durable = int((fresh if fresh is not None else state).last_trade_id)
-        total += await _raw_gold_sum(db, pair_id, b_start, b_end, after_id=durable)
+    pid = int(pair_id)
+    durable_sq = (
+        select(FxMarketDataState.last_trade_id)
+        .where(FxMarketDataState.pair_id == pid)
+        .scalar_subquery()
+    )
+    ready_sq = (
+        select(FxMarketDataState.history_ready)
+        .where(FxMarketDataState.pair_id == pid)
+        .scalar_subquery()
+    )
+    candle_sq = (
+        select(func.coalesce(func.sum(FxCandle.gold_volume), Decimal("0")))
+        .where(
+            FxCandle.pair_id == pid,
+            FxCandle.interval == "1m",
+            FxCandle.bucket_start >= b_start,
+            FxCandle.bucket_start < b_end,
+        )
+        .scalar_subquery()
+    )
+    # Disjoint raw ranges: the boundary minutes around the full-minute band and
+    # the outstanding tail above the durable cursor inside that band.
+    head_sq = (
+        select(_gold_sum_expr())
+        .where(FxTrade.pair_id == pid, FxTrade.created_at >= since,
+               FxTrade.created_at < b_start)
+        .scalar_subquery()
+    )
+    edge_sq = (
+        select(_gold_sum_expr())
+        .where(FxTrade.pair_id == pid, FxTrade.created_at >= b_end,
+               FxTrade.created_at < now)
+        .scalar_subquery()
+    )
+    tail_sq = (
+        select(_gold_sum_expr())
+        .where(
+            FxTrade.pair_id == pid,
+            FxTrade.created_at >= b_start,
+            FxTrade.created_at < b_end,
+            FxTrade.id > durable_sq,
+        )
+        .scalar_subquery()
+    )
 
-    if since < b_start:
-        total += await _raw_gold_sum(db, pair_id, since, b_start)
-    if b_end < now:
-        total += await _raw_gold_sum(db, pair_id, b_end, now)
+    row = (await db.execute(select(ready_sq, candle_sq, head_sq, edge_sq, tail_sq))).one()
+    ready = row[0]
+    if ready is None or not bool(ready):
+        return None
+    total = Decimal("0")
+    for value in row[1:]:
+        total += Decimal(value) if value is not None else Decimal("0")
     return total

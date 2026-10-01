@@ -122,6 +122,23 @@ async def test_chart_rejects_unknown_interval_and_bucket_ceiling_before_query():
 
 
 @pytest.mark.asyncio
+async def test_chart_rejects_oversize_fine_source_window_before_query():
+    start = datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc)
+
+    # 20 days of 5m is only 5,760 output buckets but 28,800 fine 1m source rows.
+    with pytest.raises(HTTPException) as exc:
+        await chart(3, Response(), interval="5m", from_=start,
+                    to=start + timedelta(days=20), db=object())
+    assert exc.value.status_code == 422
+
+    # 1440d is a single output bucket but a 34,560-row 1h source scan.
+    with pytest.raises(HTTPException) as exc:
+        await chart(3, Response(), interval="1440d", from_=start,
+                    to=start + timedelta(days=1440), db=object())
+    assert exc.value.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_chart_normalizes_mixed_timezone_range_and_returns_empty_with_meta():
     start = datetime(2026, 9, 28, 12, 0)
     end = datetime(2026, 9, 28, 13, 0, tzinfo=timezone.utc)
@@ -173,4 +190,6 @@ async def test_chart_rolls_legacy_interval_up_and_reports_coverage():
     assert result[0]["low"] == Decimal("1.05")
     assert result[0]["volume"] == Decimal("5")
     assert response.headers[FX_VERSION_HEADER] == "gen-2"
-    assert response.headers[FX_THROUGH_HEADER] == "3"
+    # Coverage is the committed max id inside the served aligned window; the
+    # fake DB has no raw trades, so an empty window is a safe 0.
+    assert response.headers[FX_THROUGH_HEADER] == "0"

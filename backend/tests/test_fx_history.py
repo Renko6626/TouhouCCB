@@ -13,6 +13,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from fastapi import HTTPException
 
 from app.core.database import async_session_maker
 from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
@@ -302,6 +303,161 @@ async def test_chart_refuses_when_state_has_no_ready_row(client):
     )
     assert resp.status_code == 503
     assert "x-fx-history-version" not in resp.headers
+
+
+@pytest.mark.asyncio
+async def test_chart_offboundary_rollup_reports_aligned_bucket_start(client):
+    """A 5m rollup of a 12:03 fine bar must report bucket_start 12:00, not 12:03."""
+    pid = await _seed_pair()
+    await _seed_state(pid, ready=True, cursor=0)
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    await _seed_candle(pid, "1m", base + timedelta(minutes=3), v="2", n=1)
+    await _seed_trade(pid, 1, base + timedelta(minutes=4), volume="3")
+
+    resp = await client.get(
+        f"/api/v1/fx/pairs/{pid}/chart",
+        params={"interval": "5m", "from": base.isoformat(),
+                "to": (base + timedelta(minutes=5)).isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    reported = datetime.fromisoformat(body[0]["bucket_start"].replace("Z", "+00:00"))
+    assert reported == base
+    assert Decimal(str(body[0]["volume"])) == Decimal("5")
+    assert resp.headers["x-fx-through-trade-id"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_chart_coverage_never_claims_a_trade_outside_the_served_window(client):
+    """A trade beyond the aligned end must not be claimed (its live delta is kept)."""
+    pid = await _seed_pair()
+    await _seed_state(pid, ready=True, cursor=0)
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    await _seed_trade(pid, 5, base + timedelta(minutes=1, seconds=30), volume="9")
+
+    resp = await client.get(
+        f"/api/v1/fx/pairs/{pid}/chart",
+        params={"interval": "1m", "from": base.isoformat(),
+                "to": (base + timedelta(minutes=1)).isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["x-fx-through-trade-id"] == "0"
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_chart_aligned_window_covers_a_midbucket_end_trade(client):
+    """With a mid-bucket `to`, the full aligned bucket is served and covered."""
+    pid = await _seed_pair()
+    await _seed_state(pid, ready=True, cursor=0)
+    base = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    await _seed_trade(pid, 6, base + timedelta(seconds=40), volume="4")
+
+    resp = await client.get(
+        f"/api/v1/fx/pairs/{pid}/chart",
+        params={"interval": "1m", "from": base.isoformat(),
+                "to": (base + timedelta(seconds=30)).isoformat()},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["x-fx-through-trade-id"] == "6"
+    body = resp.json()
+    assert len(body) == 1
+    assert Decimal(str(body[0]["volume"])) == Decimal("4")
+
+
+@pytest.mark.asyncio
+async def test_fx_volume_24h_single_snapshot_survives_midread_flush():
+    """One-statement read: a flush after execution cannot create a zero count.
+
+    The wrapper flushes the outstanding trade after the single statement has
+    executed but before its values are read.  A multi-observation implementation
+    would see the post-flush cursor and then find no tail above it (total 0);
+    the single statement keeps the pre-flush composition (7).
+    """
+    pid = await _seed_pair()
+    await _seed_state(pid, ready=True, cursor=2)
+    now = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    trade_at = datetime(2026, 10, 1, 11, 0, tzinfo=UTC)
+    await _seed_trade(pid, 3, trade_at, volume="7")
+
+    class _One:
+        def __init__(self, row):
+            self._row = row
+
+        def one(self):
+            return self._row
+
+    class Interleaving:
+        def __init__(self, real):
+            self._real = real
+            self.calls = 0
+
+        async def execute(self, stmt, *args, **kwargs):
+            result = await self._real.execute(stmt, *args, **kwargs)
+            self.calls += 1
+            if self.calls == 1:
+                row = result.one()   # materialise the single statement snapshot
+                # The flusher commits the outstanding trade on the same
+                # connection after the statement ran.
+                self._real.add(FxCandle(
+                    pair_id=pid, interval="1m", bucket_start=trade_at,
+                    open_price=Decimal("1"), high_price=Decimal("1"),
+                    low_price=Decimal("1"), close_price=Decimal("1"),
+                    gold_volume=Decimal("7"), n_trades=1,
+                    first_trade_at=trade_at, first_trade_id=3,
+                    last_trade_at=trade_at, last_trade_id=3,
+                ))
+                state_row = await self._real.get(FxMarketDataState, pid)
+                state_row.last_trade_id = 3
+                await self._real.commit()
+                return _One(row)
+            return result
+
+        async def commit(self):
+            await self._real.commit()
+
+    async with async_session_maker() as real:
+        proxy = Interleaving(real)
+        total = await fx_volume_24h(proxy, pid, now)
+
+    assert total == Decimal("7")
+    assert proxy.calls == 1
+    async with async_session_maker() as db:
+        cursor = (await db.get(FxMarketDataState, pid)).last_trade_id
+    assert int(cursor) == 3   # the mid-read flush really happened
+
+
+@pytest.mark.asyncio
+async def test_history_lock_unavailable_is_a_non_cache_503():
+    """A connection that cannot take the pair lock never emits an immutable 200."""
+    from sqlalchemy.exc import OperationalError
+
+    from app.services.fx import market_reads
+
+    pid = await _seed_pair()
+    version = await _seed_state(pid, ready=True, cursor=0)
+    seg = _previous_segment(3600)
+    await _seed_candle(pid, "1m", datetime.fromtimestamp(seg + 60, tz=UTC))
+
+    class LockFailSession:
+        def __init__(self, real):
+            self._real = real
+
+        async def execute(self, stmt, *args, **kwargs):
+            if getattr(stmt, "_for_update_arg", None) is not None:
+                raise OperationalError(
+                    "SELECT ... FOR SHARE", {}, Exception("cannot execute in a read-only transaction"))
+            return await self._real.execute(stmt, *args, **kwargs)
+
+        async def commit(self):
+            await self._real.commit()
+
+    async with async_session_maker() as real:
+        with pytest.raises(HTTPException) as exc:
+            await market_reads.read_fx_history(
+                LockFailSession(real), pid, version, "1m", seg)
+    assert exc.value.status_code == 503
 
 
 @pytest.mark.asyncio

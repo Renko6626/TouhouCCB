@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -22,6 +23,8 @@ router = APIRouter()
 MAX_SSE_DURATION = 3600
 FX_THROUGH_HEADER = "X-FX-Through-Trade-ID"
 FX_VERSION_HEADER = "X-FX-History-Version"
+
+logger = logging.getLogger(__name__)
 
 
 @router.get("/pairs/{pair_id}/chart")
@@ -66,6 +69,20 @@ async def stream(pair_id: int, request: Request):
             sub, anchor = await BROKER.subscribe(topic)
             # Anchor first, then read state. Any commit after the anchor is
             # either reflected in this snapshot or remains queued for replay.
+            #
+            # Pull the latest committed prefix into an already-initialised ready
+            # runtime before capturing the tail, so a just-committed but
+            # not-yet-reconciled trade cannot be omitted when no later
+            # publication arrives.  Unknown / not-ready pairs are NOT
+            # backfilled from a GET: the tail is emitted unready and the normal
+            # producer reconciliation owns startup.  Readers only warm the ring
+            # (no writes); an owner queues incremental ready batches only.
+            runtime_state = FX_MARKET_DATA.state(pair_id)
+            if runtime_state is not None and runtime_state.get("history_ready"):
+                try:
+                    await FX_MARKET_DATA.catch_up(pair_id)
+                except Exception:  # noqa: BLE001 - the tail must still be sent
+                    logger.exception("fx SSE snapshot catch-up failed for pair %s", pair_id)
             async with async_session_maker() as db:
                 snapshot = await trading.get_public_snapshot(db, pair_id)
             now = datetime.now(timezone.utc)
