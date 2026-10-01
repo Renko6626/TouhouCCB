@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fxApi, formatFxPrice } from '@/api/fx'
-import type { FxHistorySnapshotTail, FxPairPublic, FxSnapshot } from '@/types/fx'
+import type { FxChartPoint, FxHistorySnapshotTail, FxPairPublic, FxSnapshot } from '@/types/fx'
 import { useAuthStore } from '@/stores/auth'
 import { useUserStore } from '@/stores/user'
 import { loadFxHistoryResult } from '@/composables/useFxCandleHistory'
@@ -37,15 +37,18 @@ const statusNames: Record<string, string> = { trading: '交易中', paused: '暂
 const changeText = (change: number) => `${change > 0 ? '+' : ''}${change.toFixed(2)}%`
 const direction = (change: number | null | undefined) => change == null || change === 0 ? 'flat' : change > 0 ? 'up' : 'down'
 
-/** 用 HTTP 快照的可选元数据构造历史上下文；未就绪/无版本时适配层自动回退带游标的 /chart。 */
-function snapshotTailFor(snapshot: FxSnapshot): FxHistorySnapshotTail {
-  const meta = snapshot as FxSnapshotHistory
+/**
+ * 历史上下文：优先复用**上一次成功报价**携带的公开历史元数据（可命中封存段缓存）；
+ * 首屏还没有任何快照时用空元数据，适配层自动走带响应头的 /chart 回退。
+ */
+function historyTailFor(snapshot: FxSnapshot | undefined): FxHistorySnapshotTail {
+  const meta = snapshot as FxSnapshotHistory | undefined
   return {
-    history_version: meta.history_version ?? null,
+    history_version: meta?.history_version ?? null,
     history_tail: null,
     history_tail_at: null,
     history_tail_through_trade_id: null,
-    history_ready: meta.history_ready === true,
+    history_ready: meta?.history_ready === true,
   }
 }
 
@@ -54,40 +57,60 @@ function updateCard(pairId: number, patch: Partial<Card>) {
   cards.value[pairId] = { ...existing, ...patch }
 }
 
-/** 报价先返回先展示；失败保留上次成功值并标记 stale。 */
-async function loadQuote(pair: FxPairPublic, request: number): Promise<FxSnapshot | undefined> {
-  try {
-    const snapshot = await fxApi.getSnapshot(pair.id)
-    if (request !== generation) return undefined
-    updateCard(pair.id, { snapshot, quoteError: false, updatedAt: new Date().toLocaleTimeString() })
-    return snapshot
-  } catch {
-    if (request === generation) updateCard(pair.id, { quoteError: true, updatedAt: new Date().toLocaleTimeString() })
-    return undefined
-  }
-}
+/**
+ * 报价与走势并发、互不阻塞：
+ * - 报价一返回就写卡片；失败保留上次快照并标记 stale。
+ * - 走势独立取数（复用上次公开历史元数据，首屏走 /chart 回退），成功即刷新路径；
+ *   24h 涨跌只在**本 pass** 拿到成功报价时才用其价格计算，否则为 null（未知），
+ *   绝不用过期价格伪造新的涨跌。报价稍后返回会基于本 pass 的点重算涨跌。
+ */
+async function loadCard(pair: FxPairPublic, request: number) {
+  let passSnapshot: FxSnapshot | undefined
+  let passPoints: FxChartPoint[] | undefined
+  let passTrendOk = false
 
-/** 走势独立加载：只有本次拿到成功报价才计算 24h 涨跌，绝不用过期价格伪造新的涨跌。 */
-async function loadTrend(pair: FxPairPublic, snapshot: FxSnapshot | undefined, request: number) {
-  if (!snapshot) return
-  try {
-    const result = await loadFxHistoryResult(pair.id, '15m', FX_OVERVIEW_LOOKBACK_MINUTES, snapshotTailFor(snapshot))
-    if (request !== generation) return
-    if (cards.value[pair.id]?.snapshot !== snapshot) return
-    updateCard(pair.id, { trend: fxOverviewTrend(result.points, snapshot.price, Date.now()), trendError: false })
-  } catch {
-    if (request !== generation) return
-    if (!cards.value[pair.id]) return
-    updateCard(pair.id, { trendError: true })
+  const commitTrend = () => {
+    if (request !== generation || !passTrendOk) return
+    updateCard(pair.id, {
+      trend: fxOverviewTrend(passPoints ?? [], passSnapshot?.price, Date.now()),
+      trendError: false,
+    })
   }
+
+  const quoteTask = (async () => {
+    try {
+      const snapshot = await fxApi.getSnapshot(pair.id)
+      if (request !== generation) return
+      passSnapshot = snapshot
+      updateCard(pair.id, { snapshot, quoteError: false, updatedAt: new Date().toLocaleTimeString() })
+      // 报价后到：用本 pass 的点 + 本 pass 的成功报价重算涨跌。
+      commitTrend()
+    } catch {
+      if (request !== generation) return
+      updateCard(pair.id, { quoteError: true, updatedAt: new Date().toLocaleTimeString() })
+    }
+  })()
+
+  const trendTask = (async () => {
+    try {
+      const tail = historyTailFor(cards.value[pair.id]?.snapshot)
+      const result = await loadFxHistoryResult(pair.id, '15m', FX_OVERVIEW_LOOKBACK_MINUTES, tail)
+      if (request !== generation) return
+      passPoints = result.points
+      passTrendOk = true
+      commitTrend()
+    } catch {
+      if (request !== generation) return
+      if (!cards.value[pair.id]) return
+      updateCard(pair.id, { trendError: true })
+    }
+  })()
+
+  await Promise.all([quoteTask, trendTask])
 }
 
 async function loadCards(target: FxPairPublic[], request: number) {
-  await Promise.all(target.map(async pair => {
-    const snapshot = await loadQuote(pair, request)
-    if (request !== generation) return
-    await loadTrend(pair, snapshot, request)
-  }))
+  await Promise.all(target.map(pair => loadCard(pair, request)))
 }
 async function refresh() {
   if (loading.value) return
