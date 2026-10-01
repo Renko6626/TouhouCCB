@@ -400,8 +400,18 @@ describe('cover maximum gold input', () => {
 })
 
 describe('ambiguous short response retries', () => {
+  function storage() {
+    const values = new Map<string, string>()
+    return {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+    }
+  }
+
   it.each(['open', 'cover'] as const)('replays identical %s request after a committed response is lost', async action => {
-    const order = new FxPendingShortOrder()
+    const saved = storage()
+    const order = new FxPendingShortOrder(42, saved)
     const calls: unknown[] = []
     const executed = new Set<string>()
     const run = async (request: { body: { idempotency_key: string } }) => {
@@ -415,17 +425,42 @@ describe('ambiguous short response retries', () => {
     await expect(order.start(7, action, body, run)).rejects.toThrow('response lost')
     await expect(order.start(7, action, body, run)).rejects.toThrow()
     expect(calls).toHaveLength(1)
-    expect(await order.retry(run)).toEqual({ replay: true })
+    const remounted = new FxPendingShortOrder(42, saved)
+    expect(remounted.pending).toEqual(calls[0])
+    expect(new FxPendingShortOrder(43, saved).pending).toBeNull()
+    await expect(remounted.start(7, action, body, run)).rejects.toThrow()
+    expect(await remounted.retry(run)).toEqual({ replay: true })
     expect(calls[1]).toEqual(calls[0])
     expect(executed.size).toBe(1)
-    expect(order.pending).toBeNull()
+    expect(new FxPendingShortOrder(42, saved).pending).toBeNull()
   })
 })
 
 it('retains ambiguous server failures but releases a definitively rejected short request', async () => {
-  const order = new FxPendingShortOrder()
+  const saved = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => saved.get(key) ?? null,
+    setItem: (key: string, value: string) => { saved.set(key, value) },
+    removeItem: (key: string) => { saved.delete(key) },
+  }
+  const order = new FxPendingShortOrder(42, storage)
   await expect(order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => { throw { response: { status: 503 } } })).rejects.toEqual({ response: { status: 503 } })
   expect(order.pending).not.toBeNull()
   await expect(order.retry(async () => { throw { status: 422 } })).rejects.toEqual({ status: 422 })
   expect(order.pending).toBeNull()
+  expect(new FxPendingShortOrder(42, storage).pending).toBeNull()
+})
+
+it('never sends a short write when its retry identity cannot be persisted', async () => {
+  const storage = {
+    getItem: () => null,
+    setItem: () => { throw new Error('quota') },
+    removeItem: () => {},
+  }
+  const order = new FxPendingShortOrder(42, storage)
+  let writes = 0
+  await expect(order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => { writes++; return {} }))
+    .rejects.toThrow('Cannot safely persist')
+  expect(writes).toBe(0)
+  expect(order.hasUnresolved).toBe(true)
 })

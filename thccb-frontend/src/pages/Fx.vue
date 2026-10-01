@@ -20,6 +20,7 @@ import {
 } from '@/api/fx'
 import type { FxPendingShortRequest } from '@/api/fx'
 import { userApi } from '@/api/user'
+import { useAuthStore } from '@/stores/auth'
 import type { UserSummary } from '@/types/user'
 import { useFxResource } from '@/composables/useFxResource'
 import { fxAvailableCash, fxBuyBlockReason, fxGoldPerForeign, fxHoldingValue, fxPairAllowsSide, fxSellAllocation } from '@/utils/fxPresentation'
@@ -44,6 +45,7 @@ defineOptions({ name: 'FxPage' })
 
 const msg = useMessage()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -168,8 +170,14 @@ const shortLoading = ref(false)
 const shortQuoting = ref(false)
 const shortReceipt = ref<FxShortTrade | null>(null)
 const shortReceiptCurrency = computed(() => pairs.value.find(p => p.id === shortReceipt.value?.pair_id)?.currency_name ?? `外币（货币对 ${shortReceipt.value?.pair_id}）`)
-const shortSubmitter = new FxPendingShortOrder()
-const pendingShort = ref<FxPendingShortRequest | null>(null)
+const shortSubmitter = new FxPendingShortOrder(authStore.user?.id ?? null)
+const pendingShort = ref<FxPendingShortRequest | null>(shortSubmitter.pending)
+const shortStorageBlocked = ref(shortSubmitter.unreadable || !authStore.user?.id)
+watch(() => authStore.user?.id, id => {
+  shortSubmitter.setUser(id ?? null)
+  pendingShort.value = shortSubmitter.pending
+  shortStorageBlocked.value = shortSubmitter.unreadable || !id
+}, { immediate: true })
 let shortGeneration = 0
 let shortReadGeneration = 0
 const shortValid = computed(() => (shortAction.value === 'cover' && coverAll.value)
@@ -179,7 +187,7 @@ const shortLimit = computed(() => !shortQuote.value ? '' : shortAction.value ===
   ? computeMinOut(shortQuote.value.output_amount, effectiveSlippageBps.value)
   : computeMaxGoldIn(shortQuote.value.input_amount ?? '', effectiveSlippageBps.value))
 const shortCanSubmit = computed(() => shortValid.value && !!shortQuote.value?.executable
-  && shortQuote.value.affordable !== false && !!shortLimit.value && !shortExpired.value && !submitting.value && !shortQuoting.value && !pendingShort.value)
+  && shortQuote.value.affordable !== false && !!shortLimit.value && !shortExpired.value && !submitting.value && !shortQuoting.value && !pendingShort.value && !shortStorageBlocked.value)
 const pendingShortInterest = computed(() => {
   const row = shortPosition.value
   if (!row || row.pending_short_debt == null) return null
@@ -204,7 +212,7 @@ async function loadShort() {
 }
 async function fetchShortQuote() {
   const pid = pairId.value
-  if (!pid || !shortValid.value || shortQuoting.value || pendingShort.value) return
+  if (!pid || !shortValid.value || shortQuoting.value || pendingShort.value || shortStorageBlocked.value) return
   const generation = ++shortGeneration
   const action = shortAction.value
   const request = action === 'cover' && coverAll.value ? { action, cover_all: true } : { action, foreign_amount: shortAmount.value.trim() }
@@ -280,6 +288,7 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
       : mapFxError(e, '空头成交失败，请重新报价')
   } finally {
     pendingShort.value = shortSubmitter.pending
+    shortStorageBlocked.value = shortSubmitter.unreadable || !authStore.user?.id
     submitting.value = false
   }
 }
@@ -917,6 +926,7 @@ onUnmounted(() => {
           <p class="fx-hint">结果未知，不能替换此订单。即使报价过期，重试仍使用完全相同的原请求与幂等键。</p>
           <button class="btn-secondary" :disabled="submitting" @click="retryShort">重试原请求</button>
         </div>
+        <p v-if="shortStorageBlocked" class="fx-error" role="alert">{{ authStore.user?.id ? '待确认订单记录无法安全读取或保存，已停止新空头订单；请核对成交历史并联系管理员。' : '请先登录后使用空头交易。' }}</p>
         <p class="fx-hint">借入外币并立即卖出，所得包含在总现金中并锁定用于本仓回补。全部资产共享保证金；汇率上涨可能触发强平。回补不会自动借金圆券。</p>
         <div class="fx-preview-row"><span>总现金 / 可用现金（金圆券）</span><strong>{{ formatFxAmount(summary?.cash) }} / {{ formatFxAmount(fxAvailableCash(summary)) }}</strong></div>
         <p v-if="shortLoading" class="fx-hint">正在读取空头…</p>
@@ -948,7 +958,7 @@ onUnmounted(() => {
             <p v-if="shortQuote.risk_blocked_reason" class="fx-hint">组合风险提示：{{ shortQuote.risk_blocked_reason }}；以订单可执行性决定是否允许回补。</p>
           </div>
           <p v-if="shortError" class="fx-error" role="alert">{{ shortError }}</p>
-          <div class="fx-actions"><button class="btn-secondary" :disabled="!shortValid || shortQuoting || submitting || !!pendingShort" @click="fetchShortQuote">{{ shortQuoting ? '报价中…' : '获取 / 刷新报价' }}</button><button class="fx-submit" :disabled="!shortCanSubmit" @click="submitShort">{{ submitting ? '提交中…' : shortAction === 'open' ? '确认开空' : '确认回补' }}</button></div>
+          <div class="fx-actions"><button class="btn-secondary" :disabled="!shortValid || shortQuoting || submitting || !!pendingShort || shortStorageBlocked" @click="fetchShortQuote">{{ shortQuoting ? '报价中…' : '获取 / 刷新报价' }}</button><button class="fx-submit" :disabled="!shortCanSubmit" @click="submitShort">{{ submitting ? '提交中…' : shortAction === 'open' ? '确认开空' : '确认回补' }}</button></div>
           <p v-if="shortReceipt" class="fx-hint">{{ shortReceipt.purpose === 'short_open' ? '开空成交：所得锁定' : '回补成交：外币已归还' }} · 实际投入 {{ formatFxAmount(shortReceipt.input_amount) }} {{ shortReceipt.side === 'buy' ? '金圆券' : shortReceiptCurrency }}，产出 {{ formatFxAmount(shortReceipt.output_amount) }} {{ shortReceipt.side === 'buy' ? currencyName : '金圆券' }}；手续费 {{ formatFxAmount(shortReceipt.fee_amount) }} {{ shortReceipt.side === 'buy' ? '金圆券' : shortReceiptCurrency }} · 成交 {{ shortReceipt.trade_id }}</p>
         </div>
       </section>
