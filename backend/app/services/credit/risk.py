@@ -626,6 +626,7 @@ async def _load_short_snapshots(
 
     K 对储备、买入费率和欠币时点都敏感；刷新模拟态前必须用这份权威读覆盖
     discovery 快照里的空头字段，否则会用旧 K 放行（spec §11）。
+    已清仓的零欠币行与 discovery 一样忽略，避免将无义务的历史行误判为版本变化。
     """
     ids = sorted({int(pid) for pid in pair_ids})
     if not ids:
@@ -643,7 +644,9 @@ async def _load_short_snapshots(
         )
         .join(FxPair, FxPair.id == FxShortPosition.pair_id)
         .where(FxShortPosition.user_id == int(user_id),
-               FxShortPosition.pair_id.in_(ids))
+               FxShortPosition.pair_id.in_(ids),
+               (FxShortPosition.principal_foreign > ZERO)
+               | (FxShortPosition.interest_foreign > ZERO))
     )).all()
     result: dict[int, tuple[FxShortPairSnapshot, ShortDebtSnapshot]] = {}
     for (pair_id, principal, interest, accrued, restricted,

@@ -559,6 +559,43 @@ async def test_short_read_is_own_position_and_reference_cover_without_clock_adva
     assert D(after.principal_foreign) == principal_before
 
 
+async def test_can_quote_and_reopen_short_after_full_cover(client):
+    """A retained zero-debt row must not permanently block the next short."""
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="1000")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, buy_fee_rate="0",
+                                 sell_fee_rate="0",
+                                 short_lending_limit_foreign="1000000")
+    assert (await _set_gate(client, admin_headers)).status_code == 200
+    opened = await _open(client, user_headers, pair_id, key="initial-short")
+    assert opened.status_code == 200, opened.text
+    covered = await _cover(client, user_headers, pair_id, cover_all=True,
+                           key="full-cover")
+    assert covered.status_code == 200, covered.text
+
+    before = await _stock(pair_id)
+    quote = await _quote(client, user_headers, pair_id,
+                         {"action": "open", "foreign_amount": "100"})
+    assert quote.status_code == 200, quote.text
+    body = quote.json()
+    assert body["executable"] is True, body
+    assert body["risk_status"] == "ok", body
+    assert body["blocked_reason"] is None
+    assert await _stock(pair_id) == before
+
+    reopened = await _open(client, user_headers, pair_id, key="reopened-short")
+    assert reopened.status_code == 200, reopened.text
+    async with async_session_maker() as s:
+        position = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == user_id,
+            FxShortPosition.pair_id == pair_id))).scalars().one()
+        assert position.principal_foreign == D("100")
+        actual = await value_user_detailed(s, user_id, daily_rate=ZERO)
+    assert actual.liquidation_equity == D(body["estimated_equity"])
+    assert actual.risk_basis == D(body["estimated_risk_basis"])
+
+
 async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(client):
     """An open quote is real ``quote_sell`` math and execution re-quotes."""
     _, admin_headers = await _make_user(superuser=True)
