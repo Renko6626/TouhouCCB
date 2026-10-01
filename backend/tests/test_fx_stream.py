@@ -142,3 +142,24 @@ async def test_publish_trade_uses_committed_snapshot_quotes_and_cumulative_volum
                                     "sell_price": "1.1", "spread": "0.2", "volume": "9.5"}
     finally:
         await broker.unsubscribe(4, sub)
+
+
+@pytest.mark.asyncio
+async def test_publish_trade_without_broker_only_enqueues_on_the_bounded_publisher(monkeypatch):
+    from app.services.fx import market_data, publisher
+
+    accepted = []
+
+    def enqueue(pair_id, post_price, *, trade_id=None):
+        accepted.append((pair_id, post_price, trade_id))
+        return True
+
+    async def direct(*args, **kwargs):
+        raise AssertionError("production publication must not write to the broker directly")
+
+    monkeypatch.setattr(publisher, "enqueue_publication", enqueue)
+    monkeypatch.setattr(market_data, "publish_pair_frame", direct)
+
+    trade = SimpleNamespace(pair_id=7, post_price=Decimal("1.25"), id=99)
+    await market_data.publish_trade(trade)
+    assert accepted == [(7, Decimal("1.25"), 99)]

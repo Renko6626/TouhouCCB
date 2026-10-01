@@ -151,5 +151,22 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
 
 
 async def publish_trade(trade: Any, broker: MarketEventBroker | None = None) -> None:
-    """Publish a post-commit trade frame; user/system identity is never exposed."""
+    """Publish a post-commit trade frame; user/system identity is never exposed.
+
+    With an explicit ``broker`` (isolated tests and direct callers) the frame is
+    written to that broker immediately.  Production callers pass no broker: the
+    committed values are handed to the bounded coalescing
+    :data:`app.services.fx.publisher.PUBLISHER`, which never blocks, skips pairs
+    without subscribers and cannot fail or slow the transaction that produced
+    the trade.
+    """
+    if broker is None:
+        from app.services.fx import publisher
+
+        publisher.enqueue_publication(
+            pair_id=trade.pair_id,
+            post_price=Decimal(trade.post_price),
+            trade_id=getattr(trade, "id", None),
+        )
+        return
     await publish_pair_frame(trade.pair_id, trade.post_price, broker)

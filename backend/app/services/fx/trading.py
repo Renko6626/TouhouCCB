@@ -703,11 +703,22 @@ async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
     if spread < Decimal("0"):
         spread = Decimal("0")
     since = utcnow() - timedelta(hours=24)
-    # A public volume value is informational and uses gold-side input/output units.
-    result = await db.execute(select(FxTrade).where(
+    # A public volume value is informational and uses gold-side input/output
+    # units.  Aggregate it in SQL so the snapshot never materializes a day of
+    # FxTrade ORM rows: a buy spends ``input_amount`` gold, a sell receives
+    # ``output_amount`` gold.  ``coalesce`` keeps an empty window at zero.
+    gold_volume = func.coalesce(
+        func.sum(case(
+            (FxTrade.side == "buy", FxTrade.input_amount),
+            else_=FxTrade.output_amount,
+        )),
+        Decimal("0"),
+    )
+    result = await db.execute(select(gold_volume).where(
         FxTrade.pair_id == pair_id, FxTrade.created_at >= since,
     ))
-    volume = sum((t.input_amount if t.side == "buy" else t.output_amount for t in result.scalars()), Decimal("0"))
+    raw_volume = result.scalar_one()
+    volume = Decimal(raw_volume) if raw_volume is not None else Decimal("0")
     return FxSnapshot(pair=FxPairPublic.model_validate(pair), price=price,
                       buy_price=buy_price, sell_price=sell_price, spread=spread,
                       volume_24h=volume)

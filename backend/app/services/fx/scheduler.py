@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker
-from app.models.fx import FxEvent, FxEventStatus, FxPair, FxTreasury
+from app.models.fx import FxEvent, FxEventStatus, FxPair, FxTrade, FxTreasury
 from app.schemas.fx import FxEventAdmin, FxPairAdmin
 from app.services import audit_service, site_config
 from app.services.credit import flags as credit_flags
@@ -99,16 +99,27 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
     if pair_id is None:
         raise HTTPException(404, "FX event not found")
     if not unified:
-        return await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=False)
-    await db.commit()  # return the discovery connection before waiting on a gate
-    # 首轮冲击改价 = 系统干预：pair 独占门闩必须在 DB 行锁之前。
-    async with GATES.hold(exclusive=[GroupKey("fx", int(pair_id))]):
-        return await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=True)
+        admin, trade = await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=False)
+    else:
+        await db.commit()  # return the discovery connection before waiting on a gate
+        # 首轮冲击改价 = 系统干预：pair 独占门闩必须在 DB 行锁之前。
+        async with GATES.hold(exclusive=[GroupKey("fx", int(pair_id))]):
+            admin, trade = await _publish_event_impl(db, event_id=event_id, pair_id=int(pair_id), now=now, unified=True)
+    # Queue the committed first-reaction trade after the pair gate is released:
+    # the bounded publisher never blocks, so publication cannot extend the gate
+    # or fail the committed event transaction.
+    if trade is not None:
+        try:
+            from app.services.fx.market_data import publish_trade
+            await publish_trade(trade)
+        except Exception:
+            pass
+    return admin
 
 
 async def _publish_event_impl(
     db: AsyncSession, *, event_id: int, pair_id: int, now: datetime, unified: bool,
-) -> FxEventAdmin:
+) -> tuple[FxEventAdmin, Optional[FxTrade]]:
     # Same lock order as schedule_event/engine.tick: fx_pair first, then fx_event.
     pair = (await db.execute(
         select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True)
@@ -121,7 +132,7 @@ async def _publish_event_impl(
     if event is None:
         raise HTTPException(404, "FX event not found")
     if event.status == "published" or event.status == "completed":
-        return FxEventAdmin.model_validate(event)
+        return FxEventAdmin.model_validate(event), None
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(403, "FX trading is disabled")
     if pair.archived:
@@ -196,12 +207,7 @@ async def _publish_event_impl(
                          operator_user_id=event.operator_user_id,
                          payload={"pair_id": pair.id, "target_before": str(event.parameter_snapshot["target_before"])})
     await db.commit(); await db.refresh(event)
-    try:
-        from app.services.fx.market_data import publish_trade
-        await publish_trade(moved.trade)
-    except Exception:
-        pass
-    return FxEventAdmin.model_validate(event)
+    return FxEventAdmin.model_validate(event), moved.trade
 
 
 async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,

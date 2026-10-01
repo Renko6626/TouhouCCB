@@ -168,6 +168,7 @@ class FxEngine:
                 select(FxPair.id).where(FxPair.status == "trading")
             )).scalars().all()]
         for pair_id in pair_ids:
+            trades: list[FxTrade] = []
             async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
                 async with self.session_factory() as db:
                     pair = (await db.execute(
@@ -197,12 +198,15 @@ class FxEngine:
                     noise_count += noise
                     intervention_count += intervention
                     skipped += pair_skipped
-                    for trade in trades:
-                        try:
-                            from app.services.fx.market_data import publish_trade
-                            await publish_trade(trade)
-                        except Exception:
-                            pass
+            # Publication happens after the commit and after the pair gate is
+            # released: the bounded publisher only enqueues, so a slow SSE
+            # consumer can never extend the gate or fail the money operation.
+            for trade in trades:
+                try:
+                    from app.services.fx.market_data import publish_trade
+                    await publish_trade(trade)
+                except Exception:
+                    pass
         return FxTickResult(pairs=pairs_seen, noise_orders=noise_count,
                             intervention_orders=intervention_count, skipped=skipped,
                             reasons=tuple(reasons))
