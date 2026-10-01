@@ -913,7 +913,7 @@ onUnmounted(() => {
           <label class="fx-field">最大滑点（bps，100 = 1%）<input v-model="slippageBps" class="fx-input" type="number" min="0" max="10000" :disabled="submitting" /></label>
           <div v-if="shortQuote" class="fx-preview">
             <div class="fx-preview-row"><span>实际 AMM 投入 / 产出</span><strong>{{ formatFxAmount(shortQuote.input_amount) }} {{ shortAction === 'open' ? currencyName : '金圆券' }} / {{ formatFxAmount(shortQuote.output_amount) }} {{ shortAction === 'open' ? '金圆券' : currencyName }}</strong></div>
-            <div class="fx-preview-row"><span>手续费（已含）</span><strong>{{ formatFxAmount(shortQuote.fee_amount) }} {{ shortQuote.fee_currency }}</strong></div>
+            <div class="fx-preview-row"><span>手续费（已含）</span><strong>{{ formatFxAmount(shortQuote.fee_amount) }} {{ shortQuote.fee_currency === 'gold' ? '金圆券' : currencyName }}</strong></div>
             <div class="fx-preview-row"><span>锁金变化 / 预计可用现金（金）</span><strong>{{ formatFxAmount(shortQuote.restricted_gold_delta) }} / {{ formatFxAmount(shortQuote.available_cash) }}</strong></div>
             <div class="fx-preview-row"><span>预计风险净值 E / 风险基数 B</span><strong>{{ formatFxAmount(shortQuote.estimated_equity) }} / {{ formatFxAmount(shortQuote.estimated_risk_basis) }}</strong></div>
             <div class="fx-preview-row"><span>{{ shortAction === 'open' ? '最低金所得' : '最高金支出' }}</span><strong>{{ shortLimit }} 金圆券</strong></div>
