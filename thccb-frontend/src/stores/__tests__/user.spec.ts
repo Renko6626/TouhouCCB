@@ -122,4 +122,21 @@ describe('unified local fill refresh failure', () => {
       log.mockRestore()
     }
   })
+
+  it('invalidates a prior spendable balance when an external trade makes refresh fail', async () => {
+    const store = useUserStore()
+    store.summary = makeSummary({ unified_credit_enabled: true, cash: 100,
+      available_cash: '100', display_equity: 100, liquidation_equity: 100,
+      risk_status: 'healthy' })
+    vi.mocked(userApi.getSummary).mockRejectedValueOnce(new Error('refresh unavailable'))
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await store.fetchSummary(false)
+      expect(store.summary?.available_cash).toBeNull()
+      expect(store.netWorth).toBeNull()
+      expect(store.summary?.risk_status).toBe('blocked')
+    } finally {
+      log.mockRestore()
+    }
+  })
 })

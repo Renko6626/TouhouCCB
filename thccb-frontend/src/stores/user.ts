@@ -103,11 +103,25 @@ export const useUserStore = defineStore('user', () => {
   // 还没包含那笔成交——直接丢弃，否则会把本地 apply 后的 cash/positions 回滚到成交前
   // 且与 holdings 分叉（审计 M10）。
   let localApplyVersion = 0
+  let summaryFetchVersion = 0
+
+  const invalidateUnifiedAuthority = (s: UserSummary, reason: string) => {
+    if (!s.unified_credit_enabled) return
+    s.available_cash = null
+    s.display_equity = null
+    s.liquidation_equity = null
+    s.risk_basis = null
+    s.equity_to_risk_basis = null
+    s.risk_status = 'blocked'
+    s.blocked_reason = reason
+  }
 
   // ── fetch actions（manageLoading 语义与旧版一致） ──
   const fetchSummary = async (manageLoading = true) => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return null
+    const request = ++summaryFetchVersion
+    if (summary.value) invalidateUnifiedAuthority(summary.value, '账户快照待刷新，请稍候。')
     if (manageLoading) { loading.value = true; error.value = null }
     const version = localApplyVersion
     try {
@@ -117,18 +131,21 @@ export const useUserStore = defineStore('user', () => {
         refreshPriceContext().catch(err =>
           console.error('刷新价格上下文失败:', err)),
       ])
-      if (version !== localApplyVersion) {
+      if (request !== summaryFetchVersion || version !== localApplyVersion) {
         console.warn('[user] summary 响应晚于本地成交，丢弃过期响应')
         return summary.value
       }
       summary.value = s
       return s
     } catch (err: unknown) {
-      error.value = extractErrorMessage(err, '获取资产概览失败')
-      console.error('获取资产概览失败:', err)
+      if (request === summaryFetchVersion) {
+        if (summary.value) invalidateUnifiedAuthority(summary.value, '账户刷新失败，请重试。')
+        error.value = extractErrorMessage(err, '获取资产概览失败')
+        console.error('获取资产概览失败:', err)
+      }
       return null
     } finally {
-      if (manageLoading) loading.value = false
+      if (manageLoading && request === summaryFetchVersion) loading.value = false
     }
   }
 
@@ -207,17 +224,8 @@ export const useUserStore = defineStore('user', () => {
     if (!s) return
     localApplyVersion += 1
     s.cash = args.newCash
-    if (s.unified_credit_enabled) {
-      // Local cash/positions do not reconstruct shared FX debt or spendable cash.
-      // Keep risk and spending unavailable even if the following refresh fails.
-      s.available_cash = null
-      s.display_equity = null
-      s.liquidation_equity = null
-      s.risk_basis = null
-      s.equity_to_risk_basis = null
-      s.risk_status = 'blocked'
-      s.blocked_reason = '成交后账户估值待刷新，请刷新资产概览。'
-    }
+    // Local cash/positions do not reconstruct shared FX debt or spendable cash.
+    invalidateUnifiedAuthority(s, '成交后账户估值待刷新，请刷新资产概览。')
     const fill = { side: args.side, outcomeId: args.outcomeId,
                    shares: args.shares, pay: args.pay }
     if (!applyFillToRows(s.positions, fill)) {
