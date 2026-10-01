@@ -20,11 +20,12 @@ from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.models.redemption import DanmukuExchange
+from app.schemas.loan import BorrowRequest
 from app.services import danmuku, loan_sweep, site_config
 from app.services.credit import flags, ownership
 from app.services.credit.gates import GATES
-from app.services.fx import shorts, trading
-from app.services.fx.amm import quote_sell
+from app.services.fx import engine as fx_engine, shorts, trading
+from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 
@@ -33,7 +34,7 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 async def writer(pg_engine, monkeypatch):
     owner = ownership.WriteOwnership(url=os.environ['TEST_PG_DATABASE_URL'])
     assert await owner.acquire(required=True)
-    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku):
+    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku, fx_engine):
         monkeypatch.setattr(module, 'OWNERSHIP', owner)
     flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,
                     credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
@@ -415,3 +416,135 @@ async def test_consumption_waiting_on_opening_user_cannot_spend_new_short_procee
     assert [a[1] for a in after['audits']] == ['fx_trade']
     async with pg_sessionmaker() as db:
         assert not (await db.execute(select(DanmukuExchange))).scalars().all()
+
+
+async def test_new_gold_borrow_rechecks_shared_risk_after_concurrent_short_open(
+        pg_sessionmaker, monkeypatch):
+    """A formerly affordable loan must include a short committed while waiting."""
+    uid, pid = await seed(pg_sessionmaker, cash='100')
+    before = await state(pg_sessionmaker, uid, pid)
+    async with pg_sessionmaker() as db:
+        old_quota = await loan.get_quota(user=await db.get(User, uid), db=db)
+        assert old_quota.max_borrow >= D('250')
+    opener_has_user, borrower_wants_user = asyncio.Event(), asyncio.Event()
+    original_open_lock, original_borrow_lock = shorts.lock_user, loan.lock_user
+
+    async def hold_opening_user(db, user_id):
+        user = await original_open_lock(db, user_id)
+        opener_has_user.set()
+        await borrower_wants_user.wait()
+        return user
+
+    async def observe_borrowing_user(db, user_id):
+        borrower_wants_user.set()
+        return await original_borrow_lock(db, user_id)
+
+    monkeypatch.setattr(shorts, 'lock_user', hold_opening_user)
+    monkeypatch.setattr(loan, 'lock_user', observe_borrowing_user)
+
+    async def opening():
+        async with pg_sessionmaker() as db:
+            return await open_short(db, uid, pid, 'before-new-loan')
+
+    async def borrowing():
+        async with pg_sessionmaker() as db:
+            try:
+                return await loan.borrow(BorrowRequest(amount=D('250')),
+                    user=await db.get(User, uid), db=db)
+            except HTTPException as exc:
+                return exc
+
+    async with asyncio.timeout(10):
+        opening_task = asyncio.create_task(opening())
+        await opener_has_user.wait()
+        borrowing_task = asyncio.create_task(borrowing())
+        opened, rejected = await asyncio.gather(opening_task, borrowing_task)
+    assert isinstance(rejected, HTTPException) and rejected.status_code == 400, rejected
+    assert rejected.detail == 'insufficient_initial_margin'
+    after = await state(pg_sessionmaker, uid, pid)
+    assert after['debt'] == 0 and after['principal'] == D('100')
+    assert after['cash'] == before['cash'] + opened.output_amount
+    assert after['locked'] == opened.output_amount
+    assert after['cash'] - after['locked'] == before['cash']
+    assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
+    assert after['version'] == before['version'] + 1
+    assert [t[1] for t in after['trades']] == ['short_open']
+    assert [a[1] for a in after['audits']] == ['fx_trade']
+    async with pg_sessionmaker() as db:
+        new_quota = await loan.get_quota(user=await db.get(User, uid), db=db)
+        assert D('0') <= new_quota.max_borrow < D('250')
+        assert new_quota.equity_to_risk_basis >= float(new_quota.r_initial)
+
+
+async def test_cover_requotes_after_real_fx_engine_tick_changes_pool(
+        pg_sessionmaker, monkeypatch):
+    """A cover discovered before a real system buy uses its committed reserves."""
+    uid, pid = await seed(pg_sessionmaker)
+    async with pg_sessionmaker() as db:
+        await open_short(db, uid, pid, 'before-tick')
+        pair = await db.get(FxPair, pid)
+        old_quote = quote_buy_exact_out(D('100'), pair.gold_reserve,
+            pair.foreign_reserve, pair.buy_fee_rate)
+        db.add(SiteConfig(key='fx_hourly_sigma', value='0', value_type='decimal'))
+        await db.commit()
+    site_config.clear_cache()
+    before = await state(pg_sessionmaker, uid, pid)
+    now = datetime.now(timezone.utc)
+    tick_engine = fx_engine.FxEngine(session_factory=pg_sessionmaker)
+    # Engine-supported state fixes elapsed intervention time and suppresses
+    # unrelated random noise; all target movement and AMM writes remain real.
+    tick_engine._last_target_at[pid] = now - timedelta(seconds=600)
+    tick_engine._next_noise_at[pid] = now + timedelta(days=1)
+    cover_discovered, tick_committed = asyncio.Event(), asyncio.Event()
+    original_hold = GATES.hold
+
+    @asynccontextmanager
+    async def delay_cover_gate(*args, **kwargs):
+        if asyncio.current_task().get_name() == 'pre-tick-cover':
+            cover_discovered.set()
+            await tick_committed.wait()
+        async with original_hold(*args, **kwargs):
+            yield
+
+    monkeypatch.setattr(GATES, 'hold', delay_cover_gate)
+
+    async def covering():
+        async with pg_sessionmaker() as db:
+            return await shorts.execute_short_cover(db, user_id=uid, pair_id=pid,
+                foreign_amount=None, cover_all=True, max_gold_in=D('200'),
+                idempotency_key='after-tick-cover')
+
+    async def ticking():
+        await cover_discovered.wait()
+        result = await tick_engine.tick(now)
+        tick_committed.set()
+        return result
+
+    async with asyncio.timeout(10):
+        cover_task = asyncio.create_task(covering(), name='pre-tick-cover')
+        tick_task = asyncio.create_task(ticking())
+        covered, tick_result = await asyncio.gather(cover_task, tick_task)
+    assert tick_result.pairs == 1 and tick_result.noise_orders == 0
+    assert not any('exception' in reason for reason in tick_result.reasons)
+    after = await state(pg_sessionmaker, uid, pid)
+    assert after['pool_version'] == before['pool_version'] + 2
+    assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
+    assert after['cash'] == before['cash'] - covered.input_amount
+    assert after['principal'] == after['interest'] == after['locked'] == after['debt'] == 0
+    assert covered.output_amount == D('100')
+    assert covered.input_amount > old_quote.input_amount
+    assert after['version'] == before['version'] + 1
+    assert [t[1] for t in after['trades']] == ['short_open', 'spot', 'short_cover']
+    assert sum(a[1] == 'fx_trade' for a in after['audits']) == 3
+    async with pg_sessionmaker() as db:
+        trades = (await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars().all()
+        system_trade, cover_trade = trades[1:]
+        assert system_trade.source == 'system_target' and system_trade.side == 'buy'
+        assert system_trade.user_id is None
+        assert cover_trade.pre_gold_reserve == system_trade.post_gold_reserve
+        assert cover_trade.pre_foreign_reserve == system_trade.post_foreign_reserve
+        new_quote = quote_buy_exact_out(D('100'), system_trade.post_gold_reserve,
+            system_trade.post_foreign_reserve, D('.01'))
+        assert covered.input_amount == new_quote.input_amount
+        assert after['treasury_foreign'] == (before['treasury_foreign']
+            + system_trade.output_amount + D('100'))
