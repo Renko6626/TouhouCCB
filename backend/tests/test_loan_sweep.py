@@ -70,6 +70,12 @@ async def test_sweep_accrues_interest():
     assert u.debt < Decimal("1000.5")
     assert u.debt_last_accrued_at is not None
     assert u.economic_version == 1
+    async with async_session_maker() as s:
+        event = (await s.execute(select(AuditEvent).where(
+            AuditEvent.user_id == uid, AuditEvent.event_type == "interest_accrual"))).scalar_one()
+    assert _as_utc(event.ts) == _as_utc(u.debt_last_accrued_at)
+    assert _parse_clock(event.payload["debt_last_accrued_at_after"]) == _as_utc(u.debt_last_accrued_at)
+    assert _parse_clock(event.payload["accrued_at"]) == _as_utc(u.debt_last_accrued_at)
 
 
 @pytest.mark.asyncio

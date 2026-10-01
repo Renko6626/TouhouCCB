@@ -99,9 +99,13 @@ async def run_sweep_once() -> int:
                                 "interest": (u.debt - before),
                                 "daily_rate": rate,
                                 "elapsed_sec": (now - before_at).total_seconds() if before_at else None,
+                                "debt_last_accrued_at_before": audit_service._utc_iso(before_at),
+                                "debt_last_accrued_at_after": audit_service._utc_iso(u.debt_last_accrued_at),
+                                "accrued_at": audit_service._utc_iso(now),
                                 "source": "scheduler",
                             },
                             user_after=audit_service.user_snapshot(u),
+                            ts=now,
                         )
 
                 # ── 外币利息：锁 User 后按 pair_id 升序锁本用户自己的空头行；
