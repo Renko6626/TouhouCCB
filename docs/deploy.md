@@ -358,22 +358,22 @@ push main
 
 ```bash
 cd /home/deploy/TouhouCCB
-bash deploy/deploy.sh
+BACKEND_IMAGE=your-registry.example.com/your-namespace/thccb-backend:<完整40位提交SHA> \
+EXPECTED_BUILD_SHA=<同一SHA> bash deploy/deploy.sh
 ```
 
 deploy.sh 自动完成：
 
 ```
-[0/4] 环境校验 — 检查 .env、Docker
-[1/4] 备份数据库 — pg_dump（SQLite 直接复制）到 backups/
-[2/5] 拉取新镜像 — docker compose pull
-[3/5] 起 postgres + 准备 schema — 空库跑 init_db.py（建表 + stamp head）；
-       已有库跑 alembic upgrade head
-[4/5] 启动后端 — docker compose up -d（8 秒优雅停机）
-[5/5] 健康检查 — 重试，失败自动回滚到上一组容器
+[0/5] 环境校验 — 检查 .env、Docker、不可变提交镜像 tag
+[1/5] 拉取指定提交 SHA 的镜像；旧后端继续服务
+[2/5] 验证应用实际数据库目标，停止后端写入口，备份并在隔离库完整恢复验证
+[3/5] 停写状态下迁移、核对开空闸仍关闭、重放审计
+[4/5] 启动指定镜像
+[5/5] 健康检查并核对运行容器的 BUILD_SHA
 ```
 
-> 步骤编号沿用脚本里的真实日志（备份段标 `[x/4]`、迁移后改标 `[x/5]`，是脚本里的历史遗留，不影响流程）。
+脚本仅支持当前 compose 的 `postgres:5432/thccb` 数据库或默认挂载的 SQLite 文件；`DATABASE_URL` 覆盖配置时也会检查实际目标，不匹配便在停写前拒绝。PostgreSQL 备份保存为 `backups/thccb_<时间>_<pid>.dump`。迁移前失败会启动原容器；**迁移开始后失败会保持后端停止**，需要先检查 schema／备份和空头债务再人工恢复，不能自动让旧镜像继续写入。
 
 ### 5.3 回滚
 
@@ -381,12 +381,11 @@ deploy.sh 自动完成：
 # 查看可用的历史镜像 tag
 docker images your-registry.example.com/your-namespace/thccb-backend
 
-# 回滚到指定版本
-docker compose pull   # 如果需要先拉旧镜像
-# 或者直接用本地缓存的旧镜像：
-docker tag your-registry.example.com/your-namespace/thccb-backend:<旧sha> your-registry.example.com/your-namespace/thccb-backend:latest
-docker compose up -d
+# 确认没有活跃外币欠币／锁金，且旧版本能理解当前 schema 后，再由运维选择旧 SHA：
+BACKEND_IMAGE=your-registry.example.com/your-namespace/thccb-backend:<旧sha> docker compose up -d backend
 ```
+
+FX 空头上线与退路的具体停写、清仓和迁移保护条件见 [验收记录](fx-short-debt-validation-2026-10-01.md)。有外币义务时，不能直接切回不识别空头的旧写实例。
 
 ### 5.4 赛季重置（保留用户，清活动数据）
 

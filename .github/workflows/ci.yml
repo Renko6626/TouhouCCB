@@ -229,16 +229,20 @@ jobs:
       # 现在配置文件已由上一步 rsync 推到位，直接跑 deploy.sh 即可。
       - name: Deploy backend
         uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-backend:${{ github.sha }}
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          envs: DEPLOY_IMAGE,DEPLOY_SHA
           script_stop: true
           # 默认 10 分钟；网络抽风时镜像拉取可能更慢，给到 30 分钟兜底
           command_timeout: 30m
           script: |
             cd /home/deploy/TouhouCCB
-            bash deploy/deploy.sh
+            BACKEND_IMAGE="$DEPLOY_IMAGE" EXPECTED_BUILD_SHA="$DEPLOY_SHA" bash deploy/deploy.sh
 
       # 远程健康检查
       - name: Remote health check
