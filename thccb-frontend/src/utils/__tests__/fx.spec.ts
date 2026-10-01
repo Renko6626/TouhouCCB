@@ -2,6 +2,7 @@
 // 断言的是可执行行为，不是源码字符串或恒真 identity。
 import { describe, expect, it } from 'vitest'
 import {
+  computeMaxGoldIn,
   computeMinOut,
   divideFxAmount,
   expandExponential,
@@ -384,5 +385,15 @@ describe('交易面板回归：min-out 与双击单飞', () => {
     expect(calls).toHaveLength(1)
     expect([first, second].filter((r) => r === 'filled')).toHaveLength(1)
     expect([first, second].filter((r) => r === null)).toHaveLength(1)
+  })
+})
+
+describe('cover maximum gold input', () => {
+  it('ceilings sub-unit tolerances and preserves large decimal amounts', () => {
+    expect(computeMaxGoldIn('0.000001', 50)).toBe('0.000002')
+    expect(computeMaxGoldIn('1.000001', 50)).toBe('1.005002')
+    expect(computeMaxGoldIn('123456789012345678.123456', 50)).toBe('124074072957407406.514074')
+    expect(computeMaxGoldIn('1.0000001', 0)).toBe('1.000001')
+    expect(computeMaxGoldIn('2', 100)).toBe('2.020000')
   })
 })

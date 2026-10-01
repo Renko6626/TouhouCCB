@@ -3,7 +3,7 @@ import type { FxPairPublic, FxSide, FxTradePublic, FxWalletPublic } from '@/type
 import type { UserSummary } from '@/types/user'
 
 type CreditSummary = Pick<UserSummary, 'debt' | 'debt_with_interest' | 'unified_credit_enabled'>
-type BuySummary = CreditSummary & Pick<UserSummary, 'cash' | 'credit_frozen'>
+type BuySummary = CreditSummary & Pick<UserSummary, 'cash' | 'credit_frozen' | 'available_cash'>
 
 export function fxHoldingValue(wallet: Pick<FxWalletPublic, 'foreign_amount' | 'cost_basis'> | null, price: string | null | undefined) {
   if (!wallet || price == null) return null
@@ -24,6 +24,12 @@ export function fxPairAllowsSide(pair: Pick<FxPairPublic, 'status' | 'reduce_onl
   return pair.status === 'paused' && !!pair.reduce_only && side === 'sell'
 }
 
+/** Missing unified spendable cash must never expose restricted proceeds as spendable. */
+export function fxAvailableCash(summary: Pick<UserSummary, 'cash' | 'available_cash' | 'unified_credit_enabled'> | null) {
+  if (!summary) return null
+  return summary.available_cash ?? (summary.unified_credit_enabled === false ? summary.cash : null)
+}
+
 /** 仅拦截已知不可执行条件，权威的逐笔风控检查仍由服务端完成。 */
 export function fxBuyBlockReason(summary: BuySummary | null, amount: string): string {
   if (!summary) return '账户信息暂不可用，请刷新后买入'
@@ -31,9 +37,10 @@ export function fxBuyBlockReason(summary: BuySummary | null, amount: string): st
     if (!summary.unified_credit_enabled) return '有未还借款，需先还款才能买入外币；仍可卖出'
     if (summary.credit_frozen) return '账户已冻结新增信用，请先还款或安全减仓'
   }
-  if (compareFxAmounts(summary.cash, '0') === null) return '可用余额暂不可用，请刷新账户'
-  if ((compareFxAmounts(summary.cash, '0') ?? 0) <= 0) return '金圆券余额不足，请先补充余额'
-  if ((compareFxAmounts(amount, summary.cash) ?? 0) > 0) return '金圆券余额不足，请减少投入金额'
+  const cash = fxAvailableCash(summary)
+  if (compareFxAmounts(cash, '0') === null) return '可用余额暂不可用，请刷新账户'
+  if ((compareFxAmounts(cash, '0') ?? 0) <= 0) return '金圆券余额不足，请先补充余额'
+  if ((compareFxAmounts(amount, cash) ?? 0) > 0) return '金圆券余额不足，请减少投入金额'
   return ''
 }
 

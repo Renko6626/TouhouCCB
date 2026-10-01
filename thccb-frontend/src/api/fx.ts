@@ -2,6 +2,7 @@
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
 import type {
+  FxShortPosition, FxShortQuote, FxShortQuoteRequest, FxShortTrade,
   FxEventAdmin,
   FxEventCreate,
   FxFundRequest,
@@ -576,6 +577,18 @@ export class FxOrderSubmitter {
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
+  getShort(pairId: number): Promise<FxShortPosition> {
+    return api.get(`/api/v1/fx/pairs/${pairId}/short`)
+  },
+  quoteShort(pairId: number, body: FxShortQuoteRequest): Promise<FxShortQuote> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/quote`, body)
+  },
+  openShort(pairId: number, body: { foreign_amount: string; min_gold_out: string; idempotency_key: string }): Promise<FxShortTrade> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/open`, body)
+  },
+  coverShort(pairId: number, body: { foreign_amount?: string; cover_all?: boolean; max_gold_in: string; idempotency_key: string }): Promise<FxShortTrade> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/cover`, body)
+  },
   getAllMyTrades(limit = 100): Promise<FxPersonalTrade[]> {
     return api.get<FxPersonalTrade[]>('/api/v1/fx/my-trades', { params: { limit } })
   },
@@ -607,8 +620,8 @@ export const fxApi = {
   },
 
   /** 当前用户在指定 pair 的个人成交历史（新到旧）。 */
-  getMyTrades(pairId: number, limit = 50): Promise<FxTradePublic[]> {
-    return api.get<FxTradePublic[]>(`/api/v1/fx/pairs/${pairId}/my-trades`, {
+  getMyTrades(pairId: number, limit = 50): Promise<FxPersonalTrade[]> {
+    return api.get<FxPersonalTrade[]>(`/api/v1/fx/pairs/${pairId}/my-trades`, {
       params: { limit },
     })
   },
@@ -829,4 +842,14 @@ export class FxStream {
   get currentPairId(): number | null {
     return this.pairId
   }
+}
+
+/** Exact decimal ceiling prevents a cover limit from rounding below the chosen tolerance. */
+export function computeMaxGoldIn(input: string, slippageBps: number): string {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(input.trim())
+  if (!match) return ''
+  const fraction = match[2] ?? ''
+  const denominator = 10n ** BigInt(fraction.length) * 10000n
+  const numerator = BigInt(match[1]! + fraction) * BigInt(10000 + clampBps(slippageBps)) * 1000000n
+  return scaledToString((numerator + denominator - 1n) / denominator, 6)
 }
