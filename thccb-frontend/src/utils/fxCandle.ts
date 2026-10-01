@@ -32,6 +32,34 @@ export interface FxPriceApply {
   added: number
 }
 
+/**
+ * 已提交真实成交（wire → 数值化后的引擎输入）。
+ * - `ts` 是真实成交时间（epoch 秒），不是客户端接收时间；
+ * - `volume` 是金侧成交量（buy 金入 / sell 金出），引擎只做去重后的累加；
+ * - `id` 是 FxTrade.id，用于跨帧/补尾去重。
+ */
+export interface FxCandleTrade {
+  id: number
+  ts: number
+  price: number
+  volume: number
+}
+
+export interface FxTradesApply {
+  /** 桶缺口过大或落在已知区间之外，组件应重读历史（绝不伪造空桶冒充完整量） */
+  reload: boolean
+  /** 本次被创建或修改的 candle，按时间升序去重 */
+  changed: FxCandle[]
+  /** 新增 candle 数（含补的中间空桶） */
+  added: number
+  /** 实际计入的成交笔数 */
+  applied: number
+  /** 被跳过的成交数：非法 / 重复 id / <= 尾段覆盖游标 */
+  skipped: number
+  /** 引擎已计入的最大成交 id；无则 null */
+  throughTradeId: number | null
+}
+
 /** 本地合成空桶的上限，超过则回退整页重载（与市场页同量级）。 */
 export const FX_MAX_LOCAL_FILL_BUCKETS = 360
 
@@ -96,6 +124,12 @@ export class FxCandleEngine {
   private readonly maPeriods: number[]
   private _candles: FxCandle[] = []
   private readonly maCache = new Map<number, number[]>()
+  /** 已计入的实时成交 id（跨帧去重），随 coverage 提升裁剪 */
+  private readonly seenTradeIds = new Set<number>()
+  /** SSE 尾段已覆盖的成交 id：<= 此值的成交已在历史里，必须跳过 */
+  private _coverageTradeId: number | null = null
+  /** 已计入的最大实时成交 id */
+  private _throughTradeId: number | null = null
 
   constructor(stepSeconds = 60, maPeriods: readonly number[] = FX_MA_PERIODS) {
     this.stepSeconds = FX_CANDLE_STEP(stepSeconds)
@@ -114,6 +148,16 @@ export class FxCandleEngine {
     return this._candles.length
   }
 
+  /** SSE 尾段覆盖到的最后成交 id；null 表示未知（退化为纯 id 去重）。 */
+  get coverageTradeId(): number | null {
+    return this._coverageTradeId
+  }
+
+  /** 已计入的最大实时成交 id。 */
+  get throughTradeId(): number | null {
+    return this._throughTradeId
+  }
+
   /** 切换周期：步长变化时清空（调用方随后会重新 load）。 */
   setStep(stepSeconds: number): void {
     const next = FX_CANDLE_STEP(stepSeconds)
@@ -122,15 +166,34 @@ export class FxCandleEngine {
     this.clear()
   }
 
-  /** 用整段历史重置（初始加载 / 切周期 / gap reload）。 */
-  load(points: readonly FxChartPoint[]): void {
+  /**
+   * 用整段历史重置（初始加载 / 切周期 / gap reload）。
+   * `coverageTradeId` 来自 `history_tail_through_trade_id`：<= 该 id 的实时帧
+   * 已经在历史里，`applyTrades` 会跳过，避免成交量重复累计。
+   */
+  load(points: readonly FxChartPoint[], coverageTradeId: number | null = null): void {
     this._candles = fxChartPointsToCandles(points)
+    this.seenTradeIds.clear()
+    this._throughTradeId = null
+    this.setCoverageTradeId(coverageTradeId)
     this.rebuildMa(0)
+  }
+
+  /** 记录尾段覆盖游标；同时裁剪 <= 该 id 的去重集合，避免无界增长。 */
+  setCoverageTradeId(id: number | null): void {
+    this._coverageTradeId = Number.isSafeInteger(id) && (id as number) >= 0 ? id : null
+    if (this._coverageTradeId === null) return
+    for (const seen of this.seenTradeIds) {
+      if (seen <= this._coverageTradeId) this.seenTradeIds.delete(seen)
+    }
   }
 
   clear(): void {
     this._candles = []
     this.maCache.clear()
+    this.seenTradeIds.clear()
+    this._coverageTradeId = null
+    this._throughTradeId = null
   }
 
   /** 与 candles 同序的 MA 序列（前 period-1 位为 NaN）。 */
@@ -203,6 +266,116 @@ export class FxCandleEngine {
     return { reload: false, changed: [last], added: 0 }
   }
 
+  /**
+   * 批量应用真实成交（含金侧成交量与真实成交时间）：
+   * - 按 `ts`（真实成交时间）分桶，不用客户端接收时间；
+   * - `id <= coverageTradeId` 或重复 id 的成交被跳过，保证成交量不重复累计；
+   * - 整批先预检桶缺口，超限/落在已知区间之前则 `reload: true` 且**不改动**任何 candle，
+   *   由组件重读历史，而不是伪造 v=0 的桶冒充完整成交量；
+   * - MA 只在批末重建一次。
+   */
+  applyTrades(trades: readonly FxCandleTrade[]): FxTradesApply {
+    const result: FxTradesApply = {
+      reload: false, changed: [], added: 0, applied: 0, skipped: 0,
+      throughTradeId: this._throughTradeId,
+    }
+    if (trades.length === 0) return result
+
+    const accepted: FxCandleTrade[] = []
+    const batchIds = new Set<number>()
+    for (const trade of trades) {
+      if (!isValidTrade(trade)) {
+        result.skipped += 1
+        continue
+      }
+      if (this._coverageTradeId !== null && trade.id <= this._coverageTradeId) {
+        result.skipped += 1
+        continue
+      }
+      if (this.seenTradeIds.has(trade.id) || batchIds.has(trade.id)) {
+        result.skipped += 1
+        continue
+      }
+      batchIds.add(trade.id)
+      accepted.push(trade)
+    }
+    if (accepted.length === 0) return result
+
+    // 预检：整批要么全部可应用，要么要求 reload，避免半批写入后被迫重读。
+    const first = this._candles[0]
+    const last = this._candles[this._candles.length - 1]
+    const lastT = last?.t
+    let maxBucket = lastT
+    for (const trade of accepted) {
+      const bucket = fxBucketStart(Math.floor(trade.ts), this.stepSeconds)
+      if (first && bucket < first.t) return { ...result, reload: true }
+      if (lastT !== undefined && bucket <= lastT && findCandleIndex(this._candles, bucket) < 0) {
+        return { ...result, reload: true }
+      }
+      if (maxBucket === undefined || bucket > maxBucket) maxBucket = bucket
+    }
+    if (lastT !== undefined && maxBucket !== undefined
+      && maxBucket - lastT > (FX_MAX_LOCAL_FILL_BUCKETS + 1) * this.stepSeconds) {
+      return { ...result, reload: true }
+    }
+
+    const sorted = [...accepted].sort((a, b) => a.ts - b.ts || a.id - b.id)
+    const changedIndexes = new Set<number>()
+    for (const trade of sorted) {
+      const bucket = fxBucketStart(Math.floor(trade.ts), this.stepSeconds)
+      const candles = this._candles
+      if (candles.length === 0) {
+        candles.push({ t: bucket, o: trade.price, h: trade.price, l: trade.price, c: trade.price, v: trade.volume })
+        changedIndexes.add(0)
+        result.added += 1
+      } else {
+        const currentLast = candles[candles.length - 1]!
+        if (bucket > currentLast.t) {
+          const prevClose = currentLast.c
+          for (let t = currentLast.t + this.stepSeconds; t < bucket; t += this.stepSeconds) {
+            candles.push({ t, o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0 })
+            changedIndexes.add(candles.length - 1)
+            result.added += 1
+          }
+          candles.push({
+            t: bucket,
+            o: prevClose,
+            h: Math.max(prevClose, trade.price),
+            l: Math.min(prevClose, trade.price),
+            c: trade.price,
+            v: trade.volume,
+          })
+          changedIndexes.add(candles.length - 1)
+          result.added += 1
+        } else {
+          const index = findCandleIndex(candles, bucket)
+          if (index < 0) {
+            // 已知区间内的空桶缺口（历史未 fill）：不伪造，明确要求 reload。
+            return { ...result, reload: true, changed: [], added: 0 }
+          }
+          const candle = candles[index]!
+          candle.h = Math.max(candle.h, trade.price)
+          candle.l = Math.min(candle.l, trade.price)
+          candle.c = trade.price
+          candle.v += trade.volume
+          changedIndexes.add(index)
+        }
+      }
+      this.seenTradeIds.add(trade.id)
+      this._throughTradeId = this._throughTradeId === null
+        ? trade.id : Math.max(this._throughTradeId, trade.id)
+      result.applied += 1
+    }
+
+    if (changedIndexes.size > 0) {
+      const indexes = [...changedIndexes].sort((a, b) => a - b)
+      this.rebuildMa(indexes[0]!)
+      result.changed = indexes.map((index) => this._candles[index]!)
+    }
+    result.throughTradeId = this._throughTradeId
+    return result
+  }
+
   private rebuildMa(from: number): void {
     const length = this._candles.length
     for (const period of this.maPeriods) {
@@ -225,4 +398,26 @@ export class FxCandleEngine {
 
 function FX_CANDLE_STEP(stepSeconds: number): number {
   return Number.isFinite(stepSeconds) && stepSeconds > 0 ? Math.floor(stepSeconds) : 60
+}
+
+/** 真实成交输入合法性：id 安全非负、ts 有限正、价格有限正、量有限非负。 */
+function isValidTrade(trade: FxCandleTrade): boolean {
+  return Number.isSafeInteger(trade.id) && trade.id >= 0
+    && Number.isFinite(trade.ts) && trade.ts > 0
+    && Number.isFinite(trade.price) && trade.price > 0
+    && Number.isFinite(trade.volume) && trade.volume >= 0
+}
+
+/** 在按 t 升序的 candle 数组里二分查找 bucket，返回下标；不存在返回 -1。 */
+function findCandleIndex(candles: readonly FxCandle[], bucket: number): number {
+  let low = 0
+  let high = candles.length - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    const value = candles[mid]!.t
+    if (value === bucket) return mid
+    if (value < bucket) low = mid + 1
+    else high = mid - 1
+  }
+  return -1
 }

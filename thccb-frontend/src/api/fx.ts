@@ -14,8 +14,11 @@ import type {
   FxPairPatch,
   FxPairPublic,
   FxPublicFrame,
+  FxPublicEnvelope,
   FxPublicNews,
   FxChartPoint,
+  FxHistoryInterval,
+  FxHistorySegment,
   FxQuote,
   FxQuoteRequest,
   FxSide,
@@ -24,6 +27,12 @@ import type {
   FxTradeRequest,
   FxWalletPublic,
 } from '@/types/fx'
+import {
+  isFxHistoryInterval,
+  sanitizeFxHistorySegment,
+  sanitizeFxHistoryTail,
+  sanitizeFxTradeTicks,
+} from '@/utils/fxHistory'
 
 export const FX_EMPTY = '—'
 
@@ -409,6 +418,57 @@ export function parseFxSsePayload(raw: string | null | undefined): FxPublicFrame
   return sanitizeFxFrame(parsed)
 }
 
+/**
+ * 把任意对象收敛到完整公开信封：旧报价/新闻白名单 + 新增历史/逐笔成交字段。
+ * 私有字段（target_price/shock_ratio/future_orders/random_state/parameter_snapshot
+ * 等）不在白名单内，解析时严格丢弃。
+ */
+export function sanitizeFxEnvelope(raw: unknown): FxPublicEnvelope | null {
+  const frame = sanitizeFxFrame(raw)
+  if (!frame) return null
+  const source = raw as Record<string, unknown>
+  const envelope: FxPublicEnvelope = { ...frame }
+
+  if (typeof source.history_ready === 'boolean') envelope.history_ready = source.history_ready
+  if (typeof source.history_version === 'string' && source.history_version) {
+    envelope.history_version = source.history_version
+  }
+  const tail = sanitizeFxHistoryTail(source.history_tail)
+  if (tail) envelope.history_tail = tail
+  const tailAt = source.history_tail_at
+  if (typeof tailAt === 'string' && !Number.isNaN(new Date(tailAt).getTime())) {
+    envelope.history_tail_at = tailAt
+  }
+  const through = source.history_tail_through_trade_id
+  if (typeof through === 'number' && Number.isSafeInteger(through) && through >= 0) {
+    envelope.history_tail_through_trade_id = through
+  }
+  const trades = sanitizeFxTradeTicks(source.trades)
+  if (trades.length > 0) envelope.trades = trades
+  if (typeof source.history_invalidated === 'boolean') {
+    envelope.history_invalidated = source.history_invalidated
+  }
+  return envelope
+}
+
+/**
+ * 解析 SSE `data:` 行的 JSON 为完整信封：既接受 `{data: frame}` 信封，也接受裸帧。
+ * 与 `parseFxSsePayload` 保持同一层解包逻辑，但额外暴露历史版本/尾段/逐笔成交。
+ */
+export function parseFxSseEnvelope(raw: string | null | undefined): FxPublicEnvelope | null {
+  if (!raw) return null
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof parsed === 'object' && parsed !== null && 'data' in (parsed as object)) {
+    return sanitizeFxEnvelope((parsed as { data?: unknown }).data)
+  }
+  return sanitizeFxEnvelope(parsed)
+}
+
 // ── 图表归一化（/chart 无 response_model，FastAPI 会把 Decimal 转 float） ──
 
 function numberOrZero(value: unknown): number {
@@ -439,6 +499,35 @@ export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
     })
   }
   return points.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime())
+}
+
+// ── 封存历史段（/history/fx/...，经现有 axios baseURL 取数） ──
+
+/**
+ * 取一段不可变封存历史。
+ * - 404（尚未封存/竞态窗口）→ null，调用方按不完整处理；
+ * - 503（后端历史未就绪）或结构非法 → 抛出，让调用方显式回退 `/chart`，不静默吞错；
+ * - URL 含 history_version，版本变化即整套重读，旧缓存不会污染新历史。
+ */
+export async function fetchFxHistorySegment(
+  pairId: number,
+  historyVersion: string,
+  interval: FxHistoryInterval,
+  segmentEpoch: number,
+): Promise<FxHistorySegment | null> {
+  if (!Number.isSafeInteger(pairId) || pairId <= 0) return null
+  if (!historyVersion || !isFxHistoryInterval(interval)) return null
+  if (!Number.isSafeInteger(segmentEpoch) || segmentEpoch < 0) return null
+  const path = `/history/fx/${pairId}/${encodeURIComponent(historyVersion)}/${interval}/${segmentEpoch}.json`
+  try {
+    const raw = await api.get<unknown>(path)
+    const segment = sanitizeFxHistorySegment(raw)
+    if (!segment) throw new Error(`invalid FX history segment ${path}`)
+    return segment
+  } catch (err) {
+    if ((err as FxErrorLike | null)?.status === 404) return null
+    throw err
+  }
 }
 
 // ── 错误映射 ──
@@ -709,6 +798,7 @@ export const fxAdminApi = {
 // ── SSE 客户端：/api/v1/fx/stream/{pair_id}（命名事件 `fx`） ──
 
 type FxFrameListener = (frame: FxPublicFrame) => void
+type FxEnvelopeListener = (envelope: FxPublicEnvelope) => void
 type FxVoidListener = () => void
 type FxErrorListener = (error: unknown) => void
 
@@ -722,6 +812,7 @@ export class FxStream {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   private readonly frameListeners = new Set<FxFrameListener>()
+  private readonly envelopeListeners = new Set<FxEnvelopeListener>()
   private readonly openListeners = new Set<FxVoidListener>()
   private readonly errorListeners = new Set<FxErrorListener>()
 
@@ -748,7 +839,17 @@ export class FxStream {
       const current = () => this.source === source && this.gen === generation
       const receive = (event: MessageEvent) => {
         if (!current()) return
-        const frame = parseFxSsePayload(typeof event.data === 'string' ? event.data : null)
+        const raw = typeof event.data === 'string' ? event.data : null
+        // 一次解析同时喂两种监听器：旧 onFrame 只拿到报价/新闻白名单帧，
+        // 新 onEnvelope 额外拿到历史版本/尾段/逐笔成交；私有字段都被丢弃。
+        const envelope = parseFxSseEnvelope(raw)
+        if (envelope) {
+          this.envelopeListeners.forEach((cb) => cb(envelope))
+          const frame = sanitizeFxFrame(envelope)
+          if (frame) this.frameListeners.forEach((cb) => cb(frame))
+          return
+        }
+        const frame = parseFxSsePayload(raw)
         if (frame) this.frameListeners.forEach((cb) => cb(frame))
       }
       source.addEventListener('fx', receive)
@@ -796,6 +897,15 @@ export class FxStream {
 
   offFrame(cb: FxFrameListener): void {
     this.frameListeners.delete(cb)
+  }
+
+  /** 订阅完整公开信封（含历史版本/尾段/逐笔成交）；旧 onFrame 行为保持不变。 */
+  onEnvelope(cb: FxEnvelopeListener): void {
+    this.envelopeListeners.add(cb)
+  }
+
+  offEnvelope(cb: FxEnvelopeListener): void {
+    this.envelopeListeners.delete(cb)
   }
 
   onOpen(cb: FxVoidListener): void {

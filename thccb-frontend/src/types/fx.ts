@@ -13,6 +13,8 @@ export type FxSide = 'buy' | 'sell'
 export type FxPairStatus = 'draft' | 'trading' | 'paused' | 'closed'
 /** 图表周期：仅玩家页使用，与后端 `/chart` 的 interval 参数一致。 */
 export type FxChartInterval = '1m' | '15m' | '1h'
+/** 历史/RING 周期：与后端 `RING_SPEC` 的四个档位一致（含 UI 暂未开放的 10s）。 */
+export type FxHistoryInterval = '10s' | '1m' | '15m' | '1h'
 export type FxEventStatus =
   | 'draft'
   | 'scheduled'
@@ -115,6 +117,81 @@ export interface FxPublicFrame {
   spread?: string
   volume?: string
   news?: FxPublicNews
+}
+
+/**
+ * `/history/fx/...` 与 SSE `history_tail` 的列式封存段（对齐后端 `HistoryRing`）。
+ *
+ * 价格与成交量都是十进制字符串（保留 Decimal），**只有图表边界才转 number**。
+ * 绝不能复用 LMSR 的 `price × 1e8` 整数编码：FX 汇率可能超出 JS 安全整数。
+ * 稀疏桶用 `t[i]`（相对 t0 的 step 偏移）定位；所有列长度必须一致。
+ */
+export interface FxHistorySegment {
+  /** 段起点 epoch 秒（已对齐段长，封闭段不可变） */
+  t0: number
+  /** 桶宽（秒） */
+  step: number
+  /** 本段桶总数（含空桶） */
+  n_buckets: number
+  /** 有成交桶的偏移（相对 t0，单位 step），0 <= t[i] < n_buckets */
+  t: number[]
+  o: string[]
+  h: string[]
+  l: string[]
+  c: string[]
+  /** 金侧成交量 Decimal 字符串，非负 */
+  v: string[]
+  /** 每桶成交笔数，非负整数 */
+  trades: number[]
+}
+
+/** SSE 首包 `history_tail`：interval → 该档封存边界到当前桶的尾巴。 */
+export type FxHistoryTail = Partial<Record<FxHistoryInterval, FxHistorySegment>>
+
+/** SSE `data.trades[]` 的公开逐笔成交，用于按真实成交时间增量更新 OHLCV。 */
+export interface FxTradeTick {
+  /** FxTrade.id（安全整数），用于去重 */
+  id: number
+  /** 真实成交时间 ISO UTC（不是客户端接收时间） */
+  ts: string
+  /** 成交后边际汇率 Decimal 字符串 */
+  post_price: string
+  /** 金侧成交量 Decimal 字符串（buy 金入 / sell 金出） */
+  gold_volume: string
+}
+
+/**
+ * SSE `event: fx` / `snapshot` 的完整公开信封：旧报价/新闻字段 + 历史与逐笔成交扩展。
+ * 私有字段（target_price / shock_ratio / future_orders / random_state /
+ * parameter_snapshot 等）不在白名单内，解析时严格丢弃。
+ */
+export interface FxPublicEnvelope extends FxPublicFrame {
+  /** 后端历史是否已就绪；false 时前端只走 `/chart` 回退 */
+  history_ready?: boolean
+  /** 历史版本 UUID；变化即代表缓存需要整套重读 */
+  history_version?: string
+  history_tail?: FxHistoryTail
+  /** 尾巴生成时刻 ISO UTC，用于 freshness 判定 */
+  history_tail_at?: string
+  /** 尾巴已覆盖到的最后成交 id；<= 此值的实时成交必须跳过（避免重复累计） */
+  history_tail_through_trade_id?: number
+  /** 增量帧内的公开成交（带真实时间与金侧量） */
+  trades?: FxTradeTick[]
+  /** gap/溢出导致尾段失效：只需补尾段，不要重读封存段 */
+  history_invalidated?: boolean
+}
+
+/**
+ * `loadFxHistoryCandles` 需要的快照尾段上下文，由 `FxStream` envelope 组装。
+ * 字段允许为 null，表示当前没有可用尾段/版本。
+ */
+export interface FxHistorySnapshotTail {
+  history_version: string | null
+  history_tail: FxHistoryTail | null
+  history_tail_at: string | null
+  history_tail_through_trade_id: number | null
+  history_ready?: boolean
+  history_invalidated?: boolean
 }
 
 /** `/chart` 返回的 candle 经归一化后的前端点（数值已转 number）。 */
