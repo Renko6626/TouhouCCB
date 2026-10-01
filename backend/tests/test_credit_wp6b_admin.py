@@ -694,7 +694,18 @@ async def test_owner_loss_while_waiting_for_gate_rejects_deduction(writes_enable
         await task
     assert await _state(uid) == (Decimal("1000.000000"), Decimal("10.000000"), 0)
 
-async def test_explicit_short_writeoff_preserves_gold_and_other_pair(client, writes_enabled):
+@pytest_asyncio.fixture
+async def writeoff_client():
+    # setup_db owns schema/config initialization; no scheduler/app startup is
+    # needed to exercise this authenticated endpoint's database transaction.
+    from app.main import app
+    from httpx import AsyncClient, ASGITransport
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        yield client
+
+
+async def test_explicit_short_writeoff_preserves_gold_and_other_pair(writeoff_client, writes_enabled):
+    client = writeoff_client
     from app.main import app
     from app.core.users import current_superuser
     from app.models.audit import AuditEvent
@@ -715,10 +726,10 @@ async def test_explicit_short_writeoff_preserves_gold_and_other_pair(client, wri
     app.dependency_overrides[current_superuser] = lambda: admin
     path = f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff'
     try:
-        response = await client.post(path, json={'reason': 'operator recovery'})
+        response = await client.post(path, json={'reason': 'operator recovery', 'idempotency_key': 'writeoff-original'})
         assert response.status_code == 200, response.text
-        assert (await client.post(path, json={'reason': 'retry'})).status_code == 200
-        assert (await client.post(path, json={'reason': '   '})).status_code == 422
+        assert (await client.post(path, json={'reason': 'retry', 'idempotency_key': 'writeoff-noop'})).status_code == 200
+        assert (await client.post(path, json={'reason': '   ', 'idempotency_key': 'blank'})).status_code == 422
     finally:
         app.dependency_overrides.pop(current_superuser, None)
     assert await _state(uid) == (Decimal('100'), Decimal('17'), 1)
@@ -743,7 +754,8 @@ async def test_explicit_short_writeoff_preserves_gold_and_other_pair(client, wri
         assert 'realized_pl' not in events[0].payload
 
 
-async def test_short_writeoff_overflow_fails_without_partial_changes(client, writes_enabled):
+async def test_short_writeoff_overflow_fails_without_partial_changes(writeoff_client, writes_enabled):
+    client = writeoff_client
     from app.main import app
     from app.core.users import current_superuser
     from app.models.audit import AuditEvent
@@ -760,7 +772,7 @@ async def test_short_writeoff_overflow_fails_without_partial_changes(client, wri
         await s.commit()
     app.dependency_overrides[current_superuser] = lambda: admin
     try:
-        response = await client.post(f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff', json={'reason': 'overflow'})
+        response = await client.post(f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff', json={'reason': 'overflow', 'idempotency_key': 'overflow'})
         assert response.status_code == 409, response.text
     finally:
         app.dependency_overrides.pop(current_superuser, None)
@@ -768,3 +780,65 @@ async def test_short_writeoff_overflow_fails_without_partial_changes(client, wri
     assert await _short_state(uid) == [(Decimal('10'), ZERO, Decimal('50'))]
     async with async_session_maker() as s:
         assert not (await s.execute(select(AuditEvent).where(AuditEvent.user_id == uid))).scalars().all()
+
+
+async def test_short_writeoff_delayed_retry_preserves_reopened_obligation(writeoff_client, writes_enabled):
+    client = writeoff_client
+    from app.main import app
+    from app.core.users import current_superuser
+    from app.models.audit import AuditEvent
+    from app.models.fx import FxTreasury
+    admin_id = await _seed_admin()
+    uid = await _seed_user(cash=Decimal('100'))
+    pairs = await _seed_short_pairs(uid)
+    async with async_session_maker() as s:
+        admin = await s.get(User, admin_id)
+        s.add(SiteConfig(key='loan_daily_rate', value='0', value_type='decimal'))
+        s.add(FxTreasury(pair_id=pairs[0].group_id, foreign_balance=Decimal('29')))
+        await s.commit()
+    app.dependency_overrides[current_superuser] = lambda: admin
+    path = f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[0].group_id}/writeoff'
+    body = {'reason': 'original approval', 'idempotency_key': 'delayed-request'}
+    try:
+        original = await client.post(path, json=body)
+        assert original.status_code == 200, original.text
+        # Persist a new borrow obligation after the original writeoff, as a
+        # reopening transaction would; the delayed HTTP retry cannot erase it.
+        async with async_session_maker() as s:
+            user = await s.get(User, uid)
+            short = (await s.execute(select(FxShortPosition).where(
+                FxShortPosition.user_id == uid, FxShortPosition.pair_id == pairs[0].group_id))).scalar_one()
+            short.principal_foreign = Decimal('7')
+            short.restricted_gold = Decimal('35')
+            short.proceeds_basis_gold = Decimal('31')
+            short.interest_last_accrued_at = datetime.now(timezone.utc)
+            user.cash = Decimal('131')
+            bump_economic_version(user)
+            treasury = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pairs[0].group_id))).scalar_one()
+            treasury.foreign_balance -= Decimal('7')
+            await s.commit()
+        replay = await client.post(path, json=body)
+        assert replay.status_code == 200, replay.text
+        assert replay.json() == dict(original.json(), replay=True)
+        conflict = await client.post(path, json=dict(body, reason='changed approval'))
+        assert conflict.status_code == 409
+        conflict = await client.post(f'/api/v1/admin/users/{uid}/fx-shorts/{pairs[1].group_id}/writeoff', json=body)
+        assert conflict.status_code == 409
+        other_admin_id = await _seed_admin()
+        async with async_session_maker() as s:
+            other_admin = await s.get(User, other_admin_id)
+        app.dependency_overrides[current_superuser] = lambda: other_admin
+        assert (await client.post(path, json=body)).status_code == 409
+        app.dependency_overrides[current_superuser] = lambda: admin
+        assert (await client.post(path, json={'reason': 'no key'})).status_code == 422
+    finally:
+        app.dependency_overrides.pop(current_superuser, None)
+    assert await _state(uid) == (Decimal('131'), ZERO, 2)
+    assert await _short_state(uid) == [(Decimal('7'), ZERO, Decimal('35')), (Decimal('10'), ZERO, Decimal('30'))]
+    async with async_session_maker() as s:
+        treasury = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pairs[0].group_id))).scalar_one()
+        assert treasury.foreign_balance == Decimal('22')
+        events = (await s.execute(select(AuditEvent).where(AuditEvent.user_id == uid,
+            AuditEvent.event_type == 'admin_fx_short_writeoff'))).scalars().all()
+        assert len(events) == 1
+        assert events[0].payload['idempotency_key'] == body['idempotency_key']

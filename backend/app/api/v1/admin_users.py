@@ -246,6 +246,7 @@ async def amnesty(
 
 
 class FxShortWriteoffRequest(BaseModel):
+    idempotency_key: str = Field(..., min_length=1, max_length=128)
     reason: str = Field(..., min_length=1, max_length=200)
 
     @field_validator("reason")
@@ -265,6 +266,7 @@ async def writeoff_fx_short(
 ):
     try:
         return await svc.writeoff_fx_short(
-            db, target_id=user_id, pair_id=pair_id, reason=req.reason, admin_id=admin.id)
+            db, target_id=user_id, pair_id=pair_id, reason=req.reason, admin_id=admin.id,
+            idempotency_key=req.idempotency_key)
     except AdminUserError as e:
         raise _http(e)

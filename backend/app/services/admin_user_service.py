@@ -974,6 +974,7 @@ async def _amnesty_one(
 
 async def writeoff_fx_short(
     db: AsyncSession, *, target_id: int, pair_id: int, reason: str, admin_id: int,
+    idempotency_key: str,
 ) -> Dict[str, Any]:
     """Explicit full administrative writeoff, never a trade or minted repayment.
 
@@ -982,9 +983,12 @@ async def writeoff_fx_short(
     Frozen users and active liquidation runs remain unchanged.
     """
     from app.models.fx import FxPair, FxTreasury
+    from app.models.audit import AuditEvent
     from app.services.credit.keys import GroupKey
     from app.services.fx.shorts import pending_short_debt, ShortRejected
 
+    if not 1 <= len(idempotency_key) <= 128:
+        raise AdminUserError(422, "idempotency_key must contain 1..128 characters")
     reason = reason.strip()
     if not reason:
         raise AdminUserError(422, "reason must not be blank")
@@ -997,9 +1001,30 @@ async def writeoff_fx_short(
         async with managed_transaction(db):
             pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            user = await _lock_user(db, target_id)
+            # User row serializes all keys for this account, including requests
+            # targeting different pairs. Query committed audit identity before
+            # inspecting live debt: a late retry must not forgive a reopened short.
+            previous = (await db.execute(select(AuditEvent).where(
+                AuditEvent.user_id == target_id,
+                AuditEvent.event_type == "admin_fx_short_writeoff",
+                AuditEvent.payload["idempotency_key"].as_string() == idempotency_key,
+            ).order_by(AuditEvent.id))).scalars().all()
+            if previous:
+                if len(previous) != 1:
+                    raise AdminUserError(409, "ambiguous FX short writeoff identity")
+                event = previous[0]
+                payload = event.payload
+                if (payload.get("pair_id") != pair_id
+                        or event.operator_user_id != admin_id
+                        or payload.get("reason") != reason):
+                    raise AdminUserError(409, "FX short writeoff idempotency conflict")
+                result = payload.get("result")
+                if not isinstance(result, dict):
+                    raise AdminUserError(409, "FX short writeoff replay result missing")
+                return dict(result, replay=True)
             if pair is None:
                 raise AdminUserError(404, "FX pair not found")
-            user = await _lock_user(db, target_id)
             position = (await db.execute(select(FxShortPosition).where(
                 FxShortPosition.user_id == target_id, FxShortPosition.pair_id == pair_id)
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
@@ -1020,7 +1045,7 @@ async def writeoff_fx_short(
             if principal + interest == ZERO:
                 if lock or basis or position.interest_last_accrued_at is not None:
                     raise AdminUserError(409, "inconsistent zero FX short debt")
-                return {"user_id": target_id, "pair_id": pair_id, "written_off": False}
+                return {"user_id": target_id, "pair_id": pair_id, "written_off": False, "replay": False}
             if position.interest_last_accrued_at is None:
                 raise AdminUserError(409, "FX short interest clock missing")
             treasury = (await db.execute(select(FxTreasury).where(
@@ -1058,10 +1083,15 @@ async def writeoff_fx_short(
             bump_economic_version(user)
             after = dict(before, principal_foreign=ZERO, interest_foreign=ZERO,
                 restricted_gold=ZERO, proceeds_basis_gold=ZERO, interest_last_accrued_at=None)
+            result = {"user_id": target_id, "pair_id": pair_id, "written_off": True,
+                "principal_foreign": str(principal),
+                "interest_foreign": str(effective_total - principal),
+                "released_lock": str(lock), "replay": False}
             audit_service.record(db, "admin_fx_short_writeoff", user_id=target_id,
                 operator_user_id=admin_id, ref_table="fx_short_position", ref_id=position.id,
                 ts=now, user_after=audit_service.user_snapshot(user), payload={
                     "purpose": "short_writeoff", "pair_id": pair_id, "reason": reason,
+                    "idempotency_key": idempotency_key, "result": result,
                     "accrued_at": audit_service._utc_iso(now), "daily_rate": rate,
                     "principal_written_off_foreign": principal,
                     "interest_written_off_foreign": effective_total - principal,
@@ -1077,6 +1107,4 @@ async def writeoff_fx_short(
                     "restricted_cash_after": total_locks - lock,
                 })
             OWNERSHIP.require_writes()
-            return {"user_id": target_id, "pair_id": pair_id, "written_off": True,
-                "principal_foreign": str(principal),
-                "interest_foreign": str(effective_total - principal), "released_lock": str(lock)}
+            return result

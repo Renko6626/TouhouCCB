@@ -60,7 +60,9 @@ async def test_short_writeoff_replays_without_minting_treasury():
         treasury = (await db.execute(select(FxTreasury))).scalars().one()
         stock = treasury.foreign_balance
         await db.rollback()
-        await admin_user_service.writeoff_fx_short(db, target_id=uid, pair_id=pid, reason="irrecoverable", admin_id=uid)
+        await admin_user_service.writeoff_fx_short(db, target_id=uid, pair_id=pid,
+                                                   reason="irrecoverable", admin_id=uid,
+                                                   idempotency_key="audit-writeoff")
         snap, errors = audit_replay.fold(await audit_replay.load_events(db), check=True)
         assert errors == []
         assert await audit_replay.compare_with_live(db, snap) == []
