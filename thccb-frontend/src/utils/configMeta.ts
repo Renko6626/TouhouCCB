@@ -1,5 +1,5 @@
 /**
- * site_config 前端 metadata：按前缀分组 + label/description/unit。
+ * site_config 前端 metadata：业务分组、展示顺序与 label/description/unit。
  *
  * 后端 keys 都按前缀命名 (loan_* / liquidation_* / bot_* / activity_mode_*)，
  * 这里按前缀派生分组；description 是为 admin review 时显示的人读说明。
@@ -9,6 +9,8 @@
  */
 
 export type ConfigGroup =
+  | 'display'
+  | 'fx'
   | 'loan'
   | 'liquidation'
   | 'anti_bot'
@@ -25,7 +27,7 @@ export interface ConfigMeta {
 /** 显式 metadata。未列出的 key 用 fallback (group=general, label=key)。*/
 const META: Record<string, ConfigMeta> = {
   homepage_fx_enabled: {
-    group: 'general',
+    group: 'display',
     label: '首页使用 FX 模式',
     description: '开启展示外汇首页，关闭恢复原预测市场首页。保存后刷新首页即可生效；只改变首页展示，不改变交易或借款开关。',
   },
@@ -37,7 +39,7 @@ const META: Record<string, ConfigMeta> = {
   credit_leverage: {
     group: 'loan',
     label: '名义杠杆',
-    description: '1 < 倍数 <= 20；10x 对应最多借入净值的 9 倍。提高倍数会提高可借额度。',
+    description: '1 < 倍数 <= 50；预测市场与 FX 共用此上限。50x 对应最多借入净值的 49 倍，维持率须先调至低于 1/49；修改后重启后端生效。',
     unit: 'x',
   },
   credit_maintenance_ratio: {
@@ -57,50 +59,50 @@ const META: Record<string, ConfigMeta> = {
     description: '并发更新时风险检查允许重试的次数；通常无需调整。',
     unit: '次',
   },
-  fx_short_enabled: { group: 'economy', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
+  fx_short_enabled: { group: 'fx', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
   fx_enabled: {
-    group: 'economy',
+    group: 'fx',
     label: 'FX 交易总闸',
     description: '关闭时不允许 FX 成交，系统不发布计划事件，也不执行噪声订单或常规干预。',
   },
   fx_hourly_sigma: {
-    group: 'economy',
+    group: 'fx',
     label: '目标价每小时波动率',
     description: '目标价格随机游走的波动强度；0.002 表示每小时约 0.2%。调高后目标价变化更剧烈。',
     unit: '比例/小时',
   },
   fx_step_max_ratio: {
-    group: 'economy',
+    group: 'fx',
     label: '目标价单步变动上限',
     description: '每次系统 tick 目标价最多变化的比例；0.001 表示单步最多 0.1%。',
     unit: '比例/tick',
   },
   fx_noise_interval_sec: {
-    group: 'economy',
+    group: 'fx',
     label: '噪声订单平均间隔',
     description: '系统噪声订单的平均等待时间，实际间隔随机；数值越小，噪声订单越频繁。',
     unit: '秒',
   },
   fx_noise_pool_ratio: {
-    group: 'economy',
+    group: 'fx',
     label: '噪声订单池子占比',
     description: '单笔系统噪声订单最多使用池子储备的比例；0.0001 表示最多 0.01%。',
     unit: '比例',
   },
   fx_system_half_life_sec: {
-    group: 'economy',
+    group: 'fx',
     label: '常规干预半衰期',
     description: '系统将市场价向目标价拉回的时间尺度；数值越小，常规干预越快。',
     unit: '秒',
   },
   fx_default_price_move_limit: {
-    group: 'economy',
+    group: 'fx',
     label: '常规干预价格步长上限',
     description: '非事件干预每次 tick 可推动价格的最大比例，同时限制系统订单规模；0.005 表示 0.5%。',
     unit: '比例/tick',
   },
   fx_daily_budget: {
-    group: 'economy',
+    group: 'fx',
     label: 'FX 系统每日支出上限',
     description: '每个货币对 treasury 每日可供系统订单支出的金圆券上限，按 UTC 日期重置。',
     unit: '金圆券/日',
@@ -233,10 +235,38 @@ const META: Record<string, ConfigMeta> = {
   },
 }
 
-const GROUP_ORDER: ConfigGroup[] = ['loan', 'liquidation', 'anti_bot', 'economy', 'general']
+const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'economy', 'anti_bot', 'general']
+
+// 按管理任务排列；未登记的新配置仍显示在所属组末尾。
+const CONFIG_ORDER = [
+  'homepage_fx_enabled',
+  'fx_enabled', 'fx_short_enabled', 'fx_daily_budget',
+  'fx_hourly_sigma', 'fx_step_max_ratio',
+  'fx_noise_interval_sec', 'fx_noise_pool_ratio',
+  'fx_system_half_life_sec', 'fx_default_price_move_limit',
+  'loan_enabled', 'unified_credit_enabled', 'credit_new_risk_frozen',
+  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate', 'loan_leverage_k',
+  'loan_sweep_interval_sec', 'loan_sweep_min_accrual_sec', 'credit_risk_retry_limit',
+  'liquidation_enabled', 'liquidation_partial_pct', 'liquidation_sweep_interval_sec',
+  'liquidation_soft_threshold', 'liquidation_hard_threshold',
+  'liquidation_target_margin', 'liquidation_emergency_threshold',
+  'initial_balance', 'sell_fee_rate',
+  'activity_mode_enabled', 'quant_whitelist_user_ids', 'bot_detection_enabled',
+  'bot_detection_interval_sec', 'bot_detection_window_sec',
+  'bot_freq_threshold', 'bot_late_night_threshold', 'bot_interval_stddev_ms_threshold',
+  'bot_fast_follow_trigger_cost', 'bot_fast_follow_latency_ms', 'bot_fast_follow_count_threshold',
+]
+const CONFIG_RANK = new Map(CONFIG_ORDER.map((key, index) => [key, index]))
+
+export function compareConfigKeys(a: string, b: string): number {
+  return (CONFIG_RANK.get(a) ?? CONFIG_ORDER.length) - (CONFIG_RANK.get(b) ?? CONFIG_ORDER.length)
+    || a.localeCompare(b)
+}
 
 const GROUP_LABELS: Record<ConfigGroup, string> = {
-  loan: '借款系统',
+  display: '页面展示',
+  fx: 'FX 交易',
+  loan: '借款与统一信贷',
   liquidation: '强制平仓',
   anti_bot: '反脚本',
   economy: '经济参数',
@@ -245,7 +275,8 @@ const GROUP_LABELS: Record<ConfigGroup, string> = {
 
 /** 推断未注册 key 的 group。从前缀派生。 */
 function inferGroup(key: string): ConfigGroup {
-  if (key.startsWith('loan_')) return 'loan'
+  if (key.startsWith('fx_')) return 'fx'
+  if (key.startsWith('loan_') || key.startsWith('credit_')) return 'loan'
   if (key.startsWith('liquidation_')) return 'liquidation'
   if (key.startsWith('bot_') || key === 'activity_mode_enabled' || key === 'quant_whitelist_user_ids') return 'anti_bot'
   if (key === 'sell_fee_rate' || key === 'initial_balance') return 'economy'

@@ -291,6 +291,12 @@ export function subtractFxAmounts(a: string | number, b: string | number): strin
   return left === null || right === null ? null : scaledToString(left - right, 6)
 }
 
+export function addFxAmounts(a: string | number, b: string | number): string | null {
+  const left = parseScaled(a, 6)
+  const right = parseScaled(b, 6)
+  return left === null || right === null ? null : scaledToString(left + right, 6)
+}
+
 /** 仅用于账面估值，数量 6dp × 汇率 12dp，结果截断到资金 6dp。 */
 export function multiplyFxAmount(amount: string, price: string): string | null {
   const quantity = parseScaled(amount, 6)

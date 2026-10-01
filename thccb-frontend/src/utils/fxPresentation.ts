@@ -1,9 +1,27 @@
-import { compareFxAmounts, divideFxAmount, formatFxAmount, multiplyFxAmount, subtractFxAmounts } from '@/api/fx'
+import { addFxAmounts, compareFxAmounts, divideFxAmount, formatFxAmount, multiplyFxAmount, subtractFxAmounts } from '@/api/fx'
 import type { FxPairPublic, FxSide, FxTradePublic, FxWalletPublic } from '@/types/fx'
 import type { UserSummary } from '@/types/user'
 
 type CreditSummary = Pick<UserSummary, 'debt' | 'debt_with_interest' | 'unified_credit_enabled'>
 type BuySummary = CreditSummary & Pick<UserSummary, 'cash' | 'credit_frozen' | 'available_cash'>
+
+/** 首页多空合计；任一空头缺少回补估值时，保留未知状态。 */
+export function fxHomeHoldings(summary: Pick<UserSummary,
+  'fx_wallets' | 'short_positions' | 'fx_unrealized_pnl' | 'fx_cost_basis'> | null) {
+  const longHoldings = (summary?.fx_wallets ?? []).filter(wallet => wallet.foreign_amount > 0)
+  const shortPositions = summary?.short_positions ?? []
+  const longPnl = subtractFxAmounts(summary?.fx_unrealized_pnl ?? 0, '0')
+  let shortPnl: string | null = '0.000000'
+  let basis = subtractFxAmounts(summary?.fx_cost_basis ?? 0, '0')
+  for (const position of shortPositions) {
+    const pnl = position.reference_cover_cost == null ? null
+      : subtractFxAmounts(position.proceeds_basis_gold, position.reference_cover_cost)
+    shortPnl = shortPnl == null || pnl == null ? null : addFxAmounts(shortPnl, pnl)
+    basis = basis == null ? null : addFxAmounts(basis, position.proceeds_basis_gold)
+  }
+  return { longHoldings, shortPositions, longPnl, shortPnl, basis,
+    pnl: longPnl == null || shortPnl == null ? null : addFxAmounts(longPnl, shortPnl) }
+}
 
 export function fxHoldingValue(wallet: Pick<FxWalletPublic, 'foreign_amount' | 'cost_basis'> | null, price: string | null | undefined) {
   if (!wallet || price == null) return null

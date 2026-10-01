@@ -31,10 +31,14 @@ def test_derive_20x_uses_high_precision_reciprocal():
     assert str(t.r_initial) == "0.05263157894736842105263157895"
 
 
-def test_spec_example_max_borrow():
-    """spec §4 示例：现金 500、债务 9500、可回收 10000 → E=1000，20x 下额度 9500。"""
-    t = derive_thresholds(Decimal("20"), R_MAINT)
-    assert t.max_borrow(Decimal("1000"), Decimal("9500")) == Decimal("9500.000000")
+@pytest.mark.parametrize("leverage, maintenance, equity, debt, expected", [
+    ("20", "0.04", "1000", "9500", "9500.000000"),
+    ("50", "0.01", "500", "0", "24500.000000"),
+])
+def test_spec_example_max_borrow(leverage, maintenance, equity, debt, expected):
+    """50 倍时 500 净值最多新增 24,500 借款；原有 20 倍额度保留。"""
+    t = derive_thresholds(leverage, maintenance)
+    assert t.max_borrow(equity, debt) == Decimal(expected)
 
 
 def test_max_borrow_floors_and_never_negative():
@@ -77,7 +81,7 @@ def test_validate_rejects_illegal_thresholds():
     for lev, maint in [
         (Decimal("1"), R_MAINT),            # R_initial 无定义
         (Decimal("0.5"), R_MAINT),
-        (Decimal("21"), R_MAINT),           # > 20x 上限
+        (Decimal("51"), Decimal("0.01")),  # > 50x 上限
         (MAX_LEVERAGE + Decimal("0.000001"), R_MAINT),
         (Decimal("20"), Decimal("0")),      # 维持率必须 > 0
         (Decimal("20"), Decimal("-0.01")),

@@ -1,8 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign } from '../fxPresentation'
+import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
+import type { AccountShortPosition } from '@/types/user'
 
 describe('FX 交易展示口径', () => {
+  const short: AccountShortPosition = {
+    pair_id: 1, currency_code: 'MORA', principal_foreign: '100', interest_foreign: '1',
+    pending_short_debt: '101', restricted_gold: '10', proceeds_basis_gold: '50.000001',
+    reference_cover_cost: '40', reference_cover_fee: '0.1', executable: true,
+    risk_status: 'ok', blocked_reason: null, interest_last_accrued_at: null,
+  }
+
+  it('首页包含纯空头，并以剩余开仓所得而非锁定现金汇总多空盈亏', () => {
+    const shortOnly = fxHomeHoldings({ fx_unrealized_pnl: 0, fx_cost_basis: 0, short_positions: [short] })
+    expect(shortOnly.shortPositions).toEqual([short])
+    expect(shortOnly.pnl).toBe('10.000001')
+    expect(shortOnly.basis).toBe('50.000001')
+    const mixed = fxHomeHoldings({ fx_unrealized_pnl: -5, fx_cost_basis: 100, short_positions: [short] })
+    expect(mixed.pnl).toBe('5.000001')
+    expect(mixed.basis).toBe('150.000001')
+  })
+
+  it('任一空头无法回补估值时，首页汇总不能将缺失盈亏当成零', () => {
+    const result = fxHomeHoldings({ fx_unrealized_pnl: 5, fx_cost_basis: 100,
+      short_positions: [short, { ...short, pair_id: 2, reference_cover_cost: null }] })
+    expect(result.shortPositions).toHaveLength(2)
+    expect(result.shortPnl).toBeNull()
+    expect(result.pnl).toBeNull()
+  })
+
   it('逐笔风控失败提示具体原因与恢复动作', () => {
     expect(mapFxError({ status: 400, data: { detail: 'insufficient_initial_margin' } })).toContain('减少')
     expect(mapFxError({ status: 400, data: { detail: 'credit_frozen' } })).toContain('冻结')

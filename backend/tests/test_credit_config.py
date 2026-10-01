@@ -39,19 +39,23 @@ def test_parse_flags_defaults_to_legacy_behavior():
     assert flags.config_error is None
 
 
-def test_parse_flags_valid_config_enables_engine():
+@pytest.mark.parametrize("leverage, maintenance, denominator", [
+    ("20", "0.04", 19),
+    ("50", "0.01", 49),
+])
+def test_parse_flags_valid_config_enables_engine(leverage, maintenance, denominator):
     flags = credit_flags.parse_flags({
         "unified_credit_enabled": "true",
         "credit_new_risk_frozen": "true",
-        "credit_leverage": "20",
-        "credit_maintenance_ratio": "0.04",
+        "credit_leverage": leverage,
+        "credit_maintenance_ratio": maintenance,
         "credit_risk_retry_limit": "5",
     })
     assert flags.unified_credit_enabled is True
     assert flags.credit_new_risk_frozen is True
     assert flags.credit_risk_retry_limit == 5
     assert flags.risk_engine_ready is True
-    assert flags.thresholds.r_initial == Decimal(1) / Decimal(19)
+    assert flags.thresholds.r_initial == Decimal(1) / Decimal(denominator)
     assert flags.disabled_reason is None
 
 
@@ -59,7 +63,7 @@ def test_parse_flags_valid_config_enables_engine():
     ({"unified_credit_enabled": "true"}, "missing_credit_leverage"),
     ({"unified_credit_enabled": "true", "credit_leverage": "20"},
      "missing_credit_maintenance_ratio"),
-    ({"unified_credit_enabled": "true", "credit_leverage": "21",
+    ({"unified_credit_enabled": "true", "credit_leverage": "51",
       "credit_maintenance_ratio": "0.04"}, "leverage 超过上限"),
     ({"unified_credit_enabled": "true", "credit_leverage": "1",
       "credit_maintenance_ratio": "0.04"}, "leverage 必须 > 1"),
@@ -165,9 +169,9 @@ async def test_auto_migrate_seeds_credit_configs_with_audit(setup_db):
 
 
 @pytest.mark.asyncio
-async def test_auto_migrate_refuses_legacy_k_above_19(setup_db):
-    """Controller 裁定：>19 说的是旧 k（k+1 <= 20）；k=20 必须拒绝并保持未 seed。"""
-    await _seed_config("loan_leverage_k", "20")
+async def test_auto_migrate_refuses_legacy_k_above_credit_limit(setup_db):
+    """旧 k=50 映射成名义 51 倍，超过统一上限时必须保持未 seed。"""
+    await _seed_config("loan_leverage_k", "50")
     await auto_migrate()
     assert await _config_value("credit_leverage") is None
     # hard 阈值本身合法（auto_migrate 种了 0.2），但没有有效 leverage 就不派生维持率
@@ -442,9 +446,21 @@ async def test_api_cross_validates_credit_leverage_and_maintenance(client):
     assert r.status_code == 400
     assert "R_initial" in r.json()["detail"]
 
-    # 越界值仍按 §3.4 区间拒绝
+    # 50 倍与旧维持率 0.04 不兼容；先降低维持率才能提高杠杆。
     r = await client.put("/api/v1/admin/site-config/credit_leverage",
-                         json={"value": "21"}, headers=headers)
+                         json={"value": "50"}, headers=headers)
+    assert r.status_code == 400
+    r = await client.put("/api/v1/admin/site-config/credit_maintenance_ratio",
+                         json={"value": "0.01"}, headers=headers)
+    assert r.status_code == 200, r.text
+    r = await client.put("/api/v1/admin/site-config/credit_leverage",
+                         json={"value": "50"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert await _config_value("credit_leverage") == "50"
+
+    # 超过 50 倍仍拒绝。
+    r = await client.put("/api/v1/admin/site-config/credit_leverage",
+                         json={"value": "51"}, headers=headers)
     assert r.status_code == 400
     r = await client.put("/api/v1/admin/site-config/credit_risk_retry_limit",
                          json={"value": "0"}, headers=headers)

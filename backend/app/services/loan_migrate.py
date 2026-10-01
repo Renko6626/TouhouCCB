@@ -22,13 +22,12 @@ from sqlmodel import select
 from app.core.database import async_session_maker, engine
 from app.core.config import settings
 from app.services.site_config import FX_DEFAULT_CONFIGS
+from app.services.credit.thresholds import MAX_LEVERAGE as MAX_CREDIT_LEVERAGE
 
 logger = logging.getLogger("thccb.loan_migrate")
 
 #: 重复次数默认（计划 §3.4 credit_risk_retry_limit=3）。
 DEFAULT_CREDIT_RISK_RETRY_LIMIT = 3
-#: 名义杠杆上限（F6：20x 需运营显式启用；迁移不得把旧 k>19 直接映射成 >20x）。
-MAX_CREDIT_LEVERAGE = Decimal("20")
 
 LEGACY_LEVERAGE_KEY = "loan_leverage_k"
 LEGACY_HARD_THRESHOLD_KEY = "liquidation_hard_threshold"
@@ -155,10 +154,10 @@ async def seed_credit_risk_configs() -> list[str]:
     """按 F7/F6 派生统一信贷配置（只补缺失行，幂等；返回本次写入的 key）。
 
     - ``credit_leverage = loan_leverage_k + 1``：与旧 ``compute_max_borrow`` 精确等价，
-      **不放松授信**。旧 ``k + 1 > 20``（即 k > 19）时拒绝写入并打 CRITICAL。
+      **不放松授信**。旧 ``k + 1 > MAX_CREDIT_LEVERAGE`` 时拒绝写入并打 CRITICAL。
     - ``credit_maintenance_ratio``：迁移期沿用有效的 ``liquidation_hard_threshold``
-      （要求 ``0 < hard < R_initial(credit_leverage)``）；无效则不写，等 20x 启用前
-      由运营显式设为 0.04（F6）。
+      （要求 ``0 < hard < R_initial(credit_leverage)``）；无效则不写，
+      由运营按目标杠杆显式设置合法维持率。
     - 每次写入都补 ``config_set`` 审计，``source="credit_migration"``。
     """
     from app.models.base import SiteConfig
@@ -213,7 +212,7 @@ async def seed_credit_risk_configs() -> list[str]:
                 r_initial = _r_initial(leverage) if leverage is not None else None
                 if hard is None:
                     logger.warning(
-                        "credit_maintenance_ratio 未 seed：缺少 %s；启用 20x 前必须显式设为 0.04",
+                        "credit_maintenance_ratio 未 seed：缺少 %s；启用统一信贷前必须显式设置合法维持率",
                         LEGACY_HARD_THRESHOLD_KEY,
                     )
                 elif r_initial is None:

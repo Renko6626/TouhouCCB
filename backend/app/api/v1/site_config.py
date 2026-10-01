@@ -13,6 +13,7 @@ from app.core.users import current_superuser
 from app.models.base import User, SiteConfig
 from app.schemas.loan import SiteConfigItem, SiteConfigUpdate
 from app.services import site_config, loan_sweep, liquidation_sweep
+from app.services.credit.thresholds import MAX_LEVERAGE
 
 router = APIRouter()
 public_router = APIRouter()
@@ -104,8 +105,8 @@ def _validate(key: str, value: str) -> None:
             raise HTTPException(status_code=400, detail="卖出手续费率必须在 [0, 0.2)")
         if key == "initial_balance" and not (Decimal("0") <= v <= Decimal("1000000")):
             raise HTTPException(status_code=400, detail="初始余额必须在 [0, 1000000]")
-        if key == "credit_leverage" and not (Decimal("1") < v <= Decimal("20")):
-            raise HTTPException(status_code=400, detail="credit_leverage 必须在 (1, 20]")
+        if key == "credit_leverage" and not (Decimal("1") < v <= MAX_LEVERAGE):
+            raise HTTPException(status_code=400, detail=f"credit_leverage 必须在 (1, {MAX_LEVERAGE}]")
         if key == "credit_maintenance_ratio" and not (Decimal("0") < v < Decimal("1")):
             raise HTTPException(status_code=400, detail="credit_maintenance_ratio 必须在 (0, 1)")
 
