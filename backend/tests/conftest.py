@@ -76,6 +76,14 @@ def _disable_scheduler():
 @pytest_asyncio.fixture(scope="module")
 async def client():
     """共享 LifespanManager + AsyncClient 到整个 module，从 N 次 lifespan 周期减到 1 次/module。"""
+    # Module-scoped lifespan starts before the function-scoped setup_db fixture.
+    # Start it on an empty disposable schema: the preceding module may have
+    # left a real short row, and production startup must correctly refuse
+    # unified_credit_enabled=false while that obligation exists.
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.drop_all)
+        await conn.run_sync(SQLModel.metadata.create_all)
+    clear_cache()
     async with LifespanManager(app):
         async with AsyncClient(
             transport=ASGITransport(app=app),

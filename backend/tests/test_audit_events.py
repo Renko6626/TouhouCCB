@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -98,13 +99,13 @@ async def _scenario(client, *, writer: bool):
     assert r.status_code == 200, r.text
 
     # 借 / 还
-    r = await client.post("/api/v1/loan/borrow", json={"amount": "100"}, headers=h)
+    # Establish the old accrual clock through the real borrow writer so its
+    # audit anchor agrees with the debt row; retroactively editing only the DB
+    # clock would correctly be detected as unaudited history by replay.
+    prior = datetime.now(timezone.utc) - timedelta(days=1)
+    with patch("app.services.loan_service._compat_now", return_value=prior):
+        r = await client.post("/api/v1/loan/borrow", json={"amount": "100"}, headers=h)
     assert r.status_code == 200, r.text
-    # 把结息锚点拨回 1 天前，让 sweep 与 repay 都真实结息
-    async with async_session_maker() as s:
-        async with s.begin():
-            u = (await s.execute(select(User).where(User.id == alice_uid).with_for_update())).scalar_one()
-            u.debt_last_accrued_at = datetime.now(timezone.utc) - timedelta(days=1)
     assert await run_sweep_once() == 1
     r = await client.post("/api/v1/loan/repay", json={"amount": "30"}, headers=h)
     assert r.status_code == 200, r.text
