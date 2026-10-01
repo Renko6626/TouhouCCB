@@ -14,6 +14,7 @@ vi.mock('@/api/fx', () => ({
 import { fetchFxHistorySegment, getChartWithMeta } from '@/api/fx'
 import {
   FX_HISTORY_INTERVAL_SECONDS,
+  FX_HISTORY_MAX_BUCKETS,
   FX_HISTORY_MAX_SEGMENTS,
   FX_HISTORY_SEGMENT_SECONDS,
   decodeFxHistorySegment,
@@ -24,11 +25,17 @@ import {
   sanitizeFxTradeTicks,
 } from '@/utils/fxHistory'
 import { loadFxHistoryCandles, loadFxHistoryResult, useFxCandleHistory } from '@/composables/useFxCandleHistory'
+import { FxCandleEngine } from '@/utils/fxCandle'
 import type { FxChartPoint, FxHistorySegment, FxHistorySnapshotTail } from '@/types/fx'
 
 const NOW_MS = Date.UTC(2026, 5, 1, 12, 30, 0)   // 2026-06-01T12:30:00Z
 const NOW_SEC = Math.floor(NOW_MS / 1000)
 const BOUNDARY = NOW_SEC - 1800                  // 12:00，1m 段边界
+
+// now 未对齐（12:30:40）用于 F1：旧实现会多产出一个未来桶 12:31
+const UNALIGNED_NOW_SEC = Math.floor(Date.UTC(2026, 5, 1, 12, 30, 40) / 1000)
+const UNALIGNED_FORMING = UNALIGNED_NOW_SEC - (UNALIGNED_NOW_SEC % 60)      // 12:30
+const UNALIGNED_SEG_BOUNDARY = UNALIGNED_NOW_SEC - (UNALIGNED_NOW_SEC % 3600) // 12:00
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString()
 
@@ -235,6 +242,66 @@ describe('loadFxHistoryResult', () => {
     vi.mocked(getChartWithMeta).mockResolvedValue(chartMeta([point(BOUNDARY, 3, 3)]))
     const points = await loadFxHistoryCandles(7, '1m', 60, { ...freshTail, history_version: null })
     expect(findAt(points, BOUNDARY)).toMatchObject({ c: 3, v: 3 })
+  })
+
+  it('now 未对齐时结束于当前 forming 桶，当前桶成交不触发 reload / 不重复量', async () => {
+    vi.setSystemTime(UNALIGNED_NOW_SEC * 1000)
+    const sealedEpoch = UNALIGNED_SEG_BOUNDARY - 3600
+    vi.mocked(fetchFxHistorySegment).mockResolvedValue(segment(sealedEpoch, [[30, 2, 2]]))
+    const tail: FxHistorySnapshotTail = {
+      history_version: 'v1',
+      history_tail: {
+        '1m': segment(
+          UNALIGNED_SEG_BOUNDARY,
+          [[(UNALIGNED_FORMING - UNALIGNED_SEG_BOUNDARY) / 60, 5, 5]],
+          31,
+        ),
+      },
+      history_tail_at: iso(UNALIGNED_NOW_SEC),
+      history_tail_through_trade_id: 42,
+      history_ready: true,
+    }
+    const result = await loadFxHistoryResult(7, '1m', 90, tail)
+    expect(result.points.at(-1)!.t).toBe(iso(UNALIGNED_FORMING))   // 不是未来桶 12:31
+
+    const engine = new FxCandleEngine(60)
+    engine.load(result.points, result.throughTradeId)
+    const applied = engine.applyTrades([
+      { id: result.throughTradeId + 1, ts: UNALIGNED_NOW_SEC, price: 7, volume: 3 },
+    ])
+    expect(applied.reload).toBe(false)
+    const forming = engine.candles.at(-1)!
+    expect(forming.t).toBe(UNALIGNED_FORMING)
+    expect(forming.v).toBe(5 + 3)   // 历史尾段 5 只计一次，再累加实时 3
+  })
+
+  it('超大 lookback 裁剪后恰好不超过 20000 桶（未对齐 now 也成立）', async () => {
+    vi.setSystemTime(UNALIGNED_NOW_SEC * 1000)
+    vi.mocked(getChartWithMeta).mockResolvedValue(chartMeta([point(UNALIGNED_FORMING, 1, 1)], 9, 'v9'))
+    const result = await loadFxHistoryResult(7, '1m', FX_HISTORY_MAX_BUCKETS + 60, {
+      history_version: null, history_tail: null, history_tail_at: null,
+      history_tail_through_trade_id: null,
+    })
+    expect(result.points.length).toBe(FX_HISTORY_MAX_BUCKETS)
+    expect(result.points.at(-1)!.t).toBe(iso(UNALIGNED_FORMING))
+  })
+
+  it('封存段版本与 /chart 元数据版本不一致时丢弃封存段整窗重读，不混代', async () => {
+    vi.mocked(fetchFxHistorySegment).mockResolvedValue(segment(BOUNDARY - 3600, [[30, 2, 2]]))
+    vi.mocked(getChartWithMeta)
+      .mockResolvedValueOnce(chartMeta([point(BOUNDARY, 7, 7)], 700, 'v2'))
+      .mockResolvedValueOnce(chartMeta([point(BOUNDARY - 1800, 8, 8)], 701, 'v2'))
+    const stale: FxHistorySnapshotTail = { ...freshTail, history_tail_at: iso(NOW_SEC - 7200) }
+    const result = await loadFxHistoryResult(7, '1m', 60, stale)
+
+    expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
+    expect(getChartWithMeta).toHaveBeenCalledTimes(2)
+    expect(getChartWithMeta).toHaveBeenNthCalledWith(2, 7, '1m', iso(BOUNDARY - 1800), iso(NOW_SEC))
+    expect(result.historyVersion).toBe('v2')
+    expect(result.throughTradeId).toBe(701)
+    // 版本 A 的封存点（c=2,v=2）被丢弃；11:30 来自版本 B 的整窗响应
+    expect(findAt(result.points, BOUNDARY - 1800)).toMatchObject({ c: 8, v: 8 })
+    expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 8, v: 0 })   // 不是 v2 部分响应的 v=7
   })
 })
 

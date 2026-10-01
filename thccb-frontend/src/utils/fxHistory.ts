@@ -228,6 +228,22 @@ export function decodeFxTradeTick(tick: FxTradeTick): FxCandleTrade | null {
 }
 
 /**
+ * 当前进行中（forming）桶的起点：按 step 向下对齐。非法 step 返回 nowSec。
+ */
+export function fxFormingBucketStart(nowSec: number, stepSec: number): number {
+  if (!Number.isFinite(stepSec) || stepSec <= 0) return nowSec
+  return nowSec - (nowSec % stepSec)
+}
+
+/**
+ * 对齐的 exclusive 结束桶 = forming bucket + 1 step。
+ * 合并/裁剪必须用它而不是 `nowSec + step`，否则 now 未对齐时会多产出一个未来空桶。
+ */
+export function fxHistoryEndExclusive(nowSec: number, stepSec: number): number {
+  return fxFormingBucketStart(nowSec, stepSec) + stepSec
+}
+
+/**
  * 覆盖 [fromSec, 最后封存边界) 的段起点列表（对齐段长；进行中的段不含）。
  * 与 LMSR `sealedSegmentEpochs` 同语义，但按 FX 的 interval 取段长。
  * 段数超过 `FX_HISTORY_MAX_SEGMENTS` 时**显式抛 RangeError**，绝不截断旧段。

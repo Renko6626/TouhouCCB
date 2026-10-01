@@ -24,6 +24,8 @@ import {
   FX_HISTORY_MAX_BUCKETS,
   FX_HISTORY_SEGMENT_SECONDS,
   decodeFxHistorySegment,
+  fxFormingBucketStart,
+  fxHistoryEndExclusive,
   fxHistorySegmentEpochs,
   mergeFxHistoryCandles,
 } from '@/utils/fxHistory'
@@ -89,17 +91,28 @@ export async function loadFxHistoryTailResult(
   interval: FxHistoryInterval,
   snapshotTail: FxHistorySnapshotTail | null,
 ): Promise<FxHistoryLoadResult> {
+  const step = FX_HISTORY_INTERVAL_SECONDS[interval]
   const nowSec = Math.floor(Date.now() / 1000)
   const boundary = nowSec - (nowSec % FX_HISTORY_SEGMENT_SECONDS[interval])
+  // 对齐的 exclusive 结束桶：now 未对齐时绝不产出未来空桶
+  const endExclusive = fxHistoryEndExclusive(nowSec, step)
   const version = snapshotTail?.history_version ?? null
   const { segment, coverage, fresh } = snapshotTailStatus(interval, snapshotTail, nowSec, boundary)
   if (version && fresh && segment) {
     const throughTradeId = validThroughTradeId(coverage)
     if (throughTradeId === null) throw new Error('FX history tail is missing through-trade-id')
-    return { points: decodeFxHistorySegment(segment), throughTradeId, historyVersion: version }
+    return {
+      points: mergeFxHistoryCandles([], decodeFxHistorySegment(segment), step, boundary, endExclusive),
+      throughTradeId,
+      historyVersion: version,
+    }
   }
   const meta = await getChartWithMeta(pairId, interval, isoAt(boundary), isoAt(nowSec))
-  return { points: meta.points, throughTradeId: meta.throughTradeId, historyVersion: meta.historyVersion }
+  return {
+    points: mergeFxHistoryCandles([], meta.points, step, boundary, endExclusive),
+    throughTradeId: meta.throughTradeId,
+    historyVersion: meta.historyVersion,
+  }
 }
 
 /** 兼容包装：只要点。 */
@@ -138,11 +151,12 @@ export async function loadFxHistoryResult(
     ? Math.max(1, Math.floor(lookbackMinutes)) : FX_HISTORY_DEFAULT_LOOKBACK_MINUTES
   const nowSec = Math.floor(Date.now() / 1000)
   const requestedFromSec = nowSec - lookback * 60
-  // 对齐后端 /chart 的 20,000 桶上限：超限时只用最近窗口，避免无界合并/请求。
-  const lastBucket = nowSec - (nowSec % step)
+  // 对齐结束桶 + 20,000 桶上限：超限时只用最近窗口，且桶数恰好不超上限。
+  const formingBucket = fxFormingBucketStart(nowSec, step)
+  const endExclusive = fxHistoryEndExclusive(nowSec, step)
   let fromSec = requestedFromSec
-  if ((lastBucket - (fromSec - (fromSec % step))) / step + 1 > FX_HISTORY_MAX_BUCKETS) {
-    fromSec = lastBucket - (FX_HISTORY_MAX_BUCKETS - 1) * step
+  if ((endExclusive - (fromSec - (fromSec % step))) / step > FX_HISTORY_MAX_BUCKETS) {
+    fromSec = formingBucket - (FX_HISTORY_MAX_BUCKETS - 1) * step
     console.warn(`[useFxCandleHistory] lookback 超出 ${FX_HISTORY_MAX_BUCKETS} 桶，已裁剪到最近窗口`)
   }
   const boundary = nowSec - (nowSec % segmentSeconds)
@@ -165,15 +179,24 @@ export async function loadFxHistoryResult(
         const throughTradeId = validThroughTradeId(coverage)
         if (throughTradeId === null) throw new Error('FX history tail is missing through-trade-id')
         return {
-          points: mergeFxHistoryCandles(sealed, decodeFxHistorySegment(tailSegment), step, fromSec, nowSec + step),
+          points: mergeFxHistoryCandles(sealed, decodeFxHistorySegment(tailSegment), step, fromSec, endExclusive),
           throughTradeId,
           historyVersion: version,
         }
       }
       // 尾段不可复用：只取 [封存边界, now] 的 /chart，游标以该 HTTP 响应为准
       const meta = await getChartWithMeta(pairId, interval, isoAt(boundary), isoAt(nowSec))
+      if (meta.historyVersion !== version) {
+        // 封存段是版本 A、/chart 是版本 B：绝不混代；丢弃 A，整窗按 B 重读
+        const rebuilt = await getChartWithMeta(pairId, interval, isoAt(fromSec), isoAt(nowSec))
+        return {
+          points: mergeFxHistoryCandles([], rebuilt.points, step, fromSec, endExclusive),
+          throughTradeId: rebuilt.throughTradeId,
+          historyVersion: rebuilt.historyVersion,
+        }
+      }
       return {
-        points: mergeFxHistoryCandles(sealed, meta.points, step, fromSec, nowSec + step),
+        points: mergeFxHistoryCandles(sealed, meta.points, step, fromSec, endExclusive),
         throughTradeId: meta.throughTradeId,
         historyVersion: meta.historyVersion,
       }
@@ -183,7 +206,7 @@ export async function loadFxHistoryResult(
   }
   const meta = await getChartWithMeta(pairId, interval, isoAt(fromSec), isoAt(nowSec))
   return {
-    points: mergeFxHistoryCandles([], meta.points, step, fromSec, nowSec + step),
+    points: mergeFxHistoryCandles([], meta.points, step, fromSec, endExclusive),
     throughTradeId: meta.throughTradeId,
     historyVersion: meta.historyVersion,
   }
