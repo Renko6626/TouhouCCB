@@ -8,7 +8,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -61,7 +61,12 @@ async def own_short_positions(db, user_id):
     """Reuse the player short read contract, selecting only persisted own rows."""
     from app.services.fx.shorts import read_short_position
     pair_ids = (await db.execute(select(FxShortPosition.pair_id)
-                .where(FxShortPosition.user_id == user_id)
+                .where(FxShortPosition.user_id == user_id, or_(
+                    FxShortPosition.principal_foreign > ZERO,
+                    FxShortPosition.interest_foreign > ZERO,
+                    FxShortPosition.restricted_gold > ZERO,
+                    FxShortPosition.proceeds_basis_gold > ZERO,
+                ))
                 .order_by(FxShortPosition.pair_id))).scalars().all()
     return [await read_short_position(db, user_id=user_id, pair_id=pid)
             for pid in pair_ids]
