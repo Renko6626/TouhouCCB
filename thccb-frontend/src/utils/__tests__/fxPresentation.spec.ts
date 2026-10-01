@@ -27,8 +27,8 @@ describe('FX 交易展示口径', () => {
     expect(fxBuyBlockReason({ cash: 100, debt: 10 }, '1')).toContain('未还借款')
     expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true }, '1')).toBe('')
     expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true, credit_frozen: true }, '1')).toContain('冻结')
-    // 统一模式只对负债买入执行新增风险检查；无债现金买入不应误禁。
-    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 0, unified_credit_enabled: true, credit_frozen: true }, '1')).toBe('')
+    // 冻结也可能由外币义务引起；金债为零不能绕过新增风险闸。
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 0, unified_credit_enabled: true, credit_frozen: true }, '1')).not.toBe('')
     expect(fxBuyBlockReason({ cash: 1, debt: 0, unified_credit_enabled: false }, '1.000001')).toContain('余额不足')
     expect(fxBuyBlockReason(null, '1')).toContain('账户')
   })

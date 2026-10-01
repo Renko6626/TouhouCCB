@@ -2,6 +2,7 @@
 // 断言的是可执行行为，不是源码字符串或恒真 identity。
 import { describe, expect, it } from 'vitest'
 import {
+  FxPendingShortOrder,
   computeMaxGoldIn,
   computeMinOut,
   divideFxAmount,
@@ -396,4 +397,35 @@ describe('cover maximum gold input', () => {
     expect(computeMaxGoldIn('1.0000001', 0)).toBe('1.000001')
     expect(computeMaxGoldIn('2', 100)).toBe('2.020000')
   })
+})
+
+describe('ambiguous short response retries', () => {
+  it.each(['open', 'cover'] as const)('replays identical %s request after a committed response is lost', async action => {
+    const order = new FxPendingShortOrder()
+    const calls: unknown[] = []
+    const executed = new Set<string>()
+    const run = async (request: { body: { idempotency_key: string } }) => {
+      calls.push(request)
+      executed.add(request.body.idempotency_key)
+      if (calls.length === 1) throw new Error('response lost')
+      return { replay: true }
+    }
+    const body = action === 'open' ? { foreign_amount: '3.123456', min_gold_out: '4.000001' }
+      : { foreign_amount: '1.000001', max_gold_in: '2.123456' }
+    await expect(order.start(7, action, body, run)).rejects.toThrow('response lost')
+    await expect(order.start(7, action, body, run)).rejects.toThrow()
+    expect(calls).toHaveLength(1)
+    expect(await order.retry(run)).toEqual({ replay: true })
+    expect(calls[1]).toEqual(calls[0])
+    expect(executed.size).toBe(1)
+    expect(order.pending).toBeNull()
+  })
+})
+
+it('retains ambiguous server failures but releases a definitively rejected short request', async () => {
+  const order = new FxPendingShortOrder()
+  await expect(order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => { throw { response: { status: 503 } } })).rejects.toEqual({ response: { status: 503 } })
+  expect(order.pending).not.toBeNull()
+  await expect(order.retry(async () => { throw { status: 422 } })).rejects.toEqual({ status: 422 })
+  expect(order.pending).toBeNull()
 })

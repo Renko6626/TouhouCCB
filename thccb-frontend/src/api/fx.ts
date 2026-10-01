@@ -853,3 +853,44 @@ export function computeMaxGoldIn(input: string, slippageBps: number): string {
   const numerator = BigInt(match[1]! + fraction) * BigInt(10000 + clampBps(slippageBps)) * 1000000n
   return scaledToString((numerator + denominator - 1n) / denominator, 6)
 }
+
+export interface FxPendingShortRequest {
+  readonly pairId: number
+  readonly action: 'open' | 'cover'
+  readonly body: Readonly<{
+    foreign_amount?: string
+    cover_all?: boolean
+    min_gold_out?: string
+    max_gold_in?: string
+    idempotency_key: string
+  }>
+}
+
+/** Retain the exact wire identity until an ambiguous write has been resolved. */
+export class FxPendingShortOrder {
+  pending: FxPendingShortRequest | null = null
+  private busy = false
+
+  async start<T>(pairId: number, action: 'open' | 'cover', body: Omit<FxPendingShortRequest['body'], 'idempotency_key'>,
+    run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
+    if (this.pending) throw new Error('A short request is awaiting its result')
+    this.pending = Object.freeze({ pairId, action, body: Object.freeze({ ...body, idempotency_key: newFxIdempotencyKey() }) })
+    return this.retry(run)
+  }
+
+  async retry<T>(run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
+    if (this.busy || !this.pending) return null
+    this.busy = true
+    try {
+      const result = await run(this.pending)
+      this.pending = null
+      return result
+    } catch (error) {
+      const e = error as { status?: unknown; response?: { status?: unknown } } | null
+      const status = Number(e?.response?.status ?? e?.status)
+      // A request timeout can occur after commit. Unknown/5xx outcomes remain pending.
+      if (status >= 400 && status < 500 && status !== 408) this.pending = null
+      throw error
+    } finally { this.busy = false }
+  }
+}

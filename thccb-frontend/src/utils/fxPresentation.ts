@@ -33,6 +33,7 @@ export function fxAvailableCash(summary: Pick<UserSummary, 'cash' | 'available_c
 /** 仅拦截已知不可执行条件，权威的逐笔风控检查仍由服务端完成。 */
 export function fxBuyBlockReason(summary: BuySummary | null, amount: string): string {
   if (!summary) return '账户信息暂不可用，请刷新后买入'
+  if (summary.unified_credit_enabled && summary.credit_frozen) return '账户已冻结新增信用，请先还款或安全减仓'
   if ((compareFxAmounts(summary.debt, '0') ?? 0) > 0) {
     if (!summary.unified_credit_enabled) return '有未还借款，需先还款才能买入外币；仍可卖出'
     if (summary.credit_frozen) return '账户已冻结新增信用，请先还款或安全减仓'
