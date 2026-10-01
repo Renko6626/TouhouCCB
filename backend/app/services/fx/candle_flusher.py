@@ -145,6 +145,17 @@ class FxCandleFlusher:
 
         * a non-empty ``expected == through`` batch is rejected immediately
           (never queued into a permanent failure);
+        * the active generation is checked against queued **and non-discarded
+          in-flight** work before anything is mutated, so a stale-generation tail
+          cannot slip in while the head is detached; ``discard_pair`` releases
+          that guard for a legal resync;
+        * a recompute overlapping the frozen in-flight prefix is handled the
+          same whether or not a tail is queued (volume: ignored; a metadata-only
+          transition before the in-flight cursor: explicit conflict);
+        * a metadata-only (``expected == through``, empty) readiness transition
+          is queued at the cursor it names, ordered before any queued volume
+          range, or explicitly rejected when it cannot be ordered — never
+          silently dropped;
         * same ``expected`` narrower ``through`` is ignored — the wider queued
           range stays authoritative and its rows are never replaced by a subset;
         * same ``expected`` equal ``through`` replaces rows; a wider ``through``
@@ -167,20 +178,33 @@ class FxCandleFlusher:
 
         batches = self._pending.get(pair_id)
         in_flight = self._in_flight.get(pair_id)
+        if in_flight is not None and in_flight.discarded:
+            in_flight = None  # a discarded head must not block a legal resync
+
+        self._check_generation(pair_id, history_version, batches, in_flight)
+
+        if in_flight is not None and expected_trade_id == in_flight.expected_trade_id:
+            if through_trade_id == expected_trade_id:
+                raise FxCandleCursorConflict(
+                    f"pair {pair_id} metadata-only transition at {expected_trade_id} "
+                    "overlaps the in-flight range; retry after the flush settles"
+                )
+            return  # volume recompute overlapping the frozen prefix: ignore
+
+        if through_trade_id == expected_trade_id:
+            self._queue_metadata(pair_id, expected_trade_id, history_version,
+                                 history_ready, batches, in_flight)
+            return
 
         if not batches:
             self._append_or_create(pair_id, expected_trade_id, through_trade_id, rows,
                                    history_version, history_ready, in_flight)
             return
 
-        if any(batch.history_version != history_version for batch in batches):
-            raise FxCandleCursorConflict(
-                f"pair {pair_id} has pending ranges for a different history "
-                f"generation; discard or flush them before generation {history_version!r}"
-            )
-
         match = next(
-            (batch for batch in batches if batch.expected_trade_id == expected_trade_id),
+            (batch for batch in batches
+             if batch.expected_trade_id == expected_trade_id
+             and not (batch.through_trade_id == batch.expected_trade_id and not batch.rows)),
             None,
         )
         if match is not None:
@@ -211,18 +235,59 @@ class FxCandleFlusher:
             f"cannot add ({expected_trade_id}, {through_trade_id}]"
         )
 
+    def _check_generation(self, pair_id, history_version, batches, in_flight) -> None:
+        """Reject mixed generations before mutating any queue state."""
+        active = [batch.history_version for batch in (batches or ())]
+        if in_flight is not None:
+            active.append(in_flight.history_version)
+        if any(version != history_version for version in active):
+            raise FxCandleCursorConflict(
+                f"pair {pair_id} has active ranges for a different history "
+                f"generation; discard or flush them before generation {history_version!r}"
+            )
+
+    def _queue_metadata(self, pair_id, expected, version, history_ready, batches, in_flight):
+        """Queue a zero-width readiness transition at ``expected``, in order.
+
+        Never silently drops: it updates/creates a metadata range, or raises when
+        the position cannot be ordered against the active ranges.
+        """
+        if batches:
+            first, tail = batches[0], batches[-1]
+            if expected == first.expected_trade_id:
+                if first.through_trade_id == expected and not first.rows:
+                    if history_ready is not None:
+                        first.history_ready = history_ready
+                else:
+                    batches.insert(0, self._metadata_batch(pair_id, expected, version, history_ready))
+                return
+            if expected == tail.through_trade_id and expected > tail.expected_trade_id:
+                batches.append(self._metadata_batch(pair_id, expected, version, history_ready))
+                return
+            if in_flight is not None and expected == in_flight.through_trade_id:
+                batches.insert(0, self._metadata_batch(pair_id, expected, version, history_ready))
+                return
+            raise FxCandleCursorConflict(
+                f"pair {pair_id} cannot order a metadata-only transition at "
+                f"{expected} within the queued ranges"
+            )
+        if in_flight is not None and expected != in_flight.through_trade_id:
+            raise FxCandleCursorConflict(
+                f"pair {pair_id} in-flight range ends at {in_flight.through_trade_id}, "
+                f"cannot order a metadata-only transition at {expected}"
+            )
+        self._pending[pair_id] = [self._metadata_batch(pair_id, expected, version, history_ready)]
+
     def _append_or_create(self, pair_id, expected, through, rows, version, ready, in_flight):
-        """No queued range: create, or attach after an in-flight head."""
+        """No queued range: create, or attach after an active in-flight head."""
         if in_flight is None:
             self._pending[pair_id] = [self._new_batch(pair_id, expected, through, rows, version, ready)]
-            return
-        if through <= in_flight.through_trade_id or expected == in_flight.expected_trade_id:
-            # Covered/stale, or an overlapping recompute of the frozen in-flight
-            # range that must not be mutated while its commit is unknown.
             return
         if expected == in_flight.through_trade_id:
             self._pending[pair_id] = [self._new_batch(pair_id, expected, through, rows, version, ready)]
             return
+        if through <= in_flight.through_trade_id:
+            return  # covered/stale
         raise FxCandleCursorConflict(
             f"pair {pair_id} in-flight range ends at {in_flight.through_trade_id}, "
             f"cannot add ({expected}, {through}]"
@@ -252,6 +317,17 @@ class FxCandleFlusher:
             history_version=version,
             history_ready=ready,
             rows={_row_key(row): dict(row) for row in rows},
+        )
+
+    @staticmethod
+    def _metadata_batch(pair_id, expected, version, ready) -> _PendingBatch:
+        return _PendingBatch(
+            pair_id=pair_id,
+            expected_trade_id=expected,
+            through_trade_id=expected,
+            history_version=version,
+            history_ready=ready,
+            rows={},
         )
 
     # ── per-pair reset ────────────────────────────────────────────────────

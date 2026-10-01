@@ -94,6 +94,22 @@ async def _read_state(pair_id: int):
         )).scalars().first()
 
 
+def _hold_before_apply(monkeypatch):
+    """Barrier before the real apply so a flush is genuinely in-flight."""
+    import app.services.fx.candle_flusher as flusher_module
+    real_apply = flusher_module.apply_candle_batch
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def hold(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await real_apply(*args, **kwargs)
+
+    monkeypatch.setattr(flusher_module, "apply_candle_batch", hold)
+    return entered, release
+
+
 # ── pure aggregation ──────────────────────────────────────────────────────
 def test_compute_rows_orders_open_close_by_created_at_then_id_for_all_intervals():
     rows = compute_fx_candle_rows([
@@ -713,3 +729,124 @@ async def test_discard_pair_suppresses_in_flight_failure_reinsert(monkeypatch):
     assert flusher.pending_count() == 0
     assert flusher.pending_watermark(pair_id) is None
     assert await _read_state(pair_id) is None
+
+
+@pytest.mark.asyncio
+async def test_flusher_rejects_mixed_generation_while_head_in_flight(monkeypatch):
+    """A detached head still guards its generation; discard releases it."""
+    pair_id = await _seed_pair()
+    rows_a = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_id)])
+    rows_b = compute_fx_candle_rows([
+        _trade(2, _at(6), "1.20", input_amount="3", pair_id=pair_id),
+    ])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows_a, "gen-1")
+
+    entered, release = _hold_before_apply(monkeypatch)
+    task = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+
+    with pytest.raises(FxCandleCursorConflict):
+        flusher.add_batch(pair_id, 1, 2, rows_b, "gen-2")
+
+    # Explicit discard releases the stale guard for a legal resync.
+    flusher.discard_pair(pair_id)
+    resync = compute_fx_candle_rows([_trade(1, _at(6), "1.20", pair_id=pair_id)])
+    flusher.add_batch(pair_id, 0, 1, resync, "gen-2")
+    assert flusher.pending_watermark(pair_id) == 0
+
+    release.set()
+    assert await task == len(rows_a)
+    monkeypatch.undo()
+    assert flusher.pending_ranges(pair_id) == 1     # old-gen range not resurrected
+    assert flusher.pending_watermark(pair_id) == 0
+
+
+@pytest.mark.asyncio
+async def test_flusher_same_in_flight_recompute_ignored_with_queued_tail(monkeypatch):
+    """Deterministic: a recompute of the in-flight prefix is ignored either way."""
+    pair_id = await _seed_pair()
+    rows_a = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_id)])
+    rows_b = compute_fx_candle_rows([
+        _trade(2, _at(6), "1.20", input_amount="3", pair_id=pair_id),
+    ])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows_a, "gen-1")
+
+    entered, release = _hold_before_apply(monkeypatch)
+    task = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+
+    flusher.add_batch(pair_id, 1, 2, rows_b, "gen-1")   # contiguous tail
+    wider = compute_fx_candle_rows([
+        _trade(1, _at(5), "1.10", input_amount="2", pair_id=pair_id),
+        _trade(2, _at(6), "1.20", input_amount="3", pair_id=pair_id),
+        _trade(3, _at(7), "1.30", input_amount="4", pair_id=pair_id),
+    ])
+    flusher.add_batch(pair_id, 0, 3, wider, "gen-1")    # must be ignored, not raised
+    assert flusher.pending_through(pair_id) == 2        # stale prefix did not widen it
+
+    release.set()
+    assert await task == len(rows_a)
+    monkeypatch.undo()
+    assert await flusher.flush_once() == len(rows_b)
+    candle = await _read_candle(pair_id, "1m", BASE)
+    assert candle.gold_volume == Decimal("5")
+    assert candle.n_trades == 2
+    assert (await _read_state(pair_id)).last_trade_id == 2
+
+
+@pytest.mark.asyncio
+async def test_flusher_metadata_transition_at_in_flight_through_without_tail(monkeypatch):
+    pair_id = await _seed_pair()
+    rows = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_id)])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows, "gen-1")
+
+    entered, release = _hold_before_apply(monkeypatch)
+    task = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+
+    flusher.add_batch(pair_id, 1, 1, [], "gen-1", history_ready=True)
+    assert flusher.pending_ranges(pair_id) == 2
+    assert flusher.pending_watermark(pair_id) == 0
+    assert flusher.pending_through(pair_id) == 1
+
+    release.set()
+    assert await task == len(rows)
+    monkeypatch.undo()
+    assert await flusher.flush_once() == 0
+    state = await _read_state(pair_id)
+    assert state.last_trade_id == 1
+    assert state.history_ready is True
+
+
+@pytest.mark.asyncio
+async def test_flusher_metadata_transition_orders_before_queued_tail(monkeypatch):
+    pair_id = await _seed_pair()
+    rows_a = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_id)])
+    rows_b = compute_fx_candle_rows([
+        _trade(2, _at(6), "1.20", input_amount="3", pair_id=pair_id),
+    ])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows_a, "gen-1")
+
+    entered, release = _hold_before_apply(monkeypatch)
+    task = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+
+    flusher.add_batch(pair_id, 1, 2, rows_b, "gen-1")                       # tail
+    flusher.add_batch(pair_id, 1, 1, [], "gen-1", history_ready=True)       # before tail
+    assert flusher.pending_ranges(pair_id) == 3
+    assert flusher.pending_through(pair_id) == 2
+
+    release.set()
+    assert await task == len(rows_a)
+    monkeypatch.undo()
+    assert await flusher.flush_once() == len(rows_b)
+    state = await _read_state(pair_id)
+    assert state.last_trade_id == 2
+    assert state.history_ready is True
+    candle = await _read_candle(pair_id, "1m", BASE)
+    assert candle.gold_volume == Decimal("5")
+    assert candle.n_trades == 2
