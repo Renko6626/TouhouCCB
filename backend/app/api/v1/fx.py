@@ -47,6 +47,7 @@ async def all_my_trades(
         **FxTradePublic.model_validate(trade).model_dump(),
         currency_code=pair.currency_code, currency_name=pair.currency_name,
         is_liquidation=trade.source == "liquidation",
+        purpose=str(trade.purpose),
     ) for trade, pair in rows]
 
 

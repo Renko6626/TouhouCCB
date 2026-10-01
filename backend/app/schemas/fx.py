@@ -322,6 +322,7 @@ class FxPersonalTrade(FxTradePublic):
     currency_code: str
     currency_name: str
     is_liquidation: bool
+    purpose: str = "spot"
 
 
 class FxSnapshot(BaseModel):
