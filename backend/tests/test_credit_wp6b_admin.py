@@ -728,7 +728,7 @@ async def test_explicit_short_writeoff_preserves_gold_and_other_pair(writeoff_cl
     try:
         response = await client.post(path, json={'reason': 'operator recovery', 'idempotency_key': 'writeoff-original'})
         assert response.status_code == 200, response.text
-        assert (await client.post(path, json={'reason': 'retry', 'idempotency_key': 'writeoff-noop'})).status_code == 200
+        assert (await client.post(path, json={'reason': 'retry', 'idempotency_key': 'writeoff-noop'})).status_code == 409
         assert (await client.post(path, json={'reason': '   ', 'idempotency_key': 'blank'})).status_code == 422
     finally:
         app.dependency_overrides.pop(current_superuser, None)

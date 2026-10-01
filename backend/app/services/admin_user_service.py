@@ -1045,7 +1045,9 @@ async def writeoff_fx_short(
             if principal + interest == ZERO:
                 if lock or basis or position.interest_last_accrued_at is not None:
                     raise AdminUserError(409, "inconsistent zero FX short debt")
-                return {"user_id": target_id, "pair_id": pair_id, "written_off": False, "replay": False}
+                # An accepted no-op without a durable key would become a
+                # destructive delayed retry if this pair is shorted again.
+                raise AdminUserError(409, "no outstanding FX short debt to write off")
             if position.interest_last_accrued_at is None:
                 raise AdminUserError(409, "FX short interest clock missing")
             treasury = (await db.execute(select(FxTreasury).where(
