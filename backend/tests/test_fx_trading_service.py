@@ -162,21 +162,23 @@ async def test_snapshot_volume_uses_gold_side_for_buy_and_sell_and_is_zero_when_
     empty = await trading.get_public_snapshot(db_session, pid)
     assert empty.volume_24h == Decimal("0")
     db_session.add_all([
-        FxTrade(pair_id=pid, user_id=uid, side="buy", input_amount=Decimal("2.5"),
+        FxTrade(pair_id=pid, user_id=uid, side="buy", input_amount=Decimal("0.1"),
                 output_amount=Decimal("1"), min_out=Decimal("0"),
                 pre_gold_reserve=Decimal("100"), pre_foreign_reserve=Decimal("100"),
-                post_gold_reserve=Decimal("102.5"), post_foreign_reserve=Decimal("99"),
+                post_gold_reserve=Decimal("100.1"), post_foreign_reserve=Decimal("99"),
                 post_price=Decimal("1"), idempotency_key="vol-buy"),
         FxTrade(pair_id=pid, user_id=uid, side="sell", input_amount=Decimal("1"),
-                output_amount=Decimal("3.25"), min_out=Decimal("0"),
-                pre_gold_reserve=Decimal("102.5"), pre_foreign_reserve=Decimal("99"),
-                post_gold_reserve=Decimal("99.25"), post_foreign_reserve=Decimal("100"),
+                output_amount=Decimal("0.2"), min_out=Decimal("0"),
+                pre_gold_reserve=Decimal("100.1"), pre_foreign_reserve=Decimal("99"),
+                post_gold_reserve=Decimal("99.9"), post_foreign_reserve=Decimal("100"),
                 post_price=Decimal("1"), idempotency_key="vol-sell"),
     ])
     await db_session.commit()
     snapshot = await trading.get_public_snapshot(db_session, pid)
-    # buy contributes input gold (2.5), sell contributes output gold (3.25).
-    assert snapshot.volume_24h == Decimal("5.75")
+    # buy contributes input gold (0.1), sell contributes output gold (0.2).
+    # Both are binary-inexact floats, so a Decimal(float) regression yields
+    # 0.30000000000000004 instead of the exact Decimal("0.3").
+    assert snapshot.volume_24h == Decimal(".3")
 
 
 # ── I1 snapshot pricing: gold-per-foreign bid/ask with non-negative spread ──
