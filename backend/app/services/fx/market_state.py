@@ -21,14 +21,26 @@ Hard constraints this module honours:
   source for candle aggregation.
 * No network awaits and no financial mutations.
 
-The storage contract is frozen in ``task-2-storage-report.md``.  One gap is
-worth calling out explicitly: :meth:`FxCandleFlusher.add_batch` has no
-``history_ready`` argument and the flusher always applies batches with the
-``apply_candle_batch`` default ``history_ready=True``.  To keep the requirement
-"readiness true only when the original cutoff is covered" the runtime performs
-the one-time initial backfill with its own ``apply_candle_batch`` calls
-(``history_ready=False`` for intermediate pages) and flips readiness explicitly;
-see :meth:`FxMarketDataService._ensure_ready`.
+The storage contract is frozen in ``task-2-storage-report.md``.  The storage
+layer's current revision accepts an optional ``history_ready`` on
+:meth:`FxCandleFlusher.add_batch`/``apply_candle_batch`` and flips readiness on
+the duplicate path; this runtime still owns *when* the transition happens.  It
+passes ``history_ready=False`` for intermediate backfill pages, ``True`` on the
+page that reaches the startup cutoff, and uses a metadata-only batch for the
+explicit transition (see :meth:`FxMarketDataService._ensure_ready`).  Normal
+incremental ranges pass ``history_ready=None`` so an existing ready flag is
+preserved.
+
+**Mid-bucket semantics.** The runtime's read snapshots intentionally include the
+bucket that is still forming: :meth:`FxMarketDataService.tail` encodes through
+``now``'s bucket and :meth:`FxMarketDataService.get_candles` may return the
+current bucket.  A closed bucket is immutable, but the trailing bucket's
+``v``/``trades``/OHLC are *provisional* and grow until it closes.  The read API's
+standard unit is the full (closed) bucket, so a consumer must not present the
+trailing bucket's volume as an exact final total.  In particular this cache is
+never the source for the exact rolling ``volume_24h`` snapshot: that stays a
+windowed SQL aggregate over ``fx_trade`` (full buckets must not silently stand in
+for an exact moving total).
 """
 from __future__ import annotations
 
@@ -72,6 +84,15 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _as_datetime(value: Any) -> datetime:
+    """Normalise a DB datetime or its SQLite string form to aware UTC."""
+    if isinstance(value, datetime):
+        return _utc(value)
+    if isinstance(value, str):
+        return _utc(datetime.fromisoformat(value))
+    raise TypeError(f"unexpected datetime value: {value!r}")
 
 
 def _dec(value: Any) -> Decimal:
@@ -490,13 +511,55 @@ class FxMarketDataService:
             return rt.applied_trade_id
 
     async def flush_once(self) -> int:
-        """Flush owned pending batches and sync local durable metadata."""
+        """Flush owned pending ranges, then sync durable metadata from the DB.
+
+        Absence of a pending range means only "nothing queued" — never "every
+        trade through ``queued_trade_id`` is durable".  A range can have been
+        discarded (rebuild/resync), may still be flipping into uncertainty, or
+        may belong to a superseded generation, so the persisted checkpoint is
+        the only truthful source for ``durable_trade_id``.
+        """
         written = await self._flusher.flush_once()
-        for pair_id, rt in self._states.items():
-            if self._flusher.pending_watermark(pair_id) is None:
-                if rt.queued_trade_id > rt.durable_trade_id:
-                    rt.durable_trade_id = rt.queued_trade_id
+        await self._sync_durable_from_checkpoint()
         return written
+
+    async def _sync_durable_from_checkpoint(self) -> None:
+        """Reconcile every loaded pair's cursor/generation with persisted state.
+
+        One small batched projection (``pair_id, last_trade_id,
+        history_version``) keeps this cheap regardless of pair count.  A changed
+        generation or a vanished row triggers a per-pair resync, which discards
+        only that pair's queued ranges.
+        """
+        if not self._states:
+            return
+        pair_ids = list(self._states)
+        async with self._factory() as db:
+            rows = (await db.execute(
+                select(
+                    FxMarketDataState.pair_id,
+                    FxMarketDataState.last_trade_id,
+                    FxMarketDataState.history_version,
+                ).where(FxMarketDataState.pair_id.in_(pair_ids))
+            )).all()
+        persisted = {
+            int(pair_id): (int(last_trade_id), str(version))
+            for pair_id, last_trade_id, version in rows
+        }
+        for pair_id, rt in self._states.items():
+            value = persisted.get(pair_id)
+            if value is None:
+                # No durable row for a pair we believe we are writing: the
+                # checkpoint says cursor 0, nothing more.
+                await self._resync_from_durable(rt)
+                continue
+            last_trade_id, version = value
+            if version != rt.history_version:
+                # A rebuild changed the generation under us: rebuild from the
+                # checkpoint rather than let a stale range be written again.
+                await self._resync_from_durable(rt)
+                continue
+            rt.durable_trade_id = last_trade_id
 
     # ── background reconciliation ─────────────────────────────────────────
     async def _run(self) -> None:
@@ -568,55 +631,68 @@ class FxMarketDataService:
         return rt
 
     async def _warm_ring(self, rt: _PairRuntime) -> None:
-        """Load the pair's retained windows from persisted candles.
+        """Load each interval's own retained window from persisted candles.
 
-        The window anchor is the pair's newest persisted bucket, not wall-clock
-        ``now``, so a dormant pair keeps its recent candles in the ring.
+        Every tier is bounded **in SQL** by its own ring retention: its own
+        newest bucket minus ``(buckets - 1) * step``.  The previous single
+        "newest across all tiers minus the largest window" query pulled up to 90
+        days of 10s/1m rows and discarded them in Python; per-tier bounds keep
+        the warm-up proportional to what the ring can actually hold.
         """
-        max_window = max(tier.window for tier in RING_SPEC.values())
+        newest_by_interval: dict[str, datetime] = {}
         async with self._factory() as db:
-            latest = (await db.execute(
-                select(FxCandle.bucket_start)
-                .where(FxCandle.pair_id == rt.pair_id)
-                .order_by(FxCandle.bucket_start.desc())
-                .limit(1)
-            )).scalar()
-            if latest is None:
-                return
-            latest = _utc(latest)
-            cutoff = latest - timedelta(seconds=max_window)
-            rows = (await db.execute(
-                select(FxCandle)
+            maxima = (await db.execute(
+                select(FxCandle.interval, func.max(FxCandle.bucket_start))
                 .where(
                     FxCandle.pair_id == rt.pair_id,
                     FxCandle.interval.in_(list(RING_SPEC.keys())),
-                    FxCandle.bucket_start >= cutoff,
                 )
-                .order_by(FxCandle.bucket_start)
-            )).scalars().all()
-            for candle in rows:
-                tier = RING_SPEC.get(candle.interval)
-                if tier is None:
+                .group_by(FxCandle.interval)
+            )).all()
+            for interval, newest in maxima:
+                tier = RING_SPEC.get(interval)
+                if tier is None or newest is None:
                     continue
-                bucket_start = _utc(candle.bucket_start)
-                if bucket_start < latest - timedelta(seconds=(tier.buckets - 1) * tier.step):
-                    continue
-                rt.ring.merge(_candle_to_row(candle, bucket_start))
+                newest_at = _as_datetime(newest)
+                newest_by_interval[interval] = newest_at
+                floor = newest_at - timedelta(seconds=(tier.buckets - 1) * tier.step)
+                candles = (await db.execute(
+                    select(FxCandle)
+                    .where(
+                        FxCandle.pair_id == rt.pair_id,
+                        FxCandle.interval == interval,
+                        FxCandle.bucket_start >= floor,
+                    )
+                    .order_by(FxCandle.bucket_start)
+                )).scalars().all()
+                for candle in candles:
+                    rt.ring.merge(_candle_to_row(candle, _utc(candle.bucket_start)))
         rt.ring.prune()
-        if rt.covered_through_at is None:
-            rt.covered_through_at = latest
+        if rt.covered_through_at is None and newest_by_interval:
+            rt.covered_through_at = max(newest_by_interval.values())
+
+    def _discard_pair_pending(self, pair_id: int) -> None:
+        """Drop only ``pair_id``'s queued ranges from the shared flusher.
+
+        Uses the storage layer's per-pair reset (``FxCandleFlusher.discard_pair``),
+        which also marks any in-flight range for that pair discarded so a
+        stale-generation retry cannot resurrect it.  Never replaces the shared
+        flusher: that would silently drop *other* pairs' unflushed ranges.
+        """
+        self._flusher.discard_pair(int(pair_id))
 
     async def _resync_from_durable(self, rt: _PairRuntime) -> None:
-        """Rebuild from the persisted checkpoint after a cursor conflict.
+        """Rebuild one pair from the persisted checkpoint after a conflict.
 
-        The pending flusher is replaced: its retained ranges may belong to a
-        stale history generation (a rebuild changed the state's version) and
-        ``add_batch`` refuses to mix generations.  Anything not durable is
-        recomputed from ``rt.durable_trade_id`` on the next catch-up, so dropping
-        it cannot lose volume.
+        Only this pair's queued ranges are discarded, so the shared flusher keeps
+        every other pair's pending ranges (and their bounded, still-valid data).
+        Anything not durable is recomputed from the persisted cursor on the next
+        catch-up, and a stale generation can never be re-written: the storage
+        layer rejects the old generation, and the ring is rebuilt from the
+        checkpoint under the persisted generation.
         """
         values = await self._read_state_values(rt.pair_id)
-        self._flusher = FxCandleFlusher(self._factory)
+        self._discard_pair_pending(rt.pair_id)
         rt.ring = FxHistoryRing()
         rt.public_trades.clear()
         rt.public_invalidated = False

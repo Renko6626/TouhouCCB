@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.core.database import async_session_maker
 from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
@@ -111,6 +111,26 @@ async def _read_state(pair_id: int) -> dict | None:
 async def _count(model) -> int:
     async with async_session_maker() as db:
         return int((await db.execute(select(func.count()).select_from(model))).scalar() or 0)
+
+
+async def _rebuild_pair(pair_id: int, *, through_trade_id: int, new_version: str) -> None:
+    """Simulate an out-of-band rebuild: derived rows replaced under a new gen."""
+    async with async_session_maker() as db:
+        async with db.begin():
+            await db.execute(delete(FxCandle).where(FxCandle.pair_id == pair_id))
+            await db.execute(delete(FxMarketDataState).where(FxMarketDataState.pair_id == pair_id))
+        async with db.begin():
+            projected = (await db.execute(
+                select(
+                    FxTrade.id, FxTrade.pair_id, FxTrade.created_at, FxTrade.post_price,
+                    FxTrade.side, FxTrade.input_amount, FxTrade.output_amount,
+                ).where(FxTrade.pair_id == pair_id, FxTrade.id <= through_trade_id)
+            )).all()
+            await apply_candle_batch(
+                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=through_trade_id,
+                rows=compute_fx_candle_rows(projected), history_version=new_version,
+                history_ready=True,
+            )
 
 
 class _BarrierService(FxMarketDataService):
@@ -316,6 +336,82 @@ async def test_reader_warms_persisted_ring_without_new_writes():
         assert await _count(FxCandle) == candles_before
     finally:
         await reader.stop()
+
+
+# ── one pair's rebuild must not drop another pair's unflushed range ────────
+@pytest.mark.asyncio
+async def test_resync_of_one_pair_preserves_other_pairs_pending_range(monkeypatch):
+    pair_a = await _seed_pair("AAA")
+    pair_b = await _seed_pair("BBB")
+    a1 = await _add_trade(pair_a, created_at=NOW + timedelta(seconds=5), input_amount="2")
+    b1 = await _add_trade(pair_b, created_at=NOW + timedelta(seconds=6), input_amount="3")
+
+    service = FxMarketDataService(async_session_maker)
+    await service.start(write_owner=True)
+    try:
+        a2 = await _add_trade(pair_a, created_at=NOW + timedelta(seconds=15), input_amount="5")
+        b2 = await _add_trade(pair_b, created_at=NOW + timedelta(seconds=16), input_amount="7")
+        await service.catch_up(pair_a)   # A queued, not yet flushed
+        await service.catch_up(pair_b)   # B queued, not yet flushed
+        assert service.state(pair_a)["durable_trade_id"] == a1
+        assert service.state(pair_b)["durable_trade_id"] == b1
+
+        # Out-of-band rebuild of B only: derived rows replaced under a new
+        # generation, so B's queued (old-generation) range is now stale.
+        await _rebuild_pair(pair_b, through_trade_id=b1, new_version="rebuilt-gen-b")
+
+        # First flush: A hits a transient failure (range retained uncertain),
+        # B is rejected on the stale generation and triggers the per-pair
+        # resync inside the post-flush checkpoint sync.  Resync must not touch
+        # A's retained range.
+        import app.services.fx.candle_flusher as flusher_module
+
+        real_apply = flusher_module.apply_candle_batch
+
+        async def _flaky_apply(db, *, pair_id, **kwargs):
+            if pair_id == pair_a:
+                raise RuntimeError("transient db error for A")
+            return await real_apply(db, pair_id=pair_id, **kwargs)
+
+        monkeypatch.setattr(flusher_module, "apply_candle_batch", _flaky_apply)
+        await service.flush_once()
+        monkeypatch.undo()
+
+        # No false durability from "nothing pending": A really is only at a1.
+        assert service.state(pair_a)["durable_trade_id"] == a1
+        assert service.state(pair_a)["applied_trade_id"] == a2
+        assert service.flusher.pending_ranges(pair_a) == 1
+
+        state_b = service.state(pair_b)
+        assert state_b["history_version"] == "rebuilt-gen-b"
+        assert state_b["durable_trade_id"] == b1           # rebuilt from checkpoint
+        assert state_b["applied_trade_id"] == b1           # ready to re-fetch b2
+
+        # A's retained range flushes on the next attempt: preserved once.
+        await service.flush_once()
+        candle_a = await _read_candle(pair_a, "1m", NOW)
+        assert candle_a["n"] == 2
+        assert candle_a["volume"] == Decimal("7")          # 2 + 5, counted once
+        assert service.state(pair_a)["durable_trade_id"] == a2
+
+        # Continued append on A after the resync still works.
+        a3 = await _add_trade(pair_a, created_at=NOW + timedelta(seconds=25), input_amount="11")
+        await service.catch_up(pair_a)
+        await service.flush_once()
+        candle_a = await _read_candle(pair_a, "1m", NOW)
+        assert candle_a["n"] == 3
+        assert candle_a["volume"] == Decimal("18")         # 2 + 5 + 11
+        assert service.state(pair_a)["durable_trade_id"] == a3
+
+        # B's rejected trade is recovered exactly once from the checkpoint.
+        await service.catch_up(pair_b)
+        await service.flush_once()
+        candle_b = await _read_candle(pair_b, "1m", NOW)
+        assert candle_b["n"] == 2
+        assert candle_b["volume"] == Decimal("10")         # 3 + 7, no double count
+        assert service.state(pair_b)["durable_trade_id"] == b2
+    finally:
+        await service.stop()
 
 
 # ── readiness transition after an interrupted backfill ────────────────────
