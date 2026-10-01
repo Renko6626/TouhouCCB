@@ -440,9 +440,12 @@ FX 是默认关闭的独立子游戏；完整运维手册见 [`docs/fx.md`](fx.m
 ### GET `/fx/pairs/{pair_id}/snapshot` — 行情快照（公开）
 
 返回 `FxSnapshot`：`pair`（`FxPairPublic`）、`price`（边际价）、`buy_price`、`sell_price`、
-`spread`、`volume_24h`。三个价格字段统一为「金圆券 / 1 外币」口径：`buy_price` 是
+`spread`、`volume_24h`、`history_version`、`history_ready`。三个价格字段统一为「金圆券 / 1 外币」口径：`buy_price` 是
 买入外币的有效 ask（金入 / 外币出），`sell_price` 是卖出外币的有效 bid（金出 / 外币入），
-`spread = buy_price − sell_price`，含手续费时为正、深池取整时可能为 0。
+`spread = buy_price − sell_price`，含手续费时为正、深池取整时可能为 0。`volume_24h` 是精确滚动
+24 小时金侧成交量。`history_version`（可空 opaque 字符串）与 `history_ready`（bool）是给无逐卡
+SSE 的主页做缓存历史引导用的追加公开字段：未回填时 `history_version=null`、`history_ready=false`，
+客户端据此回退轻量 `/chart`，不伪造覆盖。
 若库中已存在病态 pair（费率为 1 或储备小到单笔产出向下量化为 0），该接口返回带原因的
 **422**，不会 500。
 
@@ -483,15 +486,33 @@ pair 的隐藏参数。
 
 ### GET `/fx/pairs/{pair_id}/chart?interval=1m&from=&to=` — K 线（公开）
 
-只读 `FxTrade`，按成交后边际价分桶返回 OHLCV：
-`bucket_start`、`interval`、`open`、`high`、`low`、`close`、`volume`。
-`from >= to` 或非法 interval 返回 422。
+返回旧版 OHLCV body **结构不变**：`bucket_start`、`interval`、`open`、`high`、`low`、`close`、
+`volume`。数据来源是物化 `fx_candle` + 内存 ring + 仅投影列（`id/pair_id/created_at/post_price/side/input_amount/output_amount`）
+的未落库尾段，**不再重扫原始 `FxTrade` ORM**。响应头 `X-FX-Through-Trade-ID`（该 body 精确覆盖到
+的已提交成交 id 上界）与 `X-FX-History-Version`（body 所属历史版本）由 CORS 暴露，供前端缓存历史
+回退与 SSE 尾段去重。
+`from >= to`、非法 interval、**输出桶或细粒度来源桶超过 20,000** 返回 **422**；历史尚未回填
+（`FxMarketDataState.history_ready=false`）返回可重试 **503**，绝不退回全量原始成交重扫。
+支持的 period 为 `10s/1m/15m/1h`，以及能被某个原生周期整除的 legacy `Nm/Nh/Nd`（rollup）。
+
+### GET `/history/fx/{pair_id}/{history_version}/{interval}/{segment_epoch}.json` — 不可变历史段（公开）
+
+已封存段的列式 OHLCV：`t0`、`step`、`n_buckets`、`t`、`o`、`h`、`l`、`c`、`v`、`trades`；价格与量
+以十进制字符串返回（不用 LMSR 的 `price × 1e8` 整数编码）。响应带 immutable 缓存头，走现有
+`/history/` 的 nginx 缓存与有界进程 LRU，cache key 含产品、pair、历史版本、周期、段起点。
+段未封存、`interval` 不支持、`segment_epoch` 未对齐段长或历史版本已失效返回 **404**；历史未就绪、
+对应 flush 未完成，或真正只读/standby 连接无法取得一致性共享锁时返回 **503**（客户端回退
+`/chart`），绝不把不完整段固化成 immutable 结果。
 
 ### GET `/fx/stream/{pair_id}` — SSE（公开）
 
-先发 `snapshot` 帧（`seq=0`），随后推送 `fx` 命名事件。帧数据只允许
+先发 `snapshot` 帧（`seq=0`），随后推送 `fx` 命名事件。旧行情字段只允许
 `price`、`buy_price`、`sell_price`、`spread`、`volume`，新闻只允许
 `title`、`body`、`kind`、`published_at`。漏帧可用 snapshot 恢复。
+首包在此之外追加 `history_version`、`history_ready`、`history_tail`（`10s/1m/15m/1h` 的列式尾段）、
+`history_tail_at`、`history_tail_through_trade_id`；增量 `fx` 帧追加公开 `trades` 列表
+`{id, ts, post_price, gold_volume}`（由已提交成交生成，不含账户/债务/未来干预参数）。有界公开
+缓冲溢出时帧带 `history_invalidated: true`，客户端应只补尾段而不是把部分增量当作完整历史。
 
 ### 管理端 `/admin/fx`（仅超管）
 

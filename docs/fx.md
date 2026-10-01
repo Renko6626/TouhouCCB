@@ -19,11 +19,13 @@ AMM 兑换。它不复用 LMSR 的 `market` / `outcome` / `position` 表，而�
 
 | 层 | 文件 |
 | --- | --- |
-| 模型 / schema | `backend/app/models/fx.py`、`backend/app/schemas/fx.py` |
+| 模型 / schema | `backend/app/models/fx.py`（含派生 `FxCandle` / `FxMarketDataState`）、`backend/app/schemas/fx.py` |
 | AMM / 交易 | `backend/app/services/fx/{amm,quantize,trading}.py` |
-| 行情 / SSE | `backend/app/services/fx/market_data.py`、`backend/app/api/v1/fx_stream.py` |
+| 行情派生 / 增量聚合 | `backend/app/services/fx/{candles,candle_flusher,market_state}.py` |
+| 行情读取 / SSE | `backend/app/services/fx/market_reads.py`、`backend/app/services/fx/market_data.py`、`backend/app/api/v1/fx_stream.py`、`backend/app/api/v1/history.py` |
 | 引擎 / 事件 / 调度 | `backend/app/services/fx/{engine,randomness,scheduler}.py` |
 | 净值 / 审计 / 重置 | `backend/app/services/fx/valuation.py`、`backend/app/services/audit_replay.py`、`backend/scripts/season_reset.py` |
+| 行情回填 / 重建 | `backend/scripts/backfill_fx_candles.py` |
 | 玩家 / 管理 API | `backend/app/api/v1/fx.py`、`backend/app/api/v1/admin_fx.py` |
 | 端到端测试 | `backend/tests/test_fx_end_to_end.py` |
 
@@ -62,6 +64,9 @@ FX 使用的 Alembic revision：
 | FX | `fx_tables_20260928` | `2026_09_28_1200-fx_tables_add_fx_tables.py` | 创建 5 张 FX 表 |
 | 统一信贷 | `credit_foundation_20260930` | `2026_09_30_1200-credit_foundation_20260930_unified_credit_risk_foundation.py` | additive 用户版本/冻结、run/action、FX reduce_only 等 |
 | 市场归档 | `fx_pair_archive_20260930` | `2026_09_30_1600-fx_pair_archive.py` | 新增 archived 标记，现有市场默认 false |
+| 行情派生 | `fx_candle_storage_20261001` | `2026_10_01_1200-fx_candle_storage.py` | 新增 `fx_candle`、`fx_market_data_state` 与 `(fx_trade.pair_id, fx_trade.id)` 索引（只派生物化） |
+
+`fx_candle_storage_20261001` 的 `down_revision` 是 `fx_short_debt_20260930`（当前 head 之前的最后一个 revision）。该迁移**只建派生结构**，不在迁移中扫描历史成交；历史回填由 `scripts/backfill_fx_candles.py` 在停服/维护边界内完成，不能塞进 Alembic。downgrade 只删 `fx_candle` / `fx_market_data_state` / 该索引，不改 `fx_trade`、钱包、treasury 与审计。
 
 `fx_tables_20260928` 的 `down_revision = "0d0ac23efa85"`，所以只要按顺序执行即可：
 
@@ -283,6 +288,8 @@ alembic downgrade 0d0ac23efa85   # 删除 5 张 FX 表（数据丢失，仅应�
 
 > 生产数据回滚通常不安全；回滚只作应急，正常应「加一个向前的修正 migration」。
 
+行情性能改动的回退边界：派生表 `fx_candle` / `fx_market_data_state` 可单独 `alembic downgrade` 删除，随后停用 `FX_MARKET_DATA`（`stop()`+`reset()`）并回到旧读路径；原始 `fx_trade`、资金与审计不变。若旧写程序运行期间派生状态停滞，再次启用新版必须先从可靠持久游标补齐并刷新历史版本，不能信任停滞期间的派生缓存。`season_reset` 在 `FX_CLEAR_ORDER` 中先清这两张派生表再删 pair。
+
 ### 9.2 验证命令
 
 ```bash
@@ -330,6 +337,37 @@ session factory 指向隔离库，不再有默认库缺表失败。
 `test_fx_end_to_end.py` 覆盖：admin/player 权限、TOS、bot 禁单、债务买/卖、quote/trade、
 过期 `min_out`、幂等重放、公开字段白名单、SSE 白名单、gate 关闭、分币种守恒、
 注/撤资，以及赛季重置清理与兑换保留。
+
+---
+
+### 9.3 FX 行情派生数据与增量运行时（2026-10-01）
+
+主页/后台行情读取不再逐笔加载全日 `fx_trade`：成交提交后由独立 FX 行情服务按 pair 游标增量消费，
+维护内存 ring 与待落库 K 线，每 5 秒把批次 K 线与持久游标**同事务**写入 `fx_candle` /
+`fx_market_data_state`；HTTP/SSE 从物化结果 + ring + 仅投影列的未落库尾段读取。LMSR 的接口与数据不变。
+
+**上线顺序（缺一不可）**
+
+1. `alembic upgrade fx_candle_storage_20261001`：只建派生表/索引，不扫描历史成交。
+2. 停后端（或确认无经济写入）后回填：`python -m scripts.backfill_fx_candles --pair-id <id> [--through-trade-id <tid>] --yes`，
+   或 `--all`。脚本先取经济写 ownership，拒绝在有其他写者时运行；再取 pair GATE 与 `fx_pair` 行锁，
+   冻结 `max(fx_trade.id) <= --through-trade-id`，在**同一事务**内替换派生行、更新游标并轮换
+   `history_version`。**不要**把全量回填放进迁移。
+3. 启动新版后端：owner 实例先加载持久游标/就绪状态并从物化 K 线预热 ring，再补齐持久游标与已提交
+   成交之间的差额并 flush，之后才启动经济调度器；只读实例只预热、不写派生数据。`history_ready=true`
+   之前 `/chart` 与 `/history/fx/` 返回可重试 503。
+4. 读取切换：`/chart`（旧 body + `X-FX-Through-Trade-ID`/`X-FX-History-Version` 头）、
+   `/history/fx/...` immutable 段、SSE 首包尾段与增量帧、前端缓存历史。公开字段细节见 `docs/api.md` 第 12 节。
+
+**运行限制（诚实记录）**
+
+- `/history/fx/` 的缓存 MISS 需要可加锁会话才能证明封存段不可再变；真正 SQL 只读/standby 连接拿不到
+  锁时返回 503，客户端回退 `/chart`，绝不缓存不完整段。该分支未在真实只读 PG 副本上实测。分段 LRU
+  为进程内，不跨实例共享。
+- 初次回填是**一次性物化**（合成 3 pair × 18,000 笔的隔离测试中约 17.95 s wall），与稳态读取
+  （毫秒级、不再构建全日成交对象）以及真实生产恢复演练都不同，不能互相代替。
+- PostgreSQL 服务端 CPU、真实生产 profiling、浏览器渲染与 `nginx -t` 未验证；具体命令、结果与源码
+  哈希见 [`docs/fx-market-data-performance-validation-2026-10-01.md`](fx-market-data-performance-validation-2026-10-01.md)。
 
 ---
 
@@ -434,6 +472,7 @@ whole-branch review 遗留的 3 个 Minor（见 `fix-wave-review.md`）已在本
 - 一周窗口活动的候选参数、测算与运营节奏：[FX 一周活动参数草案](fx-week-activity-config.md)。
 - 做空与债务风控的待审阅设计：[FX 做空与统一债务风控设计](superpowers/specs/2026-09-30-fx-short-debt-design.md)；当前仍只支持现货多头。
 - API 细节：`docs/api.md` 第 12 节「幻想外汇 (FX)」。
+- FX 行情性能（增量 K 线 / 历史缓存 / SSE）设计、计划与最终验证：[设计](superpowers/specs/2026-10-01-fx-market-data-performance-design.md)、[计划](superpowers/plans/2026-10-01-fx-market-data-performance.md)、[验证与限制](fx-market-data-performance-validation-2026-10-01.md)。
 - 部署 / 迁移：`docs/deploy.md`、`docs/migrations.md`。
 - 净值双口径：`docs/holdings-value-semantics.md`。
 - 赛季重置范围：`docs/season-reset-2026-09-27.md`。

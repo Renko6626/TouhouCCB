@@ -53,7 +53,7 @@
 
 ## Task 2：派生表与可靠增量聚合
 
-**依赖：** Task 1。**接口：** `compute_fx_candle_rows(trades) -> list[dict]`；`FX_MARKET_DATA.notify_committed(pair_id: int) -> None`（同步、只标记 dirty）；`await FX_MARKET_DATA.catch_up(pair_id: int) -> int`（返回内存应用游标）；`await FX_CANDLE_FLUSHER.flush_once() -> int`。`market_state.py` 拥有 per-pair 串行消费、ring、应用游标和待落库批次；flusher 拥有桶/持久游标同事务写入。
+**依赖：** Task 1。**接口（已按实际实现更正）：** `compute_fx_candle_rows(trades) -> list[dict]`；`FX_MARKET_DATA.notify_committed(pair_id: int) -> None`（同步、只标记 dirty）；`await FX_MARKET_DATA.catch_up(pair_id: int) -> int`（返回内存应用游标）；`await FX_MARKET_DATA.flush_once() -> int`（**runtime 持有的** `FxCandleFlusher` 刷盘入口；不存在全局 `FX_CANDLE_FLUSHER`，`FX_MARKET_DATA.flusher` 只是 sealing 检查用的只读句柄）。`market_state.py` 拥有 per-pair 串行消费、ring、应用游标和待落库批次；flusher 拥有桶/持久游标同事务写入。
 
 - [ ] 建 `FxCandle`、`FxMarketDataState` 和 `(FxTrade.pair_id,FxTrade.id)` 索引；新迁移只增加派生结构。迁移测试放在现有 FX migration 用例，验证原始成交/账户数据保留、约束及派生表回滚。
 - [ ] 四周期桶遵循 FX 口径与首末排序键；复用 ring 的窗口/封存常量，FX codec 保留价格字符串。消费增量只投影必要列，按 pair 高水位取已提交成交，不加载全日 ORM 对象。
@@ -63,7 +63,7 @@
 
 ## Task 3：所有成交入口与恢复生命周期
 
-**依赖：** Task 2。**接口：** `await FX_MARKET_DATA.start(write_owner: bool)`、`await FX_MARKET_DATA.stop()`、`FX_MARKET_DATA.reset()`；`await rebuild_pair(db,pair_id,through_trade_id) -> int` 用于派生数据重建。原始成交截止点、桶替换、持久游标和新历史版本必须在受保护的 pair 维护边界内一致切换。
+**依赖：** Task 2。**接口（已按实际实现更正）：** `await FX_MARKET_DATA.start(write_owner: bool)`、`await FX_MARKET_DATA.stop()`、`FX_MARKET_DATA.reset()`；`await rebuild_pair(db,pair_id,through_trade_id) -> int` 用于派生数据重建（实际位于离线脚本 `scripts/backfill_fx_candles.py`）。原始成交截止点、桶替换、持久游标和新历史版本必须在受保护的 pair 维护边界内一致切换。
 
 - [ ] 现货/空头/系统/新闻/强平的事务拥有者提交后调用 `notify_committed(pair_id)`；事务内执行器保持不 commit、不更新行情内存。依靠定时补读覆盖 commit 后通知前的崩溃，不把正确性绑定到 request callback。
 - [ ] startup 先确认 ownership，再补齐全部游标差额并预热 ring，然后启经济生产者；读取实例不 flush。shutdown 按 spec 排空和落库；赛季重置先清派生子表，再删 pair，并清内存/缓存。
@@ -99,6 +99,8 @@
 - [ ] 检查全部成交覆盖、SSE 接缝、长时间停机恢复、回填/重建与缓存版本、归档与赛季清理。运行相关保留测试和必要静态检查；遵守 `CLAUDE.md` 的最终检查要求，报告既有警告和未验证项，UI 不自动交互。
 - [ ] 发布说明写明“建派生表 → 新版消费启动/回填 → 数据就绪 → 历史/前端读取切换”。回退时回到旧读路径，原始资金账不变；后续再次启用须从可靠游标补齐并刷新版本，不能信任旧写程序期间停滞的派生状态。
 - [ ] 记录到 `docs/fx-market-data-performance-validation-<执行日期>.md`，提交对应文件。当前授权是写 spec/plan；实施、推送和部署按后续用户指示执行。
+
+**验证证据（2026-10-01 最终验收，候选 `932dc3a`）:** 已实现契约细化（含审阅者更正）见 spec「实施后契约细化」小节；最终静态/回归/PG/前端命令、结果、限制、未验证项与源码哈希见 `docs/fx-market-data-performance-validation-2026-10-01.md`，公开接口细节同步至 `docs/api.md` 第 12 节与 `docs/fx.md` 行情小节。性能沿用隔离 PostgreSQL harness（三个 pair × 每 pair 18,000 条合成成交）；已在候选 `932dc3a` 源码哈希上以原生 asyncPG 复跑，四项目标全部通过（证据 `task-6-performance-report.md` 与 `performance/results/summary.json`）。whole-branch 审阅 H 已 PASS `932dc3a`；最终 scoped H 审阅 `1a373f7`（**仅** `FxOverview.vue` 的前端 delta）结论为 **SPEC/QUALITY/READY，APPROVED**，所有代码门关闭。注意：44 个 lint error 为既有非 FX 基线，不是 “all green”；G 的 `1a373f7` 上 full front 150 / type-check / build / scoped lint 通过，后端与性能源码哈希重算与 `932dc3a` 逐字节一致（故不触发后端/PG/性能复跑）。**本节的最终验证证据取代上方计划复选框；计划中的命令/路径/接口若与实际实现不同（例如 Task 2 的 flusher 接口、Task 3 的 PG 测试文件名），以实际实现与本节为准。**
 
 ## 执行顺序
 
