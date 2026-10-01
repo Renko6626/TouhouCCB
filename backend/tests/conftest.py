@@ -49,7 +49,7 @@ from app.services.site_config import clear_cache
 
 @pytest.fixture(scope="session", autouse=True)
 def _disable_scheduler():
-    """禁用 APScheduler：loan_sweep + liquidation_sweep + bot_detection 都 no-op。
+    """禁用后台调度器，避免真实五秒 FX tick 干扰账务断言。
 
     main.py 通过别名导入：
     - start_loan_scheduler / stop_loan_scheduler
@@ -69,6 +69,8 @@ def _disable_scheduler():
         patch("app.main.stop_bot_detection_scheduler", _noop),
         patch("app.main.start_pve_scheduler", _noop),
         patch("app.main.stop_pve_scheduler", _noop),
+        patch("app.main.start_fx_scheduler", _noop),
+        patch("app.main.stop_fx_scheduler", _noop),
     ):
         yield
 
