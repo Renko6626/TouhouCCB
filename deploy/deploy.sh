@@ -133,6 +133,15 @@ for i in $(seq 1 15); do
     [ "$i" = "15" ] && fail "Postgres did not become ready"
 done
 
+# Only the first rollout requires the opening gate to be closed. Perform the
+# read-only preflight before stopping the serving backend, and preserve an
+# already-enabled gate during routine updates (including later migrations).
+FX_SHORT_ROLLOUT=$(docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py | tail -n 1)
+case "$FX_SHORT_ROLLOUT" in
+    initial|existing) log "  FX short rollout: $FX_SHORT_ROLLOUT" ;;
+    *) fail "Could not determine FX short rollout state" ;;
+esac
+
 if [ -n "$(docker compose ps --status running -q backend)" ]; then
     BACKEND_STOPPED=1
     docker compose stop backend
@@ -193,20 +202,10 @@ else
     docker compose run --rm --no-deps -T backend alembic upgrade head
 fi
 
-docker compose run --rm --no-deps -T backend python - <<'PY'
-import asyncio
-from app.core.database import async_session_maker, engine
-from app.services.site_config import get_bool_or
-
-async def check():
-    async with async_session_maker() as session:
-        enabled = await get_bool_or(session, 'fx_short_enabled', False)
-    await engine.dispose()
-    return enabled
-
-if asyncio.run(check()):
-    raise SystemExit('FX short opening gate is already enabled; refusing initial rollout')
-PY
+if [ "$FX_SHORT_ROLLOUT" = "initial" ]; then
+    # Stop any preflight-to-stop race from enabling opening during first rollout.
+    docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py --require-closed
+fi
 log "  Verifying audit replay against the stopped database..."
 docker compose run --rm --no-deps -T backend python scripts/audit_verify.py
 
