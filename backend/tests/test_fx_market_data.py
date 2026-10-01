@@ -60,3 +60,39 @@ def test_price_buckets_use_sell_output_for_volume():
     candles = build_price_buckets([trade], "1m", start, start + timedelta(minutes=1))
 
     assert candles[0].volume == Decimal("3.25")
+
+
+def test_incremental_candle_rows_match_legacy_1m_ohlcv():
+    """The durable aggregation must reproduce the chart's FX 口径 for 1m.
+
+    Guards against the new incremental path silently drifting from the legacy
+    ``build_price_buckets`` OHLCV (post_price order, buy-input/sell-output gold
+    volume) while the read path is being migrated.
+    """
+    from app.services.fx.candles import compute_fx_candle_rows
+
+    start = datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc)
+    trades = [
+        _trade(start.replace(second=20), "1.20", "3"),
+        _trade(start.replace(second=5), "1.10", "2"),
+        _trade(start.replace(minute=1, second=2), "1.05", "4", source="system", user_id=None),
+    ]
+    trades[0].side = "sell"
+    trades[0].output_amount = Decimal("0.75")
+
+    legacy = build_price_buckets(
+        trades, "1m", start, start + timedelta(minutes=2),
+    )
+    rows = compute_fx_candle_rows(trades)
+    incremental = {
+        row["bucket_start"]: row for row in rows if row["interval"] == "1m"
+    }
+
+    assert set(incremental) == {c.bucket_start for c in legacy}
+    for candle in legacy:
+        row = incremental[candle.bucket_start]
+        assert Decimal(row["open_price"]) == candle.open
+        assert Decimal(row["high_price"]) == candle.high
+        assert Decimal(row["low_price"]) == candle.low
+        assert Decimal(row["close_price"]) == candle.close
+        assert Decimal(row["gold_volume"]) == candle.volume

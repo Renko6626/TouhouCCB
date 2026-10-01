@@ -132,3 +132,84 @@ def test_short_upgrade_rejects_negative_legacy_wallet_without_conversion():
                 revision.upgrade()
         assert 'fx_short_position' not in inspect(conn).get_table_names()
         assert conn.execute(text('SELECT foreign_amount FROM fx_wallet')).scalar_one() == -1
+
+
+def _candle_revision():
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*fx_candle_storage.py'))
+    spec = importlib.util.spec_from_file_location('fx_candle_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    return revision
+
+
+_FX_PAIR_INSERT = (
+    "INSERT INTO fx_pair(id,currency_code,currency_name,status,gold_reserve,foreign_reserve,"
+    "target_price,initial_price,target_min,target_max,buy_fee_rate,sell_fee_rate,pool_version,"
+    "created_at,updated_at) VALUES(1,'USD','Dollar','trading',100,200,1,1,0.5,2,0,0,1,"
+    "CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+)
+_FX_TRADE_INSERT = (
+    "INSERT INTO fx_trade(id,pair_id,user_id,side,input_amount,output_amount,min_out,fee_amount,"
+    "pre_gold_reserve,pre_foreign_reserve,post_gold_reserve,post_foreign_reserve,post_price,source,"
+    "created_at) VALUES(1,1,1,'buy',1,2,0,0,100,200,101,198,0.51,'player',CURRENT_TIMESTAMP)"
+)
+
+
+def _candle_insert(interval='1m', high=1, low=1, n=1):
+    return (
+        "INSERT INTO fx_candle(pair_id,interval,bucket_start,open_price,high_price,low_price,"
+        "close_price,gold_volume,n_trades,first_trade_at,first_trade_id,last_trade_at,"
+        "last_trade_id,updated_at) VALUES(1,'%s','2026-10-01 00:00:00',1,%s,%s,1,1,%s,"
+        "'2026-10-01 00:00:00',1,'2026-10-01 00:00:00',1,'2026-10-01 00:00:00')"
+        % (interval, high, low, n)
+    )
+
+
+def test_candle_migration_adds_derived_only_and_preserves_ledger():
+    """The candle migration must add derived structures without touching money data."""
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+
+    revision = _candle_revision()
+    engine = create_engine('sqlite://')
+    metadata = MetaData()
+    user = Table('user', metadata, Column('id', Integer, primary_key=True))
+    metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(user.insert().values(id=1))
+        context = MigrationContext.configure(conn)
+        with Operations.context(context):
+            _load_revision().upgrade()          # real FX ledger tables
+        conn.execute(text(_FX_PAIR_INSERT))
+        conn.execute(text(_FX_TRADE_INSERT))
+        with Operations.context(context):
+            revision.upgrade()
+
+        names = set(inspect(conn).get_table_names())
+        assert {'fx_candle', 'fx_market_data_state'} <= names
+        assert conn.execute(text('SELECT currency_code FROM fx_pair')).scalar_one() == 'USD'
+        assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)
+        assert 'ix_fx_trade_pair_id_id' in {i['name'] for i in inspect(conn).get_indexes('fx_trade')}
+
+        for bad in (
+            _candle_insert(n=-1),
+            _candle_insert(high=0.5, low=1),
+            _candle_insert(interval='2m'),
+        ):
+            with pytest.raises(IntegrityError):
+                conn.execute(text(bad))
+        with pytest.raises(IntegrityError):
+            conn.execute(text(
+                "INSERT INTO fx_market_data_state(pair_id,last_trade_id,history_version,"
+                "history_ready,updated_at) VALUES(1,-1,'v',0,CURRENT_TIMESTAMP)"
+            ))
+
+        with Operations.context(context):
+            revision.downgrade()
+
+        names = set(inspect(conn).get_table_names())
+        assert not ({'fx_candle', 'fx_market_data_state'} & names)
+        assert 'ix_fx_trade_pair_id_id' not in {i['name'] for i in inspect(conn).get_indexes('fx_trade')}
+        assert conn.execute(text('SELECT currency_code FROM fx_pair')).scalar_one() == 'USD'
+        assert conn.execute(text('SELECT input_amount FROM fx_trade')).scalar_one() == 1
