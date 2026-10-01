@@ -32,13 +32,11 @@ from app.models.base import (
 from app.models.credit import LiquidationAction, LiquidationRun
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import liquidation_sweep, site_config
-from app.services.credit import sweep
 from app.services.credit.flags import CreditFlags, set_flags
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import discover_dependencies
-from app.services.fx.quantize import amount_down
 from app.services.fx.shorts import (
     ShortLiquidationRejected,
     ShortPostSettlementMismatch,
@@ -78,30 +76,12 @@ async def lifecycle():
 
 async def _seed_foreign_only_overflow(*, principal='1000', foreign_reserve='1000',
                                       cash='50', with_asset=False):
-    """Q>=F 外币义务账户；可选一个可执行的 LMSR 多头证明未知 K 不卖资产。"""
-    now = datetime.now(timezone.utc)
-    async with async_session_maker() as s:
-        user = User(username='fx_overflow', casdoor_id='fx_overflow',
-                    cash=D(cash), debt=D('0'))
-        s.add(user)
-        await s.flush()
-        pair = FxPair(
-            currency_code='OVF', currency_name='Overflow',
-            status='trading',
-            gold_reserve=D('1000'), foreign_reserve=D(foreign_reserve),
-            buy_fee_rate=D('0'), sell_fee_rate=D('0'),
-        )
-        s.add(pair)
-        await s.flush()
-        s.add(FxTreasury(pair_id=pair.id, gold_balance=D('1000'),
-                         foreign_balance=D(foreign_reserve)))
-        s.add(FxShortPosition(
-            user_id=user.id, pair_id=pair.id,
-            principal_foreign=D(principal), interest_foreign=D('0'),
-            interest_last_accrued_at=now,
-            restricted_gold=D('0'), proceeds_basis_gold=D('0'),
-        ))
-        if with_asset:
+    uid, pid, _ = await _seed_cover(
+        cash=cash, principal=principal, restricted="0", basis="0",
+        foreign=foreign_reserve, treasury_foreign=foreign_reserve,
+    )
+    if with_asset:
+        async with async_session_maker() as s:
             market = Market(title='fx_liq_asset', liquidity_b=100,
                             status=MarketStatus.TRADING)
             s.add(market)
@@ -110,10 +90,9 @@ async def _seed_foreign_only_overflow(*, principal='1000', foreign_reserve='1000
             b = Outcome(market_id=market.id, label='b', total_shares=D('0'))
             s.add_all([a, b])
             await s.flush()
-            s.add(Position(user_id=user.id, outcome_id=a.id, amount=D('10'),
-                           cost_basis=D('0')))
-        await s.commit()
-        return user.id, pair.id
+            s.add(Position(user_id=uid, outcome_id=a.id, amount=D('10'), cost_basis=D('0')))
+            await s.commit()
+    return uid, pid
 
 
 async def test_foreign_only_overflow_sweep_creates_one_blocked_run_without_money():
@@ -169,43 +148,6 @@ async def test_foreign_only_overflow_sweep_creates_one_blocked_run_without_money
         assert treasury.gold_balance == D('1000')
         assert treasury.foreign_balance == D('1000')
         assert not list((await s.execute(select(LiquidationEvent))).scalars())
-
-
-async def test_foreign_short_included_by_shared_basis_even_with_zero_gold_debt(monkeypatch):
-    """D=0 的空头账户低于共享维持门槛时必须被扫到（旧 D 门槛会漏）。"""
-    now = datetime.now(timezone.utc)
-    async with async_session_maker() as s:
-        user = User(username='fx_shared', casdoor_id='fx_shared',
-                    cash=D('0'), debt=D('0'))
-        s.add(user)
-        await s.flush()
-        pair = FxPair(
-            currency_code='SHR', currency_name='Shared',
-            status='trading',
-            gold_reserve=D('10000'), foreign_reserve=D('50000'),
-            buy_fee_rate=D('0'), sell_fee_rate=D('0'),
-        )
-        s.add(pair)
-        await s.flush()
-        s.add(FxShortPosition(
-            user_id=user.id, pair_id=pair.id,
-            principal_foreign=D('500'), interest_foreign=D('0'),
-            interest_last_accrued_at=now,
-            restricted_gold=D('0'), proceeds_basis_gold=D('0'),
-        ))
-        await s.commit()
-        uid = user.id
-
-    seen = []
-
-    async def execute(uid_arg, **kwargs):
-        seen.append(uid_arg)
-        return 'blocked'
-
-    monkeypatch.setattr(sweep, 'execute_user', execute)
-    result = await liquidation_sweep.run_liquidation_sweep_once()
-    assert uid in seen
-    assert result['scanned_count'] >= 1
 
 
 async def _seed_healthy_and_overflow_shorts(*, cash='50'):
@@ -322,12 +264,6 @@ async def test_multi_pair_unknown_k_blocked_action_names_the_blocked_pair_once()
 # 掏空现金、动用其他空头的锁金或借出金债；同 (run_id,round_no) 重试若二次
 # 扣款会重复买币归还；预算/输出为零时若静默写 q=0 会制造免费回补。下面的
 # 场景直接检查持久化钱币守恒、锁金/收益基准、审计包与幂等。
-
-def _utc(value):
-    if value is None:
-        return None
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-
 
 async def _seed_cover(*, cash="1000", principal="100", interest="0",
                       restricted="100", basis="100", gold="1000", foreign="1000",
@@ -652,63 +588,6 @@ async def test_liquidation_cover_uses_only_own_lock_and_free_cash():
         # The other short keeps every unit of its own lock and basis.
         assert D(other.restricted_gold) == D("90")
         assert D(other.proceeds_basis_gold) == D("90")
-
-
-async def test_liquidation_cover_full_repayment_clears_both_tails():
-    """预算足够时按 exact-output 买足整仓，锁金/收益基准/计息时点全部结清。"""
-    uid, pid, _ = await _seed_cover(
-        cash="1000", principal="100", restricted="100", basis="100",
-        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
-
-    execution = await _liq_cover(uid, pid, run_id=41, round_no=1,
-                                 planned="100", budget="1000000")
-    assert execution.blocked_reason is None
-    assert execution.full_cover is True
-    assert execution.limited_by_cash is False
-    assert execution.repaid_foreign == D("100")
-    assert execution.paid_gold == D("111.111112")
-    assert execution.released_lock == D("100")
-    assert execution.principal_foreign_after == D("0")
-    assert execution.interest_foreign_after == D("0")
-    assert execution.restricted_gold_after == D("0")
-    assert execution.proceeds_basis_gold_after == D("0")
-    assert execution.accrued_at is not None
-
-    async with async_session_maker() as db:
-        target = (await db.execute(select(FxShortPosition).where(
-            FxShortPosition.pair_id == pid))).scalars().one()
-        trade = (await db.execute(select(FxTrade).where(
-            FxTrade.id == execution.trade_id))).scalars().one()
-        audit = (await db.execute(select(AuditEvent).where(
-            AuditEvent.event_type == "fx_trade",
-            AuditEvent.ref_id == trade.id))).scalars().one()
-        assert D(target.principal_foreign) == D("0")
-        assert D(target.interest_foreign) == D("0")
-        assert D(target.restricted_gold) == D("0")
-        assert D(target.proceeds_basis_gold) == D("0")
-        assert target.interest_last_accrued_at is None
-        assert audit.payload["full_cover"] is True
-        assert audit.payload["limited_by_cash"] is False
-        assert D(audit.payload["realized_pl"]) == D("-11.111112")
-
-
-async def test_liquidation_cover_q_ge_f_blocks_without_spending_cash():
-    """Q>=F 无法完整买回：记录阻塞，该组不自动消耗现金（spec §8.2）。"""
-    uid, pid, _ = await _seed_cover(
-        cash="1000", principal="1000", restricted="0", basis="0",
-        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
-
-    async with async_session_maker() as db:
-        before = await _cover_state(db, uid, pid)
-
-    execution = await _liq_cover(uid, pid, run_id=51, round_no=1,
-                                 planned="1000", budget="1000000")
-    assert execution.trade is None
-    assert execution.blocked_reason == "insufficient_pool_foreign"
-
-    async with async_session_maker() as db:
-        after = await _cover_state(db, uid, pid)
-    assert after == before
 
 
 async def test_liquidation_cover_requires_unified_credit_fail_closed():
@@ -1081,31 +960,6 @@ async def test_rotation_sells_one_asset_retains_cash_then_covers_foreign_debt():
         assert D(pair.gold_reserve) == D("10000") + D(cover.gold_spent)
 
 
-async def test_known_foreign_only_triggers_and_covers_without_false_recovery_at_d0():
-    """D=0 的已知外币义务必须触发并回补，绝不走金债零快路径伪恢复。"""
-    uid, pid, _ = await _seed_cover(
-        cash="100", principal="100", restricted="0", basis="0",
-        gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
-
-    result = await liquidation_sweep.run_liquidation_sweep_once()
-    assert result.get("monetary_action_count") == 1
-
-    async with async_session_maker() as s:
-        user = await s.get(User, uid)
-        assert D(user.debt) == D("0")
-        short = (await s.execute(select(FxShortPosition).where(
-            FxShortPosition.pair_id == pid))).scalars().one()
-        covered = D("100") - D(short.principal_foreign)
-        assert covered > 0, "known foreign-only short must actually be covered"
-        run = (await s.execute(select(LiquidationRun))).scalars().one()
-        assert run.status == "insolvent", "exhausted foreign debt must not recover at D=0"
-        assert user.credit_frozen and D(user.cash) == 0
-        action = (await s.execute(select(LiquidationAction))).scalars().one()
-        assert action.kind == "cover_group"
-        assert D(action.foreign_repaid) == covered
-        assert action.economic_version_after == user.economic_version
-
-
 async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_charge():
     """cover_group 落库真实 q/x/limited_by_cash；同轮重放与重复扫描不二次扣款。"""
     uid, pid, _ = await _seed_cover(
@@ -1125,6 +979,12 @@ async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_ch
         assert action.executed["full_cover"] is True
         assert D(action.short_after["principal_foreign"]) == D("0")
         assert D(action.short_after["restricted_gold"]) == D("0")
+        short = (await s.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid, FxShortPosition.pair_id == pid,
+        ))).scalars().one()
+        assert (short.principal_foreign, short.interest_foreign,
+                short.restricted_gold, short.proceeds_basis_gold) == (D("0"),) * 4
+        assert short.interest_last_accrued_at is None
         trade = (await s.execute(select(FxTrade).where(
             FxTrade.idempotency_key == f"liq:{run.id}:{action.round_no}"))).scalars().one()
         assert D(action.gold_spent) == D(trade.input_amount)

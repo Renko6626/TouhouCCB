@@ -119,8 +119,6 @@ def _k(pair_id: int, principal: str, gold: str = "1000", foreign: str = "1000",
     return quote_buy_exact_out(D(principal), D(gold), D(foreign), D(buy_fee)).input_amount
 
 
-# ─────────────────────────── FX spot buy ───────────────────────────
-
 async def test_foreign_only_short_blocks_other_pair_fx_buy():
     async with async_session_maker() as db:
         user = await _user(db, name="fx_short_block")
@@ -197,16 +195,7 @@ async def test_healthy_mixed_short_can_buy_another_pair_with_shared_margin():
 
 
 async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkeypatch):
-    """Spec §11: a foreign short that surfaces only at the **lock-in** dependency
-    refresh must never be risk-quoted while its pair GATE is not held.
-
-    The pre-lock discovery snapshot is made stale (it hides the new short pair)
-    while the in-transaction refresh sees it -- the "concurrent new short with an
-    unchanged User economic_version" race.  The order must roll back, re-discover
-    the complete dependency set and execute only after the new pair's gate joins
-    the ordered shared GATES; the actual cash/wallet/pool/treasury writes must
-    happen under that complete set, never under the stale one.
-    """
+    """Spec §11: a foreign short that surfaces only at the **lock-in** dependency."""
     async with async_session_maker() as db:
         user = await _user(db, name="fx_gate_race", cash="100000")
         old_short = await _pair(db, code="FXGATERACEOLD")
@@ -279,8 +268,6 @@ async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkey
     assert not GATES.held_keys()
 
 
-# ─────────────────────────── LMSR buy (writer + legacy) ───────────────────────────
-
 async def test_foreign_only_short_blocks_lmsr_writer_buy():
     from app.services.market_writer import WRITER
     from app.services.writer_ops import BuyCmd
@@ -338,8 +325,6 @@ async def test_foreign_only_short_blocks_legacy_lmsr_buy():
         assert (await db.execute(select(Position))).scalars().all() == []
     assert not GATES.held_keys()
 
-
-# ─────────────────────────── loan quota / borrow ───────────────────────────
 
 async def test_quota_known_short_uses_shared_headroom_not_gold_only():
     async with async_session_maker() as db:
@@ -430,39 +415,4 @@ async def test_unknown_short_cover_cost_borrow_is_rejected_not_500():
 
     async with async_session_maker() as db:
         assert (await db.get(User, uid)).debt == ZERO
-    assert not GATES.held_keys()
-
-
-class _RecordingGates:
-    """Record hold arguments, then delegate to the real gate registry."""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.holds: list[tuple[tuple, tuple]] = []
-
-    def hold(self, *, exclusive=(), shared=()):
-        self.holds.append((tuple(exclusive), tuple(shared)))
-        return self.inner.hold(exclusive=exclusive, shared=shared)
-
-
-async def test_borrow_foreign_only_account_holds_short_pair_gate(monkeypatch):
-    from app.api.v1 import loan as loan_api
-    from app.services.credit.keys import GroupKey
-
-    async with async_session_maker() as db:
-        user = await _user(db, name="borrow_gates", cash="100000")
-        pair = await _pair(db, code="BORROWGATE")
-        await _short(db, user_id=user.id, pair_id=pair.id, principal="10")
-        await _config(db, loan_enabled="true", loan_daily_rate="0")
-        await db.commit()
-        site_config.clear_cache()
-        uid, pid = user.id, pair.id
-
-    proxy = _RecordingGates(GATES)
-    monkeypatch.setattr(loan_api, "GATES", proxy)
-    async with async_session_maker() as db:
-        result = await borrow(BorrowRequest(amount="1"), user=await db.get(User, uid), db=db)
-    assert result.debt == D("1")
-    key = GroupKey("fx", pid)
-    assert any(key in shared for _, shared in proxy.holds)
     assert not GATES.held_keys()

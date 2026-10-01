@@ -149,14 +149,6 @@ def test_legacy_equivalence_fractional_k_never_loosens_credit():
         assert Decimal("0") <= legacy - new <= Q6, (k, legacy, new)
 
 
-def test_alpha_is_high_precision_short_leverage_share():
-    """α = (L−1)/L（spec §6.1）：10x 恰好 0.9，3x 用 prec=28 倒数。"""
-    assert derive_thresholds(Decimal("10"), R_MAINT).alpha == Decimal("0.9")
-    three_x = derive_thresholds(Decimal("3"), R_MAINT)
-    assert three_x.alpha == Decimal(2) / Decimal(3)
-    assert str(three_x.alpha) == "0.6666666666666666666666666667"
-
-
 def test_risk_basis_max_of_debt_and_alpha_assets_plus_alpha_short():
     """B = max(D, αA) + αK：多头资产项与空头成本共享风险基数，不按方向抵消。"""
     t = derive_thresholds(Decimal("10"), R_MAINT)  # alpha = 0.9

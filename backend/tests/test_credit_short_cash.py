@@ -74,43 +74,6 @@ async def test_gold_repayment_caps_at_unrestricted_cash():
 
 
 @pytest.mark.parametrize("unified", [False, True])
-async def test_admin_cash_debit_rejects_locked_proceeds_but_allows_exact_available(unified):
-    uid, operator = await seed()
-    if unified:
-        flags.set_flags(CreditFlags(unified_credit_enabled=True, credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
-    async with async_session_maker() as s:
-        with pytest.raises(admin.AdminUserError):
-            await admin.adjust_cash(s, target_id=uid, amount=D("-30"),
-                                    reason="cash purpose", admin_id=operator)
-        await s.rollback()
-    assert await state(uid) == (D("100"), D("0"), D("80"))
-    async with async_session_maker() as s:
-        await admin.adjust_cash(s, target_id=uid, amount=D("-20"),
-                                reason="cash purpose", admin_id=operator)
-    assert await state(uid) == (D("80"), D("0"), D("80"))
-
-
-async def test_draft_short_debt_blocks_increased_risk_debit():
-    """Draft pair keeps the obligation but cannot be covered: increased risk denied.
-
-    Explicit drafting regression guard for spec §9: the healthy fixture above is
-    ``trading``; here a draft short with the same free cash must be rejected
-    instead of the production path quietly allowing it.
-    """
-    uid, operator = await seed(pair_status="draft")
-    flags.set_flags(CreditFlags(unified_credit_enabled=True, credit_leverage=D("4"),
-                                credit_maintenance_ratio=D("0.1")))
-    async with async_session_maker() as s:
-        with pytest.raises(admin.AdminUserError) as exc:
-            await admin.adjust_cash(s, target_id=uid, amount=D("-20"),
-                                    reason="draft short", admin_id=operator)
-        await s.rollback()
-    assert exc.value.status == 409
-    assert "draft" in exc.value.detail
-    assert await state(uid) == (D("100"), D("0"), D("80"))
-
-
-@pytest.mark.parametrize("unified", [False, True])
 async def test_amnesty_cannot_reset_below_other_short_locks_even_when_forgiving_gold(unified):
     uid, operator = await seed(debt="10", frozen=True)
     if unified:

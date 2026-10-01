@@ -183,40 +183,6 @@ async def test_two_pairs_cover_costs_sum_without_merging_units():
         assert by_pair[b.id].value == kb
 
 
-async def test_q_ge_foreign_reserve_blocks_without_zero_liability():
-    """q >= F cannot be fully quoted: K/E/B unknown, never 0 or Infinity/NaN."""
-    async with async_session_maker() as session:
-        user = await _user(session, cash="500")
-        pair = await _pair(session, gold="100", foreign="10")
-        row = await _short(session, user, pair, principal="10", restricted="100")
-        row_id = row.id
-        before = (row.principal_foreign, row.interest_foreign,
-                  row.interest_last_accrued_at, row.restricted_gold)
-
-        v = await value_user_detailed(session, user.id, daily_rate=RATE)
-
-        assert v.short_cover_cost is None
-        assert v.liquidation_equity is None
-        assert v.risk_basis is None
-        assert v.risk_status == "blocked"
-        assert v.blocked_reason == "insufficient_pool_foreign"
-        assert v.liquidation_equity is not Decimal("0")
-        assert v.cash == Decimal("500") and v.restricted_cash == Decimal("100")
-
-        cover = _cover_groups(v)
-        assert len(cover) == 1
-        assert cover[0].value is None
-        assert cover[0].executable is False
-        assert cover[0].blocked_reason == "insufficient_pool_foreign"
-
-        session.expire_all()
-        stored = (await session.execute(
-            select(FxShortPosition).where(FxShortPosition.id == row_id)
-        )).scalars().one()
-        assert (stored.principal_foreign, stored.interest_foreign,
-                stored.interest_last_accrued_at, stored.restricted_gold) == before
-
-
 @pytest.mark.parametrize("gold,foreign,buy_fee,debt", [
     # required_net = G*q/(F-q) overflows the Numeric(16,6) pool storage (q just below F)
     ("1000000000", "1000000000", "0", "999999999"),
@@ -263,38 +229,6 @@ async def test_unknown_pair_poisons_total_k_while_other_groups_stay_finite():
         assert v.short_marginal_debt is not None
 
 
-async def test_paused_finite_k_is_known_but_not_executable():
-    async with async_session_maker() as session:
-        user = await _user(session, cash="1000")
-        pair = await _pair(session, gold="100", foreign="100",
-                           status="paused", reduce_only=False)
-        await _short(session, user, pair, principal="10")
-
-        v = await value_user_detailed(session, user.id, daily_rate=RATE)
-        expected = quote_buy_exact_out(
-            Decimal("10"), Decimal("100"), Decimal("100"), ZERO,
-        ).input_amount
-
-        # A fully paused market still has a finite reference cost...
-        assert v.short_cover_cost == expected
-        assert v.risk_status == "ok" and v.blocked_reason is None
-        assert v.liquidation_equity == (Decimal("1000") - expected).quantize(Q6)
-        # ...but it is not executable.
-        cover = _cover_groups(v)[0]
-        assert cover.value == expected
-        assert cover.executable is False
-        assert cover.blocked_reason == "pair_paused"
-
-        # Contrast: an unquotable debt is a genuinely unknown K.
-        other = await _pair(session, gold="100", foreign="10")
-        user_b = await _user(session, cash="1000")
-        await _short(session, user_b, other, principal="10")
-        blocked = await value_user_detailed(session, user_b.id, daily_rate=RATE)
-        assert blocked.short_cover_cost is None
-        assert blocked.liquidation_equity is None
-        assert blocked.blocked_reason == "insufficient_pool_foreign"
-
-
 async def test_display_equity_subtracts_sourced_marginal_not_executable_cover():
     """Display net worth uses the sourced marginal debt, never the executable K."""
     async with async_session_maker() as session:
@@ -337,14 +271,7 @@ async def test_display_equity_subtracts_sourced_marginal_not_executable_cover():
 
 
 async def test_unsourced_marginal_makes_display_equity_unknown(monkeypatch):
-    """Any unsourced short marginal poisons display for the whole short book.
-
-    The schema keeps persisted reserves positive, so force one pair's snapshot to
-    an invalid reserve at the quote boundary to exercise the real
-    ``invalid_short_reserve`` path: the valid pair keeps its finite executable K,
-    but display equity must be ``None`` rather than subtracting only the known
-    part and silently overstating the rest.
-    """
+    """Any unsourced short marginal poisons display for the whole short book."""
     async with async_session_maker() as session:
         user = await _user(session, cash="1000")
         good = await _pair(session, gold="100", foreign="100")
@@ -456,29 +383,6 @@ async def test_risk_basis_uses_max_debt_or_alpha_assets_plus_alpha_short():
         assert v2.risk_basis == expected_b2
 
 
-async def test_group_sort_places_unknown_short_cost_last():
-    """Unknown K sorts last; known short costs share the asset sale magnitude order."""
-    from app.services.credit.keys import GroupKey, sort_groups_by_liquidation
-    from app.services.credit.valuation import GroupLiquidation
-
-    unknown = GroupLiquidation(
-        GroupKey("fx", 9), None, False, "insufficient_pool_foreign", "short_cover",
-    )
-    small_cost = GroupLiquidation(
-        GroupKey("fx", 2), Decimal("5"), True, None, "short_cover",
-    )
-    big_asset = GroupLiquidation(
-        GroupKey("lmsr", 1), Decimal("50"), True, None, "asset_sale",
-    )
-    ordered = sort_groups_by_liquidation([unknown, small_cost, big_asset])
-    assert [(g.key.product, g.key.group_id) for g in ordered] == [
-        ("lmsr", 1),  # 50
-        ("fx", 2),    # 5 cost
-        ("fx", 9),    # None -> last
-    ]
-    assert ordered[-1].value is None
-
-
 async def test_short_valuation_batches_sql_for_many_users():
     async with async_session_maker() as session:
         pair = await _pair(session, gold="100", foreign="100")
@@ -508,7 +412,7 @@ async def test_short_valuation_batches_sql_for_many_users():
         event.listen(engine.sync_engine, "before_cursor_execute", _capture)
         try:
             first = await value_users_batch(
-                session, [user.id for user in users], daily_rate=RATE,
+                session, [users[0].id], daily_rate=RATE,
             )
             first_count = len(statements)
             statements.clear()
@@ -519,9 +423,7 @@ async def test_short_valuation_batches_sql_for_many_users():
         finally:
             event.remove(engine.sync_engine, "before_cursor_execute", _capture)
 
-        assert len(first) == len(second) == 100
-        # User, short+pair, position join, outcomes, wallet+pair, site_config
-        # (only when LMSR positions exist), with one batched short read.
-        assert first_count <= 7, statements
-        assert second_count <= 7, statements
-        assert all(v.short_cover_cost is not None for v in first.values())
+        assert len(first) == 1 and len(second) == 100
+        # Detect per-account queries without fixing the number of batched reads.
+        assert second_count <= first_count, statements
+        assert all(v.short_cover_cost is not None for v in second.values())

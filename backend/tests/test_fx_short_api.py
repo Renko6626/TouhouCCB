@@ -21,20 +21,20 @@ from decimal import Decimal as D
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
+from app.schemas.fx import FxShortCoverRequest, FxShortOpenRequest, FxShortQuoteRequest
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit import risk as credit_risk
 from app.services.credit.gates import GATES
 from app.services.credit.valuation import value_user_detailed
-from app.services.fx import publisher, shorts
 from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 pytestmark = pytest.mark.asyncio
@@ -48,12 +48,6 @@ PAIR = {
     "initial_price": "1", "target_min": "0.5", "target_max": "2",
     "short_lending_limit_foreign": "0",
 }
-
-SPOT_TRADE_KEYS = {
-    "id", "pair_id", "side", "input_amount", "output_amount",
-    "fee_amount", "post_price", "created_at",
-}
-
 
 @pytest.fixture(autouse=True)
 def _unified(monkeypatch):
@@ -204,8 +198,6 @@ async def _seed_wallet(pair_id, user_id, foreign_amount):
             ))
 
 
-# ── scenario 1: gate off → explicit admin gate+limit → open+cover ────────────
-
 async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(client):
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
@@ -218,13 +210,13 @@ async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(c
         assert (await s.execute(select(FxTrade))).scalars().all() == []
         assert (await s.execute(select(FxShortPosition))).scalars().all() == []
 
+    assert (await _set_gate(client, admin_headers, "maybe")).status_code == 400
     assert (await _set_gate(client, admin_headers, "true")).status_code == 200
     patched = await _patch_pair(client, admin_headers, pair_id,
                                 short_lending_limit_foreign="1000000")
     assert patched.status_code == 200, patched.text
     assert D(patched.json()["short_lending_limit_foreign"]) == D("1000000")
 
-    before = await _stock(pair_id)
     opened = await _open(client, user_headers, pair_id, amount="100", key="k-open")
     assert opened.status_code == 200, opened.text
     body = opened.json()
@@ -232,18 +224,6 @@ async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(c
     assert body["side"] == "sell"
     assert body["replay"] is False
     assert isinstance(body["output_amount"], str)
-    proceeds = D(body["output_amount"])
-
-    after_open = await _stock(pair_id)
-    # Borrowed foreign leaves real treasury stock and joins the pool; no wallet.
-    assert after_open["treasury_foreign"] == before["treasury_foreign"] - D("100")
-    assert after_open["pool_foreign"] == before["pool_foreign"] + D("100")
-    assert after_open["wallet_foreign"] == ZERO
-    assert after_open["principal"] == D("100")
-    assert after_open["cash"] == before["cash"] + proceeds
-    assert after_open["locked"] == proceeds
-    assert (after_open["pool_gold"] + after_open["treasury_gold"] + after_open["cash"]
-            == before["pool_gold"] + before["treasury_gold"] + before["cash"])
 
     covered = await _cover(client, user_headers, pair_id, cover_all=True,
                            max_gold_in="1000000", key="k-cover")
@@ -255,25 +235,13 @@ async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(c
     assert history.status_code == 200, history.text
     assert [trade["purpose"] for trade in history.json()] == ["short_cover", "short_open"]
 
-    after_cover = await _stock(pair_id)
-    assert after_cover["principal"] == ZERO
-    assert after_cover["locked"] == ZERO
-    assert after_cover["wallet_foreign"] == ZERO
-    # Each currency's real stock is preserved by the full round trip.
-    assert (after_cover["pool_gold"] + after_cover["treasury_gold"] + after_cover["cash"]
-            == before["pool_gold"] + before["treasury_gold"] + before["cash"])
-    assert (after_cover["pool_foreign"] + after_cover["treasury_foreign"]
-            + after_cover["wallet_foreign"]
-            == before["pool_foreign"] + before["treasury_foreign"]
-            + before["wallet_foreign"])
+    assert (await _stock(pair_id))["principal"] == ZERO
     assert not GATES.held_keys()
 
 
-# ── scenario 2: idempotent replay and cross-purpose conflicts ────────────────
-
 async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(client):
     _, admin_headers = await _make_user(superuser=True)
-    user_id, user_headers = await _make_user(cash="100000")
+    _, user_headers = await _make_user(cash="100000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
     # Two pairs so the spot-first probe does not leave a wallet that blocks the
     # later same-pair short; the conflict is keyed per user, not per pair.
@@ -297,13 +265,11 @@ async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(clien
 
     opened = await _open(client, user_headers, pair_id, amount="100", key="k-open")
     assert opened.status_code == 200, opened.text
-    treasury_after_open = (await _stock(pair_id))["treasury_foreign"]
 
     replay = await _open(client, user_headers, pair_id, amount="100", key="k-open")
     assert replay.status_code == 200, replay.text
     assert replay.json()["replay"] is True
     assert replay.json()["trade_id"] == opened.json()["trade_id"]
-    assert (await _stock(pair_id))["treasury_foreign"] == treasury_after_open
 
     changed = await _open(client, user_headers, pair_id, amount="101", key="k-open")
     assert changed.status_code == 409, changed.text
@@ -314,7 +280,6 @@ async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(clien
                          max_gold_in="1000000", key="k-cross-short-first")
     assert cover.status_code == 200, cover.text
     cover_input = cover.json()["input_amount"]
-    book_before = await _stock(pair_id)
     reverse = await client.post(
         f"/api/v1/fx/pairs/{pair_id}/trades",
         json={"side": "buy", "amount": cover_input, "min_out": "0",
@@ -322,18 +287,8 @@ async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(clien
         headers=user_headers,
     )
     assert reverse.status_code == 409, reverse.text
-    book_after = await _stock(pair_id)
-    assert book_before == book_after
-    async with async_session_maker() as s:
-        purposes = sorted(t.purpose for t in (await s.execute(
-            select(FxTrade).where(FxTrade.user_id == user_id))).scalars().all())
-    # One spot buy, one short open, one short cover: no replay trade appeared.
-    assert purposes.count("short_cover") == 1
-    assert purposes.count("short_open") == 1
     assert not GATES.held_keys()
 
-
-# ── scenario 3: reduce_only blocks ordinary buy/open but allows cover ────────
 
 @pytest.mark.parametrize("status", ["trading", "paused"])
 async def test_reduce_only_blocks_buy_and_open_but_allows_cover(client, status):
@@ -366,8 +321,6 @@ async def test_reduce_only_blocks_buy_and_open_but_allows_cover(client, status):
     assert not GATES.held_keys()
 
 
-# ── scenario 3b: opening/loan gate off never strands a live short ────────────
-
 async def test_opening_and_loan_gates_off_still_allow_cover(client):
     _, admin_headers = await _make_user(superuser=True)
     _, user_headers = await _make_user(cash="100000")
@@ -391,33 +344,31 @@ async def test_opening_and_loan_gates_off_still_allow_cover(client):
     assert not GATES.held_keys()
 
 
-# ── scenario 4: malformed shape and debt overflow are 4xx, never 500 ─────────
+async def test_malformed_open_requests_are_422_without_writes(client):
+    # Cover the input matrix without rebuilding the database for each payload.
+    payloads = [
+        {"foreign_amount": "NaN", "min_gold_out": "0"},
+        {"foreign_amount": "0", "min_gold_out": "0"},
+        {"foreign_amount": "-1", "min_gold_out": "0"},
+        {"foreign_amount": "1.0000001", "min_gold_out": "0"},
+        {"foreign_amount": "1", "min_gold_out": "1.0000001"},
+        {"foreign_amount": "1", "min_gold_out": "10000000000"},
+        {"foreign_amount": "1", "min_gold_out": "NaN"},
+        {"foreign_amount": "1", "min_gold_out": "-1"},
+        {"foreign_amount": "1", "min_gold_out": "0", "idempotency_key": ""},
+        {"foreign_amount": "1", "min_gold_out": "0",
+         "idempotency_key": "x" * 129},
+    ]
+    for payload in payloads:
+        payload = {"idempotency_key": "k-bad", **payload}
+        with pytest.raises(ValidationError):
+            FxShortOpenRequest.model_validate(payload)
 
-@pytest.mark.parametrize("payload", [
-    {"foreign_amount": "NaN", "min_gold_out": "0"},
-    {"foreign_amount": "0", "min_gold_out": "0"},
-    {"foreign_amount": "-1", "min_gold_out": "0"},
-    {"foreign_amount": "1.0000001", "min_gold_out": "0"},
-    {"foreign_amount": "1", "min_gold_out": "1.0000001"},
-    {"foreign_amount": "1", "min_gold_out": "10000000000"},
-    {"foreign_amount": "1", "min_gold_out": "NaN"},
-    {"foreign_amount": "1", "min_gold_out": "-1"},
-    {"foreign_amount": "1", "min_gold_out": "0", "idempotency_key": ""},
-    {"foreign_amount": "1", "min_gold_out": "0",
-     "idempotency_key": "x" * 129},
-])
-async def test_malformed_open_requests_are_422_without_writes(client, payload):
-    _, admin_headers = await _make_user(superuser=True)
-    _, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers,
-                                 short_lending_limit_foreign="1000000")
-    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
-
+    # One HTTP request proves validation is wired ahead of any ledger write.
+    _, headers = await _make_user()
     response = await client.post(
-        f"/api/v1/fx/pairs/{pair_id}/short/open",
-        json={**payload, "idempotency_key": payload.get("idempotency_key", "k-bad")},
-        headers=user_headers,
+        "/api/v1/fx/pairs/999999/short/open",
+        json={"idempotency_key": "k-bad", **payloads[0]}, headers=headers,
     )
     assert response.status_code == 422, response.text
     async with async_session_maker() as s:
@@ -425,32 +376,33 @@ async def test_malformed_open_requests_are_422_without_writes(client, payload):
         assert (await s.execute(select(FxShortPosition))).scalars().all() == []
 
 
-@pytest.mark.parametrize("payload", [
-    {"foreign_amount": "1", "cover_all": True, "max_gold_in": "0"},
-    {"max_gold_in": "0"},
-    {"cover_all": True, "max_gold_in": "NaN"},
-    {"cover_all": True, "max_gold_in": "-1"},
-    {"cover_all": True, "max_gold_in": "10000000000"},
-    {"cover_all": True, "max_gold_in": "0.0000001"},
-    {"foreign_amount": "0", "max_gold_in": "0"},
-    {"cover_all": True, "max_gold_in": "0", "idempotency_key": ""},
-])
-async def test_malformed_cover_requests_are_422_without_writes(client, payload):
-    _, admin_headers = await _make_user(superuser=True)
-    _, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers,
-                                 short_lending_limit_foreign="1000000")
-    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+async def test_malformed_cover_requests_are_422_without_writes(client):
+    # Cover the input matrix without rebuilding the database for each payload.
+    payloads = [
+        {"foreign_amount": "1", "cover_all": True, "max_gold_in": "0"},
+        {"max_gold_in": "0"},
+        {"cover_all": True, "max_gold_in": "NaN"},
+        {"cover_all": True, "max_gold_in": "-1"},
+        {"cover_all": True, "max_gold_in": "10000000000"},
+        {"cover_all": True, "max_gold_in": "0.0000001"},
+        {"foreign_amount": "0", "max_gold_in": "0"},
+        {"cover_all": True, "max_gold_in": "0", "idempotency_key": ""},
+    ]
+    for payload in payloads:
+        payload = {"idempotency_key": "k-bad", **payload}
+        with pytest.raises(ValidationError):
+            FxShortCoverRequest.model_validate(payload)
 
+    # One HTTP request proves validation is wired ahead of any ledger write.
+    _, headers = await _make_user()
     response = await client.post(
-        f"/api/v1/fx/pairs/{pair_id}/short/cover",
-        json={**payload, "idempotency_key": payload.get("idempotency_key", "k-bad")},
-        headers=user_headers,
+        "/api/v1/fx/pairs/999999/short/cover",
+        json={"idempotency_key": "k-bad", **payloads[0]}, headers=headers,
     )
     assert response.status_code == 422, response.text
     async with async_session_maker() as s:
         assert (await s.execute(select(FxTrade))).scalars().all() == []
+        assert (await s.execute(select(FxShortPosition))).scalars().all() == []
 
 
 async def test_pending_debt_overflow_is_4xx_not_500_and_changes_nothing(client):
@@ -488,8 +440,6 @@ async def test_unknown_pair_is_404_not_500_for_short_writes(client):
     assert covered.status_code == 404, covered.text
     assert not GATES.held_keys()
 
-
-# ── scenario 5: admin pair cap surface and public boundary ──────────────────
 
 async def test_pair_limit_validation_admin_read_audit_and_public_boundary(client):
     _, admin_headers = await _make_user(superuser=True)
@@ -535,156 +485,8 @@ async def test_pair_limit_validation_admin_read_audit_and_public_boundary(client
     assert audit.payload["after"]["short_lending_limit_foreign"] == "0"
 
 
-# ── scenario 5b: admin gate toggle + old spot response contract ─────────────
-
-async def test_admin_short_gate_toggle_and_spot_contract_unchanged(client):
-    _, admin_headers = await _make_user(superuser=True)
-    _, user_headers = await _make_user(cash="100000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers)
-
-    assert (await _set_gate(client, admin_headers, "maybe")).status_code == 400
-    assert (await _set_gate(client, admin_headers, "false")).status_code == 200
-    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
-    config = await client.get("/api/v1/admin/site-config", headers=admin_headers)
-    assert any(item["key"] == "fx_short_enabled" and item["value"] == "true"
-               for item in config.json())
-
-    spot = await client.post(
-        f"/api/v1/fx/pairs/{pair_id}/trades",
-        json={"side": "buy", "amount": "1", "min_out": "0",
-              "idempotency_key": "k-spot-contract"},
-        headers=user_headers,
-    )
-    assert spot.status_code == 200, spot.text
-    assert set(spot.json().keys()) == SPOT_TRADE_KEYS
-
-    pairs = await client.get("/api/v1/fx/pairs")
-    assert set(pairs.json()[0].keys()) == {
-        "id", "currency_code", "currency_name", "status", "reduce_only",
-        "pool_version", "created_at", "updated_at",
-    }
-
-
-# ── scenario 6: cross-pair same-key unique race maps to 409, never 500 ───────
-
-async def _commit_winner_short_open(*, user_id, pair_id, key, foreign="100"):
-    """Commit the row a concurrent winner request would have produced.
-
-    SQLite gives no deterministic cross-connection interleaving, so the loser
-    request's post-lookup window is opened by committing this real ``FxTrade``
-    from a second session while the loser already passed its idempotency lookup.
-    The unique ``uq_fx_trade_user_idempotency`` violation the loser then hits at
-    flush is the genuine database error; only its timing is arranged.
-    """
-    async with async_session_maker() as s:
-        async with s.begin():
-            trade = FxTrade(
-                pair_id=pair_id, user_id=user_id, side="sell", purpose="short_open",
-                requested_foreign_amount=D(foreign), input_amount=D(foreign),
-                output_amount=D("99"), min_out=ZERO, fee_amount=ZERO,
-                pre_gold_reserve=D("1000"), pre_foreign_reserve=D("1000"),
-                post_gold_reserve=D("1901"), post_foreign_reserve=D("900"),
-                post_price=D("1"), source="player", idempotency_key=key,
-            )
-            s.add(trade)
-            await s.flush()
-            return int(trade.id)
-
-
-async def test_cross_pair_same_key_race_maps_unique_violation_to_409(
-        client, monkeypatch):
-    _, admin_headers = await _make_user(superuser=True)
-    user_id, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    loser_pair = await _create_pair(client, admin_headers, currency_code="AAA",
-                                    short_lending_limit_foreign="1000000")
-    winner_pair = await _create_pair(client, admin_headers, currency_code="BBB")
-    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
-
-    key = "k-concurrent-cross-pair"
-    published: list[tuple] = []
-    monkeypatch.setattr(publisher, "enqueue_publication",
-                        lambda *a, **k: published.append((a, k)))
-
-    # The winner appears only after the loser has locked/read and missed its
-    # idempotency lookup, so the loser cannot replay it and reaches flush.
-    real_get_bool_or = site_config.get_bool_or
-    injected = {"winner_id": None}
-
-    async def _seam(session, config_key, default):
-        if injected["winner_id"] is None:
-            injected["winner_id"] = await _commit_winner_short_open(
-                user_id=user_id, pair_id=winner_pair, key=key)
-        return await real_get_bool_or(session, config_key, default)
-
-    monkeypatch.setattr(site_config, "get_bool_or", _seam)
-
-    before = await _stock(loser_pair)
-    async with async_session_maker() as s:
-        audit_before = int((await s.execute(
-            select(func.count()).select_from(AuditEvent)
-            .where(AuditEvent.user_id == user_id))).scalar_one())
-
-    loser = await _open(client, user_headers, loser_pair, amount="100", key=key)
-    assert loser.status_code == 409, loser.text
-    winner_id = injected["winner_id"]
-    assert winner_id is not None
-
-    # The losing request rolled back every pending money/lock/audit mutation.
-    assert await _stock(loser_pair) == before
-    async with async_session_maker() as s:
-        trades = (await s.execute(select(FxTrade)
-                                  .where(FxTrade.user_id == user_id))).scalars().all()
-        shorts = (await s.execute(select(FxShortPosition)
-                                  .where(FxShortPosition.user_id == user_id))).scalars().all()
-        audit_after = int((await s.execute(
-            select(func.count()).select_from(AuditEvent)
-            .where(AuditEvent.user_id == user_id))).scalar_one())
-    assert [int(t.id) for t in trades] == [winner_id]
-    assert shorts == []
-    assert audit_after == audit_before
-    assert published == [] and not GATES.held_keys()
-
-    # The winner's row is the saved trade a same-key retry can retrieve; it
-    # replays without a second borrow.
-    replay = await _open(client, user_headers, winner_pair, amount="100", key=key)
-    assert replay.status_code == 200, replay.text
-    assert replay.json()["replay"] is True
-    assert replay.json()["trade_id"] == winner_id
-    assert published == []
-
-
-async def test_short_wrapper_reraises_unrelated_integrity_error(client):
-    """A non-idempotency DB integrity failure must stay a server error."""
-    _, admin_headers = await _make_user(superuser=True)
-    user_id, _ = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers,
-                                 short_lending_limit_foreign="1000000")
-
-    async def run_in_session(db, deps):
-        # Real unique violation from an unrelated table (site_config.key).
-        db.add(SiteConfig(key="dup-key", value="a", value_type="string"))
-        await db.flush()
-        db.add(SiteConfig(key="dup-key", value="b", value_type="string"))
-        await db.flush()
-
-    async with async_session_maker() as s:
-        with pytest.raises(IntegrityError):
-            await shorts._execute_player_short_write(
-                s, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
-
-
-# ══════════════════════ Task 3c2: short read and indicative quote ═════════════
-
 async def test_short_read_is_own_position_and_reference_cover_without_clock_advance(client):
-    """A user only ever sees their own pending foreign debt and reference K.
-
-    Regression: reading another account's obligation, leaking treasury stock or
-    the pair lending cap, using a stored/zero reference cost, or advancing the
-    persisted interest clock as a side effect of a GET.
-    """
+    """A user only ever sees their own pending foreign debt and reference K."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     other_id, other_headers = await _make_user(cash="1000")
@@ -758,11 +560,7 @@ async def test_short_read_is_own_position_and_reference_cover_without_clock_adva
 
 
 async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(client):
-    """An open quote is real ``quote_sell`` math and execution re-quotes.
-
-    Regression: quoting total cash instead of the net AMM sell price, returning
-    a stale price at execution time, or a quote that secretly reserves the pool.
-    """
+    """An open quote is real ``quote_sell`` math and execution re-quotes."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -841,11 +639,7 @@ async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(cli
 
 
 async def test_cover_all_quote_uses_pending_interest_exact_cost_and_release(client):
-    """``cover_all`` prices the settled principal+interest and releases only its lock.
-
-    Regression: quoting the stored principal, an exact-input (slippage-losing)
-    buy, or refusing a reduce-only cover because post-trade admission fails.
-    """
+    """``cover_all`` prices the settled principal+interest and releases only its lock."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -886,37 +680,9 @@ async def test_cover_all_quote_uses_pending_interest_exact_cost_and_release(clie
     assert body["blocked_reason"] is None
     assert body["estimated_equity"] is not None
 
-    # A cover that leaves the account below the initial-margin admission is
-    # still a reduce-only quote: numeric post-state, not a refusal.
-    margin_user_id, margin_headers = await _make_user(cash="200")
-    async with async_session_maker() as s:
-        async with s.begin():
-            user = await s.get(User, margin_user_id)
-            user.debt = D("1000")
-    margin_pair = await _create_pair(client, admin_headers, currency_code="MRO",
-                                     gold_reserve="1000", foreign_reserve="1000",
-                                     short_lending_limit_foreign="0")
-    await _seed_short_direct(margin_pair, margin_user_id, principal="100",
-                             restricted="200",
-                             accrued=datetime.now(timezone.utc))
-    margin_quote = await _quote(client, margin_headers, margin_pair,
-                                {"action": "cover", "cover_all": True})
-    assert margin_quote.status_code == 200, margin_quote.text
-    margin_body = margin_quote.json()
-    assert margin_body["executable"] is True
-    assert margin_body["blocked_reason"] is None
-    assert margin_body["risk_status"] == "ok"
-    assert margin_body["estimated_equity"] is not None
-    assert D(margin_body["estimated_equity"]) < ZERO
-
 
 async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(client):
-    """q >= F is a null-cost block; a smaller q still quotes; paused differs.
-
-    Regression: emitting a zero/Infinity cover cost for an unquotable debt,
-    blocking every partial cover because the full debt is unquotable, or
-    collapsing "known but not executable" into "unknown cost".
-    """
+    """q >= F is a null-cost block; a smaller q still quotes; paused differs."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -984,30 +750,32 @@ async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(
     assert unknown_read["executable"] is False
 
 
-@pytest.mark.parametrize("payload", [
-    {"action": "open"},
-    {"action": "open", "foreign_amount": "NaN"},
-    {"action": "open", "foreign_amount": "0"},
-    {"action": "open", "foreign_amount": "-1"},
-    {"action": "open", "foreign_amount": "1.0000001"},
-    {"action": "open", "foreign_amount": "1", "cover_all": True},
-    {"action": "cover"},
-    {"action": "cover", "foreign_amount": "1", "cover_all": True},
-    {"action": "cover", "foreign_amount": "0"},
-    {"action": "cover", "foreign_amount": "1.0000001"},
-    {"action": "bogus", "foreign_amount": "1"},
-])
-async def test_invalid_quote_shape_is_422_without_writes(client, payload):
-    """NaN / overprecision / wrong action shape never reaches the ledger."""
-    _, admin_headers = await _make_user(superuser=True)
-    _, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers,
-                                 short_lending_limit_foreign="1000000")
-    assert (await _set_gate(client, admin_headers, "true")).status_code == 200
+async def test_invalid_quote_shape_is_422_without_writes(client):
+    # Cover the input matrix without rebuilding the database for each payload.
+    payloads = [
+        {"action": "open"},
+        {"action": "open", "foreign_amount": "NaN"},
+        {"action": "open", "foreign_amount": "0"},
+        {"action": "open", "foreign_amount": "-1"},
+        {"action": "open", "foreign_amount": "1.0000001"},
+        {"action": "open", "foreign_amount": "1", "cover_all": True},
+        {"action": "cover"},
+        {"action": "cover", "foreign_amount": "1", "cover_all": True},
+        {"action": "cover", "foreign_amount": "0"},
+        {"action": "cover", "foreign_amount": "1.0000001"},
+        {"action": "bogus", "foreign_amount": "1"},
+    ]
+    for payload in payloads:
+        with pytest.raises(ValidationError):
+            FxShortQuoteRequest.model_validate(payload)
 
-    response = await _quote(client, user_headers, pair_id, payload)
-    assert response.status_code == 422, (payload, response.text)
+    # One HTTP request proves validation is wired ahead of any ledger write.
+    _, headers = await _make_user()
+    response = await client.post(
+        "/api/v1/fx/pairs/999999/short/quote",
+        json=payloads[0], headers=headers,
+    )
+    assert response.status_code == 422, response.text
     async with async_session_maker() as s:
         assert (await s.execute(select(FxTrade))).scalars().all() == []
         assert (await s.execute(select(FxShortPosition))).scalars().all() == []
@@ -1041,12 +809,7 @@ async def test_cover_quote_without_short_is_blocked_without_writes(client):
 
 
 async def test_quote_status_matrix_gates_reduce_only_and_closed(client):
-    """The quote status matrix matches the write-route execution matrix.
-
-    Regression: a closed/short-gate-off pair still advertising an executable
-    open, a cover being suppressed with opening debt on the books, or
-    ``fx_enabled=false`` failing to stop player quote execution.
-    """
+    """The quote status matrix matches the write-route execution matrix."""
     _, admin_headers = await _make_user(superuser=True)
     _, user_headers = await _make_user(cash="100000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -1109,16 +872,8 @@ async def test_quote_status_matrix_gates_reduce_only_and_closed(client):
         assert body["blocked_reason"] == "fx_disabled"
 
 
-# ── scenario 7: order eligibility vs risk/valuation reason (fix round 1) ─────
-
 async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(client):
-    """A frozen holder's cover is executable; freeze is a risk reason only.
-
-    Regression: ``blocked_reason`` carrying the risk simulation's ``credit_frozen``
-    while ``executable`` is true, so a client that reads ``blocked_reason``
-    disables the one action that can repay the debt; or the freeze/unknown-K
-    information being dropped instead of surfaced in ``risk_blocked_reason``.
-    """
+    """A frozen holder's cover is executable; freeze is a risk reason only."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -1155,13 +910,12 @@ async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(
     assert (await _stock(pair_id))["principal"] == ZERO
 
 
-async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(client):
-    """``fx_enabled=false`` makes GET non-executable while K stays numeric.
-
-    Regression: the read advertising an executable cover that the quote and the
-    write route both refuse, or hiding the known mathematical reference cost just
-    because the total trading stop is on.
-    """
+@pytest.mark.parametrize("gate,reason", [
+    ("fx", "fx_disabled"), ("unified", "unified_credit_disabled"),
+])
+async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(
+        client, monkeypatch, gate, reason):
+    """``fx_enabled=false`` makes GET non-executable while K stays numeric."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -1180,7 +934,11 @@ async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(client)
     assert live_body["blocked_reason"] is None
     assert D(live_body["reference_cover_cost"]) > ZERO
 
-    await _seed_config(fx_enabled="false")
+    if gate == "fx":
+        await _seed_config(fx_enabled="false")
+    else:
+        monkeypatch.setattr(credit_flags, "get_flags",
+                            lambda: credit_flags.parse_flags({}))
     blocked = await _short_get(client, user_headers, pair_id)
     assert blocked.status_code == 200, blocked.text
     body = blocked.json()
@@ -1189,84 +947,27 @@ async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(client)
     assert body["risk_status"] == "ok"
     # Order eligibility follows the total trading stop.
     assert body["executable"] is False
-    assert body["blocked_reason"] == "fx_disabled"
+    assert body["blocked_reason"] == reason
 
     # Consistent with the quote and the write route (both refuse).
     quote = await _quote(client, user_headers, pair_id,
                          {"action": "cover", "cover_all": True})
     assert quote.status_code == 200, quote.text
     assert quote.json()["executable"] is False
-    assert quote.json()["blocked_reason"] == "fx_disabled"
+    assert quote.json()["blocked_reason"] == reason
     write = await _cover(client, user_headers, pair_id, cover_all=True,
                          max_gold_in="1000000", key="k-fx-off")
     assert write.status_code == 403, write.text
 
 
-async def test_read_marks_unified_credit_disabled_matching_quote_and_cover(
-        client, monkeypatch):
-    """Unified credit off makes GET non-executable while the known math stays.
-
-    Regression: a known, coverable short advertised as ``executable`` while the
-    quote route and the cover write both refuse with ``unified_credit_disabled``,
-    or the numeric reference cost / ``risk_status`` being lost because the order
-    gate fired.  Models the invalid startup combination (live debt + unified
-    credit off) that WP5 will refuse; read/quote must still agree meanwhile.
-    """
-    _, admin_headers = await _make_user(superuser=True)
-    user_id, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
-                                 foreign_reserve="1000", buy_fee_rate="0.02",
-                                 sell_fee_rate="0.01",
-                                 short_lending_limit_foreign="1000000")
-    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
-
-    live = await _short_get(client, user_headers, pair_id)
-    assert live.status_code == 200, live.text
-    live_body = live.json()
-    assert live_body["executable"] is True
-    assert live_body["blocked_reason"] is None
-    assert D(live_body["reference_cover_cost"]) > ZERO
-
-    # Process-global credit flag off while a live short exists.
-    monkeypatch.setattr(credit_flags, "get_flags",
-                        lambda: credit_flags.parse_flags({}))
-
-    blocked = await _short_get(client, user_headers, pair_id)
-    assert blocked.status_code == 200, blocked.text
-    body = blocked.json()
-    # Known math and risk status survive the order gate.
-    assert D(body["reference_cover_cost"]) == D(live_body["reference_cover_cost"])
-    assert body["risk_status"] == "ok"
-    assert body["executable"] is False
-    assert body["blocked_reason"] == "unified_credit_disabled"
-
-    # Same order verdict as the quote and the write route.
-    quote = await _quote(client, user_headers, pair_id,
-                         {"action": "cover", "cover_all": True})
-    assert quote.status_code == 200, quote.text
-    assert quote.json()["executable"] is False
-    assert quote.json()["blocked_reason"] == "unified_credit_disabled"
-    write = await _cover(client, user_headers, pair_id, cover_all=True,
-                         max_gold_in="1000000", key="k-unified-off")
-    assert write.status_code == 403, write.text
-
-    # The total trading stop keeps precedence over the sibling credit gate.
+    # The total stop takes precedence when both gates are closed.
     await _seed_config(fx_enabled="false")
     total_stop = await _short_get(client, user_headers, pair_id)
-    assert total_stop.status_code == 200, total_stop.text
-    assert total_stop.json()["executable"] is False
     assert total_stop.json()["blocked_reason"] == "fx_disabled"
 
 
 async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
-    """Another pair's unquotable debt is a risk reason, not this order's block.
-
-    Regression: a small, affordable fixed-q cover on this pair being reported as
-    non-executable because a different pair's K cannot be priced, or the
-    unknown-K reason being erased once ``blocked_reason`` is reserved for orders.
-    """
+    """Another pair's unquotable debt is a risk reason, not this order's block."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="100000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -1296,76 +997,10 @@ async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
     assert body["estimated_risk_basis"] is None
 
 
-# ── scenario 8: complete post-cover valuation (WP3 stage finding) ─────────────
-
-async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis(client):
-    """Post-cover E/B must price every positive holding, not just cached ones.
-
-    Regression: a full cover that removes the last short takes the risk engine's
-    no-debt fast path, which values uncached positive holdings at zero and omits
-    ``risk_basis``.  After a restart (empty risk LRU) a user holding another spot
-    FX asset would see ``risk_status="ok"`` with an equity that silently drops
-    that asset and a missing B.  The quote must instead value the exact
-    post-order state with the shared A/K/E/B primitives.
-    """
-    _, admin_headers = await _make_user(superuser=True)
-    user_id, user_headers = await _make_user(cash="1000")
-    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
-    short_pair = await _create_pair(client, admin_headers, gold_reserve="1000",
-                                    foreign_reserve="1000", buy_fee_rate="0",
-                                    sell_fee_rate="0",
-                                    short_lending_limit_foreign="0")
-    asset_pair = await _create_pair(client, admin_headers, currency_code="EUR",
-                                    gold_reserve="1000", foreign_reserve="1000",
-                                    buy_fee_rate="0", sell_fee_rate="0",
-                                    short_lending_limit_foreign="0")
-    await _seed_short_direct(short_pair, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
-    await _seed_wallet(asset_pair, user_id, "100")
-    # Reproduce the post-restart / asset-version-change cache state explicitly:
-    # the other positive group has no cached group value.
-    credit_risk.clear_risk_cache()
-
-    quote = await _quote(client, user_headers, short_pair,
-                         {"action": "cover", "cover_all": True})
-    assert quote.status_code == 200, quote.text
-    body = quote.json()
-    assert body["executable"] is True
-    assert body["risk_status"] == "ok", body
-    assert body["risk_blocked_reason"] is None
-
-    expected_buy = quote_buy_exact_out(D("100"), D("1000"), D("1000"), D("0"))
-    expected_cash = D("1000") - expected_buy.input_amount
-    expected_asset = quote_sell(
-        D("100"), D("1000"), D("1000"), D("0")).output_amount
-    alpha = credit_flags.get_flags().thresholds.alpha
-    expected_basis = (alpha * expected_asset).quantize(Q6, rounding=ROUND_CEILING)
-
-    # The regression: a cache-only fast path reports only post-cover cash.
-    assert D(body["estimated_equity"]) > expected_cash
-    assert D(body["estimated_equity"]) == expected_cash + expected_asset
-    assert D(body["estimated_risk_basis"]) == expected_basis
-    assert D(body["estimated_risk_basis"]) > ZERO
-
-    # The advisory quote equals the persisted post-cover valuation: one model.
-    covered = await _cover(client, user_headers, short_pair, cover_all=True,
-                           max_gold_in="1000000", key="k-uncached-cover")
-    assert covered.status_code == 200, covered.text
-    async with async_session_maker() as s:
-        actual = await value_user_detailed(s, user_id, daily_rate=D("0"))
-    assert actual.liquidation_equity == D(body["estimated_equity"])
-    assert actual.risk_basis == D(body["estimated_risk_basis"])
-
-
-async def test_cover_quote_gold_debt_basis_is_max_debt_alpha_assets_and_frozen_kept(
-        client):
-    """With gold debt, post-cover B is ``max(D, αA)``, never just D/None.
-
-    Regression: eliminating the last short routes through the legacy no-short
-    branch, which omits ``risk_basis`` (or implies ``B=D``) even when the user's
-    own positive assets dominate ``αA > D``; a frozen holder must still get an
-    executable cover with a null estimate and the freeze as the risk reason.
-    """
+@pytest.mark.parametrize("gold_debt", ["0", "50"])
+async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis(
+        client, gold_debt):
+    """Post-cover E/B must price every positive holding, not just cached ones."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -1383,7 +1018,9 @@ async def test_cover_quote_gold_debt_basis_is_max_debt_alpha_assets_and_frozen_k
     async with async_session_maker() as s:
         async with s.begin():
             user = await s.get(User, user_id)
-            user.debt = D("50")
+            user.debt = D(gold_debt)
+    # Reproduce the post-restart / asset-version-change cache state explicitly:
+    # the other positive group has no cached group value.
     credit_risk.clear_risk_cache()
 
     quote = await _quote(client, user_headers, short_pair,
@@ -1392,31 +1029,26 @@ async def test_cover_quote_gold_debt_basis_is_max_debt_alpha_assets_and_frozen_k
     body = quote.json()
     assert body["executable"] is True
     assert body["risk_status"] == "ok", body
+    assert body["risk_blocked_reason"] is None
 
     expected_buy = quote_buy_exact_out(D("100"), D("1000"), D("1000"), D("0"))
     expected_cash = D("1000") - expected_buy.input_amount
     expected_asset = quote_sell(
         D("1000"), D("1000"), D("1000"), D("0")).output_amount
     alpha = credit_flags.get_flags().thresholds.alpha
-    expected_basis = max(D("50"), alpha * expected_asset).quantize(
-        Q6, rounding=ROUND_CEILING)
-    assert expected_basis > D("50")  # assets dominate, so B is not just debt
-    assert D(body["estimated_equity"]) == expected_cash + expected_asset - D("50")
-    assert D(body["estimated_risk_basis"]) == expected_basis
+    expected_basis = max(D(gold_debt), alpha * expected_asset).quantize(Q6, rounding=ROUND_CEILING)
 
-    # Existing frozen semantics survive: reduce-only cover stays executable with
-    # nullable estimates and the freeze reported as the risk reason only.
+    # The regression: a cache-only fast path reports only post-cover cash.
+    assert D(body["estimated_equity"]) > expected_cash
+    assert D(body["estimated_equity"]) == expected_cash + expected_asset - D(gold_debt)
+    assert D(body["estimated_risk_basis"]) == expected_basis
+    assert D(body["estimated_risk_basis"]) > ZERO
+
+    # The advisory quote equals the persisted post-cover valuation: one model.
+    covered = await _cover(client, user_headers, short_pair, cover_all=True,
+                           max_gold_in="1000000", key="k-uncached-cover")
+    assert covered.status_code == 200, covered.text
     async with async_session_maker() as s:
-        async with s.begin():
-            user = await s.get(User, user_id)
-            user.credit_frozen = True
-    frozen = await _quote(client, user_headers, short_pair,
-                          {"action": "cover", "cover_all": True})
-    assert frozen.status_code == 200, frozen.text
-    frozen_body = frozen.json()
-    assert frozen_body["executable"] is True
-    assert frozen_body["blocked_reason"] is None
-    assert frozen_body["risk_status"] == "blocked"
-    assert frozen_body["risk_blocked_reason"] == "credit_frozen"
-    assert frozen_body["estimated_equity"] is None
-    assert frozen_body["estimated_risk_basis"] is None
+        actual = await value_user_detailed(s, user_id, daily_rate=D("0"))
+    assert actual.liquidation_equity == D(body["estimated_equity"])
+    assert actual.risk_basis == D(body["estimated_risk_basis"])

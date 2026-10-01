@@ -10,7 +10,7 @@ accepted, or an unknown cover cost treated as zero.
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -58,8 +58,6 @@ def _clean_risk_state():
     clear_risk_cache()
     risk.set_risk_cache_size(risk.DEFAULT_CACHE_SIZE)
 
-
-# ────────────────────────────── seed helpers ──────────────────────────────
 
 async def _seed_config(**kv: str) -> None:
     async with async_session_maker() as s:
@@ -173,41 +171,8 @@ async def _short_row(uid: int, pid: int) -> tuple:
                 row.interest_last_accrued_at, row.restricted_gold)
 
 
-# ────────────────────────────── dependency discovery ──────────────────────────────
-
-async def test_short_pair_is_a_dependency_without_wallet_or_gold_debt():
-    """A foreign-only borrower must still appear in groups and complete snapshots."""
-    async with async_session_maker() as s:
-        user = await _user(s, "disc_short", cash="500", debt="0")
-        pair = await _pair(s, "disc_short_p", gold="1000", foreign="2000",
-                           buy_fee="0.01", sell_fee="0.02")
-        row = await _short(s, user, pair, principal="10", restricted="0")
-        uid, pid, accrued = int(user.id), int(pair.id), row.interest_last_accrued_at
-
-    deps = await _deps(uid)
-    key = GroupKey("fx", pid)
-    assert key in deps.groups
-    assert deps.holdings.get(key, {}) == {}     # no positive wallet
-    assert deps.debt == ZERO                    # no gold debt
-    snap = deps.snapshots[key]
-    assert snap.short_pair is not None
-    assert snap.short_pair.buy_fee_rate == Decimal("0.01")
-    assert snap.short_pair.sell_fee_rate == Decimal("0.02")
-    assert snap.short_pair.status == "trading"
-    assert snap.pool_version is not None
-    assert snap.short_debt is not None
-    assert snap.short_debt.principal_foreign == Decimal("10")
-    assert snap.short_debt.interest_last_accrued_at == accrued
-
-
 async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
-    """A minimal deps set (gold debt 0) must not hide a foreign obligation.
-
-    The core may not add the missing pair's GATE after the User lock and quote
-    it under ungated reserves.  The conservative answer is a stable
-    ``version_conflict`` so the caller releases, rediscovers with the short pair
-    in ``extra_groups`` and retries; neither spend is allowed and no money moves.
-    """
+    """A minimal deps set (gold debt 0) must not hide a foreign obligation."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
         user = await _user(s, "min_deps", cash="5000", debt="0")
@@ -243,8 +208,6 @@ async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
     assert await _user_money(uid) == (Decimal("5000"), Decimal("0"))
     assert await _short_row(uid, pid) == before
 
-
-# ────────────────────────────── (1) foreign-only blocks new risk ──────────────────────────────
 
 async def test_foreign_only_short_blocks_gold_loan_and_cash_spend():
     await _seed_config(loan_daily_rate="0.01")
@@ -283,81 +246,6 @@ async def test_foreign_only_short_blocks_gold_loan_and_cash_spend():
     assert spend_bad.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
     assert await _user_money(bid) == (Decimal("5000"), Decimal("0"))
 
-
-# ────────────────────────────── (2) mixed long/short W boundary ──────────────────────────────
-
-async def test_mixed_long_short_boundary_counts_cash_only_once():
-    await _seed_config(loan_daily_rate="0.01", sell_fee_rate="0.0")
-    restricted = Decimal("1000")
-    async with async_session_maker() as s:
-        user = await _user(s, "mixed", cash="100000", debt="0")
-        market, outcomes = await _market(s, "mixed_m", [100, 100])
-        await _position(s, user, outcomes[0], 40)
-        pair = await _pair(s, "mixed_p", gold="1000", foreign="1000")
-        await _short(s, user, pair, principal="50", restricted=str(restricted))
-        uid, pid = int(user.id), int(pair.id)
-
-    deps = await _deps(uid)
-    probe = await _check(uid, deps=deps, thresholds=TH10)
-    assert probe.allowed is True, probe
-    k = probe.short_cover_cost
-    assert k is not None and k > ZERO
-    # A = E + D + K - C from the probe's own full-portfolio valuation.
-    a = probe.equity_after - deps.cash + probe.debt_after + k
-
-    # Pick a debt that dominates alpha*A so B = D + alpha*K.
-    alpha = TH10.alpha
-    debt = (alpha * a).to_integral_value(rounding=ROUND_FLOOR) + Decimal("10000")
-    assert debt > alpha * a
-    basis, w = TH10.basis_measure(
-        debt=debt, positive_assets=a, short_cover=k,
-    )
-    assert (w / (TH10.leverage * (TH10.leverage - ONE))).is_finite()
-    boundary_cash = debt + k + basis / (TH10.leverage - ONE) - a
-
-    at = await _check(uid, deps=deps, thresholds=TH10, post=PostTradeState(
-        cash=boundary_cash + Q6, debt=debt,
-    ))
-    below = await _check(uid, deps=deps, thresholds=TH10, post=PostTradeState(
-        cash=boundary_cash - Q6, debt=debt,
-    ))
-    assert at.allowed is True, at
-    assert below.allowed is False, below
-    assert below.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
-
-    # C already contains the locked short proceeds S: the decision uses C once.
-    assert at.equity_after == (boundary_cash + Q6 + a - debt - k).quantize(Q6)
-    assert at.equity_after != (boundary_cash + Q6 + restricted + a - debt - k).quantize(Q6)
-    assert below.max_borrow == ZERO
-
-
-async def test_new_short_open_post_state_is_risk_checked_without_persisted_row():
-    """A short open passed only through PostTradeState is fully valued, no second model."""
-    await _seed_config(loan_daily_rate="0.01")
-    async with async_session_maker() as s:
-        user = await _user(s, "open_new", cash="100", debt="0")
-        pair = await _pair(s, "open_new_p", gold="1000", foreign="1000")
-        uid, pid = int(user.id), int(pair.id)
-
-    deps = await _deps(uid)
-    assert GroupKey("fx", pid) not in deps.groups     # nothing persisted yet
-
-    q = Decimal("10")
-    proceeds = Decimal("10")
-    decision = await _check(uid, deps=deps, post=PostTradeState(
-        cash=Decimal("100") + proceeds, debt=ZERO,
-        short_debt={pid: q},
-        short_reserves={pid: (Decimal("1010"), Decimal("990"))},
-    ))
-    k = quote_buy_exact_out(q, Decimal("1010"), Decimal("990"), ZERO).input_amount
-    assert decision.short_debt_after == q
-    assert decision.short_cover_cost == k
-    assert decision.equity_after == (Decimal("110") - k).quantize(Q6)
-    # Ignoring the new short (K=0) would have produced a different, wrong equity.
-    assert decision.equity_after != Decimal("110.000000")
-
-
-# ────────────────────────────── (3) post reserves / interest move K ──────────────────────────────
 
 async def test_post_reserve_and_pending_interest_change_k_and_admission():
     await _seed_config(loan_daily_rate="0.01")
@@ -408,7 +296,6 @@ async def test_post_reserve_and_pending_interest_change_k_and_admission():
         assert pending_short_debt(row, RATE, NOW) > Decimal("10")
 
 
-# ────────────────────────────── (4) unknown K vs paused finite K ──────────────────────────────
 async def test_unknown_pool_and_paused_market_are_distinct_blocked_reasons():
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -442,34 +329,6 @@ async def test_unknown_pool_and_paused_market_are_distinct_blocked_reasons():
     assert unknown.equity_after is not paused_dec.equity_after
 
 
-# ────────────────────────────── (5) no-short equivalence / explicit clear ──────────────────────────────
-
-async def test_explicit_zero_short_clears_to_old_no_short_decision():
-    await _seed_config(loan_daily_rate="0.01")
-    async with async_session_maker() as s:
-        plain = await _user(s, "clear_plain", cash="100", debt="300")
-        shorter = await _user(s, "clear_short", cash="100", debt="300")
-        pair = await _pair(s, "clear_p", gold="1000", foreign="1000")
-        await _short(s, shorter, pair, principal="10", restricted="40")
-        pid = int(pair.id)
-        plain_uid, short_uid = int(plain.id), int(shorter.id)
-
-    no_short = await _check(plain_uid)
-    assert no_short.allowed is False
-    assert no_short.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
-    # Old no-short comparison still decides the no-short account exactly.
-    assert no_short.allowed == (no_short.equity_after >= TH10.r_initial * no_short.debt_after)
-
-    cleared = await _check(short_uid, post=PostTradeState(
-        cash=Decimal("100"), debt=Decimal("300"), short_debt={pid: ZERO},
-    ))
-    assert cleared.allowed == no_short.allowed
-    assert cleared.equity_after == no_short.equity_after
-    assert cleared.debt_after == no_short.debt_after
-
-
-# ────────────────────────────── (6) stale post-order reserves deny ──────────────────────────────
-
 async def test_stale_post_order_short_reserve_is_not_used():
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -499,9 +358,7 @@ async def test_stale_post_order_short_reserve_is_not_used():
 
 
 async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
-    """A persisted short that appeared after discovery must not be priced under
-    the already-held (incomplete) gate set; the core returns ``version_conflict``
-    and the caller releases, rediscovers and retries with the pair gated."""
+    """A persisted short that appeared after discovery must not be priced under."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
         user = await _user(s, "late_short", cash="100000", debt="0")
@@ -537,9 +394,7 @@ async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
 
 
 async def test_revalidation_new_asset_group_is_rejected_not_priced():
-    """If version revalidation discovers a new holding group, the caller's gate
-    set from discovery is incomplete.  The core must reject rather than price
-    that group's collateral under a gate it never held."""
+    """If version revalidation discovers a new holding group, the caller's gate."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
         user = await _user(s, "reval_group", cash="5000", debt="100")

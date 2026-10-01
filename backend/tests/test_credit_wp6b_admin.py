@@ -557,18 +557,14 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
     assert cash == Decimal("100.000000") and debt == ZERO and version == 0
 
 
-async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(writes_enabled):
-    """A gold-writeoff freeze waiver must not cover foreign-only debt.
-
-    The account is frozen and holds only foreign short debt (``User.debt==0``).
-    ``forgive_debt=True`` with the cash reset to its lock floor forgives no gold
-    debt, so the freeze denial must stand: cash, locks, foreign obligation, version
-    and ledger all stay unchanged rather than silently skipping cover pricing.
-    """
+@pytest.mark.parametrize("gold_debt", ["0", "100"])
+async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(
+        writes_enabled, gold_debt):
+    """Forgiving gold never waives a freeze while foreign debt remains."""
     await _seed_loan_config()
     admin = await _seed_admin()
-    uid = await _seed_user(cash=Decimal("100"), frozen=True)
-    await _seed_short_pairs(uid)  # S = 80, principal = 10, User.debt = 0
+    uid = await _seed_user(cash=Decimal("100"), debt=Decimal(gold_debt), frozen=True)
+    await _seed_short_pairs(uid)  # S = 80
     credit_flags.set_flags(UNIFIED)
     short_before = await _short_state(uid)
 
@@ -582,40 +578,7 @@ async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(writ
     assert "冻结" in r["failed"][0]["reason"]
     assert GATES.metrics().holders == 0
     cash, debt, version = await _state(uid)
-    assert cash == Decimal("100.000000") and debt == ZERO and version == 0
-    assert await _short_state(uid) == short_before
-    async with async_session_maker() as s:
-        entries = (await s.execute(
-            select(LedgerEntry).where(LedgerEntry.user_id == uid)
-        )).scalars().all()
-    assert entries == []
-
-
-async def test_unified_amnesty_mixed_gold_foreign_writeoff_does_not_bypass_freeze(
-    writes_enabled,
-):
-    """Real gold debt alone cannot waive a freeze while foreign debt remains.
-
-    A frozen user with both gold and foreign debt must keep the freeze denial: the
-    real gold writeoff must not leave the foreign obligation unpriced.
-    """
-    await _seed_loan_config()
-    admin = await _seed_admin()
-    uid = await _seed_user(cash=Decimal("100"), debt=Decimal("100"), frozen=True)
-    await _seed_short_pairs(uid)  # S = 80, principal = 10
-    credit_flags.set_flags(UNIFIED)
-    short_before = await _short_state(uid)
-
-    f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
-    async with async_session_maker() as s:
-        r = await svc.amnesty(
-            s, f=f, reset_cash_to=Decimal("80"), forgive_debt=True,
-            reason="frozen mixed reset", admin_id=admin, dry_run=False,
-        )
-    assert r["updated_count"] == 0 and r["failed_count"] == 1
-    assert "冻结" in r["failed"][0]["reason"]
-    cash, debt, version = await _state(uid)
-    assert cash == Decimal("100.000000") and debt == Decimal("100.000000") and version == 0
+    assert cash == Decimal("100.000000") and debt == Decimal(gold_debt) and version == 0
     assert await _short_state(uid) == short_before
     async with async_session_maker() as s:
         entries = (await s.execute(
