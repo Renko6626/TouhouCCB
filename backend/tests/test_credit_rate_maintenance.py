@@ -77,3 +77,22 @@ async def test_invalid_debt_rolls_back_everything(invalid):
         assert (await db.get(FxShortPosition, pid)).interest_foreign == 0
         assert (await db.execute(select(SiteConfig).where(SiteConfig.key == "loan_daily_rate"))).scalar_one().value == "0.1"
         assert not (await db.execute(select(AuditEvent))).scalars().all()
+
+async def test_public_wrapper_rejects_actual_sqlite_engine_despite_pg_settings(monkeypatch):
+    from app.core.config import settings
+    from app.services.credit import ownership
+    from app.services.credit.rate_maintenance import change_loan_daily_rate
+
+    uid, _ = await seed()
+    monkeypatch.setattr(type(settings), "build_db_url", lambda self: "postgresql+asyncpg://unused/unused")
+
+    async def unexpected_separate_owner(*args, **kwargs):
+        pytest.fail("maintenance attempted a separate ownership connection")
+
+    monkeypatch.setattr(ownership.WriteOwnership, "acquire", unexpected_separate_owner)
+    with pytest.raises(ownership.OwnershipError, match="actual database engine"):
+        await change_loan_daily_rate(new_rate=D("0.2"), operator_user_id=uid)
+    async with async_session_maker() as db:
+        assert (await db.get(User, uid)).debt == D("100")
+        assert (await db.execute(select(SiteConfig).where(SiteConfig.key == "loan_daily_rate"))).scalar_one().value == "0.1"
+        assert not (await db.execute(select(AuditEvent))).scalars().all()

@@ -1,17 +1,18 @@
 """Offline, atomic old-rate settlement. No live API calls this service."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
 
-from sqlalchemy import inspect, select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import SiteConfig, User
 from app.models.fx import FxShortPosition
 from app.services import audit_service, site_config
-from app.services.credit.ownership import WriteOwnership, OwnershipError
+from app.services.credit.ownership import LOCK_KEY, OwnershipError
 from app.services.credit.version import bump_economic_version
 from app.services.loan_service import pending_debt, _elapsed_seconds, _as_utc
 from app.services.fx.shorts import pending_short_debt
@@ -133,24 +134,60 @@ async def _change_rate_in_session(
 
 
 async def change_loan_daily_rate(*, new_rate: Decimal, operator_user_id: int) -> dict:
-    """Production entry: PostgreSQL exclusive advisory ownership or fail closed."""
-    from app.core.database import async_session_maker, engine
-    from app.core.config import settings
-    owner = WriteOwnership(url=settings.build_db_url())
-    if not owner.supported:
-        raise OwnershipError("offline rate maintenance requires PostgreSQL advisory ownership")
+    """Hold PostgreSQL ownership on the very connection that commits settlement.
+
+    A transaction advisory lock conflicts with the application's session lock.
+    Losing this connection loses both ownership and the uncommitted transaction;
+    there is no independent heartbeat detection window.
+    """
+    from app.core.database import engine
+    logger = logging.getLogger(__name__)
+    connection = transaction = None
     try:
-        await owner.acquire(required=True)
-        async with async_session_maker() as session:
-            async with session.begin():
-                operator = await session.get(User, operator_user_id)
-                if operator is None:
-                    raise RateMaintenanceError("operator user does not exist")
-                result = await _change_rate_in_session(session, new_rate=new_rate,
-                    operator_user_id=operator_user_id, now=datetime.now(timezone.utc),
-                    assert_offline_owner=owner.require_writes)
-        site_config.clear_cache()
+        if engine.dialect.name != "postgresql":
+            raise OwnershipError("actual database engine must be PostgreSQL for offline rate maintenance")
+        connection = await engine.connect()
+        transaction = await connection.begin()
+        acquired = bool((await connection.execute(
+            text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": LOCK_KEY},
+        )).scalar())
+        if not acquired:
+            raise OwnershipError("another economic writer owns the database advisory lock")
+
+        def assert_transaction_owner():
+            if not acquired or connection.closed or not transaction.is_active:
+                raise OwnershipError("maintenance ownership transaction is no longer active")
+
+        async with AsyncSession(bind=connection, expire_on_commit=False) as session:
+            operator = await session.get(User, operator_user_id)
+            if operator is None:
+                raise RateMaintenanceError("operator user does not exist")
+            result = await _change_rate_in_session(session, new_rate=new_rate,
+                operator_user_id=operator_user_id, now=datetime.now(timezone.utc),
+                assert_offline_owner=assert_transaction_owner)
+        # Session cleanup occurs before the external transaction commits.
+        assert_transaction_owner()
+        await transaction.commit()
+        try:
+            site_config.clear_cache()
+        except Exception as exc:
+            logger.warning("rate maintenance committed; cache cleanup failed (%s)", type(exc).__name__)
         return result
+    except BaseException:
+        if transaction is not None and transaction.is_active:
+            try:
+                await transaction.rollback()
+            except Exception as exc:
+                logger.warning("rate maintenance rollback cleanup failed (%s)", type(exc).__name__)
+        raise
     finally:
-        await owner.release()
-        await engine.dispose()
+        if connection is not None:
+            try:
+                await connection.close()
+            except Exception as exc:
+                logger.warning("rate maintenance connection cleanup failed (%s)", type(exc).__name__)
+        # Cleanup must not turn a successful commit into a CLI failure report.
+        try:
+            await engine.dispose()
+        except Exception as exc:
+            logger.warning("rate maintenance engine cleanup failed (%s)", type(exc).__name__)
