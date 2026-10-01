@@ -3,6 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -11,6 +12,7 @@ import pytest_asyncio
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.base import User
+from app.models.fx import FxPair, FxShortPosition
 
 
 async def _seed_user(
@@ -41,6 +43,24 @@ async def _seed_user_with_headers(**kwargs):
     uid = await _seed_user(**kwargs)
     token = create_access_token(uid)
     return uid, {"Authorization": f"Bearer {token}"}
+
+
+async def _seed_short_lock(uid: int, *, lock: str = "80", principal: str = "10") -> None:
+    """Persist a restricted short lock that is already part of the user's cash."""
+    async with async_session_maker() as s:
+        pair = FxPair(
+            currency_code=uuid.uuid4().hex[:16], currency_name="test",
+            status="trading", gold_reserve=Decimal("10000"),
+            foreign_reserve=Decimal("10000"),
+        )
+        s.add(pair)
+        await s.flush()
+        s.add(FxShortPosition(
+            user_id=uid, pair_id=pair.id, principal_foreign=Decimal(principal),
+            restricted_gold=Decimal(lock),
+            interest_last_accrued_at=datetime.now(timezone.utc),
+        ))
+        await s.commit()
 
 
 @pytest_asyncio.fixture
@@ -130,6 +150,42 @@ async def test_deduct_skips_when_would_go_negative(client, admin_headers):
     async with async_session_maker() as s:
         assert (await s.get(User, rich)).cash == Decimal("400.000000")
         assert (await s.get(User, poor)).cash == Decimal("10")  # 未变
+
+
+@pytest.mark.asyncio
+async def test_dry_run_debit_below_short_lock_matches_execution(client, admin_headers):
+    """C=100, S=80, debit=30: preview skips it and total_delta excludes it."""
+    uid = await _seed_user(cash=Decimal("100"))
+    await _seed_short_lock(uid, lock="80")
+
+    payload = {
+        "filter": {"user_id_min": uid, "user_id_max": uid},
+        "amount": "-30",
+        "reason": "recover",
+        "dry_run": True,
+    }
+    resp = await client.post(
+        "/api/v1/admin/users/batch/adjust-cash", headers=admin_headers, json=payload,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["matched_count"] == 1
+    assert data["eligible_count"] == 0
+    assert data["will_fail_count"] == 1
+    assert data["total_delta"] == 0.0
+    assert data["matched_users"][0]["will_fail"] is True
+
+    payload["dry_run"] = False
+    resp = await client.post(
+        "/api/v1/admin/users/batch/adjust-cash", headers=admin_headers, json=payload,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["updated_count"] == 0
+    assert data["failed_count"] == 1
+    assert data["total_delta"] == 0.0
+    async with async_session_maker() as s:
+        assert (await s.get(User, uid)).cash == Decimal("100")
 
 
 @pytest.mark.asyncio

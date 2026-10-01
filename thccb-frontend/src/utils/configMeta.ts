@@ -57,6 +57,7 @@ const META: Record<string, ConfigMeta> = {
     description: '并发更新时风险检查允许重试的次数；通常无需调整。',
     unit: '次',
   },
+  fx_short_enabled: { group: 'economy', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
   fx_enabled: {
     group: 'economy',
     label: 'FX 交易总闸',

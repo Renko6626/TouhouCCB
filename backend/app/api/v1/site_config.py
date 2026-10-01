@@ -51,6 +51,8 @@ _WHITELIST = {
     "credit_leverage": "decimal",
     "credit_maintenance_ratio": "decimal",
     "credit_risk_retry_limit": "int",
+    # 全站开空总闸：默认 false（未 seed 时内核按 get_bool_or(..., False) 读取）。
+    "fx_short_enabled": "bool",
 }
 
 #: 需要跨行交叉校验的 key（见 _validate_credit_update）。
@@ -108,6 +110,21 @@ def _validate(key: str, value: str) -> None:
             raise HTTPException(status_code=400, detail="credit_maintenance_ratio 必须在 (0, 1)")
 
 
+async def _ensure_config_row(db: AsyncSession, key: str, default: str = "false") -> None:
+    """Create a missing allowlisted key with its safe default on first explicit set.
+
+    ``fx_short_enabled`` stays absent until an operator touches it (the kernels
+    read it with ``get_bool_or(..., False)``, so unset means off).  The admin
+    toggle must work without a dedicated migration seed, hence this narrow
+    upsert of exactly the requested allowlisted boolean.
+    """
+    row = (await db.execute(
+        select(SiteConfig).where(SiteConfig.key == key))).scalars().first()
+    if row is None:
+        db.add(SiteConfig(key=key, value=default, value_type=_WHITELIST[key]))
+        await db.flush()
+
+
 async def _validate_credit_update(db: AsyncSession, key: str, value: str) -> None:
     """统一信贷相关 key 的跨行校验（同步 _validate 拿不到其他行）。
 
@@ -135,6 +152,11 @@ async def _validate_credit_update(db: AsyncSession, key: str, value: str) -> Non
                     status_code=400,
                     detail=f"拒绝启用 unified_credit_enabled：{parsed.disabled_reason}",
                 )
+        elif await credit_flags.has_live_fx_short_obligation(db):
+            raise HTTPException(
+                status_code=400,
+                detail="存量 fx_short 欠币或锁金存在，拒绝关闭 unified_credit_enabled",
+            )
         return
 
     if key == "loan_leverage_k" and unified_on:
@@ -194,6 +216,8 @@ async def update_config(
     _validate(key, req.value)
     if key in _CREDIT_CROSS_CHECK_KEYS:
         await _validate_credit_update(db, key, req.value)
+    if key == "fx_short_enabled":
+        await _ensure_config_row(db, key)
 
     row = await site_config.set_value(db, key, req.value, admin_user_id=admin.id)
     logger.info("SITECONFIG_SET admin_id=%s key=%s value=%s", admin.id, key, req.value)

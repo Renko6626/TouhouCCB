@@ -2,6 +2,7 @@
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
 import type {
+  FxShortPosition, FxShortQuote, FxShortQuoteRequest, FxShortTrade,
   FxEventAdmin,
   FxEventCreate,
   FxFundRequest,
@@ -576,6 +577,18 @@ export class FxOrderSubmitter {
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
+  getShort(pairId: number): Promise<FxShortPosition> {
+    return api.get(`/api/v1/fx/pairs/${pairId}/short`)
+  },
+  quoteShort(pairId: number, body: FxShortQuoteRequest): Promise<FxShortQuote> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/quote`, body)
+  },
+  openShort(pairId: number, body: { foreign_amount: string; min_gold_out: string; idempotency_key: string }): Promise<FxShortTrade> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/open`, body)
+  },
+  coverShort(pairId: number, body: { foreign_amount?: string; cover_all?: boolean; max_gold_in: string; idempotency_key: string }): Promise<FxShortTrade> {
+    return api.post(`/api/v1/fx/pairs/${pairId}/short/cover`, body)
+  },
   getAllMyTrades(limit = 100): Promise<FxPersonalTrade[]> {
     return api.get<FxPersonalTrade[]>('/api/v1/fx/my-trades', { params: { limit } })
   },
@@ -607,8 +620,8 @@ export const fxApi = {
   },
 
   /** 当前用户在指定 pair 的个人成交历史（新到旧）。 */
-  getMyTrades(pairId: number, limit = 50): Promise<FxTradePublic[]> {
-    return api.get<FxTradePublic[]>(`/api/v1/fx/pairs/${pairId}/my-trades`, {
+  getMyTrades(pairId: number, limit = 50): Promise<FxPersonalTrade[]> {
+    return api.get<FxPersonalTrade[]>(`/api/v1/fx/pairs/${pairId}/my-trades`, {
       params: { limit },
     })
   },
@@ -828,5 +841,138 @@ export class FxStream {
 
   get currentPairId(): number | null {
     return this.pairId
+  }
+}
+
+/** Exact decimal ceiling prevents a cover limit from rounding below the chosen tolerance. */
+export function computeMaxGoldIn(input: string, slippageBps: number): string {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(input.trim())
+  if (!match) return ''
+  const fraction = match[2] ?? ''
+  const denominator = 10n ** BigInt(fraction.length) * 10000n
+  const numerator = BigInt(match[1]! + fraction) * BigInt(10000 + clampBps(slippageBps)) * 1000000n
+  return scaledToString((numerator + denominator - 1n) / denominator, 6)
+}
+
+export interface FxPendingShortRequest {
+  readonly pairId: number
+  readonly action: 'open' | 'cover'
+  readonly body: Readonly<{
+    foreign_amount?: string
+    cover_all?: boolean
+    min_gold_out?: string
+    max_gold_in?: string
+    idempotency_key: string
+  }>
+}
+
+type PendingShortStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+const PENDING_SHORT_PREFIX = 'fx-short-pending-v1:'
+
+function browserPendingStorage(): PendingShortStorage | null {
+  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage }
+  catch { return null }
+}
+
+function restoredShortRequest(value: unknown): FxPendingShortRequest | null {
+  if (!value || typeof value !== 'object') return null
+  const request = value as Partial<FxPendingShortRequest>
+  const body = request.body
+  if (!Number.isSafeInteger(request.pairId) || Number(request.pairId) <= 0
+    || (request.action !== 'open' && request.action !== 'cover')
+    || !body || typeof body !== 'object'
+    || typeof body.idempotency_key !== 'string' || !body.idempotency_key || body.idempotency_key.length > 128) return null
+  const amount = (v: unknown) => typeof v === 'string' && /^\d+(?:\.\d{0,6})?$/.test(v)
+  if (request.action === 'open') {
+    if (!amount(body.foreign_amount) || !amount(body.min_gold_out)) return null
+  } else if (!amount(body.max_gold_in)
+    || (body.cover_all !== true && !amount(body.foreign_amount))
+    || (body.cover_all === true && body.foreign_amount !== undefined)) return null
+  return Object.freeze({ pairId: request.pairId!, action: request.action,
+    body: Object.freeze({ ...body }) })
+}
+
+/** Retain the exact wire identity across route changes and reloads for one user. */
+export class FxPendingShortOrder {
+  pending: FxPendingShortRequest | null = null
+  unreadable = false
+  private busy = false
+  private userId: string | null = null
+
+  constructor(userId: number | string | null = null,
+    private readonly storage: PendingShortStorage | null = browserPendingStorage()) {
+    this.setUser(userId)
+  }
+
+  setUser(userId: number | string | null): void {
+    const next = userId == null ? null : String(userId)
+    if (next === this.userId) return
+    this.userId = next
+    this.pending = null
+    this.unreadable = false
+    if (next === null) return
+    if (!this.storage) { this.unreadable = true; return }
+    try {
+      const raw = this.storage.getItem(PENDING_SHORT_PREFIX + next)
+      if (!raw) return
+      const restored = restoredShortRequest(JSON.parse(raw))
+      if (restored) this.pending = restored
+      else this.unreadable = true
+    } catch { this.unreadable = true }
+  }
+
+  get hasUnresolved(): boolean { return this.unreadable || this.pending !== null }
+
+  private persist(request: FxPendingShortRequest): void {
+    if (this.userId === null || !this.storage || this.unreadable)
+      throw new Error('Cannot safely persist the short request identity')
+    // This must complete before the first network write. A storage failure
+    // fails closed, so a lost response can never turn into a fresh key.
+    try { this.storage.setItem(PENDING_SHORT_PREFIX + this.userId, JSON.stringify(request)) }
+    catch { this.unreadable = true; throw new Error('Cannot safely persist the short request identity') }
+    this.pending = request
+  }
+
+  private clear(userId: string | null, request: FxPendingShortRequest): void {
+    if (userId === null || !this.storage) { this.unreadable = true; return }
+    try {
+      const key = PENDING_SHORT_PREFIX + userId
+      const raw = this.storage.getItem(key)
+      if (raw !== null) {
+        const stored = restoredShortRequest(JSON.parse(raw))
+        if (!stored) { if (this.userId === userId) this.unreadable = true; return }
+        // A response from a component that has since unmounted must not erase
+        // a newer request saved by the remounted component.
+        if (stored.body.idempotency_key !== request.body.idempotency_key) return
+        this.storage.removeItem(key)
+      }
+      if (this.userId === userId && this.pending?.body.idempotency_key === request.body.idempotency_key)
+        this.pending = null
+    } catch { if (this.userId === userId) this.unreadable = true }
+  }
+
+  async start<T>(pairId: number, action: 'open' | 'cover', body: Omit<FxPendingShortRequest['body'], 'idempotency_key'>,
+    run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
+    if (this.hasUnresolved) throw new Error('A short request is awaiting its result')
+    this.persist(Object.freeze({ pairId, action, body: Object.freeze({ ...body, idempotency_key: newFxIdempotencyKey() }) }))
+    return this.retry(run)
+  }
+
+  async retry<T>(run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
+    if (this.busy || !this.pending) return null
+    const request = this.pending
+    const userId = this.userId
+    this.busy = true
+    try {
+      const result = await run(request)
+      this.clear(userId, request)
+      return result
+    } catch (error) {
+      const e = error as { status?: unknown; response?: { status?: unknown } } | null
+      const status = Number(e?.response?.status ?? e?.status)
+      // A request timeout can occur after commit. Unknown/5xx outcomes remain pending.
+      if (status >= 400 && status < 500 && status !== 408) this.clear(userId, request)
+      throw error
+    } finally { this.busy = false }
   }
 }

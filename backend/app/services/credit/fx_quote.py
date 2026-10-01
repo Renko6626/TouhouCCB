@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from typing import Literal
 
-from app.services.fx.amm import quote_sell
+from app.services.fx.amm import marginal_price, quote_buy_exact_out, quote_sell
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -31,6 +31,12 @@ BLOCKED_PAIR_CLOSED = "pair_closed"
 BLOCKED_PAIR_STATUS_UNKNOWN = "pair_status_unknown"
 BLOCKED_QUOTE_FAILED = "quote_failed"
 BLOCKED_NOTHING_TO_SELL = "nothing_to_sell"
+
+#: 空头回补（exact-output 买足欠币）阻塞原因（WP2b1 / spec §5.2、§8.2）。
+#: ``insufficient_pool_foreign`` 是设计明确要求的名字：欠币 q >= 池外币 F。
+BLOCKED_SHORT_INSUFFICIENT_POOL = "insufficient_pool_foreign"
+BLOCKED_SHORT_INVALID_RESERVE = "invalid_short_reserve"
+BLOCKED_SHORT_QUOTE_FAILED = "short_quote_failed"
 
 
 @dataclass(frozen=True)
@@ -169,4 +175,115 @@ def quote_fx_group(
         post_gold_reserve=quoted.post_gold_reserve,
         post_foreign_reserve=quoted.post_foreign_reserve,
         blocked_reason=None,
+    )
+
+
+@dataclass(frozen=True)
+class FxShortPairSnapshot:
+    """空头回补所需的 pair 快照：储备 + 两侧费率 + 状态 + pool 版本。
+
+    与正资产 ``FxPairSnapshot`` 分开：正资产只用 ``sell_fee_rate``，空头回补
+    走买入方向，必须用 ``buy_fee_rate``；两者混用会把费用算错方向。``pool_version``
+    供下游（强平/门闩）复检同一份储备版本。
+    """
+
+    pair_id: int
+    status: str            # draft|trading|paused|closed
+    reduce_only: bool
+    gold_reserve: Decimal
+    foreign_reserve: Decimal
+    buy_fee_rate: Decimal
+    sell_fee_rate: Decimal = ZERO
+    pool_version: int = 0
+
+
+@dataclass(frozen=True)
+class FxShortQuote:
+    """一个 pair 的整仓回补成本。
+
+    ``gold_in`` / ``fee_gold`` 是**可完整报价**时的精确 K；``None`` 表示债务
+    无法完整报价（q>=F、储备非法、溢出、非有限）。未知负债绝不写 0、Infinity
+    或 NaN。``marginal_gold`` 是**有来源**的展示估计（储备合法即有），它不等于
+    可执行回补价。``executable`` 与报价完整性分开：全停市场数学有限但不可执行。
+    """
+
+    pair_id: int
+    foreign_debt: Decimal
+    gold_in: Decimal | None
+    fee_gold: Decimal | None
+    marginal_gold: Decimal | None
+    executable: bool
+    blocked_reason: str | None
+
+
+def _short_blocked(
+    pair: FxShortPairSnapshot, debt: Decimal, reason: str,
+    *, marginal: Decimal | None,
+) -> FxShortQuote:
+    return FxShortQuote(
+        pair_id=pair.pair_id,
+        foreign_debt=debt,
+        gold_in=None,
+        fee_gold=None,
+        marginal_gold=marginal,
+        executable=False,
+        blocked_reason=reason,
+    )
+
+
+def quote_fx_short_group(
+    pair: FxShortPairSnapshot,
+    *,
+    foreign_debt: Decimal,
+) -> FxShortQuote:
+    """按当前储备买足 ``foreign_debt`` 的整仓回补成本（纯函数，不查库）。
+
+    使用 ``quote_buy_exact_out``（含买入费率、向上量化）而不是 ``q × 边际价``
+    或普通 exact-input 报价。q >= F 或任何非有限/溢出情形返回 ``gold_in=None``，
+    由调用方把 E/B 标为未知，绝不令 K=0。
+    """
+    debt = _as_decimal(foreign_debt, "foreign_debt")
+    if debt < ZERO:
+        raise ValueError(f"foreign_debt must be >= 0: {foreign_debt!r}")
+
+    status_reason = _status_blocked_reason(pair.status, bool(pair.reduce_only))
+    if debt == ZERO:
+        return FxShortQuote(
+            pair_id=pair.pair_id, foreign_debt=debt, gold_in=ZERO, fee_gold=ZERO,
+            marginal_gold=ZERO, executable=status_reason is None,
+            blocked_reason=status_reason,
+        )
+
+    try:
+        gold_reserve = _as_decimal(pair.gold_reserve, "gold_reserve")
+        foreign_reserve = _as_decimal(pair.foreign_reserve, "foreign_reserve")
+    except ValueError:
+        return _short_blocked(pair, debt, BLOCKED_SHORT_INVALID_RESERVE, marginal=None)
+    if gold_reserve <= ZERO or foreign_reserve <= ZERO:
+        return _short_blocked(pair, debt, BLOCKED_SHORT_INVALID_RESERVE, marginal=None)
+
+    # 有来源的边际估计：储备合法即可给出，与是否可完整报价/可执行无关。
+    try:
+        marginal = (debt * marginal_price(gold_reserve, foreign_reserve)).quantize(Q6)
+    except (ValueError, ArithmeticError):
+        marginal = None
+
+    if debt >= foreign_reserve:
+        return _short_blocked(pair, debt, BLOCKED_SHORT_INSUFFICIENT_POOL, marginal=marginal)
+
+    try:
+        quoted = quote_buy_exact_out(
+            debt, gold_reserve, foreign_reserve, _as_decimal(pair.buy_fee_rate, "buy_fee_rate"),
+        )
+    except (ValueError, ArithmeticError):
+        return _short_blocked(pair, debt, BLOCKED_SHORT_QUOTE_FAILED, marginal=marginal)
+
+    return FxShortQuote(
+        pair_id=pair.pair_id,
+        foreign_debt=debt,
+        gold_in=quoted.input_amount,
+        fee_gold=quoted.fee_amount,
+        marginal_gold=marginal,
+        executable=status_reason is None,
+        blocked_reason=status_reason,
     )

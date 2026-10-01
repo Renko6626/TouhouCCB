@@ -8,6 +8,9 @@ def test_fx_router_exports_required_paths():
     # I5 player reads: per-user wallet and personal trade history.
     assert "/pairs/{pair_id}/wallet" in paths
     assert "/pairs/{pair_id}/my-trades" in paths
+    # Task 3c1 authenticated short writes (quote/current-position reads are 3c2).
+    assert "/pairs/{pair_id}/short/open" in paths
+    assert "/pairs/{pair_id}/short/cover" in paths
 
 
 def test_admin_fx_router_exports_pair_read():

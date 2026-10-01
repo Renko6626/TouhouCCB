@@ -27,8 +27,32 @@ export interface RankThreshold {
 }
 
 /** 阶段 3 新契约（spec §6.4）：只有客户端算不出来的东西。
- *  估值/净值/浮盈/rank 由 stores/user.ts 的派生 getters 本地算。 */
+ *  旧模式估值由 stores/user.ts 派生；统一模式净值由服务端权威快照提供。 */
+export interface AccountShortPosition {
+  pair_id: number
+  currency_code: string
+  principal_foreign: string
+  interest_foreign: string
+  pending_short_debt: string | null
+  restricted_gold: string
+  proceeds_basis_gold: string
+  reference_cover_cost: string | null
+  reference_cover_fee: string | null
+  executable: boolean
+  risk_status: string
+  blocked_reason: string | null
+  interest_last_accrued_at: string | null
+}
+
 export interface UserSummary {
+  available_cash?: string | null
+  restricted_cash?: string
+  short_positions?: AccountShortPosition[]
+  short_cover_cost?: string | null
+  risk_basis?: string | null
+  equity_to_risk_basis?: number | null
+  blocked_reason?: string | null
+  economic_version?: number
   /** 6dp 全精度——成交后本地 apply 的 cash 基线 */
   cash: number
   debt: number
@@ -40,7 +64,7 @@ export interface UserSummary {
   r_initial?: number | null
   r_maintenance?: number | null
   equity_to_debt?: number | null
-  risk_status?: 'healthy' | 'warning' | 'danger' | null
+  risk_status?: 'healthy' | 'warning' | 'danger' | 'blocked' | null
   credit_frozen?: boolean
   fx_wallets?: { pair_id: number; currency_code: string; currency_name?: string; cost_basis?: number; foreign_amount: number; mtm_gold: number }[]
   /** FX 展示市值；统一模式清算净值来自服务端产品报价 */

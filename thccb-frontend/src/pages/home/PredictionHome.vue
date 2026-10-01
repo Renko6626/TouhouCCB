@@ -116,7 +116,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
             </div>
             <div class="pnl-stat">
               <span class="pnl-stat-label">净资产</span>
-              <span class="pnl-stat-value">金 {{ userStore.netWorth.toFixed(2) }}</span>
+              <span class="pnl-stat-value">金 {{ userStore.netWorth?.toFixed(2) ?? '估值待恢复' }}</span>
             </div>
           </div>
 

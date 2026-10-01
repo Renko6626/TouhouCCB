@@ -9,6 +9,7 @@ export const useLoanStore = defineStore('loan', () => {
   const error = ref<string | null>(null)
 
   async function refresh() {
+    quota.value = null
     loading.value = true
     error.value = null
     try {
@@ -22,32 +23,22 @@ export const useLoanStore = defineStore('loan', () => {
 
   async function borrow(amount: string) {
     const r = await loanApi.borrow(amount)
-    if (quota.value) {
-      quota.value.cash = r.cash
-      quota.value.debt = r.debt
-      quota.value.max_borrow = r.max_borrow
-    }
+    quota.value = null
+    await refresh()
     return r
   }
 
   async function repay(amount: string) {
     const r = await loanApi.repay(amount)
-    if (quota.value) {
-      quota.value.cash = r.cash
-      quota.value.debt = r.debt
-      quota.value.max_borrow = r.max_borrow
-    }
+    quota.value = null
+    await refresh()
     return r
   }
 
   async function repayAll() {
     const r = await loanApi.repayAll()
-    if (quota.value) {
-      quota.value.cash = r.cash
-      quota.value.debt = r.debt
-      quota.value.max_borrow = r.max_borrow
-      if (/^0(?:\.0+)?$/.test(r.debt)) quota.value.last_accrued_at = null
-    }
+    quota.value = null
+    await refresh()
     return r
   }
 

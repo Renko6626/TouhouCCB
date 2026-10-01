@@ -4,7 +4,7 @@
 快照从已变动的 ORM 对象读取，因此必须在业务值写完之后调用。
 """
 from __future__ import annotations
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Iterable, Optional
 
@@ -31,6 +31,20 @@ def _j(v: Any) -> Any:
     if isinstance(v, (list, tuple)):
         return [_j(x) for x in v]
     return v
+
+
+def _utc_iso(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize a timestamp as an unambiguous UTC ISO-8601 string.
+
+    SQLite does not persist ``tzinfo``, so a value written as UTC reads back
+    naive.  Replay must not have to guess the zone; treat naive input as UTC
+    and always emit an explicit offset instead of a floating local string.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 def user_snapshot(u: User) -> dict[str, Any]:
@@ -100,6 +114,59 @@ def record(
         ev.ts = ts
     session.add(ev)
     return ev
+
+
+def record_fx_short_interest(
+    session: AsyncSession,
+    *,
+    user: User,
+    position: Any,
+    pair_id: int,
+    interest: Decimal,
+    daily_rate: Decimal,
+    elapsed_sec: Optional[float],
+    interest_last_accrued_at_before: Optional[datetime],
+    accrued_at: datetime,
+    source: str,
+) -> AuditEvent:
+    """Append the audit package for accrued foreign (short) interest.
+
+    Foreign interest only moves ``FxShortPosition.interest_foreign`` and its
+    clock, never ``User.cash`` or ``User.debt``.  The event keeps the generic
+    ``interest_accrual`` type so existing replay anchors stay valid; the event's
+    ``interest`` field therefore carries the gold delta (zero here) and the
+    foreign increment is explicit under ``currency='foreign'``.  WP5 replay
+    folds the ``interest_foreign_*`` leg into the short position.
+
+    ``accrued_at`` is the exact UTC T handed to ``accrue_short_interest``.
+    ``interest_last_accrued_at_after`` is read from the committed row, so a
+    nonzero event records the clock that actually governs later compounding
+    (``accrue_short_interest`` leaves that clock untouched when the quantized
+    increment is zero, and the caller then emits no event).  ``AuditEvent.ts``
+    is the same T, not a second ``datetime.now()`` sample.
+    """
+    return record(
+        session, "interest_accrual", user_id=user.id,
+        ref_table="fx_short_position", ref_id=position.id,
+        payload={
+            "currency": "foreign",
+            "pair_id": pair_id,
+            "short_position_id": position.id,
+            "interest": Decimal("0"),
+            "interest_foreign_delta": interest,
+            "principal_foreign": position.principal_foreign,
+            "interest_foreign_before": position.interest_foreign - interest,
+            "interest_foreign_after": position.interest_foreign,
+            "interest_last_accrued_at_before": _utc_iso(interest_last_accrued_at_before),
+            "interest_last_accrued_at_after": _utc_iso(position.interest_last_accrued_at),
+            "accrued_at": _utc_iso(accrued_at),
+            "daily_rate": daily_rate,
+            "elapsed_sec": elapsed_sec,
+            "source": source,
+        },
+        user_after=user_snapshot(user),
+        ts=accrued_at,
+    )
 
 
 _TX_EVENT = {
@@ -229,4 +296,198 @@ def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], 
         session, "fx_trade", user_id=None if user is None else user.id,
         ref_table="fx_trade", ref_id=trade.id,
         payload=payload, user_after=None if user is None else user_snapshot(user),
+    )
+
+
+def record_fx_short_open(
+    session: AsyncSession,
+    *,
+    trade: Any,
+    user: User,
+    pair: Any,
+    position: Any,
+    treasury: Any,
+    treasury_before: dict[str, Any],
+    user_before: dict[str, Any],
+    short_before: dict[str, Any],
+    pool_before: dict[str, Any],
+    accrued_at: datetime,
+) -> AuditEvent:
+    """Purpose-aware replay package for one opening/add-to-short borrow-sell.
+
+    Keeps the generic ``fx_trade`` event so existing user/pool/treasury replay
+    anchors stay valid, but carries the short-specific legs WP5 needs: the
+    borrowed quantity, the gold proceeds that moved into ``User.cash`` and the
+    short lock/basis, the treasury before/after (it really pays Q out and takes
+    the fee back), the operation identity (``idempotency_key``), the user
+    economic version and the short row before/after.  ``wallet_after`` is
+    explicitly ``None``: opening never credits ``FxWallet``, so replay must not
+    expect a spot wallet delta.
+    """
+    payload = {
+        "accrued_at": _utc_iso(accrued_at),
+        "pair_id": pair.id,
+        "purpose": trade.purpose,
+        "side": trade.side,
+        "input_amount": trade.input_amount,
+        "output_amount": trade.output_amount,
+        "fee_amount": trade.fee_amount,
+        "requested_foreign_amount": trade.requested_foreign_amount,
+        "min_gold_out": trade.min_out,
+        "borrowed_foreign": trade.input_amount,
+        "gold_proceeds": trade.output_amount,
+        "pre_gold_reserve": trade.pre_gold_reserve,
+        "pre_foreign_reserve": trade.pre_foreign_reserve,
+        "post_gold_reserve": trade.post_gold_reserve,
+        "post_foreign_reserve": trade.post_foreign_reserve,
+        "post_price": trade.post_price,
+        "pool_before": pool_before,
+        "pool_after": {"gold": pair.gold_reserve, "foreign": pair.foreign_reserve},
+        "pool_version": pair.pool_version,
+        "source": trade.source,
+        "idempotency_key": trade.idempotency_key,
+        "user_economic_version": user.economic_version,
+        "wallet_after": None,
+        "treasury_before": treasury_before,
+        # ``gold``/``foreign`` mirror the fund/withdraw snapshot shape; the
+        # ``*_balance`` spelling is what the generic ``fx_trade`` fold anchors
+        # on (same as ``record_fx_trade``), so carry both from the locked row.
+        "treasury_after": {
+            "gold": treasury.gold_balance,
+            "foreign": treasury.foreign_balance,
+            "gold_balance": treasury.gold_balance,
+            "foreign_balance": treasury.foreign_balance,
+            "daily_spend": treasury.daily_spend,
+            "spend_date": treasury.spend_date,
+            "updated_at": treasury.updated_at,
+        },
+        "user_before": user_before,
+        "user_after": {
+            "cash": user.cash,
+            "debt": user.debt,
+            "debt_last_accrued_at": user.debt_last_accrued_at,
+        },
+        "short_before": short_before,
+        "short_after": {
+            "short_position_id": position.id,
+            "principal_foreign": position.principal_foreign,
+            "interest_foreign": position.interest_foreign,
+            "interest_last_accrued_at": position.interest_last_accrued_at,
+            "restricted_gold": position.restricted_gold,
+            "proceeds_basis_gold": position.proceeds_basis_gold,
+        },
+    }
+    return record(
+        session, "fx_trade", user_id=user.id,
+        ref_table="fx_trade", ref_id=trade.id,
+        payload=payload, user_after=user_snapshot(user),
+        ts=accrued_at,
+    )
+
+
+def record_fx_short_cover(
+    session: AsyncSession,
+    *,
+    trade: Any,
+    user: User,
+    pair: Any,
+    position: Any,
+    treasury: Any,
+    treasury_before: dict[str, Any],
+    user_before: dict[str, Any],
+    short_before: dict[str, Any],
+    pool_before: dict[str, Any],
+    interest_paid_foreign: Decimal,
+    principal_paid_foreign: Decimal,
+    released_lock: Decimal,
+    total_restricted_gold_before: Decimal,
+    allocated_proceeds_basis: Decimal,
+    realized_pl: Decimal,
+    accrued_at: datetime,
+    full_cover: bool,
+    limited_by_cash: bool = False,
+) -> AuditEvent:
+    """Purpose-aware replay package for one exact-output short cover.
+
+    Keeps the generic ``fx_trade`` event so the user/pool replay anchors stay
+    valid, with the cover-specific legs: real gold paid (``input_amount``) and
+    the buy fee in gold, the exact foreign repaid and its interest/principal
+    split, the released lock (which may exceed the proportional base on a losing
+    cover), the independently apportioned historical proceeds basis, the
+    realized P/L (allocated basis minus real gold), the treasury before/after it
+    actually received q, the user cash/debt before/after, the short row before/
+    after, the operation key and the user economic version.  ``wallet_after`` is
+    explicitly ``None``: covering never moves the spot wallet.  ``accrued_at`` is
+    the common UTC T used for every interest leg.  ``limited_by_cash`` is True
+    only for a forced cover whose budget capped the output below the planned
+    quantity; a player cover always passes False.  WP5 folds these legs into the
+    purpose-aware replay.
+    """
+    payload = {
+        "pair_id": pair.id,
+        "purpose": trade.purpose,
+        "side": trade.side,
+        "input_amount": trade.input_amount,
+        "output_amount": trade.output_amount,
+        "fee_amount": trade.fee_amount,
+        "fee_currency": "gold",
+        "requested_foreign_amount": trade.requested_foreign_amount,
+        "cover_all": trade.cover_all,
+        "max_gold_in": trade.max_gold_in,
+        "paid_gold": trade.input_amount,
+        "repaid_foreign": trade.output_amount,
+        "interest_paid_foreign": interest_paid_foreign,
+        "principal_paid_foreign": principal_paid_foreign,
+        "released_lock": released_lock,
+        "total_restricted_gold_before": total_restricted_gold_before,
+        "allocated_proceeds_basis": allocated_proceeds_basis,
+        "realized_pl": realized_pl,
+        "full_cover": full_cover,
+        "limited_by_cash": bool(limited_by_cash),
+        "pre_gold_reserve": trade.pre_gold_reserve,
+        "pre_foreign_reserve": trade.pre_foreign_reserve,
+        "post_gold_reserve": trade.post_gold_reserve,
+        "post_foreign_reserve": trade.post_foreign_reserve,
+        "post_price": trade.post_price,
+        "accrued_at": _utc_iso(accrued_at),
+        "pool_before": pool_before,
+        "pool_after": {"gold": pair.gold_reserve, "foreign": pair.foreign_reserve},
+        "pool_version": pair.pool_version,
+        "source": trade.source,
+        "idempotency_key": trade.idempotency_key,
+        "user_economic_version": user.economic_version,
+        "wallet_after": None,
+        "treasury_before": treasury_before,
+        # ``gold``/``foreign`` mirror the fund/withdraw snapshot shape and the
+        # ``*_balance`` spelling is what the generic fold anchors on.
+        "treasury_after": {
+            "gold": treasury.gold_balance,
+            "foreign": treasury.foreign_balance,
+            "gold_balance": treasury.gold_balance,
+            "foreign_balance": treasury.foreign_balance,
+            "daily_spend": treasury.daily_spend,
+            "spend_date": treasury.spend_date,
+            "updated_at": treasury.updated_at,
+        },
+        "user_before": user_before,
+        "user_after": {
+            "cash": user.cash,
+            "debt": user.debt,
+            "debt_last_accrued_at": user.debt_last_accrued_at,
+        },
+        "short_before": short_before,
+        "short_after": {
+            "short_position_id": position.id,
+            "principal_foreign": position.principal_foreign,
+            "interest_foreign": position.interest_foreign,
+            "interest_last_accrued_at": position.interest_last_accrued_at,
+            "restricted_gold": position.restricted_gold,
+            "proceeds_basis_gold": position.proceeds_basis_gold,
+        },
+    }
+    return record(
+        session, "fx_trade", user_id=user.id,
+        ref_table="fx_trade", ref_id=trade.id,
+        payload=payload, user_after=user_snapshot(user),
+        ts=accrued_at,
     )

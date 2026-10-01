@@ -32,7 +32,7 @@ from app.core.users import create_access_token
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
-from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxTradePublic, FxWalletPublic
+from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxWalletPublic
 from app.services import site_config
 from app.services.credit.ownership import WriteOwnership
 from app.services.fx import market_data, scheduler
@@ -337,7 +337,8 @@ async def test_public_api_allowlist_hides_targets_shocks_and_wallets(ctx):
 
     trades = (await client.get(f"/api/v1/fx/pairs/{pair_id}/trades")).json()
     assert len(trades) == 1
-    assert set(trades[0]) == set(FxTradePublic.model_fields)
+    assert _decimal(trades[0], "output_amount") > 0
+    assert {"user_id", "source", "idempotency_key", "purpose"}.isdisjoint(trades[0])
     assert hidden.isdisjoint(trades[0])
 
     now = _utcnow()
@@ -397,7 +398,9 @@ async def test_player_wallet_and_personal_trades_are_scoped_to_owner(ctx):
     mine = (await client.get(f"/api/v1/fx/pairs/{pair_id}/my-trades",
                              headers=_auth(ctx.trader))).json()
     assert [row["id"] for row in mine] == [trader_trade.json()["id"]]
-    assert set(mine[0]) == set(FxTradePublic.model_fields)
+    assert mine[0]["purpose"] == "spot" and mine[0]["currency_code"]
+    assert mine[0]["is_liquidation"] is False
+    assert "user_id" not in mine[0]
     public = (await client.get(f"/api/v1/fx/pairs/{pair_id}/trades")).json()
     assert len(public) == 2
     assert all("user_id" not in row for row in public)

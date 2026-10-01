@@ -28,6 +28,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import managed_transaction
+from app.models.fx import FxShortPosition
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
 from app.services import audit_service
@@ -84,6 +86,18 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class _RiskRetry(Exception):
+    """内部信号：依赖集在拿到 User 锁前已变化，释放门闩后重新发现（spec §11）。"""
+
+
+_VERSION_CONFLICT_DETAIL = "经济版本冲突（并发写入），请重试"
+
+
+def _risk_retry_limit() -> int:
+    """有界重试上限：短空头/价格依赖在 discovery 之后出现时不得持锁补拿门闩。"""
+    return max(1, int(credit_flags.get_flags().credit_risk_retry_limit))
+
+
 def _unified_thresholds() -> Optional[RiskThresholds]:
     """统一信贷门槛：开关关闭返回 None（调用方走 legacy 原路径）。
 
@@ -106,11 +120,12 @@ def _risk_deny_detail(decision: RiskDecision) -> str:
 
 
 async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
-    """现金写路径的依赖发现：无债走单行快路径，有债走完整组合发现。
+    """现金写路径的依赖发现：无金债且无外币欠币才走单行快路径。
 
-    债务为 0 时 `check_cash_spend` / 债务清零后的 `check_new_risk` 都走 cache-only
-    快路径，不会读抵押品，所以最小依赖集（groups=()）足够且判定保守成立；
-    只要用户仍可能有债务留下，就必须完整发现全组合抵押（跨产品不可复用）。
+    ``User.debt==0`` 不再是"无风险"理由（spec §11）：``has_foreign_debt`` 是按
+    ``user_id`` 索引的持久权威，只要仍有外币本金/利息就必须完整发现全组合抵押
+    （跨产品不可复用），否则 ``check_cash_spend`` 会在锁内发现未纳入的空头 pair
+    并保守返回 version_conflict。无债账户的最小依赖集判定保守成立（无保证金约束）。
     """
     row = (await db.execute(
         select(User.cash, User.debt, User.debt_last_accrued_at, User.economic_version)
@@ -119,7 +134,7 @@ async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
     if row is None:
         raise AdminUserError(404, "用户不存在")
     cash, debt, last_accrued, version = row
-    if Decimal(debt) > ZERO:
+    if Decimal(debt) > ZERO or await has_foreign_debt(db, user_id):
         return await discover_dependencies(db, user_id)
     return DependencySet(
         economic_version=int(version or 0),
@@ -131,12 +146,20 @@ async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
     )
 
 
+async def _cash_floor_ok(db: AsyncSession, user: User, new_cash: Decimal) -> bool:
+    """Mandatory cash-purpose check, including explicit debt writeoff exceptions."""
+    free = await available_cash(db, user)
+    return new_cash >= user.cash - free
+
+
 async def _apply_cash_change(
     db: AsyncSession, *, user: User, amount: Decimal, reason: str, admin_id: int,
 ) -> Decimal:
-    """写现金 + ledger 审计（同事务）；返回变更后现金。不做负数围栏。"""
+    """写现金 + ledger 审计（同事务）；现金不能低于空头锁金。"""
     OWNERSHIP.require_writes()
     new_cash = user.cash + amount
+    if not await _cash_floor_ok(db, user, new_cash):
+        raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
     user.cash = new_cash
     await ledger_service.record_entry(
         db, user=user, entry_type="admin_adjust_cash",
@@ -182,6 +205,8 @@ async def _adjust_cash_legacy(
         new_cash = u.cash + amount
         if new_cash < 0:
             raise AdminUserError(400, f"操作后现金为 {new_cash}，不能为负")
+        if not await _cash_floor_ok(db, u, new_cash):
+            raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
         u.cash = new_cash
         await ledger_service.record_entry(
             db, user=u, entry_type="admin_adjust_cash",
@@ -200,38 +225,68 @@ async def _adjust_cash_unified(
 ) -> Dict[str, Any]:
     OWNERSHIP.require_writes()
     if amount < ZERO:
-        # 现金减少 = 增险：全组合抵押门闩 + user 行锁 + 交易后 E 检查
-        deps = await _deps_for_cash_write(db, target_id)
-        await db.commit()  # release discovery connection before waiting on gates
-        async with GATES.hold(shared=deps.groups):
-            async with managed_transaction(db):
-                u = await _lock_user(db, target_id)
-                if economic_version_of(u) != deps.economic_version:
-                    raise AdminUserError(409, "经济版本冲突，请重试")
-                decision = await check_cash_spend(
-                    db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
-                    partial_pct=ONE, now=_utcnow(),
-                )
-                if not decision.allowed:
-                    raise AdminUserError(409, f"管理扣款被统一信贷拒绝：{_risk_deny_detail(decision)}")
-                if u.cash + amount < 0:
-                    raise AdminUserError(400, f"操作后现金为 {u.cash + amount}，不能为负")
-                new_cash = await _apply_cash_change(
-                    db, user=u, amount=amount, reason=reason, admin_id=admin_id,
-                )
-                bump_economic_version(u)
-    else:
-        # 充值 / 赠予不恶化保证金，冻结期也允许（spec §4.1）
-        async with managed_transaction(db):
-            u = await _lock_user(db, target_id)
-            new_cash = await _apply_cash_change(
-                db, user=u, amount=amount, reason=reason, admin_id=admin_id,
-            )
-            bump_economic_version(u)
+        return await _debit_cash_unified(
+            db, target_id=target_id, amount=amount, reason=reason,
+            admin_id=admin_id, thresholds=thresholds,
+        )
+    # 充值 / 赠予不恶化保证金，冻结期也允许（spec §4.1）
+    async with managed_transaction(db):
+        u = await _lock_user(db, target_id)
+        new_cash = await _apply_cash_change(
+            db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+        )
+        bump_economic_version(u)
     return {
         "user_id": u.id, "username": u.username,
         "amount": float(amount), "new_cash": _money(new_cash), "reason": reason,
     }
+
+
+async def _debit_cash_unified(
+    db: AsyncSession, *, target_id: int, amount: Decimal, reason: str, admin_id: int,
+    thresholds: RiskThresholds,
+) -> Dict[str, Any]:
+    """现金减少 = 增险：全组合抵押门闩 + user 行锁 + 交易后 E 检查。
+
+    discovery 之后出现新的空头 pair 时，风险引擎在锁内返回 version_conflict
+    （绝不在缺门闩时报价）：释放锁和门闩、重新发现完整依赖后有界重试；
+    达到上限仍未收敛则拒绝且不提交任何写入（spec §11）。
+    """
+    OWNERSHIP.require_writes()
+    limit = _risk_retry_limit()
+    for attempt in range(limit + 1):
+        deps = await _deps_for_cash_write(db, target_id)
+        await db.commit()  # release discovery connection before waiting on gates
+        try:
+            async with GATES.hold(shared=deps.groups):
+                async with managed_transaction(db):
+                    u = await _lock_user(db, target_id)
+                    if economic_version_of(u) != deps.economic_version:
+                        raise _RiskRetry()
+                    if not await _cash_floor_ok(db, u, u.cash + amount):
+                        raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
+                    decision = await check_cash_spend(
+                        db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
+                        partial_pct=ONE, now=_utcnow(),
+                    )
+                    if decision.reason == REASON_VERSION_CONFLICT:
+                        raise _RiskRetry()
+                    if not decision.allowed:
+                        raise AdminUserError(409, f"管理扣款被统一信贷拒绝：{_risk_deny_detail(decision)}")
+                    if u.cash + amount < 0:
+                        raise AdminUserError(400, f"操作后现金为 {u.cash + amount}，不能为负")
+                    new_cash = await _apply_cash_change(
+                        db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+                    )
+                    bump_economic_version(u)
+                    return {
+                        "user_id": u.id, "username": u.username,
+                        "amount": float(amount), "new_cash": _money(new_cash), "reason": reason,
+                    }
+        except _RiskRetry:
+            if attempt >= limit:
+                raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
+    raise AssertionError("unreachable")
 
 
 async def force_loan(
@@ -275,32 +330,41 @@ async def _force_loan_unified(
 ) -> Dict[str, Any]:
     OWNERSHIP.require_writes()
     # 新增债务（即使现金同增）：必须用完整组合抵押估值做交易后 E 检查
-    deps = await discover_dependencies(db, target_id)
-    await db.commit()
-    async with GATES.hold(shared=deps.groups):
+    limit = _risk_retry_limit()
+    for attempt in range(limit + 1):
+        deps = await discover_dependencies(db, target_id)
+        await db.commit()
         try:
-            async with managed_transaction(db):
-                u = await _lock_user(db, target_id)
-                if economic_version_of(u) != deps.economic_version:
-                    raise AdminUserError(409, "经济版本冲突，请重试")
-                now = loan_service._compat_now(u)
-                effective = loan_service.pending_debt(u, deps.daily_rate, now)
-                post = PostTradeState(cash=deps.cash + amount, debt=effective + amount)
-                decision = await check_new_risk(
-                    db, user=u, deps=replace(deps, debt_last_accrued_at=now), post=post, thresholds=thresholds,
-                    partial_pct=ONE, now=now,
-                )
-                if not decision.allowed:
-                    raise AdminUserError(409, f"强制放贷被统一信贷拒绝：{_risk_deny_detail(decision)}")
-                OWNERSHIP.require_writes()
-                u = await loan_service.increase_debt(
-                    db, target_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
-                    source="admin_force_loan", operator_user_id=admin_id, reason=reason, now=now,
-                )
-        except (ValueError, loan_service.LoanServiceError) as e:
-            raise AdminUserError(400, str(e))
-    await db.refresh(u)
-    return {"user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt)}
+            async with GATES.hold(shared=deps.groups):
+                try:
+                    async with managed_transaction(db):
+                        u = await _lock_user(db, target_id)
+                        if economic_version_of(u) != deps.economic_version:
+                            raise _RiskRetry()
+                        now = loan_service._compat_now(u)
+                        effective = loan_service.pending_debt(u, deps.daily_rate, now)
+                        post = PostTradeState(cash=deps.cash + amount, debt=effective + amount)
+                        decision = await check_new_risk(
+                            db, user=u, deps=replace(deps, debt_last_accrued_at=now), post=post,
+                            thresholds=thresholds, partial_pct=ONE, now=now,
+                        )
+                        if decision.reason == REASON_VERSION_CONFLICT:
+                            raise _RiskRetry()
+                        if not decision.allowed:
+                            raise AdminUserError(409, f"强制放贷被统一信贷拒绝：{_risk_deny_detail(decision)}")
+                        OWNERSHIP.require_writes()
+                        u = await loan_service.increase_debt(
+                            db, target_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
+                            source="admin_force_loan", operator_user_id=admin_id, reason=reason, now=now,
+                        )
+                except (ValueError, loan_service.LoanServiceError) as e:
+                    raise AdminUserError(400, str(e))
+                await db.refresh(u)
+                return {"user_id": u.id, "cash": _money(u.cash), "debt": _money(u.debt)}
+        except _RiskRetry:
+            if attempt >= limit:
+                raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
+    raise AssertionError("unreachable")
 
 
 async def forgive_debt(
@@ -470,6 +534,22 @@ async def _lock_users(db: AsyncSession, f: UserFilter) -> List[User]:
     return users
 
 
+async def _restricted_cash_by_user(
+    db: AsyncSession, user_ids: List[int],
+) -> Dict[int, Decimal]:
+    """批量读每个用户的短空头锁金合计（advisory preview 用，一次聚合查询）。"""
+    ids = [int(uid) for uid in user_ids]
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(FxShortPosition.user_id,
+               func.coalesce(func.sum(FxShortPosition.restricted_gold), ZERO))
+        .where(FxShortPosition.user_id.in_(ids))
+        .group_by(FxShortPosition.user_id)
+    )).all()
+    return {int(uid): Decimal(total) for uid, total in rows}
+
+
 async def batch_adjust_cash(
     db: AsyncSession, *, f: UserFilter, amount: Decimal, reason: str, admin_id: int, dry_run: bool,
 ) -> Dict[str, Any]:
@@ -478,15 +558,20 @@ async def batch_adjust_cash(
         raise AdminUserError(400, "amount 不能为 0")
 
     preview = await _preview_users(db, f)
-    matched = [
-        {
+    locked = await _restricted_cash_by_user(db, [int(u.id) for u in preview])
+    matched = []
+    for u in preview:
+        new_cash = u.cash + amount
+        restricted = locked.get(int(u.id), ZERO)
+        # Advisory preview only: the authoritative C >= ΣS check stays under the
+        # User lock in execution, but the preview must not promise a debit that
+        # the lock floor will reject.
+        matched.append({
             "id": u.id, "username": u.username,
             "cash_before": _money(u.cash), "debt": _money(u.debt),
-            "cash_after": _money(u.cash + amount),
-            "will_fail": (u.cash + amount) < 0,
-        }
-        for u in preview
-    ]
+            "cash_after": _money(new_cash),
+            "will_fail": new_cash < ZERO or new_cash < restricted,
+        })
     will_fail = sum(1 for m in matched if m["will_fail"])
     eligible = len(matched) - will_fail
     if dry_run:
@@ -517,10 +602,11 @@ async def _batch_adjust_cash_legacy(
         for u in await _lock_users(db, f):
             OWNERSHIP.require_writes()
             new_cash = u.cash + amount
-            if new_cash < 0:
+            if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
                 failed.append({
                     "user_id": u.id, "username": u.username,
-                    "reason": "操作后现金为负，已跳过",
+                    "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                               else "操作后现金低于空头锁金，已跳过"),
                     "cash_before": _money(u.cash), "would_be": _money(new_cash),
                 })
                 continue
@@ -580,46 +666,57 @@ async def _batch_adjust_one(
     thresholds: RiskThresholds,
 ) -> tuple[bool, Dict[str, Any]]:
     if amount < ZERO:
-        deps = await _deps_for_cash_write(db, user_id)
-        await db.commit()
-        async with GATES.hold(shared=deps.groups):
-            async with managed_transaction(db):
-                u = await _lock_user(db, user_id)
-                if economic_version_of(u) != deps.economic_version:
-                    raise AdminUserError(409, "经济版本冲突，请重试")
-                new_cash = u.cash + amount
-                if new_cash < 0:
-                    return False, {
-                        "user_id": u.id, "username": u.username,
-                        "reason": "操作后现金为负，已跳过",
-                        "cash_before": _money(u.cash), "would_be": _money(new_cash),
-                    }
-                decision = await check_cash_spend(
-                    db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
-                    partial_pct=ONE, now=_utcnow(),
-                )
-                if not decision.allowed:
-                    return False, {
-                        "user_id": u.id, "username": u.username,
-                        "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
-                        "cash_before": _money(u.cash), "would_be": _money(new_cash),
-                    }
-                before = u.cash
-                new_cash = await _apply_cash_change(
-                    db, user=u, amount=amount, reason=reason, admin_id=admin_id,
-                )
-                bump_economic_version(u)
-                return True, {
-                    "user_id": u.id, "username": u.username,
-                    "cash_before": _money(before), "cash_after": _money(new_cash),
-                }
+        limit = _risk_retry_limit()
+        for attempt in range(limit + 1):
+            deps = await _deps_for_cash_write(db, user_id)
+            await db.commit()
+            try:
+                async with GATES.hold(shared=deps.groups):
+                    async with managed_transaction(db):
+                        u = await _lock_user(db, user_id)
+                        if economic_version_of(u) != deps.economic_version:
+                            raise _RiskRetry()
+                        new_cash = u.cash + amount
+                        if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
+                            return False, {
+                                "user_id": u.id, "username": u.username,
+                                "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                                       else "操作后现金低于空头锁金，已跳过"),
+                                "cash_before": _money(u.cash), "would_be": _money(new_cash),
+                            }
+                        decision = await check_cash_spend(
+                            db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
+                            partial_pct=ONE, now=_utcnow(),
+                        )
+                        if decision.reason == REASON_VERSION_CONFLICT:
+                            raise _RiskRetry()
+                        if not decision.allowed:
+                            return False, {
+                                "user_id": u.id, "username": u.username,
+                                "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
+                                "cash_before": _money(u.cash), "would_be": _money(new_cash),
+                            }
+                        before = u.cash
+                        new_cash = await _apply_cash_change(
+                            db, user=u, amount=amount, reason=reason, admin_id=admin_id,
+                        )
+                        bump_economic_version(u)
+                        return True, {
+                            "user_id": u.id, "username": u.username,
+                            "cash_before": _money(before), "cash_after": _money(new_cash),
+                        }
+            except _RiskRetry:
+                if attempt >= limit:
+                    raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
+        raise AssertionError("unreachable")
     async with managed_transaction(db):
         u = await _lock_user(db, user_id)
         new_cash = u.cash + amount
-        if new_cash < 0:
+        if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
             return False, {
                 "user_id": u.id, "username": u.username,
-                "reason": "操作后现金为负，已跳过",
+                "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
+                               else "操作后现金低于空头锁金，已跳过"),
                 "cash_before": _money(u.cash), "would_be": _money(new_cash),
             }
         before = u.cash
@@ -688,9 +785,14 @@ async def _amnesty_legacy(
     updated: List[Dict[str, Any]] = []
     total_cash_delta = Decimal("0")
     total_forgiven = Decimal("0")
+    failed: List[Dict[str, Any]] = []
     async with managed_transaction(db):
         for u in await _lock_users(db, f):
             OWNERSHIP.require_writes()
+            if not await _cash_floor_ok(db, u, reset_cash_to):
+                failed.append({"user_id": u.id, "username": u.username,
+                               "reason": "现金重置低于空头锁金，已跳过"})
+                continue
             cash_before, debt_before = u.cash, u.debt
             OWNERSHIP.require_writes()
             forgiven = Decimal("0")
@@ -732,6 +834,7 @@ async def _amnesty_legacy(
         "total_cash_delta": _money(total_cash_delta),
         "total_debt_forgiven": _money(total_forgiven),
         "updated": updated,
+        **({"failed_count": len(failed), "failed": failed} if failed else {}),
     }
 
 
@@ -775,76 +878,235 @@ async def _amnesty_one(
     db: AsyncSession, *, user_id: int, reset_cash_to: Decimal, forgive_debt: bool,
     reason: str, admin_id: int, rate: Decimal, thresholds: RiskThresholds,
 ) -> tuple[bool, Dict[str, Any], Decimal, Decimal]:
-    """单用户大赦（自带门闩/事务）；返回 (是否成功, 记录, cash_delta, forgiven)。"""
-    if forgive_debt:
-        # 债务将清零 → cache-only 快路径足够（有债时 _deps_for_cash_write 仍会完整发现）
-        deps = await _deps_for_cash_write(db, user_id)
-    else:
-        # 债务保留：现金下调可能触碰初始门槛，必须完整组合估值
-        deps = await discover_dependencies(db, user_id)
-    await db.commit()
-    async with GATES.hold(shared=deps.groups):
+    """单用户大赦（自带门闩/事务）；返回 (是否成功, 记录, cash_delta, forgiven)。
+
+    核销金债不等于核销外币欠币（spec §8.3/§12）：只要仍有外币本金/利息，
+    ``_deps_for_cash_write`` 就会完整发现并持有全部 pair 门闩。锁内发现新的空头
+    pair 时释放门闩、重新发现后有界重试。
+    """
+    limit = _risk_retry_limit()
+    for attempt in range(limit + 1):
+        if forgive_debt:
+            # 金债将清零；有外币欠币时仍会完整发现（无欠币才是最小依赖）
+            deps = await _deps_for_cash_write(db, user_id)
+        else:
+            # 债务保留：现金下调可能触碰初始门槛，必须完整组合估值
+            deps = await discover_dependencies(db, user_id)
+        await db.commit()
+        try:
+            async with GATES.hold(shared=deps.groups):
+                async with managed_transaction(db):
+                    u = await _lock_user(db, user_id)
+                    if economic_version_of(u) != deps.economic_version:
+                        # post.cash 是绝对值，不能被 _rebase_post 的增量语义重放；重发现重试
+                        raise _RiskRetry()
+                    cash_before, debt_before = u.cash, u.debt
+                    if not await _cash_floor_ok(db, u, reset_cash_to):
+                        return False, {"user_id": u.id, "username": u.username,
+                                       "cash_before": _money(cash_before), "debt_before": _money(debt_before),
+                                       "reason": "现金重置低于空头锁金，已跳过"}, ZERO, ZERO
+                    now = loan_service._compat_now(u)
+                    # check_new_risk itself accrues interest from the persistent debt.
+                    post_debt = ZERO if forgive_debt else u.debt
+                    decision = await check_new_risk(
+                        db, user=u, deps=deps,
+                        post=PostTradeState(cash=reset_cash_to, debt=post_debt),
+                        thresholds=thresholds, partial_pct=ONE, now=now,
+                    )
+                    if decision.reason == REASON_VERSION_CONFLICT:
+                        raise _RiskRetry()
+                    freeze_reason = decision.reason in (REASON_CREDIT_FROZEN, REASON_FROZEN_BY_OPERATOR)
+                    # 冻结豁免仅属于"真实核销金债"：操作前无金债则没有可核销的债务，
+                    # 不得把额外的外币欠币当作已处理。仍有外币义务时金债免债不豁免外币
+                    # 风险（spec §6.3/§8.3/§12），必须按冻结拒绝、账务不变。
+                    writeoff = forgive_debt and debt_before > ZERO and post_debt <= ZERO
+                    if not decision.allowed and writeoff and freeze_reason:
+                        writeoff = not await has_foreign_debt(db, user_id)
+                    if not decision.allowed and not (writeoff and freeze_reason):
+                        return False, {
+                            "user_id": u.id, "username": u.username,
+                            "cash_before": _money(cash_before), "debt_before": _money(debt_before),
+                            "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
+                        }, ZERO, ZERO
+                    if not decision.allowed:
+                        # 显式运营核销（ledger 审计带 operator+reason）：允许越过坏账冻结
+                        logger.warning(
+                            "amnesty: 显式核销越过冻结 user_id=%s reason=%s operator=%s",
+                            u.id, reason, admin_id,
+                        )
+                    OWNERSHIP.require_writes()
+                    forgiven = Decimal("0")
+                    if forgive_debt and u.debt > 0:
+                        # 先显式结息，再按结息后的全额清零。同一个 now 传给 decrease_debt_locked，
+                        # 其内部再次 accrue 才是真正的 no-op（不同 now 会留灰尘债，审计 M2）
+                        loan_service.accrue_interest(u, rate, now)
+                        interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
+                        forgiven = await loan_service.decrease_debt_locked(
+                            db, u, u.debt, consume_cash=False, daily_rate=rate, now=now,
+                        )
+                        assert u.debt == 0 and u.debt_last_accrued_at is None
+                    else:
+                        interest = Decimal("0")
+                    OWNERSHIP.require_writes()
+                    cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
+                    u.cash = reset_cash_to
+                    await ledger_service.record_entry(
+                        db, user=u, entry_type="admin_amnesty",
+                        cash_delta=cash_delta, debt_delta=-forgiven,
+                        daily_rate=rate if forgiven > 0 else None,
+                        operator_user_id=admin_id, reason=reason,
+                        interest_accrued=interest,
+                    )
+                    if economic_version_of(u) == deps.economic_version:
+                        bump_economic_version(u)
+                    record = {
+                        "user_id": u.id, "username": u.username,
+                        "cash_before": _money(cash_before), "cash_after": _money(u.cash),
+                        "debt_before": _money(debt_before), "debt_after": _money(u.debt),
+                        "debt_forgiven": _money(forgiven),
+                    }
+                    return True, record, cash_delta, forgiven
+        except _RiskRetry:
+            if attempt >= limit:
+                raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
+    raise AssertionError("unreachable")
+
+
+async def writeoff_fx_short(
+    db: AsyncSession, *, target_id: int, pair_id: int, reason: str, admin_id: int,
+    idempotency_key: str,
+) -> Dict[str, Any]:
+    """Explicit full administrative writeoff, never a trade or minted repayment.
+
+    Pending foreign interest is computed at one UTC T without persisting an
+    intermediate tail. Unrepresentable pending debt fails closed with 409.
+    Frozen users and active liquidation runs remain unchanged.
+    """
+    from app.models.fx import FxPair, FxTreasury
+    from app.models.audit import AuditEvent
+    from app.services.credit.keys import GroupKey
+    from app.services.fx.shorts import pending_short_debt, ShortRejected
+
+    if not 1 <= len(idempotency_key) <= 128:
+        raise AdminUserError(422, "idempotency_key must contain 1..128 characters")
+    reason = reason.strip()
+    if not reason:
+        raise AdminUserError(422, "reason must not be blank")
+    OWNERSHIP.require_writes()
+    # Authentication/discovery can leave a read transaction. No row lock may
+    # survive into the pair GATE wait.
+    if db.in_transaction():
+        await db.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
         async with managed_transaction(db):
-            u = await _lock_user(db, user_id)
-            if economic_version_of(u) != deps.economic_version:
-                # post.cash 是绝对值，不能被 _rebase_post 的增量语义重放；安全跳过
-                return False, {
-                    "user_id": u.id, "username": u.username,
-                    "cash_before": _money(u.cash), "debt_before": _money(u.debt),
-                    "reason": "经济版本冲突（并发写入），已跳过",
-                }, ZERO, ZERO
-            cash_before, debt_before = u.cash, u.debt
-            now = loan_service._compat_now(u)
-            # check_new_risk itself accrues interest from the persistent debt.
-            post_debt = ZERO if forgive_debt else u.debt
-            decision = await check_new_risk(
-                db, user=u, deps=deps,
-                post=PostTradeState(cash=reset_cash_to, debt=post_debt),
-                thresholds=thresholds, partial_pct=ONE, now=now,
-            )
-            writeoff = forgive_debt and post_debt <= ZERO
-            freeze_reason = decision.reason in (REASON_CREDIT_FROZEN, REASON_FROZEN_BY_OPERATOR)
-            if not decision.allowed and not (writeoff and freeze_reason):
-                return False, {
-                    "user_id": u.id, "username": u.username,
-                    "cash_before": _money(cash_before), "debt_before": _money(debt_before),
-                    "reason": f"统一信贷拒绝：{_risk_deny_detail(decision)}",
-                }, ZERO, ZERO
-            if not decision.allowed:
-                # 显式运营核销（ledger 审计带 operator+reason）：允许越过坏账冻结
-                logger.warning(
-                    "amnesty: 显式核销越过冻结 user_id=%s reason=%s operator=%s",
-                    u.id, reason, admin_id,
-                )
-            OWNERSHIP.require_writes()
-            forgiven = Decimal("0")
-            if forgive_debt and u.debt > 0:
-                # 先显式结息，再按结息后的全额清零。同一个 now 传给 decrease_debt_locked，
-                # 其内部再次 accrue 才是真正的 no-op（不同 now 会留灰尘债，审计 M2）
-                loan_service.accrue_interest(u, rate, now)
-                interest = (u.debt - debt_before).quantize(Decimal("0.000001"))
-                forgiven = await loan_service.decrease_debt_locked(
-                    db, u, u.debt, consume_cash=False, daily_rate=rate, now=now,
-                )
-                assert u.debt == 0 and u.debt_last_accrued_at is None
-            else:
-                interest = Decimal("0")
-            OWNERSHIP.require_writes()
-            cash_delta = (reset_cash_to - u.cash).quantize(Decimal("0.000001"))
-            u.cash = reset_cash_to
-            await ledger_service.record_entry(
-                db, user=u, entry_type="admin_amnesty",
-                cash_delta=cash_delta, debt_delta=-forgiven,
-                daily_rate=rate if forgiven > 0 else None,
-                operator_user_id=admin_id, reason=reason,
-                interest_accrued=interest,
-            )
-            if economic_version_of(u) == deps.economic_version:
-                bump_economic_version(u)
-            record = {
-                "user_id": u.id, "username": u.username,
-                "cash_before": _money(cash_before), "cash_after": _money(u.cash),
-                "debt_before": _money(debt_before), "debt_after": _money(u.debt),
-                "debt_forgiven": _money(forgiven),
+            pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            user = await _lock_user(db, target_id)
+            # User row serializes all keys for this account, including requests
+            # targeting different pairs. Query committed audit identity before
+            # inspecting live debt: a late retry must not forgive a reopened short.
+            previous = (await db.execute(select(AuditEvent).where(
+                AuditEvent.user_id == target_id,
+                AuditEvent.event_type == "admin_fx_short_writeoff",
+                AuditEvent.payload["idempotency_key"].as_string() == idempotency_key,
+            ).order_by(AuditEvent.id))).scalars().all()
+            if previous:
+                if len(previous) != 1:
+                    raise AdminUserError(409, "ambiguous FX short writeoff identity")
+                event = previous[0]
+                payload = event.payload
+                if (payload.get("pair_id") != pair_id
+                        or event.operator_user_id != admin_id
+                        or payload.get("reason") != reason):
+                    raise AdminUserError(409, "FX short writeoff idempotency conflict")
+                result = payload.get("result")
+                if not isinstance(result, dict):
+                    raise AdminUserError(409, "FX short writeoff replay result missing")
+                return dict(result, replay=True)
+            if pair is None:
+                raise AdminUserError(404, "FX pair not found")
+            position = (await db.execute(select(FxShortPosition).where(
+                FxShortPosition.user_id == target_id, FxShortPosition.pair_id == pair_id)
+                .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if position is None:
+                raise AdminUserError(404, "FX short position not found")
+            total_locks = (await db.execute(select(func.coalesce(func.sum(
+                FxShortPosition.restricted_gold), ZERO)).where(
+                FxShortPosition.user_id == target_id))).scalar_one()
+            principal = Decimal(position.principal_foreign)
+            interest = Decimal(position.interest_foreign)
+            lock = Decimal(position.restricted_gold)
+            basis = Decimal(position.proceeds_basis_gold)
+            amounts = (principal, interest, lock, basis, Decimal(user.cash), Decimal(total_locks))
+            if (not all(amount.is_finite() for amount in amounts)
+                    or min(principal, interest, lock, basis) < ZERO
+                    or Decimal(user.cash) < total_locks):
+                raise AdminUserError(409, "inconsistent FX short cash locks")
+            if principal + interest == ZERO:
+                if lock or basis or position.interest_last_accrued_at is not None:
+                    raise AdminUserError(409, "inconsistent zero FX short debt")
+                # An accepted no-op without a durable key would become a
+                # destructive delayed retry if this pair is shorted again.
+                raise AdminUserError(409, "no outstanding FX short debt to write off")
+            if position.interest_last_accrued_at is None:
+                raise AdminUserError(409, "FX short interest clock missing")
+            treasury = (await db.execute(select(FxTreasury).where(
+                FxTreasury.pair_id == pair_id))).scalar_one_or_none()
+            now = _utcnow()
+            try:
+                rate = await site_config.get_decimal(db, "loan_daily_rate")
+            except (site_config.SiteConfigError, ArithmeticError, ValueError) as exc:
+                raise AdminUserError(409, "invalid FX short interest configuration") from exc
+            if not rate.is_finite() or rate < ZERO:
+                raise AdminUserError(409, "invalid FX short interest configuration")
+            try:
+                effective_total = pending_short_debt(position, rate, now)
+            except ShortRejected as exc:
+                raise AdminUserError(409, str(exc)) from exc
+            before = {
+                "short_position_id": position.id, "principal_foreign": principal,
+                "interest_foreign": interest, "restricted_gold": lock,
+                "proceeds_basis_gold": basis,
+                "interest_last_accrued_at": audit_service._utc_iso(position.interest_last_accrued_at),
             }
-            return True, record, cash_delta, forgiven
+            treasury_state = None if treasury is None else {
+                "treasury_id": treasury.id, "gold_balance": treasury.gold_balance,
+                "foreign_balance": treasury.foreign_balance,
+                "daily_spend": treasury.daily_spend, "spend_date": treasury.spend_date,
+            }
+            user_before = audit_service.user_snapshot(user)
+            version_before = economic_version_of(user)
+            position.principal_foreign = ZERO
+            position.interest_foreign = ZERO
+            position.restricted_gold = ZERO
+            position.proceeds_basis_gold = ZERO
+            position.interest_last_accrued_at = None
+            position.updated_at = now
+            bump_economic_version(user)
+            after = dict(before, principal_foreign=ZERO, interest_foreign=ZERO,
+                restricted_gold=ZERO, proceeds_basis_gold=ZERO, interest_last_accrued_at=None)
+            result = {"user_id": target_id, "pair_id": pair_id, "written_off": True,
+                "principal_foreign": str(principal),
+                "interest_foreign": str(effective_total - principal),
+                "released_lock": str(lock), "replay": False}
+            audit_service.record(db, "admin_fx_short_writeoff", user_id=target_id,
+                operator_user_id=admin_id, ref_table="fx_short_position", ref_id=position.id,
+                ts=now, user_after=audit_service.user_snapshot(user), payload={
+                    "purpose": "short_writeoff", "pair_id": pair_id, "reason": reason,
+                    "idempotency_key": idempotency_key, "result": result,
+                    "accrued_at": audit_service._utc_iso(now), "daily_rate": rate,
+                    "principal_written_off_foreign": principal,
+                    "interest_written_off_foreign": effective_total - principal,
+                    "pending_interest_foreign": effective_total - principal - interest,
+                    "released_lock": lock, "written_off_proceeds_basis_gold": basis,
+                    "short_before": before, "short_after": after,
+                    "treasury_before": treasury_state, "treasury_after": treasury_state,
+                    "user_before": user_before,
+                    "economic_version_before": version_before,
+                    "economic_version": economic_version_of(user),
+                    "cash_delta": ZERO, "debt_delta": ZERO,
+                    "restricted_cash_before": total_locks,
+                    "restricted_cash_after": total_locks - lock,
+                })
+            OWNERSHIP.require_writes()
+            return result

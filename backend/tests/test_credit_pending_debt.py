@@ -103,9 +103,32 @@ def test_new_model_fields_and_constants_are_frozen():
     assert LiquidationRun.__tablename__ == "liquidation_run"
 
     action_fields = LiquidationAction.model_fields
-    assert set(ACTION_KINDS) == {"sell_group", "repay_cash", "repay_only", "blocked", "stopped"}
+    assert set(ACTION_KINDS) == {"sell_group", "cover_group", "repay_cash", "repay_only", "blocked", "stopped"}
     assert set(FEE_CURRENCIES) == {"gold", "foreign"}
     assert {fk.target_fullname for fk in LiquidationAction.__table__.foreign_keys} == {
         "liquidation_run.id", "user.id",
     }
     assert LiquidationAction.__tablename__ == "liquidation_action"
+
+
+def test_short_interest_is_pure_and_new_principal_does_not_pay_old_interest():
+    from app.models.fx import FxShortPosition
+    from app.services.fx.shorts import pending_short_debt, accrue_short_interest
+    p = FxShortPosition(user_id=1, pair_id=1, principal_foreign=Decimal('100'), interest_last_accrued_at=T0)
+    now = T0 + timedelta(days=1)
+    assert pending_short_debt(p, RATE, now) == Decimal('101.000000')
+    assert p.interest_foreign == 0
+    assert accrue_short_interest(p, RATE, now) == Decimal('1.000000')
+    assert p.principal_foreign == Decimal('100')
+    p.principal_foreign += Decimal('100')
+    assert pending_short_debt(p, RATE, now) == Decimal('201.000000')
+    assert pending_short_debt(p, RATE, now + timedelta(days=1)) == Decimal('203.010000')
+
+
+def test_short_dust_and_mixed_utc_follow_gold_interest_semantics():
+    from app.models.fx import FxShortPosition
+    from app.services.fx.shorts import pending_short_debt, accrue_short_interest
+    p = FxShortPosition(user_id=1, pair_id=1, principal_foreign=Q6, interest_last_accrued_at=T0.replace(tzinfo=None))
+    assert accrue_short_interest(p, RATE, T0 + timedelta(seconds=10)) == 0
+    assert p.interest_last_accrued_at == T0.replace(tzinfo=None)
+    assert pending_short_debt(p, RATE, T0 + timedelta(days=1)) == Q6

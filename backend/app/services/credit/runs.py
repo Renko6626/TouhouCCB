@@ -133,6 +133,7 @@ async def get_or_create_active_run(
     run = LiquidationRun(
         user_id=uid,
         status="active",
+        margin_version=2,
         trigger_source=str(trigger_source),
         started_at=now,
         updated_at=now,
@@ -166,6 +167,30 @@ async def find_action_for_round(
     ).scalars().first()
 
 
+async def find_latest_action(
+    session: AsyncSession,
+    *,
+    run: LiquidationRun,
+) -> Optional[LiquidationAction]:
+    """该 run 已提交的最后一个动作（按 round 降序）；无动作返回 ``None``。
+
+    调用方用来判断"连续扫描仍是同一阻塞状态"，避免重复堆积 blocked action。
+
+    只读、不加锁：调用方**必须已持有该 run 的行锁**（如 ``prepare_locked`` 已
+    ``FOR UPDATE`` 锁定 active run），否则并发扫描下该查询结果不是 race-safe 的
+    幂等依据；``(run_id, round_no)`` 唯一键仍是最终防线。
+    """
+    run_id = _run_id_of(run)
+    return (
+        await session.execute(
+            select(LiquidationAction)
+            .where(LiquidationAction.run_id == run_id)
+            .order_by(LiquidationAction.round_no.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+
+
 async def record_action(
     session: AsyncSession,
     *,
@@ -178,6 +203,9 @@ async def record_action(
     requested: Optional[dict] = None,
     executed: Optional[dict] = None,
     proceeds: Decimal = ZERO,
+    gold_spent: Decimal = ZERO,
+    foreign_repaid: Decimal = ZERO,
+    short_after: Optional[dict] = None,
     fee: Decimal = ZERO,
     fee_currency: Optional[str] = None,
     repaid: Decimal = ZERO,
@@ -186,7 +214,12 @@ async def record_action(
     economic_version_after: int = 0,
     blocked_reason: Optional[str] = None,
 ) -> LiquidationAction:
-    """记录本轮动作；``(run_id, round_no)`` 已存在时幂等返回既有动作。"""
+    """记录本轮动作；``(run_id, round_no)`` 已存在时幂等返回既有动作。
+
+    ``gold_spent`` / ``foreign_repaid`` / ``short_after`` 是 WP4c 强平回补的
+    实际后态（与计划列 ``cover_group`` 同事务落库）；正资产卖出仍只写
+    ``proceeds`` / ``fee`` / ``repaid``，旧字段语义不变。
+    """
     run_id = _run_id_of(run)
     if kind not in ACTION_KINDS:
         raise ValueError(f"未知 action kind: {kind!r}（允许 {ACTION_KINDS}）")
@@ -200,6 +233,8 @@ async def record_action(
         raise ValueError(f"未知 mode: {mode!r}（允许 partial/full）")
     if blocked_reason is not None and len(str(blocked_reason)) > 255:
         raise ValueError("blocked_reason 超过 255 字符")
+    if short_after is not None and not isinstance(short_after, dict):
+        raise ValueError("short_after 必须是 dict")
 
     # 锁 run 行并**刷新**实例：串行化并发重放，且 totals/rounds 用数据库当前值
     # 累计（reviewer blocker 2：expire_on_commit=False 下旧对象会覆盖已提交值）。
@@ -228,6 +263,9 @@ async def record_action(
         requested=requested,
         executed=executed,
         proceeds=_as_decimal(proceeds, "proceeds"),
+        gold_spent=_as_decimal(gold_spent, "gold_spent"),
+        foreign_repaid=_as_decimal(foreign_repaid, "foreign_repaid"),
+        short_after=short_after,
         fee=_as_decimal(fee, "fee"),
         fee_currency=fee_currency,
         repaid=_as_decimal(repaid, "repaid"),
@@ -247,11 +285,13 @@ async def record_action(
     locked.total_proceeds = _as_decimal(locked.total_proceeds, "total_proceeds") + action.proceeds
     locked.total_repaid = _as_decimal(locked.total_repaid, "total_repaid") + action.repaid
     locked.total_fee = _as_decimal(locked.total_fee, "total_fee") + action.fee
-    if kind == "sell_group":
+    if kind in ("sell_group", "cover_group"):
         locked.last_group_product = product
         locked.last_group_id = None if group_id is None else int(group_id)
     if blocked_reason is not None:
         locked.last_blocked_reason = str(blocked_reason)
+    elif kind != "blocked":
+        locked.last_blocked_reason = None
     locked.updated_at = _utcnow()
     return action
 

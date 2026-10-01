@@ -17,6 +17,7 @@ from app.services.realtime import BROKER
 from app.services.rank import rank_title
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user, current_superuser
+from app.services.credit.cash import available_cash
 from app.models.base import User, Market, Outcome, Position, Transaction, MarketStatus, TransactionType
 from app.schemas.market import (
     MarketCreate,
@@ -713,7 +714,7 @@ async def buy_shares(
             req.max_cost, req.max_slippage_bps, req.accept_any_slippage,
         )
 
-        if locked_user.cash < pay:
+        if await available_cash(db, locked_user) < pay:
             raise HTTPException(status_code=400, detail="现金不足")
 
         # Decimal 精确运算
@@ -1431,7 +1432,7 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
         if not users:
             return []
         net_worth = await compute_total_net_worth(db, user_ids=[u.id for u in users])
-        scored = [(u, net_worth.get(u.id, u.cash - u.debt)) for u in users]
+        scored = [(u, net_worth[u.id]) for u in users if net_worth.get(u.id) is not None]
         scored.sort(key=lambda x: x[1], reverse=True)
         top = scored[:limit]
         # 批量取 equipped title chip：只查 top N 的 equipped_title_id,避免 N+1

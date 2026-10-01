@@ -431,6 +431,8 @@ whole-branch review 遗留的 3 个 Minor（见 `fix-wave-review.md`）已在本
 
 ## 12. 相关文档
 
+- 一周窗口活动的候选参数、测算与运营节奏：[FX 一周活动参数草案](fx-week-activity-config.md)。
+- 做空与债务风控的待审阅设计：[FX 做空与统一债务风控设计](superpowers/specs/2026-09-30-fx-short-debt-design.md)；当前仍只支持现货多头。
 - API 细节：`docs/api.md` 第 12 节「幻想外汇 (FX)」。
 - 部署 / 迁移：`docs/deploy.md`、`docs/migrations.md`。
 - 净值双口径：`docs/holdings-value-semantics.md`。

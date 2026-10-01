@@ -94,3 +94,68 @@ async def test_public_liquidation_exposes_product_only(client):
     data = (await client.get('/api/v1/loan/recent-liquidations')).json()
     assert data[0]['product'] == 'fx'
     assert 'run_id' not in data[0] and 'actions' not in data[0]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,quantity,expected', [
+    ('trading', '100', 'danger'), ('trading', '5000', 'blocked'), ('paused', '100', 'danger')])
+async def test_short_account_and_quota_keep_gold_debt_separate(client, status, quantity, expected):
+    """Locked proceeds are not spendable; unquotable debt cannot appear healthy."""
+    from app.models.base import SiteConfig, LiquidationEvent
+    from app.models.fx import FxShortPosition
+    uid, headers = await _make_user(cash=Decimal('21'))
+    clock = datetime.now(timezone.utc)
+    async with async_session_maker() as db:
+        db.add_all([SiteConfig(key=k, value=v, value_type=t) for k,v,t in [
+            ('loan_daily_rate', '.001', 'decimal'), ('loan_enabled', 'true', 'bool'),
+            ('fx_enabled', 'true', 'bool')]])
+        pair = FxPair(currency_code='MORA', currency_name='Mora', status=status,
+                      gold_reserve=Decimal('1000'), foreign_reserve=Decimal('5000'))
+        db.add(pair)
+        await db.flush()
+        pid = pair.id
+        db.add(FxShortPosition(user_id=uid, pair_id=pid,
+            principal_foreign=Decimal(quantity), interest_foreign=Decimal('1'),
+            restricted_gold=Decimal('20'), proceeds_basis_gold=Decimal('20'),
+            interest_last_accrued_at=clock))
+        db.add(LiquidationEvent(user_id=uid, triggered_at=clock, product='fx',
+            pre_cash=21, pre_debt=0, pre_holdings_value=None, pre_net_worth=None,
+            pre_margin_ratio=None, sold_positions_count=0, total_proceeds=0, repaid_amount=0,
+            remaining_debt=0, post_cash=21, trigger_source='scheduler', mode='partial'))
+        await db.commit()
+    response = await client.get('/api/v1/user/summary', headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['cash'] == 21 and Decimal(str(data['available_cash'])) == 1
+    assert Decimal(str(data['restricted_cash'])) == 20
+    assert data['debt'] == data['debt_with_interest'] == 0
+    assert data['equity_to_debt'] is None
+    assert data['risk_status'] == data['margin_status'] == expected
+    short = data['short_positions'][0]
+    assert short['pair_id'] == pid and Decimal(short['pending_short_debt']) > Decimal(quantity)
+    assert 'short_lending_limit_foreign' not in short and 'treasury' not in short
+    response = await client.get('/api/v1/loan/quota', headers=headers)
+    assert response.status_code == 200, response.text
+    quota = response.json()
+    assert Decimal(quota['debt']) == 0 and Decimal(quota['max_borrow']) == 0
+    assert quota['risk_status'] == expected
+    if expected == 'blocked':
+        assert data['short_cover_cost'] is data['risk_basis'] is data['equity_to_risk_basis'] is None
+        assert data['liquidation_equity'] is None and data['blocked_reason']
+        assert quota['net_worth'] is None and quota['blocked_reason']
+    else:
+        assert Decimal(str(data['short_cover_cost'])) > 20
+        assert Decimal(str(data['risk_basis'])) > 0 and data['equity_to_risk_basis'] is not None
+        assert short['executable'] is (status == 'trading')
+        if status == 'paused':
+            assert short['blocked_reason'] and short['reference_cover_cost'] is not None
+    public = await client.get('/api/v1/loan/recent-liquidations')
+    assert public.status_code == 200 and public.json()[0]['pre_net_worth'] is None
+    assert public.json()[0]['pre_holdings_value'] is None
+    async with async_session_maker() as db:
+        from sqlalchemy import select
+        row = (await db.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid, FxShortPosition.pair_id == pid))).scalar_one()
+        assert row.interest_last_accrued_at.replace(tzinfo=timezone.utc) == clock
+        # Module-scoped app startup rejects leftover live debt with legacy flags.
+        await db.delete(row)
+        await db.commit()

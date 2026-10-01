@@ -204,9 +204,19 @@ const actionHint = computed<string>(() => {
     <!-- 资产概览条 -->
     <div v-if="authStore.isAuthenticated && userStore.summary" class="asset-bar">
       <div class="asset-item">
-        <span class="asset-label">现金</span>
+        <span class="asset-label">总现金</span>
         <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
       </div>
+      <template v-if="userStore.summary.unified_credit_enabled">
+        <div class="asset-item">
+          <span class="asset-label">未锁定现金</span>
+          <span class="asset-value">金 {{ userStore.summary.available_cash ?? '—' }}</span>
+        </div>
+        <div class="asset-item">
+          <span class="asset-label">空头锁定所得（专用于回补）</span>
+          <span class="asset-value">金 {{ userStore.summary.restricted_cash ?? '—' }}</span>
+        </div>
+      </template>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
         <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
@@ -218,12 +228,12 @@ const actionHint = computed<string>(() => {
         </span>
       </div>
       <div v-if="Number(userStore.summary.debt) > 0" class="asset-item">
-        <span class="asset-label">负债</span>
+        <span class="asset-label">金圆券借款</span>
         <span class="asset-value asset-value--debt">金 {{ Number(userStore.summary.debt).toFixed(2) }}</span>
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
-        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth.toFixed(2) }}</span>
+        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth?.toFixed(2) ?? '估值待恢复' }}</span>
       </div>
     </div>
 

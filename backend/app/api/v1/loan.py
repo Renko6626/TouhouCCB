@@ -10,9 +10,11 @@ from sqlmodel import select
 
 from app.core.database import get_async_session
 from app.core.users import current_active_user
+from app.services.credit.cash import available_cash
 from app.models.base import User, LiquidationEvent
 from app.models.fx import FxPair
 from app.models.title import Title as _Title
+from app.api.v1.user import account_risk_fields, own_short_positions
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
@@ -57,17 +59,35 @@ async def _unified_quota(db: AsyncSession, user_id: int):
                             .execution_options(populate_existing=True))).scalar_one()
     await credit_flags.refresh_new_risk_frozen(db)
     frozen = user.credit_frozen or credit_flags.new_risk_frozen()
+    # 整组正资产 A 与空头回补成本 K 与 valuation 同源；K 未知（或现金用途不变量
+    # 被破坏）时 liquidation_equity 为 None，不得折算成 0 或抛 500（spec §5.2）。
+    positive_assets = sum(
+        (group.value for group in valuation.groups
+         if group.role == "asset_sale" and group.value is not None),
+        Decimal("0"),
+    )
+    cover = valuation.short_cover_cost
+    equity = valuation.liquidation_equity
+    if frozen or cover is None or equity is None:
+        max_borrow = Decimal("0")
+    else:
+        # 共享空头公式 max(0, (L-1)E - D - αK)；绝不退回金债-only max_borrow。
+        max_borrow = thresholds.max_new_gold_loan(
+            equity=equity, debt=valuation.debt_effective,
+            positive_assets=positive_assets, short_cover=cover,
+        )
     return LoanQuotaResponse(
         enabled=await site_config.get_bool(db, "loan_enabled"),
         cash=valuation.cash, debt=valuation.debt_effective,
         net_worth=valuation.liquidation_equity,
         leverage_k=thresholds.leverage - Decimal("1"), daily_rate=rate,
-        max_borrow=(Decimal("0") if frozen else thresholds.max_borrow(
-            valuation.liquidation_equity, valuation.debt_effective)),
+        max_borrow=max_borrow,
         last_accrued_at=user.debt_last_accrued_at,
         display_equity=valuation.display_equity,
         liquidation_equity=valuation.liquidation_equity,
         r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
+        **account_risk_fields(valuation, thresholds),
+        short_positions=await own_short_positions(db, user_id),
     )
 
 
@@ -216,7 +236,7 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     # 实际扣减由 effective 字段返回，前端可展示"实际还款 金 N"。
     # 现金预检也使用锁内最新值，避免另一个会话的转账/成交使页面快照过期。
     locked = await lock_user(db, user.id)
-    if locked.cash <= 0 and locked.debt > 0:
+    if await available_cash(db, locked) <= 0 and locked.debt > 0:
         await db.rollback()
         raise HTTPException(status_code=400, detail="现金为 0，无法还款；请先卖出持仓变现")
 
@@ -276,8 +296,8 @@ async def recent_liquidations(
             ).isoformat(),
             "pre_cash": float(ev.pre_cash),
             "pre_debt": float(ev.pre_debt),
-            "pre_holdings_value": float(ev.pre_holdings_value),
-            "pre_net_worth": float(ev.pre_net_worth),
+            "pre_holdings_value": float(ev.pre_holdings_value) if ev.pre_holdings_value is not None else None,
+            "pre_net_worth": float(ev.pre_net_worth) if ev.pre_net_worth is not None else None,
             "pre_margin_ratio": float(ev.pre_margin_ratio)
                 if ev.pre_margin_ratio is not None else None,
             "sold_positions_count": int(ev.sold_positions_count),

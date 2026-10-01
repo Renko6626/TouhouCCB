@@ -417,3 +417,65 @@ async def test_target_range_outside_initial_bounds_rejected_without_changes(ctx)
     response = await client.post('/api/v1/admin/fx/pairs', json={**PAIR, 'currency_code': 'BAD',
         'target_min': '0.1', 'target_price': '0.2', 'target_max': '0.4'})
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('principal,interest,locked,basis', [
+    ('10', '1', '5', '5'), ('0', '1', '0', '0'),
+])
+async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx, principal, interest, locked, basis):
+    from datetime import datetime, timezone
+    from app.models.fx import FxShortPosition
+    client, db, _, _, user = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    user.cash = Decimal('20')
+    short = FxShortPosition(user_id=user.id, pair_id=pair_id,
+                            principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
+                            interest_last_accrued_at=datetime.now(timezone.utc),
+                            restricted_gold=Decimal(locked), proceeds_basis_gold=Decimal(basis))
+    db.add(short)
+    await db.commit()
+    pair = await db.get(FxPair, pair_id)
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
+    before = (pair.status, pair.archived, pair.pool_version, pair.gold_reserve,
+              pair.foreign_reserve, treasury.gold_balance, treasury.foreign_balance)
+    audit_ids = [a.id for a in (await db.execute(select(AuditEvent))).scalars()]
+    for method, suffix, kwargs in (
+        ('patch', '', {'json': {'status': 'closed'}}),
+        ('post', '/archive', {}), ('delete', '', {}),
+    ):
+        response = await getattr(client, method)(f'/api/v1/admin/fx/pairs/{pair_id}{suffix}', **kwargs)
+        assert response.status_code == 409, response.text
+        assert 'short' in response.json()['detail'].lower()
+        await db.refresh(pair); await db.refresh(treasury); await db.refresh(short)
+        assert before == (pair.status, pair.archived, pair.pool_version, pair.gold_reserve,
+                          pair.foreign_reserve, treasury.gold_balance, treasury.foreign_balance)
+        assert audit_ids == [a.id for a in (await db.execute(select(AuditEvent))).scalars()]
+        assert (short.principal_foreign, short.interest_foreign, short.restricted_gold,
+                short.proceeds_basis_gold) == tuple(map(Decimal, (principal, interest, locked, basis)))
+    response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}',
+                                  json={'status': 'paused', 'reduce_only': True})
+    assert response.status_code == 200, response.text
+    assert response.json()['status'] == 'paused' and response.json()['reduce_only'] is True
+    assert response.json()['pool_version'] > before[2]
+
+
+@pytest.mark.asyncio
+async def test_admin_config_exposes_disabled_short_opening_by_default(ctx):
+    client, _, _, _, _ = ctx
+    response = await client.get('/api/v1/admin/fx/config')
+    assert response.status_code == 200
+    assert response.json()['fx_short_enabled'] == 'false'
+
+
+@pytest.mark.asyncio
+async def test_zero_short_row_allows_unused_pair_deletion(ctx):
+    from app.models.fx import FxShortPosition
+    client, db, _, _, user = ctx
+    pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    db.add(FxShortPosition(user_id=user.id, pair_id=pair_id))
+    await db.commit()
+    response = await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')
+    assert response.status_code == 204, response.text
+    assert not (await db.execute(select(FxShortPosition))).scalars().all()
+    assert await db.get(FxPair, pair_id) is None

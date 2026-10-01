@@ -1,9 +1,9 @@
-"""WP1：新 revision 的 schema 往返 + init_db(create_all) 与 metadata 零差异。
+"""WP1：credit foundation revision 的 schema 往返 + init_db(create_all) 与 metadata 零差异。
 
 两层证据：
 1. `SQLModel.metadata.create_all`（init_db.py 路径）与 metadata 零差异；
-2. 新 revision 在完整当前 schema 上 downgrade → upgrade 后与 metadata 零差异，
-   且既有业务行不丢（additive 迁移）。
+2. credit foundation revision 的 downgrade → upgrade 恢复其负责的 schema/约束，
+   且既有业务行不丢；后续 revision 的 schema 不属于这一历史迁移的契约。
 
 PG 侧同一往返由 tests/pg/test_credit_pg.py 覆盖（需要 TEST_PG_DATABASE_URL）。
 """
@@ -52,6 +52,65 @@ def _diff(conn):
     return compare_metadata(MigrationContext.configure(conn), SQLModel.metadata)
 
 
+def _assert_credit_foundation_schema(conn):
+    """Verify the historical revision's contract independently of later model additions."""
+    inspector = inspect(conn)
+    for table, columns in {
+        "user": {"economic_version", "credit_frozen"},
+        "fx_pair": {"reduce_only"},
+        "liquidation_events": {"run_id", "product"},
+        "liquidation_run": {
+            "id", "user_id", "status", "trigger_source", "started_at", "updated_at",
+            "next_round", "rounds", "last_group_product", "last_group_id",
+            "last_blocked_reason", "closed_at", "pre_cash", "pre_debt",
+            "pre_liquidation_equity", "total_proceeds", "total_repaid", "total_fee",
+        },
+        "liquidation_action": {
+            "id", "run_id", "user_id", "round_no", "kind", "product", "group_id",
+            "mode", "requested", "executed", "proceeds", "fee", "fee_currency",
+            "repaid", "debt_after", "cash_after", "economic_version_after",
+            "blocked_reason", "created_at",
+        },
+    }.items():
+        actual = {c["name"] for c in inspector.get_columns(table)}
+        if table in {"liquidation_run", "liquidation_action"}:
+            assert columns == actual, table
+        else:
+            assert columns <= actual, table
+
+    for table, names in {
+        "user": {"economic_version", "credit_frozen"},
+        "fx_pair": {"reduce_only"},
+    }.items():
+        columns = {c["name"]: c for c in inspector.get_columns(table)}
+        for name in names:
+            assert columns[name]["nullable"] is False
+            assert columns[name]["default"] is not None
+
+    active = next(i for i in inspector.get_indexes("liquidation_run")
+                  if i["name"] == "uq_liquidation_run_active_user")
+    assert active["unique"]
+    assert active["column_names"] == ["user_id"]
+    predicate = active["dialect_options"][f"{conn.dialect.name}_where"]
+    assert "status" in str(predicate) and "'active'" in str(predicate)
+    unique = inspector.get_unique_constraints("liquidation_action")
+    assert any(c["column_names"] == ["run_id", "round_no"] for c in unique)
+    for table, names in {
+        "liquidation_run": {"ck_liquidation_run_status"},
+        "liquidation_action": {"ck_liquidation_action_kind", "ck_liquidation_action_fee_currency"},
+    }.items():
+        assert names <= {c["name"] for c in inspector.get_check_constraints(table)}
+    for table, column, target, ondelete in [
+        ("liquidation_events", "run_id", "liquidation_run", "SET NULL"),
+        ("liquidation_action", "run_id", "liquidation_run", "CASCADE"),
+    ]:
+        fk = next(f for f in inspector.get_foreign_keys(table)
+                  if f["constrained_columns"] == [column])
+        assert fk["referred_table"] == target
+        assert fk["referred_columns"] == ["id"]
+        assert fk["options"].get("ondelete") == ondelete
+
+
 def test_init_db_create_all_has_no_metadata_diff(tmp_path):
     """init_db.py 建出的 schema 必须与 metadata 一致（否则 alembic 会重复加列）。"""
     engine = create_engine(f"sqlite:///{tmp_path}/init.db")
@@ -89,9 +148,9 @@ def test_credit_schema_objects_exist(tmp_path):
     assert fks["run_id"]["options"].get("ondelete") == "SET NULL"
 
 
-def test_migration_roundtrip_preserves_rows_and_matches_metadata(tmp_path):
+def test_migration_roundtrip_preserves_rows_and_credit_schema(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path}/roundtrip.db")
-    SQLModel.metadata.create_all(engine)   # 等价于 revision upgrade 后的状态
+    SQLModel.metadata.create_all(engine)   # 包含后续 revision 的当前 schema
     with engine.begin() as conn:
         conn.execute(text(
             'INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt,'
@@ -124,6 +183,11 @@ def test_migration_roundtrip_preserves_rows_and_matches_metadata(tmp_path):
         names = set(inspect(conn).get_table_names())
         assert not ({"liquidation_run", "liquidation_action"} & names)
         assert {"run_id", "product"} & {c["name"] for c in inspect(conn).get_columns("liquidation_events")} == set()
+        for table, removed in {
+            "user": {"economic_version", "credit_frozen"},
+            "fx_pair": {"reduce_only"},
+        }.items():
+            assert not (removed & {c["name"] for c in inspect(conn).get_columns(table)})
         # 既有资金/身份行不受 downgrade 影响
         row = conn.execute(text('SELECT username, cash, debt FROM "user" WHERE username=\'keep\'')).one()
         assert tuple(row) == ("keep", Decimal("12"), Decimal("3"))
@@ -133,7 +197,7 @@ def test_migration_roundtrip_preserves_rows_and_matches_metadata(tmp_path):
     with engine.begin() as conn:
         _run_revision(conn, "upgrade")
     with engine.connect() as conn:
-        assert _diff(conn) == []
+        _assert_credit_foundation_schema(conn)
         # downgrade 会删掉新列，其旧值随列一起丢（默认回 0/false）——资金行不受影响
         assert conn.execute(
             text('SELECT economic_version FROM "user" WHERE username=\'keep\'')
@@ -142,6 +206,13 @@ def test_migration_roundtrip_preserves_rows_and_matches_metadata(tmp_path):
             text('SELECT cash, debt FROM "user" WHERE username=\'keep\'')
         ).one() == (Decimal("12"), Decimal("3"))
         assert conn.execute(text("SELECT count(*) FROM liquidation_events")).scalar_one() == 1
+        assert conn.execute(text(
+            'SELECT credit_frozen FROM "user" WHERE username=\'keep\''
+        )).scalar_one() == 0
+        assert conn.execute(text(
+            "SELECT status, reduce_only FROM fx_pair WHERE currency_code='KEEP'"
+        )).one() == ("paused", 0)
+        assert conn.execute(text("SELECT run_id, product FROM liquidation_events")).one() == (None, None)
         # downgrade 丢的是 run/action 运行记录（资金不受影响）
         assert conn.execute(text("SELECT count(*) FROM liquidation_run")).scalar_one() == 0
 
@@ -155,4 +226,4 @@ def test_downgrade_upgrade_is_idempotent(tmp_path):
         with engine.begin() as conn:
             _run_revision(conn, "upgrade")
         with engine.connect() as conn:
-            assert _diff(conn) == []
+            _assert_credit_foundation_schema(conn)

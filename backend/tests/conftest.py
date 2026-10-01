@@ -49,7 +49,7 @@ from app.services.site_config import clear_cache
 
 @pytest.fixture(scope="session", autouse=True)
 def _disable_scheduler():
-    """禁用 APScheduler：loan_sweep + liquidation_sweep + bot_detection 都 no-op。
+    """禁用后台调度器，避免真实五秒 FX tick 干扰账务断言。
 
     main.py 通过别名导入：
     - start_loan_scheduler / stop_loan_scheduler
@@ -69,6 +69,8 @@ def _disable_scheduler():
         patch("app.main.stop_bot_detection_scheduler", _noop),
         patch("app.main.start_pve_scheduler", _noop),
         patch("app.main.stop_pve_scheduler", _noop),
+        patch("app.main.start_fx_scheduler", _noop),
+        patch("app.main.stop_fx_scheduler", _noop),
     ):
         yield
 
@@ -76,6 +78,14 @@ def _disable_scheduler():
 @pytest_asyncio.fixture(scope="module")
 async def client():
     """共享 LifespanManager + AsyncClient 到整个 module，从 N 次 lifespan 周期减到 1 次/module。"""
+    # Module-scoped lifespan starts before the function-scoped setup_db fixture.
+    # Start it on an empty disposable schema: the preceding module may have
+    # left a real short row, and production startup must correctly refuse
+    # unified_credit_enabled=false while that obligation exists.
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.drop_all)
+        await conn.run_sync(SQLModel.metadata.create_all)
+    clear_cache()
     async with LifespanManager(app):
         async with AsyncClient(
             transport=ASGITransport(app=app),

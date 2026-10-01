@@ -147,3 +147,104 @@ def test_legacy_equivalence_fractional_k_never_loosens_credit():
             cash + holdings - debt, debt
         )
         assert Decimal("0") <= legacy - new <= Q6, (k, legacy, new)
+
+
+def test_alpha_is_high_precision_short_leverage_share():
+    """α = (L−1)/L（spec §6.1）：10x 恰好 0.9，3x 用 prec=28 倒数。"""
+    assert derive_thresholds(Decimal("10"), R_MAINT).alpha == Decimal("0.9")
+    three_x = derive_thresholds(Decimal("3"), R_MAINT)
+    assert three_x.alpha == Decimal(2) / Decimal(3)
+    assert str(three_x.alpha) == "0.6666666666666666666666666667"
+
+
+def test_risk_basis_max_of_debt_and_alpha_assets_plus_alpha_short():
+    """B = max(D, αA) + αK：多头资产项与空头成本共享风险基数，不按方向抵消。"""
+    t = derive_thresholds(Decimal("10"), R_MAINT)  # alpha = 0.9
+    assert t.risk_basis(
+        debt=Decimal("4000"), positive_assets=Decimal("100"),
+        short_cover=Decimal("500"),
+    ) == Decimal("4000") + Decimal("0.9") * Decimal("500")
+    # alpha*A 占主导时用资产项
+    assert t.risk_basis(
+        debt=Decimal("1"), positive_assets=Decimal("10000"),
+        short_cover=Decimal("500"),
+    ) == Decimal("0.9") * Decimal("10000") + Decimal("0.9") * Decimal("500")
+    # 无空头且无资产时退化为旧 D
+    assert t.risk_basis(
+        debt=Decimal("123.456789"), positive_assets=Decimal("0"),
+        short_cover=Decimal("0"),
+    ) == Decimal("123.456789")
+    with pytest.raises(ValueError):
+        t.risk_basis(
+            debt=Decimal("NaN"), positive_assets=Decimal("0"),
+            short_cover=Decimal("0"),
+        )
+
+
+def test_basis_measure_and_admission_use_exact_w_form():
+    """spec §6.1: W = max(LD,(L−1)A) + (L−1)K decides admission, not quantized B."""
+    t = derive_thresholds(Decimal("10"), R_MAINT)   # alpha = 0.9
+    debt, assets, cover = Decimal("4500"), Decimal("5000"), Decimal("5000")
+    basis, w = t.basis_measure(
+        debt=debt, positive_assets=assets, short_cover=cover,
+    )
+    assert basis == max(debt, t.alpha * assets) + t.alpha * cover
+    assert w == (
+        max(t.leverage * debt, (t.leverage - 1) * assets)
+        + (t.leverage - 1) * cover
+    )
+    # spec §6.2 "同本金各开满 10 倍多与空" boundary: W=90000, E=1000.
+    boundary_e = w / (t.leverage * (t.leverage - 1))
+    assert boundary_e == Decimal("1000")
+    assert t.admits(equity=boundary_e, debt=debt,
+                    positive_assets=assets, short_cover=cover) is True
+    assert t.admits(equity=boundary_e - Q6, debt=debt,
+                    positive_assets=assets, short_cover=cover) is False
+
+
+def test_max_new_gold_loan_subtracts_alpha_short_share_and_stays_zero():
+    t = derive_thresholds(Decimal("10"), R_MAINT)
+    # E=500, D=0, A=0, K=100: admitted, headroom = (L-1)E - D - alpha*K = 4410.
+    assert t.max_new_gold_loan(
+        equity=Decimal("500"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=Decimal("100"),
+    ) == Decimal("4410.000000")
+    # Below initial margin: zero, never a negative/normalized number.
+    assert t.max_new_gold_loan(
+        equity=Decimal("0"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=Decimal("100"),
+    ) == Decimal("0")
+    # D already exceeds the available basis: zero.
+    assert t.max_new_gold_loan(
+        equity=Decimal("100"), debt=Decimal("1000"),
+        positive_assets=Decimal("0"), short_cover=Decimal("0"),
+    ) == Decimal("0")
+    # Floors down at 6dp without ever rounding up.
+    assert t.max_new_gold_loan(
+        equity=Decimal("1.0000001"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=Decimal("0"),
+    ) == Decimal("9.000000")
+
+
+def test_triggered_basis_requires_debt_or_short_and_uses_w():
+    t = derive_thresholds(Decimal("10"), R_MAINT)   # m = 0.04
+    debt, cover, assets = Decimal("4500"), Decimal("5000"), Decimal("0")
+    # W = 90000, trigger line L*E < m*W = 3600 -> E < 360.
+    assert t.triggered_basis(
+        equity=Decimal("359.999999"), debt=debt,
+        positive_assets=assets, short_cover=cover,
+    ) is True
+    assert t.triggered_basis(
+        equity=Decimal("360"), debt=debt,
+        positive_assets=assets, short_cover=cover,
+    ) is False
+    # No gold debt and no foreign obligation: never triggered.
+    assert t.triggered_basis(
+        equity=Decimal("-1000"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=Decimal("0"),
+    ) is False
+    # Foreign-only debt can trigger.
+    assert t.triggered_basis(
+        equity=Decimal("0"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=cover,
+    ) is True

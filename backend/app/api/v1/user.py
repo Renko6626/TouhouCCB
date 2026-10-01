@@ -8,14 +8,14 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_async_session, managed_transaction
 from app.core.users import current_active_user
 from app.models.base import User, Position, Transaction, Outcome
-from app.models.fx import FxWallet, FxPair
+from app.models.fx import FxWallet, FxPair, FxShortPosition
 from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import quantize_cost
 from app.services import site_config as _site_config
@@ -33,6 +33,43 @@ ZERO = Decimal("0")
 
 
 # 称号统一走 app.services.rank.RANK_THRESHOLDS（全站一套阈值/文案）
+
+
+def account_risk_fields(valuation, thresholds):
+    """Classify the shared basis using unrounded authoritative A/K inputs."""
+    equity, cover = valuation.liquidation_equity, valuation.short_cover_cost
+    assets = sum((group.value for group in valuation.groups
+                  if group.role == "asset_sale" and group.value is not None), ZERO)
+    if equity is None or cover is None or valuation.risk_basis is None:
+        status = "blocked"
+    else:
+        args = dict(equity=equity, debt=valuation.debt_effective,
+                    positive_assets=assets, short_cover=cover)
+        status = ("danger" if thresholds.triggered_basis(**args) else
+                  "warning" if not thresholds.admits(**args) else "healthy")
+    return dict(available_cash=valuation.available_cash,
+                restricted_cash=valuation.restricted_cash,
+                short_cover_cost=cover, risk_basis=valuation.risk_basis,
+                equity_to_risk_basis=(equity / valuation.risk_basis
+                    if equity is not None and valuation.risk_basis is not None
+                    and valuation.risk_basis > ZERO else None),
+                risk_status=status, blocked_reason=valuation.blocked_reason,
+                economic_version=valuation.economic_version)
+
+
+async def own_short_positions(db, user_id):
+    """Reuse the player short read contract, selecting only persisted own rows."""
+    from app.services.fx.shorts import read_short_position
+    pair_ids = (await db.execute(select(FxShortPosition.pair_id)
+                .where(FxShortPosition.user_id == user_id, or_(
+                    FxShortPosition.principal_foreign > ZERO,
+                    FxShortPosition.interest_foreign > ZERO,
+                    FxShortPosition.restricted_gold > ZERO,
+                    FxShortPosition.proceeds_basis_gold > ZERO,
+                ))
+                .order_by(FxShortPosition.pair_id))).scalars().all()
+    return [await read_short_position(db, user_id=user_id, pair_id=pid)
+            for pid in pair_ids]
 
 
 @router.get("/summary", response_model=UserSummary, summary="获取资产概览")
@@ -86,14 +123,13 @@ async def get_user_summary(
         valuation = await value_user_detailed(db, user.id, daily_rate=rate)
         thresholds = flags.thresholds
         equity, debt = valuation.liquidation_equity, valuation.debt_effective
-        risk_status = ("danger" if thresholds.triggered(equity, debt) else
-                       "warning" if not thresholds.recovered(equity, debt) else "healthy")
+        credit_fields.update(account_risk_fields(valuation, thresholds))
+        credit_fields["short_positions"] = await own_short_positions(db, user.id)
         credit_fields.update(
             display_equity=valuation.display_equity, liquidation_equity=equity,
             debt_with_interest=debt, credit_leverage=thresholds.leverage,
             r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
-            equity_to_debt=(equity / debt if debt > ZERO else None),
-            risk_status=risk_status,
+            equity_to_debt=(equity / debt if equity is not None and debt > ZERO else None),
         )
 
     # margin_status 服务端权威（保守 LCV 口径，docs/holdings-value-semantics.md）。

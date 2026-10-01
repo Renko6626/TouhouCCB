@@ -48,10 +48,11 @@ const pairBusy = ref(false)
 const editingPairId = ref<number | null>(null)
 const editPanel = ref<HTMLElement | null>(null)
 const editError = ref<string | null>(null)
-const editForm = ref({ currency_code: '', currency_name: '', target_price: '', target_min: '', target_max: '', buy_fee_rate: '', sell_fee_rate: '' })
+const editForm = ref({ currency_code: '', currency_name: '', target_price: '', target_min: '', target_max: '', buy_fee_rate: '', sell_fee_rate: '', short_lending_limit_foreign: '0' })
 
 const CONFIG_LABELS: Record<string, string> = {
   fx_enabled: 'FX 总闸（默认关闭）',
+  fx_short_enabled: '开空闸（默认关闭，不阻止回补）',
   fx_hourly_sigma: '小时波动 sigma',
   fx_step_max_ratio: '单步最大波动比例',
   fx_noise_interval_sec: '噪声平均间隔（秒）',
@@ -187,7 +188,7 @@ function combinePairStatus(status: FxPairStatus): string {
 // ── 加载 ──
 async function loadConfig() {
   config.value = await fxAdminApi.getConfig()
-  configDraft.value = { ...config.value }
+  configDraft.value = { fx_short_enabled: 'false', ...config.value }
 }
 
 async function loadAdminPairs() {
@@ -330,6 +331,7 @@ async function startEditingPair(pair: FxPairPublic) {
   editForm.value = {
     currency_code: detail.currency_code, currency_name: detail.currency_name,
     target_price: detail.target_price, target_min: detail.target_min, target_max: detail.target_max,
+    short_lending_limit_foreign: detail.short_lending_limit_foreign ?? '0',
     buy_fee_rate: detail.buy_fee_rate, sell_fee_rate: detail.sell_fee_rate,
   }
   await nextTick()
@@ -358,7 +360,11 @@ async function savePairEdit() {
     editError.value = '买卖费率必须在 0（含）与 1（不含）之间'
     return
   }
-  const body: FxPairPatch = { ...f }
+  if (!/^\d+(\.\d{0,6})?$/.test(f.short_lending_limit_foreign.trim())) {
+    editError.value = '借币本金上限须为非负数，最多六位小数'
+    return
+  }
+  const body: FxPairPatch = { ...f, short_lending_limit_foreign: f.short_lending_limit_foreign.trim() }
   if (f.currency_code === original.currency_code) delete body.currency_code
   pairBusy.value = true
   try {
@@ -592,7 +598,8 @@ onMounted(async () => {
             <span>{{ CONFIG_LABELS[key] }}<code>{{ key }}</code></span>
             <small class="fx-config-description">{{ getConfigMeta(key).description }}</small>
             <div class="fx-config-row">
-              <input v-model="configDraft[key]" class="fx-input" :disabled="key === 'fx_enabled'" />
+              <select v-if="key === 'fx_short_enabled'" v-model="configDraft[key]" class="fx-input"><option value="false">关闭新增开空</option><option value="true">允许新增开空（仍需额度与风控）</option></select>
+              <input v-else v-model="configDraft[key]" class="fx-input" :disabled="key === 'fx_enabled'" />
               <button class="btn-sm" @click="saveConfigValue(key, configDraft[key] ?? '')">保存</button>
             </div>
           </label>
@@ -697,6 +704,7 @@ onMounted(async () => {
           <div class="fx-setup-fields">
             <label>币种代码<input v-model="editForm.currency_code" class="fx-input" maxlength="16" :disabled="detailOf(editingPairId)?.status !== 'draft' || pairBusy" /></label>
             <label>币种名称<input v-model="editForm.currency_name" class="fx-input" maxlength="64" :disabled="pairBusy" /></label>
+            <label>开空本金上限（外币，0 禁止新增）<input v-model="editForm.short_lending_limit_foreign" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
             <label>系统目标价<input v-model="editForm.target_price" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
             <label>目标下限<input v-model="editForm.target_min" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
             <label>目标上限<input v-model="editForm.target_max" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>

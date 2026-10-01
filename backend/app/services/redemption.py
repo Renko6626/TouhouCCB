@@ -20,6 +20,7 @@ from sqlalchemy.future import select
 from sqlalchemy import update
 from fastapi import HTTPException
 
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import User
 from app.models.redemption import (
     RedemptionPartner, RedemptionBatch, RedemptionCode, RedemptionTransaction,
@@ -194,10 +195,10 @@ async def _purchase_code_impl(
         raise PurchaseError("BATCH_NOT_ACTIVE")
 
     # 与借款/还款共享 user 行锁，按最新债务判断；现金再多也不能带债兑换。
-    if user.debt > 0:
+    if user.debt > 0 or await has_foreign_debt(session, user.id):
         raise PurchaseError("OUTSTANDING_DEBT")
 
-    if user.cash < batch.unit_price:
+    if await available_cash(session, user) < batch.unit_price:
         raise PurchaseError("INSUFFICIENT_CASH")
 
     if thresholds is not None:

@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select, update as sa_update
 
 from app.core.database import async_session_maker
+from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
@@ -60,7 +61,12 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
     from app.services.credit import flags, risk
     from app.services.credit.keys import GroupKey
     from app.services.credit.gates import GATES
-    if not flags.get_flags().unified_credit_enabled or user.debt <= ZERO:
+    if not flags.get_flags().unified_credit_enabled:
+        return
+    # 无金债不再等于无风险（spec §6.3/§11）：锁内按索引确认外币欠币。金债>0 时
+    # 短路，不额外查询外币表。乐观首试 deps 为 None 时会 CreditRetry，由外层
+    # 释放门闩、重新发现完整依赖后再带 GATES 重试。
+    if user.debt <= ZERO and not await has_foreign_debt(session, user.id):
         return
     deps = CREDIT_DEPS.get()
     if deps is None or deps.economic_version != user.economic_version:
@@ -171,7 +177,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
             OWNERSHIP.require_writes()
             # title 门槛：与老路径同位置（锁内、扣款前），语义不变
             await assert_user_can_trade_market(session, cmd.user_id, state.market_id)
-            if locked_user.cash < pay:
+            if await available_cash(session, locked_user) < pay:
                 raise HTTPException(status_code=400, detail="现金不足")
             await check_credit_buy(session, locked_user, state.market_id, cmd.outcome_id,
                                    shares_d, pay, new_q_dec)
@@ -1034,6 +1040,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     status_code=409, detail=f"强平 run 已处于终态 {run.status}，本轮不得再执行")
 
             account_pre = None
+            defer_repay = False
             if cmd.revalidate_account:
                 from app.services.credit.execution import prepare_locked
                 from app.services.credit.risk import discover_dependencies
@@ -1047,20 +1054,35 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 fresh = await discover_dependencies(session, cmd.user_id)
                 if set(fresh.groups) != set(deps.groups):
                     raise CreditRetry()
-                run, account_pre, target, fresh_mode, status = await prepare_locked(
+                plan = await prepare_locked(
                     session, locked_user, fresh, rate=cmd.daily_rate, pct=partial_pct,
                     source=trigger_source, run_id=cmd.run_id, round_no=cmd.round_no)
-                if status != "sell":
-                    return _group_response(mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
-                        net=ZERO, repaid=max(ZERO, account_pre.debt_effective-locked_user.debt),
+                run, account_pre = plan.run, plan.pre
+                if plan.status != "sell":
+                    if plan.status == "cover":
+                        # The ranked cover ranks above this market; release this
+                        # writer round without touching the market so the caller
+                        # rediscovers and executes the cover directly.
+                        return _group_response(mode=plan.mode or mode, sold_count=0,
+                            gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
+                            debt_after=locked_user.debt, cash_after=locked_user.cash,
+                            blocked_reason="selection_changed", replayed=False)
+                    # Report the *actual* amount repaid on this path, never the
+                    # phantom ``pre.debt_effective - user.debt`` (interest drift /
+                    # partial repayment / selection change made it wrong).
+                    return _group_response(mode=plan.mode or mode, sold_count=0,
+                        gross=ZERO, fee=ZERO, net=ZERO, repaid=plan.repaid,
                         debt_after=locked_user.debt, cash_after=locked_user.cash,
-                        blocked_reason=None, replayed=status == "replayed")
-                if target != GroupKey("lmsr", market_id):
+                        blocked_reason=(plan.blocked_reason if plan.status == "blocked"
+                                        else None),
+                        replayed=plan.status == "replayed")
+                if plan.target != GroupKey("lmsr", market_id):
                     return _group_response(mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
                         net=ZERO, repaid=ZERO, debt_after=locked_user.debt,
                         cash_after=locked_user.cash, blocked_reason="selection_changed", replayed=False)
-                mode = fresh_mode
+                mode = plan.mode
                 fee_rate = fresh.lmsr_fee_rate
+                defer_repay = bool(plan.defer_repay)
 
             if not market_is_open(state.status, state.closes_at):
                 # 与 legacy op 同语义：HALT/SETTLED/已过 closes_at 不强平（用户自己也卖不了）
@@ -1193,14 +1215,34 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                         sa_update(Outcome).where(Outcome.id == int(oid))
                         .values(total_shares=q_dec_roll[i]))
 
-            # ── 5. 回款立即还债（同事务；先结息再算还款额，不留灰尘债）──
+            # ── 5. 回款还债（同事务；先结息再算还款额，不留灰尘债）──
+            # 口径：有待回补空头时把净回款留作下一轮回补预算（spec §8.1 第 1/4 步），
+            # 只结息不还金债；否则沿用旧的立即还债 + 重估。有空头时只能用未锁现金。
             repaid = ZERO
-            if locked_user.cash > ZERO and locked_user.debt > ZERO:
+            has_foreign = account_pre is not None and any(
+                g.role == "short_cover" for g in account_pre.groups)
+            if defer_repay:
+                from app.services.credit.execution import accrue_gold_only
+                await accrue_gold_only(session, locked_user, cmd.daily_rate, trigger_source)
+                repay_cap = None
+            else:
+                # Cap at post-sale free cash, never the pre-sale snapshot: the sale
+                # just credited net proceeds while every short lock is unchanged,
+                # so ``account_pre.available_cash`` would under-pay gold debt.
+                if has_foreign:
+                    from app.services.credit.execution import post_sale_free_cash
+                    repay_cap = post_sale_free_cash(locked_user, account_pre)
+                else:
+                    repay_cap = None
+            if not defer_repay and locked_user.cash > ZERO and locked_user.debt > ZERO:
                 from app.services import loan_service   # 局部 import 避免环
                 debt_before = locked_user.debt
                 now = loan_service._compat_now(locked_user)
                 loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
-                repay_amount = min(locked_user.cash, locked_user.debt).quantize(Q6)
+                repay_amount = min(locked_user.cash, locked_user.debt)
+                if repay_cap is not None:
+                    repay_amount = min(repay_amount, repay_cap)
+                repay_amount = repay_amount.quantize(Q6)
                 if repay_amount > ZERO:
                     repaid = await loan_service.decrease_debt_locked(
                         session, locked_user, repay_amount,
@@ -1243,6 +1285,15 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             if action.executed != executed:
                 # 用户行锁下理论不可达；DB 唯一键兜底防"卖出后才发现本轮已被占用"
                 raise HTTPException(status_code=409, detail="强平轮次已被占用，本次已回滚")
+
+            if account_pre is not None:
+                from app.services.credit.execution import public_event, finish_locked
+                public_event(session, locked_user, run, account_pre, product="lmsr",
+                    mode=mode, sold=len(quote.legs), proceeds=quote.net,
+                    repaid=repaid, source=trigger_source)
+                await finish_locked(session, locked_user, run, cmd.daily_rate)
+                action.economic_version_after = locked_user.economic_version
+
             audit_service.record(
                 session, "liquidation_action",
                 user_id=int(locked_user.id),
@@ -1256,18 +1307,11 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     "repaid": format(repaid, "f"),
                     "debt_after": format(locked_user.debt, "f"),
                     "cash_after": format(locked_user.cash, "f"),
-                    "economic_version_after": int(version),
+                    "economic_version_after": int(action.economic_version_after),
                     "trigger_source": trigger_source,
                 },
                 user_after=audit_service.user_snapshot(locked_user),
             )
-
-            if account_pre is not None:
-                from app.services.credit.execution import public_event, finish_locked
-                public_event(session, locked_user, run, account_pre, product="lmsr",
-                    mode=mode, sold=len(quote.legs), proceeds=quote.net,
-                    repaid=repaid, source=trigger_source)
-                await finish_locked(session, locked_user, run, cmd.daily_rate)
 
         new_cash = locked_user.cash
         new_debt = locked_user.debt

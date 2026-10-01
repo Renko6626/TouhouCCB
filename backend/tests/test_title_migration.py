@@ -91,13 +91,14 @@ def test_upgrade_downgrade_roundtrip():
     # 白名单 keep_tables（剔除 title 相关 5 张表 + ledger_entry + audit_event）
     # ledger_entry / audit_event 由其后续 migration（b2cd21122925 / a7c3e9d1f402）建，
     # before-state 不应预先 create_all，否则 upgrade head 会 "table already exists"。
-    # fx_* 5 张表由 head revision fx_tables_20260928 建（晚于本测试 stamp 的
-    # 679d34cb5986）；conftest 经 app.main 已把 app.models.fx 注册进 metadata，
-    # 同样不能预建，否则 upgrade 到 FX revision 报 "table fx_pair already exists"。
+    # fx_* 表（fx_pair/fx_treasury/fx_wallet/fx_trade/fx_event 及其后新增的
+    # fx_short_position 等）由 fx_tables_20260928 及更晚的 revision 建（晚于本测试
+    # stamp 的 679d34cb5986）；conftest 经 app.main 已把 app.models.fx 注册进
+    # metadata，同样不能预建，否则 upgrade 到 FX revision 报 "table fx_pair already
+    # exists"。按 fx_ 前缀整类剔除，后续新增 FX 表无需再改这份白名单；只列固定表名会
+    # 漏掉后续表，且 fx_short_position.pair_id → fx_pair.id 的外键会因 fx_pair 缺席
+    # 让 create_all 抛 NoReferencedTableError。
     # FX migration 的真实 upgrade/downgrade 由 test_fx_migration.py 专项验证。
-    fx_table_names = {
-        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
-    }
     # 统一信贷表由 head revision credit_foundation_20260930 建（WP1）：先把它们一起拷进
     # before-state（否则 liquidation_events.run_id 的外键无法解析），再整表摘掉。
     credit_table_names = {"liquidation_run", "liquidation_action"}
@@ -105,7 +106,7 @@ def test_upgrade_downgrade_roundtrip():
         t for name, t in SQLModel.metadata.tables.items()
         if name not in title_table_names
         and name not in ("ledger_entry", "audit_event", "bot_profile")
-        and name not in fx_table_names
+        and not name.startswith("fx_")
     ]
 
     def _strip_column(table, name: str) -> None:

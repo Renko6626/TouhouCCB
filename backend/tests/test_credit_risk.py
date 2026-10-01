@@ -658,9 +658,9 @@ async def test_check_new_risk_selects_bounded_when_cache_warm(monkeypatch):
         stop()
     assert decision.allowed is True
     # 未变组命中缓存 → 0 次新报价（查询只来自：helper 读 user + R1 权威 + 热冻结
-    # + R3 抵押快照批量：Market/Outcome/FxPair）
+    # + R3 抵押快照批量：Market/Outcome/FxPair + 锁内空头义务索引确认）
     assert calls["lmsr"] == 1 and calls["fx"] == 1
-    assert len(statements) <= 6, statements
+    assert len(statements) <= 7, statements
 
     # 无债快路径（真实无债用户 + 有抵押）：不刷新快照、不报价
     async with async_session_maker() as s:
@@ -674,8 +674,9 @@ async def test_check_new_risk_selects_bounded_when_cache_warm(monkeypatch):
     finally:
         stop2()
     assert fast.allowed is True and fast.debt_after == ZERO
-    # 3 条 = helper 读 user + R1 权威刷新 + 热冻结；无快照刷新、无估值
-    assert len(statements2) <= 3, statements2
+    # 4 条 = helper 读 user + R1 权威刷新 + 热冻结 + 锁内空头义务索引确认；
+    # 无快照刷新、无估值、无报价
+    assert len(statements2) <= 4, statements2
 
 # ────────────── 复审 R1/R2/R3：同 session 陈旧身份映射 / 显式清仓 / 市场版本 ──────────────
 

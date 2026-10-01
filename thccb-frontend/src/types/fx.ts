@@ -81,6 +81,7 @@ export interface FxWalletPublic {
 export interface FxPersonalTrade extends FxTradePublic {
   currency_code: string
   currency_name: string
+  purpose: string
   is_liquidation: boolean
 }
 
@@ -138,6 +139,7 @@ export interface FxPriceTick {
 
 export interface FxPairAdmin extends FxPairPublic {
   archived?: boolean
+  short_lending_limit_foreign?: string
   gold_reserve: string
   foreign_reserve: string
   target_price: string
@@ -188,6 +190,7 @@ export interface FxIntervention {
 }
 
 export interface FxPairCreate {
+  short_lending_limit_foreign?: string
   currency_code: string
   currency_name: string
   status?: FxPairStatus
@@ -202,6 +205,7 @@ export interface FxPairCreate {
 }
 
 export interface FxPairPatch {
+  short_lending_limit_foreign?: string
   currency_code?: string
   currency_name?: string
   status?: FxPairStatus
@@ -227,4 +231,51 @@ export interface FxEventCreate {
   window_sec?: number
   budget: string
   scheduled_at?: string | null
+}
+
+export interface FxShortPosition {
+  pair_id: number
+  currency_code: string
+  principal_foreign: string
+  interest_foreign: string
+  pending_short_debt: string | null
+  restricted_gold: string
+  proceeds_basis_gold: string
+  reference_cover_cost: string | null
+  reference_cover_fee: string | null
+  executable: boolean
+  risk_status: string
+  blocked_reason: string | null
+}
+export interface FxShortQuoteRequest {
+  action: 'open' | 'cover'
+  foreign_amount?: string
+  cover_all?: boolean
+}
+export interface FxShortQuote {
+  pair_id: number
+  action: 'open' | 'cover'
+  purpose: string
+  requested_foreign_amount: string | null
+  cover_all: boolean | null
+  actual_foreign_amount: string | null
+  input_amount: string | null
+  output_amount: string | null
+  fee_amount: string | null
+  fee_currency: string
+  restricted_gold_delta: string | null
+  available_cash: string | null
+  affordable: boolean | null
+  estimated_equity: string | null
+  estimated_risk_basis: string | null
+  risk_status: string
+  risk_blocked_reason: string | null
+  executable: boolean
+  blocked_reason: string | null
+  expires_at: string
+}
+export interface FxShortTrade extends Omit<FxTradePublic, 'id'> {
+  trade_id: number
+  purpose: string
+  replay: boolean
 }
