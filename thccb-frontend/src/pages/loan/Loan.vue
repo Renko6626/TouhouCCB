@@ -4,8 +4,10 @@ import { NInputNumber, NButton, NSpin, NAlert, NDivider, useMessage } from 'naiv
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
 import { extractErrorMessage } from '@/utils/errors'
-import { formatFxAmount, subtractFxAmounts } from '@/api/fx'
+import { compareFxAmounts, divideFxAmount, formatFxAmount, subtractFxAmounts } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
+import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
+import CreditRiskStatus from '@/components/user/CreditRiskStatus.vue'
 
 defineOptions({ name: 'LoanPage' })
 
@@ -47,9 +49,11 @@ const dailyRatePct = computed(() => {
 })
 
 const shortPositions = computed(() => store.quota?.short_positions ?? [])
-const marginPct = computed(() => {
-  const ratio = store.quota?.equity_to_risk_basis
-  return ratio == null ? '—' : `${(ratio * 100).toFixed(2)}%`
+const marginRatio = computed(() => {
+  if (store.quota?.equity_to_risk_basis != null) return store.quota.equity_to_risk_basis
+  if (policy.value?.unified_credit_enabled !== false || store.quota?.net_worth == null) return null
+  const ratio = divideFxAmount(store.quota.net_worth, store.quota.debt, 12)
+  return ratio == null ? null : Number(ratio)
 })
 function pendingInterest(position: AccountShortPosition) {
   if (position.pending_short_debt == null) return null
@@ -155,8 +159,14 @@ async function repayAll() {
           <span class="overview-link">查看欠币与回补 ↓</span>
         </a>
         <div class="debt-overview-card">
-          <span class="overview-label">共用保证金率</span>
-          <strong>{{ marginPct }}</strong>
+          <CreditRiskStatus
+            :ratio="marginRatio"
+            :initial="store.quota?.r_initial ?? policy?.r_initial ?? (policy?.unified_credit_enabled === false ? policy.soft_threshold : null)"
+            :maintenance="store.quota?.r_maintenance ?? policy?.r_maintenance ?? (policy?.unified_credit_enabled === false ? policy.hard_threshold : null)"
+            :blocked="store.quota?.risk_status === 'blocked'"
+            :legacy="policy?.unified_credit_enabled === false"
+            :no-risk="compareFxAmounts(store.quota?.risk_basis, '0') === 0"
+          />
           <span>未锁定现金 金 {{ formatFxAmount(store.quota?.available_cash, 2) }}</span>
           <span>锁定空头所得 金 {{ formatFxAmount(store.quota?.restricted_cash, 2) }}</span>
         </div>
@@ -181,6 +191,10 @@ async function repayAll() {
               <span>待归还 · 含待计利息</span>
               <strong>{{ formatFxAmount(position.pending_short_debt, 6) }} <small>{{ position.currency_code }}</small></strong>
             </div>
+            <ShortPositionPnl
+              :proceeds-basis-gold="position.proceeds_basis_gold"
+              :reference-cover-cost="position.reference_cover_cost"
+            />
             <dl class="short-details">
               <div><dt>借入本金</dt><dd>{{ formatFxAmount(position.principal_foreign, 6) }} {{ position.currency_code }}</dd></div>
               <div><dt>已结利息 / 待计利息</dt><dd>{{ formatFxAmount(position.interest_foreign, 6) }} / {{ formatFxAmount(pendingInterest(position), 6) }} {{ position.currency_code }}</dd></div>

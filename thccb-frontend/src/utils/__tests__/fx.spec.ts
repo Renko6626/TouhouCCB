@@ -350,6 +350,13 @@ describe('divideFxAmount（平均成本等派生比值不丢精度）', () => {
   })
 })
 
+it('开空参考敞口按完整汇率换算数量，不把极小正汇率截成零', () => {
+  expect(divideFxAmount('100', '8.200000000000', 6)).toBe('12.195121')
+  expect(divideFxAmount('100', '0.000001500000', 6)).toBe('66666666.666666')
+  expect(divideFxAmount('100', '0.000000010000', 6)).toBe('10000000000.000000')
+  expect(divideFxAmount('100', '0', 6)).toBeNull()
+})
+
 describe('交易面板回归：min-out 与双击单飞', () => {
   it('min-out 不放宽滑点保护：随 bps 单调不增且向下取 6 位', () => {
     const output = '0.123456'

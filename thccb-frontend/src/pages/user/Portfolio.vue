@@ -14,6 +14,7 @@ import type { DataTableColumns } from 'naive-ui'
 import type { Holding } from '@/types/api'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import MarginStatusCard from '@/components/user/MarginStatusCard.vue'
+import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
 import MyTitlesPanel from '@/components/title/MyTitlesPanel.vue'
 
 defineOptions({ name: 'UserPortfolio' })
@@ -287,6 +288,10 @@ const holdingsByMarketArray = computed(() => {
           <div v-for="position in userStore.summary.short_positions" :key="position.pair_id" class="asset-card">
             <span class="asset-label">{{ position.currency_code }} 空头</span>
             <span>含息欠币 {{ position.pending_short_debt ?? '—' }} {{ position.currency_code }}</span>
+            <ShortPositionPnl
+              :proceeds-basis-gold="position.proceeds_basis_gold"
+              :reference-cover-cost="position.reference_cover_cost"
+            />
             <span>本金 {{ position.principal_foreign }} · 已结利息 {{ position.interest_foreign }}</span>
             <span>锁定所得 金 {{ position.restricted_gold }}</span>
             <span>剩余收益基准 金 {{ position.proceeds_basis_gold }}</span>

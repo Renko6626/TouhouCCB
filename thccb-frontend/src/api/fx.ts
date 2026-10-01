@@ -319,7 +319,8 @@ export function divideFxAmount(
   digits = 12,
 ): string | null {
   const scale = Math.max(0, Math.min(12, Math.floor(digits)))
-  const guard = 6
+  // FX rates can have twelve decimals even when the resulting quantity has six.
+  const guard = 12
   const n = parseScaled(numerator, scale + guard)
   const d = parseScaled(denominator, guard)
   if (n === null || d === null || d === 0n) return null

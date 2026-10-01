@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useUserStore } from '@/stores/user'
+import { compareFxAmounts } from '@/api/fx'
+import CreditRiskStatus from './CreditRiskStatus.vue'
 
 const userStore = useUserStore()
 const summary = computed(() => userStore.summary)
@@ -17,24 +19,16 @@ const protectedByHalt = computed(() => !summary.value?.unified_credit_enabled &&
 const status = computed(() =>
   protectedByHalt.value && baseStatus.value !== 'healthy' ? 'protected' : baseStatus.value
 )
-const hardThr = computed(() => summary.value?.r_maintenance ?? summary.value?.margin_hard_threshold ?? 0.2)
-const softThr = computed(() => summary.value?.r_initial ?? summary.value?.margin_soft_threshold ?? 0.5)
+const hardThr = computed(() => summary.value?.unified_credit_enabled
+  ? summary.value.r_maintenance ?? null : summary.value?.margin_hard_threshold ?? 0.2)
+const softThr = computed(() => summary.value?.unified_credit_enabled
+  ? summary.value.r_initial ?? null : summary.value?.margin_soft_threshold ?? 0.5)
 // net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
 const netWorth = computed(() => userStore.netWorth)
 const netWorthLcv = computed(() => userStore.netWorthLcv)
 const debt = computed(() => Number(summary.value?.debt_with_interest ?? summary.value?.debt ?? 0))
 // 两口径差距（LMSR 滑点 + 手续费的损耗）
 const slippageGap = computed(() => netWorth.value == null || netWorthLcv.value == null ? null : netWorth.value - netWorthLcv.value)
-
-// 距离强平线的相对缓冲：净值再跌 X% 触发
-//   触发条件：NW' = hard × debt
-//   当前:    NW  = ratio × debt
-//   缓冲 = 1 - hard/ratio  (ratio > hard 时为正)
-const bufferPct = computed(() => {
-  if (status.value === 'blocked' || ratio.value == null || ratio.value <= 0) return null
-  if (ratio.value <= hardThr.value) return 0
-  return (1 - hardThr.value / ratio.value) * 100
-})
 
 const statusLabel = computed(() => {
   if (status.value === 'blocked') return '风险检查阻塞'
@@ -82,44 +76,20 @@ function relativeTime(ms: number): string {
       <br>外币义务按币种列示于持仓明细；B 是风险基数，保证金率为 E/B。
     </p>
     <p v-if="status === 'blocked'">{{ summary?.blocked_reason || '估值待恢复，新增风险暂不可用。' }}</p>
-    <div class="ratio-row">
-      <span class="ratio-big">
-        {{ ratio != null ? Number(ratio).toFixed(3) : '—' }}
-      </span>
-      <div class="ratio-meta">
-        <div class="formula">
-          立即变现 <span class="num">{{ netWorthLcv?.toFixed(2) ?? '—' }}</span>
-          ÷ {{ summary?.unified_credit_enabled ? '风险基数 B' : '借款' }} <span class="num">{{ summary?.unified_credit_enabled ? summary.risk_basis ?? '—' : debt.toFixed(2) }}</span>
-        </div>
-        <div v-if="slippageGap != null && slippageGap > 0.01" class="formula-explain">
-          账面净值 <span class="num">{{ netWorth?.toFixed(2) ?? '—' }}</span>，
-          滑点损耗 <span class="num">-{{ slippageGap.toFixed(2) }}</span>
-          <span class="hint">（保证金按保守"立即变现"口径算）</span>
-        </div>
-        <div class="thresholds">
-          强平线 <span class="num">{{ Number(hardThr).toFixed(2) }}</span>
-          · {{ summary?.unified_credit_enabled ? '初始 / 恢复线' : '警戒线' }} <span class="num">{{ Number(softThr).toFixed(2) }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="bufferPct !== null" class="buffer-row">
-      <div class="buffer-head">
-        <span class="buffer-label">距强平缓冲</span>
-        <span class="buffer-pct">{{ bufferPct.toFixed(1) }}%</span>
-      </div>
-      <div class="buffer-bar">
-        <div
-          class="buffer-fill"
-          :class="`fill-${status}`"
-          :style="{ width: `${Math.min(100, Math.max(0, bufferPct))}%` }"
-        ></div>
-      </div>
-      <div class="buffer-hint">
-        净值再跌 <span class="num">{{ bufferPct.toFixed(1) }}%</span> 触发强制平仓
-        <span class="caliber-hint">（按清算口径，比顶部账面更保守）</span>
-      </div>
-    </div>
+    <CreditRiskStatus
+      :ratio="ratio" :initial="softThr" :maintenance="hardThr"
+      :blocked="status === 'blocked'"
+      :protected="status === 'protected'"
+      :legacy="summary?.unified_credit_enabled === false"
+      :no-risk="summary?.unified_credit_enabled === true && compareFxAmounts(summary.risk_basis, '0') === 0"
+    />
+    <details class="risk-details">
+      <summary>估值口径与风险说明</summary>
+      <p>清算净值 金 {{ netWorthLcv?.toFixed(2) ?? '—' }}；账面净值 金 {{ netWorth?.toFixed(2) ?? '—' }}。
+        <span v-if="slippageGap != null && slippageGap > 0.01">估值差 金 {{ slippageGap.toFixed(2) }}。</span>
+      </p>
+      <p>强平按最新的清算净值与风险基数判断。外币回补成本会随行情变化，保证金率距离强平线的差值不等于固定的汇率或净值跌幅。</p>
+    </details>
 
     <div v-if="showJustLiquidated" class="just-liquidated-chip">
       <span class="chip-icon">☠</span>
@@ -129,6 +99,8 @@ function relativeTime(ms: number): string {
 </template>
 
 <style scoped>
+.risk-details { font-size: 12px; line-height: 1.6; }
+.risk-details summary { cursor: pointer; font-weight: 700; }
 .margin-status-card {
   display: flex;
   flex-direction: column;
@@ -203,130 +175,6 @@ function relativeTime(ms: number): string {
   color: #1e3a8a;
   border-color: #2563eb;
   background: #dbeafe;
-}
-
-.ratio-row {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-
-.ratio-big {
-  font-size: 34px;
-  font-weight: 900;
-  font-variant-numeric: tabular-nums;
-  color: #000000;
-  line-height: 1;
-  letter-spacing: -0.01em;
-}
-
-.status-warning .ratio-big {
-  color: #92400e;
-}
-
-.status-danger .ratio-big {
-  color: #991b1b;
-}
-
-.ratio-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: #444444;
-}
-
-.formula,
-.thresholds {
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.formula-explain {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: #666666;
-}
-
-.hint {
-  color: #888888;
-  font-weight: 500;
-}
-
-.num {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: #000000;
-}
-
-.buffer-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.buffer-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-
-.buffer-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #888888;
-}
-
-.buffer-pct {
-  font-size: 13px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: #000000;
-}
-
-.buffer-bar {
-  height: 10px;
-  background: #f0f0f0;
-  border: 1.5px solid #000000;
-  position: relative;
-  overflow: hidden;
-}
-
-.buffer-fill {
-  height: 100%;
-  transition: width 0.4s ease-out;
-}
-
-.fill-healthy {
-  background: #16a34a;
-}
-
-.fill-warning {
-  background: #d97706;
-}
-
-.fill-danger {
-  background: #dc2626;
-}
-
-.fill-protected {
-  background: #2563eb;
-}
-
-.buffer-hint {
-  font-size: 11px;
-  color: #666666;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.caliber-hint {
-  font-size: 10px;
-  font-weight: 500;
-  color: #999999;
 }
 
 .just-liquidated-chip {
