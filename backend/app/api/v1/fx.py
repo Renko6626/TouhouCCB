@@ -183,11 +183,17 @@ async def get_wallet(pair_id: int,
     return wallet
 
 
-@router.get("/pairs/{pair_id}/my-trades", response_model=list[FxTradePublic])
+@router.get("/pairs/{pair_id}/my-trades", response_model=list[FxPersonalTrade])
 async def list_my_trades(pair_id: int, limit: int = Query(50, ge=1, le=100),
                          user: User = Depends(current_active_user),
                          db: AsyncSession = Depends(get_async_session)):
     """Current user's own FX trades for one pair (newest first)."""
-    return (await db.execute(select(FxTrade).where(
-        FxTrade.pair_id == pair_id, FxTrade.user_id == user.id,
-    ).order_by(FxTrade.created_at.desc()).limit(limit))).scalars().all()
+    rows = (await db.execute(select(FxTrade, FxPair)
+        .join(FxPair, FxPair.id == FxTrade.pair_id)
+        .where(FxTrade.pair_id == pair_id, FxTrade.user_id == user.id)
+        .order_by(FxTrade.created_at.desc()).limit(limit))).all()
+    return [FxPersonalTrade(
+        **FxTradePublic.model_validate(trade).model_dump(),
+        currency_code=pair.currency_code, currency_name=pair.currency_name,
+        is_liquidation=trade.source == "liquidation", purpose=str(trade.purpose),
+    ) for trade, pair in rows]

@@ -251,6 +251,9 @@ async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(c
     cover_body = covered.json()
     assert cover_body["purpose"] == "short_cover"
     assert cover_body["side"] == "buy"
+    history = await client.get(f"/api/v1/fx/pairs/{pair_id}/my-trades", headers=user_headers)
+    assert history.status_code == 200, history.text
+    assert [trade["purpose"] for trade in history.json()] == ["short_cover", "short_open"]
 
     after_cover = await _stock(pair_id)
     assert after_cover["principal"] == ZERO
