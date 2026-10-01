@@ -29,8 +29,7 @@ import type {
   FxPersonalTrade, FxShortPosition, FxShortTrade,
   FxChartInterval,
   FxPairPublic,
-  FxPriceTick,
-  FxPublicFrame,
+  FxPublicEnvelope,
   FxPublicNews,
   FxQuote,
   FxSide,
@@ -72,9 +71,10 @@ const now = ref(Date.now())
 let freshnessTimer: ReturnType<typeof setInterval> | null = null
 const quoteExpired = computed(() => !!quoteUpdatedAt.value && now.value - quoteUpdatedAt.value >= 30000)
 const streamLabel = computed(() => streamConnected.value ? '实时已连接' : streamFailed.value ? '连接中断 · 正在重连' : '正在连接实时行情')
-/** 图表周期性刷新/成交后强制重载用；同时把 SSE 价格转发给图表组件 */
+/** 图表周期性刷新/成交后补尾段用（不重读封存段） */
 const chartReloadToken = ref(0)
-const lastTick = ref<FxPriceTick | null>(null)
+/** 页面唯一 onEnvelope 转发的最近一帧公开信封；图表据此消费历史版本/尾段与真实成交 */
+const chartEnvelope = ref<FxPublicEnvelope | null>(null)
 const priceDirection = ref<'up' | 'down' | 'neutral'>('neutral')
 
 const intervals: FxChartInterval[] = ['1m', '15m', '1h']
@@ -414,37 +414,40 @@ async function refreshAll() {
 
 // ── SSE ──
 let stream: FxStream | null = null
-function onFrame(frame: FxPublicFrame) {
-  if (frame.price === undefined && frame.news === undefined) return
+/**
+ * 页面唯一信封处理器：报价/新闻走旧白名单字段；历史版本/尾段与逐笔真实成交
+ * 原样转发给图表，由图表 decode + applyTrades。quote-only 帧只更新报价条，
+ * 不凭空造出成交量。
+ */
+function onEnvelope(envelope: FxPublicEnvelope) {
   const current = snapshot.value
   if (current) {
     const prev = Number(current.price)
-    const next = frame.price !== undefined ? Number(frame.price) : null
+    const next = envelope.price !== undefined ? Number(envelope.price) : null
     if (next !== null && Number.isFinite(next) && Number.isFinite(prev)) {
       if (next > prev) priceDirection.value = 'up'
       else if (next < prev) priceDirection.value = 'down'
     }
     snapshot.value = {
       ...current,
-      price: frame.price ?? current.price,
-      buy_price: frame.buy_price ?? current.buy_price,
-      sell_price: frame.sell_price ?? current.sell_price,
-      spread: frame.spread ?? current.spread,
-      volume_24h: frame.volume ?? current.volume_24h,
+      price: envelope.price ?? current.price,
+      buy_price: envelope.buy_price ?? current.buy_price,
+      sell_price: envelope.sell_price ?? current.sell_price,
+      spread: envelope.spread ?? current.spread,
+      volume_24h: envelope.volume ?? current.volume_24h,
     }
   }
-  // 价格保持字符串语义转发给图表；图表内部才在适配层转 number
-  if (frame.price !== undefined) {
-    lastTick.value = { price: frame.price, ts: Date.now() }
+  if (envelope.price !== undefined) {
     marketUpdatedAt.value = new Date().toLocaleTimeString()
   }
-  if (frame.news) {
-    const signature = `${frame.news.published_at ?? ''}|${frame.news.title ?? ''}`
+  if (envelope.news) {
+    const signature = `${envelope.news.published_at ?? ''}|${envelope.news.title ?? ''}`
     const exists = newsFeed.value.some(
       (n) => `${n.published_at ?? ''}|${n.title ?? ''}` === signature,
     )
-    if (!exists) newsFeed.value = [frame.news, ...newsFeed.value].slice(0, 30)
+    if (!exists) newsFeed.value = [envelope.news, ...newsFeed.value].slice(0, 30)
   }
+  chartEnvelope.value = envelope
 }
 
 function connectStream() {
@@ -465,7 +468,7 @@ function connectStream() {
       streamFailed.value = true
       streamConnected.value = false
     })
-    stream.onFrame(onFrame)
+    stream.onEnvelope(onEnvelope)
   }
   stream.connect(pid)
 }
@@ -496,7 +499,7 @@ async function selectPair(id: number) {
   tradeResource.reset()
   receipt.value = null
   snapshot.value = null
-  lastTick.value = null
+  chartEnvelope.value = null
   try {
     await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
     if (selection === selectionGeneration) connectStream()
@@ -828,7 +831,7 @@ onUnmounted(() => {
               v-if="pairId"
               :pair-id="pairId"
               :interval="interval"
-              :tick="lastTick"
+              :envelope="chartEnvelope"
               :reload-token="chartReloadToken"
               height="100%"
             />
