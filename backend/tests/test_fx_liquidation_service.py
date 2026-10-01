@@ -20,7 +20,7 @@ from sqlmodel import SQLModel, Session as ModelSession
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
 from app.services.credit.fx_quote import FxPairSnapshot, quote_fx_group
@@ -49,7 +49,8 @@ class AsyncCompatSession:
 async def db_session():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-              FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__, AuditEvent.__table__]
+              FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__,
+              FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine, tables=tables)
     with ModelSession(engine) as raw:
         session = AsyncCompatSession(raw)

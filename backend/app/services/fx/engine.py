@@ -147,6 +147,14 @@ class FxEngine:
                 skipped += pair_skipped
             await db.commit()
         for trade in created_trades:
+            # Post-commit hint for the incremental market-data runtime; it is
+            # synchronous, never awaits and never raises, so the committed
+            # system trade cannot be affected or delayed by it.
+            try:
+                from app.services.fx.trading import notify_market_data_committed
+                notify_market_data_committed(int(trade.pair_id))
+            except Exception:
+                pass
             try:
                 from app.services.fx.market_data import publish_trade
                 await publish_trade(trade)
@@ -202,6 +210,11 @@ class FxEngine:
             # released: the bounded publisher only enqueues, so a slow SSE
             # consumer can never extend the gate or fail the money operation.
             for trade in trades:
+                try:
+                    from app.services.fx.trading import notify_market_data_committed
+                    notify_market_data_committed(int(trade.pair_id))
+                except Exception:
+                    pass
                 try:
                     from app.services.fx.market_data import publish_trade
                     await publish_trade(trade)

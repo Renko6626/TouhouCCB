@@ -42,6 +42,7 @@ from app.services import audit_service, site_config, loan_service, ledger_servic
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
 from app.services.fx.amm import quote_buy, quote_sell, marginal_price
+from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
@@ -240,6 +241,23 @@ async def _rollback_quietly(db: AsyncSession) -> None:
         await db.rollback()
     except Exception:
         _logger.exception("FX trade rollback failed")
+
+
+def notify_market_data_committed(pair_id: int) -> None:
+    """Best-effort synchronous post-commit hint to the FX market-data runtime.
+
+    Must only be called after the caller's monetary transaction has committed.
+    It marks the pair dirty and wakes the runtime loop; it performs no SQL,
+    never awaits and never raises, so it can neither fail nor extend an
+    already-committed trade.  A missed or duplicated hint is compensated by the
+    runtime's periodic per-pair high-water reconciliation; correctness never
+    depends on it.
+    """
+    try:
+        from app.services.fx.market_state import FX_MARKET_DATA
+        FX_MARKET_DATA.notify_committed(int(pair_id))
+    except Exception:  # noqa: BLE001 - a hint must never affect the money path
+        _logger.debug("fx market-data notify failed for pair %s", pair_id, exc_info=True)
 
 
 async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
@@ -472,6 +490,9 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                 return execution.public
             _require_writes()
             await db.commit()
+            # Only after a fresh commit: a replay/rollback must not dirty the
+            # incremental market-data cursor.
+            notify_market_data_committed(pair_id)
         except BaseException:
             await _rollback_quietly(db)
             raise
@@ -499,6 +520,9 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                     except BaseException:
                         await _rollback_quietly(db)
                         raise
+                # Gate released and the fresh commit is durable: now hint the
+                # incremental market-data runtime (a replay returned above).
+                notify_market_data_committed(pair_id)
                 break
             except _RetryCredit:
                 needs_discovery = True
@@ -702,23 +726,34 @@ async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
     spread = buy_price - sell_price
     if spread < Decimal("0"):
         spread = Decimal("0")
-    since = utcnow() - timedelta(hours=24)
-    # A public volume value is informational and uses gold-side input/output
-    # units.  Aggregate it in SQL so the snapshot never materializes a day of
-    # FxTrade ORM rows: a buy spends ``input_amount`` gold, a sell receives
-    # ``output_amount`` gold.  ``coalesce`` keeps an empty window at zero.
-    gold_volume = func.coalesce(
-        func.sum(case(
-            (FxTrade.side == "buy", FxTrade.input_amount),
-            else_=FxTrade.output_amount,
-        )),
-        Decimal("0"),
-    )
-    result = await db.execute(select(gold_volume).where(
-        FxTrade.pair_id == pair_id, FxTrade.created_at >= since,
-    ))
-    raw_volume = result.scalar_one()
-    volume = Decimal(raw_volume) if raw_volume is not None else Decimal("0")
+    now = utcnow()
+    # Exact rolling 24h gold-side volume.  When the incremental history is
+    # ready, the read helper composes minute candles + partial-window SQL sums
+    # + the projected unflushed tail.  While it is not ready (or the derived
+    # state is absent) fall back to the exact single-statement SQL SUM used by
+    # Task 1 -- a buy spends ``input_amount`` gold, a sell receives
+    # ``output_amount`` gold; ``coalesce`` keeps an empty window at zero.
+    volume = await fx_volume_24h(db, pair_id, now)
+    if volume is None:
+        since = now - timedelta(hours=24)
+        gold_volume = func.coalesce(
+            func.sum(case(
+                (FxTrade.side == "buy", FxTrade.input_amount),
+                else_=FxTrade.output_amount,
+            )),
+            Decimal("0"),
+        )
+        result = await db.execute(select(gold_volume).where(
+            FxTrade.pair_id == pair_id, FxTrade.created_at >= since,
+        ))
+        raw_volume = result.scalar_one()
+        volume = Decimal(raw_volume) if raw_volume is not None else Decimal("0")
+    # Additive cached-history bootstrap for the no-per-card-SSE homepage path:
+    # absent state yields None/False so the client falls back to /chart rather
+    # than trusting a half-built history.
+    metadata = await read_fx_snapshot_metadata(db, pair_id, now)
     return FxSnapshot(pair=FxPairPublic.model_validate(pair), price=price,
                       buy_price=buy_price, sell_price=sell_price, spread=spread,
-                      volume_24h=volume)
+                      volume_24h=volume,
+                      history_version=metadata["history_version"],
+                      history_ready=metadata["history_ready"])

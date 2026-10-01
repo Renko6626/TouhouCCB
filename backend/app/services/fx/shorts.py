@@ -1492,6 +1492,7 @@ async def _execute_player_short_write(
     # Imported lazily: credit.risk imports this module at module load.
     from app.services.credit.risk import discover_dependencies
     from app.services.fx import publisher
+    from app.services.fx.trading import notify_market_data_committed
 
     target = GroupKey("fx", pair_id)
     retry_limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
@@ -1536,6 +1537,9 @@ async def _execute_player_short_write(
                 raise HTTPException(
                     status_code=409, detail="version_conflict; retry") from None
             continue
+        # Fresh commit only: replay returned above.  Hint the incremental
+        # market-data runtime before the bounded, discardable publication.
+        notify_market_data_committed(execution.pair_id)
         publisher.enqueue_publication(
             pair_id=execution.pair_id, post_price=execution.post_price,
             trade_id=execution.trade_id)

@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlmodel import Session
 from decimal import Decimal
+from datetime import datetime, timezone
 
 import pytest
 import pytest_asyncio
@@ -9,7 +10,9 @@ from sqlmodel import SQLModel
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
+from app.models.fx import (
+    FxCandle, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+)
 from app.models.redemption import DanmukuExchange, RedemptionTransaction
 from app.services import audit_service
 
@@ -64,6 +67,16 @@ async def seed_fx_state(monkeypatch):
                         pre_foreign_reserve=Decimal("100"), post_gold_reserve=Decimal("101"),
                         post_foreign_reserve=Decimal("99"), post_price=Decimal("1.02")),
                 FxEvent(pair_id=pair.id, title="event", kind="macro"),
+                FxCandle(pair_id=pair.id, interval="1m",
+                         bucket_start=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+                         open_price=Decimal("1.02"), high_price=Decimal("1.02"),
+                         low_price=Decimal("1.02"), close_price=Decimal("1.02"),
+                         gold_volume=Decimal("1"), n_trades=1,
+                         first_trade_at=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+                         first_trade_id=1,
+                         last_trade_at=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+                         last_trade_id=1),
+                FxMarketDataState(pair_id=pair.id, last_trade_id=1, history_ready=True),
                 RedemptionTransaction(user_id=user.id, amount=Decimal("5"), batch_name_snapshot="kept"),
                 DanmukuExchange(user_id=user.id, qq_user_id="1", room_id="r", yuan=Decimal("1"),
                                 huo=Decimal("1"), amount=Decimal("2"), code_string="kept-code"),
@@ -90,6 +103,8 @@ async def test_dry_run_leaves_fx_gate_rows_and_redemption_records(monkeypatch, s
     assert await season_reset.run(dry_run=True) == 0
     assert await count(FxPair, seed_fx_state) == 1
     assert await count(FxWallet, seed_fx_state) == 1
+    assert await count(FxCandle, seed_fx_state) == 1
+    assert await count(FxMarketDataState, seed_fx_state) == 1
     assert await count(RedemptionTransaction, seed_fx_state) == 1
     assert await count(DanmukuExchange, seed_fx_state) == 1
     async with seed_fx_state() as db:
@@ -102,7 +117,7 @@ async def test_execute_clears_fx_closes_gate_and_preserves_redemptions(monkeypat
 
     monkeypatch.setattr("builtins.input", lambda *_: "RESET")
     assert await season_reset.run(dry_run=False) == 0
-    for model in (FxWallet, FxTrade, FxEvent, FxTreasury, FxPair):
+    for model in (FxCandle, FxMarketDataState, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair):
         assert await count(model, seed_fx_state) == 0
     assert await count(RedemptionTransaction, seed_fx_state) == 1
     assert await count(DanmukuExchange, seed_fx_state) == 1

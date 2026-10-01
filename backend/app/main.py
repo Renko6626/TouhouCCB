@@ -40,6 +40,7 @@ from app.services.fx.scheduler import (
     stop_scheduler as stop_fx_scheduler,
 )
 from app.services.fx.publisher import start_publisher as start_fx_publisher, stop_publisher as stop_fx_publisher
+from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.loan_migrate import auto_migrate
 from app.services.credit import flags as credit_flags
 from app.services.credit import ownership as credit_ownership
@@ -47,6 +48,21 @@ from app.services.credit import ownership as credit_ownership
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+async def start_fx_market_data(write_owner: bool) -> None:
+    """Lifespan alias for the FX incremental market-data runtime.
+
+    Kept as a module-level function so tests can patch ``app.main``'s bound
+    name (as they already do for the scheduler start/stop aliases) and keep the
+    process-wide singleton task out of the shared pytest database.
+    """
+    await FX_MARKET_DATA.start(write_owner=write_owner)
+
+
+async def stop_fx_market_data() -> None:
+    """Lifespan alias: drain + flush the FX market-data runtime on shutdown."""
+    await FX_MARKET_DATA.stop()
 
 access_logger = logging.getLogger("thccb.access")
 
@@ -152,6 +168,15 @@ async def _startup(app: FastAPI) -> None:
             "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
             "直写 API", read_only, owner,
         )
+    # ── FX 增量行情 runtime（计划 Task 3）──
+    # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生
+    # FX 成交的经济调度器；只读/非 owner 实例只预热持久状态，绝不创建派生数据。
+    try:
+        await start_fx_market_data(writes_ok)
+    except Exception:
+        main_logger.exception("FX market-data runtime start failed")
+        if writes_ok:
+            raise
     if writes_ok:
         # ── candle 表 race-window 兜底扫（spec § 6.3）──
         # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
@@ -224,10 +249,14 @@ async def _shutdown() -> None:
     try:
         await _safe("pve_scheduler", stop_pve_scheduler)
         await _safe("fx_scheduler", stop_fx_scheduler)
-        await _safe("fx_publisher", stop_fx_publisher)
         await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
         await _safe("liquidation_scheduler", stop_liquidation_scheduler)
         await _safe("loan_scheduler", stop_loan_scheduler)
+        # Every economic producer that can create FX trades is now stopped;
+        # drain the market-data consumer (final catch-up + flush) before the
+        # FX publisher stops and before ownership is released.
+        await _safe("fx_market_data", stop_fx_market_data)
+        await _safe("fx_publisher", stop_fx_publisher)
         from app.services.market_writer import WRITER as _writer
         from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
         from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
@@ -355,6 +384,10 @@ app.add_middleware(
     # 生产同源不走 CORS，这里补齐是让跨域 dev（vite:5173 → 8004）也能用
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
+    # /chart exposes the exact body coverage so the frontend can de-dup the
+    # SSE tail against the HTTP fallback.  Exposing response headers is not an
+    # auth change.
+    expose_headers=["X-FX-Through-Trade-ID", "X-FX-History-Version"],
 )
 
 

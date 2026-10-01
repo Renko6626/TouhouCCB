@@ -2,12 +2,14 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest_asyncio
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, delete, select
 from sqlmodel import Session, SQLModel
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxShortPosition, FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import (
+    FxCandle, FxShortPosition, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet,
+)
 from app.models.title import Title
 from app.services import site_config
 from app.services.credit.ownership import WriteOwnership
@@ -63,7 +65,7 @@ async def fx_db(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__, FxEvent.__table__,
-              AuditEvent.__table__]
+              FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine, tables=tables)
     try:
         with Session(engine, expire_on_commit=False) as raw:
@@ -93,3 +95,36 @@ async def add_pair(db, *, code="TST", gold="100", foreign="100", target="1",
     db.add(treasury)
     await db.commit()
     return pair, treasury
+
+
+async def backfill_fx_history(db, pair_id: int) -> str:
+    """Materialise a ready FX history generation from committed trades.
+
+    Isolated test databases have no lifespan runtime, so a test that expects a
+    ready ``/chart`` must build the same source->derived state the production
+    backfill produces: aggregate the committed trades with the production candle
+    layer, replace the pair's candles, then persist an ``FxMarketDataState``
+    whose cursor is the committed max id and whose ``history_ready`` is true.
+    Returns the new history version.
+    """
+    from app.services.fx.candles import compute_fx_candle_rows, new_history_version
+
+    trades = (await db.execute(
+        select(FxTrade).where(FxTrade.pair_id == int(pair_id)).order_by(FxTrade.id)
+    )).scalars().all()
+    rows = compute_fx_candle_rows(trades)
+    await db.execute(delete(FxCandle).where(FxCandle.pair_id == int(pair_id)))
+    version = new_history_version()
+    for row in rows:
+        db.add(FxCandle(**row))
+    state = (await db.execute(
+        select(FxMarketDataState).where(FxMarketDataState.pair_id == int(pair_id))
+    )).scalars().first()
+    if state is None:
+        state = FxMarketDataState(pair_id=int(pair_id), history_version=version)
+        db.add(state)
+    state.history_version = version
+    state.last_trade_id = int(trades[-1].id) if trades else 0
+    state.history_ready = True
+    await db.commit()
+    return version

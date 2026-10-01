@@ -109,6 +109,13 @@ async def publish_event(db: AsyncSession, event_id: int, now: Optional[datetime]
     # the bounded publisher never blocks, so publication cannot extend the gate
     # or fail the committed event transaction.
     if trade is not None:
+        # Post-commit only (a replay/idempotent publish returns trade=None).
+        # The hint is synchronous and cannot fail the committed event.
+        try:
+            from app.services.fx.trading import notify_market_data_committed
+            notify_market_data_committed(int(trade.pair_id))
+        except Exception:
+            pass
         try:
             from app.services.fx.market_data import publish_trade
             await publish_trade(trade)

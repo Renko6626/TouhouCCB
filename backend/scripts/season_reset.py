@@ -44,7 +44,9 @@ from app.models.base import (  # noqa: E402
 from app.models.bot import BotProfile  # noqa: E402
 from app.models.credit import LiquidationAction, LiquidationRun  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition  # noqa: E402
+from app.models.fx import (
+    FxCandle, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+)  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
 from app.services.credit.version import bump_economic_version  # noqa: E402
@@ -64,7 +66,12 @@ FX_AUDIT_TYPES = (
     "fx_trade", "fx_fund", "fx_withdraw", "fx_event_publish", "fx_event_complete", "fx_event_cancel",
     "admin_fx_short_writeoff",
 )
-FX_CLEAR_ORDER = (FxShortPosition, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair)
+# Derived market-data rows first (they reference fx_pair); the runtime state row
+# carries the per-pair history generation and must be removed with the candles so
+# a reused pair id can never serve the previous season's cached history.
+FX_CLEAR_ORDER = (
+    FxCandle, FxMarketDataState, FxShortPosition, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair,
+)
 RESET_RULESET = "2026-09-27"
 
 
@@ -108,6 +115,21 @@ async def _referenced_bot_ids(session) -> set[int]:
 
 class ResetVerificationError(Exception):
     pass
+
+
+async def _stop_and_reset_fx_market_data() -> None:
+    """Drop the in-process FX market-data ring/version after a committed reset.
+
+    The reset script is documented to run with the backend stopped; this is
+    defensive for in-process callers so a removed pair can never serve a stale
+    ring or reuse the deleted history generation.  ``stop`` is idempotent and
+    ``reset`` only clears local metadata, never database rows.
+    """
+    from app.services.fx.market_state import FX_MARKET_DATA
+    try:
+        await FX_MARKET_DATA.stop()
+    finally:
+        FX_MARKET_DATA.reset()
 
 
 async def reset_fx_state(session) -> None:
@@ -218,6 +240,9 @@ async def run(dry_run: bool) -> int:
     except ResetVerificationError as exc:
         print(f"自检失败，全部重置已回滚：{exc}")
         return 2
+    # Only after the reset transaction committed: stop the runtime consumer (if
+    # any) and drop its local rings so no stale pair/history generation survives.
+    await _stop_and_reset_fx_market_data()
     site_config.clear_cache()
     print(f"\n已重置：清空 {sum(counts.values())} 行，{reset_humans} 个真人现金还原到 {initial}，{retained_bots} 个历史机器人账号停用归零")
     print(f"自检 OK：events={len(evs)}，全员锚定")

@@ -39,7 +39,7 @@ from app.services.fx import market_data, scheduler
 from app.services.fx.amm import marginal_price
 from app.services.fx.engine import FxEngine
 from app.services.realtime import MarketEventBroker
-from tests.fx_test_helpers import fx_db  # noqa: F401  (imported fixture)
+from tests.fx_test_helpers import backfill_fx_history, fx_db  # noqa: F401  (imported fixture)
 
 
 def test_audit_json_sanitizes_date_and_preserves_datetime():
@@ -342,6 +342,10 @@ async def test_public_api_allowlist_hides_targets_shocks_and_wallets(ctx):
     assert hidden.isdisjoint(trades[0])
 
     now = _utcnow()
+    # Isolated ASGI app has no lifespan runtime, so materialise the real
+    # source->derived state (candles + ready FxMarketDataState) before the
+    # /chart read path can serve a 200.
+    await backfill_fx_history(ctx.db, pair_id)
     chart = await client.get(
         f"/api/v1/fx/pairs/{pair_id}/chart",
         params={"interval": "1m",

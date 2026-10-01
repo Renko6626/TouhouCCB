@@ -57,7 +57,7 @@ def _disable_scheduler():
     - start_bot_detection_scheduler / stop_bot_detection_scheduler
     所以要 patch 这些绑定在 app.main 命名空间的本地名，patch 原始模块无效。
     """
-    async def _noop():
+    async def _noop(*_args, **_kwargs):
         return None
 
     with (
@@ -71,6 +71,10 @@ def _disable_scheduler():
         patch("app.main.stop_pve_scheduler", _noop),
         patch("app.main.start_fx_scheduler", _noop),
         patch("app.main.stop_fx_scheduler", _noop),
+        # The FX market-data runtime owns a process-wide background consumer;
+        # keep it out of the shared pytest database across drop_all/create_all.
+        patch("app.main.start_fx_market_data", _noop),
+        patch("app.main.stop_fx_market_data", _noop),
     ):
         yield
 
@@ -108,12 +112,17 @@ async def setup_db():
     from app.core.database import async_session_maker
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
+    from app.services.fx.market_state import FX_MARKET_DATA
 
     # 防上一测试的 writer/flusher 状态泄漏：module-scope lifespan 意味着 lifespan
     # 只在 module 首测启动、且当时 flag 缺失 → writer 默认不启，测试用 writer_on
     # fixture 显式启
     await WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
+    # The FX market-data singleton owns a background consumer and a bounded ring;
+    # stop it (best effort) and drop all local state before the schema is dropped.
+    await FX_MARKET_DATA.stop()
+    FX_MARKET_DATA.reset()
     # Unit tests invoke economic services without the app lifespan. Establish
     # the same ownership precondition on their disposable SQLite database.
     from app.services.credit.ownership import OWNERSHIP
