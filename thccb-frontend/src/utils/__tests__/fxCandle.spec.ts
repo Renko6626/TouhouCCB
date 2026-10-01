@@ -184,7 +184,8 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     expect(first.applied).toBe(1)
     expect(first.skipped).toBe(2)
     expect(engine.count).toBe(2)
-    expect(engine.candles[1]).toMatchObject({ t: BASE + 60, o: 10, c: 11, v: 5 })
+    // 有真实成交的新桶 O/H/L/C 从首笔 post_price=11 开始，不用 prevClose=10
+    expect(engine.candles[1]).toMatchObject({ t: BASE + 60, o: 11, h: 11, l: 11, c: 11, v: 5 })
 
     // 断线重放同一笔成交：不得再次累计成交量
     const replay = engine.applyTrades([{ id: 101, ts: BASE + 60, price: 11, volume: 5 }])
@@ -242,5 +243,36 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     ])
     expect(result.applied).toBe(0)
     expect(engine.candles[0]!.v).toBe(1)
+  })
+
+  it('实时创建的桶跨批次保留 (ts,id) 首末键：乱序回填 open、追加更新 close', () => {
+    const engine = new FxCandleEngine(60)
+    engine.load([])
+    // 批次 1：以 id=1/ts=BASE+65 创建桶 BASE+60
+    engine.applyTrades([{ id: 1, ts: BASE + 65, price: 10, volume: 1 }])
+    expect(engine.candles[0]).toMatchObject({ t: BASE + 60, o: 10, c: 10 })
+
+    // 批次 2：更高 id 但更早 ts（发布乱序）→ 成为新的 open，close 不动
+    const result = engine.applyTrades([{ id: 2, ts: BASE + 61, price: 12, volume: 2 }])
+    expect(result.reload).toBe(false)
+    const candle = engine.candles[0]!
+    expect(candle.o).toBe(12)
+    expect(candle.c).toBe(10)
+    expect(candle.h).toBe(12)
+    expect(candle.l).toBe(10)
+    expect(candle.v).toBe(3)
+
+    // 批次 3：更晚 ts → 更新 close
+    engine.applyTrades([{ id: 3, ts: BASE + 70, price: 8, volume: 4 }])
+    expect(engine.candles[0]).toMatchObject({ o: 12, c: 8, h: 12, l: 8, v: 7 })
+  })
+
+  it('预加载的更早桶出现乱序成交时要求 reload，不猜 O/C', () => {
+    const engine = new FxCandleEngine(60)
+    engine.load([point(BASE, 10, 1), point(BASE + 60, 11, 1), point(BASE + 120, 12, 1)])
+    // 成交落在中间预加载桶（非 forming 末桶）→ 无历史首末键，无法判定时序
+    const result = engine.applyTrades([{ id: 5, ts: BASE + 61, price: 99, volume: 3 }])
+    expect(result.reload).toBe(true)
+    expect(engine.candles[1]!.v).toBe(1)
   })
 })

@@ -501,33 +501,80 @@ export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
   return points.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime())
 }
 
-// ── 封存历史段（/history/fx/...，经现有 axios baseURL 取数） ──
+// ── 公开历史/图表取数（/history/fx/...、/chart + 元数据头） ──
+//
+// 这两条是**公开缓存**请求，故意用原生 fetch：不挂 axios 拦截器的 auth / JSON
+// content-type（保留 `api` 拦截器给其它端点）。历史段 URL 含 history_version，
+// 版本变化即整套重读；`/chart` 的响应头给出该响应覆盖到的成交游标与版本。
+
+function fxPublicBaseUrl(): string {
+  return (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004').replace(/\/$/, '')
+}
+
+/** `/chart` 公开响应：body 归一化点 + 该响应覆盖到的游标（来自 additive 响应头）。 */
+export interface FxChartMeta {
+  points: FxChartPoint[]
+  /** X-FX-Through-Trade-ID：响应已覆盖到的最后成交 id */
+  throughTradeId: number
+  /** X-FX-History-Version：响应所属历史版本 */
+  historyVersion: string
+}
+
+function requiredSafeIntHeader(headers: Headers, name: string): number | null {
+  const rawValue = headers.get(name)
+  if (rawValue === null || rawValue.trim() === '') return null
+  const value = Number(rawValue)
+  return Number.isSafeInteger(value) && value >= 0 ? value : null
+}
 
 /**
- * 取一段不可变封存历史。
+ * 旧 `/chart` 公开端点 + 历史元数据头（body 结构不变）。
+ * 缺任一响应头（后端尚未上线 additive 头 / 未就绪）→ 显式抛错，绝不把旧
+ * SSE 游标当作“保护了更新的数据”。
+ */
+export async function getChartWithMeta(
+  pairId: number,
+  interval: string,
+  fromIso: string,
+  toIso: string,
+  signal?: AbortSignal,
+): Promise<FxChartMeta> {
+  const params = new URLSearchParams({ interval, from: fromIso, to: toIso })
+  const resp = await fetch(
+    `${fxPublicBaseUrl()}/api/v1/fx/pairs/${pairId}/chart?${params.toString()}`, { signal },
+  )
+  if (!resp.ok) throw new Error(`FX chart failed: ${resp.status}`)
+  const throughTradeId = requiredSafeIntHeader(resp.headers, 'X-FX-Through-Trade-ID')
+  const historyVersion = resp.headers.get('X-FX-History-Version')
+  if (throughTradeId === null || !historyVersion) {
+    throw new Error('FX chart response is missing history metadata')
+  }
+  return { points: normalizeFxCandles(await resp.json()), throughTradeId, historyVersion }
+}
+
+/**
+ * 取一段不可变封存历史（公开 fetch，不带 auth）。
  * - 404（尚未封存/竞态窗口）→ null，调用方按不完整处理；
- * - 503（后端历史未就绪）或结构非法 → 抛出，让调用方显式回退 `/chart`，不静默吞错；
- * - URL 含 history_version，版本变化即整套重读，旧缓存不会污染新历史。
+ * - 503（后端历史未就绪）或结构非法/与请求 interval·segment 错位 → 抛出，让调用方
+ *   显式回退 `/chart`，不静默吞错。
  */
 export async function fetchFxHistorySegment(
   pairId: number,
   historyVersion: string,
   interval: FxHistoryInterval,
   segmentEpoch: number,
+  signal?: AbortSignal,
 ): Promise<FxHistorySegment | null> {
   if (!Number.isSafeInteger(pairId) || pairId <= 0) return null
   if (!historyVersion || !isFxHistoryInterval(interval)) return null
   if (!Number.isSafeInteger(segmentEpoch) || segmentEpoch < 0) return null
-  const path = `/history/fx/${pairId}/${encodeURIComponent(historyVersion)}/${interval}/${segmentEpoch}.json`
-  try {
-    const raw = await api.get<unknown>(path)
-    const segment = sanitizeFxHistorySegment(raw)
-    if (!segment) throw new Error(`invalid FX history segment ${path}`)
-    return segment
-  } catch (err) {
-    if ((err as FxErrorLike | null)?.status === 404) return null
-    throw err
-  }
+  const path = `${fxPublicBaseUrl()}/history/fx/${pairId}/${encodeURIComponent(historyVersion)}/${interval}/${segmentEpoch}.json`
+  const resp = await fetch(path, { signal })
+  if (resp.status === 404) return null
+  if (!resp.ok) throw new Error(`FX history segment ${segmentEpoch} failed: ${resp.status}`)
+  const segment = sanitizeFxHistorySegment(await resp.json(), { interval, t0: segmentEpoch })
+  if (!segment) throw new Error(`invalid FX history segment ${segmentEpoch}`)
+  return segment
 }
 
 // ── 错误映射 ──
@@ -726,6 +773,16 @@ export const fxApi = {
       params: { interval, from: fromIso, to: toIso },
     })
     return normalizeFxCandles(raw)
+  },
+
+  /** 同 body（旧 `getChart` 行为），额外返回 additive 响应头里的覆盖游标/版本。 */
+  getChartWithMeta(
+    pairId: number,
+    interval: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<FxChartMeta> {
+    return getChartWithMeta(pairId, interval, fromIso, toIso)
   },
 }
 

@@ -46,7 +46,7 @@ export interface FxCandleTrade {
 }
 
 export interface FxTradesApply {
-  /** 桶缺口过大或落在已知区间之外，组件应重读历史（绝不伪造空桶冒充完整量） */
+  /** 桶缺口过大、落在已知区间之外，或预加载桶出现无法判定的乱序成交 → 重读历史 */
   reload: boolean
   /** 本次被创建或修改的 candle，按时间升序去重 */
   changed: FxCandle[]
@@ -58,6 +58,17 @@ export interface FxTradesApply {
   skipped: number
   /** 引擎已计入的最大成交 id；无则 null */
   throughTradeId: number | null
+}
+
+/** 桶内排序键：与后端 `(created_at, id)` 口径一致（先 ts 后 id）。 */
+export interface FxTradeKey {
+  ts: number
+  id: number
+}
+
+/** 比较两个桶内排序键；<0 表示 a 更早。 */
+export function compareFxTradeKeys(a: FxTradeKey, b: FxTradeKey): number {
+  return a.ts === b.ts ? a.id - b.id : a.ts - b.ts
 }
 
 /** 本地合成空桶的上限，超过则回退整页重载（与市场页同量级）。 */
@@ -130,6 +141,13 @@ export class FxCandleEngine {
   private _coverageTradeId: number | null = null
   /** 已计入的最大实时成交 id */
   private _throughTradeId: number | null = null
+  /**
+   * 实时成交桶的 (ts,id) 首末排序键。仅对“本引擎创建/回填”的桶有完整 first；
+   * 从 `load` 预加载的桶只有在被实时成交续写后才记录（first=null 表示历史首笔未知）。
+   */
+  private readonly tradeRanges = new Map<number, { first: FxTradeKey | null; last: FxTradeKey }>()
+  /** `load` 时最后一个预加载桶的 epoch；用于区分“预加载桶”与实时创建桶。 */
+  private preloadedThroughEpoch: number | null = null
 
   constructor(stepSeconds = 60, maPeriods: readonly number[] = FX_MA_PERIODS) {
     this.stepSeconds = FX_CANDLE_STEP(stepSeconds)
@@ -174,7 +192,10 @@ export class FxCandleEngine {
   load(points: readonly FxChartPoint[], coverageTradeId: number | null = null): void {
     this._candles = fxChartPointsToCandles(points)
     this.seenTradeIds.clear()
+    this.tradeRanges.clear()
     this._throughTradeId = null
+    this.preloadedThroughEpoch = this._candles.length > 0
+      ? this._candles[this._candles.length - 1]!.t : null
     this.setCoverageTradeId(coverageTradeId)
     this.rebuildMa(0)
   }
@@ -192,8 +213,10 @@ export class FxCandleEngine {
     this._candles = []
     this.maCache.clear()
     this.seenTradeIds.clear()
+    this.tradeRanges.clear()
     this._coverageTradeId = null
     this._throughTradeId = null
+    this.preloadedThroughEpoch = null
   }
 
   /** 与 candles 同序的 MA 序列（前 period-1 位为 NaN）。 */
@@ -268,10 +291,13 @@ export class FxCandleEngine {
 
   /**
    * 批量应用真实成交（含金侧成交量与真实成交时间）：
-   * - 按 `ts`（真实成交时间）分桶，不用客户端接收时间；
+   * - 按 `ts`（真实成交时间）分桶，不用客户端接收时间；新桶 O/H/L/C 从**首笔成交**
+   *   `post_price` 开始，不用 prevClose（prevClose 只用于无成交的空桶）；
    * - `id <= coverageTradeId` 或重复 id 的成交被跳过，保证成交量不重复累计；
-   * - 整批先预检桶缺口，超限/落在已知区间之前则 `reload: true` 且**不改动**任何 candle，
-   *   由组件重读历史，而不是伪造 v=0 的桶冒充完整成交量；
+   * - 桶内按 `(ts,id)` 维护首末排序键：实时创建的桶可跨批次正确回填 open/close；
+   * - 预加载（`load`）的桶没有历史首末键：只有“当前 forming 桶的追加”可安全应用，
+   *   更早预加载桶出现乱序成交时无法判定时序 → `reload`，绝不猜 O/C；
+   * - 整批先预检，缺口/乱序命中则 `reload: true` 且不改动任何 candle；
    * - MA 只在批末重建一次。
    */
   applyTrades(trades: readonly FxCandleTrade[]): FxTradesApply {
@@ -301,31 +327,66 @@ export class FxCandleEngine {
     }
     if (accepted.length === 0) return result
 
-    // 预检：整批要么全部可应用，要么要求 reload，避免半批写入后被迫重读。
-    const first = this._candles[0]
-    const last = this._candles[this._candles.length - 1]
-    const lastT = last?.t
-    let maxBucket = lastT
-    for (const trade of accepted) {
+    const sorted = [...accepted].sort((a, b) => a.ts - b.ts || a.id - b.id)
+
+    // ── 预检（不改动 candle）：整批要么全部可应用，要么 reload ──
+    const firstT = this._candles[0]?.t
+    const originalLastT = this._candles[this._candles.length - 1]?.t
+    const simRanges = new Map<number, { first: FxTradeKey | null; last: FxTradeKey }>()
+    this.tradeRanges.forEach((range, epoch) => simRanges.set(epoch, { first: range.first, last: range.last }))
+    let simLastT = originalLastT
+    let maxBucket = originalLastT
+
+    for (const trade of sorted) {
       const bucket = fxBucketStart(Math.floor(trade.ts), this.stepSeconds)
-      if (first && bucket < first.t) return { ...result, reload: true }
-      if (lastT !== undefined && bucket <= lastT && findCandleIndex(this._candles, bucket) < 0) {
-        return { ...result, reload: true }
+      const key: FxTradeKey = { ts: trade.ts, id: trade.id }
+      if (firstT !== undefined && bucket < firstT) return { ...result, reload: true }
+
+      if (simLastT === undefined || bucket > simLastT) {
+        simRanges.set(bucket, { first: key, last: key })
+        simLastT = bucket
+        maxBucket = bucket
+        continue
       }
-      if (maxBucket === undefined || bucket > maxBucket) maxBucket = bucket
+
+      const exists = originalLastT !== undefined && bucket <= originalLastT
+        ? findCandleIndex(this._candles, bucket) >= 0
+        : true
+      if (!exists) return { ...result, reload: true }   // 已知区间内的空桶缺口
+
+      const preloaded = this.preloadedThroughEpoch !== null && bucket <= this.preloadedThroughEpoch
+      const range = simRanges.get(bucket)
+      if (!range) {
+        if (preloaded) {
+          // 只有最后一个预加载桶（forming）可以视为“追加”；更早的预加载桶无法判定时序
+          if (bucket !== this.preloadedThroughEpoch) return { ...result, reload: true }
+          simRanges.set(bucket, { first: null, last: key })
+        } else {
+          simRanges.set(bucket, { first: key, last: key })
+        }
+      } else if (range.first === null) {
+        if (compareFxTradeKeys(key, range.last) < 0) return { ...result, reload: true }
+        range.last = key
+      } else if (compareFxTradeKeys(key, range.first) < 0) {
+        range.first = key
+      } else if (compareFxTradeKeys(key, range.last) > 0) {
+        range.last = key
+      }
     }
-    if (lastT !== undefined && maxBucket !== undefined
-      && maxBucket - lastT > (FX_MAX_LOCAL_FILL_BUCKETS + 1) * this.stepSeconds) {
+    if (originalLastT !== undefined && maxBucket !== undefined
+      && maxBucket - originalLastT > (FX_MAX_LOCAL_FILL_BUCKETS + 1) * this.stepSeconds) {
       return { ...result, reload: true }
     }
 
-    const sorted = [...accepted].sort((a, b) => a.ts - b.ts || a.id - b.id)
+    // ── 应用（预检已保证可行） ──
     const changedIndexes = new Set<number>()
     for (const trade of sorted) {
       const bucket = fxBucketStart(Math.floor(trade.ts), this.stepSeconds)
+      const key: FxTradeKey = { ts: trade.ts, id: trade.id }
       const candles = this._candles
       if (candles.length === 0) {
         candles.push({ t: bucket, o: trade.price, h: trade.price, l: trade.price, c: trade.price, v: trade.volume })
+        this.tradeRanges.set(bucket, { first: key, last: key })
         changedIndexes.add(0)
         result.added += 1
       } else {
@@ -337,27 +398,55 @@ export class FxCandleEngine {
             changedIndexes.add(candles.length - 1)
             result.added += 1
           }
-          candles.push({
-            t: bucket,
-            o: prevClose,
-            h: Math.max(prevClose, trade.price),
-            l: Math.min(prevClose, trade.price),
-            c: trade.price,
-            v: trade.volume,
-          })
+          // 有真实成交的新桶：O/H/L/C 从首笔成交价开始，不用 prevClose
+          candles.push({ t: bucket, o: trade.price, h: trade.price, l: trade.price, c: trade.price, v: trade.volume })
+          this.tradeRanges.set(bucket, { first: key, last: key })
           changedIndexes.add(candles.length - 1)
           result.added += 1
         } else {
           const index = findCandleIndex(candles, bucket)
           if (index < 0) {
-            // 已知区间内的空桶缺口（历史未 fill）：不伪造，明确要求 reload。
+            // 预检已排除；保留防御性 reload（不伪造、不猜时序）。
             return { ...result, reload: true, changed: [], added: 0 }
           }
           const candle = candles[index]!
-          candle.h = Math.max(candle.h, trade.price)
-          candle.l = Math.min(candle.l, trade.price)
-          candle.c = trade.price
-          candle.v += trade.volume
+          const range = this.tradeRanges.get(bucket)
+          if (!range) {
+            const preloaded = this.preloadedThroughEpoch !== null && bucket <= this.preloadedThroughEpoch
+            if (preloaded) {
+              // forming 预加载桶：历史首笔未知，实时成交只能追加到 close
+              candle.h = Math.max(candle.h, trade.price)
+              candle.l = Math.min(candle.l, trade.price)
+              candle.c = trade.price
+              candle.v += trade.volume
+              this.tradeRanges.set(bucket, { first: null, last: key })
+            } else {
+              // 之前补出来的空桶：首笔真实成交定义整根
+              candle.o = trade.price
+              candle.h = trade.price
+              candle.l = trade.price
+              candle.c = trade.price
+              candle.v += trade.volume
+              this.tradeRanges.set(bucket, { first: key, last: key })
+            }
+          } else if (range.first === null) {
+            candle.h = Math.max(candle.h, trade.price)
+            candle.l = Math.min(candle.l, trade.price)
+            candle.c = trade.price
+            candle.v += trade.volume
+            range.last = key
+          } else {
+            if (compareFxTradeKeys(key, range.first) < 0) {
+              candle.o = trade.price
+              range.first = key
+            } else if (compareFxTradeKeys(key, range.last) > 0) {
+              candle.c = trade.price
+              range.last = key
+            }
+            candle.h = Math.max(candle.h, trade.price)
+            candle.l = Math.min(candle.l, trade.price)
+            candle.v += trade.volume
+          }
           changedIndexes.add(index)
         }
       }
