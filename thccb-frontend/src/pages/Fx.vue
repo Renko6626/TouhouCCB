@@ -109,13 +109,23 @@ const amountValid = computed(
   () => /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) && compareFxAmounts(amount.value.trim(), '0') === 1,
 )
 const portions = [25, 50, 75, 100]
-const canFillSell = computed(() => side.value === 'sell' && tradable.value && !submitting.value
+const hasSpotHolding = computed(() => wallet.value?.pair_id === pairId.value
+  && compareFxAmounts(wallet.value?.foreign_amount, '0') === 1)
+const canSellSpotHolding = computed(() => fxPairAllowsSide(activePair.value, 'sell') && !submitting.value
   && !walletLoading.value && !walletFailed.value && wallet.value?.pair_id === pairId.value
   && compareFxAmounts(wallet.value?.foreign_amount, '0') === 1)
+const canFillSell = computed(() => side.value === 'sell' && canSellSpotHolding.value)
 
 function fillSellPortion(percent: number) {
   if (!canFillSell.value || !wallet.value) return
   amount.value = computeMinOut(wallet.value.foreign_amount, (100 - percent) * 100)
+}
+
+function prepareSpotSellAll() {
+  if (!canSellSpotHolding.value) return
+  setSide('sell')
+  fillSellPortion(100)
+  // The existing amount/side watcher obtains a quote; submission stays explicit.
 }
 const effectiveSlippageBps = computed(() => {
   const v = Number(slippageBps.value)
@@ -129,6 +139,10 @@ const minOutDisplay = computed(() => (minOut.value ? formatFxAmount(minOut.value
 const effectiveGoldPerForeign = computed(() => quote.value ? fxGoldPerForeign(quote.value) : null)
 const quotePriceImpact = computed(() => tradeSlippageBps(quoteReferencePrice.value, effectiveGoldPerForeign.value))
 const holdingValue = computed(() => fxHoldingValue(wallet.value, snapshot.value?.price))
+const spotPnlDirection = computed(() => {
+  const direction = compareFxAmounts(holdingValue.value?.pnl, '0')
+  return direction === 1 ? 'up' : direction === -1 ? 'down' : 'flat'
+})
 const fxPnlPositive = computed(() => (compareFxAmounts(holdingValue.value?.pnl, '0') ?? 0) >= 0)
 const outputCurrency = computed(() => side.value === 'buy' ? currencyName.value : '金圆券')
 const inputCurrency = computed(() => side.value === 'buy' ? '金圆券' : currencyName.value)
@@ -840,7 +854,7 @@ onUnmounted(() => {
               </button>
               <button
                 class="fx-trade-tab"
-                :class="{ active: side === 'sell' }"
+                :class="{ active: side === 'sell', 'fx-trade-tab--sell': side === 'sell' }"
                 :disabled="submitting"
                 :aria-pressed="side === 'sell'"
                 @click="setSide('sell')"
@@ -851,13 +865,42 @@ onUnmounted(() => {
 
             <div class="fx-trade-body">
               <div class="fx-trade-price">
-                <span>{{ side === 'buy' ? '参考买入价' : '参考卖出价' }}</span>
+                <span>{{ side === 'buy' ? '参考买入价' : '参考卖出价' }}<small>金圆券 / {{ currencyName }}</small></span>
                 <strong :class="side === 'buy' ? 'up' : 'down'">
                   {{ formatFxPrice(sidePrice) }}
                 </strong>
               </div>
 
-              <p class="fx-hint">金圆券 / 1 {{ currencyName }}；本笔成交均价见下方报价。</p>
+              <p v-if="walletLoading" class="fx-hint" role="status">正在刷新持仓{{ hasSpotHolding ? '，显示上次快照' : '' }}…</p>
+              <p v-else-if="walletFailed" class="fx-error" role="alert">
+                持仓读取失败{{ hasSpotHolding ? '，显示上次快照' : '' }}。
+                <button class="fx-wallet-retry" @click="loadWallet">重新加载</button>
+              </p>
+              <div v-if="hasSpotHolding" class="fx-spot-holding" :class="`fx-spot-holding--${spotPnlDirection}`" aria-label="当前现货持仓">
+                <dl class="fx-spot-holding-meta">
+                  <div>
+                    <dt>持仓（{{ currencyName }}）</dt>
+                    <dd :title="formatFxAmount(wallet?.foreign_amount)">{{ formatFxAmount(wallet?.foreign_amount) }}</dd>
+                  </div>
+                  <div>
+                    <dt :title="`金圆券 / ${currencyName}`">买入均价</dt>
+                    <dd :title="formatFxPrice(walletAvgCost)">金 {{ formatFxPrice(walletAvgCost) }}</dd>
+                  </div>
+                  <div>
+                    <dt title="按当前边际汇率估值">账面市值</dt>
+                    <dd :title="formatFxAmount(holdingValue?.marketValue)">金 {{ formatFxAmount(holdingValue?.marketValue, 2) }}</dd>
+                  </div>
+                </dl>
+                <div class="fx-spot-holding-actions">
+                  <div class="fx-spot-pnl">
+                    <span>{{ spotPnlDirection === 'up' ? '账面浮盈' : spotPnlDirection === 'down' ? '账面浮亏' : '账面盈亏' }}</span>
+                    <strong :class="`fx-spot-pnl--${spotPnlDirection}`">{{ spotPnlDirection === 'up' ? '+' : '' }}金 {{ formatFxAmount(holdingValue?.pnl, 2) }}</strong>
+                  </div>
+                  <button type="button" class="fx-spot-sell-all" :disabled="!canSellSpotHolding" title="切到卖出并填入全部持仓，核对报价后确认成交" @click="prepareSpotSellAll">一键卖出全部</button>
+                </div>
+                <p class="fx-spot-holding-note">账面盈亏不含卖出费用与滑点，实际所得以报价为准。</p>
+                <p v-if="snapshotLoading || snapshotFailed" class="fx-hint" role="status">{{ snapshotFailed ? '行情刷新失败，估值为上次行情。' : '行情刷新中，估值为上次行情。' }}</p>
+              </div>
 
               <div v-if="side === 'buy'" class="fx-sell-holdings">
                 <div class="fx-preview-row" aria-live="polite">
@@ -881,43 +924,24 @@ onUnmounted(() => {
               </p>
 
               <label class="fx-field">
-                <span>{{ side === 'buy' ? '投入金圆券' : `卖出数量（${currencyName}）` }}（最多 6 位小数）</span>
+                <span>{{ side === 'buy' ? '投入金圆券' : `卖出数量（${currencyName}）` }}</span>
                 <input
                   v-model="amount"
                   class="fx-input"
                   inputmode="decimal"
                   autocomplete="off"
                   placeholder="0.000000"
+                  title="正数金额，最多 6 位小数"
                   :disabled="!tradable || submitting"
                 />
               </label>
 
-              <div v-if="side === 'sell'" class="fx-sell-holdings">
-                <div class="fx-preview-row" aria-live="polite">
-                  <span>当前持仓（{{ currencyName }}）</span>
-                  <strong>{{ walletLoading ? '加载中…' : wallet ? formatFxAmount(wallet.foreign_amount, 6) : '暂不可用' }}</strong>
-                </div>
-                <div class="fx-sell-shortcuts">
-                  <button v-for="percent in portions" :key="percent" class="btn-secondary"
-                    :disabled="!canFillSell" @click="fillSellPortion(percent)">
-                    {{ percent === 100 ? '全部' : `${percent}%` }}
-                  </button>
-                </div>
-                <p v-if="walletFailed" class="fx-hint">
-                  持仓读取失败{{ wallet ? '，显示上次快照' : '' }}，<button class="fx-wallet-retry" :disabled="walletLoading" @click="loadWallet">重新加载</button>
-                </p>
+              <div v-if="side === 'sell'" class="fx-sell-shortcuts fx-sell-shortcuts--standalone">
+                <button v-for="percent in portions" :key="percent" class="btn-secondary"
+                  :disabled="!canFillSell" @click="fillSellPortion(percent)">
+                  {{ percent === 100 ? '全部' : `${percent}%` }}
+                </button>
               </div>
-
-              <label class="fx-field">
-                <span>报价变动容忍度</span>
-                <select v-model.number="slippageBps" class="fx-input" :disabled="!tradable || submitting">
-                  <option :value="50">0.5%</option>
-                  <option :value="100">1%</option>
-                  <option :value="200">2%</option>
-                  <option :value="500">5%</option>
-                </select>
-              </label>
-              <p class="fx-hint">相对本次报价，实际到账低于下方最低金额时交易会取消。</p>
 
               <div class="fx-preview">
                 <div class="fx-preview-row">
@@ -942,32 +966,34 @@ onUnmounted(() => {
                 </div>
               </div>
 
+              <label class="fx-field fx-field--inline" title="相对本次报价，实际到账低于最低金额时交易会取消">
+                <span>报价变动容忍度</span>
+                <select v-model.number="slippageBps" class="fx-input" :disabled="!tradable || submitting">
+                  <option :value="50">0.5%</option>
+                  <option :value="100">1%</option>
+                  <option :value="200">2%</option>
+                  <option :value="500">5%</option>
+                </select>
+              </label>
+
               <div class="fx-quote-age" role="status">
                 <span v-if="quoteExpired" class="fx-error">报价已超过 30 秒，请重新报价后确认。</span>
                 <span v-else-if="quoteUpdatedAt">报价更新于 {{ new Date(quoteUpdatedAt).toLocaleTimeString() }} · 30 秒内可提交</span>
                 <span v-else>填写金额后获取报价</span>
               </div>
-              <details class="fx-quote-explanation">
-                <summary>费用与报价说明</summary>
-                <p>手续费已计入报价，按投入币种收取。价格影响是本笔均价相对参考边际汇率的差异；报价变动容忍度则决定相对本次报价可接受的最低所得。</p>
-              </details>
               <div v-if="side === 'sell' && summary?.unified_credit_enabled" class="fx-preview">
                 <div class="fx-preview-row"><span>预计用于还债</span><strong>{{ formatFxAmount(sellAllocation?.repayment) }} 金圆券</strong></div>
                 <div class="fx-preview-row"><span>预计现金净增加</span><strong>{{ formatFxAmount(sellAllocation?.cashIncrease) }} 金圆券</strong></div>
                 <p class="fx-hint">卖出所得优先偿还借款。这里按最近账户快照估算，实际还款含成交时利息，以账户记录为准。</p>
               </div>
               <p v-if="tradeBlockReason" class="fx-error" role="status">{{ tradeBlockReason }}</p>
-              <p v-if="side === 'buy' && summary && summary.debt > 0" class="fx-hint"><router-link to="/loan">查看借款 / 还款 →</router-link></p>
 
-              <div class="fx-submit-state">
+              <div v-if="tradeError || submitting || quoting || (amount && !amountValid)" class="fx-submit-state" role="status">
                 <span v-if="tradeError" class="fx-error">{{ tradeError }}</span>
                 <span v-else-if="submitting" class="fx-hint">订单处理中，请稍候…</span>
                 <span v-else-if="quoting" class="fx-hint">报价更新中…</span>
-                <span v-else class="fx-hint">
-                  {{ amount && !amountValid ? '请输入正数金额，最多 6 位小数。' : '请核对币种、金额和最低到账后提交。' }}
-                </span>
+                <span v-else class="fx-hint">请输入正数金额，最多 6 位小数。</span>
               </div>
-
               <div class="fx-actions">
                 <button
                   class="fx-submit"
@@ -985,6 +1011,10 @@ onUnmounted(() => {
                   重新报价
                 </button>
               </div>
+              <details class="fx-quote-explanation">
+                <summary>费用与报价说明</summary>
+                <p>手续费已计入报价，按投入币种收取。本笔成交均价见报价；价格影响是本笔均价相对参考边际汇率的差异。报价变动容忍度决定相对本次报价可接受的最低所得，实际到账低于最低金额时交易会取消。</p>
+              </details>
             </div>
           </div>
           <section v-show="tradeMode === 'short'" class="fx-short-section" aria-label="外币做空与回补">
@@ -1000,7 +1030,7 @@ onUnmounted(() => {
               <button class="btn-secondary" :disabled="submitting" @click="retryShort">重试原请求</button>
             </div>
             <div class="fx-trade-tabs">
-              <button class="fx-trade-tab" :class="{ active: shortAction === 'open' }" :aria-pressed="shortAction === 'open'" :disabled="submitting" @click="shortAction = 'open'">开空 / 加空</button>
+              <button class="fx-trade-tab" :class="{ active: shortAction === 'open', 'fx-trade-tab--sell': shortAction === 'open' }" :aria-pressed="shortAction === 'open'" :disabled="submitting" @click="shortAction = 'open'">开空 / 加空</button>
               <button class="fx-trade-tab" :class="{ active: shortAction === 'cover' }" :aria-pressed="shortAction === 'cover'" :disabled="submitting" @click="shortAction = 'cover'">买回归还</button>
             </div>
             <div class="fx-trade-body">
@@ -1050,7 +1080,7 @@ onUnmounted(() => {
               </div>
               <label v-if="shortAction === 'cover'" class="fx-field"><span><input v-model="coverAll" type="checkbox" :disabled="submitting" /> 全部回补（含成交时新计利息）</span></label>
               <label class="fx-field"><span>{{ shortAction === 'open' ? '借入并卖出的外币数量' : '买回归还的外币数量' }}（{{ currencyName }}）</span><input v-model="shortAmount" class="fx-input" inputmode="decimal" autocomplete="off" :disabled="submitting || (shortAction === 'cover' && coverAll)" :placeholder="shortAction === 'cover' && coverAll ? '按成交时的全部欠币回补' : '正数，最多 6 位小数'" /></label>
-              <label class="fx-field"><span>报价变动容忍度</span><select v-model.number="slippageBps" class="fx-input" :disabled="submitting"><option :value="50">0.5%</option><option :value="100">1%</option><option :value="200">2%</option><option :value="500">5%</option></select></label>
+              <label class="fx-field fx-field--inline"><span>报价变动容忍度</span><select v-model.number="slippageBps" class="fx-input" :disabled="submitting"><option :value="50">0.5%</option><option :value="100">1%</option><option :value="200">2%</option><option :value="500">5%</option></select></label>
               <p class="fx-hint">{{ shortAction === 'open' ? '借入外币后立即卖出，所得锁定，不能用于消费或金圆券还款。' : '使用本仓锁定所得与可用现金买回外币归还，不会自动借入金圆券。' }}</p>
               <div v-if="shortQuote" class="fx-preview">
                 <div class="fx-preview-row"><span>预计投入 / 到账</span><strong>{{ formatFxAmount(shortQuote.input_amount) }} {{ shortAction === 'open' ? currencyName : '金圆券' }} / {{ formatFxAmount(shortQuote.output_amount) }} {{ shortAction === 'open' ? '金圆券' : currencyName }}</strong></div>
@@ -1210,11 +1240,11 @@ onUnmounted(() => {
 .fx-connection { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #555; }
 .fx-freshness-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; font-size: 12px; color: #555; }
 .fx-freshness-bar button { margin-left: auto; }
-.fx-trade-heading { padding: 12px 14px 8px; font-size: 15px; font-weight: 800; scroll-margin-top: 80px; }
+.fx-trade-heading { padding: 10px var(--trade-panel-padding) 8px; font-size: 14px; font-weight: 700; scroll-margin-top: 80px; }
 .fx-trade-heading:focus-visible { outline: 2px solid #000; outline-offset: -2px; }
-.fx-quote-age { font-size: 12px; color: #555; margin-bottom: 10px; }
-.fx-quote-explanation { font-size: 12px; color: #555; margin-bottom: 12px; }
-.fx-quote-explanation summary { cursor: pointer; padding: 6px 0; }
+.fx-quote-age { font-size: 11px; color: #555; margin-bottom: var(--trade-panel-gap); }
+.fx-quote-explanation { font-size: 11px; color: #555; margin-top: var(--trade-panel-gap); }
+.fx-quote-explanation summary { cursor: pointer; }
 .fx-quote-explanation p { padding-top: 6px; line-height: 1.6; }
 @media (max-width: 1279px) { .fx-page { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); } }
 
@@ -1223,24 +1253,47 @@ onUnmounted(() => {
 .fx-account-total { border-top: 1px solid #ddd; margin-top: 14px; padding-top: 10px; }
 .fx-account-total h3 { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
 .fx-page a { text-decoration: underline; text-underline-offset: 3px; }
-.fx-trade-body > .fx-hint, .fx-trade-body > .fx-error { margin-bottom: 10px; }
-.fx-trade-tab:disabled { cursor: wait; }
+.fx-trade-body > .fx-hint, .fx-trade-body > .fx-error { margin-bottom: var(--trade-panel-gap); }
+.fx-trade-tab:disabled { cursor: wait; opacity: 0.5; }
+
+.fx-spot-holding { border: 1.5px solid #000; padding: 8px 10px; margin-bottom: var(--trade-panel-gap); background: #fafafa; }
+.fx-spot-holding--up { background: var(--color-up-bg); }
+.fx-spot-holding--down { background: var(--color-down-bg); }
+.fx-spot-holding-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.fx-spot-holding-meta > div { min-width: 0; }
+.fx-spot-holding-meta dt, .fx-spot-pnl > span { font-size: 10px; font-weight: 600; color: #666; }
+.fx-spot-holding-meta dd { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fx-spot-holding-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; border-top: 1px solid #ddd; margin-top: 6px; padding-top: 6px; }
+.fx-spot-pnl { min-width: 0; }
+.fx-spot-pnl > span { display: block; }
+.fx-spot-pnl > strong { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.fx-spot-pnl--up { color: var(--color-up); }
+.fx-spot-pnl--down { color: var(--color-down); }
+.fx-spot-pnl--flat { color: #555; }
+.fx-spot-sell-all { border: 2px solid #000; padding: 4px 8px; min-height: var(--trade-action-height); background: #fff; color: #000; font-size: 12px; font-weight: 700; cursor: pointer; }
+.fx-spot-sell-all:hover:not(:disabled) { background: #000; color: #fff; }
+.fx-spot-sell-all:disabled { opacity: 0.4; cursor: not-allowed; }
+.fx-spot-sell-all:focus-visible { outline: 2px solid #000; outline-offset: 2px; }
+.fx-spot-holding-note { margin-top: 6px; font-size: 11px; color: #666; line-height: 1.5; }
 
 .fx-sell-holdings {
-  border: 1px solid #ddd;
-  padding: 10px;
-  margin-bottom: 16px;
+  border: 1px solid #000;
+  padding: 8px 10px;
+  margin-bottom: var(--trade-panel-gap);
 }
 .fx-sell-shortcuts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  margin-top: 8px;
+  gap: 4px;
+  margin-top: 6px;
 }
 .fx-sell-shortcuts button {
-  padding: 6px 0;
+  min-height: var(--trade-control-height);
+  padding: 2px 0;
   min-width: 0;
+  font-size: 12px;
 }
+.fx-sell-shortcuts--standalone { margin: 0 0 var(--trade-panel-gap); }
 .fx-wallet-retry {
   color: inherit;
   text-decoration: underline;
@@ -1387,7 +1440,7 @@ onUnmounted(() => {
 .fx-workbench {
   display: grid;
   align-items: start;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) 320px;
   border: 2px solid #000;
   background: #fff;
 }
@@ -1400,6 +1453,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   border-left: 2px solid #000;
+  min-width: 0;
 }
 .fx-panel-head {
   display: flex;
@@ -1447,28 +1501,33 @@ onUnmounted(() => {
 }
 
 /* ── 交易面板 ── */
-.fx-mode-switch { display: flex; gap: 8px; padding: 0 14px 12px; border-bottom: 2px solid #000; }
-.fx-mode-switch > button { flex: 1; min-height: 44px; border: 2px solid #000; background: #fff; color: #000; font-size: 13px; font-weight: 800; cursor: pointer; }
+.fx-mode-switch { display: flex; gap: 4px; padding: 0 var(--trade-panel-padding) var(--trade-panel-gap); }
+.fx-mode-switch > button { flex: 1; min-height: var(--trade-control-height); border: 2px solid #000; background: #fff; color: #000; font-size: 12px; font-weight: 700; cursor: pointer; }
 .fx-mode-switch > button.active { background: #000; color: #fff; }
 .fx-mode-switch > button:disabled { cursor: wait; opacity: 0.5; }
 .fx-mode-badge { display: inline-block; background: #f0f0f0; color: #000; padding: 1px 4px; font-size: 10px; }
-.fx-short-intro { padding: 12px 14px; background: #f0f0f0; font-size: 12px; line-height: 1.6; border-bottom: 1px solid #ddd; }
+.fx-short-intro { margin: 0 var(--trade-panel-padding) var(--trade-panel-gap); padding: 8px 10px; background: #fafafa; font-size: 11px; line-height: 1.5; border: 1px solid #000; }
 .fx-short-intro strong { font-size: 13px; }
-.fx-short-intro p { margin: 6px 0; color: #555; }
+.fx-short-intro p { margin: 4px 0; color: #555; }
 .fx-short-intro a { color: #000; font-weight: 700; }
-.fx-pending-short { margin: 12px 14px; border: 2px solid #b45309; padding: 12px; background: #fffbeb; font-size: 12px; line-height: 1.6; }
+.fx-pending-short { margin: var(--trade-panel-gap) var(--trade-panel-padding); border: 2px solid #b45309; padding: 8px 10px; background: #fffbeb; font-size: 12px; line-height: 1.6; }
 .fx-pending-short p { margin: 6px 0; }
-.fx-short-position { border: 2px solid #000; border-top-width: 4px; padding: 12px; margin-bottom: 12px; background: #fafafa; }
+.fx-short-position { border: 1.5px solid #000; padding: 8px 10px; margin-bottom: var(--trade-panel-gap); background: #fafafa; }
 .fx-short-position > span { color: #555; font-size: 12px; }
-.fx-short-debt { display: block; font-size: 24px; font-variant-numeric: tabular-nums; margin: 4px 0 12px; overflow-wrap: anywhere; }
+.fx-short-debt { display: block; font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 2px 0 6px; overflow-wrap: anywhere; }
 .fx-short-debt small { font-size: 13px; }
 .fx-short-details { margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd; font-size: 12px; }
 .fx-short-details summary { cursor: pointer; font-weight: 700; margin-bottom: 6px; }
-.fx-short-cash { margin-bottom: 12px; }
-.fx-short-shortcuts { margin-bottom: 12px; font-size: 12px; }
+.fx-short-cash { margin-bottom: var(--trade-panel-gap); }
+.fx-short-shortcuts { margin-bottom: var(--trade-panel-gap); font-size: 12px; }
 .fx-short-shortcuts > span { font-weight: 700; }
 .fx-short-shortcuts .fx-sell-shortcuts { margin: 6px 0; }
-.fx-short-section .credit-risk { margin: 8px 0; }
+.fx-short-section :deep(.credit-risk) { margin: 0; gap: 4px; }
+.fx-short-section :deep(.credit-risk-ratio) { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.fx-short-section :deep(.credit-risk-thresholds) { gap: 2px; font-size: 11px; }
+.fx-short-position :deep(.short-pnl) { padding: 6px 0; }
+.fx-short-position :deep(.short-pnl-amount) { margin: 2px 0; font-size: 18px; }
+.fx-short-position :deep(.short-pnl-note) { font-size: 11px; line-height: 1.5; }
 .fx-short-section .fx-preview-row { flex-wrap: wrap; }
 .fx-short-section .fx-preview-row strong { overflow-wrap: anywhere; }
 .fx-short-section .fx-preview-row span { min-width: 0; }
@@ -1476,27 +1535,33 @@ onUnmounted(() => {
 
 .fx-trade-tabs {
   display: flex;
-  border-bottom: 2px solid #000;
+  margin: 0 var(--trade-panel-padding);
 }
 .fx-trade-tab {
   flex: 1;
-  padding: 10px 6px;
+  min-width: 0;
+  min-height: var(--trade-action-height);
+  padding: 4px 6px;
   background: #fff;
-  border: none;
+  border: 2px solid #000;
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 13px;
-  color: #555;
+  color: #000;
 }
 .fx-trade-tab + .fx-trade-tab {
-  border-left: 1px solid #000;
+  margin-left: -2px;
 }
 .fx-trade-tab.active {
   background: #000;
   color: #fff;
 }
+.fx-trade-tab--sell.active {
+  background: var(--color-down);
+  border-color: var(--color-down);
+}
 .fx-trade-body {
-  padding: 12px 14px 14px;
+  padding: var(--trade-panel-gap) var(--trade-panel-padding) var(--trade-panel-padding);
   display: flex;
   flex-direction: column;
 }
@@ -1506,66 +1571,80 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 8px;
   border-bottom: 1px solid #e0e0e0;
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  padding-bottom: 6px;
+  margin-bottom: var(--trade-panel-gap);
 }
 .fx-trade-price span {
   font-size: 12px;
   color: #666;
 }
 .fx-trade-price strong {
-  font-size: 20px;
+  font-size: 16px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.fx-trade-price small { margin-left: 6px; font-size: 10px; }
 .fx-trade-price strong.up { color: var(--color-up, #16a34a); }
 .fx-trade-price strong.down { color: var(--color-down, #dc2626); }
 .fx-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 10px;
+  margin-bottom: var(--trade-panel-gap);
   font-size: 12px;
   color: #444;
 }
 .fx-input {
   border: 2px solid #000;
-  padding: 8px 10px;
-  font-family: ui-monospace, monospace;
-  font-size: 14px;
+  min-width: 0;
+  min-height: var(--trade-control-height);
+  padding: 3px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
   background: #fff;
 }
+.fx-field--inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.fx-field--inline > span { font-size: 11px; font-weight: 700; color: #000; }
+.fx-field--inline > select { width: 96px; }
 .fx-input:disabled {
   background: #f5f5f5;
   color: #888;
 }
 .fx-preview {
-  border: 1px solid #ddd;
-  padding: 12px;
-  margin: 2px 0 10px;
-  background: #fafafa;
+  border: 1px solid #000;
+  padding: 8px 10px;
+  margin: 0 0 var(--trade-panel-gap);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 .fx-preview-row {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
-  padding: 3px 0;
+  font-size: 12px;
+  flex-wrap: wrap;
 }
 .fx-preview-row span {
   color: #666;
 }
 .fx-preview-row strong {
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 .fx-preview-row strong.up { color: var(--color-up, #16a34a); }
 .fx-preview-row strong.down { color: var(--color-down, #dc2626); }
 .fx-preview-row--minout strong {
-  font-family: ui-monospace, monospace;
   font-size: 12px;
 }
+.fx-preview-row--minout { border-top: 1px solid #000; padding-top: 4px; margin-top: 2px; }
 .fx-submit-state {
-  min-height: 34px;
+  margin-bottom: var(--trade-panel-gap);
   display: flex;
   align-items: flex-start;
 }
@@ -1583,7 +1662,7 @@ onUnmounted(() => {
 }
 .fx-actions {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -1593,24 +1672,17 @@ onUnmounted(() => {
   border: 2px solid #000;
   background: #000;
   color: #fff;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 800;
+  min-height: var(--trade-action-height);
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
 }
+.fx-actions > .btn-secondary { min-height: var(--trade-action-height); padding: 4px 10px; font-size: 12px; }
 .fx-submit:disabled {
   background: #999;
   border-color: #999;
   cursor: not-allowed;
-}
-.fx-submit-sell {
-  background: #fff;
-  color: #000;
-}
-.fx-submit-sell:disabled {
-  background: #f0f0f0;
-  color: #999;
-  border-color: #999;
 }
 .fx-submit:not(:disabled):hover {
   transform: translate(-1px, -1px);
@@ -1712,7 +1784,7 @@ onUnmounted(() => {
   color: #888;
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1279px) {
   .fx-workbench {
     grid-template-columns: 1fr;
   }
@@ -1734,12 +1806,12 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(110px, 1fr));
   }
 }
-@media (max-width: 560px) {
+@media (max-width: 640px) {
   .fx-price {
     font-size: 26px;
   }
   .fx-chart-body { height: 280px; }
-  .fx-interval, .fx-sell-shortcuts button, .fx-actions button { min-height: 44px; }
+  .fx-interval, .fx-mode-switch > button, .fx-spot-sell-all, .fx-sell-shortcuts button, .fx-actions button { min-height: 44px; }
   .fx-input { min-height: 44px; font-size: 16px; }
   .fx-trade-tabs button { min-height: 48px; }
   .fx-topbar-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; flex-basis: 100%; }

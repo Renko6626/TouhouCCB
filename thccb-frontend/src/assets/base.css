@@ -38,6 +38,12 @@
   --radius-sm: 0;
   --radius-md: 0;
 
+  /* FX 与预测市场共用的紧凑交易窗格尺寸 */
+  --trade-panel-padding: 12px;
+  --trade-panel-gap: 8px;
+  --trade-control-height: 28px;
+  --trade-action-height: 34px;
+
   /* 涨跌/盈亏色（唯一的彩色例外）
    * 约定：绿 = 涨 / 浮盈，红 = 跌 / 浮亏。
    * 所有新代码只允许用这几个变量，禁止硬编码其它 hex。

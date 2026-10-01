@@ -104,8 +104,6 @@ const slippageWouldBeRejected = computed(() => {
   return estimatedSlippagePct.value > (props.maxSlippageBps / 100)
 })
 
-const isUnlimitedSlippage = computed(() => props.maxSlippageBps === SLIPPAGE_UNLIMITED)
-
 // ── 持仓与盈亏 ──
 const hasHolding = computed(() =>
   !!props.userHolding && props.userHolding.amount > 0
@@ -213,7 +211,7 @@ const actionHint = computed<string>(() => {
           <span class="asset-value">金 {{ userStore.summary.available_cash ?? '—' }}</span>
         </div>
         <div class="asset-item">
-          <span class="asset-label">空头锁定所得（专用于回补）</span>
+          <span class="asset-label" title="空头锁定所得（专用于回补）">空头锁金</span>
           <span class="asset-value">金 {{ userStore.summary.restricted_cash ?? '—' }}</span>
         </div>
       </template>
@@ -421,8 +419,8 @@ const actionHint = computed<string>(() => {
 .trade-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--trade-panel-gap);
+  padding: var(--trade-panel-padding);
   border: 2px solid #000;
   background: #fff;
 }
@@ -435,7 +433,7 @@ const actionHint = computed<string>(() => {
   padding: 8px 8px;
   background: #000;
   color: #fff;
-  margin: -14px -14px 0 -14px;
+  margin: calc(-1 * var(--trade-panel-padding)) calc(-1 * var(--trade-panel-padding)) 0;
 }
 
 .asset-item {
@@ -478,10 +476,10 @@ const actionHint = computed<string>(() => {
 /* 当前选项持仓块 */
 .holding-box {
   border: 1.5px solid #000;
-  padding: 10px 12px;
+  padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   background: #fafafa;
 }
 
@@ -525,7 +523,7 @@ const actionHint = computed<string>(() => {
   justify-content: space-between;
   gap: 8px;
   border-top: 1px solid #e0e0e0;
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 .holding-pnl {
@@ -646,7 +644,8 @@ const actionHint = computed<string>(() => {
 }
 
 .type-btn {
-  padding: 6px;
+  min-height: var(--trade-action-height);
+  padding: 4px 6px;
   font-size: 13px;
   font-weight: 700;
   border: 2px solid #000;
@@ -659,6 +658,7 @@ const actionHint = computed<string>(() => {
   opacity: 0.3;
   cursor: not-allowed;
 }
+.type-btn + .type-btn { margin-left: -2px; }
 
 .type-btn--active-buy {
   background: #000;
@@ -745,8 +745,6 @@ const actionHint = computed<string>(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1.5px solid #000;
-  padding: 6px 10px;
   background: #fff;
 }
 
@@ -763,12 +761,14 @@ const actionHint = computed<string>(() => {
 }
 
 .slippage-select {
-  flex: 1;
+  width: 96px;
+  margin-left: auto;
 }
 
 /* 执行按钮 */
 .exec-btn {
   width: 100%;
+  min-height: var(--trade-action-height);
   font-weight: 700;
 }
 
