@@ -45,7 +45,7 @@ const dailyRatePct = computed(() => {
 })
 
 const debtNumber = computed(() => Number(store.quota?.debt ?? '0'))
-const cashNumber = computed(() => Number(store.quota?.cash ?? '0'))
+const cashNumber = computed(() => Number(store.quota?.available_cash ?? (policy.value?.unified_credit_enabled === false ? store.quota?.cash ?? '0' : '0')))
 const maxBorrowNumber = computed(() => Number(store.quota?.max_borrow ?? '0'))
 // 还款上限：min(真实负债, 真实现金) — 与服务端封顶逻辑对齐
 const maxRepayNumber = computed(() => Math.min(debtNumber.value, cashNumber.value))
@@ -73,7 +73,7 @@ async function submitBorrow() {
 }
 
 async function submitRepay() {
-  if (busy.value || !repayAmount.value || repayAmount.value <= 0) return
+  if (busy.value || !repayAmount.value || repayAmount.value <= 0 || repayAmount.value > maxRepayNumber.value) return
   submitting.value = true
   try {
     const r = await store.repay(String(repayAmount.value))
@@ -124,17 +124,17 @@ async function repayAll() {
         <h2>{{ policy.unified_credit_enabled ? '统一信贷：预测市场与外汇共用额度' : '预测市场借款' }}</h2>
         <template v-if="policy.unified_credit_enabled">
           <p class="liq-intro">
-            借入的是金圆券，可用于预测市场和外汇交易。现金、预测市场持仓及各外汇持仓共同支持同一笔债务，
+            借入的是金圆券，可用于预测市场和外汇交易。现金、预测市场持仓及各外汇持仓共同支持授信，外币回补义务也占用额度，
             无需另开 FX 贷款。
           </p>
           <p v-if="policy.credit_leverage != null" class="liq-intro">
             当前名义杠杆上限 <strong>{{ policy.credit_leverage }}x</strong>，
-            新增借款时，总负债不得超过清算净值的 <strong>{{ Number((policy.credit_leverage - 1).toFixed(6)) }} 倍</strong>。
+            新增借款时，金圆券借款上限还需扣除外币回补风险占用；无空头时，借款不得超过清算净值的 <strong>{{ Number((policy.credit_leverage - 1).toFixed(6)) }} 倍</strong>。
             这是授信上限，借款不会自动买入持仓，也不代表你当前已使用这个倍数。
           </p>
           <p class="liq-intro">
             任一持仓亏损都会影响共用额度；触发强平时，其他预测市场或外汇持仓也可能被卖出还债。
-            外币需先卖成金圆券才能主动还款。
+            自持外币需先卖成金圆券才能偿还金债；欠币须在外汇页回补。
           </p>
         </template>
         <p v-else class="liq-intro">
@@ -147,7 +147,7 @@ async function repayAll() {
       </NAlert>
 
       <section class="panel">
-        <h2>当前负债</h2>
+        <h2>金圆券借款（含息）</h2>
         <div class="debt-number" :class="{ red: debtNumber > 0 }">
           {{ store.quota?.debt ?? '—' }}
         </div>
@@ -156,11 +156,24 @@ async function repayAll() {
           <span class="sep">·</span>
           <span>日利率：<strong>{{ dailyRatePct }}</strong></span>
           <span class="sep">·</span>
-          <span>现金：<strong>{{ store.quota?.cash ?? '—' }}</strong></span>
+          <span>总现金：<strong>{{ store.quota?.cash ?? '—' }}</strong></span>
         </div>
         <div class="meta-small" v-if="store.quota?.last_accrued_at">
           上次结息：{{ new Date(store.quota.last_accrued_at).toLocaleString() }}
         </div>
+      </section>
+
+      <section v-if="policy?.unified_credit_enabled && store.quota" class="panel">
+        <h3>现金用途与外币风险</h3>
+        <p>未锁定现金：金 {{ store.quota.available_cash ?? '—' }}；锁定空头所得：金 {{ store.quota.restricted_cash ?? '—' }}（已包含在总现金中，专用于回补）。</p>
+        <p>全仓回补成本 K：金 {{ store.quota.short_cover_cost ?? '—' }}；风险基数 B：金 {{ store.quota.risk_basis ?? '—' }}；保证金率 E/B：{{ store.quota.equity_to_risk_basis?.toFixed(3) ?? '—' }}。</p>
+        <NAlert v-if="store.quota.risk_status === 'blocked'" type="warning" title="风险检查阻塞">
+          {{ store.quota.blocked_reason || '估值待恢复，新增风险暂不可用。' }}
+        </NAlert>
+        <p v-for="position in store.quota.short_positions" :key="position.pair_id">
+          {{ position.currency_code }} 欠币 {{ position.pending_short_debt ?? '—' }}；回补参考成本 金 {{ position.reference_cover_cost ?? '—' }}。
+          <span v-if="!position.executable">{{ position.blocked_reason || '暂不可执行' }}</span>
+        </p>
       </section>
 
       <NDivider />
@@ -188,7 +201,7 @@ async function repayAll() {
           还可借入：<strong>金 {{ maxBorrowNumber.toFixed(2) }}</strong>
         </div>
         <p v-if="policy?.unified_credit_enabled" class="meta-small">
-          额度按清算净值和含利息的负债计算，已扣除已有借款。
+          额度按清算净值和共享风险基数计算，已扣除已有金债与外币回补占用。
           行情、手续费和滑点都会影响额度；借入和买入时会重新检查，借满后也可能因交易成本而无法继续买入。
         </p>
       </section>
@@ -201,12 +214,13 @@ async function repayAll() {
             placeholder="金额"
             :min="0.01"
             :precision="2"
+            :max="maxRepayNumber"
             :disabled="busy || debtNumber <= 0 || cashNumber <= 0"
             style="width: 200px"
           />
           <NButton
             :loading="submitting"
-            :disabled="busy || !repayAmount || repayAmount <= 0 || debtNumber <= 0"
+            :disabled="busy || !repayAmount || repayAmount <= 0 || debtNumber <= 0 || cashNumber <= 0 || repayAmount > maxRepayNumber"
             @click="submitRepay"
           >还款</NButton>
           <NButton
@@ -222,7 +236,7 @@ async function repayAll() {
         <div v-if="repayOverflow > 0" class="meta-small warn">
           <span class="warning-tag">注意</span>
           输入 金 {{ repayAmount }} 超过当前可还上限 金 {{ maxRepayNumber.toFixed(6) }}，
-          实际只会按提交时的借款 / 现金封顶（多出的金额不收取）
+          实际只会按提交时的金圆券借款 / 未锁定现金封顶（多出的金额不收取）
         </div>
         <div v-else-if="debtNumber > 0" class="meta-small">
           当前借款（含利息）<strong>金 {{ debtNumber.toFixed(6) }}</strong>，可用现金 <strong>金 {{ cashNumber.toFixed(6) }}</strong>，
@@ -235,13 +249,13 @@ async function repayAll() {
       <section v-if="policy?.unified_credit_enabled" class="panel liq-panel">
         <h3>跨产品定时强平</h3>
         <p>账面净值：金 {{ store.quota?.display_equity ?? '—' }}；清算净值：金 {{ store.quota?.liquidation_equity ?? '—' }}。</p>
-        <p>清算净值 = 现金 + 预测市场与各外汇实际可变现金额 − 含待结利息的负债。
-          不可卖资产的清算价值为 0，账面市值不代表能立即变现。</p>
+        <p>清算净值 E = 总现金 + 预测市场与外汇多头实际可变现金额 − 含息金债 D − 外币全仓回补成本 K。
+          不可卖资产的清算价值为 0；无法完整报价的外币负债不能按 0 处理，会阻塞风险检查。</p>
         <p>初始 / 恢复率 {{ ((policy.r_initial ?? 0) * 100).toFixed(2) }}%；
           维持率 {{ ((policy.r_maintenance ?? 0) * 100).toFixed(2) }}%。</p>
-        <p>每 {{ policy.sweep_interval_sec }} 秒扫描；清算净值 ÷ 负债低于维持率时触发。
-          先用现金还债，再按固定顺序选择可卖的一组（一个预测市场或一个外汇交易对）。
-          每人每次扫描最多处理一组，通常卖出该组的 {{ (policy.partial_pct * 100).toFixed(2) }}%；清算净值不大于 0 时卖出该组全部。
+        <p>每 {{ policy.sweep_interval_sec }} 秒扫描；清算净值 E ÷ 风险基数 B 低于维持率时触发。
+          系统选择一组资产卖出或外币义务回补；有待回补义务时保留现金用于回补。
+          每人每次扫描最多处理一组，通常处理该组的 {{ (policy.partial_pct * 100).toFixed(2) }}%；清算净值不大于 0 时扩大减仓，回补仍受实际现金与市场容量限制。
           下一次扫描继续，恢复到初始率或还清即停止；卖光仍欠债会冻结新增信用，不会免债。</p>
         <p>强平不另收罚金：预测市场卖出费率 {{ ((policy.sell_fee_rate ?? 0) * 100).toFixed(2) }}%。
           <span v-for="pair in policy.fx_sell_fee_rates" :key="pair.pair_id">

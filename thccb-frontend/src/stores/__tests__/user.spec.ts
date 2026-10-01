@@ -65,13 +65,30 @@ describe('I6 user store：FX MTM 进展示净值/rank，不进 LCV', () => {
 
 describe('unified credit snapshot', () => {
   beforeEach(() => setActivePinia(createPinia()))
-  it('uses pending debt for MTM and product liquidation equity for margin', () => {
+  it('uses authoritative display equity and risk basis ratio', () => {
     const store = useUserStore()
     store.summary = makeSummary({ unified_credit_enabled: true, cash: 100,
       debt: 50, debt_with_interest: 55, fx_mtm: 100,
-      liquidation_equity: 125, equity_to_debt: 125 / 55 })
+      display_equity: 145, liquidation_equity: 125, equity_to_risk_basis: 125 / 55 })
     expect(store.netWorth).toBe(145)
     expect(store.netWorthLcv).toBe(125)
     expect(store.marginRatioEstimate).toBeCloseTo(125 / 55)
+  })
+})
+
+// Unknown liabilities must not turn locked short proceeds into wealth or a rank.
+describe('unknown short valuation', () => {
+  beforeEach(() => setActivePinia(createPinia()))
+  it('keeps unknown equity and rank unavailable instead of ranking cash', () => {
+    const store = useUserStore()
+    store.summary = makeSummary({ unified_credit_enabled: true, cash: 5500,
+      display_equity: null, liquidation_equity: null, risk_status: 'blocked' })
+    expect(store.netWorth).toBeNull()
+    expect(store.netWorthLcv).toBeNull()
+    expect(store.rankTitle).toBe('估值待恢复')
+    expect(store.marginRatioEstimate).toBeNull()
+    store.summary.display_equity = 100
+    expect(store.netWorth).toBe(100)
+    expect(store.rankTitle).toBe('Rookie')
   })
 })

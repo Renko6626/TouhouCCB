@@ -7,11 +7,11 @@ const summary = computed(() => userStore.summary)
 
 const shouldShow = computed(() => {
   const s = summary.value
-  return s != null && Number(s.debt) > 0
+  return s != null && (Number(s.debt) > 0 || !!s.short_positions?.length || s.risk_status === 'blocked')
 })
 
 const ratio = computed(() => userStore.marginRatioEstimate)
-const baseStatus = computed(() => summary.value?.risk_status ?? summary.value?.margin_status ?? 'healthy')
+const baseStatus = computed(() => summary.value?.unified_credit_enabled ? summary.value.risk_status ?? 'blocked' : summary.value?.margin_status ?? 'healthy')
 const protectedByHalt = computed(() => !summary.value?.unified_credit_enabled && (summary.value?.liquidation_protected ?? false))
 // HALT 保护优先：danger/warning + HALT 持仓 → 显示保护态而非危险
 const status = computed(() =>
@@ -24,19 +24,20 @@ const netWorth = computed(() => userStore.netWorth)
 const netWorthLcv = computed(() => userStore.netWorthLcv)
 const debt = computed(() => Number(summary.value?.debt_with_interest ?? summary.value?.debt ?? 0))
 // 两口径差距（LMSR 滑点 + 手续费的损耗）
-const slippageGap = computed(() => netWorth.value - netWorthLcv.value)
+const slippageGap = computed(() => netWorth.value == null || netWorthLcv.value == null ? null : netWorth.value - netWorthLcv.value)
 
 // 距离强平线的相对缓冲：净值再跌 X% 触发
 //   触发条件：NW' = hard × debt
 //   当前:    NW  = ratio × debt
 //   缓冲 = 1 - hard/ratio  (ratio > hard 时为正)
 const bufferPct = computed(() => {
-  if (ratio.value == null || ratio.value <= 0) return null
+  if (status.value === 'blocked' || ratio.value == null || ratio.value <= 0) return null
   if (ratio.value <= hardThr.value) return 0
   return (1 - hardThr.value / ratio.value) * 100
 })
 
 const statusLabel = computed(() => {
+  if (status.value === 'blocked') return '风险检查阻塞'
   if (status.value === 'protected') return '熔断保护'
   if (status.value === 'danger') return '危险'
   if (status.value === 'warning') return '警戒'
@@ -75,17 +76,23 @@ function relativeTime(ms: number): string {
     </div>
 
     <p v-if="summary?.unified_credit_enabled">清算净值与风险状态为最近刷新快照；定时扫描按最新资产执行。</p>
+    <p v-if="summary?.unified_credit_enabled">
+      总现金 C：金 {{ summary.cash.toFixed(2) }} · 未锁定现金 C−S：金 {{ summary.available_cash ?? '—' }}
+      <br>金圆券借款 D（含息）：金 {{ debt.toFixed(2) }} · 外币全仓回补成本 K：金 {{ summary.short_cover_cost ?? '—' }}
+      <br>外币义务按币种列示于持仓明细；B 是风险基数，保证金率为 E/B。
+    </p>
+    <p v-if="status === 'blocked'">{{ summary?.blocked_reason || '估值待恢复，新增风险暂不可用。' }}</p>
     <div class="ratio-row">
       <span class="ratio-big">
         {{ ratio != null ? Number(ratio).toFixed(3) : '—' }}
       </span>
       <div class="ratio-meta">
         <div class="formula">
-          立即变现 <span class="num">{{ netWorthLcv.toFixed(2) }}</span>
-          ÷ 借款 <span class="num">{{ debt.toFixed(2) }}</span>
+          立即变现 <span class="num">{{ netWorthLcv?.toFixed(2) ?? '—' }}</span>
+          ÷ {{ summary?.unified_credit_enabled ? '风险基数 B' : '借款' }} <span class="num">{{ summary?.unified_credit_enabled ? summary.risk_basis ?? '—' : debt.toFixed(2) }}</span>
         </div>
-        <div v-if="slippageGap > 0.01" class="formula-explain">
-          账面净值 <span class="num">{{ netWorth.toFixed(2) }}</span>，
+        <div v-if="slippageGap != null && slippageGap > 0.01" class="formula-explain">
+          账面净值 <span class="num">{{ netWorth?.toFixed(2) ?? '—' }}</span>，
           滑点损耗 <span class="num">-{{ slippageGap.toFixed(2) }}</span>
           <span class="hint">（保证金按保守"立即变现"口径算）</span>
         </div>
@@ -189,6 +196,8 @@ function relativeTime(ms: number): string {
   border-color: #dc2626;
   background: #fee2e2;
 }
+
+.badge-blocked { color: #92400e; background: #fef3c7; }
 
 .badge-protected {
   color: #1e3a8a;

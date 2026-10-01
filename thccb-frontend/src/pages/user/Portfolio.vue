@@ -208,8 +208,12 @@ const holdingsByMarketArray = computed(() => {
     <div v-else-if="userStore.summary">
       <div class="asset-grid">
         <div class="asset-card">
-          <span class="asset-label">现金余额</span>
+          <span class="asset-label">总现金（含锁定所得）</span>
           <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
+          <template v-if="userStore.summary.unified_credit_enabled">
+            <span>未锁定现金 金 {{ userStore.summary.available_cash ?? '—' }}</span>
+            <span>空头锁定所得 金 {{ userStore.summary.restricted_cash ?? '—' }}（专用于回补）</span>
+          </template>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓成本（预测 + FX）</span>
@@ -239,18 +243,18 @@ const holdingsByMarketArray = computed(() => {
           role="link"
           title="点击查看负债详情"
         >
-          <span class="asset-label">负债</span>
+          <span class="asset-label">金圆券借款（含息）</span>
           <span class="asset-value asset-value-debt">金 {{ Number(userStore.summary.debt_with_interest ?? userStore.summary.debt).toFixed(2) }}</span>
         </div>
         <div class="asset-card asset-card-highlight asset-card-wide">
           <span class="asset-label">净资产（账面市值）</span>
-          <span class="asset-value asset-value-net">金 {{ userStore.netWorth.toFixed(2) }}</span>
+          <span class="asset-value asset-value-net">金 {{ userStore.netWorth?.toFixed(2) ?? '估值待恢复' }}</span>
         </div>
       </div>
 
       <section v-if="userStore.summary?.unified_credit_enabled" class="asset-card">
         <span class="asset-label">清算净值（最近刷新，含各产品滑点与手续费）</span>
-        <span class="asset-value">金 {{ userStore.netWorthLcv.toFixed(2) }}</span>
+        <span class="asset-value">金 {{ userStore.netWorthLcv?.toFixed(2) ?? '估值待恢复' }}</span>
         <span>初始 / 恢复率 {{ ((userStore.summary.r_initial ?? 0) * 100).toFixed(2) }}%
           · 维持率 {{ ((userStore.summary.r_maintenance ?? 0) * 100).toFixed(2) }}%</span>
         <span v-if="userStore.summary.credit_frozen">账户已冻结新增信用；可还款及安全减仓。</span>
@@ -276,6 +280,27 @@ const holdingsByMarketArray = computed(() => {
         </div>
         <NEmpty v-else description="暂无 FX 持仓" class="empty-state" />
       </section>
+
+      <section v-if="userStore.summary.short_positions?.length" class="holdings-section">
+        <div class="section-header"><h2 class="section-title">外币回补义务（空头）</h2></div>
+        <div class="asset-grid">
+          <div v-for="position in userStore.summary.short_positions" :key="position.pair_id" class="asset-card">
+            <span class="asset-label">{{ position.currency_code }} 空头</span>
+            <span>含息欠币 {{ position.pending_short_debt ?? '—' }} {{ position.currency_code }}</span>
+            <span>本金 {{ position.principal_foreign }} · 已结利息 {{ position.interest_foreign }}</span>
+            <span>锁定所得 金 {{ position.restricted_gold }}</span>
+            <span>剩余收益基准 金 {{ position.proceeds_basis_gold }}</span>
+            <span>全仓回补参考成本 金 {{ position.reference_cover_cost ?? '—' }}（含费与滑点）</span>
+            <span v-if="position.reference_cover_cost == null">估值待恢复：{{ position.blocked_reason || '无法完整报价' }}</span>
+            <span v-else-if="!position.executable">暂不可执行：{{ position.blocked_reason || '市场暂停' }}</span>
+            <NButton size="small" @click="router.push({ path: '/fx', query: { pair: position.pair_id } })">查看 / 回补</NButton>
+          </div>
+        </div>
+        <p class="asset-sub">锁定所得已计入总现金，不能用于消费或偿还金圆券借款。</p>
+      </section>
+      <NAlert v-if="userStore.summary.blocked_reason" type="warning" title="风险检查阻塞">
+        {{ userStore.summary.blocked_reason }}
+      </NAlert>
 
       <!-- 保证金率详情（debt > 0 时才显示） -->
       <MarginStatusCard />

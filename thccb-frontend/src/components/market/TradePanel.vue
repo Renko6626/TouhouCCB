@@ -223,7 +223,7 @@ const actionHint = computed<string>(() => {
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
-        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth.toFixed(2) }}</span>
+        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth?.toFixed(2) ?? '估值待恢复' }}</span>
       </div>
     </div>
 

@@ -1,4 +1,5 @@
 import api from './index'
+import type { AccountShortPosition } from '@/types/user'
 import type { TitleChip } from './title'
 
 // ===== Types =====
@@ -6,8 +7,16 @@ import type { TitleChip } from './title'
 export interface LoanQuota {
   enabled: boolean
   cash: string
+  available_cash?: string | null
+  restricted_cash?: string
+  short_positions?: AccountShortPosition[]
+  short_cover_cost?: string | null
+  risk_basis?: string | null
+  equity_to_risk_basis?: number | null
+  risk_status?: 'healthy' | 'warning' | 'danger' | 'blocked' | null
+  blocked_reason?: string | null
   debt: string
-  net_worth: string
+  net_worth: string | null
   leverage_k: string
   daily_rate: string
   max_borrow: string
@@ -58,8 +67,8 @@ export interface LiquidationEvent {
   triggered_at: string
   pre_cash: number
   pre_debt: number
-  pre_holdings_value: number
-  pre_net_worth: number
+  pre_holdings_value: number | null
+  pre_net_worth: number | null
   /** null when debt was zero at snapshot time */
   pre_margin_ratio: number | null
   sold_positions_count: number

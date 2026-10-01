@@ -33,27 +33,26 @@ export const useUserStore = defineStore('user', () => {
   // MTM 随本地 LMSR 报价更新；统一清算净值仅取服务端最近快照。
   const fxMtm = computed(() => summary.value?.fx_mtm ?? 0)
   const fxCostBasis = computed(() => summary.value?.fx_cost_basis ?? 0)
-  const netWorth = computed(() =>
-    summary.value
-      ? summary.value.cash - (summary.value.unified_credit_enabled
-          ? summary.value.debt_with_interest ?? summary.value.debt : summary.value.debt) + holdingsValueMtm.value + fxMtm.value
-      : 0)
-  // 旧模式保留 LMSR 本地估算；统一模式包含各 FX pair 的真实清算报价。
-  const netWorthLcv = computed(() =>
+  const netWorth = computed<number | null>(() => {
+    const s = summary.value
+    if (s?.unified_credit_enabled) return s.display_equity ?? null
+    return s ? s.cash - s.debt + holdingsValueMtm.value + fxMtm.value : 0
+  })
+  const netWorthLcv = computed<number | null>(() =>
     summary.value?.unified_credit_enabled
-      ? summary.value.liquidation_equity ?? 0
+      ? summary.value.liquidation_equity ?? null
       : summary.value ? summary.value.cash - summary.value.debt + holdingsValueLcv.value : 0)
   const unrealizedPnl = computed(() =>
     holdingsValueMtm.value - totalCostBasis.value + fxMtm.value - fxCostBasis.value)
   const unrealizedPnlLcv = computed(() => holdingsValueLcv.value - totalCostBasis.value)
   const rankTitle = computed(() =>
-    rankFromThresholds(summary.value?.rank_thresholds ?? [], netWorth.value))
+    netWorth.value == null ? '估值待恢复' : rankFromThresholds(summary.value?.rank_thresholds ?? [], netWorth.value))
   // 显示用估算；权威 margin_status 仍来自 summary（服务端 LCV 口径）
   const marginRatioEstimate = computed<number | null>(() => {
     const s = summary.value
-    if (s?.unified_credit_enabled) return s.equity_to_debt ?? null
+    if (s?.unified_credit_enabled) return s.risk_status === 'blocked' ? null : s.equity_to_risk_basis ?? null
     if (!s || s.debt <= 0) return null
-    return netWorthLcv.value / s.debt
+    return netWorthLcv.value == null ? null : netWorthLcv.value / s.debt
   })
 
   // 派生持仓视图——字段名与旧 API Holding 一致，表格/持仓盒模板零改动
