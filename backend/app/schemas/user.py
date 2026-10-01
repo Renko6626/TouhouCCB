@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.schemas.base import Money, Price
 from app.schemas.title import TitleChipRead
+from app.schemas.fx import FxShortPositionPublic
 
 
 class HoldingRead(BaseModel):
@@ -50,6 +51,14 @@ class UserSummary(BaseModel):
     """
     cash: Money
     debt: Money
+    available_cash: Optional[Decimal] = None
+    restricted_cash: Decimal = Decimal("0")
+    short_positions: List[FxShortPositionPublic] = []
+    short_cover_cost: Optional[Decimal] = None
+    risk_basis: Optional[Decimal] = None
+    equity_to_risk_basis: Optional[float] = None
+    blocked_reason: Optional[str] = None
+    economic_version: Optional[int] = None
     # New valuation fields are populated only with unified credit enabled.
     fx_wallets: List[FxWalletSummary] = []
     display_equity: Optional[Money] = None

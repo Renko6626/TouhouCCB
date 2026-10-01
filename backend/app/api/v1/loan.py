@@ -14,6 +14,7 @@ from app.services.credit.cash import available_cash
 from app.models.base import User, LiquidationEvent
 from app.models.fx import FxPair
 from app.models.title import Title as _Title
+from app.api.v1.user import account_risk_fields, own_short_positions
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
@@ -85,7 +86,8 @@ async def _unified_quota(db: AsyncSession, user_id: int):
         display_equity=valuation.display_equity,
         liquidation_equity=valuation.liquidation_equity,
         r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
-        blocked_reason=valuation.blocked_reason,
+        **account_risk_fields(valuation, thresholds),
+        short_positions=await own_short_positions(db, user_id),
     )
 
 
@@ -294,8 +296,8 @@ async def recent_liquidations(
             ).isoformat(),
             "pre_cash": float(ev.pre_cash),
             "pre_debt": float(ev.pre_debt),
-            "pre_holdings_value": float(ev.pre_holdings_value),
-            "pre_net_worth": float(ev.pre_net_worth),
+            "pre_holdings_value": float(ev.pre_holdings_value) if ev.pre_holdings_value is not None else None,
+            "pre_net_worth": float(ev.pre_net_worth) if ev.pre_net_worth is not None else None,
             "pre_margin_ratio": float(ev.pre_margin_ratio)
                 if ev.pre_margin_ratio is not None else None,
             "sold_positions_count": int(ev.sold_positions_count),
