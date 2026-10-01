@@ -464,3 +464,26 @@ it('never sends a short write when its retry identity cannot be persisted', asyn
   expect(writes).toBe(0)
   expect(order.hasUnresolved).toBe(true)
 })
+
+it('a late response from an unmounted page cannot erase a newer pending short', async () => {
+  const values = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) },
+  }
+  const oldPage = new FxPendingShortOrder(42, storage)
+  let finishOld!: (value: string) => void
+  const oldResponse = oldPage.start(7, 'open', { foreign_amount: '1.', min_gold_out: '2' },
+    () => new Promise<string>(resolve => { finishOld = resolve }))
+  const remounted = new FxPendingShortOrder(42, storage)
+  expect(remounted.pending?.body.foreign_amount).toBe('1.')
+  expect(await remounted.retry(async () => 'old replay')).toBe('old replay')
+  await expect(remounted.start(7, 'open', { foreign_amount: '3', min_gold_out: '4' },
+    async () => { throw new Error('new response lost') })).rejects.toThrow('new response lost')
+  const newKey = remounted.pending?.body.idempotency_key
+  expect(newKey).toBeTruthy()
+  finishOld('old committed')
+  expect(await oldResponse).toBe('old committed')
+  expect(new FxPendingShortOrder(42, storage).pending?.body.idempotency_key).toBe(newKey)
+})

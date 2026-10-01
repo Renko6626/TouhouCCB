@@ -882,7 +882,7 @@ function restoredShortRequest(value: unknown): FxPendingShortRequest | null {
     || (request.action !== 'open' && request.action !== 'cover')
     || !body || typeof body !== 'object'
     || typeof body.idempotency_key !== 'string' || !body.idempotency_key || body.idempotency_key.length > 128) return null
-  const amount = (v: unknown) => typeof v === 'string' && /^\d+(?:\.\d{1,6})?$/.test(v)
+  const amount = (v: unknown) => typeof v === 'string' && /^\d+(?:\.\d{0,6})?$/.test(v)
   if (request.action === 'open') {
     if (!amount(body.foreign_amount) || !amount(body.min_gold_out)) return null
   } else if (!amount(body.max_gold_in)
@@ -936,7 +936,16 @@ export class FxPendingShortOrder {
   private clear(userId: string | null, request: FxPendingShortRequest): void {
     if (userId === null || !this.storage) { this.unreadable = true; return }
     try {
-      this.storage.removeItem(PENDING_SHORT_PREFIX + userId)
+      const key = PENDING_SHORT_PREFIX + userId
+      const raw = this.storage.getItem(key)
+      if (raw !== null) {
+        const stored = restoredShortRequest(JSON.parse(raw))
+        if (!stored) { if (this.userId === userId) this.unreadable = true; return }
+        // A response from a component that has since unmounted must not erase
+        // a newer request saved by the remounted component.
+        if (stored.body.idempotency_key !== request.body.idempotency_key) return
+        this.storage.removeItem(key)
+      }
       if (this.userId === userId && this.pending?.body.idempotency_key === request.body.idempotency_key)
         this.pending = null
     } catch { if (this.userId === userId) this.unreadable = true }
