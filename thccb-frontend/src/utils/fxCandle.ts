@@ -357,13 +357,18 @@ export class FxCandleEngine {
       const preloaded = this.preloadedThroughEpoch !== null && bucket <= this.preloadedThroughEpoch
       const range = simRanges.get(bucket)
       if (!range) {
-        if (preloaded) {
-          // 只有最后一个预加载桶（forming）可以视为“追加”；更早的预加载桶无法判定时序
-          if (bucket !== this.preloadedThroughEpoch) return { ...result, reload: true }
-          simRanges.set(bucket, { first: null, last: key })
-        } else {
-          simRanges.set(bucket, { first: key, last: key })
+        // 合成空桶：merge 平推 / gap 补出的 v=0 桶，没有任何真实成交，无时序歧义。
+        // 生产不变式：真实 FxTrade 的金侧成交量为正，故 v=0 唯一对应合成空桶。
+        const index = findCandleIndex(this._candles, bucket)
+        const syntheticEmpty = index >= 0 && this._candles[index]!.v === 0
+        if (preloaded && !syntheticEmpty && bucket !== this.preloadedThroughEpoch) {
+          // 更早的预加载真实桶：无法判定乱序成交的时序
+          return { ...result, reload: true }
         }
+        simRanges.set(
+          bucket,
+          syntheticEmpty ? { first: key, last: key } : { first: null, last: key },
+        )
       } else if (range.first === null) {
         if (compareFxTradeKeys(key, range.last) < 0) return { ...result, reload: true }
         range.last = key
@@ -412,22 +417,22 @@ export class FxCandleEngine {
           const candle = candles[index]!
           const range = this.tradeRanges.get(bucket)
           if (!range) {
-            const preloaded = this.preloadedThroughEpoch !== null && bucket <= this.preloadedThroughEpoch
-            if (preloaded) {
-              // forming 预加载桶：历史首笔未知，实时成交只能追加到 close
+            if (candle.v === 0) {
+              // 合成空桶（merge 平推 / gap 补出，v=0）：首笔真实成交定义整根
+              // O/H/L/C，而不是保留 carry 的 prevClose / 错误极值。
+              candle.o = trade.price
+              candle.h = trade.price
+              candle.l = trade.price
+              candle.c = trade.price
+              candle.v = trade.volume
+              this.tradeRanges.set(bucket, { first: key, last: key })
+            } else {
+              // 预加载真实 forming 桶：历史首笔未知，实时成交只能追加到 close
               candle.h = Math.max(candle.h, trade.price)
               candle.l = Math.min(candle.l, trade.price)
               candle.c = trade.price
               candle.v += trade.volume
               this.tradeRanges.set(bucket, { first: null, last: key })
-            } else {
-              // 之前补出来的空桶：首笔真实成交定义整根
-              candle.o = trade.price
-              candle.h = trade.price
-              candle.l = trade.price
-              candle.c = trade.price
-              candle.v += trade.volume
-              this.tradeRanges.set(bucket, { first: key, last: key })
             }
           } else if (range.first === null) {
             candle.h = Math.max(candle.h, trade.price)

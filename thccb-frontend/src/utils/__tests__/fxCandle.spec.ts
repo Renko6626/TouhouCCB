@@ -195,21 +195,22 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     expect(engine.throughTradeId).toBe(101)
   })
 
-  it('同桶多笔成交合并 h/l/c，清量等于非重复成交之和', () => {
+  it('合成空桶（v=0）的首笔真实成交重置 O/H/L/C，不保留 carry prevClose/极值', () => {
     const engine = new FxCandleEngine(60)
+    // merge 平推出的 forming 桶：o=h=l=c=10、v=0（合成空桶，非真实成交）
     engine.load([point(BASE, 10, 0)])
     const result = engine.applyTrades([
-      { id: 1, ts: BASE + 5, price: 12, volume: 2 },
-      { id: 2, ts: BASE + 10, price: 9, volume: 3 },
-      { id: 3, ts: BASE + 20, price: 11, volume: 4 },
+      { id: 1, ts: BASE + 5, price: 11, volume: 2 },   // 首笔定义整根 OHLC
+      { id: 2, ts: BASE + 10, price: 12, volume: 3 },
+      { id: 3, ts: BASE + 20, price: 13, volume: 4 },
     ])
     expect(result.reload).toBe(false)
     expect(result.applied).toBe(3)
     const candle = engine.candles[0]!
-    expect(candle.o).toBe(10)
-    expect(candle.h).toBe(12)
-    expect(candle.l).toBe(9)
-    expect(candle.c).toBe(11)
+    expect(candle.o).toBe(11)   // 首笔 post_price，而不是 carry 的 10
+    expect(candle.h).toBe(13)
+    expect(candle.l).toBe(11)   // 不能把 carry 的 10 当成最低价
+    expect(candle.c).toBe(13)
     expect(candle.v).toBe(9)
   })
 
