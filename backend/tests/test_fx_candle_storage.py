@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+import asyncio
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -65,9 +66,9 @@ def _at(seconds):
     return BASE + timedelta(seconds=seconds)
 
 
-async def _seed_pair() -> int:
+async def _seed_pair(code: str = "TST") -> int:
     async with async_session_maker() as db:
-        pair = FxPair(currency_code="TST", currency_name="Test")
+        pair = FxPair(currency_code=code, currency_name="Test")
         db.add(pair)
         await db.flush()
         pair_id = pair.id
@@ -542,3 +543,173 @@ async def test_flusher_rejects_non_contiguous_batch():
     flusher.add_batch(pair_id, 0, 1, rows, "gen-1")
     with pytest.raises(FxCandleCursorConflict):
         flusher.add_batch(pair_id, 5, 6, rows, "gen-1")
+
+
+@pytest.mark.asyncio
+async def test_flusher_same_expected_narrower_is_ignored():
+    pair_id = await _seed_pair()
+    wide = compute_fx_candle_rows([
+        _trade(1, _at(5), "1.10", input_amount="2"),
+        _trade(2, _at(6), "1.20", input_amount="3"),
+    ])
+    narrow = compute_fx_candle_rows([_trade(1, _at(5), "1.10", input_amount="2")])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 2, wide, "gen-1")
+    flusher.add_batch(pair_id, 0, 1, narrow, "gen-1")   # narrower recompute
+
+    assert flusher.pending_through(pair_id) == 2
+    assert await flusher.flush_once() == len(wide)
+    candle = await _read_candle(pair_id, "1m", BASE)
+    assert candle.gold_volume == Decimal("5")   # wide rows kept, not replaced
+    assert candle.n_trades == 2
+    assert (await _read_state(pair_id)).last_trade_id == 2
+
+
+@pytest.mark.asyncio
+async def test_flusher_rejects_nonempty_empty_range_before_queueing():
+    pair_id = await _seed_pair()
+    rows = compute_fx_candle_rows([_trade(1, _at(5), "1.10")])
+    flusher = FxCandleFlusher(async_session_maker)
+    with pytest.raises(ValueError):
+        flusher.add_batch(pair_id, 1, 1, rows, "gen-1")
+    assert flusher.pending_count() == 0
+    assert await flusher.flush_once() == 0
+
+
+@pytest.mark.asyncio
+async def test_flusher_add_during_flush_preserves_new_tail(monkeypatch):
+    """A contiguous range queued while the head is committing must survive.
+
+    Regression for deleting the whole (now-extended) batch object after the
+    await, which silently dropped the tail.
+    """
+    pair_id = await _seed_pair()
+    rows_a = compute_fx_candle_rows([_trade(1, _at(5), "1.10", input_amount="2")])
+    rows_b = compute_fx_candle_rows([_trade(2, _at(6), "1.20", input_amount="3")])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows_a, "gen-1")
+
+    import app.services.fx.candle_flusher as flusher_module
+    real_apply = flusher_module.apply_candle_batch
+    reached = asyncio.Event()
+    release = asyncio.Event()
+
+    async def barrier_apply(*args, **kwargs):
+        result = await real_apply(*args, **kwargs)
+        reached.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(flusher_module, "apply_candle_batch", barrier_apply)
+    task = asyncio.create_task(flusher.flush_once())
+    await reached.wait()
+
+    # Head range is mid-commit; queue the contiguous tail.
+    flusher.add_batch(pair_id, 1, 2, rows_b, "gen-1")
+    assert flusher.pending_watermark(pair_id) == 0          # in-flight head
+    assert flusher.pending_through(pair_id) == 2            # queued tail
+    assert flusher.pending_ranges(pair_id) == 2
+
+    release.set()
+    assert await task == len(rows_a)                        # only the head applied
+    monkeypatch.undo()
+
+    assert flusher.pending_ranges(pair_id) == 1             # tail preserved
+    assert await flusher.flush_once() == len(rows_b)
+    assert flusher.pending_count() == 0
+    assert (await _read_state(pair_id)).last_trade_id == 2
+    candle = await _read_candle(pair_id, "1m", BASE)
+    assert candle.gold_volume == Decimal("5")               # 2 + 3 exactly once
+    assert candle.n_trades == 2
+
+
+@pytest.mark.asyncio
+async def test_flusher_concurrent_flush_once_calls_serialize(monkeypatch):
+    pair_id = await _seed_pair()
+    rows = compute_fx_candle_rows([_trade(1, _at(5), "1.10", input_amount="2")])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows, "gen-1")
+
+    import app.services.fx.candle_flusher as flusher_module
+    real_apply = flusher_module.apply_candle_batch
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    concurrent = 0
+    max_concurrent = 0
+
+    async def slow_apply(*args, **kwargs):
+        nonlocal concurrent, max_concurrent
+        concurrent += 1
+        max_concurrent = max(max_concurrent, concurrent)
+        entered.set()
+        await release.wait()
+        try:
+            return await real_apply(*args, **kwargs)
+        finally:
+            concurrent -= 1
+
+    monkeypatch.setattr(flusher_module, "apply_candle_batch", slow_apply)
+    first = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+    second = asyncio.create_task(flusher.flush_once())
+    await asyncio.sleep(0)                  # let the second reach the lock
+    assert not second.done()                # serialized, not double-processing
+    release.set()
+    results = await asyncio.gather(first, second)
+    monkeypatch.undo()
+
+    assert max_concurrent == 1              # only one transaction at a time
+    assert sum(results) == len(rows)
+    candle = await _read_candle(pair_id, "1m", BASE)
+    assert candle.gold_volume == Decimal("2")
+    assert candle.n_trades == 1
+    assert (await _read_state(pair_id)).last_trade_id == 1
+
+
+@pytest.mark.asyncio
+async def test_discard_pair_drops_only_the_target_pair():
+    pair_a = await _seed_pair("TSTA")
+    pair_b = await _seed_pair("TSTB")
+    rows_a = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_a)])
+    rows_b = compute_fx_candle_rows([_trade(1, _at(5), "1.10", pair_id=pair_b)])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_a, 0, 1, rows_a, "gen-a")
+    flusher.add_batch(pair_b, 0, 1, rows_b, "gen-b")
+
+    flusher.discard_pair(pair_a)
+    assert flusher.pending_watermark(pair_a) is None
+    assert flusher.pending_watermark(pair_b) == 0
+
+    assert await flusher.flush_once() == len(rows_b)
+    assert await _read_state(pair_a) is None
+    assert (await _read_state(pair_b)).last_trade_id == 1
+
+
+@pytest.mark.asyncio
+async def test_discard_pair_suppresses_in_flight_failure_reinsert(monkeypatch):
+    """A stale in-flight range discarded during the await must not resurrect."""
+    pair_id = await _seed_pair()
+    rows = compute_fx_candle_rows([_trade(1, _at(5), "1.10")])
+    flusher = FxCandleFlusher(async_session_maker)
+    flusher.add_batch(pair_id, 0, 1, rows, "gen-1")
+
+    import app.services.fx.candle_flusher as flusher_module
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def failing_apply(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        raise RuntimeError("db down with unknown outcome")
+
+    monkeypatch.setattr(flusher_module, "apply_candle_batch", failing_apply)
+    task = asyncio.create_task(flusher.flush_once())
+    await entered.wait()
+    flusher.discard_pair(pair_id)
+    release.set()
+
+    assert await task == 0
+    monkeypatch.undo()
+    assert flusher.pending_count() == 0
+    assert flusher.pending_watermark(pair_id) is None
+    assert await _read_state(pair_id) is None
