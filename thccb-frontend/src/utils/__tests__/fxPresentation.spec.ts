@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign } from '../fxPresentation'
+import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
 
 describe('FX 交易展示口径', () => {
@@ -25,12 +25,23 @@ describe('FX 交易展示口径', () => {
 
   it('传统模式负债禁止买入，统一模式负债可进入服务端风控检查', () => {
     expect(fxBuyBlockReason({ cash: 100, debt: 10 }, '1')).toContain('未还借款')
-    expect(fxBuyBlockReason({ cash: 100, debt: 10, unified_credit_enabled: true }, '1')).toBe('')
-    expect(fxBuyBlockReason({ cash: 100, debt: 10, unified_credit_enabled: true, credit_frozen: true }, '1')).toContain('冻结')
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true }, '1')).toBe('')
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true, credit_frozen: true }, '1')).toContain('冻结')
     // 统一模式只对负债买入执行新增风险检查；无债现金买入不应误禁。
-    expect(fxBuyBlockReason({ cash: 100, debt: 0, unified_credit_enabled: true, credit_frozen: true }, '1')).toBe('')
-    expect(fxBuyBlockReason({ cash: 1, debt: 0 }, '1.000001')).toContain('余额不足')
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 0, unified_credit_enabled: true, credit_frozen: true }, '1')).toBe('')
+    expect(fxBuyBlockReason({ cash: 1, debt: 0, unified_credit_enabled: false }, '1.000001')).toContain('余额不足')
     expect(fxBuyBlockReason(null, '1')).toContain('账户')
+  })
+
+  it('missing unified available cash blocks spending while explicit legacy mode retains cash fallback', () => {
+    const summary = { cash: 100, debt: 0, unified_credit_enabled: true }
+    expect(fxAvailableCash(summary)).toBeNull()
+    expect(fxAvailableCash({ ...summary, available_cash: null })).toBeNull()
+    expect(fxBuyBlockReason(summary, '1')).not.toBe('')
+    expect(fxBuyBlockReason({ ...summary, available_cash: null }, '1')).not.toBe('')
+    expect(fxAvailableCash({ ...summary, available_cash: '0' })).toBe('0')
+    expect(fxAvailableCash({ ...summary, unified_credit_enabled: false })).toBe(100)
+    expect(fxAvailableCash({ cash: 100 })).toBeNull()
   })
 
   it('只减仓状态与后端买卖许可一致', () => {

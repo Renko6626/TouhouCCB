@@ -9,6 +9,7 @@ export const useLoanStore = defineStore('loan', () => {
   const error = ref<string | null>(null)
 
   async function refresh() {
+    quota.value = null
     loading.value = true
     error.value = null
     try {

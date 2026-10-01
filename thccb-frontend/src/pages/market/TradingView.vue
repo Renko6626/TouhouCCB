@@ -239,6 +239,16 @@ const userHolding = computed(() => {
   return userStore.getHoldingByOutcome(selectedOutcomeId.value) ?? null
 })
 
+// Unified cash includes restricted short proceeds; absent valuation fails closed.
+const availableTradeCash = computed(() => {
+  const s = userStore.summary
+  if (!s) return 0
+  if (s.unified_credit_enabled === false) return s.cash
+  if (s.unified_credit_enabled !== true || s.available_cash == null) return 0
+  const value = Number(s.available_cash)
+  return Number.isFinite(value) ? Math.max(0, value) : 0
+})
+
 // 计算最大可交易份额
 // 买入时：LMSR 非线性定价导致买入越多单价越高，线性估算会高估，
 // 所以施加保守折扣（取 70% 的线性估算值）；实际可行性以 quote 报价为准。
@@ -249,9 +259,9 @@ const maxShares = computed(() => {
 
   if (!selectedOutcome.value || !userStore.summary) return 0
 
-  const cash = userStore.summary.cash
+  const cash = availableTradeCash.value
   const price = selectedOutcome.value.current_price
-  if (price <= 0) return 0
+  if (price <= 0 || cash <= 0) return 0
   // 保守估算：LMSR 滑点使实际成本高于 线性(price * shares)，取 70% 避免超支
   return Math.max(1, Math.floor((cash / price) * 0.7))
 })
@@ -259,7 +269,7 @@ const maxShares = computed(() => {
 // 报价超出可用现金时标记为不可交易
 const quoteExceedsCash = computed(() => {
   if (tradeType.value !== 'buy' || !quoteResult.value || !userStore.summary) return false
-  return quoteResult.value.net > userStore.summary.cash
+  return quoteResult.value.net > availableTradeCash.value
 })
 
 // 本地报价预览（spec §6.1/§6.3）：闭式公式 + 当前价 + b + sell_fee_rate。
@@ -345,6 +355,9 @@ const executeTrade = async () => {
         marketTitle: marketStore.currentMarket.title,
       })
     }
+    // Unified spendable cash and equity require a fresh authoritative snapshot.
+    // fetchSummary discards responses older than a subsequent local fill.
+    if (userStore.summary?.unified_credit_enabled) await userStore.fetchSummary(false)
     // 份数不重置：连续加仓/分批减仓是常规用法。卖出后持仓不足时
     // TradePanel 的 shares > maxShares 门会禁用按钮，不会误下单。
   } catch (err: any) {

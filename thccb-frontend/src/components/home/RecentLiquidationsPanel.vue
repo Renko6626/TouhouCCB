@@ -18,8 +18,8 @@ function relativeTime(iso: string): string {
   return `${d} 天前`
 }
 
-function fmtNum(val: number, decimals = 2): string {
-  return val.toFixed(decimals)
+function fmtNum(val: number | null, decimals = 2): string {
+  return val == null ? '—' : val.toFixed(decimals)
 }
 
 function fmtPct(val: number | null): string {

@@ -84,10 +84,11 @@ const handleUserMenuClick = (key: string) => {
           v-if="debtAmount > 0"
           to="/loan"
           class="debt-badge"
-          :title="`当前负债 ${userStore.summary?.debt}`"
+          :title="`金圆券借款 ${userStore.summary?.debt}`"
         >
-          负债 {{ userStore.summary?.debt }}
+          金债 {{ userStore.summary?.debt }}
         </router-link>
+        <RouterLink v-if="userStore.summary?.short_positions?.length" to="/user/portfolio" class="debt-badge" title="外币义务须回补，锁定所得专用于回补">外币欠币</RouterLink>
         <NDropdown :options="userOptions" @select="handleUserMenuClick" placement="bottom-end">
           <button type="button" class="user-chip" aria-label="账户菜单">
             <div class="user-avatar">
