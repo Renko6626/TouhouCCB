@@ -282,7 +282,7 @@ const holdingsByMarketArray = computed(() => {
       </section>
 
       <section v-if="userStore.summary.short_positions?.length" class="holdings-section">
-        <div class="section-header"><h2 class="section-title">外币回补义务（空头）</h2></div>
+        <div class="section-header"><h2 class="section-title">外币回补义务（空头）</h2><router-link to="/loan#short-debt">管理空头贷款 →</router-link></div>
         <div class="asset-grid">
           <div v-for="position in userStore.summary.short_positions" :key="position.pair_id" class="asset-card">
             <span class="asset-label">{{ position.currency_code }} 空头</span>
@@ -293,7 +293,7 @@ const holdingsByMarketArray = computed(() => {
             <span>全仓回补参考成本 金 {{ position.reference_cover_cost ?? '—' }}（含费与滑点）</span>
             <span v-if="position.reference_cover_cost == null">估值待恢复：{{ position.blocked_reason || '无法完整报价' }}</span>
             <span v-else-if="!position.executable">暂不可执行：{{ position.blocked_reason || '市场暂停' }}</span>
-            <NButton size="small" @click="router.push({ path: '/fx', query: { pair: position.pair_id } })">查看 / 回补</NButton>
+            <NButton size="small" @click="router.push({ path: '/fx', query: { pair: position.pair_id, action: 'cover' } })">查看 / 回补</NButton>
           </div>
         </div>
         <p class="asset-sub">锁定所得已计入总现金，不能用于消费或偿还金圆券借款。</p>

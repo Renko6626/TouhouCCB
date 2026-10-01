@@ -60,7 +60,7 @@ export const routes: RouteRecordRaw[] = [
         name: 'loan',
         component: () => import('@/pages/loan/Loan.vue'),
         meta: {
-          title: '借款',
+          title: '贷款与空头',
           requiresAuth: true,
           requiresVerified: true,
         },

@@ -4,6 +4,8 @@ import { NInputNumber, NButton, NSpin, NAlert, NDivider, useMessage } from 'naiv
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
 import { extractErrorMessage } from '@/utils/errors'
+import { formatFxAmount, subtractFxAmounts } from '@/api/fx'
+import type { AccountShortPosition } from '@/types/user'
 
 defineOptions({ name: 'LoanPage' })
 
@@ -43,6 +45,17 @@ const dailyRatePct = computed(() => {
   if (!r) return '—'
   return (Number(r) * 100).toFixed(2) + '%'
 })
+
+const shortPositions = computed(() => store.quota?.short_positions ?? [])
+const marginPct = computed(() => {
+  const ratio = store.quota?.equity_to_risk_basis
+  return ratio == null ? '—' : `${(ratio * 100).toFixed(2)}%`
+})
+function pendingInterest(position: AccountShortPosition) {
+  if (position.pending_short_debt == null) return null
+  const interest = subtractFxAmounts(position.pending_short_debt, position.principal_foreign)
+  return interest == null ? null : subtractFxAmounts(interest, position.interest_foreign)
+}
 
 const debtNumber = computed(() => Number(store.quota?.debt ?? '0'))
 const cashNumber = computed(() => Number(store.quota?.available_cash ?? (policy.value?.unified_credit_enabled === false ? store.quota?.cash ?? '0' : '0')))
@@ -112,6 +125,14 @@ async function repayAll() {
 
 <template>
   <div class="loan-page">
+    <header class="loan-header">
+      <div>
+        <span class="loan-eyebrow">我的负债</span>
+        <h1>贷款与空头</h1>
+        <p>金圆券借款用金还款，外币空头买回对应外币归还。</p>
+      </div>
+      <NButton :disabled="busy" @click="store.refresh">刷新负债</NButton>
+    </header>
     <NSpin :show="store.loading">
       <NAlert v-if="store.error" type="error" :title="store.error" />
       <NAlert
@@ -120,12 +141,74 @@ async function repayAll() {
         title="借款功能维护中"
       />
 
+      <div class="debt-overview">
+        <a href="#gold-loan" class="debt-overview-card">
+          <span class="overview-label">金圆券借款 · 含息</span>
+          <strong :class="{ red: debtNumber > 0 }">金 {{ formatFxAmount(store.quota?.debt, 2) }}</strong>
+          <span>还可借入 金 {{ formatFxAmount(store.quota?.max_borrow, 2) }}</span>
+          <span class="overview-link">借款 / 还款 ↓</span>
+        </a>
+        <a href="#short-debt" class="debt-overview-card short-overview">
+          <span class="overview-label">外币空头负债</span>
+          <strong>{{ store.quota ? shortPositions.length : '—' }} <small>笔待回补</small></strong>
+          <span>全仓参考回补成本 金 {{ formatFxAmount(store.quota?.short_cover_cost, 2) }}</span>
+          <span class="overview-link">查看欠币与回补 ↓</span>
+        </a>
+        <div class="debt-overview-card">
+          <span class="overview-label">共用保证金率</span>
+          <strong>{{ marginPct }}</strong>
+          <span>未锁定现金 金 {{ formatFxAmount(store.quota?.available_cash, 2) }}</span>
+          <span>锁定空头所得 金 {{ formatFxAmount(store.quota?.restricted_cash, 2) }}</span>
+        </div>
+      </div>
+
+      <section id="short-debt" class="panel short-debt-panel" aria-labelledby="short-debt-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="short-debt-heading">外币空头贷款</h2>
+            <p class="section-intro">这里是你借入并卖出的外币。欠币包含利息，需买回对应外币归还。</p>
+          </div>
+          <span class="short-count">{{ store.quota ? shortPositions.length : '—' }} 笔空头</span>
+        </div>
+        <p v-if="!store.quota" class="short-empty">{{ store.error ? '负债读取失败，请刷新后查看空头。' : '正在读取空头负债…' }}</p>
+        <div v-else-if="shortPositions.length" class="short-debt-list">
+          <article v-for="position in shortPositions" :key="position.pair_id" class="short-debt-card">
+            <div class="section-heading">
+              <h3>{{ position.currency_code }} <span class="short-tag">空头</span></h3>
+              <span class="position-status" :class="{ blocked: !position.executable }">{{ position.executable ? '可获取回补报价' : '回补受限' }}</span>
+            </div>
+            <div class="short-debt-amount">
+              <span>待归还 · 含待计利息</span>
+              <strong>{{ formatFxAmount(position.pending_short_debt, 6) }} <small>{{ position.currency_code }}</small></strong>
+            </div>
+            <dl class="short-details">
+              <div><dt>借入本金</dt><dd>{{ formatFxAmount(position.principal_foreign, 6) }} {{ position.currency_code }}</dd></div>
+              <div><dt>已结利息 / 待计利息</dt><dd>{{ formatFxAmount(position.interest_foreign, 6) }} / {{ formatFxAmount(pendingInterest(position), 6) }} {{ position.currency_code }}</dd></div>
+              <div><dt>本仓锁定所得</dt><dd>金 {{ formatFxAmount(position.restricted_gold) }}</dd></div>
+              <div><dt>全仓参考回补成本</dt><dd>{{ position.reference_cover_cost == null ? '估值待恢复' : `金 ${formatFxAmount(position.reference_cover_cost)}` }}</dd></div>
+              <div><dt>参考回补手续费（已含）</dt><dd>金 {{ formatFxAmount(position.reference_cover_fee) }}</dd></div>
+            </dl>
+            <p v-if="!position.executable || position.blocked_reason" class="position-warning">{{ position.blocked_reason || '暂无法执行全仓回补，请在交易面板查看具体报价。' }}</p>
+            <div class="short-card-footer">
+              <span>回补成本含息、手续费与滑点，以成交报价为准。</span>
+              <router-link :to="{ path: '/fx', query: { pair: position.pair_id, action: 'cover' } }" class="cover-link">买回归还 {{ position.currency_code }} →</router-link>
+            </div>
+          </article>
+        </div>
+        <div v-else class="short-empty">
+          <strong>暂无待回补的外币空头</strong>
+          <p>开空后，借入的外币和待归还利息会集中显示在这里。</p>
+          <router-link :to="{ path: '/fx', query: { action: 'open' } }">前往外汇做空 →</router-link>
+        </div>
+        <p class="short-note">空头所得已包含在总现金中，锁定用于本仓回补，不能用于消费或偿还金圆券借款。全部资产共享保证金。</p>
+      </section>
+
       <section v-if="policy" class="panel liq-panel">
         <h2>{{ policy.unified_credit_enabled ? '统一信贷：预测市场与外汇共用额度' : '预测市场借款' }}</h2>
         <template v-if="policy.unified_credit_enabled">
           <p class="liq-intro">
             借入的是金圆券，可用于预测市场和外汇交易。现金、预测市场持仓及各外汇持仓共同支持授信，外币回补义务也占用额度，
-            无需另开 FX 贷款。
+            金圆券借款和外币空头负债在此统一查看。
           </p>
           <p v-if="policy.credit_leverage != null" class="liq-intro">
             当前名义杠杆上限 <strong>{{ policy.credit_leverage }}x</strong>，
@@ -134,7 +217,7 @@ async function repayAll() {
           </p>
           <p class="liq-intro">
             任一持仓亏损都会影响共用额度；触发强平时，其他预测市场或外汇持仓也可能被卖出还债。
-            自持外币需先卖成金圆券才能偿还金债；欠币须在外汇页回补。
+            自持外币需先卖成金圆券才能偿还金债；欠币可从上方空头卡片进入外汇右侧面板回补。
           </p>
         </template>
         <p v-else class="liq-intro">
@@ -146,7 +229,7 @@ async function repayAll() {
         {{ policyError ? '暂无法确认当前杠杆与强平规则，请刷新页面重试。' : '模式、杠杆及强平说明以服务器当前生效配置为准。' }}
       </NAlert>
 
-      <section class="panel">
+      <section id="gold-loan" class="panel">
         <h2>金圆券借款（含息）</h2>
         <div class="debt-number" :class="{ red: debtNumber > 0 }">
           {{ store.quota?.debt ?? '—' }}
@@ -170,10 +253,6 @@ async function repayAll() {
         <NAlert v-if="store.quota.risk_status === 'blocked'" type="warning" title="风险检查阻塞">
           {{ store.quota.blocked_reason || '估值待恢复，新增风险暂不可用。' }}
         </NAlert>
-        <p v-for="position in store.quota.short_positions" :key="position.pair_id">
-          {{ position.currency_code }} 欠币 {{ position.pending_short_debt ?? '—' }}；回补参考成本 金 {{ position.reference_cover_cost ?? '—' }}。
-          <span v-if="!position.executable">{{ position.blocked_reason || '暂不可执行' }}</span>
-        </p>
       </section>
 
       <NDivider />
@@ -338,7 +417,8 @@ async function repayAll() {
 <style scoped>
 .loan-page {
   padding: 16px;
-  max-width: 640px;
+  max-width: 1040px;
+  margin: 0 auto;
 }
 .panel {
   margin-bottom: 16px;
@@ -350,7 +430,7 @@ async function repayAll() {
   font-size: 40px;
   font-weight: 700;
 }
-.debt-number.red {
+.debt-number.red, .red {
   color: var(--color-down);
 }
 .meta {
@@ -396,6 +476,51 @@ async function repayAll() {
 }
 h2, h3 {
   margin: 0 0 8px 0;
+}
+
+.loan-header, .section-heading, .short-card-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.loan-header { margin-bottom: 20px; }
+.loan-header h1 { margin: 4px 0 8px; font-size: 28px; font-weight: 800; }
+.loan-header p, .section-intro { margin: 0; font-size: 13px; color: #555; line-height: 1.6; }
+.loan-eyebrow { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; }
+.debt-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+.debt-overview-card { display: flex; flex-direction: column; gap: 8px; border: 2px solid #000; padding: 16px; color: #000; background: #fff; text-decoration: none; font-size: 12px; }
+a.debt-overview-card:hover { box-shadow: 3px 3px 0 #000; }
+.overview-label { font-weight: 700; }
+.debt-overview-card > strong { font-size: 26px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.debt-overview-card small { font-size: 13px; }
+.overview-link { margin-top: auto; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.short-overview { background: #000; color: #fff; border-top: 6px solid #000; padding-top: 12px; }
+.short-debt-panel { border-top: 6px solid #000; }
+#short-debt, #gold-loan { scroll-margin-top: 90px; }
+.short-count, .short-tag { border: 1px solid #000; background: #000; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 700; }
+.short-tag { vertical-align: middle; margin-left: 6px; }
+.short-debt-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.short-debt-card { border: 2px solid #000; padding: 16px; background: #fafafa; min-width: 0; }
+.short-debt-card h3 { margin: 0; font-size: 18px; }
+.position-status { color: #555; font-size: 12px; }
+.position-status.blocked, .position-warning { color: #b45309; }
+.short-debt-amount { display: flex; flex-direction: column; gap: 4px; margin: 16px 0; }
+.short-debt-amount > span { color: #555; font-size: 12px; }
+.short-debt-amount strong { font-size: 24px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.short-debt-amount small { font-size: 14px; }
+.short-details { margin: 0; font-size: 12px; }
+.short-details > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid #ddd; }
+.short-details dt { color: #555; flex-shrink: 0; }
+.short-details dd { margin: 0; text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.position-warning { font-size: 12px; line-height: 1.6; }
+.short-card-footer { margin-top: 12px; padding-top: 12px; border-top: 1px solid #000; }
+.short-card-footer > span { font-size: 12px; color: #666; }
+.cover-link { display: inline-block; padding: 9px 12px; background: #000; color: #fff; text-decoration: none; font-weight: 700; font-size: 13px; }
+.cover-link:hover { background: #333; }
+.short-empty { margin-top: 16px; padding: 20px; border: 1px dashed #999; background: #fafafa; font-size: 13px; line-height: 1.7; }
+.short-empty a { color: #000; font-weight: 700; text-underline-offset: 3px; }
+.short-note { margin: 16px 0 0; color: #555; font-size: 12px; line-height: 1.6; }
+@media (max-width: 700px) {
+  .debt-overview, .short-debt-list { grid-template-columns: 1fr; }
+  .loan-page { padding: 12px; }
+  .short-debt-card { padding: 12px; }
+  .cover-link { width: 100%; text-align: center; }
 }
 
 /* ── 强制平仓说明 panel ───────────────────────────── */

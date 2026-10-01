@@ -7,9 +7,11 @@ withDefaults(defineProps<{
   label?: string
   side: TradeSide
   disabled?: boolean
-}>(), { label: '交易', disabled: false })
+  showShort?: boolean
+  shortActive?: boolean
+}>(), { label: '交易', disabled: false, showShort: false, shortActive: false })
 
-const emit = defineEmits<{ select: [side: TradeSide] }>()
+const emit = defineEmits<{ select: [side: TradeSide]; short: [] }>()
 const editing = ref(false)
 const updateEditing = () => {
   const active = document.activeElement
@@ -36,7 +38,7 @@ onBeforeUnmount(() => {
       type="button"
       class="dock-button dock-buy"
       :disabled="disabled"
-      :aria-pressed="side === 'buy'"
+      :aria-pressed="!shortActive && side === 'buy'"
       :aria-label="`买入${label}，前往交易面板`"
       @click="emit('select', 'buy')"
     >买入 <span aria-hidden="true">↓</span></button>
@@ -44,10 +46,11 @@ onBeforeUnmount(() => {
       type="button"
       class="dock-button dock-sell"
       :disabled="disabled"
-      :aria-pressed="side === 'sell'"
+      :aria-pressed="!shortActive && side === 'sell'"
       :aria-label="`卖出${label}，前往交易面板`"
       @click="emit('select', 'sell')"
     >卖出 <span aria-hidden="true">↓</span></button>
+    <button v-if="showShort" type="button" class="dock-button dock-short" :disabled="disabled" :aria-pressed="shortActive" :aria-label="`做空或回补${label}，前往交易面板`" @click="emit('short')">做空 <span aria-hidden="true">↓</span></button>
   </div>
 </template>
 
@@ -85,6 +88,8 @@ onBeforeUnmount(() => {
   font-weight: 800;
   cursor: pointer;
 }
+.dock-short { background: #f0f0f0; color: #000; }
+@media (max-width: 400px) { .mobile-trade-dock { gap: 6px; } .dock-button { padding: 9px 6px; flex-basis: 64px; } }
 .dock-sell { background: #fff; color: #000; }
 .dock-button:focus-visible { outline: 3px solid #555; outline-offset: 3px; }
 .dock-button:disabled { opacity: 0.45; cursor: not-allowed; }

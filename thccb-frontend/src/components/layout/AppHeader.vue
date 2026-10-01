@@ -88,7 +88,7 @@ const handleUserMenuClick = (key: string) => {
         >
           金债 {{ userStore.summary?.debt }}
         </router-link>
-        <RouterLink v-if="userStore.summary?.short_positions?.length" to="/user/portfolio" class="debt-badge" title="外币义务须回补，锁定所得专用于回补">外币欠币</RouterLink>
+        <RouterLink v-if="userStore.summary?.short_positions?.length" to="/loan#short-debt" class="debt-badge" title="查看外币空头贷款与回补义务">空头负债</RouterLink>
         <NDropdown :options="userOptions" @select="handleUserMenuClick" placement="bottom-end">
           <button type="button" class="user-chip" aria-label="账户菜单">
             <div class="user-avatar">
