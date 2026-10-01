@@ -31,12 +31,12 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.credit.cash import available_cash, has_foreign_debt
+from app.services.credit.cash import available_cash
 from app.models.base import User
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
@@ -272,12 +272,29 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     normalized = str(side).lower()
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
-    # 无金债不再等于无风险（spec §6.3/§11）：乐观首试在 User 锁内按索引确认外币
-    # 欠币，存在欠币则释放锁与门闩、重新发现完整依赖后带 GATES 重试。金债>0 时
-    # 短路，不额外查询外币表，保持旧的债务人路径 SQL 形状。
-    requires_credit = unified and normalized == "buy" and (
-        user.debt > 0 or await has_foreign_debt(db, user_id)
-    )
+    # User 锁后同一 SQL 读取外币欠币、锁金及幂等成交。其他 pair 的空头写入
+    # 也要先拿 User 锁，因此此快照不会在资金校验前变旧。普通卖出仍走旧查重路径。
+    if normalized == "buy":
+        short_state = select(
+            func.coalesce(func.sum(FxShortPosition.restricted_gold), Decimal("0")).label("locked"),
+            func.coalesce(func.max(case((
+                (FxShortPosition.principal_foreign > 0)
+                | (FxShortPosition.interest_foreign > 0), 1,
+            ), else_=0)), 0).label("has_debt"),
+        ).where(FxShortPosition.user_id == user_id).subquery()
+        short_locked, has_short_debt, old = (await db.execute(
+            select(short_state.c.locked, short_state.c.has_debt, FxTrade)
+            .select_from(short_state)
+            .outerjoin(FxTrade, and_(FxTrade.user_id == user_id,
+                                     FxTrade.idempotency_key == idempotency_key))
+        )).one()
+        short_locked, has_short_debt = Decimal(short_locked), bool(has_short_debt)
+    else:
+        short_locked, has_short_debt = Decimal("0"), False
+        old = (await db.execute(select(FxTrade).where(
+            FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
+        ))).scalars().first()
+    requires_credit = unified and normalized == "buy" and (user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
         if (credit_deps is None
@@ -301,9 +318,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                      or snapshot.short_debt.interest_foreign > 0)):
             same_pair_short = True
 
-    old = (await db.execute(select(FxTrade).where(
-        FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
-    ))).scalars().first()
     if old is not None:
         # A spot request may only replay a spot trade.  Without the purpose
         # check a spot buy could replay a same-pair short_cover (or a spot sell
@@ -352,7 +366,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
 
     if q.input_amount <= 0 or q.output_amount <= 0:
         raise TradeRejected("trade amount must be positive")
-    if normalized == "buy" and await available_cash(db, user) < q.input_amount:
+    if normalized == "buy" and await available_cash(db, user, locked=short_locked) < q.input_amount:
         raise HTTPException(status_code=400, detail="insufficient cash")
     wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
     trade_now = utcnow()

@@ -29,9 +29,12 @@ async def restricted_cash(session: AsyncSession, user_id: int) -> Decimal:
     return value
 
 
-async def available_cash(session: AsyncSession, user: User) -> Decimal:
+async def available_cash(session: AsyncSession, user: User, *, locked: Decimal | None = None) -> Decimal:
     cash = Decimal(user.cash)
-    locked = await restricted_cash(session, user.id)
+    if locked is None:
+        locked = await restricted_cash(session, user.id)
+    if not locked.is_finite() or locked < ZERO:
+        raise CashInvariantError("invalid restricted cash balance")
     if not cash.is_finite() or cash < locked:
         raise CashInvariantError(f"restricted cash exceeds total cash: cash={cash}, restricted={locked}")
     return cash - locked
