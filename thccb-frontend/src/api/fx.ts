@@ -743,6 +743,10 @@ export const fxApi = {
     return api.get<FxSnapshot>(`/api/v1/fx/pairs/${pairId}/snapshot`)
   },
 
+  getNews(pairId: number): Promise<FxPublicNews[]> {
+    return api.get<FxPublicNews[]>(`/api/v1/fx/pairs/${pairId}/news`)
+  },
+
   getQuote(pairId: number, body: FxQuoteRequest): Promise<FxQuote> {
     return api.post<FxQuote>(`/api/v1/fx/pairs/${pairId}/quote`, body)
   },
