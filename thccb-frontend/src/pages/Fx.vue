@@ -60,6 +60,11 @@ const { data: trades, loading: tradesLoading, failed: tradesFailed, updatedAt: t
 const walletResource = useFxResource<FxWalletPublic>()
 const { data: wallet, loading: walletLoading, failed: walletFailed, updatedAt: walletUpdatedAt } = walletResource
 const newsFeed = ref<FxPublicNews[]>([])
+const newsLoading = ref(false)
+const newsFailed = ref(false)
+const showAllNews = ref(false)
+const visibleNews = computed(() => showAllNews.value ? newsFeed.value : newsFeed.value.slice(0, 5))
+let newsGeneration = 0
 const streamConnected = ref(false)
 const streamFailed = ref(false)
 const marketUpdatedAt = ref('')
@@ -70,6 +75,7 @@ let selectionGeneration = 0
 const quoteUpdatedAt = ref(0)
 const now = ref(Date.now())
 let freshnessTimer: ReturnType<typeof setInterval> | null = null
+let newsRefreshTimer: ReturnType<typeof setInterval> | null = null
 const quoteExpired = computed(() => !!quoteUpdatedAt.value && now.value - quoteUpdatedAt.value >= 30000)
 const streamLabel = computed(() => streamConnected.value ? '实时已连接' : streamFailed.value ? '连接中断 · 正在重连' : '正在连接实时行情')
 /** 图表周期性刷新/成交后强制重载用；同时把 SSE 价格转发给图表组件 */
@@ -408,8 +414,39 @@ async function loadSummary() {
   await summaryResource.load(() => userApi.getSummary())
 }
 
+function mergeNews(items: FxPublicNews[]) {
+  const unique = new Map<string, FxPublicNews>()
+  for (const item of items) {
+    const timestamp = Date.parse(item.published_at ?? '')
+    const key = JSON.stringify([Number.isFinite(timestamp) ? timestamp : item.published_at, item.title, item.body, item.kind])
+    if (!unique.has(key)) unique.set(key, item)
+  }
+  newsFeed.value = [...unique.values()].sort((a, b) =>
+    (Date.parse(b.published_at ?? '') || 0) - (Date.parse(a.published_at ?? '') || 0),
+  )
+}
+
+async function loadNews() {
+  const pid = pairId.value
+  if (pid === null) return
+  const request = ++newsGeneration
+  newsLoading.value = true
+  newsFailed.value = false
+  try {
+    const history = await fxApi.getNews(pid)
+    if (pid === pairId.value && request === newsGeneration) {
+      // Preserve news received through SSE while the history request was in flight.
+      mergeNews([...history, ...newsFeed.value])
+    }
+  } catch {
+    if (pid === pairId.value && request === newsGeneration) newsFailed.value = true
+  } finally {
+    if (request === newsGeneration) newsLoading.value = false
+  }
+}
+
 async function refreshAll() {
-  await Promise.allSettled([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+  await Promise.allSettled([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort(), loadNews()])
 }
 
 // ── SSE ──
@@ -439,11 +476,7 @@ function onFrame(frame: FxPublicFrame) {
     marketUpdatedAt.value = new Date().toLocaleTimeString()
   }
   if (frame.news) {
-    const signature = `${frame.news.published_at ?? ''}|${frame.news.title ?? ''}`
-    const exists = newsFeed.value.some(
-      (n) => `${n.published_at ?? ''}|${n.title ?? ''}` === signature,
-    )
-    if (!exists) newsFeed.value = [frame.news, ...newsFeed.value].slice(0, 30)
+    mergeNews([frame.news, ...newsFeed.value])
   }
 }
 
@@ -459,6 +492,9 @@ function connectStream() {
       if (reconnected) {
         void refreshAll()
         chartReloadToken.value += 1
+      } else {
+        // Catch news published between the initial history read and subscription.
+        void loadNews()
       }
     })
     stream.onError(() => {
@@ -492,13 +528,17 @@ async function selectPair(id: number) {
   quote.value = null
   tradeError.value = null
   newsFeed.value = []
+  newsGeneration++
+  newsLoading.value = false
+  newsFailed.value = false
+  showAllNews.value = false
   walletResource.reset()
   tradeResource.reset()
   receipt.value = null
   snapshot.value = null
   lastTick.value = null
   try {
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort(), loadNews()])
     if (selection === selectionGeneration) connectStream()
   } catch (e) {
     if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
@@ -521,7 +561,7 @@ async function load() {
   try {
     await loadPairs()
     if (pairId.value === null) return
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort(), loadNews()])
     connectStream()
   } catch (e) {
     error.value = mapFxError(e, 'FX 行情加载失败')
@@ -711,15 +751,20 @@ onMounted(() => {
     if (route.query.action === 'cover' || route.query.action === 'open') void openShortTrade()
   })
   freshnessTimer = setInterval(() => { now.value = Date.now() }, 1000)
+  newsRefreshTimer = setInterval(() => {
+    if (!newsLoading.value) void loadNews()
+  }, 30000)
 })
 
 onUnmounted(() => {
+  newsGeneration++
   if (quoteTimer) clearTimeout(quoteTimer)
   quoteGen++
   snapshotGeneration++
   selectionGeneration++
   shortReadGeneration++
   if (freshnessTimer) clearInterval(freshnessTimer)
+  if (newsRefreshTimer) clearInterval(newsRefreshTimer)
   walletResource.reset()
   tradeResource.reset()
   summaryResource.reset()
@@ -1172,16 +1217,24 @@ onUnmounted(() => {
           </p>
         </section>
 
-        <section class="fx-block">
-          <h2>市场新闻 · {{ currencyName }}</h2>
+        <section class="fx-block fx-news-block">
+          <div class="fx-panel-head">
+            <h2>市场新闻 · {{ currencyName }}</h2>
+            <button class="btn-secondary" :disabled="newsLoading" @click="loadNews">{{ newsLoading ? '刷新中…' : '刷新' }}</button>
+          </div>
+          <p v-if="newsFailed" class="fx-error" role="alert">新闻读取失败，请点击刷新重试。</p>
+          <p v-if="newsLoading && !newsFeed.length" class="fx-hint" role="status">正在读取新闻…</p>
           <ul v-if="newsFeed.length" class="fx-news">
-            <li v-for="(n, i) in newsFeed" :key="`${n.published_at}-${i}`">
+            <li v-for="(n, i) in visibleNews" :key="`${n.published_at}-${i}`">
               <div class="fx-news-title">{{ n.title || '未命名事件' }}</div>
               <div class="fx-news-body">{{ n.body }}</div>
               <div class="fx-news-meta">{{ formatTime(n.published_at) }}</div>
             </li>
           </ul>
-          <p v-else class="fx-hint">本次连接尚未收到新闻。此处显示进入页面后收到的公开事件，不代表此前没有发生事件。</p>
+          <p v-else-if="!newsLoading && !newsFailed" class="fx-hint">该币种暂无已发布新闻。</p>
+          <button v-if="newsFeed.length > 5" class="btn-secondary fx-news-toggle" :aria-expanded="showAllNews" @click="showAllNews = !showAllNews">
+            {{ showAllNews ? '收起 · 仅显示最近 5 条' : `查看全部历史新闻（${newsFeed.length} 条）` }}
+          </button>
         </section>
 
         <section class="fx-block fx-trades-block">
@@ -1713,7 +1766,8 @@ onUnmounted(() => {
   grid-column: 1 / -1;
   border-top: 2px solid #000;
 }
-.fx-trades-block .fx-panel-head {
+.fx-trades-block .fx-panel-head,
+.fx-news-block .fx-panel-head {
   padding: 0 0 8px;
   border-bottom: none;
 }
@@ -1745,7 +1799,10 @@ onUnmounted(() => {
   color: #444;
   margin-top: 2px;
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+.fx-news-toggle { margin-top: 10px; }
 .fx-news-meta {
   font-size: 11px;
   color: #666;
