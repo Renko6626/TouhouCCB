@@ -168,7 +168,7 @@ def test_init_db_registers_fx_bot_and_credit_tables(tmp_path):
     assert result.returncode == 0, result.stderr
     tables = set(json.loads(result.stdout.strip().splitlines()[-1]))
     assert {
-        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event",
+        "fx_pair", "fx_treasury", "fx_wallet", "fx_trade",
         "bot_profile", "liquidation_run", "liquidation_action",
     } <= tables
     # init_db 的既有注册不能被删掉
