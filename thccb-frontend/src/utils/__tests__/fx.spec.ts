@@ -69,25 +69,18 @@ describe('min-out 与滑点', () => {
 })
 
 describe('SSE 公开帧白名单', () => {
-  it('只保留行情/公开新闻字段，丢弃 target/shock/future orders/random state', () => {
+  it('只保留行情字段，丢弃私有字段', () => {
     const out = sanitizeFxFrame({
       price: '1.5',
       buy_price: '1.51',
       sell_price: '1.49',
       spread: '0.02',
       volume: '100',
-      target_price: '9.9',
+      gold_reserve: '9.9',
       shock_ratio: '0.2',
       future_orders: [1, 2],
       random_state: { seed: 1 },
       parameter_snapshot: { spent: '5' },
-      news: {
-        title: 'n',
-        body: 'b',
-        kind: 'macro',
-        published_at: '2026-01-01T00:00:00Z',
-        shock_ratio: '0.2',
-      },
     })
     expect(out).not.toBeNull()
     expect(Object.keys(out!)).toEqual([
@@ -96,16 +89,9 @@ describe('SSE 公开帧白名单', () => {
       'sell_price',
       'spread',
       'volume',
-      'news',
     ])
-    expect(out!.news).toEqual({
-      title: 'n',
-      body: 'b',
-      kind: 'macro',
-      published_at: '2026-01-01T00:00:00Z',
-    })
     const serialized = JSON.stringify(out)
-    expect(serialized).not.toContain('target_price')
+    expect(serialized).not.toContain('gold_reserve')
     expect(serialized).not.toContain('shock_ratio')
     expect(serialized).not.toContain('future_orders')
     expect(serialized).not.toContain('random_state')
@@ -113,7 +99,7 @@ describe('SSE 公开帧白名单', () => {
   })
 
   it('裸帧与 SSE 信封都能解析，非法输入返回 null', () => {
-    expect(parseFxFrame('{"price":"1.5","target_price":"9"}')).toEqual({ price: '1.5' })
+    expect(parseFxFrame('{"price":"1.5","gold_reserve":"9"}')).toEqual({ price: '1.5' })
     expect(parseFxFrame('not json')).toBeNull()
     expect(parseFxFrame(null)).toBeNull()
     expect(
@@ -187,10 +173,7 @@ const draftAdmin: FxPairAdmin = {
   updated_at: '2026-01-01T00:00:00Z',
   gold_reserve: '1000',
   foreign_reserve: '1000',
-  target_price: '1',
   initial_price: '1',
-  target_min: '0.5',
-  target_max: '2',
   buy_fee_rate: '0.002',
   sell_fee_rate: '0.002',
 }

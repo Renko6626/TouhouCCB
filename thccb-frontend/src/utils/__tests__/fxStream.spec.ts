@@ -63,7 +63,7 @@ describe('FX envelope 解析', () => {
     MockSource.instances[0]!.emit('snapshot', {
       price: '1.28',
       // 私有/隐藏字段：绝不能进入任何监听器
-      target_price: '999',
+      gold_reserve: '999',
       shock_ratio: '0.1',
       future_orders: [{ side: 'buy' }],
       random_state: 42,
@@ -92,7 +92,7 @@ describe('FX envelope 解析', () => {
     expect(env.history_tail_through_trade_id).toBe(42)
     expect(env.trades?.[0]).toMatchObject({ id: 43, post_price: '1.29000000', gold_volume: '5.000000' })
     expect(env.history_invalidated).toBe(true)
-    expect('target_price' in env).toBe(false)
+    expect('gold_reserve' in env).toBe(false)
     expect('shock_ratio' in env).toBe(false)
     expect('future_orders' in env).toBe(false)
     expect('random_state' in env).toBe(false)
