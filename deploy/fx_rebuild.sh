@@ -61,7 +61,9 @@ services:
       THCCB_READ_ONLY_INSTANCE: "true"
 EOF
 run_tool() {
-    newcompose run --rm --no-deps -T --name "$ONEOFF" backend python scripts/production_fx_rebuild.py "$1" \
+    # The private bind-mounted directory is owned by this deployment account.
+    # Compose's application UID may differ; do not loosen backup permissions.
+    newcompose run --rm --no-deps -T --user "$(id -u):$(id -g)" --name "$ONEOFF" backend python scripts/production_fx_rebuild.py "$1" \
         --run-id "$REBUILD_RUN_ID" --balance "${REBUILD_BALANCE:-0}" \
         --directory "/app/backups/fx-rebuild-$REBUILD_RUN_ID" "${@:2}"
 }
