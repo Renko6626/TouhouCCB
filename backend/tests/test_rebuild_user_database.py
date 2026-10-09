@@ -59,3 +59,13 @@ def test_invalid_payload_and_transaction_rollback(source,tmp_path):
     with pytest.raises(Exception): r.import_data(source,target,data)
     with e.connect() as c: assert c.execute(text('SELECT count(*) FROM "user"')).scalar() == 0
     e.dispose()
+
+
+def test_missing_disabled_account_state_rejected_before_target_mutation(source,tmp_path):
+    target_path = tmp_path / 'damaged-target.db'
+    target = 'sqlite:///' + str(target_path)
+    data = r.export_data(source,{'balance':'1000','dependency_balance':'0','sequence_highwater':{'outcome':200,'fx_pair':0}})
+    del data['rows']['user'][0]['is_active']
+    with pytest.raises(ValueError,match='incomplete identity fields'):
+        r.import_data(source,target,data)
+    assert not target_path.exists()

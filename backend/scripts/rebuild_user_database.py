@@ -171,6 +171,10 @@ def validate(data):
         seen = set()
         for r in rows:
             allowed = set(IDENTITY) | {'cash'} if n == 'user' else set(m.tables[n].c.keys())
+            if n == 'user' and set(r) != allowed:
+                raise ValueError('incomplete identity fields')
+            if n == 'user' and (not isinstance(r['username'],str) or any(type(r[k]) is not bool for k in ('is_active','is_superuser','is_bot'))):
+                raise ValueError('invalid required identity values')
             if not set(r) <= allowed or not isinstance(r['id'],int) or r['id'] <= 0 or r['id'] in seen: raise ValueError('invalid row fields or duplicate id')
             seen.add(r['id'])
             for fk in m.tables[n].foreign_keys:
