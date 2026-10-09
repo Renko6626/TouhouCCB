@@ -185,7 +185,7 @@ jobs:
       group: thccb-production
       cancel-in-progress: false
     needs: [backend, frontend]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626' && vars.FX_REBUILD_PENDING != 'true'
     runs-on: ubuntu-latest
 
     steps:
