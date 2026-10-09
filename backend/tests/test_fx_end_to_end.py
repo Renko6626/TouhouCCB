@@ -31,13 +31,11 @@ from app.core.database import get_async_session
 from app.core.users import create_access_token
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxWalletPublic
 from app.services import site_config
 from app.services.credit.ownership import WriteOwnership
-from app.services.fx import market_data, scheduler
-from app.services.fx.amm import marginal_price
-from app.services.fx.engine import FxEngine
+from app.services.fx import market_data
 from app.services.realtime import MarketEventBroker
 from tests.fx_test_helpers import backfill_fx_history, fx_db  # noqa: F401  (imported fixture)
 
@@ -53,10 +51,7 @@ PAIR_PAYLOAD = {
     "status": "trading",
     "gold_reserve": "1000",
     "foreign_reserve": "1000",
-    "target_price": "1",
     "initial_price": "1",
-    "target_min": "0.5",
-    "target_max": "2",
     "buy_fee_rate": "0.01",
     "sell_fee_rate": "0.01",
 }
@@ -82,7 +77,7 @@ async def ctx(fx_db, monkeypatch):
     owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
     await owner.acquire()
     for module in ("app.api.v1.admin_fx", "app.services.fx.trading",
-                   "app.services.fx.engine", "app.services.fx.scheduler"):
+                   "app.services.fx.liquidity"):
         monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     now = _utcnow()
     admin = User(username="fx-admin", casdoor_id="fx-admin", is_superuser=True,
@@ -126,7 +121,7 @@ async def ctx(fx_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_isolated_owner_keeps_write_guard_active(ctx):
     from app.services.credit.ownership import EconomicWritesDisabled
-    from app.services.fx.engine import OWNERSHIP
+    from app.services.fx.liquidity import OWNERSHIP
 
     OWNERSHIP.require_writes()
     await OWNERSHIP.release()
@@ -150,7 +145,7 @@ async def test_admin_routes_require_superuser_and_trades_require_real_token(ctx)
     assert (await client.get("/api/v1/fx/pairs")).status_code == 200
 
     # A genuine non-superuser JWT is rejected by the production dependency.
-    forbidden_read = await client.get("/api/v1/admin/fx/events", headers=_auth(normal))
+    forbidden_read = await client.get("/api/v1/admin/fx/pairs", headers=_auth(normal))
     assert forbidden_read.status_code == 403
     forbidden_write = await client.post("/api/v1/admin/fx/pairs", json=PAIR_PAYLOAD,
                                         headers=_auth(normal))
@@ -167,9 +162,9 @@ async def test_admin_routes_require_superuser_and_trades_require_real_token(ctx)
     assert unauthenticated.status_code in (401, 403)
 
     # The same admin JWT succeeds on the admin surface.
-    admin_events = await client.get("/api/v1/admin/fx/events", headers=_auth(admin))
+    admin_events = await client.get("/api/v1/admin/fx/pairs", headers=_auth(admin))
     assert admin_events.status_code == 200
-    assert admin_events.json() == []
+    assert len(admin_events.json()) == 1
 
 
 @pytest.mark.asyncio
@@ -298,18 +293,10 @@ async def test_quote_trade_stale_min_out_and_idempotent_replay(ctx):
 
 
 @pytest.mark.asyncio
-async def test_public_api_allowlist_hides_targets_shocks_and_wallets(ctx):
+async def test_public_api_allowlist_hides_private_market_and_wallet_fields(ctx):
     client = ctx.client
-    pair_id = await _create_pair(ctx, target_price="1.25", target_min="0.5", target_max="2")
+    pair_id = await _create_pair(ctx)
     headers = _auth(ctx.trader)
-
-    # A hidden event carries shock / first-reaction / future values in the DB.
-    event = await client.post("/api/v1/admin/fx/events", json={
-        "pair_id": pair_id, "title": "Hidden shock", "body": "internal",
-        "kind": "macro", "shock_ratio": "0.03", "first_reaction_ratio": "0.25",
-        "window_sec": 180, "budget": "50"}, headers=_auth(ctx.admin))
-    assert event.status_code == 200, event.text
-    assert "shock_ratio" in event.json()
 
     buy = await client.post(f"/api/v1/fx/pairs/{pair_id}/trades",
                             json={"side": "buy", "amount": "5", "min_out": "0",
@@ -356,12 +343,6 @@ async def test_public_api_allowlist_hides_targets_shocks_and_wallets(ctx):
     assert len(candles) >= 1
     assert set(candles[0]) == {"bucket_start", "interval", "open", "high", "low", "close", "volume"}
     assert hidden.isdisjoint(candles[0])
-
-    # The operator view must still surface the private parameters.
-    admin_events = (await client.get("/api/v1/admin/fx/events", headers=_auth(ctx.admin))).json()
-    assert admin_events and "shock_ratio" in admin_events[0]
-    assert admin_events[0]["parameter_snapshot"] is None
-
 
 @pytest.mark.asyncio
 async def test_player_wallet_and_personal_trades_are_scoped_to_owner(ctx):
@@ -439,90 +420,6 @@ async def test_all_personal_fx_trades_are_scoped_named_and_limited(ctx):
     assert [r['id'] for r in limited.json()] == [rows[0]['id']]
     assert (await ctx.client.get(url)).status_code == 401
     assert (await ctx.client.get(url, params={'limit': 201}, headers=_auth(ctx.trader))).status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_admin_interventions_are_limited_and_filtered_in_database(ctx):
-    pair_id = await _create_pair(ctx)
-    for index in range(52):
-        ctx.db.add(FxTrade(
-            pair_id=pair_id, side="buy" if index % 2 == 0 else "sell",
-            input_amount=Decimal("1"), output_amount=Decimal("1"),
-            pre_gold_reserve=Decimal("1000"), pre_foreign_reserve=Decimal("1000"),
-            post_gold_reserve=Decimal("1000"), post_foreign_reserve=Decimal("1000"),
-            post_price=Decimal("1"),
-            source="system_target" if index % 2 == 0 else "system_noise",
-        ))
-    await ctx.db.commit()
-    url = f"/api/v1/admin/fx/pairs/{pair_id}/interventions"
-    headers = _auth(ctx.admin)
-
-    recent = await ctx.client.get(url, headers=headers)
-    assert recent.status_code == 200, recent.text
-    assert len(recent.json()) == 50
-    assert [row["id"] for row in recent.json()] == sorted(
-        [row["id"] for row in recent.json()], reverse=True)
-
-    filtered = await ctx.client.get(
-        url, params={"source": "system_target", "side": "buy", "limit": 10}, headers=headers)
-    assert filtered.status_code == 200, filtered.text
-    assert len(filtered.json()) == 10
-    assert all(row["source"] == "system_target" and row["side"] == "buy"
-               for row in filtered.json())
-
-    for bad_limit in (0, 201):
-        response = await ctx.client.get(url, params={"limit": bad_limit}, headers=headers)
-        assert response.status_code == 422
-
-
-@pytest.mark.asyncio
-async def test_public_trade_feed_hides_system_source_but_admin_interventions_expose_it(ctx):
-    """M1: internal system sources must never reach public trade payloads."""
-    client, db = ctx.client, ctx.db
-    pair_id = await _create_pair(ctx)
-    pair = await db.get(FxPair, pair_id)
-    treasury = (await db.execute(select(FxTreasury).where(
-        FxTreasury.pair_id == pair_id))).scalars().one()
-
-    # A real system intervention writes a stored trade with an internal source.
-    engine = FxEngine()
-    now = _utcnow()
-    price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
-    moved = await engine._system_move(db, pair, treasury, price * Decimal("1.02"),
-                                      Decimal("0"), Decimal("100000"),
-                                      source="target", now=now)
-    assert moved and moved.trade.source == "system_target", moved
-    await db.commit()
-
-    # A player trade shares the same public feed.
-    traded = await client.post(
-        f"/api/v1/fx/pairs/{pair_id}/trades",
-        json={"side": "buy", "amount": "5", "min_out": "0",
-              "idempotency_key": "public-feed-m1"},
-        headers=_auth(ctx.trader))
-    assert traded.status_code == 200, traded.text
-    assert "source" not in traded.json()
-
-    public = await client.get(f"/api/v1/fx/pairs/{pair_id}/trades")
-    assert public.status_code == 200, public.text
-    rows = public.json()
-    assert {row["id"] for row in rows} >= {moved.trade.id, traded.json()["id"]}
-    assert all("source" not in row for row in rows)
-    serialized = json.dumps(rows)
-    for internal in ("source", "system_target", "system_event", "system_noise"):
-        assert internal not in serialized
-
-    # Personal history uses the same shape and also hides the field.
-    mine = await client.get(f"/api/v1/fx/pairs/{pair_id}/my-trades",
-                            headers=_auth(ctx.trader))
-    assert mine.status_code == 200, mine.text
-    assert all("source" not in row for row in mine.json())
-
-    # Operators keep the internal origin through the admin-only endpoint.
-    interventions = await client.get(f"/api/v1/admin/fx/pairs/{pair_id}/interventions",
-                                     headers=_auth(ctx.admin))
-    assert interventions.status_code == 200, interventions.text
-    assert any(row["source"] == "system_target" for row in interventions.json())
 
 
 @pytest.mark.asyncio
@@ -609,101 +506,7 @@ async def test_sse_frames_only_expose_allowlisted_market_fields(ctx, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_scheduled_event_gate_off_blocks_publish(ctx, monkeypatch):
-    """With the production gate off a due scheduled event must not run."""
-    client, db = ctx.client, ctx.db
-    pair_id = await _create_pair(ctx)
-    scheduled_at = (_utcnow() - timedelta(seconds=10)).isoformat()
-    created = await client.post("/api/v1/admin/fx/events", json={
-        "pair_id": pair_id, "title": "Scheduled shock", "body": "rates",
-        "kind": "macro", "shock_ratio": "0.01", "first_reaction_ratio": "0.25",
-        "window_sec": 180, "budget": "40", "scheduled_at": scheduled_at},
-        headers=_auth(ctx.admin))
-    assert created.status_code == 200, created.text
-    event_id = int(created.json()["id"])
-    assert created.json()["status"] == "scheduled"
-
-    monkeypatch.setattr(scheduler, "async_session_maker", lambda: db)
-    monkeypatch.setattr(scheduler, "ENGINE", FxEngine(session_factory=lambda: db))
-
-    off = await client.put("/api/v1/admin/fx/config",
-                           json={"key": "fx_enabled", "value": "false"},
-                           headers=_auth(ctx.admin))
-    assert off.status_code == 200, off.text
-    site_config.clear_cache()
-    await scheduler._tick_safe()
-
-    blocked = await db.get(FxEvent, event_id)
-    await db.refresh(blocked)
-    assert blocked.status == "scheduled"
-    assert blocked.published_at is None
-    assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 0
-
-
-@pytest.mark.asyncio
-async def test_scheduled_event_publishes_recovers_and_charges_only_event_spend(ctx, monkeypatch):
-    client, db = ctx.client, ctx.db
-    pair_id = await _create_pair(ctx)
-    scheduled_at = (_utcnow() - timedelta(seconds=10)).isoformat()
-    created = await client.post("/api/v1/admin/fx/events", json={
-        "pair_id": pair_id, "title": "Scheduled shock", "body": "rates",
-        "kind": "macro", "shock_ratio": "0.01", "first_reaction_ratio": "0.25",
-        "window_sec": 180, "budget": "40", "scheduled_at": scheduled_at},
-        headers=_auth(ctx.admin))
-    assert created.status_code == 200, created.text
-    event_id = int(created.json()["id"])
-    assert created.json()["status"] == "scheduled"
-
-    monkeypatch.setattr(scheduler, "async_session_maker", lambda: db)
-    monkeypatch.setattr(scheduler, "ENGINE", FxEngine(session_factory=lambda: db))
-    on = await client.put("/api/v1/admin/fx/config",
-                          json={"key": "fx_enabled", "value": "true"},
-                          headers=_auth(ctx.admin))
-    assert on.status_code == 200, on.text
-    site_config.clear_cache()
-
-    # A real scheduler scan publishes the overdue event exactly once.
-    await scheduler._tick_safe()
-    saved = await db.get(FxEvent, event_id)
-    await db.refresh(saved)
-    assert saved.status == "published", saved.error_message
-    first_trade_id = saved.parameter_snapshot["first_trade_id"]
-    publishes = (await db.execute(select(func.count()).select_from(AuditEvent)
-                                  .where(AuditEvent.event_type == "fx_event_publish"))).scalar_one()
-    assert publishes == 1
-    pair = await db.get(FxPair, pair_id)
-    await db.refresh(pair)
-    assert pair.target_price == Decimal("1.01")
-
-    # Recovery: a fresh scan over the same DB state must not repeat first action.
-    await scheduler._tick_safe()
-    await db.refresh(saved)
-    assert saved.parameter_snapshot["first_trade_id"] == first_trade_id
-    assert (await db.execute(select(func.count()).select_from(AuditEvent)
-                             .where(AuditEvent.event_type == "fx_event_publish"))).scalar_one() == 1
-
-    # Advance the event window; the engine must charge only this event's spend.
-    await scheduler.ENGINE.tick(now=_utcnow() + timedelta(seconds=90))
-    await db.refresh(saved)
-    await db.refresh(pair)
-    treasury = (await db.execute(select(FxTreasury).where(
-        FxTreasury.pair_id == pair_id))).scalars().one()
-
-    event_buys = (await db.execute(select(FxTrade).where(
-        FxTrade.pair_id == pair_id, FxTrade.source == "system_event",
-        FxTrade.side == "buy"))).scalars().all()
-    event_input_total = sum((t.input_amount for t in event_buys), Decimal("0"))
-    spent = Decimal(str(saved.parameter_snapshot["spent"]))
-    assert spent > 0
-    assert spent == event_input_total
-    assert spent <= Decimal("40")
-    assert treasury.daily_spend >= spent
-    assert (await db.execute(select(func.count()).select_from(FxTrade)
-                             .where(FxTrade.source == "system_event"))).scalar_one() >= 2
-
-
-@pytest.mark.asyncio
-async def test_system_move_conserves_each_currency_and_fund_withdraw_totals(ctx):
+async def test_fund_withdraw_preserves_explicit_currency_issuance(ctx):
     client, db = ctx.client, ctx.db
     pair_id = await _create_pair(ctx)
     pair = await db.get(FxPair, pair_id)
@@ -711,35 +514,6 @@ async def test_system_move_conserves_each_currency_and_fund_withdraw_totals(ctx)
         FxTreasury.pair_id == pair_id))).scalars().one()
     gold_start = pair.gold_reserve + treasury.gold_balance
     foreign_start = pair.foreign_reserve + treasury.foreign_balance
-    spend_start = treasury.daily_spend
-
-    engine = FxEngine()
-    now = _utcnow()
-    price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
-    bought = await engine._system_move(db, pair, treasury, price * Decimal("1.02"),
-                                       Decimal("0"), Decimal("100000"),
-                                       source="e2e-buy", now=now)
-    assert bought and bought.trade.side == "buy"
-    await db.commit()
-    await db.refresh(pair)
-    await db.refresh(treasury)
-    assert pair.gold_reserve + treasury.gold_balance == gold_start
-    assert pair.foreign_reserve + treasury.foreign_balance == foreign_start
-
-    price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
-    sold = await engine._system_move(db, pair, treasury, price * Decimal("0.98"),
-                                     Decimal("0"), Decimal("100000"),
-                                     source="e2e-sell", now=now)
-    assert sold and sold.trade.side == "sell"
-    await db.commit()
-    await db.refresh(pair)
-    await db.refresh(treasury)
-    assert pair.gold_reserve + treasury.gold_balance == gold_start
-    assert pair.foreign_reserve + treasury.foreign_balance == foreign_start
-    spend_after_system = treasury.daily_spend
-    assert spend_after_system > spend_start
-
-    # Operator funding/withdrawal only move explicit issuance, not budget spend.
     fund = await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/fund",
                              json={"gold_amount": "50", "foreign_amount": "60"},
                              headers=_auth(ctx.admin))
@@ -754,7 +528,6 @@ async def test_system_move_conserves_each_currency_and_fund_withdraw_totals(ctx)
     # the per-currency system total grows by 2*fund - 2*withdraw.
     assert pair.gold_reserve + treasury.gold_balance == gold_start + Decimal("80")
     assert pair.foreign_reserve + treasury.foreign_balance == foreign_start + Decimal("80")
-    assert treasury.daily_spend == spend_after_system
 
     # Funding/withdrawal cannot be performed by a normal player.
     denied = await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/fund",
@@ -835,7 +608,6 @@ async def test_season_reset_clears_fx_and_preserves_redemption_records(monkeypat
                         pre_gold_reserve=Decimal("100"), pre_foreign_reserve=Decimal("100"),
                         post_gold_reserve=Decimal("101"), post_foreign_reserve=Decimal("99"),
                         post_price=Decimal("1.02")),
-                FxEvent(pair_id=pair.id, title="event", kind="macro"),
                 RedemptionTransaction(user_id=user.id, amount=Decimal("5"),
                                       batch_name_snapshot="kept"),
                 DanmukuExchange(user_id=user.id, qq_user_id="1", room_id="r",
@@ -851,7 +623,7 @@ async def test_season_reset_clears_fx_and_preserves_redemption_records(monkeypat
 
     # Dry run must be read-only: FX rows, gate and redemption rows all survive.
     assert await season_reset.run(dry_run=True) == 0
-    for model in (FxWallet, FxTrade, FxEvent, FxTreasury, FxPair):
+    for model in (FxWallet, FxTrade, FxTreasury, FxPair):
         assert await _count(sessions, model) == 1
     assert await _count(sessions, RedemptionTransaction) == 1
     assert await _count(sessions, DanmukuExchange) == 1
@@ -859,7 +631,7 @@ async def test_season_reset_clears_fx_and_preserves_redemption_records(monkeypat
     monkeypatch.setattr("builtins.input", lambda *_: "RESET")
     assert await season_reset.run(dry_run=False) == 0
 
-    for model in (FxWallet, FxTrade, FxEvent, FxTreasury, FxPair):
+    for model in (FxWallet, FxTrade, FxTreasury, FxPair):
         assert await _count(sessions, model) == 0
     assert await _count(sessions, RedemptionTransaction) == 1
     assert await _count(sessions, DanmukuExchange) == 1
