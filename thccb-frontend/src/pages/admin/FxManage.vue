@@ -39,10 +39,10 @@ const editError = ref<string | null>(null)
 const editForm = ref({ currency_code: '', currency_name: '', buy_fee_rate: '', sell_fee_rate: '', short_lending_limit_foreign: '0' })
 
 const CONFIG_LABELS: Record<string, string> = {
-  fx_enabled: 'FX 总闸（默认关闭）',
+  fx_enabled: 'FX 交易总闸',
   fx_short_enabled: '开空闸（默认关闭，不阻止回补）',
 }
-const CONFIG_ORDER = Object.keys(CONFIG_LABELS)
+const CONFIG_ORDER = ['fx_short_enabled']
 
 const PAIR_STATUS_LABELS: Record<string, string> = {
   draft: '草稿',
@@ -408,8 +408,7 @@ onMounted(async () => {
             <span>{{ CONFIG_LABELS[key] }}<code>{{ key }}</code></span>
             <small class="fx-config-description">{{ getConfigMeta(key).description }}</small>
             <div class="fx-config-row">
-              <select v-if="key === 'fx_short_enabled'" v-model="configDraft[key]" class="fx-input"><option value="false">关闭新增开空</option><option value="true">允许新增开空（仍需额度与风控）</option></select>
-              <input v-else v-model="configDraft[key]" class="fx-input" :disabled="key === 'fx_enabled'" />
+              <select v-model="configDraft[key]" class="fx-input"><option value="false">关闭新增开空</option><option value="true">允许新增开空（仍需额度与风控）</option></select>
               <button class="btn-sm" @click="saveConfigValue(key, configDraft[key] ?? '')">保存</button>
             </div>
           </label>

@@ -293,6 +293,8 @@ const configsByGroup = computed<Record<ConfigGroup, SiteConfigItem[]>>(() => {
     display: [], fx: [], loan: [], liquidation: [], anti_bot: [], economy: [], general: [],
   }
   for (const c of configs.value) {
+    // FX 开关统一在 FX 管理中操作；站点配置接口不支持保存 fx_enabled。
+    if (c.key === 'fx_enabled' || c.key === 'fx_short_enabled') continue
     const meta = getConfigMeta(c.key)
     groups[meta.group].push(c)
   }
@@ -372,6 +374,9 @@ onMounted(load)
 
       <section class="panel">
         <h2>站点配置</h2>
+        <p class="config-description">
+          FX 交易总闸和开空闸请前往 <RouterLink to="/admin/fx">FX 管理</RouterLink> 设置。
+        </p>
 
         <div
           v-for="group in groupOrder()"
