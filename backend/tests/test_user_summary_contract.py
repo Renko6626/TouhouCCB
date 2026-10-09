@@ -78,8 +78,8 @@ async def test_summary_new_contract_shape(client):
         "outcome_id": oid, "market_id": mid,
         "amount": 10.5, "cost_basis": 5.123456,
     }]
-    assert body["margin_status"] == "healthy"
-    assert body["liquidation_protected"] is False
+    assert body["risk_status"] == "healthy"
+
     assert isinstance(body["sell_fee_rate"], (int, float))
     # rank_thresholds：6 条、降序、末条 null 兜底
     rt = body["rank_thresholds"]
@@ -97,7 +97,7 @@ async def test_summary_margin_status_still_server_side(client):
     _, h = await _make_user(cash=Decimal("400"), debt=Decimal("1000"))
     r = await client.get("/api/v1/user/summary", headers=h)
     assert r.status_code == 200, r.text
-    assert r.json()["margin_status"] == "danger"
+    assert r.json()["risk_status"] == "danger"
 
 
 @pytest.mark.asyncio

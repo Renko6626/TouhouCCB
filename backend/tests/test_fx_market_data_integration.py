@@ -190,11 +190,14 @@ async def test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_
         assert (await _all_1m_candles(pair_id))[0]["n"] == 1
 
         # In-session execution followed by a rollback must leave nothing behind.
-        async with async_session_maker() as db:
-            execution = await trading.execute_trade_in_session(
-                db, user_id, pair_id, "buy", Decimal("5"), Decimal("0"), "itg-2")
-            assert execution.replay is False
-            await db.rollback()
+        from app.services.credit.gates import GATES
+        from app.services.credit.keys import GroupKey
+        async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
+            async with async_session_maker() as db:
+                execution = await trading.execute_trade_in_session(
+                    db, user_id, pair_id, "buy", Decimal("5"), Decimal("0"), "itg-2")
+                assert execution.replay is False
+                await db.rollback()
         await FX_MARKET_DATA.catch_up(pair_id)
         await FX_MARKET_DATA.flush_once()
         assert (await _all_1m_candles(pair_id))[0]["n"] == 1

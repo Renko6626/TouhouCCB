@@ -362,7 +362,9 @@ async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx
         response = await getattr(client, method)(f'/api/v1/admin/fx/pairs/{pair_id}{suffix}', **kwargs)
         assert response.status_code == 409, response.text
         assert 'short' in response.json()['detail'].lower()
-        await db.refresh(pair); await db.refresh(treasury); await db.refresh(short)
+        pair = await db.get(FxPair, pair_id)
+        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
+        short = (await db.execute(select(FxShortPosition).where(FxShortPosition.pair_id == pair_id, FxShortPosition.user_id == user.id))).scalar_one()
         assert before == (pair.status, pair.archived, pair.pool_version, pair.gold_reserve,
                           pair.foreign_reserve, treasury.gold_balance, treasury.foreign_balance)
         assert audit_ids == [a.id for a in (await db.execute(select(AuditEvent))).scalars()]

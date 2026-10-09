@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # 放 tmpfs（/dev/shm）：每个测试 drop_all+create_all 的 fsync 是整套测试的主要耗时
 # （480 测 × ~0.8s setup），/tmp 在磁盘上；/dev/shm 不存在时回落 /tmp。
 _PYTEST_DB_DIR = "/dev/shm" if os.path.isdir("/dev/shm") else "/tmp"
-os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest.db")
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest_{os.getpid()}.db")
 
 import pytest
 import pytest_asyncio
@@ -132,13 +132,17 @@ async def setup_db():
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
+    from app.services.credit import flags as credit_flags
+    credit_flags.clear_flags()
     from app.api.v1.market import clear_leaderboard_cache
     clear_leaderboard_cache()
     async with async_session_maker() as s:
         async with s.begin():
-            s.add(SiteConfig(
-                key="activity_mode_enabled", value="false", value_type="bool",
-            ))
+            s.add_all([
+                SiteConfig(key="activity_mode_enabled", value="false", value_type="bool"),
+                SiteConfig(key="credit_leverage", value="2", value_type="decimal"),
+                SiteConfig(key="credit_maintenance_ratio", value="0.2", value_type="decimal"),
+            ])
     yield
 
 

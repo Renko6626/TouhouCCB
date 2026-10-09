@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
 from app.models.base import Market, Outcome, Position, SiteConfig, User
-from app.services import audit_replay, audit_service, liquidation_service
+from app.services import audit_replay, audit_service
 from app.services.loan_sweep import run_sweep_once
 from app.services.market_locks import lock_user
 from app.services.market_writer import WRITER
@@ -103,7 +103,8 @@ async def _scenario(client, *, writer: bool):
     # audit anchor agrees with the debt row; retroactively editing only the DB
     # clock would correctly be detected as unaudited history by replay.
     prior = datetime.now(timezone.utc) - timedelta(days=1)
-    with patch("app.services.loan_service._compat_now", return_value=prior):
+    with patch("app.api.v1.loan.datetime", wraps=datetime) as clock:
+        clock.now.return_value = prior
         r = await client.post("/api/v1/loan/borrow", json={"amount": "100"}, headers=h)
     assert r.status_code == 200, r.text
     assert await run_sweep_once() == 1
@@ -118,7 +119,7 @@ async def _scenario(client, *, writer: bool):
     r = await client.post(f"/api/v1/admin/users/{alice_uid}/cash", headers=ah,
                           json={"amount": "50", "reason": "t"})
     assert r.status_code == 200, r.text
-    r = await client.put("/api/v1/admin/site-config/sell_fee_rate", headers=ah, json={"value": "0.03"})
+    r = await client.put("/api/v1/admin/site-config/liquidation_partial_pct", headers=ah, json={"value": "0.25"})
     assert r.status_code == 200, r.text
 
     # 结算：A 赢，payout 1
@@ -168,7 +169,7 @@ async def test_full_scenario_emits_events_and_replays_consistently(client, write
     assert Decimal(rep.payload["interest_accrued"]) >= 0
 
     cfg = (await _events(event_type="config_set"))[0]
-    assert cfg.payload == {"key": "sell_fee_rate", "old": "0.02", "new": "0.03", "value_type": "decimal"}
+    assert cfg.payload == {"key": "liquidation_partial_pct", "old": "0.5", "new": "0.25", "value_type": "decimal"}
     assert cfg.operator_user_id == admin_uid
 
     settle = (await _events(event_type="market_settle"))[0]
@@ -196,97 +197,8 @@ async def test_full_scenario_emits_events_and_replays_consistently(client, write
     assert snap_t.users[alice_uid].cash == Decimal(b0.user_after["cash"])
 
 
-@pytest.mark.asyncio
-async def test_liquidation_legacy_path_events_consistent(client):
-    """service 层直接强平：trade_liquidate（每仓位）+ liquidation_repay + liquidation 汇总。"""
-    async with async_session_maker() as s:
-        u = User(username="liq", casdoor_id="c_liq", cash=Decimal("10"), debt=Decimal("50"),
-                 debt_last_accrued_at=datetime.now(timezone.utc))
-        m = Market(title="m", liquidity_b=100.0, tags="")
-        s.add(u); s.add(m); await s.flush()
-        oa = Outcome(market_id=m.id, label="A", total_shares=Decimal("200"))
-        ob = Outcome(market_id=m.id, label="B", total_shares=Decimal("100"))
-        s.add(oa); s.add(ob); await s.flush()
-        pos = Position(user_id=u.id, outcome_id=oa.id, amount=Decimal("100"), cost_basis=Decimal("60"))
-        s.add(pos)
-        # 锚定（让折叠器能做增量校验）：手工补「市场 q=[100,100] → 注册时现金 70 → 用 60 买 100 股 → 现金 10」
-        oa.total_shares = Decimal("100")
-        audit_service.record(s, "market_create", market_id=m.id,
-                             market_after=await audit_service.market_snapshot_from_db(s, m.id))
-        oa.total_shares = Decimal("200")
-        u.cash = Decimal("70")
-        audit_service.record(s, "user_register", user_id=u.id, user_after=audit_service.user_snapshot(u))
-        u.cash = Decimal("10")
-        audit_service.record(
-            s, "trade_buy", user_id=u.id, market_id=m.id, outcome_id=oa.id,
-            payload={"shares": "100", "cost": "60", "path": "seed"},
-            user_after=audit_service.user_snapshot(u),
-            position_after=audit_service.position_snapshot(pos),
-            market_after=await audit_service.market_snapshot_from_db(s, m.id),
-        )
-        await s.commit()
-        uid = u.id
-
-    async with async_session_maker() as db:
-        async with db.begin():
-            user = await lock_user(db, uid)
-            ev = await liquidation_service.liquidate_user(
-                db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
-                partial_pct=Decimal("1.0"), target_margin=Decimal("0.3"),
-                emergency_threshold=Decimal("0.05"))
-    assert ev.sold_positions_count == 1
-
-    types = [e.event_type for e in await _events()]
-    assert types[-3:] == ["trade_liquidate", "liquidation_repay", "liquidation"]
-    liq = (await _events(event_type="trade_liquidate"))[0]
-    assert liq.position_after["amount"] == "0" and liq.payload["mode"] in ("emergency", "partial")
-    assert liq.market_after["q"][0] == "100.000000"
-    summ = (await _events(event_type="liquidation"))[0]
-    assert summ.ref_table == "liquidation_events" and summ.ref_id == ev.id
-    assert Decimal(summ.payload["remaining_debt"]) == 0
-
-    _, snap, mism, live = await _fold_and_verify()
-    assert mism == [], mism
-    assert live == [], live
 
 
-@pytest.mark.asyncio
-async def test_liquidation_writer_split_path_events_consistent(client):
-    """writer 开启时走 liquidate_user_split：LiquidateMarketCmd 每仓位事件 + 阶段 C 还债/汇总。"""
-    await WRITER.start()
-    admin_uid, ah = await _dev_login(client, "admin_w")
-    uid, h = await _dev_login(client, "bob_w")
-    r = await client.post("/api/v1/market/create", headers=ah, json={
-        "title": "m", "description": "", "liquidity_b": 100, "outcomes": ["A", "B"], "tags": []})
-    mid = r.json()["market_id"]
-    async with async_session_maker() as s:
-        oids = list((await s.execute(
-            select(Outcome.id).where(Outcome.market_id == mid).order_by(Outcome.id))).scalars().all())
-    r = await client.post("/api/v1/market/buy", headers=h,
-                          json={"outcome_id": oids[0], "shares": "200", "accept_any_slippage": True})
-    assert r.status_code == 200, r.text
-    # 把人推到水下：强制放贷 + 把现金清到几乎为 0
-    r = await client.post(f"/api/v1/admin/users/{uid}/loan", headers=ah, json={"amount": "900", "reason": "t"})
-    assert r.status_code == 200, r.text
-    async with async_session_maker() as s:
-        cash = (await s.execute(select(User.cash).where(User.id == uid))).scalar_one()
-    r = await client.post(f"/api/v1/admin/users/{uid}/cash", headers=ah,
-                          json={"amount": str(-(cash - Decimal("1"))), "reason": "t"})
-    assert r.status_code == 200, r.text
-
-    res = await liquidation_service.liquidate_user_split(
-        uid, daily_rate=Decimal("0.01"), trigger_source="admin_manual",
-        partial_pct=Decimal("0.5"), target_margin=Decimal("0.3"),
-        emergency_threshold=Decimal("0.05"), hard_threshold=Decimal("0.2"))
-    assert res is not None and res.sold_positions_count >= 1
-
-    liq = await _events(event_type="trade_liquidate")
-    assert liq and all(e.payload["path"] == "writer" for e in liq)
-    assert [e.event_type for e in await _events()][-2:] == ["liquidation_repay", "liquidation"]
-
-    _, snap, mism, live = await _fold_and_verify()
-    assert mism == [], mism
-    assert live == [], live
 
 
 @pytest.mark.asyncio

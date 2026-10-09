@@ -23,7 +23,7 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 async def unified(pg_sessionmaker, monkeypatch):
     for module in (execution, sweep, market_writer, writer_ops):monkeypatch.setattr(module,'async_session_maker',pg_sessionmaker)
     monkeypatch.setattr(OWNERSHIP,'_writes_enabled',True)
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,credit_leverage=D('20'),credit_maintenance_ratio=D('.04')))
+    flags.set_flags(flags.CreditFlags(credit_leverage=D('20'),credit_maintenance_ratio=D('.04')))
     site_config.clear_cache()
     yield
     await market_writer.WRITER.stop()

@@ -91,7 +91,7 @@ const orderSubmitter = new FxOrderSubmitter()
 
 const summaryResource = useFxResource<UserSummary>()
 const { data: summary, loading: summaryLoading, failed: summaryFailed, updatedAt: summaryUpdatedAt } = summaryResource
-const receipt = ref<{ trade: FxTradePublic; currency: string; autoRepay: boolean | null } | null>(null)
+const receipt = ref<{ trade: FxTradePublic; currency: string } | null>(null)
 const quoteReferencePrice = ref<string | null>(null)
 
 const activePair = computed(() => snapshot.value?.pair.id === pairId.value
@@ -622,8 +622,6 @@ async function submitTrade() {
     receipt.value = {
       trade,
       currency: currencyName.value,
-      autoRepay: summary.value && !summaryFailed.value
-        ? !!summary.value.unified_credit_enabled : null,
     }
     msg.success(trade.side === 'buy'
       ? `买入成功，实际到账 ${formatFxAmount(trade.output_amount)} ${currencyName.value}`
@@ -911,7 +909,7 @@ onUnmounted(() => {
                 账户刷新失败{{ summary ? '，所示余额和规则为上次快照，暂不能买入' : '' }}。
                 <button class="fx-wallet-retry" :disabled="summaryLoading" @click="loadSummary">重新加载账户</button>
               </p>
-              <p v-if="summary?.unified_credit_enabled && summary.debt > 0" class="fx-hint">
+              <p v-if="summary && summary.debt > 0" class="fx-hint">
                 当前有借款，买入需通过成交时的风控检查；可用现金不代表可安全投入额度。
                 <router-link to="/loan">查看借款与风控</router-link>
               </p>
@@ -974,7 +972,7 @@ onUnmounted(() => {
                 <span v-else-if="quoteUpdatedAt">报价更新于 {{ new Date(quoteUpdatedAt).toLocaleTimeString() }} · 30 秒内可提交</span>
                 <span v-else>填写金额后获取报价</span>
               </div>
-              <div v-if="side === 'sell' && summary?.unified_credit_enabled" class="fx-preview">
+              <div v-if="side === 'sell' && summary" class="fx-preview">
                 <div class="fx-preview-row"><span>预计用于还债</span><strong>{{ formatFxAmount(sellAllocation?.repayment) }} 金圆券</strong></div>
                 <div class="fx-preview-row"><span>预计现金净增加</span><strong>{{ formatFxAmount(sellAllocation?.cashIncrease) }} 金圆券</strong></div>
                 <p class="fx-hint">卖出所得优先偿还借款。这里按最近账户快照估算，实际还款含成交时利息，以账户记录为准。</p>
@@ -1106,7 +1104,7 @@ onUnmounted(() => {
           {{ receipt.trade.side === 'buy' ? '实际到账' : '实际成交所得' }} {{ formatFxAmount(receipt.trade.output_amount) }} {{ receipt.trade.side === 'buy' ? receipt.currency : '金圆券' }}。</p>
         <p>手续费 {{ formatFxAmount(receipt.trade.fee_amount) }} {{ receipt.trade.side === 'buy' ? '金圆券' : receipt.currency }}（已含）；
           成交均价 {{ formatFxPrice(fxGoldPerForeign(receipt.trade)) }} 金圆券 / {{ receipt.currency }}。</p>
-        <p v-if="receipt.trade.side === 'sell' && receipt.autoRepay !== false" class="fx-hint">如有借款，统一信贷模式下所得会优先还债，成交所得不等于现金净增加。本笔实际还债明细暂未提供，请核对刷新后的余额和负债。</p>
+        <p v-if="receipt.trade.side === 'sell'" class="fx-hint">如有借款，所得会优先还债，成交所得不等于现金净增加。本笔实际还债明细暂未提供，请核对刷新后的余额和负债。</p>
         <p class="fx-hint">{{ formatTime(receipt.trade.created_at) }} · 成交编号 {{ receipt.trade.id }} · <router-link to="/user/portfolio">查看账户资产 →</router-link></p>
       </section>
 
@@ -1153,16 +1151,12 @@ onUnmounted(() => {
             <p class="fx-hint">{{ summaryUpdatedAt ? `账户快照读取于 ${summaryUpdatedAt}` : '等待账户数据' }}</p>
           </div>
           <p v-if="!summary" class="fx-collateral-note">借款与抵押规则正在读取，账户加载成功后显示。</p>
-          <p v-else-if="summary.unified_credit_enabled" class="fx-collateral-note">
-            当前为统一信贷模式：FX 持仓按可执行卖出报价计入清算估值。负债买入需通过风控检查，卖出所得优先偿还借款。
+          <p v-else class="fx-collateral-note">
+            FX 持仓按可执行卖出报价计入清算估值。负债买入需通过风控检查，卖出所得优先偿还借款。
             外币不能直接用于预测市场交易或商品兑换。
             <router-link to="/loan">查看借款与风控规则 →</router-link>
           </p>
-          <p v-else class="fx-collateral-note">
-            当前为传统信贷模式：FX 计入展示净值，不计入借款抵押价值。有未还借款时不能买入外币，仍可卖出；
-            外币不能直接用于预测市场交易、兑换商品或还款。
-            <router-link to="/loan">查看借款 / 还款 →</router-link>
-          </p>
+
         </section>
 
 

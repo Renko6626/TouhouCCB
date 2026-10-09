@@ -14,10 +14,6 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 
-def unified_credit_enabled() -> bool:
-    if OWNERSHIP.reason is not None:
-        OWNERSHIP.require_writes()
-    return bool(credit_flags.get_flags().unified_credit_enabled)
 
 
 def _utc(value: Optional[datetime] = None) -> datetime:
@@ -27,16 +23,14 @@ def _utc(value: Optional[datetime] = None) -> datetime:
 
 async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
                     operator_user_id: int):
-    if not unified_credit_enabled():
-        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=False)
     OWNERSHIP.require_writes()
     await db.commit()
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=True)
+        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
 
 
 async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
-                          operator_user_id: int, unified: bool):
+                          operator_user_id: int):
     pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
     if pair.archived: raise HTTPException(409, "FX pair is archived")
@@ -51,8 +45,7 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
     OWNERSHIP.require_writes()
     pair.gold_reserve += gold_amount; pair.foreign_reserve += foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance += gold_amount; treasury.foreign_balance += foreign_amount; treasury.updated_at = _utc()
-    if unified:
-        pair.pool_version += 1
+    pair.pool_version += 1
     audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
@@ -65,16 +58,14 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
 
 async def withdraw_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
                         operator_user_id: int):
-    if not unified_credit_enabled():
-        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=False)
     OWNERSHIP.require_writes()
     await db.commit()
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id, unified=True)
+        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
 
 
 async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
-                              operator_user_id: int, unified: bool):
+                              operator_user_id: int):
     pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id).with_for_update().execution_options(populate_existing=True))).scalars().first()
     if pair is None: raise HTTPException(404, "FX pair not found")
     if pair.archived: raise HTTPException(409, "FX pair is archived")
@@ -89,8 +80,7 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
     OWNERSHIP.require_writes()
     pair.gold_reserve -= gold_amount; pair.foreign_reserve -= foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance -= gold_amount; treasury.foreign_balance -= foreign_amount; treasury.updated_at = _utc()
-    if unified:
-        pair.pool_version += 1
+    pair.pool_version += 1
     audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},

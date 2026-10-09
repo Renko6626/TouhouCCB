@@ -68,7 +68,12 @@ async def test_admin_run_now_normal_user_forbidden(client):
 async def test_admin_run_now_returns_sweep_result(client):
     """admin 调用应返回 sweep 结果 dict（disabled 时含 skipped）。"""
     _, admin_headers = await _seed_user(is_superuser=True)
-    resp = await client.post("/api/v1/admin/liquidation/run-now", headers=admin_headers)
+    from app.services.market_writer import WRITER
+    await WRITER.start()
+    try:
+        resp = await client.post("/api/v1/admin/liquidation/run-now", headers=admin_headers)
+    finally:
+        await WRITER.stop()
     assert resp.status_code == 200, resp.text
     j = resp.json()
     # liquidation_enabled 默认 false → skipped: "disabled"，或若 enabled 则有 triggered_count
@@ -129,7 +134,12 @@ async def test_admin_run_now_trigger_source_is_admin_manual(client):
             victim_id = victim.id
 
     _, admin_headers = await _seed_user(is_superuser=True)
-    resp = await client.post("/api/v1/admin/liquidation/run-now", headers=admin_headers)
+    from app.services.market_writer import WRITER
+    await WRITER.start()
+    try:
+        resp = await client.post("/api/v1/admin/liquidation/run-now", headers=admin_headers)
+    finally:
+        await WRITER.stop()
     assert resp.status_code == 200, resp.text
     j = resp.json()
     assert j.get("triggered_count", 0) >= 1, f"应触发强平, got {j}"

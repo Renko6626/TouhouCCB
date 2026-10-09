@@ -49,24 +49,22 @@ describe('FX 交易展示口径', () => {
     expect(fxGoldPerForeign({ side: 'sell', input_amount: '5', output_amount: '10' })).toBe('2.000000000000')
   })
 
-  it('传统模式负债禁止买入，统一模式负债可进入服务端风控检查', () => {
-    expect(fxBuyBlockReason({ cash: 100, debt: 10 }, '1')).toContain('未还借款')
-    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true }, '1')).toBe('')
-    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, unified_credit_enabled: true, credit_frozen: true }, '1')).toContain('冻结')
+  it('负债买入进入服务端风控检查，冻结时阻止新增风险', () => {
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10 }, '1')).toBe('')
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 10, credit_frozen: true }, '1')).toContain('冻结')
     // 冻结也可能由外币义务引起；金债为零不能绕过新增风险闸。
-    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 0, unified_credit_enabled: true, credit_frozen: true }, '1')).not.toBe('')
-    expect(fxBuyBlockReason({ cash: 1, debt: 0, unified_credit_enabled: false }, '1.000001')).toContain('余额不足')
+    expect(fxBuyBlockReason({ cash: 100, available_cash: '100', debt: 0, credit_frozen: true }, '1')).not.toBe('')
+    expect(fxBuyBlockReason({ cash: 1, available_cash: '1', debt: 0 }, '1.000001')).toContain('余额不足')
     expect(fxBuyBlockReason(null, '1')).toContain('账户')
   })
 
-  it('missing unified available cash blocks spending while explicit legacy mode retains cash fallback', () => {
-    const summary = { cash: 100, debt: 0, unified_credit_enabled: true }
+  it('missing available cash blocks spending', () => {
+    const summary = { cash: 100, debt: 0 }
     expect(fxAvailableCash(summary)).toBeNull()
     expect(fxAvailableCash({ ...summary, available_cash: null })).toBeNull()
     expect(fxBuyBlockReason(summary, '1')).not.toBe('')
     expect(fxBuyBlockReason({ ...summary, available_cash: null }, '1')).not.toBe('')
     expect(fxAvailableCash({ ...summary, available_cash: '0' })).toBe('0')
-    expect(fxAvailableCash({ ...summary, unified_credit_enabled: false })).toBe(100)
     expect(fxAvailableCash({ cash: 100 })).toBeNull()
   })
 
@@ -78,13 +76,11 @@ describe('FX 交易展示口径', () => {
     expect(fxPairAllowsSide({ status: 'trading', reduce_only: true }, 'buy')).toBe(false)
   })
 
-  it('卖出预览先抵债，现金增加不为负；非统一模式不自动还债', () => {
-    expect(fxSellAllocation('10.000001', { debt: 3, unified_credit_enabled: true }))
+  it('卖出预览先抵债，现金增加不为负', () => {
+    expect(fxSellAllocation('10.000001', { debt: 3 }))
       .toEqual({ repayment: '3.000000', cashIncrease: '7.000001' })
-    expect(fxSellAllocation('2', { debt: 3, unified_credit_enabled: true }))
+    expect(fxSellAllocation('2', { debt: 3 }))
       .toEqual({ repayment: '2.000000', cashIncrease: '0.000000' })
-    expect(fxSellAllocation('10', { debt: 3, unified_credit_enabled: false }))
-      .toEqual({ repayment: '0.000000', cashIncrease: '10.000000' })
     expect(fxSellAllocation('10', null)).toBeNull()
   })
 })

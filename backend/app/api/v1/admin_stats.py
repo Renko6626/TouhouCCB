@@ -40,53 +40,22 @@ async def wealth_stats(
         result = compute_wealth_distribution(
             [], total_cash=0.0, total_debt=0.0, total_holdings_value=0.0,
         )
-        if flags.get_flags().unified_credit_enabled:
-            result["unknown_user_count"] = 0
-            result["total_short_marginal_debt"] = 0.0
+        result["unknown_user_count"] = 0
+        result["total_short_marginal_debt"] = 0.0
         return result
 
-    if flags.get_flags().unified_credit_enabled:
-        rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
-        valuations = await value_users_batch(db, [u.id for u in users], daily_rate=rate)
-        known = [v for v in valuations.values() if v.display_equity is not None]
-        result = compute_wealth_distribution(
-            [float(v.display_equity) for v in known],
-            total_cash=float(sum((v.cash for v in known), ZERO)),
-            total_debt=float(sum((v.debt_effective for v in known), ZERO)),
-            total_holdings_value=float(sum((v.mtm_lmsr + v.mtm_fx for v in known), ZERO)),
-        )
-        # Known display equity guarantees a sourced marginal liability.
-        result["total_short_marginal_debt"] = float(sum(
-            (v.short_marginal_debt for v in known), ZERO,
-        ))
-        result["unknown_user_count"] = len(users) - len(known)
-        return result
-
-    holdings_by_user = await compute_users_holdings_value(
-        db,
-        user_ids=[u.id for u in users],
+    rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+    valuations = await value_users_batch(db, [u.id for u in users], daily_rate=rate)
+    known = [v for v in valuations.values() if v.display_equity is not None]
+    result = compute_wealth_distribution(
+        [float(v.display_equity) for v in known],
+        total_cash=float(sum((v.cash for v in known), ZERO)),
+        total_debt=float(sum((v.debt_effective for v in known), ZERO)),
+        total_holdings_value=float(sum((v.mtm_lmsr + v.mtm_fx for v in known), ZERO)),
     )
-
-    net_worths: List[float] = []
-    total_cash = ZERO
-    total_debt = ZERO
-    total_holdings = ZERO
-    for u in users:
-        holdings = holdings_by_user.get(u.id, ZERO)
-        net_worth = u.cash + holdings - u.debt
-        net_worths.append(float(net_worth))
-        total_cash += u.cash
-        total_debt += u.debt
-        total_holdings += holdings
-
-    logger.info(
-        "WEALTH_STATS admin_id=%s n=%s mean=%s",
-        admin.id, len(net_worths), sum(net_worths) / len(net_worths) if net_worths else 0,
-    )
-
-    return compute_wealth_distribution(
-        net_worths,
-        total_cash=float(total_cash),
-        total_debt=float(total_debt),
-        total_holdings_value=float(total_holdings),
-    )
+    # Known display equity guarantees a sourced marginal liability.
+    result["total_short_marginal_debt"] = float(sum(
+        (v.short_marginal_debt for v in known), ZERO,
+    ))
+    result["unknown_user_count"] = len(users) - len(known)
+    return result

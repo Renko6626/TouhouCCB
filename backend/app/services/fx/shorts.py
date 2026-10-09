@@ -172,9 +172,7 @@ def utcnow() -> datetime:
 
 def _require_writes() -> None:
     flags = credit_flags.get_flags()
-    if (flags.unified_credit_enabled or flags.read_only_instance
-            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 def _as_decimal(
@@ -316,8 +314,6 @@ async def execute_short_open_in_session(
     plus the scalars a post-commit publisher needs.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError("short-open caller must hold the target pair gate through commit")
@@ -811,8 +807,6 @@ async def execute_short_cover_in_session(
     never commits, never rolls back and never publishes.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError("short-cover caller must hold the target pair gate through commit")
@@ -1109,8 +1103,7 @@ async def execute_liquidation_cover_in_session(
     transaction; this function never commits, rolls back, publishes or creates a
     ``LiquidationAction``.
 
-    - All player gates except the process-global ``unified_credit_enabled``
-      fail-closed check are deliberately ignored: ``fx_enabled``, the loan gate,
+    - Player business gates are deliberately ignored: ``fx_enabled``, the loan gate,
       the short-opening gate and the credit freeze never block a forced cover.
       The real pair coverability matrix still applies (``trading`` or
       ``paused`` + ``reduce_only``; ``closed``/``draft``/``archived``/paused
@@ -1148,8 +1141,6 @@ async def execute_liquidation_cover_in_session(
     back and must never persist it as a committable blocked round.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError(
@@ -1777,13 +1768,11 @@ async def read_short_position(
             blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
         )
     # Order eligibility is the intersection of the pair status, the total
-    # player-trading stop and the process-global unified-credit gate, matching
+    # player-trading stop, matching
     # the quote/write routes; the mathematical reference K and ``risk_status``
     # stay valid even when trading is stopped.
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         order_reason: Optional[str] = BLOCKED_FX_DISABLED
-    elif not credit_flags.get_flags().unified_credit_enabled:
-        order_reason = BLOCKED_UNIFIED_CREDIT
     else:
         order_reason = quote.blocked_reason
     return FxShortPositionRead(
@@ -1891,8 +1880,6 @@ async def quote_short(
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         return _blocked(BLOCKED_FX_DISABLED)
-    if not credit_flags.get_flags().unified_credit_enabled:
-        return _blocked(BLOCKED_UNIFIED_CREDIT)
 
     positions = list((await db.execute(select(FxShortPosition).where(
         FxShortPosition.user_id == int(user_id)))).scalars().all())

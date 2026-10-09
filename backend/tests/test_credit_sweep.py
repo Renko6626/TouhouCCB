@@ -14,7 +14,7 @@ from app.services.credit import sweep
 @pytest_asyncio.fixture(autouse=True)
 async def lifecycle():
     await OWNERSHIP.acquire()
-    set_flags(CreditFlags(unified_credit_enabled=True,credit_leverage=D('20'),credit_maintenance_ratio=D('.04')))
+    set_flags(CreditFlags(credit_leverage=D('20'),credit_maintenance_ratio=D('.04')))
     async with async_session_maker() as s:
         for k,v in [('liquidation_enabled','true'),('loan_daily_rate','0'),('liquidation_partial_pct','.1')]:
             old=(await s.execute(select(SiteConfig).where(SiteConfig.key==k))).scalar_one_or_none()

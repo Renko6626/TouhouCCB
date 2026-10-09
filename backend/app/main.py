@@ -108,9 +108,7 @@ async def _startup(app: FastAPI) -> None:
     #   0) 只读实例声明 → 在**任何启动写之前**跳过 init_db/auto_migrate/seed/resync
     #   1) 非只读实例先用专用非池化 PG 连接取 pg_try_advisory_lock（启动写之前！）
     #   2) 只有 owner 才跑 init_db/auto_migrate（含 seed）
-    #   3) 读 credit flags；unified_credit_enabled=true 却**非 owner 且非只读** → 启动失败
-    #      （第二写实例必须被拒，不能回落只处理 LMSR 的 legacy 强平；只读实例不写，
-    #       即使运营已开启统一信贷也允许启动）
+    #   3) 所有实例加载合法统一信贷配置；非只读实例必须取得写所有权。
     #   4) 只有 owner 才挂 SQLAdmin（它自带直写 API）、跑 resync / writer / flusher /
     #      全部写调度器；HTTP 经济写路径由 WP6 的 require_writes() 兜底
     main_logger = logging.getLogger("thccb.main")
@@ -135,7 +133,7 @@ async def _startup(app: FastAPI) -> None:
                 credit_ownership.OWNERSHIP.reason,
             )
     # ── 统一信贷 flags（计划 §3.4）：启动时读一次 site_config；
-    #    默认 unified_credit_enabled=false，开关关着时以下调度器/交易行为与本改动前一致。
+    #    风险参数在重启时加载。
     #    credit_new_risk_frozen 例外：风险检查运行期热读（见 flags.refresh_new_risk_frozen）。
     try:
         async with async_session_maker() as _flags_session:
@@ -144,20 +142,20 @@ async def _startup(app: FastAPI) -> None:
         if not owner and not read_only:
             raise RuntimeError(
                 "非 owner 实例无法读取 credit flags，拒绝启动"
-                "（不能确认 unified_credit_enabled 是否要求持锁）"
+                "（经济写实例必须持锁）"
             ) from exc
         raise
     flags = credit_flags.get_flags()
-    if flags.unified_credit_enabled and not owner and not read_only:
+    if not owner and not read_only:
         raise RuntimeError(
-            "unified_credit_enabled=true 但本进程未持有经济写所有权"
+            "本进程未持有经济写所有权"
             f"（{credit_ownership.OWNERSHIP.reason}）：拒绝以第二写实例启动"
         )
     writes_ok = owner and credit_flags.write_schedulers_enabled()
     app.state.credit_writes_enabled = writes_ok
     if writes_ok:
         # SQLAdmin 提供绕过业务校验的直写 API，只读/非 owner 实例不得挂载
-        _configure_admin_economic_writes(flags.unified_credit_enabled)
+        _configure_admin_economic_writes()
         setup_admin(app, engine)
     else:
         main_logger.warning(
@@ -188,16 +186,12 @@ async def _startup(app: FastAPI) -> None:
             "writes disabled (read_only=%s owner=%s reason=%s): all write schedulers "
             "skipped", read_only, owner, credit_ownership.OWNERSHIP.reason,
         )
-    # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
-    from app.services import site_config as _site_config
+    # 有经济写权限的实例始终运行市场 writer 与 candle flusher。
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
     if writes_ok:
-        async with async_session_maker() as _s:
-            _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
-        if _sw or flags.unified_credit_enabled:
-            await WRITER.start()
-            await CANDLE_FLUSHER.start()
+        await WRITER.start()
+        await CANDLE_FLUSHER.start()
     if writes_ok:
         # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
         await start_loan_scheduler()
@@ -211,13 +205,13 @@ async def _startup(app: FastAPI) -> None:
     await TICK_BROADCASTER.start()
 
 
-def _configure_admin_economic_writes(unified: bool) -> None:
+def _configure_admin_economic_writes() -> None:
     """Route unified economic mutations through business services, not raw CRUD."""
     from app.core.admin import UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin
     for view in (UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin):
-        view.can_create = not unified
-        view.can_edit = not unified
-        view.can_delete = not unified
+        view.can_create = False
+        view.can_edit = False
+        view.can_delete = False
 
 
 async def _shutdown() -> None:

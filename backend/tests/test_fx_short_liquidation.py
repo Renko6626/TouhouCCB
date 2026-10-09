@@ -51,7 +51,6 @@ pytestmark = pytest.mark.asyncio
 async def lifecycle():
     await OWNERSHIP.acquire()
     set_flags(CreditFlags(
-        unified_credit_enabled=True,
         credit_leverage=D('20'),
         credit_maintenance_ratio=D('.04'),
     ))
@@ -590,27 +589,6 @@ async def test_liquidation_cover_uses_only_own_lock_and_free_cash():
         assert D(other.proceeds_basis_gold) == D("90")
 
 
-async def test_liquidation_cover_requires_unified_credit_fail_closed():
-    """统一信贷关闭时强平回补 403，不遗留任何钱币动作。"""
-    from fastapi import HTTPException
-
-    uid, pid, _ = await _seed_cover(cash="1000", principal="100", restricted="100",
-                                    basis="100", gold="1000", foreign="1000")
-    async with async_session_maker() as db:
-        before = await _cover_state(db, uid, pid)
-
-    set_flags(CreditFlags(
-        unified_credit_enabled=False, credit_leverage=D("20"),
-        credit_maintenance_ratio=D(".04")))
-
-    with pytest.raises(HTTPException) as exc:
-        await _liq_cover(uid, pid, run_id=61, round_no=1,
-                         planned="100", budget="1000000")
-    assert exc.value.status_code == 403
-
-    async with async_session_maker() as db:
-        after = await _cover_state(db, uid, pid)
-    assert after == before
 
 
 async def _blocked_round_snapshot(db, uid, pid):

@@ -16,7 +16,6 @@ from app.services.credit.thresholds import (
     derive_thresholds,
     validate_thresholds,
 )
-from app.services.loan_service import compute_max_borrow
 
 R_MAINT = Decimal("0.04")
 R_INITIAL_20X = Decimal(1) / Decimal(19)
@@ -118,39 +117,8 @@ def _q6(value: float) -> Decimal:
     return Decimal(str(value)).quantize(Q6)
 
 
-def test_legacy_equivalence_random_100_integer_k():
-    """F7：credit_leverage = k+1 时，旧 compute_max_borrow 与新 max_borrow 完全一致。
-
-    整数 k（2..11 倍杠杆）时 k*net 恰好 6dp，两种量化规则结果相同 → 严格相等。
-    """
-    rng = random.Random(20260930)
-    for _ in range(100):
-        k = Decimal(rng.randint(1, 10))
-        cash = _q6(rng.uniform(0, 10000))
-        debt = _q6(rng.uniform(0, 10000))
-        holdings = _q6(rng.uniform(0, 10000))
-        user = User(username="eq", cash=cash, debt=debt)
-        legacy = compute_max_borrow(user, holdings, k)
-        new = derive_thresholds(k + Decimal(1), R_MAINT).max_borrow(
-            cash + holdings - debt, debt
-        )
-        assert new == legacy, (k, cash, debt, holdings, legacy, new)
 
 
-def test_legacy_equivalence_fractional_k_never_loosens_credit():
-    """小数 k 时乘积超出 6dp：新额度向下量化，最多比旧值少 1e-6，绝不更多。"""
-    rng = random.Random(7)
-    for _ in range(100):
-        k = _q6(rng.uniform(0.01, 10))
-        cash = _q6(rng.uniform(0, 10000))
-        debt = _q6(rng.uniform(0, 10000))
-        holdings = _q6(rng.uniform(0, 10000))
-        user = User(username="eq", cash=cash, debt=debt)
-        legacy = compute_max_borrow(user, holdings, k)
-        new = derive_thresholds(k + Decimal(1), R_MAINT).max_borrow(
-            cash + holdings - debt, debt
-        )
-        assert Decimal("0") <= legacy - new <= Q6, (k, legacy, new)
 
 
 def test_risk_basis_max_of_debt_and_alpha_assets_plus_alpha_short():

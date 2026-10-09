@@ -16,7 +16,7 @@ from fastapi import HTTPException
 pytestmark = pytest.mark.asyncio
 @pytest.fixture(autouse=True)
 def unified(monkeypatch):
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True, credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
+    flags.set_flags(flags.CreditFlags( credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
     monkeypatch.setattr(OWNERSHIP, '_writes_enabled', True)
     yield
     flags.clear_flags()
@@ -184,27 +184,6 @@ async def test_borrow_rejects_pending_interest_reducing_headroom():
         assert exc.value.status_code==400
         assert not GATES.held_keys()
 
-async def test_debt_free_fx_select_count_matches_flag_off():
-    from sqlalchemy import event
-    from app.core.database import engine
-    async with async_session_maker() as db:
-        uid,pid=await seed(db,debt='0')
-        statements=[]
-        def collect(conn,cursor,statement,parameters,context,executemany):
-            if statement.lstrip().upper().startswith('SELECT'):
-                statements.append(statement)
-        event.listen(engine.sync_engine,'before_cursor_execute',collect)
-        try:
-            flags.clear_flags()
-            await trading.execute_trade(db,uid,pid,'buy',D('1'),D('0'),'legacy-count')
-            baseline=len(statements)
-            statements.clear()
-            flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,credit_leverage=D('4'),credit_maintenance_ratio=D('.1')))
-            await trading.execute_trade(db,uid,pid,'buy',D('1'),D('0'),'unified-count')
-            assert len(statements)<=baseline
-            assert not any('FROM position' in sql or 'FROM outcome' in sql for sql in statements)
-        finally:
-            event.remove(engine.sync_engine,'before_cursor_execute',collect)
 
 async def test_owner_lost_during_fx_user_lock_is_rejected(monkeypatch):
     from app.services.credit.ownership import EconomicWritesDisabled

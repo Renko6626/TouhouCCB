@@ -166,7 +166,7 @@ const disabledReason = computed(() => {
   if (isSubmitting.value) return '提交中…'
   if (marketStore.tradeLoading) return '处理中…'
   if (props.tradeType === 'buy' && !props.userCanTrade) return '此市场需要特定称号才能买入'
-  if (props.tradeType === 'buy' && buyDisabledByDanger.value) return '净值/借款 < 0.2，禁止买入直到补仓或被强平'
+  if (props.tradeType === 'buy' && buyDisabledByRisk.value) return '账户暂不满足新增风险条件，请刷新账户或还款减仓'
   if (!props.selectedOutcomeId) return '请先选择预测结果'
   if (props.shares <= 0) return '请输入份额'
   if (props.shares > props.maxShares) return '超过份额上限'
@@ -182,8 +182,9 @@ const closePosition = () => {
   emit('update:shares', props.userHolding.amount)
 }
 
-// danger 状态：净值/借款 < 0.2，禁止买入
-const buyDisabledByDanger = computed(() => userStore.summary?.margin_status === 'danger')
+// 新增风险需等待可用的账户风险快照。
+const buyDisabledByRisk = computed(() => !userStore.summary || !!userStore.summary.credit_frozen
+  || userStore.summary.risk_status !== 'healthy')
 
 // 操作类型提示
 const actionHint = computed<string>(() => {
@@ -205,7 +206,6 @@ const actionHint = computed<string>(() => {
         <span class="asset-label">总现金</span>
         <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
       </div>
-      <template v-if="userStore.summary.unified_credit_enabled">
         <div class="asset-item">
           <span class="asset-label">未锁定现金</span>
           <span class="asset-value">金 {{ userStore.summary.available_cash ?? '—' }}</span>
@@ -214,7 +214,6 @@ const actionHint = computed<string>(() => {
           <span class="asset-label" title="空头锁定所得（专用于回补）">空头锁金</span>
           <span class="asset-value">金 {{ userStore.summary.restricted_cash ?? '—' }}</span>
         </div>
-      </template>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
         <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>
@@ -239,8 +238,8 @@ const actionHint = computed<string>(() => {
     <div class="type-switch">
       <button
         :class="['type-btn', props.tradeType === 'buy' && 'type-btn--active-buy']"
-        :disabled="buyDisabledByDanger || !props.userCanTrade"
-        :title="!props.userCanTrade ? '此市场需要特定称号才能买入' : (buyDisabledByDanger ? '净值/借款 < 0.2，禁止买入直到补仓或被强平' : undefined)"
+        :disabled="buyDisabledByRisk || !props.userCanTrade"
+        :title="!props.userCanTrade ? '此市场需要特定称号才能买入' : (buyDisabledByRisk ? '账户暂不满足新增风险条件，请刷新账户或还款减仓' : undefined)"
         @click="emit('update:tradeType', 'buy')"
       >买入</button>
       <button
@@ -397,7 +396,7 @@ const actionHint = computed<string>(() => {
     <NButton
       type="primary"
       :loading="marketStore.tradeLoading"
-      :disabled="isSubmitting || (props.tradeType === 'buy' && (buyDisabledByDanger || !props.userCanTrade)) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
+      :disabled="isSubmitting || (props.tradeType === 'buy' && (buyDisabledByRisk || !props.userCanTrade)) || !props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash"
       @click="executeTrade"
       class="exec-btn"
       :title="disabledReason"

@@ -4,7 +4,7 @@ import { NInputNumber, NButton, NSpin, NAlert, useMessage } from 'naive-ui'
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
 import { extractErrorMessage } from '@/utils/errors'
-import { compareFxAmounts, divideFxAmount, formatFxAmount, subtractFxAmounts } from '@/api/fx'
+import { compareFxAmounts, formatFxAmount, subtractFxAmounts } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
 import CreditRiskStatus from '@/components/user/CreditRiskStatus.vue'
@@ -45,12 +45,7 @@ const dailyRatePct = computed(() => {
 })
 
 const shortPositions = computed(() => store.quota?.short_positions ?? [])
-const marginRatio = computed(() => {
-  if (store.quota?.equity_to_risk_basis != null) return store.quota.equity_to_risk_basis
-  if (policy.value?.unified_credit_enabled !== false || store.quota?.net_worth == null) return null
-  const ratio = divideFxAmount(store.quota.net_worth, store.quota.debt, 12)
-  return ratio == null ? null : Number(ratio)
-})
+const marginRatio = computed(() => store.quota?.risk_status === 'blocked' ? null : store.quota?.equity_to_risk_basis ?? null)
 function pendingInterest(position: AccountShortPosition) {
   if (position.pending_short_debt == null) return null
   const interest = subtractFxAmounts(position.pending_short_debt, position.principal_foreign)
@@ -58,8 +53,7 @@ function pendingInterest(position: AccountShortPosition) {
 }
 
 const debtNumber = computed(() => Number(store.quota?.debt ?? '0'))
-const cashAmount = computed(() => store.quota?.available_cash
-  ?? (policy.value?.unified_credit_enabled === false ? store.quota?.cash : null))
+const cashAmount = computed(() => store.quota?.available_cash ?? null)
 const cashNumber = computed(() => Number(cashAmount.value ?? '0'))
 const maxBorrowNumber = computed(() => Number(store.quota?.max_borrow ?? '0'))
 // 还款上限：min(真实负债, 真实现金) — 与服务端封顶逻辑对齐
@@ -254,10 +248,9 @@ async function repayAll() {
           <CreditRiskStatus
             title="保证金率（越高越安全）"
             :ratio="marginRatio"
-            :initial="store.quota?.r_initial ?? policy?.r_initial ?? (policy?.unified_credit_enabled === false ? policy.soft_threshold : null)"
-            :maintenance="store.quota?.r_maintenance ?? policy?.r_maintenance ?? (policy?.unified_credit_enabled === false ? policy.hard_threshold : null)"
+            :initial="store.quota?.r_initial ?? policy?.r_initial"
+            :maintenance="store.quota?.r_maintenance ?? policy?.r_maintenance"
             :blocked="store.quota?.risk_status === 'blocked'"
-            :legacy="policy?.unified_credit_enabled === false"
             :no-risk="compareFxAmounts(store.quota?.risk_basis, '0') === 0"
           />
           <p class="risk-note">低于强平线时，系统可能自动减仓还债。</p>
@@ -315,12 +308,9 @@ async function repayAll() {
             <summary>能借多少？利息怎么算？</summary>
             <div class="rule-content">
               <p>日利率 {{ dailyRatePct }}，未还借款会持续计息。<span v-if="store.quota?.last_accrued_at">上次结息：{{ new Date(store.quota.last_accrued_at).toLocaleString() }}。</span></p>
-              <template v-if="policy.unified_credit_enabled">
                 <p>借入的金圆券可用于预测市场和外汇交易。额度由现金及可变现的持仓共同支持，已有借款和外币回补义务都会占用额度。</p>
                 <p v-if="policy.credit_leverage != null">名义杠杆上限 {{ policy.credit_leverage }} 倍；没有外币空头时，借款不得超过清算净值的 {{ Number((policy.credit_leverage - 1).toFixed(6)) }} 倍。借款不会自动买入持仓，也不代表已使用这个倍数。</p>
                 <p>行情、手续费和滑点都会影响额度。借入和买入时会重新检查，借满后也可能因交易成本而无法继续买入。</p>
-              </template>
-              <p v-else>当前仅支持预测市场借款，FX 持仓不计入借款抵押；有未还借款时不能买入外币。</p>
               <p>一键还款按提交时的最新含息欠款和可用现金扣款，不会多扣。外币需先卖成金圆券才能还金圆券借款。</p>
             </div>
           </details>
@@ -328,7 +318,6 @@ async function repayAll() {
           <details class="rule-details">
             <summary>什么情况下会被自动减仓？</summary>
             <div class="rule-content">
-              <template v-if="policy.unified_credit_enabled">
                 <dl class="rule-metrics">
                   <div><dt>新增风险 / 恢复门槛</dt><dd>{{ formatPercent(policy.r_initial) }}</dd></div>
                   <div><dt>强平触发线</dt><dd class="red">低于 {{ formatPercent(policy.r_maintenance) }}</dd></div>
@@ -339,23 +328,11 @@ async function repayAll() {
                 <p>每人每次扫描最多处理一组资产或外币义务，有待回补义务时保留现金用于回补。清算净值不大于 0 时扩大减仓，回补仍受实际现金与市场容量限制。</p>
                 <p>后续检查继续处理，恢复到初始率或还清即停止；卖光仍欠债会冻结新增信用，不会免债。</p>
                 <p>强平不另收罚金。预测市场卖出费率 {{ formatPercent(policy.sell_fee_rate ?? 0) }}。<span v-for="pair in policy.fx_sell_fee_rates" :key="pair.pair_id">{{ pair.currency_code }} 卖出费率 {{ formatPercent(pair.sell_fee_rate) }}。</span></p>
-              </template>
-              <template v-else>
-                <dl class="rule-metrics">
-                  <div><dt>强平触发线</dt><dd class="red">低于 {{ formatPercent(policy.hard_threshold) }}</dd></div>
-                  <div><dt>紧急全平线</dt><dd class="red">低于 {{ formatPercent(policy.emergency_threshold) }}</dd></div>
-                  <div><dt>减仓停止目标</dt><dd>{{ formatPercent(policy.target_margin) }}</dd></div>
-                  <div><dt>每次卖出比例</dt><dd>{{ formatPercent(policy.partial_pct) }}</dd></div>
-                  <div><dt>检查间隔</dt><dd>{{ policy.sweep_interval_sec }} 秒</dd></div>
-                </dl>
-                <p>有负债时，系统定期检查（现金 + 持仓清算价值 − 负债）÷ 负债。跌破触发线会自动卖出部分持仓还债，跌破紧急线会一次性全平；无法手动取消。</p>
-                <p>持仓清算价值已扣除手续费和滑点，保证金率可能低于按账面净值计算的数值。</p>
-              </template>
               <p>强平检查{{ policy.enabled ? '已开启' : '已暂停' }}。交易或行情变化不会额外触发强平。主动还款、减少风险持仓有助于降低强平风险。</p>
             </div>
           </details>
 
-          <details v-if="policy.unified_credit_enabled && store.quota" class="rule-details">
+          <details v-if="store.quota" class="rule-details">
             <summary>查看现金与风险计算明细</summary>
             <div class="rule-content">
               <dl class="rule-metrics">

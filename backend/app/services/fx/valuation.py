@@ -68,14 +68,6 @@ async def compute_total_net_worth(
     users = (await db.execute(stmt)).all()
     if not users:
         return {}
-    if flags.get_flags().unified_credit_enabled:
-        rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
-        valuations = await value_users_batch(db, [int(u[0]) for u in users], daily_rate=rate)
-        return {uid: value.display_equity for uid, value in valuations.items()}
-    lmsr = await compute_users_holdings_value_mtm(db, user_ids=ids)
-    fx = await compute_fx_mtm(db, user_ids=ids)
-    return {
-        int(uid): _q(Decimal(cash) - Decimal(debt)
-                     + lmsr.get(int(uid), ZERO) + fx.get(int(uid), ZERO))
-        for uid, cash, debt in users
-    }
+    rate = await site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+    valuations = await value_users_batch(db, [int(u[0]) for u in users], daily_rate=rate)
+    return {uid: value.display_equity for uid, value in valuations.items()}

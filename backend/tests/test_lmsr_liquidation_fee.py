@@ -1,8 +1,6 @@
-"""WP5：LMSR 组强平 F5 费率（普通卖出费率、不额外罚金）与零费率新旧执行器对照。
+"""LMSR 组强平费率（普通卖出费率、不额外罚金）。
 
 覆盖：
-- 零费率下统一 `op_liquidate_group` 与 legacy `op_liquidate_market` 逐字段一致
-  （full / partial 两种模式：现金、债务、持仓、outcome 镜像 q、LIQUIDATE 交易字段）。
 - 非零费率：`cash` 增量恰为 `gross - fee`（fee 只从 gross 扣一次）、逐腿 fee 量化、
   组 fee = 逐腿 fee 之和。
 - F12：partial 向上取整到 1 股并封顶持仓；小数持仓被 ceil 一波清掉。
@@ -27,7 +25,7 @@ from app.services.credit.lmsr_quote import BLOCKED_NEGATIVE_PROCEEDS
 from app.services.credit.runs import get_or_create_active_run
 from app.services.lmsr import quantize_cost
 from app.services.market_writer import WRITER
-from app.services.writer_ops import LiquidateGroupCmd, LiquidateMarketCmd
+from app.services.writer_ops import LiquidateGroupCmd
 
 ZERO = Decimal("0")
 FEE_RATE = Decimal("0.02")
@@ -91,7 +89,7 @@ def _group_cmd(mid, uid, run_id, *, mode, partial_pct, fee_rate, round_no=1):
     return LiquidateGroupCmd(
         market_id=mid, user_id=uid, run_id=run_id, round_no=round_no, mode=mode,
         partial_pct=partial_pct, fee_rate=fee_rate, daily_rate=ZERO,
-        trigger_source="parity")
+        trigger_source="test")
 
 
 async def _user_money(uid: int) -> tuple[Decimal, Decimal]:
@@ -131,73 +129,12 @@ async def _liq_rows(uid: int, relative: dict[int, int]):
         ]
 
 
-async def _assert_zero_fee_parity(legacy, unified, uid_a, uid_b, mid_a, mid_b, oids_a, oids_b):
-    assert legacy["sold_count"] == unified["sold_count"]
-    assert legacy["total_proceeds"] == unified["gross"]
-    assert unified["fee"] == ZERO
-    assert unified["net"] == unified["gross"]
-    assert legacy["repaid"] == unified["repaid"]
-    assert legacy["debt_after"] == unified["debt_after"]
-
-    assert await _user_money(uid_a) == await _user_money(uid_b)
-
-    rel_a = {oid: i for i, oid in enumerate(oids_a)}
-    rel_b = {oid: i for i, oid in enumerate(oids_b)}
-    assert await _positions(uid_a, rel_a) == await _positions(uid_b, rel_b)
-    assert await _outcome_q(oids_a) == await _outcome_q(oids_b)
-    assert await _liq_rows(uid_a, rel_a) == await _liq_rows(uid_b, rel_b)
-
-    state_a, state_b = WRITER.get_state(mid_a), WRITER.get_state(mid_b)
-    assert state_a.q_dec == state_b.q_dec
-    assert state_a.prices == state_b.prices
 
 
-async def _seed_parity_world(tag: str):
-    mid, oids = await _seed_market(("0", "0"))
-    uid = await _seed_user(cash="30", debt="50", username=f"parity_{tag}")
-    await _give_position(uid, oids[0], "25", "12.5")
-    await _give_position(uid, oids[1], "10", "4")
-    run_id = await _new_run(uid)
-    return mid, oids, uid, run_id
 
 
-@pytest.mark.asyncio
-async def test_zero_fee_full_parity_with_legacy_op():
-    """零费率 + 全卖：统一组强平与 legacy 单市场强平逐字段一致。"""
-    mid_a, oids_a, uid_a, _ = await _seed_parity_world("legacy_full")
-    mid_b, oids_b, uid_b, run_b = await _seed_parity_world("unified_full")
-    await WRITER.start()
-
-    legacy = await WRITER.submit(LiquidateMarketCmd(
-        market_id=mid_a, user_id=uid_a, mode="emergency", partial_pct=Decimal("1"),
-        daily_rate=ZERO, trigger_source="parity"))
-    unified = await WRITER.submit(_group_cmd(
-        mid_b, uid_b, run_b, mode="full", partial_pct=Decimal("1"), fee_rate=ZERO))
-
-    assert legacy["sold_count"] == 2
-    await _assert_zero_fee_parity(legacy, unified, uid_a, uid_b, mid_a, mid_b, oids_a, oids_b)
 
 
-@pytest.mark.asyncio
-async def test_zero_fee_partial_parity_with_legacy_op():
-    """零费率 + 30% 分批：持仓余量 / cost_basis / 逐腿归属也必须逐字段一致。"""
-    mid_a, oids_a, uid_a, _ = await _seed_parity_world("legacy_partial")
-    mid_b, oids_b, uid_b, run_b = await _seed_parity_world("unified_partial")
-    await WRITER.start()
-
-    legacy = await WRITER.submit(LiquidateMarketCmd(
-        market_id=mid_a, user_id=uid_a, mode="partial", partial_pct=Decimal("0.3"),
-        daily_rate=ZERO, trigger_source="parity"))
-    unified = await WRITER.submit(_group_cmd(
-        mid_b, uid_b, run_b, mode="partial", partial_pct=Decimal("0.3"), fee_rate=ZERO))
-
-    assert legacy["sold_count"] == 2
-    await _assert_zero_fee_parity(legacy, unified, uid_a, uid_b, mid_a, mid_b, oids_a, oids_b)
-    # 余额非空：partial 必须留下仓位（不是把组卖光）
-    assert await _positions(uid_a, {oid: i for i, oid in enumerate(oids_a)}) == [
-        (0, Decimal("17.000000"), Decimal("8.500000")),
-        (1, Decimal("7.000000"), Decimal("2.800000")),
-    ]
 
 
 @pytest.mark.asyncio

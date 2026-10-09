@@ -57,7 +57,7 @@ async def test_user_summary_healthy_no_debt(client):
     assert "net_worth" not in body
     assert "rank" not in body
 
-    assert body["margin_status"] == "healthy"
+    assert body["risk_status"] == "healthy"
     assert body["last_liquidated_at"] is None
 
 
@@ -75,7 +75,7 @@ async def test_user_summary_warning_status(client):
     body = r.json()
 
     # ratio = (400 - 1000) / 1000 = -0.6 → danger (< 0.2)
-    assert body["margin_status"] in ("healthy", "warning", "danger")
+    assert body["risk_status"] in ("healthy", "warning", "danger")
 
 
 @pytest.mark.asyncio
@@ -88,7 +88,7 @@ async def test_user_summary_warning_status_correct(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_status"] == "warning"
+    assert body["risk_status"] == "warning"
 
 
 @pytest.mark.asyncio
@@ -101,7 +101,7 @@ async def test_user_summary_danger_status(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_status"] == "danger"
+    assert body["risk_status"] == "danger"
 
 
 @pytest.mark.asyncio
@@ -114,7 +114,7 @@ async def test_user_summary_healthy_with_debt(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_status"] == "healthy"
+    assert body["risk_status"] == "healthy"
 
 
 @pytest.mark.asyncio
@@ -141,4 +141,4 @@ async def test_user_summary_fallback_thresholds_when_no_config(client):
     assert r.status_code == 200, r.text
     body = r.json()
 
-    assert body["margin_status"] == "warning"
+    assert body["risk_status"] == "warning"

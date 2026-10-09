@@ -10,7 +10,7 @@
 - 连接丢失 / 锁丢失 → ``writes_enabled=False`` + CRITICAL，之后所有经济写入口
   必须通过 ``require_writes()`` 被拒绝；进程需重启（或显式 ``release()`` 后重新
   ``acquire()``）才能恢复写权限。不做自动重抢，避免两个实例来回抢锁。
-- ``unified_credit_enabled=true`` 的实例启动时必须持锁：``acquire(required=True)``
+- ``所有经济写实例`` 的实例启动时必须持锁：``acquire(required=True)``
   拿不到锁直接抛 ``OwnershipError``，让启动失败（读实例可继续但不写）。
 - 非 PostgreSQL（SQLite 开发/测试）没有 advisory lock：``supported=False``，
   单进程语义下 ``is_owner=True`` / ``writes_enabled=True``，行为与改造前一致。
@@ -42,7 +42,7 @@ DEFAULT_PING_INTERVAL = 5.0
 
 
 class OwnershipError(RuntimeError):
-    """需要所有权却拿不到（unified_credit_enabled=true 时必须启动失败）。"""
+    """需要所有权却拿不到（所有经济写实例 时必须启动失败）。"""
 
 
 class EconomicWritesDisabled(RuntimeError):

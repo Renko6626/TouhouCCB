@@ -42,7 +42,6 @@ pytestmark = pytest.mark.asyncio
 
 ZERO = D("0")
 UNIFIED = CreditFlags(
-    unified_credit_enabled=True,
     credit_leverage=D("4"),
     credit_maintenance_ratio=D("0.1"),
 )

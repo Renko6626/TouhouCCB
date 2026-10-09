@@ -3,7 +3,7 @@
  * 口径与后端 services/wealth.py 镜像（docs/holdings-value-semantics.md）：
  *   MTM 计入 HALT（账面口径，避免临时 HALT 让账面归零）
  *   LCV 只计 TRADING（立即变现口径，HALT 持仓 market_value=0、浮盈=-cost_basis）
- * 这些是显示口径；margin_status/强平/排行榜的权威判定仍在服务端（spec §6.3）。
+ * 这些是显示口径；risk_status/强平/排行榜的权威判定仍在服务端（spec §6.3）。
  */
 import { lcvValue, mtmValue } from './lmsr'
 import type { Holding, HoldingSlim, MarketPriceCtx, RankThreshold, SummaryPosition } from '@/types/user'

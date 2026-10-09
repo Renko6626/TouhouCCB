@@ -28,7 +28,6 @@ pytestmark = pytest.mark.asyncio
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
 UNIFIED = CreditFlags(
-    unified_credit_enabled=True,
     credit_leverage=Decimal("4"),
     credit_maintenance_ratio=Decimal("0.1"),
 )
@@ -102,15 +101,6 @@ async def test_unified_generate_bots_funds_and_bumps_version(writes_enabled):
         assert version == 1
 
 
-async def test_flag_off_generate_bots_no_version_bump():
-    async with async_session_maker() as s:
-        created = await pve_svc.generate_bots(
-            s, items=[("hodler", 1)], naming_style="npc",
-            initial_cash=Decimal("100"), market_scope=None, operator_user_id=1,
-        )
-        await s.commit()
-    cash, _, version = await _state(created[0]["user_id"])
-    assert cash == Decimal("100.000000") and version == 0
 
 
 async def test_unified_fund_bot_uses_no_debt_fast_path(writes_enabled, monkeypatch):
@@ -133,14 +123,6 @@ async def test_unified_fund_bot_uses_no_debt_fast_path(writes_enabled, monkeypat
     assert cash == Decimal("50.000000") and version == 1
 
 
-async def test_flag_off_fund_bot_no_version_bump():
-    uid, pid = await _seed_bot(cash=Decimal("10"))
-    async with async_session_maker() as s:
-        profile = (await s.execute(select(BotProfile).where(BotProfile.id == pid))).scalars().one()
-        await pve_svc.fund_bot(s, profile=profile, amount=Decimal("40"), operator_user_id=1)
-        await s.commit()
-    cash, _, version = await _state(uid)
-    assert cash == Decimal("50.000000") and version == 0
 
 
 # ────────────────────────── 销毁回收 ──────────────────────────
@@ -189,15 +171,6 @@ async def test_unified_destroy_never_deletes_untraded_debtor(writes_enabled):
     assert (await _state(uid))[1] == Decimal("50.000000")
 
 
-async def test_flag_off_destroy_bot_recovery_no_version_bump():
-    uid, pid = await _seed_bot(cash=Decimal("50"), traded=True)
-    async with async_session_maker() as s:
-        profile = (await s.execute(select(BotProfile).where(BotProfile.id == pid))).scalars().one()
-        result = await pve_svc.destroy_bot(s, profile=profile, operator_user_id=1)
-        await s.commit()
-    assert result["mode"] == "retired"
-    cash, _, version = await _state(uid)
-    assert cash == ZERO and version == 0
 
 
 async def test_fund_bot_refreshes_retained_stale_user(writes_enabled):

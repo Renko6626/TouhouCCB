@@ -18,7 +18,7 @@ from alembic.script import ScriptDirectory
 
 IDENTITY = ('id', 'casdoor_id', 'username', 'email', 'is_active', 'is_superuser', 'is_bot', 'tos_accepted_at', 'equipped_title_id')
 RIGHTS = ('title', 'user_title', 'title_code_batch', 'title_code', 'redemption_partner', 'redemption_batch', 'redemption_code', 'redemption_transaction', 'danmuku_exchange', 'audit_event')
-GATES = ('fx_enabled', 'fx_short_enabled', 'loan_enabled', 'liquidation_enabled', 'unified_credit_enabled', 'pve_enabled')
+GATES = ('fx_enabled', 'fx_short_enabled', 'loan_enabled', 'liquidation_enabled', 'pve_enabled')
 REMOVED = {'fx_hourly_sigma','fx_step_max_ratio','fx_noise_interval_sec','fx_noise_pool_ratio','fx_system_half_life_sec','fx_default_price_move_limit','fx_daily_budget'}
 
 

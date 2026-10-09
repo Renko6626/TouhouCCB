@@ -21,9 +21,7 @@ def _require_writes():
     from app.services.credit import flags
     from app.services.credit.ownership import OWNERSHIP
     config = flags.get_flags()
-    if (config.unified_credit_enabled or config.read_only_instance
-            or flags.read_only_from_env() or OWNERSHIP.reason is not None):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 def interest_factor(daily_rate: Decimal, elapsed_sec: Decimal | float | int) -> Decimal:
@@ -263,10 +261,3 @@ async def decrease_debt(
             user_after=audit_service.user_snapshot(u),
         )
     return u, effective
-
-
-def compute_max_borrow(user: User, holdings_value: Decimal, k: Decimal) -> Decimal:
-    """max(0, k × (cash - debt + holdings_value) - debt)"""
-    net_worth = user.cash - user.debt + holdings_value
-    headroom = k * net_worth - user.debt
-    return max(Decimal("0"), headroom).quantize(_QUANT)

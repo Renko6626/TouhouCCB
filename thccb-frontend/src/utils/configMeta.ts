@@ -31,11 +31,6 @@ const META: Record<string, ConfigMeta> = {
     label: '首页使用 FX 模式',
     description: '开启展示外汇首页，关闭恢复原预测市场首页。保存后刷新首页即可生效；只改变首页展示，不改变交易或借款开关。',
   },
-  unified_credit_enabled: {
-    group: 'loan',
-    label: '统一信贷模式',
-    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率。',
-  },
   credit_leverage: {
     group: 'loan',
     label: '名义杠杆',
@@ -45,7 +40,7 @@ const META: Record<string, ConfigMeta> = {
   credit_maintenance_ratio: {
     group: 'loan',
     label: '强平维持率',
-    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)。',
+    description: '清算净值低于风险基数乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)，修改后重启后端生效。',
     unit: '比例',
   },
   credit_new_risk_frozen: {
@@ -56,7 +51,7 @@ const META: Record<string, ConfigMeta> = {
   credit_risk_retry_limit: {
     group: 'loan',
     label: '风险检查重试次数',
-    description: '并发更新时风险检查允许重试的次数；通常无需调整。',
+    description: '并发更新时风险检查允许重试的次数；通常无需调整，修改后重启后端生效。',
     unit: '次',
   },
   fx_short_enabled: { group: 'fx', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
@@ -74,14 +69,8 @@ const META: Record<string, ConfigMeta> = {
   loan_daily_rate: {
     group: 'loan',
     label: '日利率',
-    description: '每日复利率，每次 borrow/repay 时按经过的天数 accrue',
-    unit: '%/day',
-  },
-  loan_leverage_k: {
-    group: 'loan',
-    label: '杠杆倍率',
-    description: 'max_borrow = max(0, k × net_worth - debt)；k=2 表示用户能借到净值的 2 倍',
-    unit: 'x',
+    description: '每日利率按小数填写，0.01 表示每天 1%。统一信贷运行期间禁止修改，须在停写维护中结清旧率利息后调整。',
+    unit: '比例/天',
   },
   loan_sweep_interval_sec: {
     group: 'loan',
@@ -101,16 +90,6 @@ const META: Record<string, ConfigMeta> = {
     label: 'sweep 扫描间隔',
     description: 'liquidation_sweep scheduler 多久扫一次有 debt 的用户',
     unit: 'sec',
-  },
-  liquidation_hard_threshold: {
-    group: 'liquidation',
-    label: '强平触发线',
-    description: 'LCV margin 低于此值时触发强平 (margin = LCV NW / debt)',
-  },
-  liquidation_soft_threshold: {
-    group: 'liquidation',
-    label: '警戒线',
-    description: 'LCV margin 低于此值时给 UI 警告 banner，但不强平',
   },
 
   // ── 反脚本 ───────────────────────────────────────────────────────
@@ -132,7 +111,7 @@ const META: Record<string, ConfigMeta> = {
   bot_detection_interval_sec: {
     group: 'anti_bot',
     label: '扫描间隔',
-    description: 'bot_detection scheduler 多久扫一次',
+    description: '行为监控扫描间隔，实际使用范围为 60–7200 秒；修改后重启后端生效。',
     unit: 'sec',
   },
   bot_detection_window_sec: {
@@ -182,7 +161,7 @@ const META: Record<string, ConfigMeta> = {
   sell_fee_rate: {
     group: 'economy',
     label: '卖出手续费率',
-    description: '卖出时按成交 gross 收取的手续费比例，0 表示免费。范围 [0, 0.2)。买入不收费',
+    description: '预测市场卖出手续费，0 表示免费，范围 [0, 0.2)。FX 费率在各货币对配置；统一信贷运行期间须停写维护才能调整此项。',
     unit: '比例',
   },
   initial_balance: {
@@ -199,12 +178,10 @@ const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'eco
 const CONFIG_ORDER = [
   'homepage_fx_enabled',
   'fx_enabled', 'fx_short_enabled',
-  'loan_enabled', 'unified_credit_enabled', 'credit_new_risk_frozen',
-  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate', 'loan_leverage_k',
+  'loan_enabled', 'credit_new_risk_frozen',
+  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate',
   'loan_sweep_interval_sec', 'loan_sweep_min_accrual_sec', 'credit_risk_retry_limit',
   'liquidation_enabled', 'liquidation_partial_pct', 'liquidation_sweep_interval_sec',
-  'liquidation_soft_threshold', 'liquidation_hard_threshold',
-  'liquidation_target_margin', 'liquidation_emergency_threshold',
   'initial_balance', 'sell_fee_rate',
   'activity_mode_enabled', 'quant_whitelist_user_ids', 'bot_detection_enabled',
   'bot_detection_interval_sec', 'bot_detection_window_sec',

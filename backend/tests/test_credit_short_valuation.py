@@ -45,7 +45,6 @@ def clean_flags():
 
 def _enable_unified(leverage="10", maintenance="0.05"):
     credit_flags.set_flags(CreditFlags(
-        unified_credit_enabled=True,
         credit_leverage=Decimal(leverage),
         credit_maintenance_ratio=Decimal(maintenance),
     ))
@@ -335,8 +334,8 @@ async def test_no_short_account_keeps_old_values_and_neutral_short_fields():
         assert v.restricted_cash == ZERO
         assert v.available_cash == Decimal("5")
         assert v.risk_status == "ok" and v.blocked_reason is None
-        # Unified credit is off in this test: no shared basis to derive.
-        assert v.risk_basis is None
+        # Debt-free assets still contribute to the shared risk basis at default leverage2.
+        assert v.risk_basis == (Decimal("0.5") * expected_asset).quantize(Q6, rounding=ROUND_CEILING)
 
 
 async def test_risk_basis_uses_max_debt_or_alpha_assets_plus_alpha_short():

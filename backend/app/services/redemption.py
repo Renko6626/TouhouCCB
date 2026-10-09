@@ -1,11 +1,10 @@
 """兑换码模块服务层：CSV 解析、购买事务、库存查询。
 
-统一信贷（WP6b）：`purchase_code` 是现金消费入口（flag=unified_credit_enabled 时）
+统一信贷（WP6b）：`purchase_code` 是现金消费入口（账户级准入 时）
 - 单写实例守卫 `OWNERSHIP.require_writes()`；
 - 锁外做依赖发现（无债用户走单行快路径），按品种门闩（抵押品共享）后锁 user；
 - 沿用「有债禁止兑换」，再跑 `check_cash_spend`（版本复检 + 交易后 E / 冻结判定）；
 - 通过后扣款并自增 `economic_version`。
-开关关闭时逐字段保持旧行为（不查依赖、不置版本、不多任何一行查询）。
 """
 from __future__ import annotations
 
@@ -56,12 +55,10 @@ _RISK_DENY_DETAILS = {
 
 
 def _unified_thresholds() -> Optional[RiskThresholds]:
-    """flag 关闭 → None（走 legacy）；flag 开启但门槛缺失 → fail-closed。"""
+    """门槛缺失时拒绝写入。"""
     if OWNERSHIP.reason is not None:
         OWNERSHIP.require_writes()
     flags = credit_flags.get_flags()
-    if not flags.unified_credit_enabled:
-        return None
     thresholds = flags.thresholds
     if thresholds is None:
         raise HTTPException(status_code=503, detail="统一信贷风险引擎不可用，已拒绝消费类操作")
@@ -161,10 +158,6 @@ async def purchase_code(
     版本复检与冻结 / 保证金判定在 `check_cash_spend` 内完成。
     """
     thresholds = _unified_thresholds()
-    if thresholds is None:
-        return await _purchase_code_impl(
-            session, user_id=user_id, batch_id=batch_id, deps=None, thresholds=None,
-        )
     OWNERSHIP.require_writes()
     if session.new or session.dirty or session.deleted:
         raise RuntimeError("purchase_code requires a clean session before risk admission")
@@ -201,18 +194,16 @@ async def _purchase_code_impl(
     if await available_cash(session, user) < batch.unit_price:
         raise PurchaseError("INSUFFICIENT_CASH")
 
-    if thresholds is not None:
-        # 锁成功 ⇒ 用户存在 ⇒ 锁外预读一定拿到了依赖集
-        assert deps is not None
-        decision = await check_cash_spend(
-            session, user=user, deps=deps, spend=batch.unit_price,
-            thresholds=thresholds, partial_pct=ONE, now=datetime.now(timezone.utc),
+    assert deps is not None
+    decision = await check_cash_spend(
+        session, user=user, deps=deps, spend=batch.unit_price,
+        thresholds=thresholds, partial_pct=ONE, now=datetime.now(timezone.utc),
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"统一信贷准入拒绝：{_risk_deny_detail(decision.reason)}",
         )
-        if not decision.allowed:
-            raise HTTPException(
-                status_code=409,
-                detail=f"统一信贷准入拒绝：{_risk_deny_detail(decision.reason)}",
-            )
 
     # 单用户单批次累计上限校验
     from sqlalchemy import func as _func
@@ -244,8 +235,7 @@ async def _purchase_code_impl(
     code.bought_by_user_id = user_id
     code.bought_at = now
 
-    if thresholds is not None:
-        bump_economic_version(user)
+    bump_economic_version(user)
 
     session.add(user)
     session.add(code)

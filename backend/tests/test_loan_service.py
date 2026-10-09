@@ -64,7 +64,7 @@ def test_accrue_negative_elapsed_noop():
     assert u.debt == before
 
 
-from app.services.loan_service import increase_debt, decrease_debt, compute_max_borrow
+from app.services.loan_service import increase_debt, decrease_debt
 
 
 async def _create_user_in_db(**kwargs) -> int:
@@ -152,22 +152,10 @@ async def test_decrease_debt_forgive_no_cash_change():
     assert abs(u2.debt - Decimal("60")) < Decimal("0.001")
 
 
-def test_compute_max_borrow_basic():
-    u = _new_user_sync(cash=Decimal("100"), debt=Decimal("0"))
-    # net_worth = 100 + 50 = 150, k=1 → max=150
-    assert compute_max_borrow(u, holdings_value=Decimal("50"), k=Decimal("1")) == Decimal("150")
 
 
-def test_compute_max_borrow_with_existing_debt_returns_zero():
-    u = _new_user_sync(cash=Decimal("100"), debt=Decimal("80"))
-    # net_worth = 100 - 80 + 0 = 20, k=2 → k*nw=40, max=40-80=<0→0
-    assert compute_max_borrow(u, holdings_value=Decimal("0"), k=Decimal("2")) == Decimal("0")
 
 
-def test_compute_max_borrow_positive_headroom():
-    u = _new_user_sync(cash=Decimal("500"), debt=Decimal("100"))
-    # net_worth = 500-100+200 = 600, k=1 → 600-100=500
-    assert compute_max_borrow(u, holdings_value=Decimal("200"), k=Decimal("1")) == Decimal("500")
 
 
 # ===== 复利场景下 cash 不跑负的回归测试（2026-04-27 用户报告） =====
