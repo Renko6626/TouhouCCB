@@ -41,8 +41,11 @@ cleanup() {
             newcompose stop backend >/dev/null 2>&1 || true
             log "Cutover attempted: backend stays stopped. Retain databases $OLD/$TARGET/thccb and $BACKUP; explicit recovery required."
         elif [ "$STOPPED" = 1 ]; then
-            compose start backend >/dev/null 2>&1 || true
-            log 'Before cutover: previous backend container restarted.'
+            if compose start backend >/dev/null 2>&1; then
+                log 'Before cutover: previous backend container restarted.'
+            else
+                log 'Before cutover: previous backend restart failed; backend requires explicit operator recovery.' >&2
+            fi
         fi
     fi
     exit "$code"
