@@ -115,11 +115,10 @@ function presetValues(preset: Preset): Record<string, string> {
   return {
     credit_maintenance_ratio: preset.values.liquidation_hard_threshold!,
     credit_leverage: String(Number(preset.values.loan_leverage_k) + 1),
-    loan_daily_rate: preset.values.loan_daily_rate!,
   }
 }
 
-// 当前生效套餐检测：6 个 key 全部匹配 PRESETS[name].values 则视为该套餐
+// 已保存套餐检测：各项配置匹配 PRESETS[name].values 则视为该套餐
 // 否则为 null（自定义）
 const currentPresetKey = computed<PresetKey | null>(() => {
   if (configs.value.length === 0) return null
@@ -170,7 +169,7 @@ async function applyPreset(presetKey: PresetKey) {
   dialog.warning({
     title: `应用套餐: ${presetLabel(preset)}`,
     content: () => buildDiffContent(diffs, unifiedCreditEnabled.value
-      ? '统一信贷按名义杠杆和维持率计算授信与强平；调整前请确认借款、FX 抵押和强平开关状态。'
+      ? '本套餐调整名义杠杆和维持率，保存后需重启后端生效。日利率请单独在停写维护时结清旧率利息后调整。'
       : preset.warn),
     positiveText: `确认应用 (${changedCount} 项改动)`,
     negativeText: '取消',
@@ -211,7 +210,7 @@ async function doApply(presetKey: PresetKey, preset: Preset, values: Record<stri
   applying.value = false
 
   if (failed === 0) {
-    msg.success(`套餐 "${presetLabel(preset)}" 已应用 (${succeeded} 项)`)
+    msg.success(`套餐 "${presetLabel(preset)}" 已保存 (${succeeded} 项)${unifiedCreditEnabled.value ? '，重启后端后生效' : ''}`)
   } else {
     msg.warning(`应用已停止：${succeeded}/${entries.length} 成功，失败 keys: ${failedKeys.join(', ')}，其余未应用`)
   }
@@ -321,11 +320,11 @@ onMounted(load)
       <section class="panel preset-panel">
         <div class="preset-head">
           <h2>杠杆预设套餐</h2>
-          <span class="preset-sub">{{ unifiedCreditEnabled ? '统一信贷：杠杆、维持率与日利率' : '旧模式：借款系数、强平门槛与日利率等 6 项参数' }}</span>
+          <span class="preset-sub">{{ unifiedCreditEnabled ? '统一信贷：杠杆与维持率' : '旧模式：借款系数、强平门槛与日利率等 6 项参数' }}</span>
         </div>
 
         <div class="preset-current">
-          <span class="preset-label">当前生效：</span>
+          <span class="preset-label">已保存配置：</span>
           <NTag v-if="currentPresetKey" type="success" size="small">
             {{ presetLabel(PRESETS[currentPresetKey]) }}
           </NTag>
@@ -356,7 +355,7 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="key in (unifiedCreditEnabled ? ['credit_leverage', 'credit_maintenance_ratio', 'loan_daily_rate'] : PRESET_KEYS_TRACKED)" :key="key">
+              <tr v-for="key in (unifiedCreditEnabled ? ['credit_leverage', 'credit_maintenance_ratio'] : PRESET_KEYS_TRACKED)" :key="key">
                 <td>
                   <span class="preset-row-label">{{ getConfigMeta(key).label }}</span>
                   <code class="preset-row-key">{{ key }}</code>
@@ -376,6 +375,11 @@ onMounted(load)
         <h2>站点配置</h2>
         <p class="config-description">
           FX 交易总闸和开空闸请前往 <RouterLink to="/admin/fx">FX 管理</RouterLink> 设置。
+          PvE 参数请前往 <RouterLink to="/admin/pve">PvE 管理</RouterLink> 设置。
+        </p>
+        <p class="config-description">
+          统一信贷模式、名义杠杆、强平维持率和风险检查重试次数修改后需重启后端生效。
+          冻结新增风险可即时生效。
         </p>
 
         <div
@@ -427,6 +431,7 @@ onMounted(load)
                     <template v-else-if="c.value_type === 'int' || c.value_type === 'decimal'">
                       <NInputNumber
                         :value="Number(drafts[c.key])"
+                        :disabled="c.key === 'loan_leverage_k' && unifiedCreditEnabled"
                         @update:value="(v) => drafts[c.key] = v === null ? '' : String(v)"
                         size="small"
                         :precision="c.value_type === 'int' ? 0 : undefined"
@@ -447,7 +452,7 @@ onMounted(load)
                       v-if="c.value_type !== 'bool'"
                       size="small"
                       type="primary"
-                      :disabled="!shouldChangeFromDraft(c)"
+                      :disabled="!shouldChangeFromDraft(c) || (c.key === 'loan_leverage_k' && unifiedCreditEnabled)"
                       @click="save(c.key)"
                     >保存</NButton>
                     <span v-else class="ts">—</span>

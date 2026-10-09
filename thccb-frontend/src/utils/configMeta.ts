@@ -34,7 +34,7 @@ const META: Record<string, ConfigMeta> = {
   unified_credit_enabled: {
     group: 'loan',
     label: '统一信贷模式',
-    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率。',
+    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率，修改后重启后端生效。',
   },
   credit_leverage: {
     group: 'loan',
@@ -45,7 +45,7 @@ const META: Record<string, ConfigMeta> = {
   credit_maintenance_ratio: {
     group: 'loan',
     label: '强平维持率',
-    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)。',
+    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)，修改后重启后端生效。',
     unit: '比例',
   },
   credit_new_risk_frozen: {
@@ -56,7 +56,7 @@ const META: Record<string, ConfigMeta> = {
   credit_risk_retry_limit: {
     group: 'loan',
     label: '风险检查重试次数',
-    description: '并发更新时风险检查允许重试的次数；通常无需调整。',
+    description: '并发更新时风险检查允许重试的次数；通常无需调整，修改后重启后端生效。',
     unit: '次',
   },
   fx_short_enabled: { group: 'fx', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
@@ -74,13 +74,13 @@ const META: Record<string, ConfigMeta> = {
   loan_daily_rate: {
     group: 'loan',
     label: '日利率',
-    description: '每日复利率，每次 borrow/repay 时按经过的天数 accrue',
-    unit: '%/day',
+    description: '每日利率按小数填写，0.01 表示每天 1%。统一信贷运行期间禁止修改，须在停写维护中结清旧率利息后调整。',
+    unit: '比例/天',
   },
   loan_leverage_k: {
     group: 'loan',
     label: '杠杆倍率',
-    description: 'max_borrow = max(0, k × net_worth - debt)；k=2 表示用户能借到净值的 2 倍',
+    description: '旧模式的借款系数：k=2 表示最多借入净值的 2 倍。统一信贷开启后请改名义杠杆，此项不可再编辑。',
     unit: 'x',
   },
   loan_sweep_interval_sec: {
@@ -132,7 +132,7 @@ const META: Record<string, ConfigMeta> = {
   bot_detection_interval_sec: {
     group: 'anti_bot',
     label: '扫描间隔',
-    description: 'bot_detection scheduler 多久扫一次',
+    description: '行为监控扫描间隔，实际使用范围为 60–7200 秒；修改后重启后端生效。',
     unit: 'sec',
   },
   bot_detection_window_sec: {
@@ -182,7 +182,7 @@ const META: Record<string, ConfigMeta> = {
   sell_fee_rate: {
     group: 'economy',
     label: '卖出手续费率',
-    description: '卖出时按成交 gross 收取的手续费比例，0 表示免费。范围 [0, 0.2)。买入不收费',
+    description: '预测市场卖出手续费，0 表示免费，范围 [0, 0.2)。FX 费率在各货币对配置；统一信贷运行期间须停写维护才能调整此项。',
     unit: '比例',
   },
   initial_balance: {

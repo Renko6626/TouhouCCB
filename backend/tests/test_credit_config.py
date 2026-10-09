@@ -366,6 +366,24 @@ async def _seed_credit_keys(**overrides: str) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("key", ["loan_daily_rate", "sell_fee_rate"])
+async def test_api_explains_runtime_rate_rejection_without_changing_value(client, key):
+    await _seed_credit_keys(unified_credit_enabled="true")
+    async with async_session_maker() as s:
+        s.add(SiteConfig(key=key, value="0.01", value_type="decimal"))
+        await s.commit()
+        await credit_flags.load_flags(s)
+    headers = await _admin_headers()
+    response = await client.put(f"/api/v1/admin/site-config/{key}",
+                                json={"value": "0.02"}, headers=headers)
+    assert response.status_code == 400
+    assert "停写维护" in response.json()["detail"]
+    async with async_session_maker() as s:
+        value = (await s.execute(select(SiteConfig.value).where(SiteConfig.key == key))).scalar_one()
+    assert value == "0.01"
+
+
+@pytest.mark.asyncio
 async def test_api_rejects_enable_without_valid_credit_config(client):
     await _seed_credit_keys(credit_leverage="2.0", credit_maintenance_ratio="1.5")
     site_config_service.clear_cache()

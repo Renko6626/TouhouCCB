@@ -39,12 +39,20 @@ async def test_list_requires_superuser(client):
 
 
 @pytest.mark.asyncio
-async def test_list_returns_all_keys(client):
+async def test_list_returns_editable_keys(client):
+    async with async_session_maker() as s:
+        async with s.begin():
+            s.add_all([
+                SiteConfig(key="fx_enabled", value="false", value_type="bool"),
+                SiteConfig(key="pve_enabled", value="false", value_type="bool"),
+                SiteConfig(key="single_writer_enabled", value="true", value_type="bool"),
+            ])
     _, h = await _make_user(superuser=True)
     r = await client.get("/api/v1/admin/site-config", headers=h)
     assert r.status_code == 200
     keys = {item["key"] for item in r.json()}
     assert {"loan_enabled", "loan_leverage_k", "loan_daily_rate", "loan_sweep_interval_sec"} <= keys
+    assert not keys.intersection({"fx_enabled", "pve_enabled", "single_writer_enabled"})
 
 
 @pytest.mark.asyncio

@@ -202,7 +202,7 @@ async def list_configs(
     return [SiteConfigItem(
         key=r.key, value=r.value, value_type=r.value_type,
         updated_at=r.updated_at, updated_by=r.updated_by,
-    ) for r in rows]
+    ) for r in rows if r.key in _WHITELIST]
 
 
 @router.put("/site-config/{key}", response_model=SiteConfigItem)
@@ -220,7 +220,10 @@ async def update_config(
     if key == "fx_short_enabled":
         await _ensure_config_row(db, key)
 
-    row = await site_config.set_value(db, key, req.value, admin_user_id=admin.id)
+    try:
+        row = await site_config.set_value(db, key, req.value, admin_user_id=admin.id)
+    except site_config.SiteConfigError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     logger.info("SITECONFIG_SET admin_id=%s key=%s value=%s", admin.id, key, req.value)
     if key == "unified_credit_enabled":
         # 翻转需重启进程：进程内 flag 缓存只在 lifespan 启动时加载（计划 §3.4）。
