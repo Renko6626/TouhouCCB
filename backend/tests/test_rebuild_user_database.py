@@ -34,7 +34,10 @@ def test_identity_rights_reset_and_ids(source,tmp_path):
     assert data['dependencies'] == [43]
     export_file = tmp_path / 'private.json'; r.write_private(export_file,data)
     assert export_file.stat().st_mode & 0o777 == 0o600
+    from sqlmodel import SQLModel
+    registry_options = {name: SQLModel.metadata.tables[name].dialect_options['sqlite']['autoincrement'] for name in ('market','audit_event')}
     r.import_data(source,target,data); assert r.verify(target,data)['verified_users'] == 2
+    assert {name: SQLModel.metadata.tables[name].dialect_options['sqlite']['autoincrement'] for name in registry_options} == registry_options
     e = r.engine(target); m = r.metadata()
     with e.begin() as c:
         u = c.execute(select(m.tables['user']).where(m.tables['user'].c.id == 42)).mappings().one()

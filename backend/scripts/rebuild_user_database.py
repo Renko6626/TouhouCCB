@@ -41,7 +41,11 @@ def canonical(url):
 def metadata():
     for module in ('base','redemption','title','ledger','audit','bot','fx','credit'):
         importlib.import_module('app.models.' + module)
-    return SQLModel.metadata
+    # SQLite import options belong to this rebuild, never the shared model registry.
+    local = MetaData()
+    for table in SQLModel.metadata.tables.values():
+        table.to_metadata(local)
+    return local
 
 
 def encode(value):
