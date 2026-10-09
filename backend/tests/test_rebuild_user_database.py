@@ -69,3 +69,39 @@ def test_missing_disabled_account_state_rejected_before_target_mutation(source,t
     with pytest.raises(ValueError,match='incomplete identity fields'):
         r.import_data(source,target,data)
     assert not target_path.exists()
+
+
+def test_large_excluded_history_is_counted_without_materializing_rows(source, monkeypatch):
+    from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
+    from sqlalchemy.engine import CursorResult
+
+    e = r.engine(source)
+    m = r.metadata()
+    with e.begin() as c:
+        c.execute(m.tables['outcome'].insert(), [dict(id=i,market_id=100,label=str(i)) for i in range(201,2201)])
+        c.execute(m.tables['position'].insert(), [dict(user_id=42,outcome_id=i,amount=1) for i in range(201,2201)])
+        c.execute(m.tables['audit_event'].insert(), [dict(event_type='trade',user_id=42,payload={'history':'x' * 1000}) for _ in range(2000)])
+        reflected = MetaData(); reflected.reflect(c)
+        unknown = Table('unknown_user_history', reflected, Column('id',Integer,primary_key=True), Column('user_id',Integer,ForeignKey('user.id')))
+        unknown.create(c)
+        c.execute(unknown.insert(), [dict(id=i,user_id=42) for i in range(1,2001)])
+    e.dispose()
+
+    # Count rows actually exposed to Python as full mappings, including audit payloads.
+    materialized = []
+    original = CursorResult.mappings
+    def mappings(result):
+        for row in original(result):
+            materialized.append(dict(row))
+            yield row
+    monkeypatch.setattr(CursorResult, 'mappings', mappings)
+    data = r.export_data(source,{'balance':'1000','dependency_balance':'0','sequence_highwater':{'outcome':200,'fx_pair':0}})
+    assert data['excluded_counts']['position'] == 2001
+    assert data['excluded_counts']['unknown_user_history'] == 2000
+    assert data['source_summary']['position_rows'] == 2001
+    assert data['unsupported'] == ['unknown_user_history']
+    assert data['highwater']['unknown_user_history'] == 2000
+    assert data['highwater']['audit_event'] == 2001
+    assert [row['id'] for row in data['rows']['audit_event']] == [1]
+    assert len(materialized) < 50
+    assert all(row.get('event_type') != 'trade' for row in materialized)

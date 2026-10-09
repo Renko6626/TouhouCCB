@@ -72,7 +72,17 @@ def export_data(source_url, policy):
             else:
                 raise ValueError('unsupported database dialect')
             m = MetaData(); m.reflect(c)
-            rows = {n: [dict(r) for r in c.execute(select(t)).mappings()] for n,t in m.tables.items() if n != 'alembic_version'}
+            def fetch(name, condition=None):
+                if name not in m.tables:
+                    return []
+                query = select(m.tables[name])
+                if condition is not None:
+                    query = query.where(condition)
+                return [dict(r) for r in c.execute(query).mappings()]
+
+            counts = {n: c.execute(select(func.count()).select_from(t)).scalar_one()
+                      for n,t in m.tables.items() if n != 'alembic_version'}
+            rows = {'user': fetch('user')}
             all_users = {r['id']: r for r in rows['user']}
             real_ids = {r['id'] for r in rows['user'] if not r.get('is_bot', False)}
             if 'user_ids' in policy:
@@ -81,10 +91,11 @@ def export_data(source_url, policy):
                     raise ValueError('user scope contains absent or bot users')
             chosen = {n: {} for n in RIGHTS}
             for n,field in (('user_title','user_id'),('title_code','used_by_user_id'),('redemption_code','bought_by_user_id'),('redemption_transaction','user_id'),('danmuku_exchange','user_id')):
-                for r in rows.get(n, []):
-                    if r.get(field) in real_ids:
-                        chosen[n][r['id']] = r
-            for r in rows.get('audit_event', []):
+                for r in fetch(n, m.tables[n].c[field].in_(real_ids)) if n in m.tables else []:
+                    chosen[n][r['id']] = r
+            audit = m.tables.get('audit_event')
+            audit_rows = fetch('audit_event', audit.c.event_type.in_({'redeem_purchase','redeem_fulfill','redeem_fulfill_revoke','danmuku_exchange'}) & audit.c.user_id.in_(real_ids)) if audit is not None else []
+            for r in audit_rows:
                 if r.get('event_type') in {'redeem_purchase','redeem_fulfill','redeem_fulfill_revoke','danmuku_exchange'} and r.get('user_id') in real_ids:
                     if r.get('market_id') is not None or r.get('outcome_id') is not None:
                         raise ValueError('unsupported entitlement audit market reference')
@@ -104,7 +115,7 @@ def export_data(source_url, policy):
                 for uid in list(real_ids):
                     tid = all_users[uid].get('equipped_title_id')
                     if tid is not None:
-                        matches = [r for r in rows.get('title',[]) if r['id'] == tid]
+                        matches = fetch('title', m.tables['title'].c.id == tid)
                         if not matches: raise ValueError('dangling equipped title')
                         chosen['title'][tid] = matches[0]
                 for n,items in chosen.items():
@@ -117,7 +128,7 @@ def export_data(source_url, policy):
                                 if v not in all_users: raise ValueError('dangling user dependency')
                                 users.add(v)
                             elif dest in chosen:
-                                matches = [x for x in rows[dest] if x[fk.column.name] == v]
+                                matches = fetch(dest, m.tables[dest].c[fk.column.name] == v)
                                 if not matches: raise ValueError('dangling entitlement dependency')
                                 for x in matches: chosen[dest][x['id']] = x
                             else: raise ValueError('unsupported entitlement reference')
@@ -130,13 +141,13 @@ def export_data(source_url, policy):
                 for fk in t.foreign_keys:
                     dest = fk.column.table.name
                     retained_ids = users if dest == 'user' else set(chosen.get(dest, {}))
-                    if retained_ids and any(r.get(fk.parent.name) in retained_ids for r in rows.get(n, [])):
+                    if retained_ids and c.execute(select(t.c[fk.parent.name]).where(t.c[fk.parent.name].in_(retained_ids)).limit(1)).first() is not None:
                         if n not in policy.get('exclude_tables', []): unsupported.append(n)
             highwater = {}
             uncertain = []
             for n,t in m.tables.items():
                 if 'id' not in t.c or not isinstance(t.c.id.type, Integer): continue
-                high = max((r['id'] for r in rows.get(n,[]) if r['id'] is not None), default=0)
+                high = c.execute(select(func.max(t.c.id))).scalar_one() or 0
                 if c.dialect.name == 'postgresql':
                     seq = c.execute(text('SELECT pg_get_serial_sequence(:t, :col)'), {'t': n, 'col':'id'}).scalar()
                     if seq:
@@ -157,7 +168,7 @@ def export_data(source_url, policy):
                     r['equipped_title_id'] = None
                 r['cash'] = str(balance(policy) if uid in real_ids else dependency_balance)
                 user_rows.append(r)
-            return json.loads(json.dumps({'version':1,'uncertain_sequences':uncertain,'policy':policy,'real_ids':sorted(real_ids),'dependencies':sorted(users-real_ids),'unsupported':sorted(set(unsupported)), 'excluded_counts':{n:len(v) for n,v in rows.items() if n not in RIGHTS and n != 'user'}, 'source_summary':{'real_users':len(real_ids),'active_users':sum(bool(all_users[i]['is_active']) for i in real_ids),'superusers':sum(bool(all_users[i]['is_superuser']) for i in real_ids),'cash_total':str(sum(Decimal(str(all_users[i]['cash'])) for i in real_ids)),'debt_total':str(sum(Decimal(str(all_users[i].get('debt',0))) for i in real_ids)),'position_rows':len(rows.get('position',[])),'fx_wallet_rows':len(rows.get('fx_wallet',[])),'fx_short_rows':len(rows.get('fx_short_position',[])),'source_initial_balance':next((x['value'] for x in rows.get('siteconfig',[]) if x['key']=='initial_balance'),None)}, 'rows':{'user':user_rows, **{n:list(v.values()) for n,v in chosen.items()}}, 'highwater':highwater}, default=encode))
+            return json.loads(json.dumps({'version':1,'uncertain_sequences':uncertain,'policy':policy,'real_ids':sorted(real_ids),'dependencies':sorted(users-real_ids),'unsupported':sorted(set(unsupported)), 'excluded_counts':{n:v for n,v in counts.items() if n not in RIGHTS and n != 'user'}, 'source_summary':{'real_users':len(real_ids),'active_users':sum(bool(all_users[i]['is_active']) for i in real_ids),'superusers':sum(bool(all_users[i]['is_superuser']) for i in real_ids),'cash_total':str(sum(Decimal(str(all_users[i]['cash'])) for i in real_ids)),'debt_total':str(sum(Decimal(str(all_users[i].get('debt',0))) for i in real_ids)),'position_rows':counts.get('position',0),'fx_wallet_rows':counts.get('fx_wallet',0),'fx_short_rows':counts.get('fx_short_position',0),'source_initial_balance':c.execute(select(m.tables['siteconfig'].c.value).where(m.tables['siteconfig'].c.key == 'initial_balance').limit(1)).scalar() if 'siteconfig' in m.tables else None}, 'rows':{'user':user_rows, **{n:list(v.values()) for n,v in chosen.items()}}, 'highwater':highwater}, default=encode))
     finally:
         e.dispose()
 
