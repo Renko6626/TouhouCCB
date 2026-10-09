@@ -99,5 +99,3 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
                                   "treasury_after": {"gold": str(treasury.gold_balance), "foreign": str(treasury.foreign_balance)}})
     await db.commit(); await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)
-
-
