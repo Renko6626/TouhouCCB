@@ -51,7 +51,7 @@ venv/bin/python -m pytest -q tests/test_fx_short_liquidation.py::test_treasury_o
 - 集成／部署保护 medium scoped review：通过，无问题；Docker 实际调用仍属未验证项。
 - 重建工具 medium review 发现损坏 manifest 缺少 is_active 时可能被默认值激活；已改为要求完整身份键集，在接触目标库前拒绝，回归检查目标文件未创建。修复复审通过。
 - 后端 medium review：资金函数逐项核对为原样迁移，未发现生产逻辑缺陷；要求恢复原 frame 测试的 price/spread/volume 断言，已原位恢复并通过该文件 4 项测试。
-- PG schema 补充检查已通过；最终整分支审阅完成后追加结果。
+- PG schema 补充检查已通过。最终整分支 medium 审阅对 `1af6678..bb22b6e` 给出 spec/quality PASS，仅发现 liquidity 文件尾多余空行；`26fea60` 修复后 scoped 复审 PASS，无遗留问题。最终应用导入／路由／模型／配置检查及完整分支 diff --check 均通过。
 
 ## 实施中修正的计划假设
 
