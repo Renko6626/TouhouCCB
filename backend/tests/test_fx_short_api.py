@@ -44,9 +44,7 @@ Q6 = D("0.000001")
 
 PAIR = {
     "currency_code": "USD", "currency_name": "Dollar", "status": "trading",
-    "gold_reserve": "1000", "foreign_reserve": "1000", "target_price": "1",
-    "initial_price": "1", "target_min": "0.5", "target_max": "2",
-    "short_lending_limit_foreign": "0",
+    "gold_reserve": "1000", "foreign_reserve": "1000", "initial_price": "1", "short_lending_limit_foreign": "0",
 }
 
 @pytest.fixture(autouse=True)

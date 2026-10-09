@@ -213,3 +213,67 @@ def test_candle_migration_adds_derived_only_and_preserves_ledger():
         assert 'ix_fx_trade_pair_id_id' not in {i['name'] for i in inspect(conn).get_indexes('fx_trade')}
         assert conn.execute(text('SELECT currency_code FROM fx_pair')).scalar_one() == 'USD'
         assert conn.execute(text('SELECT input_amount FROM fx_trade')).scalar_one() == 1
+
+
+def test_intervention_cleanup_preserves_accounts_pool_and_lending_balances():
+    """Removing obsolete metadata must retain live money and restore usable DDL."""
+    from sqlalchemy import text
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*fx_remove_intervention.py'))
+    spec = importlib.util.spec_from_file_location('cleanup_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        conn.execute(text('CREATE TABLE user (id INTEGER PRIMARY KEY, cash NUMERIC(16,6), debt NUMERIC(16,6))'))
+        from app.models.base import SiteConfig
+        SiteConfig.__table__.create(conn)
+        conn.execute(text('INSERT INTO user VALUES(1,123,45)'))
+        with Operations.context(MigrationContext.configure(conn)):
+            _load_revision().upgrade()
+        conn.execute(text(_FX_PAIR_INSERT))
+        conn.execute(text('INSERT INTO fx_treasury(pair_id,gold_balance,foreign_balance,daily_spend,updated_at) VALUES(1,17,29,3,CURRENT_TIMESTAMP)'))
+        conn.execute(text("INSERT INTO siteconfig(key,value,value_type,updated_at) VALUES('fx_enabled','false','bool',CURRENT_TIMESTAMP),('fx_daily_budget','10','decimal',CURRENT_TIMESTAMP)"))
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.upgrade()
+        assert 'fx_event' not in inspect(conn).get_table_names()
+        assert {'target_price','target_min','target_max'}.isdisjoint(c['name'] for c in inspect(conn).get_columns('fx_pair'))
+        assert {'daily_spend','spend_date'}.isdisjoint(c['name'] for c in inspect(conn).get_columns('fx_treasury'))
+        assert conn.execute(text('SELECT cash,debt FROM user')).one() == (123,45)
+        assert conn.execute(text('SELECT gold_reserve,foreign_reserve,initial_price FROM fx_pair')).one() == (100,200,1)
+        assert conn.execute(text('SELECT gold_balance,foreign_balance FROM fx_treasury')).one() == (17,29)
+        assert conn.execute(text('SELECT key,value FROM siteconfig')).all() == [('fx_enabled','false')]
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+        assert 'fx_event' in inspect(conn).get_table_names()
+        assert conn.execute(text('SELECT target_price,target_min,target_max FROM fx_pair')).one() == (1,0.5,2)
+        assert conn.execute(text('SELECT gold_balance,foreign_balance,daily_spend FROM fx_treasury')).one() == (17,29,0)
+        conn.execute(text("INSERT INTO fx_event(pair_id,title,kind) VALUES(1,'restored structure','macro')"))
+        assert conn.execute(text('SELECT cash,debt FROM user')).one() == (123,45)
+
+
+def test_cleanup_roundtrip_schema_matches_current_model_metadata():
+    """Empty-target metadata bootstrap and cleanup migration produce the same FX schema."""
+    from sqlmodel import SQLModel
+    from app.models.fx import FxPair, FxTreasury
+    from app.models.base import SiteConfig, User
+    from app.models.title import Title
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*fx_remove_intervention.py'))
+    spec = importlib.util.spec_from_file_location('cleanup_roundtrip', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        SQLModel.metadata.create_all(conn, tables=[Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__, FxTreasury.__table__])
+        def shape(table):
+            inspector = inspect(conn)
+            return (
+                {(c['name'], str(c['type']), c['nullable']) for c in inspector.get_columns(table)},
+                {(c['name'], c['sqltext']) for c in inspector.get_check_constraints(table)},
+                {(c['name'], tuple(c['column_names'])) for c in inspector.get_unique_constraints(table)},
+                {(c['name'], tuple(c['column_names'])) for c in inspector.get_indexes(table)},
+                {(tuple(c['constrained_columns']), c['referred_table'], tuple(c['referred_columns'])) for c in inspector.get_foreign_keys(table)},
+            )
+        expected = {table:shape(table) for table in ('fx_pair','fx_treasury')}
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+            revision.upgrade()
+        assert {table:shape(table) for table in expected} == expected
+        assert 'fx_event' not in inspect(conn).get_table_names()

@@ -26,8 +26,7 @@ from app.models.fx import FxPair
 from tests.fx_test_helpers import fx_db
 
 PAIR = {"currency_code": "USD", "currency_name": "Dollar", "status": "trading",
-        "gold_reserve": "100", "foreign_reserve": "100", "target_price": "1",
-        "initial_price": "1", "target_min": "0.5", "target_max": "2"}
+        "gold_reserve": "100", "foreign_reserve": "100", "initial_price": "1", }
 
 # 公开响应允许出现的 pair 字段（运营字段不得外露）。
 PUBLIC_PAIR_FIELDS = {"id", "currency_code", "currency_name", "status",
@@ -153,7 +152,7 @@ async def test_patch_to_trading_respects_limit_and_releases_on_pause(ctx):
 
     # 已在 trading 的 pair 自身 patch（不改 status）不受计数影响
     assert (await client.patch(f"/api/v1/admin/fx/pairs/{pid}",
-                               json={"target_price": "1.5"})).status_code == 200
+                               json={})).status_code == 200
 
 
 @pytest.mark.asyncio

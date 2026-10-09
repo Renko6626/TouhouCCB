@@ -45,7 +45,7 @@ from app.models.bot import BotProfile  # noqa: E402
 from app.models.credit import LiquidationAction, LiquidationRun  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
 from app.models.fx import (
-    FxCandle, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+    FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
 )  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
@@ -70,7 +70,7 @@ FX_AUDIT_TYPES = (
 # carries the per-pair history generation and must be removed with the candles so
 # a reused pair id can never serve the previous season's cached history.
 FX_CLEAR_ORDER = (
-    FxCandle, FxMarketDataState, FxShortPosition, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair,
+    FxCandle, FxMarketDataState, FxShortPosition, FxWallet, FxTrade, FxTreasury, FxPair,
 )
 RESET_RULESET = "2026-09-27"
 

@@ -448,8 +448,6 @@ async def execute_short_open_in_session(
     treasury_before = {
         "gold_balance": pre_treasury_gold,
         "foreign_balance": pre_treasury_foreign,
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {
@@ -943,8 +941,6 @@ async def execute_short_cover_in_session(
     treasury_before = {
         "gold_balance": Decimal(treasury.gold_balance),
         "foreign_balance": Decimal(treasury.foreign_balance),
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {
@@ -1376,8 +1372,6 @@ async def execute_liquidation_cover_in_session(
     treasury_before = {
         "gold_balance": pre_treasury_gold,
         "foreign_balance": pre_treasury_foreign,
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {

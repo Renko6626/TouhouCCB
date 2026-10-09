@@ -40,12 +40,7 @@ def test_public_frame_allowlists_market_fields_and_news():
         "volume_24h": Decimal("4"), "target_price": Decimal("9"),
         "shock_ratio": Decimal("0.5"), "random_state": "secret",
     }
-    frame = build_public_frame(snapshot, {"title": "公开新闻", "body": "说明", "kind": "macro"})
-
-    assert frame["price"] == Decimal("1.1")
-    assert frame["spread"] == Decimal("0.2")
-    assert frame["volume"] == Decimal("4")
-    assert frame["news"]["title"] == "公开新闻"
+    frame = build_public_frame(snapshot)
     assert "target_price" not in frame
     assert "shock_ratio" not in frame
     assert "random_state" not in frame

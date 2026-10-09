@@ -78,9 +78,8 @@ def build_price_buckets(trades: Iterable[Any], interval: str,
 
 
 _FRAME_KEYS = ("price", "buy_price", "sell_price", "spread", "volume")
-_NEWS_KEYS = ("title", "body", "kind", "published_at")
 #: Additive SSE envelope fields (frozen with the frontend in task-5).  The old
-#: quote/news frame stays byte-identical when the runtime has no tail/deltas.
+#: quote frame stays byte-identical when the runtime has no tail/deltas.
 _HISTORY_SCALAR_KEYS = (
     "history_version", "history_ready", "history_tail_at",
     "history_tail_through_trade_id",
@@ -89,7 +88,7 @@ _SEGMENT_KEYS = ("t0", "step", "n_buckets", "t", "o", "h", "l", "c", "v", "trade
 _TRADE_KEYS = ("id", "ts", "post_price", "gold_volume")
 
 
-def build_public_frame(snapshot: Any, news: Any = None) -> dict[str, Any]:
+def build_public_frame(snapshot: Any) -> dict[str, Any]:
     def get(name: str, default: Any = None) -> Any:
         return snapshot.get(name, default) if isinstance(snapshot, dict) else getattr(snapshot, name, default)
 
@@ -103,16 +102,13 @@ def build_public_frame(snapshot: Any, news: Any = None) -> dict[str, Any]:
     for key in ("buy_price", "sell_price"):
         if get(key) is not None:
             frame[key] = get(key)
-    if news:
-        frame["news"] = {key: (news.get(key) if isinstance(news, dict) else getattr(news, key, None))
-                          for key in _NEWS_KEYS if (news.get(key) if isinstance(news, dict) else getattr(news, key, None)) is not None}
     return frame
 
 
 def build_public_envelope(snapshot: Any, *, history: dict[str, Any] | None = None,
                           trades: Iterable[dict[str, Any]] | None = None,
                           history_invalidated: bool = False) -> dict[str, Any]:
-    """Old quote/news frame plus the additive history/delta envelope fields.
+    """Old quote frame plus the additive history/delta envelope fields.
 
     Only the fields we produced or explicitly allowlisted are copied; private
     system state never rides along.
@@ -174,9 +170,6 @@ def public_frame_to_wire(frame: dict[str, Any]) -> dict[str, Any]:
     for key in _FRAME_KEYS:
         if key in frame:
             public[key] = _wire_value(frame[key])
-    if "news" in frame and isinstance(frame["news"], dict):
-        public["news"] = {key: _wire_value(frame["news"][key]) for key in _NEWS_KEYS
-                          if key in frame["news"]}
     for key in _HISTORY_SCALAR_KEYS:
         if key in frame:
             public[key] = _wire_value(frame[key])
