@@ -64,7 +64,7 @@
 - [ ] 清理仍运行的 shorts/trading/liquidity/audit 快照对已删预算列的读取；只改无经济意义的元数据，不改金额和债务逻辑。
 - [ ] 追加 revision：按实际 Alembic head 挂接，先移除依赖约束／索引再删列／表，删除七个废弃配置行。支持 PostgreSQL 与 SQLite batch 操作。禁止把“某 revision 永远是 head”写成断言。
 - [ ] downgrade 恢复旧结构和必要默认配置，仅承诺结构恢复，不能宣称恢复已删除新闻／旧参数值；新库重建及恢复流程使用备份。
-- [ ] 在现有迁移用例中验证实际最终 schema、升级时非目标用户行与借币余额保持、回滚结构可用。新库正式从空库 upgrade head，不通过旧表名残留／create_all stamp 掩盖迁移问题。
+- [ ] 在现有迁移用例中验证实际最终 schema、升级时非目标用户行与借币余额保持、回滚结构可用。仓库 baseline 为 stamp-only：空目标使用当前 metadata 建表后 stamp 实际 head；迁移测试另外从真实前一版结构升级，验证两条路径的最终 schema 一致。
 - [ ] 运行 `cd backend && venv/bin/python -m pytest -q tests/test_fx_migration.py tests/test_fx_models.py tests/test_admin_fx.py tests/test_credit_config.py tests/test_fx_short_trading.py tests/test_fx_audit_replay.py`。
 - [ ] 提交 schema/API 清理；revision 不在真实源库执行。
 
@@ -88,7 +88,7 @@
 
 - [ ] inspect 统计真人账号、权限、现金／债务／持仓分布、称号和已购权益依赖；生成可审阅保留清单，列出余额 B 的具体来源和数值。未识别的用户权益／外键依赖阻止 import，不能悄悄丢弃。
 - [ ] export 按已确认字段白名单导出身份／权限／资料及必要权益依赖。采用一致快照，源库不写；文件设为仅操作者可读，不进入 git。
-- [ ] import 拒绝源目标相同、非空目标和重复导入；在新空库运行最新 schema 及必要默认播种，不生成示例市场。按外键顺序事务导入，保留用户 ID 和 SSO；修正相关序列。
+- [ ] import 拒绝源目标相同、非空目标和重复导入；在已验证为空的目标库注册当前模型、create_all、stamp 实际 Alembic head 并播种必要配置，不调用破坏性的 init_db，不生成示例市场。按外键顺序事务导入，保留用户 ID 和 SSO；修正相关序列。
 - [ ] 设置 cash=B、debt=0，清空旧计息／强平／经济冻结状态，不导入旧 LMSR/FX 持仓、锁金、债务、强平任务或交易。写入符合现有回放语义的新开局锚点；保留账户禁用状态和管理员权限。
 - [ ] 新版本默认配置按白名单覆盖必要站点参数；所有经济写入 gate 在切换前保持关闭。核对 deploy 的环境门闸，不能只重置 fx_enabled。
 - [ ] verify 比对身份映射、账号数量、权限、保留资料／权益、余额总量=N×B、零债务及空持仓、外键完整性、序列；失败不进行切换。若保留少量依赖账号，余额总量分别按政策统计，不混入真人重置总量。

@@ -28,7 +28,7 @@
 
 删除历史干预控制和专用管理记录界面；系统强平成交仍正常展示。为避免无关重构，现有历史审计解释器不在本轮彻底重写，但新业务库不导入旧交易、新闻或干预审计。
 
-追加清理 revision，使 Alembic 最终 schema 与当前模型一致，不改写既有迁移历史。正式重建在新空库执行 `alembic upgrade head` 和必要默认配置播种；旧源库不运行该删除迁移。不在旧库调用 `init_db.py`、DROP ALL 或赛季重置脚本。
+追加清理 revision，使 Alembic 最终 schema 与当前模型一致，不改写既有迁移历史。仓库的 Alembic baseline 为 stamp-only，空库不能直接 upgrade。正式重建先证明目标无业务表，再按现有项目机制注册当前模型、create_all、stamp 实际 head 和播种默认配置；同时验证清理 migration 从旧 schema 升级后的结构与新模型一致。旧源库不运行该删除迁移。不在旧库调用 `init_db.py`、DROP ALL 或赛季重置脚本。
 
 ## 用户迁移清单
 
