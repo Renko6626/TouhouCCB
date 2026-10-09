@@ -33,19 +33,18 @@ def test_price_buckets_use_post_price_ohlcv_and_include_system_trades():
     assert candles[1].volume == Decimal("4")
 
 
-def test_public_frame_allowlists_market_fields_and_news():
+def test_public_frame_allowlists_market_fields():
     snapshot = {
         "price": Decimal("1.1"), "buy_price": Decimal("1.2"),
         "sell_price": Decimal("1.0"), "spread": Decimal("0.2"),
         "volume_24h": Decimal("4"), "target_price": Decimal("9"),
         "shock_ratio": Decimal("0.5"), "random_state": "secret",
     }
-    frame = build_public_frame(snapshot, {"title": "公开新闻", "body": "说明", "kind": "macro"})
+    frame = build_public_frame(snapshot)
 
     assert frame["price"] == Decimal("1.1")
     assert frame["spread"] == Decimal("0.2")
     assert frame["volume"] == Decimal("4")
-    assert frame["news"]["title"] == "公开新闻"
     assert "target_price" not in frame
     assert "shock_ratio" not in frame
     assert "random_state" not in frame

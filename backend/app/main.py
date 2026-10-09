@@ -35,10 +35,6 @@ from app.services.pve.scheduler import (
     start_scheduler as start_pve_scheduler,
     stop_scheduler as stop_pve_scheduler,
 )
-from app.services.fx.scheduler import (
-    start_scheduler as start_fx_scheduler,
-    stop_scheduler as stop_fx_scheduler,
-)
 from app.services.fx.publisher import start_publisher as start_fx_publisher, stop_publisher as stop_fx_publisher
 from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.loan_migrate import auto_migrate
@@ -209,7 +205,6 @@ async def _startup(app: FastAPI) -> None:
         await start_bot_detection_scheduler()
         # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
         await start_pve_scheduler()
-        await start_fx_scheduler()
         await start_fx_publisher()
     # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
@@ -248,7 +243,6 @@ async def _shutdown() -> None:
 
     try:
         await _safe("pve_scheduler", stop_pve_scheduler)
-        await _safe("fx_scheduler", stop_fx_scheduler)
         await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
         await _safe("liquidation_scheduler", stop_liquidation_scheduler)
         await _safe("loan_scheduler", stop_loan_scheduler)

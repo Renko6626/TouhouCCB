@@ -435,38 +435,17 @@ cp backups/thccb_想恢复的时间戳.db backend/data/thccb.db
 docker compose start backend
 ```
 
-### 5.6 FX 子游戏部署护栏
+### 5.6 FX 央行清理与数据库重建
 
-> FX 完整运维手册见 [`docs/fx.md`](fx.md)。**本任务范围内总闸保持关闭、不打开 gate、
-> 不开市**；Task 9 发现并已最小修复一个审计日期序列化缺陷（见 fx.md 第 11 节）。
+本次发布删除 fx_event 及目标价／干预预算列，新闻与干预运行模块同时停用。完整流程见[数据库重建操作单](fx-database-rebuild.md)和[FX 运维说明](fx.md)。
 
-- **迁移顺序**：FX migration `fx_tables_20260928` 依赖兑换履约 `0d0ac23efa85`。
-  已有库只跑 `alembic upgrade head`（`deploy.sh` 自动执行）；**绝不**对已有库跑
-  `init_db.py`。详见 `docs/migrations.md` 与 `docs/fx.md` 第 2 节。
-- **默认关闭**：`site_config.fx_enabled` 默认 `false`。没有建立并注资货币对之前不得开市；
-  生产任何阶段都不得擅自打开 `fx_enabled`。
-- **注资 / 撤资只能走 admin service**：`POST /api/v1/admin/fx/pairs/{id}/fund|withdraw`。
-  **禁止**直接 SQL 改 `fx_pair` / `fx_treasury`，否则跳过守恒、行锁与审计。
-- **预算 / 储备护栏**：`fx_daily_budget` 每日系统支出上限、事件 `budget` 单事件上限、
-  池子储备 `> 0`、treasury 余额 `>= 0`、目标价夹取与 6 位 Decimal。
-- **暂停 / 赛季重置**：暂停用 `PATCH /api/v1/admin/fx/pairs/{id} {"status":"paused"}`；
-  赛季重置走 `deploy/season_reset.sh`（见 5.4），会删除全部 FX 表并关闭 gate，
-  保留兑换核销记录与自增序列。
-- **回滚**：`alembic downgrade 0d0ac23efa85` 会删除 5 张 FX 表（数据丢失，仅应急）；
-  回滚前先停后端并备份。
-- **验证命令**：
-
-  ```bash
-  cd backend
-  python -m compileall -q app scripts
-  python -c "import app.main"
-  python -m pytest -q --noconftest tests/test_fx_end_to_end.py
-  git diff --check
-  ```
-
-- **CI**：CI 在后端 job 中额外跑一次 FX 隔离端到端检查
-  （`pytest -q --noconftest tests/test_fx_end_to_end.py`），避免既有全量
-  `pytest -q` 的 async fixture 挂起掩盖 FX 回归；不改变现有兑换相关检查。
+- 普通部署在停止后端前检查旧干预 schema，发现时拒绝自动升级，要求先完成用户白名单迁移的新库流程。不能用空库检测或 init_db 直接清空源库。
+- 准备新库时保留登录身份、权限和选定资料；余额按核对后的开局金额重置，旧债务及持仓清零。称号和已购权益带必要依赖导入。
+- 项目早期 migration baseline 为 stamp-only：在已证实为空的目标库用当前 metadata 建表并 stamp 实际 head，清理 revision 另用迁移测试验证。
+- 停止旧写入者、验证备份恢复、导出／导入／核对、处理缓存和 ID 高水位，最后切换。普通脚本只支持固定 compose 目标，非默认新库切换按专用操作单进行，不能直接改 URL 绕过目标检查。
+- 新开局的 FX、做空、贷款、强平和 PvE 开关先保持关闭；初始化市场和注资通过原管理服务，随后单独开市。
+- 清理 migration 降级不会恢复已删数据。新库开始接受用户交易后，不能直接回切旧库丢掉新账。
+- CI 和本地验证继续保留 FX 独立端到端、资金／借贷／强平及行情检查。本次不调整强平扫描周期和算法。
 
 ---
 

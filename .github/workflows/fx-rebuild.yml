@@ -1,0 +1,157 @@
+name: FX production rebuild
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [preview, execute]
+        default: preview
+        required: true
+      build_run_id:
+        description: Successful main CI/CD run ID (immutable image and frontend)
+        required: true
+        type: string
+      balance:
+        description: Explicit new cash per real user (required for execute)
+        required: false
+        type: string
+      confirmation:
+        description: Type REBUILD for execute
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: thccb-production
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    if: github.repository_owner == 'Renko6626' && github.actor == 'Renko6626' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Validate request and immutable build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          REBUILD_ACTION: ${{ inputs.action }}
+          REBUILD_BALANCE: ${{ inputs.balance }}
+          REBUILD_CONFIRMATION: ${{ inputs.confirmation }}
+          PENDING: ${{ vars.FX_REBUILD_PENDING }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess
+          from decimal import Decimal
+          def api(path):
+              return json.loads(subprocess.check_output(['gh','api',path], text=True))
+          run_id = os.environ['BUILD_RUN_ID']
+          if not re.fullmatch(r'[0-9]{1,20}', run_id):
+              raise SystemExit('Invalid build run ID')
+          action = os.environ['REBUILD_ACTION']
+          if action not in ('preview','execute'):
+              raise SystemExit('Invalid action')
+          if os.environ['REBUILD_CONFIRMATION'] not in ('', 'REBUILD'):
+              raise SystemExit('Invalid confirmation')
+          raw = os.environ['REBUILD_BALANCE']
+          if action == 'execute':
+              if os.environ['REBUILD_CONFIRMATION'] != 'REBUILD' or os.environ['PENDING'] != 'true':
+                  raise SystemExit('Execute requires REBUILD and FX_REBUILD_PENDING=true')
+              if not raw:
+                  raise SystemExit('Execute requires explicit balance')
+          if raw:
+              if not re.fullmatch(r'[0-9]{1,10}(\.[0-9]{1,6})?',raw) or Decimal(raw) > Decimal('9999999999.999999'):
+                  raise SystemExit('Balance must fit nonnegative Numeric(16,6)')
+          repo = os.environ['REPOSITORY']
+          run = api(f'repos/{repo}/actions/runs/{run_id}')
+          workflow = api(f'repos/{repo}/actions/workflows/{run["workflow_id"]}')
+          head = api(f'repos/{repo}/git/ref/heads/main')['object']['sha']
+          if (run['repository']['full_name'] != repo or workflow['path'] != '.github/workflows/ci.yml'
+              or run['name'] != 'CI/CD' or run['head_branch'] != 'main' or run['event'] != 'push'
+              or run['status'] != 'completed' or run['conclusion'] != 'success' or run['head_sha'] != head):
+              raise SystemExit('Build must be current main successful CI/CD push run')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:
+              f.write('sha=' + head + '\n')
+          PY
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.build.outputs.sha }}
+
+      - name: Fetch matching frontend (execute only)
+        if: inputs.action == 'execute'
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Create remote staging directory
+        uses: appleboy/ssh-action@v1
+        env:
+          REBUILD_RUN_ID: ${{ github.run_id }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: REBUILD_RUN_ID
+          script_stop: true
+          script: |
+            umask 077
+            mkdir "/home/deploy/TouhouCCB/.fx-rebuild-$REBUILD_RUN_ID"
+
+      - name: Stage compose and scripts
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -az
+          path: docker-compose.yml deploy
+          remote_path: /home/deploy/TouhouCCB/.fx-rebuild-${{ github.run_id }}/
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Stage frontend (execute only)
+        if: inputs.action == 'execute'
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -az
+          path: dist
+          remote_path: /home/deploy/TouhouCCB/.fx-rebuild-${{ github.run_id }}/
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Refuse main advancement before remote operation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EXPECTED_BUILD_SHA: ${{ steps.build.outputs.sha }}
+        run: |
+          current=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          test "$current" = "$EXPECTED_BUILD_SHA"
+
+      - name: Run bounded production maintenance
+        uses: appleboy/ssh-action@v1
+        env:
+          BACKEND_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-backend:${{ steps.build.outputs.sha }}
+          EXPECTED_BUILD_SHA: ${{ steps.build.outputs.sha }}
+          REBUILD_RUN_ID: ${{ github.run_id }}
+          REBUILD_ACTION: ${{ inputs.action }}
+          REBUILD_BALANCE: ${{ inputs.balance }}
+          REBUILD_CONFIRMATION: ${{ inputs.confirmation }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          envs: BACKEND_IMAGE,EXPECTED_BUILD_SHA,REBUILD_RUN_ID,REBUILD_ACTION,REBUILD_BALANCE,REBUILD_CONFIRMATION
+          script_stop: true
+          command_timeout: 35m
+          script: |
+            timeout --signal=TERM --kill-after=60 1800 bash "/home/deploy/TouhouCCB/.fx-rebuild-$REBUILD_RUN_ID/deploy/fx_rebuild.sh"

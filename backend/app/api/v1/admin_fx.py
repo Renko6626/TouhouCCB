@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,10 +17,10 @@ from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.models.audit import AuditEvent
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
-from app.schemas.fx import FxEventAdmin, FxPairAdmin, FxPairAdminDetail
+from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
+from app.schemas.fx import FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
-from app.services.fx import scheduler
+from app.services.fx import liquidity
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
@@ -115,14 +115,8 @@ def _short_lending_limit(v: Decimal) -> Decimal:
     return v
 
 
-def _validate_target_range(target: Decimal, minimum: Decimal, maximum: Decimal, initial: Decimal) -> None:
-    if minimum > target or target > maximum:
-        raise HTTPException(422, "target price must be within target range")
-    if max(minimum, initial * Decimal("0.5")) > min(maximum, initial * Decimal("2")):
-        raise HTTPException(422, "target range must overlap initial price bounds")
-
-
 class PairCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     currency_code: str = Field(min_length=1, max_length=16, pattern=r"^[A-Z0-9_]+$")
     currency_name: str = Field(min_length=1, max_length=64)
     status: str = Field("draft", pattern="^(draft|trading|paused|closed)$")
@@ -130,16 +124,13 @@ class PairCreate(BaseModel):
     reduce_only: bool = False
     gold_reserve: Decimal = Decimal("1")
     foreign_reserve: Decimal = Decimal("1")
-    target_price: Decimal = Decimal("1")
     initial_price: Decimal = Decimal("1")
-    target_min: Decimal = Decimal("0.5")
-    target_max: Decimal = Decimal("2")
     buy_fee_rate: Decimal = Decimal("0")
     sell_fee_rate: Decimal = Decimal("0")
     # 默认零：完整读写与强平能力到位前不得开空（spec §9/§13）。
     short_lending_limit_foreign: Decimal = Decimal("0")
 
-    @field_validator("gold_reserve", "foreign_reserve", "target_price", "initial_price", "target_min", "target_max")
+    @field_validator("gold_reserve", "foreign_reserve", "initial_price")
     @classmethod
     def positive(cls, v): return _amount(v, positive=True)
 
@@ -156,21 +147,15 @@ class PairCreate(BaseModel):
 
 
 class PairPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     currency_code: Optional[str] = Field(None, min_length=1, max_length=16, pattern=r"^[A-Z0-9_]+$")
     currency_name: Optional[str] = Field(None, min_length=1, max_length=64)
     status: Optional[str] = Field(None, pattern="^(draft|trading|paused|closed)$")
     # F9：只有显式传 reduce_only 才改变只减仓语义（status 变更绝不隐式带它）。
     reduce_only: Optional[bool] = None
-    target_price: Optional[Decimal] = None
-    target_min: Optional[Decimal] = None
-    target_max: Optional[Decimal] = None
     buy_fee_rate: Optional[Decimal] = None
     sell_fee_rate: Optional[Decimal] = None
     short_lending_limit_foreign: Optional[Decimal] = None
-
-    @field_validator("target_price", "target_min", "target_max")
-    @classmethod
-    def positive(cls, v): return None if v is None else _amount(v, positive=True)
 
     @field_validator("short_lending_limit_foreign")
     @classmethod
@@ -200,39 +185,9 @@ class FundRequest(BaseModel):
         return self
 
 
-class EventRequest(BaseModel):
-    pair_id: int
-    title: str = Field(min_length=1, max_length=200)
-    body: str = Field("", max_length=5000)
-    kind: str = Field("macro", min_length=1, max_length=32)
-    shock_ratio: Decimal = Decimal("0")
-    first_reaction_ratio: Decimal = Decimal("0.25")
-    window_sec: int = Field(180, ge=30, le=1800)
-    budget: Decimal = Field(gt=0)
-    scheduled_at: Optional[datetime] = None
-
-    @field_validator("shock_ratio", "first_reaction_ratio", "budget")
-    @classmethod
-    def finite_six(cls, v):
-        if not v.is_finite() or -v.as_tuple().exponent > 6:
-            raise ValueError("value must be finite with at most 6 fractional digits")
-        return v
-
-
 class ConfigUpdate(BaseModel):
     key: str
     value: str
-
-
-class Intervention(BaseModel):
-    id: int
-    pair_id: int
-    side: str
-    input_amount: Decimal
-    output_amount: Decimal
-    post_price: Decimal
-    source: str
-    created_at: datetime
 
 
 FX_CONFIG_KEYS = {k for k, _, _ in site_config.FX_DEFAULT_CONFIGS}
@@ -275,8 +230,6 @@ async def list_pairs(_: User = Depends(current_superuser), db: AsyncSession = De
         data.update({
             "gold_balance": treasury.gold_balance if treasury else Decimal("0"),
             "foreign_balance": treasury.foreign_balance if treasury else Decimal("0"),
-            "daily_spend": treasury.daily_spend if treasury else Decimal("0"),
-            "spend_date": treasury.spend_date if treasury else None,
         })
         result.append(FxPairAdminDetail(**data))
     return result
@@ -285,7 +238,6 @@ async def list_pairs(_: User = Depends(current_superuser), db: AsyncSession = De
 @router.post("/pairs", response_model=FxPairAdmin)
 async def create_pair(req: PairCreate, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
     _require_writes()
-    _validate_target_range(req.target_price, req.target_min, req.target_max, req.initial_price)
     async with _TRADING_MUTATION_LOCK:
         # 计数与 INSERT 同事务同锁：并发创建不能各自读到"还差一个"再一起提交。
         await _lock_trading_capacity(db)
@@ -342,10 +294,6 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
             await _ensure_no_short_obligations(db, pair_id)
         if values.get("status") == "trading":
             await _ensure_trading_capacity(db, exclude_pair_id=pair_id)
-        if any(key in values for key in ("target_price", "target_min", "target_max")):
-            _validate_target_range(values.get("target_price", pair.target_price),
-                                   values.get("target_min", pair.target_min),
-                                   values.get("target_max", pair.target_max), pair.initial_price)
         _require_writes()
         before = {key: str(getattr(pair, key)) for key in values}
         for key, value in values.items(): setattr(pair, key, value)
@@ -403,11 +351,6 @@ async def _cleanup_pair(db: AsyncSession, pair_id: int) -> FxPair:
     ).limit(1))).first()
     if held is not None:
         raise HTTPException(409, "FX pair has outstanding holdings")
-    active = (await db.execute(select(FxEvent.id).where(
-        FxEvent.pair_id == pair_id, FxEvent.status.in_(("scheduled", "published")),
-    ).limit(1))).first()
-    if active is not None:
-        raise HTTPException(409, "FX pair has active events")
     return pair
 
 
@@ -434,16 +377,12 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
     async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
         await _lock_trading_capacity(db)
         pair = await _cleanup_pair(db, pair_id)
-        published = (await db.execute(select(FxEvent.id).where(
-            FxEvent.pair_id == pair_id,
-            (FxEvent.published_at.is_not(None)) | (FxEvent.status == "completed"),
-        ).limit(1))).first()
-        if await _has_trade_history(db, pair_id) or published is not None:
+        if await _has_trade_history(db, pair_id):
             raise HTTPException(409, "FX pair has history; archive it instead")
         _require_writes()
         before = FxPairAdmin.model_validate(pair).model_dump(mode="json")
         _admin_audit(db, "fx_pair_delete", admin.id, "fx_pair", pair_id, before, {})
-        for model in (FxWallet, FxShortPosition, FxEvent, FxTreasury):
+        for model in (FxWallet, FxShortPosition, FxTreasury):
             await db.execute(delete(model).where(model.pair_id == pair_id))
         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
         await db.commit()
@@ -452,12 +391,12 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
 
 @router.post("/pairs/{pair_id}/fund", response_model=FxPairAdmin)
 async def fund_pair(pair_id: int, req: FundRequest, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    return await scheduler.fund_pair(db, pair_id, req.gold_amount, req.foreign_amount, admin.id)
+    return await liquidity.fund_pair(db, pair_id, req.gold_amount, req.foreign_amount, admin.id)
 
 
 @router.post("/pairs/{pair_id}/withdraw", response_model=FxPairAdmin)
 async def withdraw_pair(pair_id: int, req: FundRequest, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    return await scheduler.withdraw_pair(db, pair_id, req.gold_amount, req.foreign_amount, admin.id)
+    return await liquidity.withdraw_pair(db, pair_id, req.gold_amount, req.foreign_amount, admin.id)
 
 
 @router.get("/config")
@@ -475,81 +414,3 @@ async def put_config(req: ConfigUpdate, admin: User = Depends(current_superuser)
     try: row = await site_config.set_value(db, req.key, req.value, admin_user_id=admin.id)
     except Exception as exc: raise HTTPException(422, str(exc)) from exc
     return {row.key: row.value}
-
-
-@router.get("/events", response_model=list[FxEventAdmin])
-async def list_events(_: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    return (await db.execute(select(FxEvent).order_by(FxEvent.id.desc()))).scalars().all()
-
-
-@router.post("/events", response_model=FxEventAdmin)
-async def create_event(req: EventRequest, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    # Serialize event ID allocation with pair/event cleanup on SQLite.
-    async with _TRADING_MUTATION_LOCK:
-        return await _create_event(req, admin, db)
-
-
-async def _create_event(req: EventRequest, admin: User, db: AsyncSession):
-    _require_writes()
-    pair = (await db.execute(select(FxPair).where(FxPair.id == req.pair_id)
-                            .with_for_update().execution_options(populate_existing=True))).scalars().first()
-    if pair is None: raise HTTPException(404, "FX pair not found")
-    if pair.archived: raise HTTPException(409, "FX pair is archived")
-    cap = Decimal("0.20") if req.kind in {"black_swan", "black-swan", "black_swan_event"} else Decimal("0.05")
-    if abs(req.shock_ratio) > cap: raise HTTPException(422, "shock ratio exceeds event kind cap")
-    if not (Decimal("0.1") <= req.first_reaction_ratio <= Decimal("0.9")):
-        raise HTTPException(422, "first reaction ratio must be between 0.1 and 0.9")
-    _require_writes()
-    event = FxEvent(**req.model_dump(exclude={"scheduled_at"}), operator_user_id=admin.id)
-    if _dialect_name(db) in {"", "sqlite"}:
-        event.id = await _sqlite_audit_id(db, FxEvent, "fx_event")
-    db.add(event); await db.flush()
-    _admin_audit(db, "fx_event_create", admin.id, "fx_event", event.id, {},
-                 {"status": "draft", "pair_id": event.pair_id, "shock_ratio": str(event.shock_ratio),
-                  "first_reaction_ratio": str(event.first_reaction_ratio), "budget": str(event.budget)})
-    _require_writes()
-    await db.commit(); await db.refresh(event)
-    if req.scheduled_at is not None:
-        scheduled = await scheduler.schedule_event(db, event.id, req.scheduled_at)
-        _admin_audit(db, "fx_event_schedule", admin.id, "fx_event", event.id,
-                     {"status": "draft"}, {"status": "scheduled", "scheduled_at": scheduled.scheduled_at.isoformat()})
-        _require_writes()
-        await db.commit()
-        return scheduled
-    return event
-
-
-@router.post("/events/{event_id}/publish", response_model=FxEventAdmin)
-async def publish_event(event_id: int, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    return await scheduler.publish_event(db, event_id)
-
-
-@router.post("/events/{event_id}/cancel", response_model=FxEventAdmin)
-async def cancel_event(event_id: int, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    _require_writes()
-    event = (await db.execute(select(FxEvent).where(FxEvent.id == event_id))).scalars().first()
-    if event is None: raise HTTPException(404, "FX event not found")
-    if event.status not in {"draft", "scheduled"}: raise HTTPException(409, "published events cannot be cancelled")
-    _require_writes()
-    event.status = "cancelled"; event.operator_user_id = admin.id
-    audit_service.record(db, "fx_event_cancel", operator_user_id=admin.id, ref_table="fx_event", ref_id=event.id, payload={"pair_id": event.pair_id})
-    _require_writes()
-    await db.commit(); await db.refresh(event)
-    return event
-
-
-@router.get("/pairs/{pair_id}/interventions", response_model=list[Intervention])
-async def interventions(
-    pair_id: int,
-    limit: int = Query(50, ge=1, le=200),
-    source: str | None = Query(None, max_length=24),
-    side: str | None = Query(None, pattern="^(buy|sell)$"),
-    _: User = Depends(current_superuser),
-    db: AsyncSession = Depends(get_async_session),
-):
-    query = select(FxTrade).where(FxTrade.pair_id == pair_id, FxTrade.source != "player")
-    if source:
-        query = query.where(FxTrade.source == source)
-    if side:
-        query = query.where(FxTrade.side == side)
-    return (await db.execute(query.order_by(FxTrade.id.desc()).limit(limit))).scalars().all()

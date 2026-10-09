@@ -8,7 +8,7 @@ from sqlmodel import Session, SQLModel
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import (
-    FxCandle, FxShortPosition, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet,
+    FxCandle, FxShortPosition, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet,
 )
 from app.models.title import Title
 from app.services import site_config
@@ -60,11 +60,11 @@ class AsyncCompatSession:
 async def fx_db(monkeypatch):
     owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
     await owner.acquire()
-    for module in ("app.api.v1.admin_fx", "app.services.fx.engine", "app.services.fx.scheduler", "app.services.fx.trading"):
+    for module in ("app.api.v1.admin_fx", "app.services.fx.liquidity", "app.services.fx.trading"):
         monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__, FxEvent.__table__,
+              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine, tables=tables)
     try:
@@ -72,8 +72,6 @@ async def fx_db(monkeypatch):
             db = AsyncCompatSession(raw)
             db.add_all([
                 SiteConfig(key="fx_enabled", value="true", value_type="bool"),
-                SiteConfig(key="fx_daily_budget", value="100000", value_type="decimal"),
-                SiteConfig(key="fx_step_max_ratio", value="0.001", value_type="decimal"),
             ])
             await db.commit()
             site_config.clear_cache()
@@ -83,12 +81,10 @@ async def fx_db(monkeypatch):
         await owner.release()
 
 
-async def add_pair(db, *, code="TST", gold="100", foreign="100", target="1",
-                   initial="1", target_min="0.5", target_max="2"):
+async def add_pair(db, *, code="TST", gold="100", foreign="100", initial="1"):
     pair = FxPair(currency_code=code, currency_name="Test", status="trading",
                   gold_reserve=Decimal(gold), foreign_reserve=Decimal(foreign),
-                  target_price=Decimal(target), initial_price=Decimal(initial),
-                  target_min=Decimal(target_min), target_max=Decimal(target_max))
+                  initial_price=Decimal(initial))
     db.add(pair)
     await db.flush()
     treasury = FxTreasury(pair_id=pair.id, gold_balance=Decimal(gold), foreign_balance=Decimal(foreign))

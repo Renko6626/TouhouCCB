@@ -69,8 +69,6 @@ def _disable_scheduler():
         patch("app.main.stop_bot_detection_scheduler", _noop),
         patch("app.main.start_pve_scheduler", _noop),
         patch("app.main.stop_pve_scheduler", _noop),
-        patch("app.main.start_fx_scheduler", _noop),
-        patch("app.main.stop_fx_scheduler", _noop),
         # The FX market-data runtime owns a process-wide background consumer;
         # keep it out of the shared pytest database across drop_all/create_all.
         patch("app.main.start_fx_market_data", _noop),

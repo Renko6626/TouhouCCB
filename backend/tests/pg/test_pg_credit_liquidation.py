@@ -1,9 +1,7 @@
 """Disposable PostgreSQL liquidation acceptance; not a production SLO."""
 import asyncio
 import json
-import random
 import time
-from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal as D
 from pathlib import Path
@@ -19,7 +17,6 @@ from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.fx.trading import execute_trade, execute_liquidation_sell_in_session
-from app.services.fx.engine import FxEngine
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 
 @pytest_asyncio.fixture(autouse=True)
@@ -101,7 +98,7 @@ async def test_pg_liquidation_repayment_contention_and_other_symbol_progress(pg_
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==1
     assert not GATES.held_keys()
 
-async def test_pg_100_user_mixed_scan_with_concurrent_trades_and_tick(pg_sessionmaker):
+async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker):
     ids,trader,pairs=await seed(pg_sessionmaker,100,mixed=True)
     await market_writer.WRITER.start()
     async def trades():
@@ -111,7 +108,7 @@ async def test_pg_100_user_mixed_scan_with_concurrent_trades_and_tick(pg_session
                 assert result.output_amount>0
         return 30
     start=time.monotonic()
-    result,count,tick=await asyncio.wait_for(asyncio.gather(sweep.run_sweep(),trades(),FxEngine(pg_sessionmaker).tick(rng=random.Random(31))),120)
+    result,count=await asyncio.wait_for(asyncio.gather(sweep.run_sweep(),trades()),120)
     elapsed=time.monotonic()-start
     assert result['scanned_count']==100 and result['triggered_count']==100
     assert result['errors']==0 and result['deadlocks']==0 and elapsed<600
@@ -120,7 +117,7 @@ async def test_pg_100_user_mixed_scan_with_concurrent_trades_and_tick(pg_session
         assert len(actions)==100 and {a.product for a in actions}=={'fx','lmsr'}
         assert len({a.user_id for a in actions})==100
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==100
-    evidence={'users':100,'fx_pairs':3,'lmsr_markets':1,'concurrent_fx_buys':count,'tick':asdict(tick),'scan':result,'total_wall_sec':elapsed,'scope':'One real PG scan, three bounded workers, FX/LMSR liquidation, concurrent debt-free FX buys and one deterministic real FX tick. No HTTP/WebSocket, production DB, sustained load or concurrent LMSR player orders.'}
+    evidence={'users':100,'fx_pairs':3,'lmsr_markets':1,'concurrent_fx_buys':count,'scan':result,'total_wall_sec':elapsed,'scope':'One real PG scan, three bounded workers, FX/LMSR liquidation, concurrent debt-free FX buys. No HTTP/WebSocket, production DB, sustained load or concurrent LMSR player orders.'}
     path=Path(__file__).resolve().parents[3]/'.superpowers/sdd/2026-09-30-unified-credit-risk/perf/pg-mixed-scan.json'
     path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(evidence,indent=2)+'\n')
     print(json.dumps(evidence))

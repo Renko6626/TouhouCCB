@@ -1072,7 +1072,6 @@ async def writeoff_fx_short(
             treasury_state = None if treasury is None else {
                 "treasury_id": treasury.id, "gold_balance": treasury.gold_balance,
                 "foreign_balance": treasury.foreign_balance,
-                "daily_spend": treasury.daily_spend, "spend_date": treasury.spend_date,
             }
             user_before = audit_service.user_snapshot(user)
             version_before = economic_version_of(user)

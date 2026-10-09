@@ -1524,7 +1524,7 @@ async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
 
 async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan():
     """A reserve withdrawal can make K unknown without erasing borrowed coins."""
-    from app.services.fx import scheduler
+    from app.services.fx import liquidity
     uid, pair_id = await _seed_foreign_only_overflow(principal='900', cash='50')
     async with async_session_maker() as s:
         short = (await s.execute(select(FxShortPosition))).scalar_one()
@@ -1537,8 +1537,8 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         await s.commit()
         pair = await s.get(FxPair, pair_id)
         original_version = pair.pool_version
-        await scheduler.fund_pair(s, pair_id, D('10'), D('20'), uid)
-        await scheduler.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
+        await liquidity.fund_pair(s, pair_id, D('10'), D('20'), uid)
+        await liquidity.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
         await s.refresh(pair)
         assert pair.pool_version == original_version + 2
         assert pair.gold_reserve == D('1010') and pair.foreign_reserve == D('900')

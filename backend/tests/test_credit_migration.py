@@ -171,9 +171,9 @@ def test_migration_roundtrip_preserves_rows_and_credit_schema(tmp_path):
         ))
         conn.execute(text(
             "INSERT INTO fx_pair (currency_code, currency_name, status, gold_reserve, foreign_reserve,"
-            " target_price, initial_price, target_min, target_max, buy_fee_rate, sell_fee_rate,"
+            " initial_price, buy_fee_rate, sell_fee_rate,"
             " pool_version, reduce_only, created_at, updated_at)"
-            " VALUES ('KEEP', 'KEEP', 'paused', 1, 1, 1, 1, 0.5, 2, 0, 0, 1, 0,"
+            " VALUES ('KEEP', 'KEEP', 'paused', 1, 1, 1, 0, 0, 1, 0,"
             " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ))
 

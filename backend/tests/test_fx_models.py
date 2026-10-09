@@ -10,19 +10,19 @@ from sqlmodel import SQLModel, Session
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from app.models.fx import FxEvent, FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
+from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet  # noqa: E402
 from app.models.base import User  # noqa: E402,F401  (register FK target)
-from app.schemas.fx import FxEventAdmin, FxEventPublic, FxPairPublic  # noqa: E402
+from app.schemas.fx import FxPairPublic  # noqa: E402
 
 
 def test_fx_tables_and_constraints_enforce_interface():
     engine = create_engine("sqlite://")
     SQLModel.metadata.create_all(engine, tables=[
         FxPair.__table__, FxTreasury.__table__, FxWallet.__table__,
-        FxTrade.__table__, FxEvent.__table__,
+        FxTrade.__table__,
     ])
     names = set(inspect(engine).get_table_names())
-    assert {"fx_pair", "fx_treasury", "fx_wallet", "fx_trade", "fx_event"} <= names
+    assert {"fx_pair", "fx_treasury", "fx_wallet", "fx_trade"} <= names
 
     with Session(engine) as session:
         pair = FxPair(currency_code="GFC", currency_name="幻想外币", gold_reserve=Decimal("100"), foreign_reserve=Decimal("100"))
@@ -39,7 +39,6 @@ def test_fx_tables_and_constraints_enforce_interface():
         for values in (
             {"status": "invalid"},
             {"buy_fee_rate": Decimal("1.01")},
-            {"target_min": Decimal("2")},
             {"gold_reserve": Decimal("0")},
         ):
             session.add(FxPair(currency_code="X" + str(len(values)), currency_name="X", **values))
@@ -47,11 +46,10 @@ def test_fx_tables_and_constraints_enforce_interface():
                 session.commit()
             session.rollback()
 
-        treasury = FxTreasury(pair_id=pair.id, gold_balance=Decimal("0"), foreign_balance=Decimal("0"), daily_spend=Decimal("0"), spend_date=date(2026, 9, 28))
+        treasury = FxTreasury(pair_id=pair.id, gold_balance=Decimal("0"), foreign_balance=Decimal("0"))
         session.add(treasury)
         session.commit()
-        assert treasury.spend_date == date(2026, 9, 28)
-        for field in ("gold_balance", "foreign_balance", "daily_spend"):
+        for field in ("gold_balance", "foreign_balance"):
             session.add(FxTreasury(pair_id=pair.id, **{field: Decimal("-1")}))
             with pytest.raises(IntegrityError):
                 session.commit()
@@ -90,5 +88,3 @@ def test_fx_tables_and_constraints_enforce_interface():
 
 def test_public_schemas_do_not_expose_private_fx_parameters():
     assert {"target_price", "target_min", "target_max"}.isdisjoint(FxPairPublic.model_fields)
-    assert {"shock_ratio", "first_reaction_ratio", "budget", "parameter_snapshot"}.isdisjoint(FxEventPublic.model_fields)
-    assert {"shock_ratio", "first_reaction_ratio", "budget", "parameter_snapshot"} <= set(FxEventAdmin.model_fields)

@@ -63,49 +63,7 @@ const META: Record<string, ConfigMeta> = {
   fx_enabled: {
     group: 'fx',
     label: 'FX 交易总闸',
-    description: '关闭时不允许 FX 成交，系统不发布计划事件，也不执行噪声订单或常规干预。',
-  },
-  fx_hourly_sigma: {
-    group: 'fx',
-    label: '目标价每小时波动率',
-    description: '目标价格随机游走的波动强度；0.002 表示每小时约 0.2%。调高后目标价变化更剧烈。',
-    unit: '比例/小时',
-  },
-  fx_step_max_ratio: {
-    group: 'fx',
-    label: '目标价单步变动上限',
-    description: '每次系统 tick 目标价最多变化的比例；0.001 表示单步最多 0.1%。',
-    unit: '比例/tick',
-  },
-  fx_noise_interval_sec: {
-    group: 'fx',
-    label: '噪声订单平均间隔',
-    description: '系统噪声订单的平均等待时间，实际间隔随机；数值越小，噪声订单越频繁。',
-    unit: '秒',
-  },
-  fx_noise_pool_ratio: {
-    group: 'fx',
-    label: '噪声订单池子占比',
-    description: '单笔系统噪声订单最多使用池子储备的比例；0.0001 表示最多 0.01%。',
-    unit: '比例',
-  },
-  fx_system_half_life_sec: {
-    group: 'fx',
-    label: '常规干预半衰期',
-    description: '系统将市场价向目标价拉回的时间尺度；数值越小，常规干预越快。',
-    unit: '秒',
-  },
-  fx_default_price_move_limit: {
-    group: 'fx',
-    label: '常规干预价格步长上限',
-    description: '非事件干预每次 tick 可推动价格的最大比例，同时限制系统订单规模；0.005 表示 0.5%。',
-    unit: '比例/tick',
-  },
-  fx_daily_budget: {
-    group: 'fx',
-    label: 'FX 系统每日支出上限',
-    description: '每个货币对 treasury 每日可供系统订单支出的金圆券上限，按 UTC 日期重置。',
-    unit: '金圆券/日',
+    description: '关闭时不允许 FX 成交，只读行情仍可用。',
   },
   // ── 借款系统 ─────────────────────────────────────────────────────
   loan_enabled: {
@@ -240,10 +198,7 @@ const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'eco
 // 按管理任务排列；未登记的新配置仍显示在所属组末尾。
 const CONFIG_ORDER = [
   'homepage_fx_enabled',
-  'fx_enabled', 'fx_short_enabled', 'fx_daily_budget',
-  'fx_hourly_sigma', 'fx_step_max_ratio',
-  'fx_noise_interval_sec', 'fx_noise_pool_ratio',
-  'fx_system_half_life_sec', 'fx_default_price_move_limit',
+  'fx_enabled', 'fx_short_enabled',
   'loan_enabled', 'unified_credit_enabled', 'credit_new_risk_frozen',
   'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate', 'loan_leverage_k',
   'loan_sweep_interval_sec', 'loan_sweep_min_accrual_sec', 'credit_risk_retry_limit',

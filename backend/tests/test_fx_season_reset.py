@@ -11,7 +11,7 @@ from sqlmodel import SQLModel
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import (
-    FxCandle, FxEvent, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+    FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
 )
 from app.models.redemption import DanmukuExchange, RedemptionTransaction
 from app.services import audit_service
@@ -66,7 +66,6 @@ async def seed_fx_state(monkeypatch):
                         output_amount=Decimal("1"), pre_gold_reserve=Decimal("100"),
                         pre_foreign_reserve=Decimal("100"), post_gold_reserve=Decimal("101"),
                         post_foreign_reserve=Decimal("99"), post_price=Decimal("1.02")),
-                FxEvent(pair_id=pair.id, title="event", kind="macro"),
                 FxCandle(pair_id=pair.id, interval="1m",
                          bucket_start=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
                          open_price=Decimal("1.02"), high_price=Decimal("1.02"),
@@ -117,7 +116,7 @@ async def test_execute_clears_fx_closes_gate_and_preserves_redemptions(monkeypat
 
     monkeypatch.setattr("builtins.input", lambda *_: "RESET")
     assert await season_reset.run(dry_run=False) == 0
-    for model in (FxCandle, FxMarketDataState, FxWallet, FxTrade, FxEvent, FxTreasury, FxPair):
+    for model in (FxCandle, FxMarketDataState, FxWallet, FxTrade, FxTreasury, FxPair):
         assert await count(model, seed_fx_state) == 0
     assert await count(RedemptionTransaction, seed_fx_state) == 1
     assert await count(DanmukuExchange, seed_fx_state) == 1

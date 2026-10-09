@@ -18,7 +18,7 @@ def _j(v: Any) -> Any:
     """JSON 安全化：Decimal→str（保精度），datetime/date→iso，list/dict 递归。
 
     `datetime` 是 `date` 的子类，必须先判断 `datetime`，再把纯 `date`
-    （例如 FX treasury.spend_date）转成 ISO 字符串，否则 JSON 列无法序列化。
+    （例如审计载荷中的日期）转成 ISO 字符串，否则 JSON 列无法序列化。
     """
     if isinstance(v, Decimal):
         return format(v, "f")
@@ -287,8 +287,6 @@ def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], 
             "treasury_after": {
                 "gold_balance": treasury.gold_balance,
                 "foreign_balance": treasury.foreign_balance,
-                "daily_spend": treasury.daily_spend,
-                "spend_date": treasury.spend_date,
                 "updated_at": treasury.updated_at,
             },
         }
@@ -357,8 +355,6 @@ def record_fx_short_open(
             "foreign": treasury.foreign_balance,
             "gold_balance": treasury.gold_balance,
             "foreign_balance": treasury.foreign_balance,
-            "daily_spend": treasury.daily_spend,
-            "spend_date": treasury.spend_date,
             "updated_at": treasury.updated_at,
         },
         "user_before": user_before,
@@ -465,8 +461,6 @@ def record_fx_short_cover(
             "foreign": treasury.foreign_balance,
             "gold_balance": treasury.gold_balance,
             "foreign_balance": treasury.foreign_balance,
-            "daily_spend": treasury.daily_spend,
-            "spend_date": treasury.spend_date,
             "updated_at": treasury.updated_at,
         },
         "user_before": user_before,

@@ -5,8 +5,7 @@
 // JSON 字符串。因此公开/管理响应中的金额一律以 `string` 保存，绝不经过 `Number()`
 // 造成精度丢失；格式化与 min-out 计算由 `@/api/fx` 的纯函数完成。
 //
-// 隐藏字段（target_price / shock_ratio / future_orders / random_state /
-// parameter_snapshot 等）只出现在 `*Admin` 类型；玩家公开类型与 SSE 帧类型
+// 管理员储备字段只出现在 `*Admin` 类型；玩家公开类型与 SSE 帧类型
 // `FxPublicFrame` 只声明白名单字段。
 
 export type FxSide = 'buy' | 'sell'
@@ -15,12 +14,6 @@ export type FxPairStatus = 'draft' | 'trading' | 'paused' | 'closed'
 export type FxChartInterval = '1m' | '15m' | '1h'
 /** 历史/RING 周期：与后端 `RING_SPEC` 的四个档位一致（含 UI 暂未开放的 10s）。 */
 export type FxHistoryInterval = '10s' | '1m' | '15m' | '1h'
-export type FxEventStatus =
-  | 'draft'
-  | 'scheduled'
-  | 'published'
-  | 'cancelled'
-  | 'completed'
 
 // ── 玩家公开 schema（与 FxPairPublic / FxQuote / FxSnapshot / FxTradePublic 对齐） ──
 
@@ -100,23 +93,15 @@ export interface FxTradeRequest {
   idempotency_key: string
 }
 
-// ── 公开 SSE 帧（`app/services/fx/market_data.py` 的 _FRAME_KEYS / _NEWS_KEYS） ──
+// ── 公开 SSE 帧（`app/services/fx/market_data.py` 的 _FRAME_KEYS） ──
 
-export interface FxPublicNews {
-  title?: string
-  body?: string
-  kind?: string
-  published_at?: string
-}
-
-/** SSE `event: fx` 的 data；只允许白名单行情与公开新闻字段。 */
+/** SSE `event: fx` 的 data；只允许白名单行情字段。 */
 export interface FxPublicFrame {
   price?: string
   buy_price?: string
   sell_price?: string
   spread?: string
   volume?: string
-  news?: FxPublicNews
 }
 
 /**
@@ -161,8 +146,8 @@ export interface FxTradeTick {
 }
 
 /**
- * SSE `event: fx` / `snapshot` 的完整公开信封：旧报价/新闻字段 + 历史与逐笔成交扩展。
- * 私有字段（target_price / shock_ratio / future_orders / random_state /
+ * SSE `event: fx` / `snapshot` 的完整公开信封：报价字段 + 历史与逐笔成交扩展。
+ * 私有字段（gold_reserve / foreign_reserve /
  * parameter_snapshot 等）不在白名单内，解析时严格丢弃。
  */
 export interface FxPublicEnvelope extends FxPublicFrame {
@@ -212,17 +197,14 @@ export interface FxPriceTick {
   ts: number
 }
 
-// ── 管理员 schema（仅在 /admin/fx 使用；含 reserves / 隐藏事件参数） ──
+// ── 管理员 schema（仅在 /admin/fx 使用；含 reserves） ──
 
 export interface FxPairAdmin extends FxPairPublic {
   archived?: boolean
   short_lending_limit_foreign?: string
   gold_reserve: string
   foreign_reserve: string
-  target_price: string
   initial_price: string
-  target_min: string
-  target_max: string
   buy_fee_rate: string
   sell_fee_rate: string
 }
@@ -231,40 +213,8 @@ export interface FxPairAdmin extends FxPairPublic {
 export interface FxPairAdminDetail extends FxPairAdmin {
   gold_balance: string
   foreign_balance: string
-  daily_spend: string
-  spend_date?: string | null
 }
 
-export interface FxEventAdmin {
-  id: number
-  pair_id: number
-  status: FxEventStatus
-  title: string
-  body: string
-  kind: string
-  published_at?: string | null
-  completed_at?: string | null
-  // 内部数值参数——只在管理页面渲染，绝不进入玩家 UI 或公开帧。
-  shock_ratio?: string | null
-  first_reaction_ratio?: string | null
-  window_sec?: number | null
-  budget?: string | null
-  scheduled_at?: string | null
-  parameter_snapshot?: Record<string, unknown> | null
-  error_message?: string | null
-  operator_user_id?: number | null
-}
-
-export interface FxIntervention {
-  id: number
-  pair_id: number
-  side: FxSide
-  input_amount: string
-  output_amount: string
-  post_price: string
-  source: string
-  created_at: string
-}
 
 export interface FxPairCreate {
   short_lending_limit_foreign?: string
@@ -273,10 +223,7 @@ export interface FxPairCreate {
   status?: FxPairStatus
   gold_reserve?: string
   foreign_reserve?: string
-  target_price?: string
   initial_price?: string
-  target_min?: string
-  target_max?: string
   buy_fee_rate?: string
   sell_fee_rate?: string
 }
@@ -286,9 +233,6 @@ export interface FxPairPatch {
   currency_code?: string
   currency_name?: string
   status?: FxPairStatus
-  target_price?: string
-  target_min?: string
-  target_max?: string
   buy_fee_rate?: string
   sell_fee_rate?: string
 }
@@ -296,18 +240,6 @@ export interface FxPairPatch {
 export interface FxFundRequest {
   gold_amount?: string
   foreign_amount?: string
-}
-
-export interface FxEventCreate {
-  pair_id: number
-  title: string
-  body?: string
-  kind?: string
-  shock_ratio?: string
-  first_reaction_ratio?: string
-  window_sec?: number
-  budget: string
-  scheduled_at?: string | null
 }
 
 export interface FxShortPosition {

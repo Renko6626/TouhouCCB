@@ -133,6 +133,10 @@ for i in $(seq 1 15); do
     [ "$i" = "15" ] && fail "Postgres did not become ready"
 done
 
+# Refuse cleanup migrations against the legacy source before stopping writers.
+log "  Checking FX database rebuild requirement..."
+docker compose run --rm --no-deps -T backend python scripts/check_fx_rebuild_deploy.py
+
 # Only the first rollout requires the opening gate to be closed. Perform the
 # read-only preflight before stopping the serving backend, and preserve an
 # already-enabled gate during routine updates (including later migrations).

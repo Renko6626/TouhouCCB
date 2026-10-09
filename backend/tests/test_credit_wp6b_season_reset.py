@@ -59,7 +59,7 @@ async def _seed_state() -> int:
                               shares=Decimal("5"), cost=Decimal("2")))
             pair = FxPair(currency_code=f"FX{uuid.uuid4().hex[:4]}", currency_name="X",
                           status="trading", gold_reserve=Decimal("100"),
-                          foreign_reserve=Decimal("100"), target_price=Decimal("1"))
+                          foreign_reserve=Decimal("100"))
             s.add(pair)
             await s.flush()
             s.add(FxTreasury(pair_id=pair.id, gold_balance=Decimal("100"),
