@@ -98,15 +98,3 @@ async def test_unified_rate_change_requires_maintenance(monkeypatch, key):
             await site_config.set_value(s,key,'0.02',admin_user_id=None)
         row=await site_config.set_value(s,key,'0.010',admin_user_id=None)
         assert Decimal(row.value)==Decimal('0.01')
-
-
-@pytest.mark.parametrize("key", ["loan_daily_rate", "sell_fee_rate"])
-async def test_legacy_config_rate_change_remains_available(monkeypatch, key):
-    from app.services.credit import flags
-    async with async_session_maker() as s:
-        s.add(SiteConfig(key=key, value='0.01', value_type='decimal'))
-        await s.commit()
-        monkeypatch.setattr(flags, 'get_flags', lambda: type('Flags', (), {'unified_credit_enabled': False})())
-        monkeypatch.setattr(OWNERSHIP, '_writes_enabled', True)
-        row = await site_config.set_value(s, key, '0.02', admin_user_id=None)
-        assert Decimal(row.value) == Decimal('0.02')

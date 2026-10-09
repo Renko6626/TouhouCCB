@@ -15,7 +15,7 @@ from app.services.lmsr import calculate_lmsr_with_prices, quantize_price
 from app.services.market_writer import WRITER
 from app.services.realtime import BROKER
 from app.services.tick_broadcaster import TICK_BROADCASTER
-from app.services.writer_ops import BuyCmd, CloseCmd, LiquidateMarketCmd, ResolveCmd
+from app.services.writer_ops import BuyCmd, CloseCmd, ResolveCmd
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -166,27 +166,5 @@ async def test_close_frame_carries_status_and_resolve_carries_settlement():
         assert settled["status"] == "settled"
         assert settled["settlement"]["winning_outcome_id"] == oids[0]
         assert "settled_at" in settled["settlement"]
-    finally:
-        await BROKER.unsubscribe(mid, sub)
-
-
-@pytest.mark.asyncio
-async def test_liquidation_emits_price_frame_with_empty_trades():
-    """强平改价但无成交事件 → 空 trades 帧把新价格推出去（改进现状：老架构强平不发 SSE）。"""
-    mid, oids = await _seed_market(shares=("0", "0"))
-    uid = await _seed_user(cash="1000")
-    await WRITER.start()
-    await WRITER.submit(_buy(mid, oids[0], uid, shares="20", accept_any_slippage=True))
-    await TICK_BROADCASTER.flush_once()     # 清掉 buy 的残帧（在 sub 订阅前 flush，无人接收）
-    sub, _ = await BROKER.subscribe(mid)
-    try:
-        res = await WRITER.submit(LiquidateMarketCmd(
-            market_id=mid, user_id=uid, mode="emergency", partial_pct=Decimal("1")))
-        assert res["sold_count"] == 1
-        frames = [p for p in await _drain_frames(sub) if p["type"] == "tick"]
-        assert len(frames) == 1
-        assert frames[0]["data"]["trades"] == []
-        st = WRITER.get_state(mid)
-        assert frames[0]["data"]["prices"] == [float(quantize_price(p)) for p in st.prices]
     finally:
         await BROKER.unsubscribe(mid, sub)

@@ -66,7 +66,7 @@ async def fx_db(monkeypatch):
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
-    SQLModel.metadata.create_all(engine, tables=tables)
+    SQLModel.metadata.create_all(engine)
     try:
         with Session(engine, expire_on_commit=False) as raw:
             db = AsyncCompatSession(raw)

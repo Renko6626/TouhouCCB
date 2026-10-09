@@ -6,10 +6,9 @@
 扣款规则：站内 cash → yuan/huo 的汇率固定 1:1，即扣 user.cash = yuan + huo。
 两者都允许填 0（但 yuan + huo > 0）。
 
-统一信贷（WP6b）：flag=unified_credit_enabled 时，扣款入口先 `OWNERSHIP.require_writes()`，
+统一信贷（WP6b）：账户级准入 时，扣款入口先 `OWNERSHIP.require_writes()`，
 锁外发现依赖（无债走单行快路径）+ 按品种门闩，再锁 user、跑 `check_cash_spend`
 （版本复检 + 交易后 E / 冻结判定），通过后扣款并自增 `economic_version`。
-开关关闭时逐字段保持旧行为。
 """
 from __future__ import annotations
 
@@ -64,8 +63,6 @@ def _unified_thresholds() -> Optional[RiskThresholds]:
     if OWNERSHIP.reason is not None:
         OWNERSHIP.require_writes()
     flags = credit_flags.get_flags()
-    if not flags.unified_credit_enabled:
-        return None
     thresholds = flags.thresholds
     if thresholds is None:
         raise HTTPException(status_code=503, detail="统一信贷风险引擎不可用，已拒绝消费类操作")
@@ -159,11 +156,6 @@ async def exchange(
         raise ExchangeError("INVALID_AMOUNT", "yuan 与 huo 至少一项为正")
 
     thresholds = _unified_thresholds()
-    if thresholds is None:
-        return await _exchange_impl(
-            session, user_id=user_id, qq_user_id=qq_user_id, room_id=room_id,
-            yuan=yuan, huo=huo, amount=amount, deps=None, thresholds=None,
-        )
     OWNERSHIP.require_writes()
     if session.new or session.dirty or session.deleted:
         raise RuntimeError("exchange requires a clean session before risk admission")
@@ -199,23 +191,20 @@ async def _exchange_impl(
     if await available_cash(session, user) < amount:
         raise ExchangeError("INSUFFICIENT_CASH", "现金不足")
 
-    if thresholds is not None:
-        # 锁成功 ⇒ 用户存在 ⇒ 锁外预读一定拿到了依赖集
-        assert deps is not None
-        decision = await check_cash_spend(
-            session, user=user, deps=deps, spend=amount,
-            thresholds=thresholds, partial_pct=ONE, now=datetime.now(timezone.utc),
+    assert deps is not None
+    decision = await check_cash_spend(
+        session, user=user, deps=deps, spend=amount,
+        thresholds=thresholds, partial_pct=ONE, now=datetime.now(timezone.utc),
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"统一信贷准入拒绝：{_risk_deny_detail(decision.reason)}",
         )
-        if not decision.allowed:
-            raise HTTPException(
-                status_code=409,
-                detail=f"统一信贷准入拒绝：{_risk_deny_detail(decision.reason)}",
-            )
 
     OWNERSHIP.require_writes()
     user.cash = (user.cash - amount).quantize(_QUANT)
-    if thresholds is not None:
-        bump_economic_version(user)
+    bump_economic_version(user)
     session.add(user)
 
     # 生成激活码（HMAC 用浮点输入与 danmuku 侧约定保持一致）

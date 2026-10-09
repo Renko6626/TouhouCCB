@@ -61,8 +61,6 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
     from app.services.credit import flags, risk
     from app.services.credit.keys import GroupKey
     from app.services.credit.gates import GATES
-    if not flags.get_flags().unified_credit_enabled:
-        return
     # 无金债不再等于无风险（spec §6.3/§11）：锁内按索引确认外币欠币。金债>0 时
     # 短路，不额外查询外币表。乐观首试 deps 为 None 时会 CreditRetry，由外层
     # 释放门闩、重新发现完整依赖后再带 GATES 重试。
@@ -97,7 +95,7 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
 async def repay_sale_proceeds(session, user, net):
     """Record the sale first, then atomically repay its proceeds; no risk admission."""
     from app.services.credit.flags import get_flags
-    if not get_flags().unified_credit_enabled or user.debt <= ZERO or net <= ZERO:
+    if user.debt <= ZERO or net <= ZERO:
         return
     from app.services import loan_service, ledger_service
     rate = await site_config.get_decimal_or(session, "loan_daily_rate", ZERO)
@@ -687,161 +685,10 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
     )
 
 
-def _require_legacy_liquidation_disabled(entry: str) -> None:
-    """WP5：统一执行器开启后，legacy 强平入口必须硬拒绝（避免两个执行者同时卖仓）。
-
-    开关默认 false → 本函数是纯读取，legacy 行为逐字段不变（不查库、不写库）。
-    """
-    from app.services.credit import flags as credit_flags   # 局部 import 避免环
-    if credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(
-            status_code=409,
-            detail=f"统一清算已启用（unified_credit_enabled=true），legacy 强平入口 {entry} 已禁用",
-        )
 
 
-@dataclass
-class LiquidateMarketCmd:
-    market_id: int
-    user_id: int
-    mode: str                 # "emergency" | "partial"
-    partial_pct: Decimal
-    daily_rate: Decimal = Decimal("0")      # 同事务内立即还债用（核心审计 #3）
-    trigger_source: str = "scheduler"
 
 
-async def op_liquidate_market(state: MarketState, cmd: LiquidateMarketCmd) -> OpOutcome:
-    """单市场强平（spec § 4.6）：卖光/按比例卖该 user 在该市场的全部持仓。
-
-    与 op_sell 的关键差异：不检查滑点（强平不受用户设的滑点保护约束），
-    不收手续费（legacy 执行器；统一执行器 ``op_liquidate_group`` 按 F5 收普通卖出费）；
-    LIQUIDATE 交易不写 candle（现状核实：liquidation_service 从不调 compute_candle_rows，
-    K 线只记 BUY/SELL）。
-
-    ``unified_credit_enabled=true`` 时本入口禁用（WP5）：统一执行器接管强平后，
-    两个执行者同时卖仓会绕开 ``(run_id, round_no)`` 幂等与组级滚动 q 报价。
-    """
-    _require_legacy_liquidation_disabled("op_liquidate_market")
-    from decimal import ROUND_CEILING
-    if not market_is_open(state.status, state.closes_at):
-        # HALT/SETTLED/已过 closes_at 的市场不强平（用户自己也卖不了），空结果不算错误
-        logger.warning(
-            "liquidation_skip_non_trading_market(writer) user_id=%s market_id=%s status=%s",
-            cmd.user_id, cmd.market_id, state.status,
-        )
-        return OpOutcome(response={"sold_count": 0, "total_proceeds": ZERO})
-
-    new_q_dec = list(state.q_dec)
-    q_work = list(state.q)          # 同市场多仓位串行清算的滚动 q
-    total_proceeds = ZERO
-    sold_count = 0
-
-    async with async_session_maker() as session:
-        async with session.begin():
-            locked_user = await lock_user(session, cmd.user_id)
-            OWNERSHIP.require_writes()
-            positions = (await session.execute(
-                select(Position)
-                .join(Outcome, Position.outcome_id == Outcome.id)
-                .where(Position.user_id == cmd.user_id,
-                       Position.amount > 0,
-                       Outcome.market_id == cmd.market_id)
-                .order_by(Position.id.asc())
-                .with_for_update()
-            )).scalars().all()
-            if not positions:
-                return OpOutcome(response={"sold_count": 0, "total_proceeds": ZERO})
-
-            for pos in positions:
-                idx = _target_idx(state, pos.outcome_id)
-                # sell_amount 按 mode（移植 liquidation_service.py:180-196，逐字）
-                if cmd.mode == "emergency":
-                    sell_amount = pos.amount
-                else:
-                    sell_amount = (pos.amount * cmd.partial_pct).quantize(
-                        Decimal("1"), rounding=ROUND_CEILING)
-                if sell_amount <= ZERO:
-                    continue
-                if sell_amount >= pos.amount:
-                    sell_amount = pos.amount
-
-                old_q = list(q_work)
-                nq = list(old_q)
-                nq[idx] -= float(sell_amount)
-                old_cost, old_prices = calculate_lmsr_with_prices(old_q, state.b)
-                new_cost, new_prices = calculate_lmsr_with_prices(nq, state.b)
-                proceeds = quantize_cost(old_cost - new_cost)
-                if proceeds < ZERO:
-                    logger.error("liquidation_negative_proceeds(writer) user=%s pos=%s",
-                                 cmd.user_id, pos.id)
-                    continue    # skip not delete（老路径同语义）
-
-                locked_user.cash += proceeds
-                bump_economic_version(locked_user)
-                new_q_dec[idx] = quantize_cost(new_q_dec[idx] - sell_amount)
-                q_work = nq
-                pos_deleted = sell_amount >= pos.amount
-                if pos_deleted:
-                    await session.delete(pos)
-                else:
-                    cost_reduced = (pos.cost_basis * sell_amount / pos.amount
-                                    ).quantize(Decimal("0.000001"))
-                    pos.amount -= sell_amount
-                    pos.cost_basis -= cost_reduced
-
-                avg_price = quantize_price(proceeds / sell_amount) if sell_amount > ZERO else ZERO
-                liq_tx = Transaction(
-                    user_id=cmd.user_id, outcome_id=pos.outcome_id,
-                    type=TransactionType.LIQUIDATE, shares=sell_amount,
-                    cost=-proceeds, price=avg_price,
-                    pre_market_price=quantize_price(old_prices[idx]),
-                    post_market_price=quantize_price(new_prices[idx]),
-                    gross=proceeds, fee=ZERO,
-                    market_prices_post=list(new_prices),
-                )
-                session.add(liq_tx)
-                await audit_service.record_trade(
-                    session, tx=liq_tx, user=locked_user,
-                    position=None if pos_deleted else pos,
-                    market_id=cmd.market_id,
-                    market_after=audit_service.market_snapshot(
-                        outcome_ids=state.outcome_ids, q=new_q_dec, b=state.b,
-                        prices=new_prices, status=state.status),
-                    extra={"mode": cmd.mode, "partial_pct": cmd.partial_pct, "path": "writer"},
-                )
-                total_proceeds += proceeds
-                sold_count += 1
-
-            # 镜像批量 SET（每个动过的 outcome 一条 UPDATE）
-            for i, oid in enumerate(state.outcome_ids):
-                if new_q_dec[i] != state.q_dec[i]:
-                    await session.execute(
-                        sa_update(Outcome).where(Outcome.id == oid)
-                        .values(total_shares=new_q_dec[i]))
-
-            # 回款立即还债（user 行已锁、同事务）：堵住 B→C 之间被花掉的窗口
-            repaid = ZERO
-            if sold_count and locked_user.cash > ZERO and locked_user.debt > ZERO:
-                from app.services import loan_service   # 局部 import 避免环
-                # 先结息再算还款额：否则 min(cash, 结息前 debt) 会留下结息增量的灰尘债，
-                # 即使现金足够清偿（审计 M3 附带发现）
-                debt_before = locked_user.debt
-                now = loan_service._compat_now(locked_user)
-                loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
-                repay_amount = min(locked_user.cash, locked_user.debt).quantize(Decimal("0.000001"))
-                if repay_amount > ZERO:
-                    repaid = await loan_service.decrease_debt_locked(
-                        session, locked_user, repay_amount,
-                        consume_cash=True, daily_rate=cmd.daily_rate, now=now)
-                    audit_service.record_liquidation_repay(
-                        session, locked_user, repaid, debt_before, cmd.daily_rate, cmd.trigger_source)
-
-    return OpOutcome(
-        response={"sold_count": sold_count, "total_proceeds": total_proceeds, "repaid": repaid,
-                  "debt_after": locked_user.debt},
-        new_q_dec=new_q_dec if sold_count else None,
-        # 强平今天不发 SSE（与现状一致）
-    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1346,5 +1193,4 @@ def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(CloseCmd, op_close)
     writer.register_op(ResumeCmd, op_resume)
     writer.register_op(ResolveCmd, op_resolve)
-    writer.register_op(LiquidateMarketCmd, op_liquidate_market)
     writer.register_op(LiquidateGroupCmd, op_liquidate_group)

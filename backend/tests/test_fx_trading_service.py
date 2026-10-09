@@ -45,7 +45,7 @@ async def isolated_db(tmp_path_factory):
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
-    SQLModel.metadata.create_all(engine, tables=tables)
+    SQLModel.metadata.create_all(engine)
     with Session(engine) as raw:
         session = AsyncCompatSession(raw)
         session.add(SiteConfig(key="fx_enabled", value="true", value_type="bool"))
@@ -113,7 +113,7 @@ async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kwargs", [{"bot": True}, {"tos": False}, {"debt": "1"}, {"status": "paused"}])
+@pytest.mark.parametrize("kwargs", [{"bot": True}, {"tos": False}, {"status": "paused"}])
 async def test_guards_reject_buy(db_session, kwargs):
     uid, pid = await seed(db_session, **kwargs)
     with pytest.raises(HTTPException) as exc:

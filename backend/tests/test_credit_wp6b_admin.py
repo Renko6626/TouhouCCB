@@ -36,7 +36,6 @@ SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
 
 # leverage=4 → R_initial=1/3；maintenance=0.1
 UNIFIED = CreditFlags(
-    unified_credit_enabled=True,
     credit_leverage=Decimal("4"),
     credit_maintenance_ratio=Decimal("0.1"),
 )
@@ -181,20 +180,12 @@ async def test_unified_deduction_succeeds_when_margin_ok_and_bumps_version(write
     assert cash == Decimal("9900.000000") and version == 1
 
 
-async def test_flag_off_keeps_legacy_deduction_and_does_not_bump_version():
-    admin = await _seed_admin()
-    uid = await _seed_user(cash=Decimal("100"), debt=Decimal("900"))
-    async with async_session_maker() as s:
-        r = await svc.adjust_cash(s, target_id=uid, amount=Decimal("-50"), reason="legacy", admin_id=admin)
-    assert r["new_cash"] == 50.0
-    cash, _, version = await _state(uid)
-    assert cash == Decimal("50.000000") and version == 0
 
 
 async def test_unified_missing_thresholds_fails_closed(writes_enabled):
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
-    credit_flags.set_flags(CreditFlags(unified_credit_enabled=True))  # 无门槛配置
+    credit_flags.set_flags(CreditFlags(credit_leverage=None, credit_maintenance_ratio=None))  # 无门槛配置
     async with async_session_maker() as s:
         with pytest.raises(svc.AdminUserError) as exc:
             await svc.adjust_cash(s, target_id=uid, amount=Decimal("-1"), reason="x", admin_id=admin)
@@ -373,14 +364,6 @@ async def test_unified_forgive_debt_allowed_for_frozen_user(writes_enabled):
     assert debt == ZERO and version == 1
 
 
-async def test_flag_off_force_loan_keeps_economic_behavior():
-    await _seed_loan_config()
-    admin = await _seed_admin()
-    uid = await _seed_user(cash=Decimal("10"), debt=Decimal("1000"))
-    async with async_session_maker() as s:
-        await svc.force_loan(s, target_id=uid, amount=Decimal("100"), reason="legacy", admin_id=admin)
-    _, _, version = await _state(uid)
-    assert version == 1  # centralized loan primitive advances metadata in both modes
 
 
 # ────────────────────────── 批量 ──────────────────────────
@@ -467,17 +450,6 @@ async def test_unified_batch_debit_foreign_only_debt_prices_cover_cost(writes_en
     assert cash == Decimal("80.000000") and version == 1
 
 
-async def test_flag_off_batch_keeps_single_transaction_behavior():
-    admin = await _seed_admin()
-    a = await _seed_user(cash=Decimal("100"), debt=Decimal("900"))
-    f = svc.UserFilter(user_id_min=a, user_id_max=a)
-    async with async_session_maker() as s:
-        r = await svc.batch_adjust_cash(
-            s, f=f, amount=Decimal("-50"), reason="legacy batch", admin_id=admin, dry_run=False,
-        )
-    assert r["updated_count"] == 1 and r["failed_count"] == 0
-    cash, _, version = await _state(a)
-    assert cash == Decimal("50.000000") and version == 0
 
 
 # ────────────────────────── amnesty ──────────────────────────
@@ -587,19 +559,6 @@ async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(
     assert entries == []
 
 
-async def test_flag_off_amnesty_resets_without_version_bump():
-    await _seed_loan_config()
-    admin = await _seed_admin()
-    uid = await _seed_user(cash=Decimal("1000"))
-    f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
-    async with async_session_maker() as s:
-        r = await svc.amnesty(
-            s, f=f, reset_cash_to=Decimal("500"), forgive_debt=True,
-            reason="legacy amnesty", admin_id=admin, dry_run=False,
-        )
-    assert r["updated_count"] == 1
-    cash, _, version = await _state(uid)
-    assert cash == Decimal("500.000000") and version == 0
 
 
 # ────────────────────────── 审计重放一致性 ──────────────────────────

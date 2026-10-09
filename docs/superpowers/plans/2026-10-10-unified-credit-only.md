@@ -29,36 +29,36 @@
 **Ownership:** `backend/app/**` except `services/loan_migrate.py` and `api/v1/site_config.py`; backend tests except `test_credit_config.py`, `test_site_config_api.py`, migration/rebuild tests and global conftest. Global conftest edits require coordination with root.
 **Interfaces:** Remove CreditFlags mode field and enable-request fallback; valid defaults support test construction, persisted flags loading requires valid thresholds. LoanQuotaResponse replaces leverage_k with credit_leverage. UserSummary/policy remove obsolete mode and old margin fields per spec. Task 2 consumes these fields, Task 3 supplies seed/load config.
 
-- [ ] Remove mode gates and use existing unified execution in loan/user/admin/stats, LMSR/FX, redemption/danmuku/PvE; retain business gates and ownership.
-- [ ] Remove legacy liquidation service and writer command/handler registrations, preserve shared event/deadlock/scheduler functions.
-- [ ] Make startup require valid credit config and ownership for writing, always start writer for owner, disable raw economic CRUD.
-- [ ] Update/reuse affected tests; remove exclusively obsolete-mode tests while keeping independent financial invariants.
-- [ ] Run owned meaningful backend checks on a unique disposable DB and report commands/results. Root handles integration and full suite.
+- [x] Remove mode gates and use existing unified execution in loan/user/admin/stats, LMSR/FX, redemption/danmuku/PvE; retain business gates and ownership.
+- [x] Remove legacy liquidation service and writer command/handler registrations, preserve shared event/deadlock/scheduler functions.
+- [x] Make startup require valid credit config and ownership for writing, always start writer for owner, disable raw economic CRUD.
+- [x] Update/reuse affected tests; remove exclusively obsolete-mode tests while keeping independent financial invariants.
+- [x] Run owned meaningful backend checks on a unique disposable DB and report commands/results. Root handles integration and full suite.
 
 ### Task 2: 唯一前端语义
 
 **Ownership:** `thccb-frontend/**` only.
 **Interfaces:** Loan quota `credit_leverage` string; summary unified risk fields; liquidation policy fields from spec. No unified_credit_enabled/leverage_k/legacy/old margin fallbacks.
 
-- [ ] Update API types, store and all dependent views/cards to consume only unified fields.
-- [ ] Replace old-config presets with direct nominal leverage/maintenance pairs (2/.2,3/.2,4/.15,6/.1,10/.04), keep valid save order and maintenance notices; no rate changes in preset.
-- [ ] Remove old metadata, flags and old-mode-only tests; preserve actual store/presentation assertions.
-- [ ] Run existing frontend unit tests and `npm run build` (includes typecheck), report results.
+- [x] Update API types, store and all dependent views/cards to consume only unified fields.
+- [x] Replace old-config presets with direct nominal leverage/maintenance pairs (2/.2,3/.2,4/.15,6/.1,10/.04), keep valid save order and maintenance notices; no rate changes in preset.
+- [x] Remove old metadata, flags and old-mode-only tests; preserve actual store/presentation assertions.
+- [x] Run existing frontend unit tests and `npm run build` (includes typecheck), report results.
 
 ### Task 3: 配置升级与工具
 
 **Ownership:** `backend/app/services/loan_migrate.py`, `backend/app/api/v1/site_config.py`, `backend/alembic/**` new migration only, `backend/scripts/**`; tests `test_credit_config.py`, `test_site_config_api.py`, migration/rebuild-related tests (not core API test files). Current runbook docs only as needed. Coordinate filenames if shared tests encountered.
 **Interfaces:** Task 1 flags no mode field, parse requires valid thresholds. `seed_credit_risk_configs` may be renamed if its consumers updated. Fresh defaults explicit 2/.2; preserve existing valid parameters and existing gates. Configuration whitelist uses only retained keys. Rebuild GATES excludes removed mode; loan_enabled default false.
 
-- [ ] Add a new data migration that preserves accounts and valid unified parameters, safely maps missing unified params from legacy values, validates, then removes obsolete keys; no historical migration edits.
-- [ ] Seed current configuration directly; prevent startup seeding deleted keys. Shared parameter/gate defaults follow spec.
-- [ ] Update config API validation and scripts/rebuild verify; remove obsolete shadow/legacy-only tools or adapt retained tools to current config.
-- [ ] Update real migration/startup/rebuild behavior tests; preserve identity/entitlement/data constraints, verify invalid config fails and gate values unchanged.
-- [ ] Run related tests on unique disposable DB; report compatibility concerns and exact output.
+- [x] Add a new data migration that preserves accounts and valid unified parameters, safely maps missing unified params from legacy values, validates, then removes obsolete keys; no historical migration edits.
+- [x] Seed current configuration directly; prevent startup seeding deleted keys. Shared parameter/gate defaults follow spec.
+- [x] Update config API validation and scripts/rebuild verify; remove obsolete shadow/legacy-only tools or adapt retained tools to current config.
+- [x] Update real migration/startup/rebuild behavior tests; preserve identity/entitlement/data constraints, verify invalid config fails and gate values unchanged.
+- [x] Run related tests on unique disposable DB; report compatibility concerns and exact output.
 
 ### Integration and review
 
-- [ ] Root inspects reports/diffs, resolves cross-task type/import/test issues without altering approved route.
+- [x] Root inspects reports/diffs, resolves cross-task type/import/test issues without altering approved route.
 - [ ] Run retained full backend suite once, frontend tests/build, relevant migration checks. Fix concrete failures, do not remove valid assertions.
-- [ ] Independent medium review of final diff and task constraints; address blockers and scoped re-review.
+- [x] Independent medium review of final diff and task constraints; address blockers and scoped re-review.
 - [ ] Commit reviewable work and push branch; report commands, results, unresolved limitations. User authorizes root to merge and deploy via existing CI/CD after review; workers do not access production.

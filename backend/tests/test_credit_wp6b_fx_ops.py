@@ -29,7 +29,6 @@ pytestmark = pytest.mark.asyncio
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
 UNIFIED = CreditFlags(
-    unified_credit_enabled=True,
     credit_leverage=Decimal("4"),
     credit_maintenance_ratio=Decimal("0.1"),
 )
@@ -134,13 +133,6 @@ async def test_unified_fund_and_withdraw_bump_pool_version(writes_enabled, monke
     assert fund.payload["treasury_after"] == {"gold": "110.000000", "foreign": "120.000000"}
 
 
-async def test_flag_off_fund_does_not_bump_pool_version():
-    pid = await _seed_pair(code="LEGACY")
-    async with async_session_maker() as s:
-        await liquidity.fund_pair(s, pid, Decimal("10"), Decimal("20"), operator_user_id=1)
-    p = await _pair(pid)
-    assert p.pool_version == 1
-    assert p.gold_reserve == Decimal("110.000000") and p.foreign_reserve == Decimal("120.000000")
 
 
 async def test_unified_fund_requires_write_ownership(monkeypatch):

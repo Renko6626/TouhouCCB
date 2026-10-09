@@ -17,7 +17,7 @@ export interface LoanQuota {
   blocked_reason?: string | null
   debt: string
   net_worth: string | null
-  leverage_k: string
+  credit_leverage: string
   daily_rate: string
   max_borrow: string
   last_accrued_at: string | null
@@ -90,19 +90,13 @@ export async function fetchRecentLiquidations(limit = 10): Promise<LiquidationEv
 }
 
 export interface LiquidationPolicy {
-  unified_credit_enabled?: boolean
   credit_leverage?: number | null
   r_initial?: number | null
   r_maintenance?: number | null
   sell_fee_rate?: number
   fx_sell_fee_rates?: { pair_id: number; currency_code: string; sell_fee_rate: number }[]
-  legacy?: { legacy: true }
   enabled: boolean
-  hard_threshold: number       // margin < 这个值触发强平
-  soft_threshold: number       // 软警告线
   partial_pct: number          // partial 模式每次卖出仓位比例 (0.10 = 10%)
-  target_margin: number        // partial 多 tick 收敛目标
-  emergency_threshold: number  // margin < 这个值升级紧急全平
   sweep_interval_sec: number   // sweep 扫描频率（秒）
 }
 

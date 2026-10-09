@@ -41,17 +41,12 @@ _TRADING_CAPACITY_LOCK_KEY = 0x46585F5452414445  # "FX_TRADE" 的固定 64-bit k
 
 
 def _require_writes():
-    if (credit_flags.get_flags().unified_credit_enabled or OWNERSHIP.reason is not None
-            or credit_flags.read_only_from_env()):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 @asynccontextmanager
 async def _pair_update_gate(db: AsyncSession, pair_id: int):
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        yield
-        return
     if db.new or db.dirty or db.deleted:
         raise RuntimeError("FX pair update requires a clean request session")
     await db.close()
@@ -299,10 +294,7 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
         for key, value in values.items(): setattr(pair, key, value)
         # 借出上限直接影响开空准入，属于 pair 版本输入：改动必须 bump 版本，
         # 使锁内重验的依赖快照失效（spec §11）。统一信贷下所有 PATCH 已 bump。
-        if (credit_flags.get_flags().unified_credit_enabled
-                or any(key in values for key in ("short_lending_limit_foreign", "status",
-                                                  "reduce_only", "buy_fee_rate", "sell_fee_rate"))):
-            pair.pool_version += 1
+        pair.pool_version += 1
         pair.updated_at = datetime.now(timezone.utc)
         # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
         # status 变更（含切到 paused）绝不隐式改它。

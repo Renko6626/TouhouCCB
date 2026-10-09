@@ -157,7 +157,7 @@ async def set_value(
         except (ValueError, ArithmeticError) as exc:
             raise SiteConfigError(f"invalid FX config value: {key}") from exc
     from app.services.credit import flags
-    if (key in {"loan_daily_rate", "sell_fee_rate"} and flags.get_flags().unified_credit_enabled
+    if (key in {"loan_daily_rate", "sell_fee_rate"}
             and Decimal(value) != Decimal(row.value)):
         # Runtime global fee changes also race newly-created market catalogs.
         # Configure before activation; maintenance must settle old-rate interest.
@@ -183,5 +183,4 @@ async def set_value(
 def _require_writes() -> None:
     from app.services.credit import flags
     from app.services.credit.ownership import OWNERSHIP
-    if flags.get_flags().unified_credit_enabled or OWNERSHIP.reason is not None or flags.read_only_from_env():
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()

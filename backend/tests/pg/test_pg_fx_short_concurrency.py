@@ -36,7 +36,7 @@ async def writer(pg_engine, monkeypatch):
     assert await owner.acquire(required=True)
     for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku):
         monkeypatch.setattr(module, 'OWNERSHIP', owner)
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,
+    flags.set_flags(flags.CreditFlags(
                     credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
     site_config.clear_cache()
     try:

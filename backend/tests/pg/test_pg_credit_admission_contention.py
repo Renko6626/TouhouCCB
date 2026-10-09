@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 
 @pytest.fixture(autouse=True)
 def unified(monkeypatch):
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True, credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
+    flags.set_flags(flags.CreditFlags( credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
     monkeypatch.setattr(OWNERSHIP, '_writes_enabled', True)
     site_config.clear_cache()
     yield

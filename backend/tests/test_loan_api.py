@@ -109,13 +109,14 @@ async def _set_fixed_interest_clock(uid, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_repayment_leaves_newly_accrued_interest(client, monkeypatch):
+async def test_quota_repayment_includes_pending_interest(client, monkeypatch):
     uid, h = await _make_user(cash=Decimal("500"), debt=Decimal("100"))
     await _set_fixed_interest_clock(uid, monkeypatch)
     quota = (await client.get("/api/v1/loan/quota", headers=h)).json()
     r = await client.post("/api/v1/loan/repay", json={"amount": quota["debt"]}, headers=h)
     assert r.status_code == 200, r.text
-    assert Decimal(r.json()["debt"]) == Decimal("1")
+    assert Decimal(quota["debt"]) >= Decimal("101")
+    assert Decimal(r.json()["debt"]) == Decimal("0")
 
 
 @pytest.mark.asyncio

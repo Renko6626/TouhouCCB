@@ -32,7 +32,6 @@ pytestmark = pytest.mark.asyncio
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
 UNIFIED = CreditFlags(
-    unified_credit_enabled=True,
     credit_leverage=Decimal("4"),
     credit_maintenance_ratio=Decimal("0.1"),
 )
@@ -191,15 +190,6 @@ async def test_unified_purchase_keeps_outstanding_debt_guard(writes_enabled):
     assert cash == Decimal("100.000000") and version == 0
 
 
-async def test_flag_off_purchase_keeps_legacy_behavior():
-    uid = await _seed_user(cash=Decimal("100"))
-    batch_id = await _seed_batch(Decimal("10"))
-    async with async_session_maker() as s:
-        result = await redemption_svc.purchase_code(s, user_id=uid, batch_id=batch_id)
-        await s.commit()
-    assert result.cash_after == Decimal("90.000000")
-    cash, version = await _state(uid)
-    assert cash == Decimal("90.000000") and version == 0
 
 
 # ────────────────────────── danmuku ──────────────────────────
@@ -234,17 +224,6 @@ async def test_unified_danmuku_blocked_when_frozen(writes_enabled):
     assert cash == Decimal("100.000000") and version == 0
 
 
-async def test_flag_off_danmuku_keeps_legacy_behavior():
-    uid = await _seed_user(cash=Decimal("100"))
-    async with async_session_maker() as s:
-        result = await danmuku_svc.exchange(
-            s, user_id=uid, qq_user_id="123", room_id="room",
-            yuan=Decimal("10"), huo=Decimal("0"),
-        )
-        await s.commit()
-    assert result.cash_after == Decimal("90.000000")
-    cash, version = await _state(uid)
-    assert cash == Decimal("90.000000") and version == 0
 
 
 async def test_unified_danmuku_keeps_outstanding_debt_guard(writes_enabled):

@@ -209,22 +209,25 @@ async def test_tos_bot_and_debt_guards_are_enforced_over_http(ctx):
     assert bot_buy.status_code == 403 and "bot" in bot_buy.json()["detail"]
     assert bot_sell.status_code == 403 and "bot" in bot_sell.json()["detail"]
 
-    # Debt blocks buying...
+    # Healthy debt-backed accounts can buy under unified admission.
     debt_buy = await attempt(ctx.debtor, "buy", "5", "debt-buy")
-    assert debt_buy.status_code == 403
-    assert "debt" in debt_buy.json()["detail"]
+    assert debt_buy.status_code == 200, debt_buy.text
 
     # ...but an existing foreign balance can still be sold back for gold.
-    db.add(FxWallet(user_id=ctx.debtor.id, pair_id=pair_id,
-                    foreign_amount=Decimal("5"), cost_basis=Decimal("5")))
+    wallet = (await db.execute(select(FxWallet).where(
+        FxWallet.user_id == ctx.debtor.id, FxWallet.pair_id == pair_id))).scalar_one()
+    wallet.foreign_amount = Decimal("5")
+    wallet.cost_basis = Decimal("5")
     await db.commit()
     before_cash = (await db.get(User, ctx.debtor.id)).cash
+    before_debt = ctx.debtor.debt
     debt_sell = await attempt(ctx.debtor, "sell", "1", "debt-sell")
     assert debt_sell.status_code == 200, debt_sell.text
     await db.refresh(ctx.debtor)
     wallet = (await db.execute(select(FxWallet).where(
         FxWallet.user_id == ctx.debtor.id, FxWallet.pair_id == pair_id))).scalars().one()
-    assert ctx.debtor.cash > before_cash
+    assert ctx.debtor.cash == before_cash
+    assert ctx.debtor.debt < before_debt
     assert wallet.foreign_amount == Decimal("4")
 
 

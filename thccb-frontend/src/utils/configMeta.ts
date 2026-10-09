@@ -31,11 +31,6 @@ const META: Record<string, ConfigMeta> = {
     label: '首页使用 FX 模式',
     description: '开启展示外汇首页，关闭恢复原预测市场首页。保存后刷新首页即可生效；只改变首页展示，不改变交易或借款开关。',
   },
-  unified_credit_enabled: {
-    group: 'loan',
-    label: '统一信贷模式',
-    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率，修改后重启后端生效。',
-  },
   credit_leverage: {
     group: 'loan',
     label: '名义杠杆',
@@ -45,7 +40,7 @@ const META: Record<string, ConfigMeta> = {
   credit_maintenance_ratio: {
     group: 'loan',
     label: '强平维持率',
-    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)，修改后重启后端生效。',
+    description: '清算净值低于风险基数乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)，修改后重启后端生效。',
     unit: '比例',
   },
   credit_new_risk_frozen: {
@@ -77,12 +72,6 @@ const META: Record<string, ConfigMeta> = {
     description: '每日利率按小数填写，0.01 表示每天 1%。统一信贷运行期间禁止修改，须在停写维护中结清旧率利息后调整。',
     unit: '比例/天',
   },
-  loan_leverage_k: {
-    group: 'loan',
-    label: '杠杆倍率',
-    description: '旧模式的借款系数：k=2 表示最多借入净值的 2 倍。统一信贷开启后请改名义杠杆，此项不可再编辑。',
-    unit: 'x',
-  },
   loan_sweep_interval_sec: {
     group: 'loan',
     label: '利息复利扫描间隔',
@@ -101,16 +90,6 @@ const META: Record<string, ConfigMeta> = {
     label: 'sweep 扫描间隔',
     description: 'liquidation_sweep scheduler 多久扫一次有 debt 的用户',
     unit: 'sec',
-  },
-  liquidation_hard_threshold: {
-    group: 'liquidation',
-    label: '强平触发线',
-    description: 'LCV margin 低于此值时触发强平 (margin = LCV NW / debt)',
-  },
-  liquidation_soft_threshold: {
-    group: 'liquidation',
-    label: '警戒线',
-    description: 'LCV margin 低于此值时给 UI 警告 banner，但不强平',
   },
 
   // ── 反脚本 ───────────────────────────────────────────────────────
@@ -199,12 +178,10 @@ const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'eco
 const CONFIG_ORDER = [
   'homepage_fx_enabled',
   'fx_enabled', 'fx_short_enabled',
-  'loan_enabled', 'unified_credit_enabled', 'credit_new_risk_frozen',
-  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate', 'loan_leverage_k',
+  'loan_enabled', 'credit_new_risk_frozen',
+  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate',
   'loan_sweep_interval_sec', 'loan_sweep_min_accrual_sec', 'credit_risk_retry_limit',
   'liquidation_enabled', 'liquidation_partial_pct', 'liquidation_sweep_interval_sec',
-  'liquidation_soft_threshold', 'liquidation_hard_threshold',
-  'liquidation_target_margin', 'liquidation_emergency_threshold',
   'initial_balance', 'sell_fee_rate',
   'activity_mode_enabled', 'quant_whitelist_user_ids', 'bot_detection_enabled',
   'bot_detection_interval_sec', 'bot_detection_window_sec',

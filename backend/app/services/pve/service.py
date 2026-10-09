@@ -3,11 +3,10 @@
 资金动作全部走 ledger（record_entry，entry_type=admin_adjust_cash）——
 不造新的资金通道；本模块不 commit，事务由调用方（managed_transaction）负责。
 
-统一信贷（WP6b，flag=unified_credit_enabled）：
+统一信贷（WP6b，账户级准入）：
 - bot 注资 / 初始注资 / 销毁回收现金都是经济写：`OWNERSHIP.require_writes()` + 自增版本；
 - bot 债务为 0 是常态（PvE 不借款），走无债快路径：不做组合发现、不报价；
 - 销毁要求先还清债务并清空外汇持仓，避免资产剥离或删除债务。
-开关关闭时逐字段保持旧行为。
 """
 from __future__ import annotations
 
@@ -37,10 +36,6 @@ from app.services.credit.version import bump_economic_version, economic_version_
 ZERO = Decimal("0")
 
 
-def _unified_enabled() -> bool:
-    if OWNERSHIP.reason is not None:
-        OWNERSHIP.require_writes()
-    return bool(credit_flags.get_flags().unified_credit_enabled)
 
 
 async def _deps_for_bot_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
@@ -131,8 +126,7 @@ async def generate_bots(
     rng = random.Random()
     names = generate_usernames(naming_style, total, taken, rng)
 
-    unified = _unified_enabled()
-    if unified and initial_cash > 0:
+    if initial_cash > 0:
         OWNERSHIP.require_writes()
 
     created: List[dict] = []
@@ -156,9 +150,7 @@ async def generate_bots(
                     operator_user_id=operator_user_id,
                     reason="PvE 机器人初始注资",
                 )
-                if unified:
-                    # 新账号无债无持仓：注资不可能恶化保证金，只自增版本
-                    bump_economic_version(user)
+                bump_economic_version(user)
             profile = BotProfile(
                 user_id=user.id,
                 template=template,
@@ -188,9 +180,7 @@ async def fund_bot(
     统一信贷 ON：注资只增加现金（bot 常规债务为 0），不可能恶化保证金 ——
     不做组合发现 / 报价（无债快路径），只要求 owner + 自增版本。
     """
-    unified = _unified_enabled()
-    if unified:
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
     user = (
         await db.execute(select(User).where(User.id == profile.user_id).with_for_update().execution_options(populate_existing=True))
     ).scalars().one()
@@ -206,8 +196,7 @@ async def fund_bot(
         operator_user_id=operator_user_id,
         reason=reason or "PvE 机器人注资/复活",
     )
-    if unified:
-        bump_economic_version(user)
+    bump_economic_version(user)
     if profile.status == BOT_STATUS_DEAD:
         profile.status = BOT_STATUS_ACTIVE
     return user
@@ -263,10 +252,6 @@ async def destroy_bot(db: AsyncSession, *, profile: BotProfile, operator_user_id
 
     调用方需已持有 managed_transaction。
     """
-    if not _unified_enabled():
-        return await _destroy_bot_impl(
-            db, profile=profile, operator_user_id=operator_user_id, deps=None,
-        )
     # 门闩必须在 user 行锁之前：带债 bot 的销毁回收现金会触碰初始保证金
     OWNERSHIP.require_writes()
     deps = await _deps_for_bot_cash_write(db, profile.user_id)
@@ -281,7 +266,7 @@ async def _destroy_bot_impl(
     db: AsyncSession, *, profile: BotProfile, operator_user_id: int,
     deps: Optional[DependencySet],
 ) -> dict:
-    """销毁主体；deps 非 None = 统一信贷 ON（deps 来自锁外发现）。"""
+    """销毁主体；deps 来自锁外发现，供锁内版本重验。"""
     user = (
         await db.execute(
             select(User).where(User.id == profile.user_id).with_for_update()

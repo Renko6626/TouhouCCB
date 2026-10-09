@@ -77,7 +77,7 @@ async def test_gold_repayment_caps_at_unrestricted_cash():
 async def test_amnesty_cannot_reset_below_other_short_locks_even_when_forgiving_gold(unified):
     uid, operator = await seed(debt="10", frozen=True)
     if unified:
-        flags.set_flags(CreditFlags(unified_credit_enabled=True, credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
+        flags.set_flags(CreditFlags( credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
     async with async_session_maker() as s:
         s.add(SiteConfig(key="loan_daily_rate", value="0", value_type="decimal"))
         await s.commit()
