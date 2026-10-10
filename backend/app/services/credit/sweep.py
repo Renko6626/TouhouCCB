@@ -132,6 +132,9 @@ async def run_sweep(trigger_source='scheduler'):
                     result['soft_warning_count'] += 1
                 elif risk == 'blocked':
                     valuation_blocked.add(uid)
+                    logger.info('unified liquidation initial valuation blocked', extra={
+                        'user_id': uid, 'phase': 'initial_valuation',
+                        'valuation_status': risk, 'blocked_reason': value.blocked_reason})
                 if uid in active_ids:
                     candidates.append(uid)
                     continue

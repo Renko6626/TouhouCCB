@@ -45,7 +45,7 @@ export const useLoanStore = defineStore('loan', () => {
   async function perform(operation: () => Promise<LoanActionResult>) {
     const account = accountVersion
     const result = await operation()
-    if (account === accountVersion) await refreshQuota(true)
+    if (account === accountVersion) void refreshQuota(true)
     return result
   }
 

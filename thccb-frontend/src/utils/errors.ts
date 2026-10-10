@@ -10,3 +10,16 @@ export function extractErrorMessage(err: unknown, fallback = '请求失败'): st
   }
   return fallback
 }
+
+/** Loan POST transport failures can leave the committed outcome unknown. */
+export function loanOperationError(err: unknown, fallback: string): string {
+  const detail = extractErrorMessage(err, fallback)
+  const failure = typeof err === 'object' && err !== null
+    ? err as { status?: unknown; response?: { status?: unknown } }
+    : null
+  const hasResponse = failure?.status != null || failure?.response?.status != null
+  if (!hasResponse && /timeout|timed out|超时|network error/i.test(detail)) {
+    return '请求超时或连接中断，操作可能已执行。请刷新并核对账户后再决定是否重新提交。'
+  }
+  return detail
+}

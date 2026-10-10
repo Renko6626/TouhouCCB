@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { NInputNumber, NButton, NSpin, NAlert, useMessage } from 'naive-ui'
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
-import { extractErrorMessage } from '@/utils/errors'
+import { loanOperationError } from '@/utils/errors'
 import { compareFxAmounts, divideFxAmount, formatFxAmount, subtractFxAmounts } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
@@ -99,17 +99,9 @@ const repayOverflow = computed(() => {
   return 0
 })
 
-function operationError(error: unknown, fallback: string) {
-  const detail = extractErrorMessage(error, fallback)
-  if (/timeout|timed out|超时/i.test(detail)) {
-    return '请求超时，操作可能已执行。请刷新并核对账户后再决定是否重新提交。'
-  }
-  return detail
-}
-
-function warnRefreshFailure() {
-  if (store.error) msg.warning(store.error)
-}
+watch(() => store.error, (error) => {
+  if (error?.startsWith('操作已完成，账户信息刷新失败：')) msg.warning(error)
+})
 
 async function submitBorrow() {
   if (busy.value || !store.quota?.enabled || !borrowAmount.value || borrowAmount.value <= 0
@@ -119,10 +111,9 @@ async function submitBorrow() {
     const amount = String(borrowAmount.value)
     const result = await store.borrow(amount)
     msg.success(`借入 金 ${formatFxAmount(result.effective ?? amount, 2)}`)
-    warnRefreshFailure()
     borrowAmount.value = null
   } catch (e: unknown) {
-    msg.error(operationError(e, '借款失败'))
+    msg.error(loanOperationError(e, '借款失败'))
   } finally {
     submitting.value = false
   }
@@ -135,10 +126,9 @@ async function submitRepay() {
     const r = await store.repay(String(repayAmount.value))
     const effective = r.effective ?? String(repayAmount.value)
     msg.success(`实际还款 金 ${formatFxAmount(effective, 2)}`)
-    warnRefreshFailure()
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(operationError(e, '还款失败'))
+    msg.error(loanOperationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }
@@ -154,10 +144,9 @@ async function repayAll() {
     } else {
       msg.success(`已用可用现金还款 金 ${r.effective ?? '0'}，剩余借款 金 ${r.debt}（含利息）`)
     }
-    warnRefreshFailure()
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(operationError(e, '还款失败'))
+    msg.error(loanOperationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }

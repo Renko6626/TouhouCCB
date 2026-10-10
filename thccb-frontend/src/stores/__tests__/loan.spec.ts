@@ -7,6 +7,7 @@ import api from '@/api/index'
 import { useAuthStore } from '@/stores/auth'
 import { type LoanQuota } from '@/api/loan'
 import { useLoanStore } from '@/stores/loan'
+import { loanOperationError } from '@/utils/errors'
 
 describe('loan quota refresh', () => {
   beforeEach(() => {
@@ -33,16 +34,36 @@ describe('loan quota refresh', () => {
     expect(store.loading).toBe(false)
   })
 
-  it.each(['borrow', 'repay', 'repayAll'] as const)('returns the %s result when the single account refresh fails', async (action) => {
+  it.each(['borrow', 'repay', 'repayAll'] as const)('returns the %s result before its single refresh finishes and exposes a late failure', async (action) => {
     const store = useLoanStore()
+    store.quota = { cash: '500' } as LoanQuota
     const result = { cash: '100', debt: '20', max_borrow: null, effective: '10' }
+    let fail!: (reason: Error) => void
     vi.mocked(api.post).mockResolvedValueOnce(result)
-    vi.mocked(api.get).mockRejectedValueOnce(new Error('network unavailable'))
+    vi.mocked(api.get).mockImplementationOnce(() => new Promise((_, reject) => { fail = reject }))
     expect(await (action === 'repayAll' ? store.repayAll() : store[action]('10'))).toEqual(result)
     expect(api.post).toHaveBeenCalledTimes(1)
     expect(api.get).toHaveBeenCalledTimes(1)
     expect(store.quota).toBeNull()
-    expect(store.error).toContain('操作已完成，账户信息刷新失败')
+    expect(store.loading).toBe(true)
+    expect(store.error).toBeNull()
+    fail(new Error('network unavailable'))
+    await vi.waitFor(() => expect(store.error).toBe('操作已完成，账户信息刷新失败：network unavailable'))
+    expect(store.loading).toBe(false)
+  })
+
+  it('fills quota when the background refresh succeeds after the POST result is available', async () => {
+    const store = useLoanStore()
+    let finish!: (value: LoanQuota) => void
+    vi.mocked(api.post).mockResolvedValueOnce({ cash: '100', debt: '20', max_borrow: null, effective: '10' })
+    vi.mocked(api.get).mockImplementationOnce(() => new Promise<LoanQuota>(resolve => { finish = resolve }))
+    await store.borrow('10')
+    expect(store.loading).toBe(true)
+    const current = { cash: '100' } as LoanQuota
+    finish(current)
+    await vi.waitFor(() => expect(store.quota).toEqual(current))
+    expect(store.loading).toBe(false)
+    expect(store.error).toBeNull()
   })
 
   it('keeps the newest refresh when an older GET finishes last', async () => {
@@ -101,4 +122,17 @@ describe('loan quota refresh', () => {
     expect(api.get).not.toHaveBeenCalled()
   })
 
+})
+
+describe('loan operation error guidance', () => {
+  it.each([
+    { message: 'Network Error', status: undefined },
+    new Error('timeout of 10000ms exceeded'),
+  ])('warns that a transport failure can have an unknown outcome', (error) => {
+    expect(loanOperationError(error, '借款失败')).toBe('请求超时或连接中断，操作可能已执行。请刷新并核对账户后再决定是否重新提交。')
+  })
+
+  it('preserves an explicit HTTP rejection even if its detail mentions a timeout', () => {
+    expect(loanOperationError({ status: 400, data: { detail: '报价超时，借款已拒绝' } }, '借款失败')).toBe('报价超时，借款已拒绝')
+  })
 })
