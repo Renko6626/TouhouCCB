@@ -298,7 +298,7 @@ async function repayAll() {
             :ratio="marginRatio"
             :initial="store.quota?.r_initial ?? policy?.r_initial ?? (policy?.unified_credit_enabled === false ? policy.soft_threshold : null)"
             :maintenance="store.quota?.r_maintenance ?? policy?.r_maintenance ?? (policy?.unified_credit_enabled === false ? policy.hard_threshold : null)"
-            :blocked="store.quota?.risk_status === 'blocked'"
+            :authoritative-status="store.loading || store.error ? 'unknown' : store.quota?.risk_status"
             :legacy="policy?.unified_credit_enabled === false"
             :no-risk="compareFxAmounts(store.quota?.risk_basis, '0') === 0"
           />

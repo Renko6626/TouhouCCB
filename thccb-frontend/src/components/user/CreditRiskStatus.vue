@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { resolveCreditRiskStatus, riskThreshold, type AuthoritativeRiskStatus } from '@/utils/creditRiskStatus'
 
 type Threshold = string | number | null
 const props = withDefaults(defineProps<{
+  authoritativeStatus?: AuthoritativeRiskStatus | null
   ratio: number | null
   initial?: Threshold
   maintenance?: Threshold
@@ -13,26 +15,12 @@ const props = withDefaults(defineProps<{
   title?: string
 }>(), { initial: null, maintenance: null, blocked: false, protected: false, legacy: false, noRisk: false, title: '账户保证金率' })
 
-function threshold(value: Threshold) {
-  if (value == null) return null
-  const result = Number(value)
-  return Number.isFinite(result) && result >= 0 ? result : null
-}
 function percent(value: number | null) {
   return value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(2)}%`
 }
-const initialRatio = computed(() => threshold(props.initial))
-const maintenanceRatio = computed(() => threshold(props.maintenance))
-const status = computed(() => {
-  if (props.blocked) return 'blocked'
-  if (props.protected) return 'protected'
-  if (props.noRisk) return 'none'
-  if (props.ratio == null || !Number.isFinite(props.ratio)
-    || initialRatio.value == null || maintenanceRatio.value == null) return 'unknown'
-  if (props.ratio < maintenanceRatio.value) return 'danger'
-  if (props.ratio < initialRatio.value) return 'warning'
-  return 'healthy'
-})
+const initialRatio = computed(() => riskThreshold(props.initial))
+const maintenanceRatio = computed(() => riskThreshold(props.maintenance))
+const status = computed(() => resolveCreditRiskStatus(props))
 const label = computed(() => ({ healthy: '健康', warning: props.legacy ? '警戒' : '低于开仓门槛', danger: '低于强平线', blocked: '风险检查阻塞', protected: '熔断保护', none: '无风险占用', unknown: '数据待恢复' })[status.value])
 </script>
 

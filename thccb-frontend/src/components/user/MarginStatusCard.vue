@@ -13,7 +13,12 @@ const shouldShow = computed(() => {
 })
 
 const ratio = computed(() => userStore.marginRatioEstimate)
-const baseStatus = computed(() => summary.value?.unified_credit_enabled ? summary.value.risk_status ?? 'blocked' : summary.value?.margin_status ?? 'healthy')
+const baseStatus = computed(() => {
+  if (summary.value?.unified_credit_enabled) {
+    return userStore.loading || userStore.error ? 'unknown' : summary.value.risk_status ?? 'unknown'
+  }
+  return summary.value?.margin_status ?? 'healthy'
+})
 const protectedByHalt = computed(() => !summary.value?.unified_credit_enabled && (summary.value?.liquidation_protected ?? false))
 // HALT 保护优先：danger/warning + HALT 持仓 → 显示保护态而非危险
 const status = computed(() =>
@@ -35,6 +40,7 @@ const statusLabel = computed(() => {
   if (status.value === 'protected') return '熔断保护'
   if (status.value === 'danger') return '危险'
   if (status.value === 'warning') return '警戒'
+  if (status.value === 'unknown') return '数据待恢复'
   return '健康'
 })
 
@@ -71,14 +77,14 @@ function relativeTime(ms: number): string {
 
     <p v-if="summary?.unified_credit_enabled">清算净值与风险状态为最近刷新快照；定时扫描按最新资产执行。</p>
     <p v-if="summary?.unified_credit_enabled">
-      总现金 C：金 {{ summary.cash.toFixed(2) }} · 未锁定现金 C−S：金 {{ summary.available_cash ?? '—' }}
-      <br>金圆券借款 D（含息）：金 {{ debt.toFixed(2) }} · 外币全仓回补成本 K：金 {{ summary.short_cover_cost ?? '—' }}
+      总现金 C：金 {{ summary.cash.toFixed(2) }}；未锁定现金 C−S：金 {{ summary.available_cash ?? '—' }}
+      <br>金圆券借款 D（含息）：金 {{ debt.toFixed(2) }}；外币全仓回补成本 K：金 {{ summary.short_cover_cost ?? '—' }}
       <br>外币义务按币种列示于持仓明细；B 是风险基数，保证金率为 E/B。
     </p>
     <p v-if="status === 'blocked'">{{ summary?.blocked_reason || '估值待恢复，新增风险暂不可用。' }}</p>
     <CreditRiskStatus
-      :ratio="ratio" :initial="softThr" :maintenance="hardThr"
-      :blocked="status === 'blocked'"
+      :ratio="status === 'unknown' ? null : ratio" :initial="softThr" :maintenance="hardThr"
+      :authoritative-status="summary?.unified_credit_enabled ? baseStatus : null"
       :protected="status === 'protected'"
       :legacy="summary?.unified_credit_enabled === false"
       :no-risk="summary?.unified_credit_enabled === true && compareFxAmounts(summary.risk_basis, '0') === 0"

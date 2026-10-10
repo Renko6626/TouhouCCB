@@ -1654,6 +1654,7 @@ class FxShortQuoteRead:
     estimated_equity: Optional[Decimal]
     estimated_risk_basis: Optional[Decimal]
     risk_status: str
+    margin_status: str
     risk_blocked_reason: Optional[str]
     executable: bool
     blocked_reason: Optional[str]
@@ -1701,6 +1702,7 @@ def _blocked_quote(
         estimated_equity=estimated_equity,
         estimated_risk_basis=estimated_risk_basis,
         risk_status="blocked",
+        margin_status="blocked",
         risk_blocked_reason=risk_reason,
         executable=executable,
         blocked_reason=reason,
@@ -2011,6 +2013,7 @@ async def quote_short(
         estimated_basis: Optional[Decimal],
         risk_reason: Optional[str],
         order_reason: Optional[str],
+        margin_status: str = "blocked",
     ) -> FxShortQuoteRead:
         """Split order eligibility from the portfolio-valuation signal.
 
@@ -2039,6 +2042,7 @@ async def quote_short(
             estimated_equity=estimated_equity,
             estimated_risk_basis=estimated_basis,
             risk_status="ok" if estimated_equity is not None else "blocked",
+            margin_status=margin_status,
             risk_blocked_reason=risk_reason,
             executable=order_reason is None,
             blocked_reason=order_reason,
@@ -2087,6 +2091,7 @@ async def quote_short(
         _logger.exception("FX short quote risk simulation failed")
         return _risk_unavailable()
 
+    margin_status = "blocked"
     if decision.reason in _RISK_SHORT_CIRCUIT_REASONS:
         # 风控短路（冻结/版本冲突）不是可信的完整净值：不报价，透出原因。
         estimated_equity = None
@@ -2105,6 +2110,12 @@ async def quote_short(
         estimated_equity = valuation.equity
         estimated_basis = valuation.risk_basis
         risk_reason = valuation.blocked_reason
+        from app.services.credit.account_read import classify_account_risk
+        margin_status = classify_account_risk(
+            thresholds, equity=valuation.equity, debt=valuation.debt_after,
+            positive_assets=valuation.holdings_value, short_cover=valuation.short_cover_cost,
+            blocked_reason=valuation.blocked_reason,
+        )
 
     if cover:
         order_reason = cover_order_reason
@@ -2115,5 +2126,5 @@ async def quote_short(
         order_reason = decision.reason or BLOCKED_RISK_UNKNOWN
     return _result(
         estimated_equity=estimated_equity, estimated_basis=estimated_basis,
-        risk_reason=risk_reason, order_reason=order_reason,
+        risk_reason=risk_reason, order_reason=order_reason, margin_status=margin_status,
     )
