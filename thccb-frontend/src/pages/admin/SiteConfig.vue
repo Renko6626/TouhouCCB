@@ -5,6 +5,7 @@ import {
   NInputNumber, NDivider, NSwitch, NTooltip, NTag,
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
+import BackendMaintenance from '@/components/BackendMaintenance.vue'
 import { compareConfigKeys, getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
 // 套餐仅调整名义杠杆和维持率。
@@ -24,6 +25,9 @@ const configs = ref<SiteConfigItem[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const drafts = ref<Record<string, string>>({})
+const systemBusy = ref(false)
+const activeSaves = ref(0)
+const hasUnsavedChanges = computed(() => configs.value.some(c => drafts.value[c.key] !== c.value))
 const msg = useMessage()
 const dialog = useDialog()
 function presetLabel(preset: Preset): string { return preset.label }
@@ -55,6 +59,7 @@ function normalizeDecimal(v: string): string {
 const applying = ref(false)
 
 async function applyPreset(presetKey: PresetKey) {
+  if (systemBusy.value) return
   const preset = PRESETS[presetKey]
   const values = presetValues(preset)
 
@@ -89,6 +94,7 @@ async function applyPreset(presetKey: PresetKey) {
 }
 
 async function doApply(presetKey: PresetKey, preset: Preset, values: Record<string, string>) {
+  if (systemBusy.value) return
   applying.value = true
   let succeeded = 0
   let failed = 0
@@ -171,25 +177,30 @@ async function load() {
   try {
     configs.value = await adminSiteConfigApi.list()
     drafts.value = Object.fromEntries(configs.value.map(c => [c.key, c.value]))
-  } catch (e: any) {
-    error.value = e?.message ?? '加载失败'
+  } catch (e: unknown) {
+    error.value = (e as { message?: string })?.message ?? '加载失败'
   } finally {
     loading.value = false
   }
 }
 
 async function save(key: string) {
+  if (systemBusy.value) return
+  activeSaves.value++
   try {
     await adminSiteConfigApi.update(key, drafts.value[key] ?? '')
     msg.success(`${key} 已更新`)
     await load()
-  } catch (e: any) {
-    msg.error(e?.message ?? '更新失败')
+  } catch (e: unknown) {
+    msg.error((e as { message?: string })?.message ?? '更新失败')
+  } finally {
+    activeSaves.value--
   }
 }
 
 // bool 类型直接 toggle 立即保存（不走 draft），UX 更顺
 async function toggleBool(c: SiteConfigItem) {
+  if (systemBusy.value) return
   const next = c.value === 'true' ? 'false' : 'true'
   drafts.value[c.key] = next
   await save(c.key)
@@ -222,6 +233,11 @@ onMounted(load)
 
 <template>
   <div class="admin-site-config">
+    <BackendMaintenance
+      :has-unsaved-changes="hasUnsavedChanges"
+      :saving="loading || applying || activeSaves > 0"
+      @busy="systemBusy = $event"
+    />
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" />
 
@@ -246,7 +262,7 @@ onMounted(load)
             :key="key"
             :type="currentPresetKey === key ? 'primary' : 'default'"
             :loading="applying"
-            :disabled="applying"
+            :disabled="applying || systemBusy"
             size="medium"
             @click="applyPreset(key as PresetKey)"
           >
@@ -329,6 +345,7 @@ onMounted(load)
                     <!-- bool 用 Switch 立即保存 -->
                     <template v-if="c.value_type === 'bool'">
                       <NSwitch
+                        :disabled="systemBusy"
                         :value="c.value === 'true'"
                         @update:value="toggleBool(c)"
                         size="small"
@@ -339,6 +356,7 @@ onMounted(load)
                     <!-- int / decimal 用 NInputNumber，按需选 step -->
                     <template v-else-if="c.value_type === 'int' || c.value_type === 'decimal'">
                       <NInputNumber
+                        :disabled="systemBusy"
                         :value="Number(drafts[c.key])"
 
                         @update:value="(v) => drafts[c.key] = v === null ? '' : String(v)"
@@ -351,7 +369,7 @@ onMounted(load)
 
                     <!-- string 默认 -->
                     <template v-else>
-                      <NInput v-model:value="drafts[c.key]" size="small" />
+                      <NInput v-model:value="drafts[c.key]" size="small" :disabled="systemBusy" />
                     </template>
                   </td>
                   <td class="ts">{{ new Date(c.updated_at).toLocaleString() }}</td>
@@ -361,7 +379,7 @@ onMounted(load)
                       v-if="c.value_type !== 'bool'"
                       size="small"
                       type="primary"
-                      :disabled="!shouldChangeFromDraft(c)"
+                      :disabled="systemBusy || !shouldChangeFromDraft(c)"
                       @click="save(c.key)"
                     >保存</NButton>
                     <span v-else class="ts">—</span>

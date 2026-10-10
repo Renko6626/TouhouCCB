@@ -1,6 +1,22 @@
 import api from './index'
 import type { TitleRead } from './title'
 
+export interface BackendSystemStatus {
+  instance_id: string
+  restart_enabled: boolean
+  restart_pending: boolean
+  cooldown_seconds: number
+  reason: string | null
+}
+
+export const adminSystemApi = {
+  status: (signal?: AbortSignal) =>
+    api.get<BackendSystemStatus>('/api/v1/admin/system/status', { signal }),
+  restart: (instanceId: string, signal?: AbortSignal) =>
+    api.post<{ instance_id: string; status: 'accepted' }>('/api/v1/admin/system/restart',
+      { instance_id: instanceId }, { signal }),
+}
+
 export interface UserListItem {
   id: number
   username: string

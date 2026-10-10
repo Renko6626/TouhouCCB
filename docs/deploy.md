@@ -2,6 +2,12 @@
 
 本文档覆盖从零开始的完整部署流程：服务器环境准备 → 首次部署 → GitHub Actions CI/CD 自动化。
 
+## 日常重启后端
+
+管理员可在「站点配置 → 后端维护」确认重启。请求先记录操作人，再由单进程 uvicorn 优雅退出，Docker 的 `restart: unless-stopped` 将其拉起。页面核对新实例并确认数据库可访问后显示恢复；90 秒未确认时提示检查服务器日志。重启请求有 60 秒持久冷却期，不会自动保存页面草稿，也不会重新构建或更换镜像。
+
+Compose 已设置 `ADMIN_RESTART_ENABLED=true`；本地运行及非 PID 1 环境禁用页面重启。若后端完全无响应，页面无法发起请求，在项目目录使用 `docker compose restart backend`，再用 `docker compose logs --tail=100 backend` 排查。
+
 ---
 
 ## 架构概览

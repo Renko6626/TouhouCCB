@@ -450,6 +450,9 @@ app.include_router(danmuku_api.router, prefix="/api/v1/danmuku", tags=["Danmuku"
 from app.api.v1 import admin_stats as admin_stats_api
 app.include_router(admin_stats_api.router, prefix="/api/v1/admin/stats", tags=["AdminStats"])
 
+from app.api.v1 import admin_system as admin_system_api
+app.include_router(admin_system_api.router, prefix="/api/v1/admin/system", tags=["AdminSystem"])
+
 from app.api.v1 import admin_liquidation as admin_liquidation_api
 app.include_router(admin_liquidation_api.router, prefix="/api/v1/admin/liquidation", tags=["AdminLiquidation"])
 

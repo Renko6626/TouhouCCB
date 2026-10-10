@@ -42,6 +42,8 @@ services:
       - ./backups:/app/backups
     environment:
       - PYTHONPATH=.
+      # Single PID-1 uvicorn exits gracefully; unless-stopped restarts it.
+      - ADMIN_RESTART_ENABLED=true
     # 容器内用户 UID:GID 与宿主机一致（在 .env 设为你的 `id -u`:`id -g`，否则挂载卷可能权限错乱）
     user: "${UID:-1000}:${GID:-1000}"
     # 优雅停机：给 uvicorn 时间排空 SSE 长连接

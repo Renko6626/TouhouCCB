@@ -57,6 +57,8 @@ class Settings(BaseSettings):
 
     # 管理后台（登录复用本站 JWT，不需要独立密码）
     ADMIN_SECRET_KEY: str = Field(default="")
+    # Only enable with a PID-1 uvicorn and Docker automatic restart policy.
+    ADMIN_RESTART_ENABLED: bool = False
 
     # 弹幕系统兑换 HMAC 签名密钥（与外部 danmuku 服务端约定共享，可选功能）。
     # 默认值仅为占位 dev 值；生产请在 .env 覆盖为自己的随机串，并与 danmuku 服务端保持一致。
