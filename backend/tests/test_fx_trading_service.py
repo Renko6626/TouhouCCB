@@ -13,7 +13,7 @@ from sqlmodel import SQLModel, Session
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxCandle, FxMarketDataState, FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
 from app.services.fx import trading
@@ -43,8 +43,9 @@ class AsyncCompatSession:
 async def isolated_db(tmp_path_factory):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__, AuditEvent.__table__]
-    SQLModel.metadata.create_all(engine, tables=tables)
+              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
+              FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
+    SQLModel.metadata.create_all(engine)
     with Session(engine) as raw:
         session = AsyncCompatSession(raw)
         session.add(SiteConfig(key="fx_enabled", value="true", value_type="bool"))
@@ -112,7 +113,7 @@ async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kwargs", [{"bot": True}, {"tos": False}, {"debt": "1"}, {"status": "paused"}])
+@pytest.mark.parametrize("kwargs", [{"bot": True}, {"tos": False}, {"status": "paused"}])
 async def test_guards_reject_buy(db_session, kwargs):
     uid, pid = await seed(db_session, **kwargs)
     with pytest.raises(HTTPException) as exc:
@@ -154,6 +155,31 @@ async def test_snapshot_excludes_trades_older_than_24_hours(db_session):
     await db_session.commit()
     snapshot = await trading.get_public_snapshot(db_session, pid)
     assert snapshot.volume_24h == current.input_amount
+
+
+@pytest.mark.asyncio
+async def test_snapshot_volume_uses_gold_side_for_buy_and_sell_and_is_zero_when_empty(db_session):
+    uid, pid = await seed(db_session)
+    empty = await trading.get_public_snapshot(db_session, pid)
+    assert empty.volume_24h == Decimal("0")
+    db_session.add_all([
+        FxTrade(pair_id=pid, user_id=uid, side="buy", input_amount=Decimal("0.1"),
+                output_amount=Decimal("1"), min_out=Decimal("0"),
+                pre_gold_reserve=Decimal("100"), pre_foreign_reserve=Decimal("100"),
+                post_gold_reserve=Decimal("100.1"), post_foreign_reserve=Decimal("99"),
+                post_price=Decimal("1"), idempotency_key="vol-buy"),
+        FxTrade(pair_id=pid, user_id=uid, side="sell", input_amount=Decimal("1"),
+                output_amount=Decimal("0.2"), min_out=Decimal("0"),
+                pre_gold_reserve=Decimal("100.1"), pre_foreign_reserve=Decimal("99"),
+                post_gold_reserve=Decimal("99.9"), post_foreign_reserve=Decimal("100"),
+                post_price=Decimal("1"), idempotency_key="vol-sell"),
+    ])
+    await db_session.commit()
+    snapshot = await trading.get_public_snapshot(db_session, pid)
+    # buy contributes input gold (0.1), sell contributes output gold (0.2).
+    # Both are binary-inexact floats, so a Decimal(float) regression yields
+    # 0.30000000000000004 instead of the exact Decimal("0.3").
+    assert snapshot.volume_24h == Decimal(".3")
 
 
 # ── I1 snapshot pricing: gold-per-foreign bid/ask with non-negative spread ──

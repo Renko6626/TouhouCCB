@@ -238,6 +238,10 @@ class FxPublisher:
             # unwatched pair needs no frame and no 24h volume query.
             self._skipped += 1
             return
+        # With a witness the frame builder performs the incremental owner
+        # catch-up and drains the bounded public-trade buffer exactly once
+        # (quote + tail metadata + deltas + explicit invalidation).  The call
+        # signature stays frozen so direct broker tests need no pipeline start.
         await market_data.publish_pair_frame(
             publication.pair_id, publication.post_price, broker=broker)
         self._published += 1

@@ -171,9 +171,9 @@ def test_migration_roundtrip_preserves_rows_and_credit_schema(tmp_path):
         ))
         conn.execute(text(
             "INSERT INTO fx_pair (currency_code, currency_name, status, gold_reserve, foreign_reserve,"
-            " target_price, initial_price, target_min, target_max, buy_fee_rate, sell_fee_rate,"
+            " initial_price, buy_fee_rate, sell_fee_rate,"
             " pool_version, reduce_only, created_at, updated_at)"
-            " VALUES ('KEEP', 'KEEP', 'paused', 1, 1, 1, 1, 0.5, 2, 0, 0, 1, 0,"
+            " VALUES ('KEEP', 'KEEP', 'paused', 1, 1, 1, 0, 0, 1, 0,"
             " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ))
 
@@ -227,3 +227,60 @@ def test_downgrade_upgrade_is_idempotent(tmp_path):
             _run_revision(conn, "upgrade")
         with engine.connect() as conn:
             _assert_credit_foundation_schema(conn)
+
+
+def _unified_revision():
+    path = BACKEND_DIR / 'alembic/versions/2026_10_10_1200-unified_credit_only.py'
+    spec = importlib.util.spec_from_file_location('unified_credit_only_migration', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_unified_config_upgrade_preserves_economic_and_operator_data(tmp_path):
+    db = create_engine('sqlite:///' + str(tmp_path / 'unified.db'))
+    SQLModel.metadata.create_all(db)
+    with db.begin() as conn:
+        conn.execute(SQLModel.metadata.tables["title"].insert().values(id=7,name="owned"))
+        conn.execute(SQLModel.metadata.tables['user'].insert().values(id=42,username='disabled',cash=90,debt=20,credit_frozen=True,economic_version=8,is_active=False))
+        conn.execute(SQLModel.metadata.tables['user_title'].insert().values(user_id=42,title_id=7,source='admin'))
+        raw = {'credit_leverage':'2', 'credit_maintenance_ratio':'.2', 'unified_credit_enabled':'false',
+               'loan_leverage_k':'9', 'liquidation_hard_threshold':'.05', 'credit_new_risk_frozen':'true',
+               'loan_enabled':'false', 'fx_enabled':'false', 'fx_short_enabled':'false',
+               'liquidation_enabled':'false', 'pve_enabled':'false'}
+        for key, value in raw.items():
+            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
+        before = {name: conn.execute(text(f'SELECT * FROM "{name}"')).all() for name in ('user','title','user_title')}
+        with Operations.context(MigrationContext.configure(conn)):
+            _unified_revision().upgrade()
+        after = dict(conn.execute(text('SELECT key,value FROM siteconfig')).all())
+        assert after == {k:v for k,v in raw.items() if k not in _unified_revision().REMOVED}
+        for name, rows in before.items():
+            assert conn.execute(text(f'SELECT * FROM "{name}"')).all() == rows
+    db.dispose()
+
+
+def test_unified_config_upgrade_maps_missing_parameters(tmp_path):
+    db = create_engine('sqlite:///' + str(tmp_path / 'mapping.db'))
+    SQLModel.metadata.create_all(db)
+    with db.begin() as conn:
+        for key,value in (('loan_leverage_k','3'),('liquidation_hard_threshold','.15')):
+            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
+        with Operations.context(MigrationContext.configure(conn)):
+            _unified_revision().upgrade()
+        assert dict(conn.execute(text('SELECT key,value FROM siteconfig')).all()) == {'credit_leverage':'4','credit_maintenance_ratio':'0.15'}
+    db.dispose()
+
+
+def test_unified_config_upgrade_rejects_invalid_mapping_without_changes(tmp_path):
+    import pytest
+    db = create_engine('sqlite:///' + str(tmp_path / 'invalid.db'))
+    SQLModel.metadata.create_all(db)
+    with db.begin() as conn:
+        for key,value in (('loan_leverage_k','50'),('liquidation_hard_threshold','.2'),('loan_enabled','false')):
+            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
+        before = conn.execute(text('SELECT * FROM siteconfig ORDER BY key')).all()
+        with Operations.context(MigrationContext.configure(conn)), pytest.raises(ValueError):
+            _unified_revision().upgrade()
+        assert conn.execute(text('SELECT * FROM siteconfig ORDER BY key')).all() == before
+    db.dispose()

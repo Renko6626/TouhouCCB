@@ -119,9 +119,9 @@ async def test_credit_columns_have_server_defaults(pg_sessionmaker):
             await s.execute(
                 text(
                     "INSERT INTO fx_pair (currency_code, currency_name, status, gold_reserve,"
-                    " foreign_reserve, target_price, initial_price, target_min, target_max,"
+                    " foreign_reserve, initial_price,"
                     " buy_fee_rate, sell_fee_rate, pool_version, created_at, updated_at) "
-                    "VALUES ('PGX', 'PGX', 'draft', 1, 1, 1, 1, 0.5, 2, 0, 0, 1, now(), now())"
+                    "VALUES ('PGX', 'PGX', 'draft', 1, 1, 1, 0, 0, 1, now(), now())"
                 )
             )
         row = (

@@ -903,7 +903,11 @@ async def execute_user(user_id, *, rate, pct, source):
             log_retry(type(exc).__name__, attempt)
             continue
         if publication is not None:
+            # Forced sell/cover committed: hint the incremental market-data
+            # runtime, then enqueue the bounded discardable publication.
             from app.services.fx.publisher import enqueue_publication
+            from app.services.fx.trading import notify_market_data_committed
+            notify_market_data_committed(int(publication[0]))
             enqueue_publication(pair_id=publication[0], post_price=publication[1],
                                 trade_id=publication[2])
             return 'triggered'

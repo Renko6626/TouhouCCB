@@ -36,7 +36,7 @@ from app.services.credit.runs import get_or_create_active_run
 from app.services.lmsr import calculate_lmsr_with_prices
 from app.services.market_writer import MarketState, WRITER
 from app.services.tick_broadcaster import TICK_BROADCASTER
-from app.services.writer_ops import BuyCmd, LiquidateGroupCmd, LiquidateMarketCmd
+from app.services.writer_ops import BuyCmd, LiquidateGroupCmd
 
 ZERO = Decimal("0")
 
@@ -389,7 +389,7 @@ async def test_audit_replay_fold_and_live_consistency():
                 market_after=audit_service.market_snapshot(
                     outcome_ids=oids, q=[ZERO, ZERO], b=100.0, prices=prices,
                     status="trading"))
-    uid = await _seed_user(cash="1000", debt="5000", username="fold_user",
+    uid = await _seed_user(cash="11000", debt="5000", username="fold_user",
                            register=True, debt_accrued=datetime.now(timezone.utc))
     await WRITER.start()
     await WRITER.submit(BuyCmd(
@@ -417,41 +417,6 @@ async def test_audit_replay_fold_and_live_consistency():
     assert snap.users[uid].debt == res["debt_after"]
 
 
-@pytest.mark.asyncio
-async def test_unified_flag_disables_legacy_liquidation_entries():
-    from app.services import liquidation_service
-
-    mid, oids = await _seed_market(("0", "0"))
-    uid = await _seed_user(cash="0", debt="50", username="flag_user")
-    await _give_position(uid, oids[0], "20", "10")
-    await WRITER.start()
-    before = await _snapshot(uid, oids)
-
-    set_flags(CreditFlags(unified_credit_enabled=True))
-    try:
-        with pytest.raises(HTTPException) as exc_info:
-            await WRITER.submit(LiquidateMarketCmd(
-                market_id=mid, user_id=uid, mode="emergency", partial_pct=Decimal("1")))
-        assert exc_info.value.status_code == 409
-
-        with pytest.raises(RuntimeError):
-            await liquidation_service.liquidate_user_split(
-                uid, daily_rate=ZERO, trigger_source="test", partial_pct=Decimal("1"),
-                target_margin=Decimal("0.5"), emergency_threshold=Decimal("0.1"),
-                hard_threshold=Decimal("1.0"))
-
-        async with async_session_maker() as s:
-            async with s.begin():
-                u = await s.get(User, uid)
-                with pytest.raises(RuntimeError):
-                    await liquidation_service.liquidate_user(
-                        s, u, daily_rate=ZERO, trigger_source="test",
-                        partial_pct=Decimal("1"), target_margin=Decimal("0.5"),
-                        emergency_threshold=Decimal("0.1"))
-    finally:
-        clear_flags()
-
-    assert await _snapshot(uid, oids) == before, "开关开启时 legacy 入口不得再卖仓"
 
 
 @pytest.mark.asyncio

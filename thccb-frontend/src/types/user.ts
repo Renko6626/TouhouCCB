@@ -27,7 +27,7 @@ export interface RankThreshold {
 }
 
 /** 阶段 3 新契约（spec §6.4）：只有客户端算不出来的东西。
- *  旧模式估值由 stores/user.ts 派生；统一模式净值由服务端权威快照提供。 */
+ *  账户净值由服务端权威快照提供。 */
 export interface AccountShortPosition {
   pair_id: number
   currency_code: string
@@ -56,14 +56,12 @@ export interface UserSummary {
   /** 6dp 全精度——成交后本地 apply 的 cash 基线 */
   cash: number
   debt: number
-  unified_credit_enabled?: boolean
   display_equity?: number | null
   liquidation_equity?: number | null
   debt_with_interest?: number | null
   credit_leverage?: number | null
   r_initial?: number | null
   r_maintenance?: number | null
-  equity_to_debt?: number | null
   risk_status?: 'healthy' | 'warning' | 'danger' | 'blocked' | null
   new_risk_frozen?: boolean
   borrow_blocked_reason?: string | null
@@ -74,13 +72,9 @@ export interface UserSummary {
   fx_cost_basis: number
   fx_unrealized_pnl: number
   positions: SummaryPosition[]
-  margin_hard_threshold: number
-  margin_soft_threshold: number
   sell_fee_rate: number
   rank_thresholds: RankThreshold[]
   /** 服务端权威（LCV 口径）；本地 marginRatioEstimate 只是显示估算 */
-  margin_status: 'healthy' | 'warning' | 'danger'
-  liquidation_protected: boolean
   last_liquidated_at: string | null
   equipped_title?: TitleChip | null
 }

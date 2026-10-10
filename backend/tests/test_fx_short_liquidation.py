@@ -51,7 +51,6 @@ pytestmark = pytest.mark.asyncio
 async def lifecycle():
     await OWNERSHIP.acquire()
     set_flags(CreditFlags(
-        unified_credit_enabled=True,
         credit_leverage=D('20'),
         credit_maintenance_ratio=D('.04'),
     ))
@@ -590,27 +589,6 @@ async def test_liquidation_cover_uses_only_own_lock_and_free_cash():
         assert D(other.proceeds_basis_gold) == D("90")
 
 
-async def test_liquidation_cover_requires_unified_credit_fail_closed():
-    """统一信贷关闭时强平回补 403，不遗留任何钱币动作。"""
-    from fastapi import HTTPException
-
-    uid, pid, _ = await _seed_cover(cash="1000", principal="100", restricted="100",
-                                    basis="100", gold="1000", foreign="1000")
-    async with async_session_maker() as db:
-        before = await _cover_state(db, uid, pid)
-
-    set_flags(CreditFlags(
-        unified_credit_enabled=False, credit_leverage=D("20"),
-        credit_maintenance_ratio=D(".04")))
-
-    with pytest.raises(HTTPException) as exc:
-        await _liq_cover(uid, pid, run_id=61, round_no=1,
-                         planned="100", budget="1000000")
-    assert exc.value.status_code == 403
-
-    async with async_session_maker() as db:
-        after = await _cover_state(db, uid, pid)
-    assert after == before
 
 
 async def _blocked_round_snapshot(db, uid, pid):
@@ -1524,7 +1502,7 @@ async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
 
 async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan():
     """A reserve withdrawal can make K unknown without erasing borrowed coins."""
-    from app.services.fx import scheduler
+    from app.services.fx import liquidity
     uid, pair_id = await _seed_foreign_only_overflow(principal='900', cash='50')
     async with async_session_maker() as s:
         short = (await s.execute(select(FxShortPosition))).scalar_one()
@@ -1537,8 +1515,8 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         await s.commit()
         pair = await s.get(FxPair, pair_id)
         original_version = pair.pool_version
-        await scheduler.fund_pair(s, pair_id, D('10'), D('20'), uid)
-        await scheduler.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
+        await liquidity.fund_pair(s, pair_id, D('10'), D('20'), uid)
+        await liquidity.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
         await s.refresh(pair)
         assert pair.pool_version == original_version + 2
         assert pair.gold_reserve == D('1010') and pair.foreign_reserve == D('900')

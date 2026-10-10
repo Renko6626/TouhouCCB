@@ -39,10 +39,7 @@ class FxPairAdmin(FxPairPublic):
     archived: bool = False
     gold_reserve: Decimal
     foreign_reserve: Decimal
-    target_price: Decimal
     initial_price: Decimal
-    target_min: Decimal
-    target_max: Decimal
     buy_fee_rate: Decimal
     sell_fee_rate: Decimal
     # Hidden from ``FxPairPublic``: only operators see the pair short capacity.
@@ -58,8 +55,6 @@ class FxPairAdminDetail(FxPairAdmin):
     """
     gold_balance: Decimal
     foreign_balance: Decimal
-    daily_spend: Decimal
-    spend_date: Optional[date] = None
 
 
 class FxWalletPublic(BaseModel):
@@ -333,26 +328,9 @@ class FxSnapshot(BaseModel):
     sell_price: Decimal
     spread: Decimal
     volume_24h: Decimal = Decimal("0")
-
-
-class FxEventPublic(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    pair_id: int
-    status: str
-    title: str
-    body: str
-    kind: str
-    published_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-
-class FxEventAdmin(FxEventPublic):
-    shock_ratio: Optional[Decimal] = None
-    first_reaction_ratio: Optional[Decimal] = None
-    window_sec: Optional[int] = None
-    budget: Optional[Decimal] = None
-    scheduled_at: Optional[datetime] = None
-    parameter_snapshot: Optional[dict] = None
-    error_message: Optional[str] = None
-    operator_user_id: Optional[int] = None
+    # Additive public cached-history bootstrap for pages without a per-card SSE
+    # connection.  ``None``/``False`` means the pair is not backfilled yet and
+    # the client must fall back to lightweight ``/chart``; never a fabricated
+    # coverage claim.
+    history_version: Optional[str] = None
+    history_ready: bool = False

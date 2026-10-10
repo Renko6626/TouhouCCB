@@ -7,90 +7,16 @@ import {
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import { compareConfigKeys, getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
-// ─── 杠杆预设套餐 ─────────────────────────────────────────────────────────
-// 一次性 update 6 个配套 site_config keys，避免 admin 手动逐项调时漏配。
-// 数学约束（已验证不会"借满即死"）：
-//   - 1/k > hard_threshold (借满 margin > 触发线)
-//   - k × hard < 0.5 (留 LMSR 买入滑点 buffer)
-//   - target > hard (partial 收敛有空间)
-//   - emergency < hard × 0.5 (紧急救援线足够低)
-
+// 套餐仅调整名义杠杆和维持率。
 type PresetKey = 'conservative' | 'moderate' | 'aggressive' | 'extreme' | 'fx10x'
-
-interface Preset {
-  name: string
-  label: string
-  warn: string
-  values: Record<string, string>  // site_config key → value
-}
-
-const PRESETS: Record<PresetKey, Preset> = {
-  conservative: {
-    name: 'conservative',
-    label: '🟢 保守 (1x)',
-    warn: '借满需 LCV 跌 80% 才触发，最稳。适合默认 / 新手期。',
-    values: {
-      loan_leverage_k: '1.0',
-      loan_daily_rate: '0.01',
-      liquidation_hard_threshold: '0.2',
-      liquidation_target_margin: '0.3',
-      liquidation_emergency_threshold: '0.05',
-      liquidation_partial_pct: '0.1',
-    },
-  },
-  moderate: {
-    name: 'moderate',
-    label: '🟡 中等 (2x)',
-    warn: '借满需 LCV 跌 55% 触发，戏剧性 + 安全度平衡。推荐活动日开局。',
-    values: {
-      loan_leverage_k: '2.0',
-      loan_daily_rate: '0.01',
-      liquidation_hard_threshold: '0.2',
-      liquidation_target_margin: '0.3',
-      liquidation_emergency_threshold: '0.05',
-      liquidation_partial_pct: '0.05',
-    },
-  },
-  aggressive: {
-    name: 'aggressive',
-    label: '🟠 激进 (3x)',
-    warn: '借满需 LCV 跌 30% 触发，强 cascade 风险。建议同步降 daily_rate 到 0.008。',
-    values: {
-      loan_leverage_k: '3.0',
-      loan_daily_rate: '0.008',
-      liquidation_hard_threshold: '0.15',
-      liquidation_target_margin: '0.25',
-      liquidation_emergency_threshold: '0.03',
-      liquidation_partial_pct: '0.04',
-    },
-  },
-  extreme: {
-    name: 'extreme',
-    label: '🔴 极限 (5x)',
-    warn: '借满需 LCV 跌 12% 触发，极敏感 + 死户激增。需配套做 admin 豁免 endpoint！',
-    values: {
-      loan_leverage_k: '5.0',
-      loan_daily_rate: '0.005',
-      liquidation_hard_threshold: '0.1',
-      liquidation_target_margin: '0.15',
-      liquidation_emergency_threshold: '0.02',
-      liquidation_partial_pct: '0.03',
-    },
-  },
-  fx10x: {
-    name: 'fx10x',
-    label: 'FX 名义 10x',
-    warn: '名义 10x 对应最多借入净值的 9 倍；维持率 0.04，初始率约 0.111。价格小幅波动即可触发强平，请先确认 FX 抵押与统一信贷已启用。',
-    values: {
-      loan_leverage_k: '9.0',
-      loan_daily_rate: '0.005',
-      liquidation_hard_threshold: '0.04',
-      liquidation_target_margin: '0.08',
-      liquidation_emergency_threshold: '0.01',
-      liquidation_partial_pct: '0.02',
-    },
-  },
-}
+interface Preset { name: string; label: string; warn: string; values: Record<string, string> }
+const PRESETS: Record<PresetKey, Preset> = Object.fromEntries([
+  ['conservative', '2', '0.2'], ['moderate', '3', '0.2'], ['aggressive', '4', '0.15'],
+  ['extreme', '6', '0.1'], ['fx10x', '10', '0.04'],
+].map(([name, leverage, maintenance]) => [name, {
+  name, label: `名义 ${leverage}x`, warn: '提高杠杆会增加强平风险。',
+  values: { credit_maintenance_ratio: maintenance, credit_leverage: leverage },
+}])) as Record<PresetKey, Preset>
 
 const PRESET_KEYS_TRACKED = Object.keys(PRESETS.conservative.values)
 
@@ -100,26 +26,10 @@ const error = ref<string | null>(null)
 const drafts = ref<Record<string, string>>({})
 const msg = useMessage()
 const dialog = useDialog()
-const unifiedCreditEnabled = computed(() => configs.value.some(
-  c => c.key === 'unified_credit_enabled' && c.value.toLowerCase() === 'true',
-))
+function presetLabel(preset: Preset): string { return preset.label }
+function presetValues(preset: Preset): Record<string, string> { return preset.values }
 
-function presetLabel(preset: Preset): string {
-  return unifiedCreditEnabled.value
-    ? `名义 ${Number(preset.values.loan_leverage_k) + 1}x${preset.name === 'fx10x' ? '（FX）' : ''}`
-    : preset.label
-}
-
-function presetValues(preset: Preset): Record<string, string> {
-  if (!unifiedCreditEnabled.value) return preset.values
-  return {
-    credit_maintenance_ratio: preset.values.liquidation_hard_threshold!,
-    credit_leverage: String(Number(preset.values.loan_leverage_k) + 1),
-    loan_daily_rate: preset.values.loan_daily_rate!,
-  }
-}
-
-// 当前生效套餐检测：6 个 key 全部匹配 PRESETS[name].values 则视为该套餐
+// 已保存套餐检测：各项配置匹配 PRESETS[name].values 则视为该套餐
 // 否则为 null（自定义）
 const currentPresetKey = computed<PresetKey | null>(() => {
   if (configs.value.length === 0) return null
@@ -169,9 +79,7 @@ async function applyPreset(presetKey: PresetKey) {
   // 弹 NDialog 显示 diff 表 + 警告 + 确认按钮
   dialog.warning({
     title: `应用套餐: ${presetLabel(preset)}`,
-    content: () => buildDiffContent(diffs, unifiedCreditEnabled.value
-      ? '统一信贷按名义杠杆和维持率计算授信与强平；调整前请确认借款、FX 抵押和强平开关状态。'
-      : preset.warn),
+    content: () => buildDiffContent(diffs, preset.warn + ' 保存后需重启后端生效。日利率请单独在停写维护时结清旧率利息后调整。'),
     positiveText: `确认应用 (${changedCount} 项改动)`,
     negativeText: '取消',
     onPositiveClick: async () => {
@@ -186,7 +94,7 @@ async function doApply(presetKey: PresetKey, preset: Preset, values: Record<stri
   let failed = 0
   const failedKeys: string[] = []
   const entries = Object.entries(values)
-  if (unifiedCreditEnabled.value) {
+  {
     const currentLeverage = Number(configs.value.find(c => c.key === 'credit_leverage')?.value)
     const nextLeverage = Number(values.credit_leverage)
     if (nextLeverage < currentLeverage) {
@@ -211,7 +119,7 @@ async function doApply(presetKey: PresetKey, preset: Preset, values: Record<stri
   applying.value = false
 
   if (failed === 0) {
-    msg.success(`套餐 "${presetLabel(preset)}" 已应用 (${succeeded} 项)`)
+    msg.success(`套餐 "${presetLabel(preset)}" 已保存 (${succeeded} 项)，重启后端后生效`)
   } else {
     msg.warning(`应用已停止：${succeeded}/${entries.length} 成功，失败 keys: ${failedKeys.join(', ')}，其余未应用`)
   }
@@ -293,6 +201,8 @@ const configsByGroup = computed<Record<ConfigGroup, SiteConfigItem[]>>(() => {
     display: [], fx: [], loan: [], liquidation: [], anti_bot: [], economy: [], general: [],
   }
   for (const c of configs.value) {
+    // FX 开关统一在 FX 管理中操作；站点配置接口不支持保存 fx_enabled。
+    if (c.key === 'fx_enabled' || c.key === 'fx_short_enabled') continue
     const meta = getConfigMeta(c.key)
     groups[meta.group].push(c)
   }
@@ -319,11 +229,11 @@ onMounted(load)
       <section class="panel preset-panel">
         <div class="preset-head">
           <h2>杠杆预设套餐</h2>
-          <span class="preset-sub">{{ unifiedCreditEnabled ? '统一信贷：杠杆、维持率与日利率' : '旧模式：借款系数、强平门槛与日利率等 6 项参数' }}</span>
+          <span class="preset-sub">名义杠杆与维持率</span>
         </div>
 
         <div class="preset-current">
-          <span class="preset-label">当前生效：</span>
+          <span class="preset-label">已保存配置：</span>
           <NTag v-if="currentPresetKey" type="success" size="small">
             {{ presetLabel(PRESETS[currentPresetKey]) }}
           </NTag>
@@ -354,7 +264,7 @@ onMounted(load)
               </tr>
             </thead>
             <tbody>
-              <tr v-for="key in (unifiedCreditEnabled ? ['credit_leverage', 'credit_maintenance_ratio', 'loan_daily_rate'] : PRESET_KEYS_TRACKED)" :key="key">
+              <tr v-for="key in PRESET_KEYS_TRACKED" :key="key">
                 <td>
                   <span class="preset-row-label">{{ getConfigMeta(key).label }}</span>
                   <code class="preset-row-key">{{ key }}</code>
@@ -372,6 +282,14 @@ onMounted(load)
 
       <section class="panel">
         <h2>站点配置</h2>
+        <p class="config-description">
+          FX 交易总闸和开空闸请前往 <RouterLink to="/admin/fx">FX 管理</RouterLink> 设置。
+          PvE 参数请前往 <RouterLink to="/admin/pve">PvE 管理</RouterLink> 设置。
+        </p>
+        <p class="config-description">
+          名义杠杆、强平维持率和风险检查重试次数修改后需重启后端生效。
+          冻结新增风险可即时生效。
+        </p>
 
         <div
           v-for="group in groupOrder()"
@@ -403,7 +321,7 @@ onMounted(load)
                       </NTooltip>
                       <code class="config-key-mono">{{ c.key }}</code>
                     </div>
-                    <p v-if="c.key.startsWith('fx_') || c.key.startsWith('credit_') || c.key === 'unified_credit_enabled' || c.key === 'homepage_fx_enabled'" class="config-description">
+                    <p v-if="c.key.startsWith('fx_') || c.key.startsWith('credit_') || c.key === 'homepage_fx_enabled'" class="config-description">
                       {{ getConfigMeta(c.key).description }}
                     </p>
                   </td>
@@ -422,6 +340,7 @@ onMounted(load)
                     <template v-else-if="c.value_type === 'int' || c.value_type === 'decimal'">
                       <NInputNumber
                         :value="Number(drafts[c.key])"
+
                         @update:value="(v) => drafts[c.key] = v === null ? '' : String(v)"
                         size="small"
                         :precision="c.value_type === 'int' ? 0 : undefined"

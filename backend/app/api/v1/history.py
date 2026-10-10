@@ -25,6 +25,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.base import Outcome, OutcomeCandle
 from app.services.candle_flusher import CANDLE_FLUSHER
+from app.services.fx.market_reads import read_fx_history
 from app.services.history_ring import RING_SPEC, HistoryRing
 from app.services.market_writer import WRITER
 
@@ -124,4 +125,21 @@ async def get_history_segment(outcome_id: int, interval: str, segment_epoch: int
 
     enc = _encode_db_rows(interval, segment_epoch, rows)
     _lru_put(key, enc)
+    return _json_immutable(enc)
+
+
+@router.get(
+    "/fx/{pair_id}/{history_version}/{interval}/{segment_epoch}.json",
+    summary="FX 不可变历史段（十进制字符串列式 OHLCV）",
+)
+async def get_fx_history_segment(pair_id: int, history_version: str, interval: str,
+                                 segment_epoch: int):
+    """FX 封存段，复用 /history/ 的 immutable + nginx 缓存与有界进程 LRU。
+
+    与 LMSR 端点共用路由前缀但完全独立：读取 FX 自己的派生表、历史版本、
+    readiness 与 flusher 高水位，绝不复用 LMSR 的 CANDLE_FLUSHER / 缓存条目。
+    未就绪或落库未完成一律非 200，绝不把不完整段固化成 immutable。
+    """
+    async with async_session_maker() as s:
+        enc = await read_fx_history(s, pair_id, history_version, interval, segment_epoch)
     return _json_immutable(enc)

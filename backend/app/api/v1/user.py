@@ -20,7 +20,6 @@ from app.schemas.user import HoldingRead, UserSummary, TransactionRead
 from app.services.lmsr import quantize_cost
 from app.services import site_config as _site_config
 from app.services.rank import RANK_THRESHOLDS
-from app.services.wealth import compute_users_holdings_value, user_has_halt_holdings
 from app.services.fx.amm import marginal_price
 from app.services.credit import flags as credit_flags
 from app.services.credit.valuation import value_user_detailed
@@ -41,7 +40,7 @@ async def get_user_summary(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    """账户快照；统一模式各产品估值一次，旧模式保持无债零 LCV 路径。"""
+    """账户快照；各产品估值一次，账面市值与清算价值分别展示。"""
     pos_rows = (await db.execute(
         select(Position.outcome_id, Outcome.market_id,
                Position.amount, Position.cost_basis)
@@ -58,8 +57,6 @@ async def get_user_summary(
         for r in pos_rows
     ]
 
-    hard = await _site_config.get_decimal_or(db, "liquidation_hard_threshold", Decimal("0.2"))
-    soft = await _site_config.get_decimal_or(db, "liquidation_soft_threshold", Decimal("0.5"))
     sell_fee_rate = await _site_config.get_decimal_or(db, "sell_fee_rate", ZERO)
     wallet_rows = (await db.execute(
         select(FxWallet, FxPair).join(FxPair, FxPair.id == FxWallet.pair_id)
@@ -78,52 +75,27 @@ async def get_user_summary(
                          if wallet.cost_basis > ZERO), ZERO)
     flags = credit_flags.get_flags()
     credit_fields = {"fx_wallets": fx_wallets,
-                     "unified_credit_enabled": flags.unified_credit_enabled,
                      "credit_frozen": user.credit_frozen}
-    valuation = None
-    if flags.unified_credit_enabled:
-        rate = await _site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
-        # One product valuation, also for debt-free accounts: MTM is never LCV.
-        valuation = await value_user_detailed(db, user.id, daily_rate=rate)
-        thresholds = flags.thresholds
-        equity, debt = valuation.liquidation_equity, valuation.debt_effective
-        credit_fields.update(account_risk_fields(valuation, thresholds))
-        credit_fields["short_positions"] = build_short_positions(
-            valuation, fx_enabled=await _site_config.get_bool_or(db, "fx_enabled", False),
-            unified_enabled=flags.unified_credit_enabled)
-        await credit_flags.refresh_new_risk_frozen(db)
-        credit_fields.update(new_risk_frozen=credit_flags.new_risk_frozen(),
-            borrow_blocked_reason=borrow_blocked_reason(valuation, thresholds,
-                loan_enabled=await _site_config.get_bool_or(db, "loan_enabled", False),
-                credit_frozen=user.credit_frozen,
-                new_risk_frozen=credit_flags.new_risk_frozen()))
-        credit_fields.update(
-            display_equity=valuation.display_equity, liquidation_equity=equity,
-            debt_with_interest=debt, credit_leverage=thresholds.leverage,
-            r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
-            equity_to_debt=(equity / debt if equity is not None and debt > ZERO else None),
-        )
-
-    # margin_status 服务端权威（保守 LCV 口径，docs/holdings-value-semantics.md）。
-    # 只有 debt>0 才需要跑全仓 LMSR。
-    margin_status = "healthy"
-    if valuation is not None:
-        margin_status = credit_fields["risk_status"]
-        hard, soft = flags.thresholds.r_maintenance, flags.thresholds.r_initial
-    elif user.debt > ZERO:
-        holdings_lcv = (
-            await compute_users_holdings_value(db, user_ids=[user.id])
-        ).get(user.id, ZERO)
-        margin_ratio = ((user.cash - user.debt + holdings_lcv) / user.debt
-                        ).quantize(Decimal("0.000001"))
-        if margin_ratio < hard:
-            margin_status = "danger"
-        elif margin_ratio < soft:
-            margin_status = "warning"
-
-    # 流动性危机保护标志：语义不变（review I3）
-    liquidation_protected = (False if flags.unified_credit_enabled else
-                             await user_has_halt_holdings(db, user.id))
+    rate = await _site_config.get_decimal_or(db, "loan_daily_rate", ZERO)
+    # One product valuation, also for debt-free accounts: MTM is never LCV.
+    valuation = await value_user_detailed(db, user.id, daily_rate=rate)
+    thresholds = flags.thresholds
+    equity, debt = valuation.liquidation_equity, valuation.debt_effective
+    credit_fields.update(account_risk_fields(valuation, thresholds))
+    credit_fields["short_positions"] = build_short_positions(
+        valuation, fx_enabled=await _site_config.get_bool_or(db, "fx_enabled", False),
+        unified_enabled=True)
+    await credit_flags.refresh_new_risk_frozen(db)
+    credit_fields.update(new_risk_frozen=credit_flags.new_risk_frozen(),
+        borrow_blocked_reason=borrow_blocked_reason(valuation, thresholds,
+            loan_enabled=await _site_config.get_bool_or(db, "loan_enabled", False),
+            credit_frozen=user.credit_frozen,
+            new_risk_frozen=credit_flags.new_risk_frozen()))
+    credit_fields.update(
+        display_equity=valuation.display_equity, liquidation_equity=equity,
+        debt_with_interest=debt, credit_leverage=thresholds.leverage,
+        r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
+    )
 
     from app.services import title_service as _title_service
     equipped_t = await _title_service.get_equipped_chip(db, user.id)
@@ -137,14 +109,10 @@ async def get_user_summary(
         "fx_cost_basis": quantize_cost(fx_cost_basis),
         "fx_unrealized_pnl": quantize_cost(fx_mtm - fx_cost_basis),
         "positions": positions,
-        "margin_hard_threshold": hard.quantize(Decimal("0.0001")),
-        "margin_soft_threshold": soft.quantize(Decimal("0.0001")),
         "sell_fee_rate": sell_fee_rate,
         "rank_thresholds": [
             {"min_net_worth": thr, "title": title} for thr, title in RANK_THRESHOLDS
         ],
-        "margin_status": margin_status,
-        "liquidation_protected": liquidation_protected,
         "last_liquidated_at": user.last_liquidated_at,
         "equipped_title": (
             {"id": equipped_t.id, "name": equipped_t.name,

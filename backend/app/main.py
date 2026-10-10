@@ -35,11 +35,8 @@ from app.services.pve.scheduler import (
     start_scheduler as start_pve_scheduler,
     stop_scheduler as stop_pve_scheduler,
 )
-from app.services.fx.scheduler import (
-    start_scheduler as start_fx_scheduler,
-    stop_scheduler as stop_fx_scheduler,
-)
 from app.services.fx.publisher import start_publisher as start_fx_publisher, stop_publisher as stop_fx_publisher
+from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.loan_migrate import auto_migrate
 from app.services.credit import flags as credit_flags
 from app.services.credit import ownership as credit_ownership
@@ -47,6 +44,21 @@ from app.services.credit import ownership as credit_ownership
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+async def start_fx_market_data(write_owner: bool) -> None:
+    """Lifespan alias for the FX incremental market-data runtime.
+
+    Kept as a module-level function so tests can patch ``app.main``'s bound
+    name (as they already do for the scheduler start/stop aliases) and keep the
+    process-wide singleton task out of the shared pytest database.
+    """
+    await FX_MARKET_DATA.start(write_owner=write_owner)
+
+
+async def stop_fx_market_data() -> None:
+    """Lifespan alias: drain + flush the FX market-data runtime on shutdown."""
+    await FX_MARKET_DATA.stop()
 
 access_logger = logging.getLogger("thccb.access")
 
@@ -96,9 +108,7 @@ async def _startup(app: FastAPI) -> None:
     #   0) 只读实例声明 → 在**任何启动写之前**跳过 init_db/auto_migrate/seed/resync
     #   1) 非只读实例先用专用非池化 PG 连接取 pg_try_advisory_lock（启动写之前！）
     #   2) 只有 owner 才跑 init_db/auto_migrate（含 seed）
-    #   3) 读 credit flags；unified_credit_enabled=true 却**非 owner 且非只读** → 启动失败
-    #      （第二写实例必须被拒，不能回落只处理 LMSR 的 legacy 强平；只读实例不写，
-    #       即使运营已开启统一信贷也允许启动）
+    #   3) 所有实例加载合法统一信贷配置；非只读实例必须取得写所有权。
     #   4) 只有 owner 才挂 SQLAdmin（它自带直写 API）、跑 resync / writer / flusher /
     #      全部写调度器；HTTP 经济写路径由 WP6 的 require_writes() 兜底
     main_logger = logging.getLogger("thccb.main")
@@ -123,7 +133,7 @@ async def _startup(app: FastAPI) -> None:
                 credit_ownership.OWNERSHIP.reason,
             )
     # ── 统一信贷 flags（计划 §3.4）：启动时读一次 site_config；
-    #    默认 unified_credit_enabled=false，开关关着时以下调度器/交易行为与本改动前一致。
+    #    风险参数在重启时加载。
     #    credit_new_risk_frozen 例外：风险检查运行期热读（见 flags.refresh_new_risk_frozen）。
     try:
         async with async_session_maker() as _flags_session:
@@ -132,26 +142,35 @@ async def _startup(app: FastAPI) -> None:
         if not owner and not read_only:
             raise RuntimeError(
                 "非 owner 实例无法读取 credit flags，拒绝启动"
-                "（不能确认 unified_credit_enabled 是否要求持锁）"
+                "（经济写实例必须持锁）"
             ) from exc
         raise
     flags = credit_flags.get_flags()
-    if flags.unified_credit_enabled and not owner and not read_only:
+    if not owner and not read_only:
         raise RuntimeError(
-            "unified_credit_enabled=true 但本进程未持有经济写所有权"
+            "本进程未持有经济写所有权"
             f"（{credit_ownership.OWNERSHIP.reason}）：拒绝以第二写实例启动"
         )
     writes_ok = owner and credit_flags.write_schedulers_enabled()
     app.state.credit_writes_enabled = writes_ok
     if writes_ok:
         # SQLAdmin 提供绕过业务校验的直写 API，只读/非 owner 实例不得挂载
-        _configure_admin_economic_writes(flags.unified_credit_enabled)
+        _configure_admin_economic_writes()
         setup_admin(app, engine)
     else:
         main_logger.warning(
             "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
             "直写 API", read_only, owner,
         )
+    # ── FX 增量行情 runtime（计划 Task 3）──
+    # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生
+    # FX 成交的经济调度器；只读/非 owner 实例只预热持久状态，绝不创建派生数据。
+    try:
+        await start_fx_market_data(writes_ok)
+    except Exception:
+        main_logger.exception("FX market-data runtime start failed")
+        if writes_ok:
+            raise
     if writes_ok:
         # ── candle 表 race-window 兜底扫（spec § 6.3）──
         # 覆盖 migration→新代码上线之间可能漏的 buy/sell。
@@ -167,16 +186,12 @@ async def _startup(app: FastAPI) -> None:
             "writes disabled (read_only=%s owner=%s reason=%s): all write schedulers "
             "skipped", read_only, owner, credit_ownership.OWNERSHIP.reason,
         )
-    # ── 单写者状态机（spec 2026-08-21 § 4）：启动时读 flag，翻转需重启 ──
-    from app.services import site_config as _site_config
+    # 有经济写权限的实例始终运行市场 writer 与 candle flusher。
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
     if writes_ok:
-        async with async_session_maker() as _s:
-            _sw = await _site_config.get_bool_or(_s, "single_writer_enabled", False)
-        if _sw or flags.unified_credit_enabled:
-            await WRITER.start()
-            await CANDLE_FLUSHER.start()
+        await WRITER.start()
+        await CANDLE_FLUSHER.start()
     if writes_ok:
         # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
         await start_loan_scheduler()
@@ -184,20 +199,19 @@ async def _startup(app: FastAPI) -> None:
         await start_bot_detection_scheduler()
         # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
         await start_pve_scheduler()
-        await start_fx_scheduler()
         await start_fx_publisher()
     # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
 
 
-def _configure_admin_economic_writes(unified: bool) -> None:
+def _configure_admin_economic_writes() -> None:
     """Route unified economic mutations through business services, not raw CRUD."""
     from app.core.admin import UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin
     for view in (UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin):
-        view.can_create = not unified
-        view.can_edit = not unified
-        view.can_delete = not unified
+        view.can_create = False
+        view.can_edit = False
+        view.can_delete = False
 
 
 async def _shutdown() -> None:
@@ -223,11 +237,14 @@ async def _shutdown() -> None:
 
     try:
         await _safe("pve_scheduler", stop_pve_scheduler)
-        await _safe("fx_scheduler", stop_fx_scheduler)
-        await _safe("fx_publisher", stop_fx_publisher)
         await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
         await _safe("liquidation_scheduler", stop_liquidation_scheduler)
         await _safe("loan_scheduler", stop_loan_scheduler)
+        # Every economic producer that can create FX trades is now stopped;
+        # drain the market-data consumer (final catch-up + flush) before the
+        # FX publisher stops and before ownership is released.
+        await _safe("fx_market_data", stop_fx_market_data)
+        await _safe("fx_publisher", stop_fx_publisher)
         from app.services.market_writer import WRITER as _writer
         from app.services.candle_flusher import CANDLE_FLUSHER as _flusher
         from app.services.tick_broadcaster import TICK_BROADCASTER as _tick_b
@@ -355,6 +372,10 @@ app.add_middleware(
     # 生产同源不走 CORS，这里补齐是让跨域 dev（vite:5173 → 8004）也能用
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
+    # /chart exposes the exact body coverage so the frontend can de-dup the
+    # SSE tail against the HTTP fallback.  Exposing response headers is not an
+    # auth change.
+    expose_headers=["X-FX-Through-Trade-ID", "X-FX-History-Version"],
 )
 
 

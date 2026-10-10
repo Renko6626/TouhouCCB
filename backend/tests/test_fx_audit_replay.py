@@ -4,17 +4,16 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
+from app.models.audit import AuditEvent
 from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.services import audit_replay
-from app.services.fx import scheduler, trading
-from app.services.fx.amm import marginal_price
-from app.services.fx.engine import FxEngine
+from app.services.fx import liquidity, trading
 from tests.fx_test_helpers import add_pair, fx_db
 
 
 async def _run_real_flow(fx_db, monkeypatch, code: str):
-    """Create only production FX/audit rows, including both system directions."""
+    """Create production trades and liquidity audit rows."""
     pair, _ = await add_pair(fx_db, code=code, gold="100", foreign="100")
     pair.buy_fee_rate = Decimal("0.010000")
     pair.sell_fee_rate = Decimal("0.010000")
@@ -34,42 +33,46 @@ async def _run_real_flow(fx_db, monkeypatch, code: str):
     await trading.execute_trade(
         fx_db, user.id, pair.id, "sell", bought.output_amount, Decimal("0"), f"{code}-sell"
     )
-    await scheduler.fund_pair(fx_db, pair.id, Decimal("1.000000"), Decimal("2.000000"), user.id)
-    await scheduler.withdraw_pair(fx_db, pair.id, Decimal("0.500000"), Decimal("1.000000"), user.id)
+    await liquidity.fund_pair(fx_db, pair.id, Decimal("1.000000"), Decimal("2.000000"), user.id)
+    await liquidity.withdraw_pair(fx_db, pair.id, Decimal("0.500000"), Decimal("1.000000"), user.id)
 
-    pair = await fx_db.get(FxPair, pair.id)
-    treasury = (await fx_db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair.id))).scalars().one()
-    engine = FxEngine()
-    price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
-    system_buy = await engine._system_move(
-        fx_db, pair, treasury, price * Decimal("1.010000"), Decimal("100000.000000"),
-        Decimal("100000.000000"), source="test-buy", now=datetime.now(timezone.utc),
-    )
-    assert system_buy and system_buy.trade.side == "buy"
-    price = marginal_price(pair.gold_reserve, pair.foreign_reserve)
-    system_sell = await engine._system_move(
-        fx_db, pair, treasury, price * Decimal("0.990000"), Decimal("100000.000000"),
-        Decimal("100000.000000"), source="test-sell", now=datetime.now(timezone.utc),
-    )
-    assert system_sell and system_sell.trade.side == "sell"
-    await fx_db.commit()
     return pair.id, user.id
 
 
 @pytest.mark.asyncio
-async def test_fx_replay_real_trade_system_fund_withdraw_and_live_compare(fx_db, monkeypatch):
+async def test_fx_replay_real_trade_fund_withdraw_and_live_compare(fx_db, monkeypatch):
     pair_id, user_id = await _run_real_flow(fx_db, monkeypatch, "REALREPLAY")
     events = await audit_replay.load_events(fx_db)
     snap, mismatches = audit_replay.fold(events, check=True)
     live = await audit_replay.compare_with_live(fx_db, snap)
     trades = (await fx_db.execute(select(FxTrade).where(FxTrade.pair_id == pair_id))).scalars().all()
     assert {(trade.source.startswith("system_"), trade.side) for trade in trades} >= {
-        (False, "buy"), (False, "sell"), (True, "buy"), (True, "sell")
+        (False, "buy"), (False, "sell")
     }
     assert {event.event_type for event in events} >= {"fx_trade", "fx_fund", "fx_withdraw"}
     assert any(event.user_id == user_id and event.payload["side"] == "sell" for event in events)
     assert mismatches == []
     assert live == []
+
+    # Fixed legacy entries retain old monetary replay without reviving the engine.
+    legacy = [
+        AuditEvent(id=100, event_type="fx_trade", ref_id=99, payload={
+            "pair_id":99, "source":"system_target", "side":"buy",
+            "input_amount":"10", "output_amount":"5", "fee_amount":"0",
+            "pre_gold_reserve":"100", "pre_foreign_reserve":"100",
+            "post_gold_reserve":"110", "post_foreign_reserve":"95",
+            "treasury_after":{"gold_balance":"90", "foreign_balance":"105"}}),
+        AuditEvent(id=101, event_type="fx_trade", ref_id=99, payload={
+            "pair_id":99, "source":"system_event", "side":"sell",
+            "input_amount":"5", "output_amount":"10", "fee_amount":"0",
+            "pre_gold_reserve":"110", "pre_foreign_reserve":"95",
+            "post_gold_reserve":"100", "post_foreign_reserve":"100",
+            "treasury_after":{"gold_balance":"100", "foreign_balance":"100"}}),
+    ]
+    historical, errors = audit_replay.fold(legacy, check=True)
+    assert errors == []
+    assert historical.fx_pairs[99].gold == historical.fx_pairs[99].foreign == Decimal("100")
+    assert historical.fx_pairs[99].treasury_gold == historical.fx_pairs[99].treasury_foreign == Decimal("100")
 
 
 @pytest.mark.asyncio

@@ -34,7 +34,7 @@ class LoanQuotaResponse(BaseModel):
     # 详见 docs/holdings-value-semantics.md。
     # 空头回补成本 K 无法完整报价时为 None：不得写 0，前端应展示 blocked_reason。
     net_worth: Optional[Decimal]
-    leverage_k: Decimal
+    credit_leverage: Decimal
     daily_rate: Decimal
     max_borrow: Decimal
     last_accrued_at: Optional[datetime]

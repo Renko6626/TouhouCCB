@@ -36,10 +36,8 @@ from app.services.site_config import clear_cache
 @pytest.fixture(autouse=True)
 def _clear_sweep_state():
     """每个测试前后清掉 sweep 防爆 cache 和 site_config 进程缓存。"""
-    liquidation_sweep._recently_attempted.clear()
     clear_cache()
     yield
-    liquidation_sweep._recently_attempted.clear()
     clear_cache()
 
 
@@ -60,13 +58,9 @@ async def test_full_liquidation_sweep_e2e(client):
     async with async_session_maker() as db:
         async with db.begin():
             db.add(SiteConfig(key="liquidation_enabled",        value="true",  value_type="bool"))
-            db.add(SiteConfig(key="liquidation_hard_threshold", value="0.2",   value_type="decimal"))
-            db.add(SiteConfig(key="liquidation_soft_threshold", value="0.5",   value_type="decimal"))
-            db.add(SiteConfig(key="loan_daily_rate",            value="0.01",  value_type="decimal"))
+            db.add(SiteConfig(key="loan_daily_rate",            value="0",  value_type="decimal"))
             db.add(SiteConfig(key="liquidation_sweep_interval_sec", value="600", value_type="int"))
             db.add(SiteConfig(key="liquidation_partial_pct",          value="1.0",  value_type="decimal"))
-            db.add(SiteConfig(key="liquidation_target_margin",        value="0.30", value_type="decimal"))
-            db.add(SiteConfig(key="liquidation_emergency_threshold",  value="0.05", value_type="decimal"))
 
     # ── 2. 建 market + outcomes ──────────────────────────────────────────────
     async with async_session_maker() as db:
@@ -140,7 +134,12 @@ async def test_full_liquidation_sweep_e2e(client):
     # margin 约 -0.756 → 远低于 hard threshold 0.2，应触发强平
 
     # ── 5. 触发 sweep ────────────────────────────────────────────────────────
-    result = await liquidation_sweep.run_liquidation_sweep_once()
+    from app.services.market_writer import WRITER
+    await WRITER.start()
+    try:
+        result = await liquidation_sweep.run_liquidation_sweep_once()
+    finally:
+        await WRITER.stop()
 
     assert result.get("triggered_count") == 1, (
         f"sweep 应触发 1 次强平，实际结果: {result}"

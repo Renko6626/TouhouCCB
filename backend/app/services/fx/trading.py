@@ -42,6 +42,7 @@ from app.services import audit_service, site_config, loan_service, ledger_servic
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
 from app.services.fx.amm import quote_buy, quote_sell, marginal_price
+from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
@@ -62,9 +63,7 @@ class _RetryCredit(Exception):
 
 def _require_writes():
     flags = credit_flags.get_flags()
-    if (flags.unified_credit_enabled or flags.read_only_instance
-            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 class TradeRejected(ValueError):
@@ -242,6 +241,23 @@ async def _rollback_quietly(db: AsyncSession) -> None:
         _logger.exception("FX trade rollback failed")
 
 
+def notify_market_data_committed(pair_id: int) -> None:
+    """Best-effort synchronous post-commit hint to the FX market-data runtime.
+
+    Must only be called after the caller's monetary transaction has committed.
+    It marks the pair dirty and wakes the runtime loop; it performs no SQL,
+    never awaits and never raises, so it can neither fail nor extend an
+    already-committed trade.  A missed or duplicated hint is compensated by the
+    runtime's periodic per-pair high-water reconciliation; correctness never
+    depends on it.
+    """
+    try:
+        from app.services.fx.market_state import FX_MARKET_DATA
+        FX_MARKET_DATA.notify_committed(int(pair_id))
+    except Exception:  # noqa: BLE001 - a hint must never affect the money path
+        _logger.debug("fx market-data notify failed for pair %s", pair_id, exc_info=True)
+
+
 async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
                                    amount: Decimal, min_out: Decimal,
                                    idempotency_key: str, *,
@@ -252,15 +268,14 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     shared gate before opening this transaction, pass ``credit_deps`` for debt
     buys, and retain gates through commit. ``_RetryCredit`` requires rollback,
     release of all gates and fresh discovery; never retry inside existing gates.
-    Flag-off keeps the historical debt-buy prohibition. Acquires product locks
+    Acquires product locks
     in ``pair -> user -> wallet -> treasury`` order and flushes its writes, but
     deliberately does **not** commit, roll back or publish.  On error the
     caller owns the transaction and must roll it back before reuse.
     """
     _require_writes()
-    unified = credit_flags.get_flags().unified_credit_enabled
     key = GroupKey("fx", pair_id)
-    if unified and key not in GATES.held_keys_by_current_task():
+    if key not in GATES.held_keys_by_current_task():
         raise RuntimeError("unified FX caller must hold target exclusive gate through commit")
     amount = _positive(amount, "amount")
     min_out = _nonnegative(min_out, "min_out")
@@ -294,7 +309,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         old = (await db.execute(select(FxTrade).where(
             FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
         ))).scalars().first()
-    requires_credit = unified and normalized == "buy" and (user.debt > 0 or has_short_debt)
+    requires_credit = normalized == "buy" and (user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
         if (credit_deps is None
@@ -354,8 +369,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
             detail=("this pair has an outstanding short; ordinary buys are "
                     "disabled, use the short-cover entry"),
         )
-    if not unified and normalized == "buy" and user.debt > 0:
-        raise HTTPException(status_code=403, detail="outstanding debt blocks FX purchases")
 
     try:
         q = _math(pair, normalized, amount)
@@ -437,7 +450,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     await db.flush()
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
-    if unified and normalized == "sell" and user.debt > 0:
+    if normalized == "sell" and user.debt > 0:
         rate = await site_config.get_decimal_or(db, "loan_daily_rate", Decimal("0"))
         debt_before = user.debt
         repaid = await loan_service.decrease_debt_locked(
@@ -463,50 +476,40 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
     """
     _require_writes()
     flags = credit_flags.get_flags()
-    if not flags.unified_credit_enabled:
+    needs_discovery = False
+    for attempt in range(flags.credit_risk_retry_limit + 2):
         try:
-            execution = await execute_trade_in_session(
-                db, user_id, pair_id, side, amount, min_out, idempotency_key)
-            if execution.replay:
+            # Optimistically take only the target gate. If the locked user
+            # has debt, release everything and discover the complete set.
+            deps = (await discover_dependencies(db, user_id, extra_groups=[GroupKey("fx", pair_id)])
+                    if needs_discovery else None)
+            if db.in_transaction():
                 await db.rollback()
-                return execution.public
-            _require_writes()
-            await db.commit()
+            async with GATES.hold(exclusive=[GroupKey("fx", pair_id)],
+                                  shared=deps.groups if deps else ()):
+                try:
+                    execution = await execute_trade_in_session(
+                        db, user_id, pair_id, side, amount, min_out,
+                        idempotency_key, credit_deps=deps)
+                    if execution.replay:
+                        await db.rollback()
+                        return execution.public
+                    _require_writes()
+                    await db.commit()
+                except BaseException:
+                    await _rollback_quietly(db)
+                    raise
+            # Gate released and the fresh commit is durable: now hint the
+            # incremental market-data runtime (a replay returned above).
+            notify_market_data_committed(pair_id)
+            break
+        except _RetryCredit:
+            needs_discovery = True
+            if attempt == flags.credit_risk_retry_limit + 1:
+                raise HTTPException(status_code=409, detail="version_conflict; retry")
         except BaseException:
             await _rollback_quietly(db)
             raise
-    else:
-        needs_discovery = False
-        for attempt in range(flags.credit_risk_retry_limit + 2):
-            try:
-                # Optimistically take only the target gate. If the locked user
-                # has debt, release everything and discover the complete set.
-                deps = (await discover_dependencies(db, user_id, extra_groups=[GroupKey("fx", pair_id)])
-                        if needs_discovery else None)
-                if db.in_transaction():
-                    await db.rollback()
-                async with GATES.hold(exclusive=[GroupKey("fx", pair_id)],
-                                      shared=deps.groups if deps else ()):
-                    try:
-                        execution = await execute_trade_in_session(
-                            db, user_id, pair_id, side, amount, min_out,
-                            idempotency_key, credit_deps=deps)
-                        if execution.replay:
-                            await db.rollback()
-                            return execution.public
-                        _require_writes()
-                        await db.commit()
-                    except BaseException:
-                        await _rollback_quietly(db)
-                        raise
-                break
-            except _RetryCredit:
-                needs_discovery = True
-                if attempt == flags.credit_risk_retry_limit + 1:
-                    raise HTTPException(status_code=409, detail="version_conflict; retry")
-            except BaseException:
-                await _rollback_quietly(db)
-                raise
     # Pool version is committed before gates release; publication is bounded
     # and cannot extend the transaction or hold unrelated symbols.
     await db.refresh(execution.trade)
@@ -702,12 +705,34 @@ async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
     spread = buy_price - sell_price
     if spread < Decimal("0"):
         spread = Decimal("0")
-    since = utcnow() - timedelta(hours=24)
-    # A public volume value is informational and uses gold-side input/output units.
-    result = await db.execute(select(FxTrade).where(
-        FxTrade.pair_id == pair_id, FxTrade.created_at >= since,
-    ))
-    volume = sum((t.input_amount if t.side == "buy" else t.output_amount for t in result.scalars()), Decimal("0"))
+    now = utcnow()
+    # Exact rolling 24h gold-side volume.  When the incremental history is
+    # ready, the read helper composes minute candles + partial-window SQL sums
+    # + the projected unflushed tail.  While it is not ready (or the derived
+    # state is absent) fall back to the exact single-statement SQL SUM used by
+    # Task 1 -- a buy spends ``input_amount`` gold, a sell receives
+    # ``output_amount`` gold; ``coalesce`` keeps an empty window at zero.
+    volume = await fx_volume_24h(db, pair_id, now)
+    if volume is None:
+        since = now - timedelta(hours=24)
+        gold_volume = func.coalesce(
+            func.sum(case(
+                (FxTrade.side == "buy", FxTrade.input_amount),
+                else_=FxTrade.output_amount,
+            )),
+            Decimal("0"),
+        )
+        result = await db.execute(select(gold_volume).where(
+            FxTrade.pair_id == pair_id, FxTrade.created_at >= since,
+        ))
+        raw_volume = result.scalar_one()
+        volume = Decimal(raw_volume) if raw_volume is not None else Decimal("0")
+    # Additive cached-history bootstrap for the no-per-card-SSE homepage path:
+    # absent state yields None/False so the client falls back to /chart rather
+    # than trusting a half-built history.
+    metadata = await read_fx_snapshot_metadata(db, pair_id, now)
     return FxSnapshot(pair=FxPairPublic.model_validate(pair), price=price,
                       buy_price=buy_price, sell_price=sell_price, spread=spread,
-                      volume_24h=volume)
+                      volume_24h=volume,
+                      history_version=metadata["history_version"],
+                      history_ready=metadata["history_ready"])

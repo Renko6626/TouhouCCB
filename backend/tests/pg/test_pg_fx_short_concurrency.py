@@ -24,7 +24,7 @@ from app.schemas.loan import BorrowRequest
 from app.services import danmuku, loan_sweep, site_config
 from app.services.credit import flags, ownership
 from app.services.credit.gates import GATES
-from app.services.fx import engine as fx_engine, shorts, trading
+from app.services.fx import shorts, trading
 from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
@@ -34,9 +34,9 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 async def writer(pg_engine, monkeypatch):
     owner = ownership.WriteOwnership(url=os.environ['TEST_PG_DATABASE_URL'])
     assert await owner.acquire(required=True)
-    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku, fx_engine):
+    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku):
         monkeypatch.setattr(module, 'OWNERSHIP', owner)
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,
+    flags.set_flags(flags.CreditFlags(
                     credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
     site_config.clear_cache()
     try:
@@ -476,33 +476,29 @@ async def test_new_gold_borrow_rechecks_shared_risk_after_concurrent_short_open(
         assert new_quota.equity_to_risk_basis >= float(new_quota.r_initial)
 
 
-async def test_cover_requotes_after_real_fx_engine_tick_changes_pool(
+async def test_cover_requotes_after_concurrent_player_buy_changes_pool(
         pg_sessionmaker, monkeypatch):
-    """A cover discovered before a real system buy uses its committed reserves."""
+    """A cover discovered before a real player buy uses its committed reserves."""
     uid, pid = await seed(pg_sessionmaker)
     async with pg_sessionmaker() as db:
-        await open_short(db, uid, pid, 'before-tick')
+        await open_short(db, uid, pid, 'before-buy')
         pair = await db.get(FxPair, pid)
         old_quote = quote_buy_exact_out(D('100'), pair.gold_reserve,
             pair.foreign_reserve, pair.buy_fee_rate)
-        db.add(SiteConfig(key='fx_hourly_sigma', value='0', value_type='decimal'))
+        buyer = User(username='concurrent-buyer', cash=D('1000'),
+                     tos_accepted_at=datetime.now(timezone.utc))
+        db.add(buyer)
         await db.commit()
-    site_config.clear_cache()
+        buyer_id = buyer.id
     before = await state(pg_sessionmaker, uid, pid)
-    now = datetime.now(timezone.utc)
-    tick_engine = fx_engine.FxEngine(session_factory=pg_sessionmaker)
-    # Engine-supported state fixes elapsed intervention time and suppresses
-    # unrelated random noise; all target movement and AMM writes remain real.
-    tick_engine._last_target_at[pid] = now - timedelta(seconds=600)
-    tick_engine._next_noise_at[pid] = now + timedelta(days=1)
-    cover_discovered, tick_committed = asyncio.Event(), asyncio.Event()
+    cover_discovered, buy_committed = asyncio.Event(), asyncio.Event()
     original_hold = GATES.hold
 
     @asynccontextmanager
     async def delay_cover_gate(*args, **kwargs):
-        if asyncio.current_task().get_name() == 'pre-tick-cover':
+        if asyncio.current_task().get_name() == 'pre-buy-cover':
             cover_discovered.set()
-            await tick_committed.wait()
+            await buy_committed.wait()
         async with original_hold(*args, **kwargs):
             yield
 
@@ -512,23 +508,25 @@ async def test_cover_requotes_after_real_fx_engine_tick_changes_pool(
         async with pg_sessionmaker() as db:
             return await shorts.execute_short_cover(db, user_id=uid, pair_id=pid,
                 foreign_amount=None, cover_all=True, max_gold_in=D('200'),
-                idempotency_key='after-tick-cover')
+                idempotency_key='after-buy-cover')
 
-    async def ticking():
+    async def buying():
         await cover_discovered.wait()
-        result = await tick_engine.tick(now)
-        tick_committed.set()
+        async with pg_sessionmaker() as db:
+            result = await trading.execute_trade(db, buyer_id, pid, 'buy', D('20'), D('0'), 'concurrent-buy')
+        buy_committed.set()
         return result
 
     async with asyncio.timeout(10):
-        cover_task = asyncio.create_task(covering(), name='pre-tick-cover')
-        tick_task = asyncio.create_task(ticking())
-        covered, tick_result = await asyncio.gather(cover_task, tick_task)
-    assert tick_result.pairs == 1 and tick_result.noise_orders == 0
-    assert not any('exception' in reason for reason in tick_result.reasons)
+        cover_task = asyncio.create_task(covering(), name='pre-buy-cover')
+        buy_task = asyncio.create_task(buying())
+        covered, buy_result = await asyncio.gather(cover_task, buy_task)
+    assert buy_result.output_amount > 0
     after = await state(pg_sessionmaker, uid, pid)
     assert after['pool_version'] == before['pool_version'] + 2
-    assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
+    # state() totals only the short owner; account for the other buyer's wallet/cash.
+    assert after['gold'] == before['gold'] + buy_result.input_amount
+    assert after['foreign'] == before['foreign'] - buy_result.output_amount
     assert after['cash'] == before['cash'] - covered.input_amount
     assert after['principal'] == after['interest'] == after['locked'] == after['debt'] == 0
     assert covered.output_amount == D('100')
@@ -538,13 +536,13 @@ async def test_cover_requotes_after_real_fx_engine_tick_changes_pool(
     assert sum(a[1] == 'fx_trade' for a in after['audits']) == 3
     async with pg_sessionmaker() as db:
         trades = (await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars().all()
-        system_trade, cover_trade = trades[1:]
-        assert system_trade.source == 'system_target' and system_trade.side == 'buy'
-        assert system_trade.user_id is None
-        assert cover_trade.pre_gold_reserve == system_trade.post_gold_reserve
-        assert cover_trade.pre_foreign_reserve == system_trade.post_foreign_reserve
-        new_quote = quote_buy_exact_out(D('100'), system_trade.post_gold_reserve,
-            system_trade.post_foreign_reserve, D('.01'))
+        buy_trade, cover_trade = trades[1:]
+        assert buy_trade.source == 'player' and buy_trade.side == 'buy'
+        assert buy_trade.user_id == buyer_id
+        assert cover_trade.pre_gold_reserve == buy_trade.post_gold_reserve
+        assert cover_trade.pre_foreign_reserve == buy_trade.post_foreign_reserve
+        new_quote = quote_buy_exact_out(D('100'), buy_trade.post_gold_reserve,
+            buy_trade.post_foreign_reserve, D('.01'))
         assert covered.input_amount == new_quote.input_amount
         assert after['treasury_foreign'] == (before['treasury_foreign']
-            + system_trade.output_amount + D('100'))
+            + D('100'))

@@ -172,9 +172,7 @@ def utcnow() -> datetime:
 
 def _require_writes() -> None:
     flags = credit_flags.get_flags()
-    if (flags.unified_credit_enabled or flags.read_only_instance
-            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 def _as_decimal(
@@ -316,8 +314,6 @@ async def execute_short_open_in_session(
     plus the scalars a post-commit publisher needs.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError("short-open caller must hold the target pair gate through commit")
@@ -448,8 +444,6 @@ async def execute_short_open_in_session(
     treasury_before = {
         "gold_balance": pre_treasury_gold,
         "foreign_balance": pre_treasury_foreign,
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {
@@ -813,8 +807,6 @@ async def execute_short_cover_in_session(
     never commits, never rolls back and never publishes.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError("short-cover caller must hold the target pair gate through commit")
@@ -943,8 +935,6 @@ async def execute_short_cover_in_session(
     treasury_before = {
         "gold_balance": Decimal(treasury.gold_balance),
         "foreign_balance": Decimal(treasury.foreign_balance),
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {
@@ -1113,8 +1103,7 @@ async def execute_liquidation_cover_in_session(
     transaction; this function never commits, rolls back, publishes or creates a
     ``LiquidationAction``.
 
-    - All player gates except the process-global ``unified_credit_enabled``
-      fail-closed check are deliberately ignored: ``fx_enabled``, the loan gate,
+    - Player business gates are deliberately ignored: ``fx_enabled``, the loan gate,
       the short-opening gate and the credit freeze never block a forced cover.
       The real pair coverability matrix still applies (``trading`` or
       ``paused`` + ``reduce_only``; ``closed``/``draft``/``archived``/paused
@@ -1152,8 +1141,6 @@ async def execute_liquidation_cover_in_session(
     back and must never persist it as a committable blocked round.
     """
     _require_writes()
-    if not credit_flags.get_flags().unified_credit_enabled:
-        raise HTTPException(status_code=403, detail="unified credit is not enabled")
     target_key = GroupKey("fx", pair_id)
     if target_key not in GATES.held_keys_by_current_task():
         raise RuntimeError(
@@ -1376,8 +1363,6 @@ async def execute_liquidation_cover_in_session(
     treasury_before = {
         "gold_balance": pre_treasury_gold,
         "foreign_balance": pre_treasury_foreign,
-        "daily_spend": treasury.daily_spend,
-        "spend_date": treasury.spend_date,
         "updated_at": treasury.updated_at,
     }
     user_before = {
@@ -1492,6 +1477,7 @@ async def _execute_player_short_write(
     # Imported lazily: credit.risk imports this module at module load.
     from app.services.credit.risk import discover_dependencies
     from app.services.fx import publisher
+    from app.services.fx.trading import notify_market_data_committed
 
     target = GroupKey("fx", pair_id)
     retry_limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
@@ -1536,6 +1522,9 @@ async def _execute_player_short_write(
                 raise HTTPException(
                     status_code=409, detail="version_conflict; retry") from None
             continue
+        # Fresh commit only: replay returned above.  Hint the incremental
+        # market-data runtime before the bounded, discardable publication.
+        notify_market_data_committed(execution.pair_id)
         publisher.enqueue_publication(
             pair_id=execution.pair_id, post_price=execution.post_price,
             trade_id=execution.trade_id)
@@ -1765,7 +1754,7 @@ async def read_short_position(
         blocked_reason=BLOCKED_INVALID_DEBT if pending is None else None)
     return FxShortPositionRead(**short_position_fields(materialized,
         fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
-        unified_enabled=credit_flags.get_flags().unified_credit_enabled))
+        unified_enabled=True))
 
 
 async def _quote_open_block(
@@ -1862,8 +1851,6 @@ async def quote_short(
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         return _blocked(BLOCKED_FX_DISABLED)
-    if not credit_flags.get_flags().unified_credit_enabled:
-        return _blocked(BLOCKED_UNIFIED_CREDIT)
 
     positions = list((await db.execute(select(FxShortPosition).where(
         FxShortPosition.user_id == int(user_id)))).scalars().all())

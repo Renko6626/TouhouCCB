@@ -211,10 +211,8 @@ const holdingsByMarketArray = computed(() => {
         <div class="asset-card">
           <span class="asset-label">总现金（含锁定所得）</span>
           <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
-          <template v-if="userStore.summary.unified_credit_enabled">
             <span>未锁定现金 金 {{ userStore.summary.available_cash ?? '—' }}</span>
             <span>空头锁定所得 金 {{ userStore.summary.restricted_cash ?? '—' }}（专用于回补）</span>
-          </template>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓成本（预测 + FX）</span>
@@ -253,7 +251,7 @@ const holdingsByMarketArray = computed(() => {
         </div>
       </div>
 
-      <section v-if="userStore.summary?.unified_credit_enabled" class="asset-card">
+      <section v-if="userStore.summary" class="asset-card">
         <span class="asset-label">清算净值（最近刷新，含各产品滑点与手续费）</span>
         <span class="asset-value">金 {{ userStore.netWorthLcv?.toFixed(2) ?? '估值待恢复' }}</span>
         <span>初始 / 恢复率 {{ ((userStore.summary.r_initial ?? 0) * 100).toFixed(2) }}%

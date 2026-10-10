@@ -243,8 +243,7 @@ const userHolding = computed(() => {
 const availableTradeCash = computed(() => {
   const s = userStore.summary
   if (!s) return 0
-  if (s.unified_credit_enabled === false) return s.cash
-  if (s.unified_credit_enabled !== true || s.available_cash == null) return 0
+  if (s.available_cash == null) return 0
   const value = Number(s.available_cash)
   return Number.isFinite(value) ? Math.max(0, value) : 0
 })
@@ -357,7 +356,7 @@ const executeTrade = async () => {
     }
     // Unified spendable cash and equity require a fresh authoritative snapshot.
     // fetchSummary discards responses older than a subsequent local fill.
-    if (userStore.summary?.unified_credit_enabled) await userStore.fetchSummary(false)
+    if (userStore.summary) await userStore.fetchSummary(false)
     // 份数不重置：连续加仓/分批减仓是常规用法。卖出后持仓不足时
     // TradePanel 的 shares > maxShares 门会禁用按钮，不会误下单。
   } catch (err: any) {

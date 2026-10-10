@@ -1,5 +1,4 @@
-// I6 行为测试：summary.fx_mtm 纳入展示净值 / 浮盈 / rank，
-// 但 LCV margin 口径（借款抵押 / 强平）保持不含 FX。
+// 账户展示与风险快照使用服务端权威估值。
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -22,61 +21,34 @@ function makeSummary(overrides: Partial<UserSummary> = {}): UserSummary {
     fx_cost_basis: 0,
     fx_unrealized_pnl: 0,
     positions: [],
-    margin_hard_threshold: 0.2,
-    margin_soft_threshold: 0.5,
     sell_fee_rate: 0,
     rank_thresholds: [
       { min_net_worth: 120, title: 'Pro' },
       { min_net_worth: null, title: 'Rookie' },
     ],
-    margin_status: 'healthy',
-    liquidation_protected: false,
+    risk_status: 'healthy',
     last_liquidated_at: null,
     ...overrides,
   }
 }
 
-describe('I6 user store：FX MTM 进展示净值/rank，不进 LCV', () => {
+describe('unified credit snapshot', () => {
   beforeEach(() => setActivePinia(createPinia()))
-
-  it('netWorth/unrealizedPnl/rankTitle 含 fx_mtm 与 FX 浮盈', () => {
+  it('uses authoritative equity for rank and includes FX unrealized profit', () => {
     const store = useUserStore()
-    store.summary = makeSummary({ fx_mtm: 30, fx_cost_basis: 20, fx_unrealized_pnl: 10 })
-    expect(store.netWorth).toBe(130)
+    store.summary = makeSummary({ cash: 150,
+      debt: 50, debt_with_interest: 55, fx_mtm: 30, fx_cost_basis: 20, fx_unrealized_pnl: 10,
+      display_equity: 125, liquidation_equity: 120, risk_basis: '55', equity_to_risk_basis: 120 / 55 })
+    expect(store.netWorth).toBe(125)
+    expect(store.netWorthLcv).toBe(120)
+    expect(store.marginRatioEstimate).toBeCloseTo(120 / 55)
     expect(store.unrealizedPnl).toBe(10)
-    // rank 阈值只看展示净值，因此 FX 市值可以把用户推过 120 门槛。
     expect(store.rankTitle).toBe('Pro')
-  })
 
-  it('FX 为零时净值与 rank 不虚增', () => {
-    const store = useUserStore()
-    store.summary = makeSummary()
+    store.summary = makeSummary({ display_equity: 100, liquidation_equity: 100 })
     expect(store.netWorth).toBe(100)
     expect(store.unrealizedPnl).toBe(0)
     expect(store.rankTitle).toBe('Rookie')
-  })
-
-  it('LCV 口径与 margin 估算不含 fx_mtm', () => {
-    const store = useUserStore()
-    store.summary = makeSummary({ debt: 50, fx_mtm: 100, fx_cost_basis: 40 })
-    // 展示净值 = 100 - 50 + 0(LMSR) + 100(FX)
-    expect(store.netWorth).toBe(150)
-    // LCV = 100 - 50 + 0，不含 FX 市值
-    expect(store.netWorthLcv).toBe(50)
-    expect(store.marginRatioEstimate).toBe(1)
-  })
-})
-
-describe('unified credit snapshot', () => {
-  beforeEach(() => setActivePinia(createPinia()))
-  it('uses authoritative display equity and risk basis ratio', () => {
-    const store = useUserStore()
-    store.summary = makeSummary({ unified_credit_enabled: true, cash: 100,
-      debt: 50, debt_with_interest: 55, fx_mtm: 100,
-      display_equity: 145, liquidation_equity: 125, equity_to_risk_basis: 125 / 55 })
-    expect(store.netWorth).toBe(145)
-    expect(store.netWorthLcv).toBe(125)
-    expect(store.marginRatioEstimate).toBeCloseTo(125 / 55)
   })
 })
 
@@ -85,7 +57,7 @@ describe('unknown short valuation', () => {
   beforeEach(() => setActivePinia(createPinia()))
   it('keeps unknown equity and rank unavailable instead of ranking cash', () => {
     const store = useUserStore()
-    store.summary = makeSummary({ unified_credit_enabled: true, cash: 5500,
+    store.summary = makeSummary({ cash: 5500,
       display_equity: null, liquidation_equity: null, risk_status: 'blocked' })
     expect(store.netWorth).toBeNull()
     expect(store.netWorthLcv).toBeNull()
@@ -102,7 +74,7 @@ describe('unified local fill refresh failure', () => {
   beforeEach(() => setActivePinia(createPinia()))
   it('blocks spending and equity until a fresh summary replaces the pre-fill snapshot', async () => {
     const store = useUserStore()
-    store.summary = makeSummary({ unified_credit_enabled: true, cash: 5500,
+    store.summary = makeSummary({ cash: 5500,
       available_cash: '500', restricted_cash: '5000', display_equity: 500,
       liquidation_equity: 450, risk_basis: '4500', equity_to_risk_basis: 0.1,
       risk_status: 'healthy' })
@@ -125,7 +97,7 @@ describe('unified local fill refresh failure', () => {
 
   it('invalidates a prior spendable balance when an external trade makes refresh fail', async () => {
     const store = useUserStore()
-    store.summary = makeSummary({ unified_credit_enabled: true, cash: 100,
+    store.summary = makeSummary({ cash: 100,
       available_cash: '100', display_equity: 100, liquidation_equity: 100,
       risk_status: 'healthy' })
     vi.mocked(userApi.getSummary).mockRejectedValueOnce(new Error('refresh unavailable'))

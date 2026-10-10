@@ -17,7 +17,6 @@ from app.models.title import Title as _Title
 from app.services.credit.account_read import account_risk_fields, build_short_positions, borrow_blocked_reason
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
-from app.services.wealth import compute_users_holdings_value
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
@@ -30,25 +29,8 @@ router = APIRouter()
 logger = logging.getLogger("thccb.loan")
 
 
-async def _holdings_value(db: AsyncSession, user_id: int) -> Decimal:
-    """借款相关接口的持仓估值 —— 用 LCV (立即清算价值) 保守口径。
-
-    历史上这里用 MTM (瞬时价 × 数量)，导致借款页 NW 偏高、Portfolio NW 偏低的
-    分裂体感。统一改 LCV 后：借款额度更保守（按可变现金额算 max_borrow），
-    避免用户被 MTM 高估值"骗"出超出真实清算能力的杠杆。详见
-    docs/holdings-value-semantics.md。
-    """
-    return (
-        await compute_users_holdings_value(db, user_ids=[user_id])
-    ).get(user_id, Decimal("0"))
-
-
-
 def _require_writes():
-    flags = credit_flags.get_flags()
-    if (flags.unified_credit_enabled or flags.read_only_instance
-            or credit_flags.read_only_from_env() or OWNERSHIP.reason is not None):
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()
 
 
 async def _unified_quota(db: AsyncSession, user_id: int):
@@ -83,7 +65,7 @@ async def _unified_quota(db: AsyncSession, user_id: int):
         new_risk_frozen=credit_flags.new_risk_frozen(), borrow_blocked_reason=reason,
         cash=valuation.cash, debt=valuation.debt_effective,
         net_worth=valuation.liquidation_equity,
-        leverage_k=thresholds.leverage - Decimal("1"), daily_rate=rate,
+        credit_leverage=thresholds.leverage, daily_rate=rate,
         max_borrow=max_borrow,
         last_accrued_at=user.debt_last_accrued_at,
         display_equity=valuation.display_equity,
@@ -92,7 +74,7 @@ async def _unified_quota(db: AsyncSession, user_id: int):
         **account_risk_fields(valuation, thresholds),
         short_positions=build_short_positions(valuation,
             fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
-            unified_enabled=credit_flags.get_flags().unified_credit_enabled),
+            unified_enabled=True),
     )
 
 
@@ -143,24 +125,7 @@ async def get_quota(
     user: User = Depends(current_active_user),
     db: AsyncSession = Depends(get_async_session),
 ):
-    if credit_flags.get_flags().unified_credit_enabled:
-        return await _unified_quota(db, int(user.id))
-    enabled = await site_config.get_bool(db, "loan_enabled")
-    k = await site_config.get_decimal(db, "loan_leverage_k")
-    rate = await site_config.get_decimal(db, "loan_daily_rate")
-    hv = await _holdings_value(db, user.id)
-    net_worth = (user.cash - user.debt + hv).quantize(Decimal("0.000001"))
-    max_borrow = loan_service.compute_max_borrow(user, hv, k)
-    return LoanQuotaResponse(
-        enabled=enabled,
-        cash=user.cash,
-        debt=user.debt,
-        net_worth=net_worth,
-        leverage_k=k,
-        daily_rate=rate,
-        max_borrow=max_borrow,
-        last_accrued_at=user.debt_last_accrued_at,
-    )
+    return await _unified_quota(db, int(user.id))
 
 
 @router.post("/borrow", response_model=LoanActionResponse)
@@ -174,43 +139,7 @@ async def borrow(
     if not enabled:
         raise HTTPException(status_code=403, detail="借款功能已关闭")
 
-    if credit_flags.get_flags().unified_credit_enabled:
-        return await _borrow_unified(db, int(user.id), Decimal(req.amount))
-
-    k = await site_config.get_decimal(db, "loan_leverage_k")
-    rate = await site_config.get_decimal(db, "loan_daily_rate")
-    amount = Decimal(req.amount)
-
-    # 额度校验必须在 user 行锁之下算：否则并发多笔 borrow 各自用同一份未加锁快照
-    # 过检，叠加后远超额度（核心审计 2026-08-22 #1）。同一 session 内 increase_debt
-    # 再次 FOR UPDATE 是同事务重入，不会阻塞。
-    locked = await lock_user(db, user.id)
-    hv = await _holdings_value(db, user.id)
-    max_borrow = loan_service.compute_max_borrow(locked, hv, k)
-    if amount > max_borrow:
-        await db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail=f"借款额超出额度（可借 {max_borrow}，申请 {amount}）",
-        )
-
-    u = await loan_service.increase_debt(
-        db, user.id, amount, grant_cash=True, daily_rate=rate,
-        source="borrow", operator_user_id=None,
-    )
-    response = LoanActionResponse(
-        cash=u.cash, debt=u.debt,
-        max_borrow=loan_service.compute_max_borrow(u, hv, k),
-    )
-    user_id = int(u.id)
-    _require_writes()
-    await db.commit()
-    logger.info(
-        "LOAN_BORROW user_id=%s amount=%s new_cash=%s new_debt=%s",
-        user_id, amount, response.cash, response.debt,
-    )
-    return response
-
+    return await _borrow_unified(db, int(user.id), Decimal(req.amount))
 
 @router.post("/repay", response_model=LoanActionResponse)
 async def repay(
@@ -317,36 +246,20 @@ async def liquidation_policy(
 ):
     """匿名可访问。前端教育/说明展示用，实时读 site_config 让 admin 调整立刻反映。"""
     enabled = await site_config.get_bool(db, "liquidation_enabled")
-    hard_thr = await site_config.get_decimal(db, "liquidation_hard_threshold")
-    soft_thr = await site_config.get_decimal(db, "liquidation_soft_threshold")
     partial_pct = await site_config.get_decimal(db, "liquidation_partial_pct")
-    target_margin = await site_config.get_decimal(db, "liquidation_target_margin")
-    emergency_thr = await site_config.get_decimal(db, "liquidation_emergency_threshold")
     interval = await site_config.get_int(db, "liquidation_sweep_interval_sec")
-    legacy = {
-        "enabled": enabled,
-        "hard_threshold": float(hard_thr),
-        "soft_threshold": float(soft_thr),
-        "partial_pct": float(partial_pct),
-        "target_margin": float(target_margin),
-        "emergency_threshold": float(emergency_thr),
-        "sweep_interval_sec": int(interval),
-    }
-
     flags = credit_flags.get_flags()
     thresholds = flags.thresholds
     rates = (await db.execute(select(FxPair.id, FxPair.currency_code, FxPair.sell_fee_rate)
                               .where(FxPair.status != "draft").order_by(FxPair.id))).all()
     return {
-        **legacy,
+        "enabled": enabled,
+        "sweep_interval_sec": int(interval),
         "partial_pct": float(partial_pct),
-        "unified_credit_enabled": flags.unified_credit_enabled,
         "credit_leverage": float(thresholds.leverage) if thresholds else None,
         "r_initial": float(thresholds.r_initial) if thresholds else None,
         "r_maintenance": float(thresholds.r_maintenance) if thresholds else None,
         "sell_fee_rate": float(await site_config.get_decimal_or(db, "sell_fee_rate", Decimal("0"))),
         "fx_sell_fee_rates": [{"pair_id": pid, "currency_code": code, "sell_fee_rate": float(rate)}
                               for pid, code, rate in rates],
-        "legacy": {"legacy": True, **{k: legacy[k] for k in (
-            "hard_threshold", "soft_threshold", "target_margin", "emergency_threshold", "partial_pct")}},
     }

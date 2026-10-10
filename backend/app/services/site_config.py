@@ -21,25 +21,11 @@ class SiteConfigError(Exception):
 FX_DEFAULT_CONFIGS = [
     ("fx_enabled", "false", "bool"),
     ("fx_short_enabled", "false", "bool"),
-    ("fx_hourly_sigma", "0.002", "decimal"),
-    ("fx_step_max_ratio", "0.001", "decimal"),
-    ("fx_noise_interval_sec", "30", "int"),
-    ("fx_noise_pool_ratio", "0.0001", "decimal"),
-    ("fx_system_half_life_sec", "600", "int"),
-    ("fx_default_price_move_limit", "0.005", "decimal"),
-    ("fx_daily_budget", "100000", "decimal"),
 ]
 
 FX_CONFIG_RULES = {
     "fx_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
     "fx_short_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
-    "fx_hourly_sigma": lambda v: Decimal(v) >= 0 and Decimal(v) <= Decimal("1"),
-    "fx_step_max_ratio": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
-    "fx_noise_interval_sec": lambda v: int(v) >= 1,
-    "fx_noise_pool_ratio": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
-    "fx_system_half_life_sec": lambda v: int(v) >= 1,
-    "fx_default_price_move_limit": lambda v: Decimal(v) > 0 and Decimal(v) <= Decimal("1"),
-    "fx_daily_budget": lambda v: Decimal(v) >= 0,
 }
 
 
@@ -171,7 +157,7 @@ async def set_value(
         except (ValueError, ArithmeticError) as exc:
             raise SiteConfigError(f"invalid FX config value: {key}") from exc
     from app.services.credit import flags
-    if (key in {"loan_daily_rate", "sell_fee_rate"} and flags.get_flags().unified_credit_enabled
+    if (key in {"loan_daily_rate", "sell_fee_rate"}
             and Decimal(value) != Decimal(row.value)):
         # Runtime global fee changes also race newly-created market catalogs.
         # Configure before activation; maintenance must settle old-rate interest.
@@ -197,5 +183,4 @@ async def set_value(
 def _require_writes() -> None:
     from app.services.credit import flags
     from app.services.credit.ownership import OWNERSHIP
-    if flags.get_flags().unified_credit_enabled or OWNERSHIP.reason is not None or flags.read_only_from_env():
-        OWNERSHIP.require_writes()
+    OWNERSHIP.require_writes()

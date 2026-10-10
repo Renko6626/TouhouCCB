@@ -44,9 +44,7 @@ Q6 = D("0.000001")
 
 PAIR = {
     "currency_code": "USD", "currency_name": "Dollar", "status": "trading",
-    "gold_reserve": "1000", "foreign_reserve": "1000", "target_price": "1",
-    "initial_price": "1", "target_min": "0.5", "target_max": "2",
-    "short_lending_limit_foreign": "0",
+    "gold_reserve": "1000", "foreign_reserve": "1000", "initial_price": "1", "short_lending_limit_foreign": "0",
 }
 
 @pytest.fixture(autouse=True)
@@ -949,7 +947,7 @@ async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(
 
 
 @pytest.mark.parametrize("gate,reason", [
-    ("fx", "fx_disabled"), ("unified", "unified_credit_disabled"),
+    ("fx", "fx_disabled"),
 ])
 async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(
         client, monkeypatch, gate, reason):

@@ -14,7 +14,7 @@ from app.services.market_writer import WRITER
 @pytest_asyncio.fixture(autouse=True)
 async def lifecycle():
     await OWNERSHIP.acquire()
-    set_flags(CreditFlags(unified_credit_enabled=True, credit_leverage=D('20'), credit_maintenance_ratio=D('.04')))
+    set_flags(CreditFlags( credit_leverage=D('20'), credit_maintenance_ratio=D('.04')))
     yield
     await WRITER.stop()
     set_flags(CreditFlags())

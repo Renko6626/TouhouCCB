@@ -44,14 +44,14 @@ async def test_force_loan_requires_superuser(client):
 
 @pytest.mark.asyncio
 async def test_force_loan_grants_cash_and_debt(client):
-    target_uid, _ = await _make_user(cash=Decimal("50"))
+    target_uid, _ = await _make_user(cash=Decimal("1000"))
     _, h = await _make_user(superuser=True)
     r = await client.post(f"/api/v1/admin/users/{target_uid}/loan",
                           json={"amount": "500", "reason": "活动奖励"}, headers=h)
     assert r.status_code == 200, r.text
     async with async_session_maker() as s:
         u = await s.get(User, target_uid)
-    assert u.cash == Decimal("550.000000")
+    assert u.cash == Decimal("1500.000000")
     assert u.debt == Decimal("500.000000")
 
 

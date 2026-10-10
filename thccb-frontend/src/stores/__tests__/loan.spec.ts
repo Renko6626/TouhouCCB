@@ -19,7 +19,7 @@ describe('loan quota refresh', () => {
     const store = useLoanStore()
     store.quota = {
       enabled: true, cash: '5500', available_cash: '5500', restricted_cash: '0',
-      debt: '100', max_borrow: '900', net_worth: '5400', leverage_k: '10',
+      debt: '100', max_borrow: '900', net_worth: '5400', credit_leverage: '11',
       daily_rate: '0.01', last_accrued_at: null,
     } satisfies LoanQuota
     let fail!: (reason: Error) => void

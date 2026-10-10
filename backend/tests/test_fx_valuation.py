@@ -73,7 +73,7 @@ async def test_total_net_worth_adds_fx_without_changing_debt_or_lmsr(fx_db):
 
 
 @pytest.mark.asyncio
-async def test_summary_exposes_fx_and_keeps_margin_on_lcv(fx_db):
+async def test_summary_includes_executable_fx_collateral(fx_db):
     _create_core_tables(fx_db)
     pair, _ = await add_pair(fx_db, gold="100", foreign="10")
     user = await _add_user(fx_db, "summary-user", cash="10", debt="10")
@@ -94,9 +94,10 @@ async def test_summary_exposes_fx_and_keeps_margin_on_lcv(fx_db):
     assert summary["fx_mtm"] == Decimal("100")
     assert summary["fx_cost_basis"] == Decimal("2")
     assert summary["fx_unrealized_pnl"] == Decimal("98")
-    # LCV is roughly one gold unit here, so FX's 100-gold display value cannot
-    # make this debt account healthy.
-    assert summary["margin_status"] == "danger"
+    # FX sells yield50gold here; display value100 remains distinct from executable collateral.
+    assert summary["display_equity"] == Decimal("101")
+    assert Decimal("50") < summary["liquidation_equity"] < Decimal("51")
+    assert summary["risk_status"] == "healthy"
 
 
 @pytest.mark.asyncio
@@ -116,7 +117,7 @@ async def test_leaderboard_orders_and_ranks_with_fx_net_worth(fx_db):
 
 
 @pytest.mark.asyncio
-async def test_debt_user_buy_is_rejected_but_existing_wallet_can_sell(fx_db, monkeypatch):
+async def test_healthy_debt_user_can_buy_and_sell_repays_debt(fx_db, monkeypatch):
     pair, _ = await add_pair(fx_db, gold="100", foreign="100")
     user = await _add_user(fx_db, "debt-trader", cash="10", debt="1")
     user.tos_accepted_at = datetime.now(timezone.utc)
@@ -124,10 +125,11 @@ async def test_debt_user_buy_is_rejected_but_existing_wallet_can_sell(fx_db, mon
                        foreign_amount=Decimal("2"), cost_basis=Decimal("2")))
     await fx_db.commit()
 
-    with pytest.raises(HTTPException) as buy_error:
-        await trading.execute_trade(fx_db, user.id, pair.id, "buy",
-                                    Decimal("1"), Decimal("0"), "debt-buy")
-    assert buy_error.value.status_code == 403
+    bought = await trading.execute_trade(fx_db, user.id, pair.id, "buy",
+                                        Decimal("1"), Decimal("0"), "debt-buy")
+    assert bought.input_amount == Decimal("1")
+    before = await fx_db.get(User, user.id)
+    cash_before, debt_before = before.cash, before.debt
 
     async def _no_broadcast(_trade):
         return None
@@ -135,4 +137,7 @@ async def test_debt_user_buy_is_rejected_but_existing_wallet_can_sell(fx_db, mon
     sold = await trading.execute_trade(fx_db, user.id, pair.id, "sell",
                                        Decimal("1"), Decimal("0"), "debt-sell")
     assert sold.output_amount > 0
-    assert (await fx_db.get(User, user.id)).cash > Decimal("10")
+    after = await fx_db.get(User, user.id)
+    repaid = min(sold.output_amount, debt_before)
+    assert after.debt == debt_before - repaid
+    assert after.cash == cash_before + sold.output_amount - repaid

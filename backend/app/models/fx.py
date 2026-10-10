@@ -1,17 +1,17 @@
 """Persistent storage for the FX sub-game.
 
 The FX tables deliberately do not reuse LMSR market tables.  All quantities are
-stored at six decimal places; hidden event controls stay in the event table and
-are only exposed by administrator schemas.
+stored at six decimal places.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
+from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, Column, Date, DateTime, Index, JSON, Numeric, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, Column, DateTime, Index, JSON, Numeric, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -20,14 +20,6 @@ class FxPairStatus(str, Enum):
     TRADING = "trading"
     PAUSED = "paused"
     CLOSED = "closed"
-
-
-class FxEventStatus(str, Enum):
-    DRAFT = "draft"
-    SCHEDULED = "scheduled"
-    PUBLISHED = "published"
-    CANCELLED = "cancelled"
-    COMPLETED = "completed"
 
 
 def _utcnow() -> datetime:
@@ -39,8 +31,6 @@ class FxPair(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("status IN ('draft','trading','paused','closed')", name="ck_fx_pair_status"),
         CheckConstraint("gold_reserve > 0 AND foreign_reserve > 0", name="ck_fx_pair_reserves_positive"),
-        CheckConstraint("target_price > 0 AND target_min > 0 AND target_max > 0", name="ck_fx_pair_targets_positive"),
-        CheckConstraint("target_min <= target_price AND target_price <= target_max", name="ck_fx_pair_target_range"),
         CheckConstraint("buy_fee_rate >= 0 AND buy_fee_rate <= 1 AND sell_fee_rate >= 0 AND sell_fee_rate <= 1", name="ck_fx_pair_fee_rate"),
         CheckConstraint("short_lending_limit_foreign >= 0", name="ck_fx_pair_short_limit_non_negative"),
         Index("ix_fx_pair_status", "status"),
@@ -53,16 +43,13 @@ class FxPair(SQLModel, table=True):
     archived: bool = Field(default=False, nullable=False, sa_column_kwargs={"server_default": text("false")})
     gold_reserve: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
     foreign_reserve: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
-    target_price: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
     initial_price: Decimal = Field(default=Decimal("1"), sa_type=Numeric(16, 6), nullable=False)
-    target_min: Decimal = Field(default=Decimal("0.5"), sa_type=Numeric(16, 6), nullable=False)
-    target_max: Decimal = Field(default=Decimal("2"), sa_type=Numeric(16, 6), nullable=False)
     buy_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
     sell_fee_rate: Decimal = Field(default=Decimal("0"), sa_type=Numeric(10, 8), nullable=False)
     short_lending_limit_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False, sa_column_kwargs={"server_default": text("0")})
     pool_version: int = Field(default=1, nullable=False)
     # ── 统一信贷风险 F9：paused/reduce_only 双轴语义 ──
-    # reduce_only=True：只允许卖出/强平，拒绝开仓与系统干预（L 仍按可执行报价计算）。
+    # reduce_only=True：只允许卖出/强平，拒绝开仓（L 仍按可执行报价计算）。
     # 默认 false：paused 仍是"全停"旧语义，迁移不得把已 paused 的 pair 无提示变成可卖。
     reduce_only: bool = Field(
         default=False, nullable=False, sa_column_kwargs={"server_default": text("false")},
@@ -75,15 +62,13 @@ class FxTreasury(SQLModel, table=True):
     __tablename__ = "fx_treasury"
     __table_args__ = (
         UniqueConstraint("pair_id", name="uq_fx_treasury_pair"),
-        CheckConstraint("gold_balance >= 0 AND foreign_balance >= 0 AND daily_spend >= 0", name="ck_fx_treasury_balances_non_negative"),
+        CheckConstraint("gold_balance >= 0 AND foreign_balance >= 0", name="ck_fx_treasury_balances_non_negative"),
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     pair_id: int = Field(foreign_key="fx_pair.id", nullable=False, index=True)
     gold_balance: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     foreign_balance: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
-    daily_spend: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
-    spend_date: Optional[date] = Field(default=None, sa_type=Date())
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 
 
@@ -109,6 +94,9 @@ class FxTrade(SQLModel, table=True):
         CheckConstraint("input_amount > 0 AND output_amount > 0", name="ck_fx_trade_amounts_positive"),
         Index("ix_fx_trade_pair_created", "pair_id", "created_at"),
         Index("ix_fx_trade_pair_id", "pair_id"),
+        # Incremental candle consumption reads committed rows per pair strictly
+        # above a trade-id watermark; (pair_id, id) turns that into a range scan.
+        Index("ix_fx_trade_pair_id_id", "pair_id", "id"),
         Index("ix_fx_trade_user_id", "user_id"),
         Index("ix_fx_trade_created_at", "created_at"),
         CheckConstraint("pre_gold_reserve > 0 AND pre_foreign_reserve > 0 AND post_gold_reserve > 0 AND post_foreign_reserve > 0", name="ck_fx_trade_reserves_positive"),
@@ -138,35 +126,6 @@ class FxTrade(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 
 
-class FxEvent(SQLModel, table=True):
-    __tablename__ = "fx_event"
-    __table_args__ = (
-        CheckConstraint("status IN ('draft','scheduled','published','cancelled','completed')", name="ck_fx_event_status"),
-        Index("ix_fx_event_pair_status", "pair_id", "status"),
-        Index("ix_fx_event_pair_id", "pair_id"),
-        Index("ix_fx_event_status", "status"),
-        Index("ix_fx_event_scheduled_at", "scheduled_at"),
-        Index("ix_fx_event_operator_user_id", "operator_user_id"),
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    pair_id: int = Field(foreign_key="fx_pair.id", nullable=False)
-    status: str = Field(default=FxEventStatus.DRAFT.value, max_length=16, nullable=False)
-    title: str = Field(max_length=200, nullable=False)
-    body: str = Field(default="", max_length=5000, nullable=False)
-    kind: str = Field(max_length=32, nullable=False)
-    shock_ratio: Optional[Decimal] = Field(default=None, sa_type=Numeric(10, 8))
-    first_reaction_ratio: Optional[Decimal] = Field(default=None, sa_type=Numeric(10, 8))
-    window_sec: Optional[int] = Field(default=None)
-    budget: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
-    scheduled_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
-    published_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
-    completed_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
-    parameter_snapshot: Optional[dict] = Field(default=None, sa_column=Column(JSON, nullable=True))
-    error_message: Optional[str] = Field(default=None, max_length=1000)
-    operator_user_id: Optional[int] = Field(default=None, foreign_key="user.id")
-
-
 class FxShortPosition(SQLModel, table=True):
     """Foreign obligation; restricted gold is already included in User.cash."""
     __tablename__ = "fx_short_position"
@@ -184,4 +143,69 @@ class FxShortPosition(SQLModel, table=True):
     restricted_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     proceeds_basis_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+    updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+
+
+class FxCandle(SQLModel, table=True):
+    """Materialised FX OHLCV candles; derived data only.
+
+    The natural key is ``(pair_id, interval, bucket_start)``.  ``FxTrade`` stays
+    the source of truth; these rows are rebuilt from it.  ``first_trade_*`` /
+    ``last_trade_*`` carry the ``(created_at, id)`` ordering keys so a batch
+    applied out of order still yields the true bucket open/close.
+    """
+    __tablename__ = "fx_candle"
+    __table_args__ = (
+        CheckConstraint("gold_volume >= 0", name="ck_fx_candle_volume_non_negative"),
+        CheckConstraint("n_trades >= 0", name="ck_fx_candle_n_non_negative"),
+        CheckConstraint("high_price >= low_price", name="ck_fx_candle_h_ge_l"),
+        CheckConstraint(
+            "interval IN ('10s','1m','15m','1h')",
+            name="ck_fx_candle_interval_supported",
+        ),
+    )
+
+    pair_id: int = Field(foreign_key="fx_pair.id", primary_key=True)
+    interval: str = Field(primary_key=True, max_length=8)
+    bucket_start: datetime = Field(primary_key=True, sa_type=DateTime(timezone=True))
+
+    open_price: Decimal = Field(sa_type=Numeric(24, 8))
+    high_price: Decimal = Field(sa_type=Numeric(24, 8))
+    low_price: Decimal = Field(sa_type=Numeric(24, 8))
+    close_price: Decimal = Field(sa_type=Numeric(24, 8))
+
+    gold_volume: Decimal = Field(default=Decimal("0"), sa_type=Numeric(30, 6), nullable=False)
+    n_trades: int = Field(default=0, nullable=False)
+
+    first_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
+    first_trade_id: int = Field(nullable=False)
+    last_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
+    last_trade_id: int = Field(nullable=False)
+
+    updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+
+
+class FxMarketDataState(SQLModel, table=True):
+    """Per-pair durable consumption cursor for derived FX market data.
+
+    ``last_trade_id`` is the highest trade id whose candles are durably
+    persisted.  ``history_version`` isolates published history caches from a
+    rebuild; it is generated on first creation.  ``history_ready`` distinguishes
+    a freshly created state (initial backfill pending) from a completed one.
+    """
+    __tablename__ = "fx_market_data_state"
+    __table_args__ = (
+        CheckConstraint("last_trade_id >= 0", name="ck_fx_market_data_state_cursor_non_negative"),
+    )
+
+    pair_id: int = Field(foreign_key="fx_pair.id", primary_key=True)
+    last_trade_id: int = Field(
+        default=0, nullable=False, sa_column_kwargs={"server_default": text("0")},
+    )
+    history_version: str = Field(
+        default_factory=lambda: str(uuid4()), max_length=36, nullable=False,
+    )
+    history_ready: bool = Field(
+        default=False, nullable=False, sa_column_kwargs={"server_default": text("false")},
+    )
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)

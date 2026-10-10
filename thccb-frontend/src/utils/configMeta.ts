@@ -31,11 +31,6 @@ const META: Record<string, ConfigMeta> = {
     label: '首页使用 FX 模式',
     description: '开启展示外汇首页，关闭恢复原预测市场首页。保存后刷新首页即可生效；只改变首页展示，不改变交易或借款开关。',
   },
-  unified_credit_enabled: {
-    group: 'loan',
-    label: '统一信贷模式',
-    description: '开启后预测市场与 FX 共用一笔金圆券债务、名义杠杆和维持率；开启前须配置有效的杠杆与维持率。',
-  },
   credit_leverage: {
     group: 'loan',
     label: '名义杠杆',
@@ -45,7 +40,7 @@ const META: Record<string, ConfigMeta> = {
   credit_maintenance_ratio: {
     group: 'loan',
     label: '强平维持率',
-    description: '统一信贷下，净值低于欠款乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)。',
+    description: '清算净值低于风险基数乘以此比例时触发强平；必须低于初始保证金率 1/(名义杠杆-1)，修改后重启后端生效。',
     unit: '比例',
   },
   credit_new_risk_frozen: {
@@ -56,56 +51,14 @@ const META: Record<string, ConfigMeta> = {
   credit_risk_retry_limit: {
     group: 'loan',
     label: '风险检查重试次数',
-    description: '并发更新时风险检查允许重试的次数；通常无需调整。',
+    description: '并发更新时风险检查允许重试的次数；通常无需调整，修改后重启后端生效。',
     unit: '次',
   },
   fx_short_enabled: { group: 'fx', label: 'FX 开空闸', description: '默认 false；只控制新增空头，关闭后仍允许正常回补。', unit: 'true / false' },
   fx_enabled: {
     group: 'fx',
     label: 'FX 交易总闸',
-    description: '关闭时不允许 FX 成交，系统不发布计划事件，也不执行噪声订单或常规干预。',
-  },
-  fx_hourly_sigma: {
-    group: 'fx',
-    label: '目标价每小时波动率',
-    description: '目标价格随机游走的波动强度；0.002 表示每小时约 0.2%。调高后目标价变化更剧烈。',
-    unit: '比例/小时',
-  },
-  fx_step_max_ratio: {
-    group: 'fx',
-    label: '目标价单步变动上限',
-    description: '每次系统 tick 目标价最多变化的比例；0.001 表示单步最多 0.1%。',
-    unit: '比例/tick',
-  },
-  fx_noise_interval_sec: {
-    group: 'fx',
-    label: '噪声订单平均间隔',
-    description: '系统噪声订单的平均等待时间，实际间隔随机；数值越小，噪声订单越频繁。',
-    unit: '秒',
-  },
-  fx_noise_pool_ratio: {
-    group: 'fx',
-    label: '噪声订单池子占比',
-    description: '单笔系统噪声订单最多使用池子储备的比例；0.0001 表示最多 0.01%。',
-    unit: '比例',
-  },
-  fx_system_half_life_sec: {
-    group: 'fx',
-    label: '常规干预半衰期',
-    description: '系统将市场价向目标价拉回的时间尺度；数值越小，常规干预越快。',
-    unit: '秒',
-  },
-  fx_default_price_move_limit: {
-    group: 'fx',
-    label: '常规干预价格步长上限',
-    description: '非事件干预每次 tick 可推动价格的最大比例，同时限制系统订单规模；0.005 表示 0.5%。',
-    unit: '比例/tick',
-  },
-  fx_daily_budget: {
-    group: 'fx',
-    label: 'FX 系统每日支出上限',
-    description: '每个货币对 treasury 每日可供系统订单支出的金圆券上限，按 UTC 日期重置。',
-    unit: '金圆券/日',
+    description: '关闭时不允许 FX 成交，只读行情仍可用。',
   },
   // ── 借款系统 ─────────────────────────────────────────────────────
   loan_enabled: {
@@ -116,14 +69,8 @@ const META: Record<string, ConfigMeta> = {
   loan_daily_rate: {
     group: 'loan',
     label: '日利率',
-    description: '每日复利率，每次 borrow/repay 时按经过的天数 accrue',
-    unit: '%/day',
-  },
-  loan_leverage_k: {
-    group: 'loan',
-    label: '杠杆倍率',
-    description: 'max_borrow = max(0, k × net_worth - debt)；k=2 表示用户能借到净值的 2 倍',
-    unit: 'x',
+    description: '每日利率按小数填写，0.01 表示每天 1%。统一信贷运行期间禁止修改，须在停写维护中结清旧率利息后调整。',
+    unit: '比例/天',
   },
   loan_sweep_interval_sec: {
     group: 'loan',
@@ -143,16 +90,6 @@ const META: Record<string, ConfigMeta> = {
     label: 'sweep 扫描间隔',
     description: 'liquidation_sweep scheduler 多久扫一次有 debt 的用户',
     unit: 'sec',
-  },
-  liquidation_hard_threshold: {
-    group: 'liquidation',
-    label: '强平触发线',
-    description: 'LCV margin 低于此值时触发强平 (margin = LCV NW / debt)',
-  },
-  liquidation_soft_threshold: {
-    group: 'liquidation',
-    label: '警戒线',
-    description: 'LCV margin 低于此值时给 UI 警告 banner，但不强平',
   },
 
   // ── 反脚本 ───────────────────────────────────────────────────────
@@ -174,7 +111,7 @@ const META: Record<string, ConfigMeta> = {
   bot_detection_interval_sec: {
     group: 'anti_bot',
     label: '扫描间隔',
-    description: 'bot_detection scheduler 多久扫一次',
+    description: '行为监控扫描间隔，实际使用范围为 60–7200 秒；修改后重启后端生效。',
     unit: 'sec',
   },
   bot_detection_window_sec: {
@@ -224,7 +161,7 @@ const META: Record<string, ConfigMeta> = {
   sell_fee_rate: {
     group: 'economy',
     label: '卖出手续费率',
-    description: '卖出时按成交 gross 收取的手续费比例，0 表示免费。范围 [0, 0.2)。买入不收费',
+    description: '预测市场卖出手续费，0 表示免费，范围 [0, 0.2)。FX 费率在各货币对配置；统一信贷运行期间须停写维护才能调整此项。',
     unit: '比例',
   },
   initial_balance: {
@@ -240,16 +177,11 @@ const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'eco
 // 按管理任务排列；未登记的新配置仍显示在所属组末尾。
 const CONFIG_ORDER = [
   'homepage_fx_enabled',
-  'fx_enabled', 'fx_short_enabled', 'fx_daily_budget',
-  'fx_hourly_sigma', 'fx_step_max_ratio',
-  'fx_noise_interval_sec', 'fx_noise_pool_ratio',
-  'fx_system_half_life_sec', 'fx_default_price_move_limit',
-  'loan_enabled', 'unified_credit_enabled', 'credit_new_risk_frozen',
-  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate', 'loan_leverage_k',
+  'fx_enabled', 'fx_short_enabled',
+  'loan_enabled', 'credit_new_risk_frozen',
+  'credit_maintenance_ratio', 'credit_leverage', 'loan_daily_rate',
   'loan_sweep_interval_sec', 'loan_sweep_min_accrual_sec', 'credit_risk_retry_limit',
   'liquidation_enabled', 'liquidation_partial_pct', 'liquidation_sweep_interval_sec',
-  'liquidation_soft_threshold', 'liquidation_hard_threshold',
-  'liquidation_target_margin', 'liquidation_emergency_threshold',
   'initial_balance', 'sell_fee_rate',
   'activity_mode_enabled', 'quant_whitelist_user_ids', 'bot_detection_enabled',
   'bot_detection_interval_sec', 'bot_detection_window_sec',

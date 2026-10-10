@@ -10,9 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User
-from app.models.fx import FxEvent, FxPair, FxTrade, FxWallet
+from app.models.fx import FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
-    FxEventPublic,
     FxPairPublic,
     FxPersonalTrade,
     FxQuote,
@@ -61,18 +60,6 @@ async def list_pairs(db: AsyncSession = Depends(get_async_session)):
 @router.get("/pairs/{pair_id}/snapshot", response_model=FxSnapshot)
 async def snapshot(pair_id: int, db: AsyncSession = Depends(get_async_session)):
     return await trading.get_public_snapshot(db, pair_id)
-
-
-@router.get("/pairs/{pair_id}/news", response_model=list[FxEventPublic])
-async def list_news(pair_id: int, db: AsyncSession = Depends(get_async_session)):
-    """All published news for this pair, newest first; no operator fields."""
-    if await db.get(FxPair, pair_id) is None:
-        raise HTTPException(status_code=404, detail="FX pair not found")
-    return (await db.execute(select(FxEvent).where(
-        FxEvent.pair_id == pair_id,
-        FxEvent.status.in_(("published", "completed")),
-        FxEvent.published_at.is_not(None),
-    ).order_by(FxEvent.published_at.desc(), FxEvent.id.desc()))).scalars().all()
 
 
 @router.post("/pairs/{pair_id}/quote", response_model=FxQuote)

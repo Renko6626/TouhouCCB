@@ -17,7 +17,7 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.base import Market, MarketStatus, Outcome, Position, SiteConfig, User, LiquidationEvent
-from app.services import liquidation_service, liquidation_sweep, wealth
+from app.services import liquidation_sweep, wealth
 from app.services.market_open import market_is_open
 from app.services.market_writer import WRITER
 
@@ -132,70 +132,13 @@ async def test_expired_market_excluded_from_lcv_and_grants_immunity(client):
         assert await wealth.user_has_halt_holdings(s, uid) is False
 
 
-@pytest.mark.asyncio
-async def test_legacy_liquidation_does_not_sell_expired_market(client):
-    from app.services.market_locks import lock_user
-    uid, _ = await _user(cash="0", debt="50")
-    mid_exp, o_exp = await _market(shares=("200", "100"), closes_at=datetime.now(timezone.utc) - timedelta(minutes=1))
-    await _pos(uid, o_exp[0], "100")
-    async with async_session_maker() as db:
-        async with db.begin():
-            user = await lock_user(db, uid)
-            ev = await liquidation_service.liquidate_user(
-                db, user, daily_rate=Decimal("0.01"), trigger_source="scheduler",
-                partial_pct=Decimal("1.0"), target_margin=Decimal("0.3"), emergency_threshold=Decimal("0.05"))
-    assert ev.sold_positions_count == 0 and ev.id is None      # noop，未写 event
-    async with async_session_maker() as s:
-        assert (await s.execute(select(Position).where(Position.user_id == uid))).scalar_one().amount == Decimal("100")
 
 
-@pytest.mark.asyncio
-async def test_writer_liquidation_skips_expired_market(client):
-    from app.services.writer_ops import LiquidateMarketCmd
-    uid, _ = await _user(cash="0", debt="50")
-    mid, oids = await _market(shares=("200", "100"), closes_at=datetime.now(timezone.utc) - timedelta(minutes=1))
-    await _pos(uid, oids[0], "100")
-    await WRITER.start()
-    r = await WRITER.submit(LiquidateMarketCmd(market_id=mid, user_id=uid, mode="emergency", partial_pct=Decimal("1")))
-    assert r["sold_count"] == 0
 
 
 # ── #3 ──────────────────────────────────────────────────────────────────────
-@pytest.mark.asyncio
-async def test_writer_liquidate_market_repays_in_same_transaction(client):
-    from app.services.writer_ops import LiquidateMarketCmd
-    uid, _ = await _user(cash="0", debt="50")
-    mid, oids = await _market(shares=("200", "100"))
-    await _pos(uid, oids[0], "100")
-    await WRITER.start()
-    r = await WRITER.submit(LiquidateMarketCmd(
-        market_id=mid, user_id=uid, mode="emergency", partial_pct=Decimal("1"),
-        daily_rate=Decimal("0.01"), trigger_source="scheduler"))
-    assert r["sold_count"] == 1 and r["total_proceeds"] > 50
-    assert r["repaid"] == Decimal("50")
-    async with async_session_maker() as s:
-        u = await s.get(User, uid)
-        assert u.debt == 0                                    # 卖完即还，不等阶段 C
-        assert u.cash == (r["total_proceeds"] - Decimal("50")).quantize(Decimal("0.000001"))
 
 
-@pytest.mark.asyncio
-async def test_split_liquidation_reports_total_repaid_including_stage_b(client):
-    # 100 股在 q=[200,100], b=100 的清算价 ≈ 62 < debt 70 → margin < 0 → emergency 全平
-    uid, _ = await _user(cash="0", debt="70")
-    mid, oids = await _market(shares=("200", "100"))
-    await _pos(uid, oids[0], "100")
-    await WRITER.start()
-    ev = await liquidation_service.liquidate_user_split(
-        uid, daily_rate=Decimal("0.01"), trigger_source="scheduler",
-        partial_pct=Decimal("1"), target_margin=Decimal("0.3"),
-        emergency_threshold=Decimal("0.05"), hard_threshold=Decimal("0.2"))
-    assert ev is not None and ev.sold_positions_count == 1
-    assert ev.repaid_amount == ev.total_proceeds          # 阶段 B 已把全部回款还掉
-    assert ev.remaining_debt == Decimal("70") - ev.total_proceeds and ev.post_cash == 0
-    async with async_session_maker() as s:
-        evs = (await s.execute(select(LiquidationEvent).where(LiquidationEvent.user_id == uid))).scalars().all()
-        assert len(evs) == 1
 
 
 # ── #4 ──────────────────────────────────────────────────────────────────────
@@ -208,7 +151,8 @@ async def test_sweep_is_mutually_exclusive(client, monkeypatch):
         calls.append(trigger_source)
         await asyncio.sleep(0.2)
         return {"triggered": 0}
-    monkeypatch.setattr(liquidation_sweep, "_run_liquidation_sweep_once", slow_inner)
+    from app.services.credit import sweep
+    monkeypatch.setattr(sweep, "run_sweep", slow_inner)
 
     a, b = await asyncio.gather(
         liquidation_sweep.run_liquidation_sweep_once("scheduler"),
@@ -247,32 +191,6 @@ def test_tiny_debt_eventually_accrues():
     assert Decimal("0.0505") <= u.debt <= Decimal("0.0508")
 
 
-@pytest.mark.asyncio
-async def test_sweep_does_not_cooldown_on_recheck_recovery(client, monkeypatch):
-    """阶段 A 复检判定已恢复 → 不进 _recently_attempted；真 noop 才冷却。"""
-    uid, _ = await _user(cash="0", debt="50")
-    mid, oids = await _market(shares=("200", "100"))
-    await _pos(uid, oids[0], "100")
-    await WRITER.start()
-    liquidation_sweep._recently_attempted.clear()
-
-    async def fake_split(uid_, **kw):
-        return "recovered"
-    monkeypatch.setattr(liquidation_service, "liquidate_user_split", fake_split)
-    # 直接调 sweep 内部的单用户处理：需要绕过 stage-2 的 margin 复检 → 用 debt 高的用户
-    async with async_session_maker() as s:
-        async with s.begin():
-            u = await s.get(User, uid); u.debt = Decimal("500")
-    r = await liquidation_sweep.run_liquidation_sweep_once("scheduler")
-    assert r.get("skipped") is None, r
-    assert uid not in liquidation_sweep._recently_attempted
-
-    async def fake_split_noop(uid_, **kw):
-        return None
-    monkeypatch.setattr(liquidation_service, "liquidate_user_split", fake_split_noop)
-    await liquidation_sweep.run_liquidation_sweep_once("scheduler")
-    assert uid in liquidation_sweep._recently_attempted
-    liquidation_sweep._recently_attempted.clear()
 
 
 @pytest.mark.asyncio

@@ -83,7 +83,7 @@ def startup(monkeypatch):
     monkeypatch.setattr(main, "auto_migrate", _auto_migrate)
     monkeypatch.setattr(main, "_resync_recent_candles", _resync)
     monkeypatch.setattr(main, "setup_admin", _setup_admin)
-    for name in ("loan", "liquidation", "bot_detection", "pve", "fx"):
+    for name in ("loan", "liquidation", "bot_detection", "pve"):
         monkeypatch.setattr(main, f"start_{name}_scheduler", _starter(name))
         monkeypatch.setattr(main, f"stop_{name}_scheduler", _stopper(name))
     monkeypatch.setattr(main, "start_fx_publisher", _starter("fx_publisher"))
@@ -107,7 +107,7 @@ def _install_flags(monkeypatch, raw: dict, *, error: Exception | None = None):
         if error is not None:
             raise error
         credit_flags.set_flags(
-            credit_flags.parse_flags(raw, read_only=credit_flags.read_only_from_env())
+            credit_flags.parse_flags({"credit_leverage": "2", "credit_maintenance_ratio": ".2", **raw}, read_only=credit_flags.read_only_from_env())
         )
         return credit_flags.get_flags()
 
@@ -130,7 +130,7 @@ async def test_read_only_skips_all_startup_writes(startup, monkeypatch):
     assert "acquire" not in startup              # 只读实例不取锁
     for forbidden in ("init_db", "auto_migrate", "resync", "setup_admin",
                       "start:loan", "start:liquidation", "start:bot_detection",
-                      "start:pve", "start:fx", "start:fx_publisher",
+                      "start:pve", "start:fx_publisher",
                       "WRITER.start", "FLUSHER.start"):
         assert forbidden not in startup, f"read-only 实例不应执行 {forbidden}"
     assert "TICK.start" in startup               # 广播只读，允许
@@ -157,12 +157,11 @@ async def test_owner_runs_startup_writes_after_acquiring_lock(startup, monkeypat
     assert "setup_admin" in startup
     assert startup.index("setup_admin") < startup.index("resync")
     for expected in ("start:loan", "start:liquidation", "start:bot_detection",
-                     "start:pve", "start:fx", "start:fx_publisher", "WRITER.start", "FLUSHER.start",
+                     "start:pve", "start:fx_publisher", "WRITER.start", "FLUSHER.start",
                      "TICK.start"):
         assert expected in startup, f"owner 实例应执行 {expected}"
     assert main.app.state.credit_writes_enabled is True
-    assert startup.index("start:fx") < startup.index("start:fx_publisher")
-    assert startup.index("stop:fx") < startup.index("stop:fx_publisher") < startup.index("TICK.stop")
+    assert startup.index("stop:fx_publisher") < startup.index("TICK.stop")
     assert own.released is True
 
 
@@ -192,22 +191,9 @@ async def test_unified_credit_starts_writer_without_legacy_writer_flag(startup, 
         assert "WRITER.start" in startup
         assert "FLUSHER.start" in startup
     finally:
-        main._configure_admin_economic_writes(False)
+        main._configure_admin_economic_writes()
 
 
-async def test_non_owner_without_unified_credit_runs_without_writes(startup, monkeypatch):
-    own = _install_ownership(monkeypatch, owner=False, events=startup)
-    _install_flags(monkeypatch, {"unified_credit_enabled": "false"})
-
-    await _run_lifespan()
-
-    for forbidden in ("init_db", "auto_migrate", "resync", "setup_admin",
-                      "start:loan", "start:liquidation", "start:bot_detection",
-                      "start:pve", "start:fx", "start:fx_publisher", "WRITER.start", "FLUSHER.start"):
-        assert forbidden not in startup, f"非 owner 不应执行 {forbidden}"
-    assert "TICK.start" in startup
-    assert main.app.state.credit_writes_enabled is False
-    assert own.released is True
 
 
 async def test_invalid_credit_config_fails_startup_and_releases_lock(startup, monkeypatch):
@@ -275,7 +261,7 @@ async def test_start_failure_still_runs_cleanup_and_releases_ownership(startup, 
     assert "start:loan" in startup                 # loan 已启动
     assert "start:liquidation" not in startup      # 失败的没启动
     for stopped in ("stop:loan", "stop:liquidation", "stop:bot_detection",
-                    "stop:pve", "stop:fx", "stop:fx_publisher", "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
+                    "stop:pve", "stop:fx_publisher", "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
         assert stopped in startup, f"启动失败清理缺少 {stopped}"
     assert own.released is True
 
@@ -292,7 +278,7 @@ async def test_shutdown_step_failure_does_not_block_cleanup(startup, monkeypatch
 
     await _run_lifespan()
 
-    for stopped in ("stop:fx", "stop:fx_publisher", "stop:bot_detection", "stop:liquidation", "stop:loan",
+    for stopped in ("stop:fx_publisher", "stop:bot_detection", "stop:liquidation", "stop:loan",
                     "WRITER.stop", "TICK.stop", "FLUSHER.stop"):
         assert stopped in startup, f"单步失败后缺少 {stopped}"
     assert own.released is True
@@ -302,65 +288,8 @@ async def test_unified_sqladmin_economic_views_are_read_only():
     from app.core.admin import UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin
     views = (UserAdmin, MarketAdmin, OutcomeAdmin, PositionAdmin, TransactionAdmin)
     try:
-        main._configure_admin_economic_writes(True)
+        main._configure_admin_economic_writes()
         assert all(not view.can_create and not view.can_edit and not view.can_delete for view in views)
     finally:
-        main._configure_admin_economic_writes(False)
-    assert all(view.can_create and view.can_edit and view.can_delete for view in views)
-
-
-async def _persist_short(*, principal="0", interest="1", restricted="0"):
-    from datetime import datetime, timezone
-    from decimal import Decimal
-    from app.core.database import async_session_maker
-    from app.models.base import SiteConfig, User
-    from app.models.fx import FxPair, FxShortPosition
-    async with async_session_maker() as db:
-        async with db.begin():
-            db.add(SiteConfig(key="unified_credit_enabled", value="false", value_type="bool"))
-            user = User(username="gate-short", casdoor_id="gate-short", cash=Decimal("10"))
-            pair = FxPair(currency_code="GATE", currency_name="gate")
-            db.add_all([user, pair])
-            await db.flush()
-            db.add(FxShortPosition(user_id=user.id, pair_id=pair.id,
-                principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
-                restricted_gold=Decimal(restricted), interest_last_accrued_at=datetime.now(timezone.utc)))
-            return user.id
-
-
-@pytest.mark.parametrize("read_only", [False, True])
-@pytest.mark.parametrize("obligation", [{"interest": "1"}, {"principal": "1", "interest": "0", "restricted": "2"}])
-async def test_live_foreign_obligation_refuses_legacy_startup(startup, monkeypatch, read_only, obligation):
-    await _persist_short(**obligation)
-    own = _install_ownership(monkeypatch, owner=True, events=startup)
-    if read_only:
-        monkeypatch.setenv(credit_flags.READ_ONLY_ENV, "true")
-    with pytest.raises(credit_flags.CreditConfigError, match="fx_short"):
-        await _run_lifespan()
-    assert "setup_admin" not in startup and "resync" not in startup
-    assert not any(e.startswith("start:") or e.endswith(".start") for e in startup)
-    assert own.released
-
-
-async def test_disable_unified_with_short_preserves_config_and_audit(startup):
-    from fastapi import HTTPException
-    from sqlalchemy import select, func
-    from app.core.database import async_session_maker
-    from app.models.base import User, SiteConfig
-    from app.models.audit import AuditEvent
-    from app.schemas.loan import SiteConfigUpdate
-    from app.api.v1.site_config import update_config
-    user_id = await _persist_short()
-    async with async_session_maker() as db:
-        row = (await db.execute(select(SiteConfig).where(SiteConfig.key == "unified_credit_enabled"))).scalar_one()
-        row.value = "true"
-        await db.commit()
-        before = (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one()
-        admin = await db.get(User, user_id)
-        with pytest.raises(HTTPException) as rejected:
-            await update_config("unified_credit_enabled", SiteConfigUpdate(value="false"), admin, db)
-        assert rejected.value.status_code == 400
-        await db.refresh(row)
-        assert row.value == "true"
-        assert (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one() == before
-        await update_config("fx_short_enabled", SiteConfigUpdate(value="false"), admin, db)
+        main._configure_admin_economic_writes()
+    assert all(not view.can_create and not view.can_edit and not view.can_delete for view in views)

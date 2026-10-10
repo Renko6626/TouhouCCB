@@ -115,3 +115,14 @@ DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:55461/thccb_credit_test_202
 8. 原版全项目 44 项 lint 错误保持，比较错误内容并检查触及文件，避免扩展到无关修复；代价是全项目 lint 仍 exit 1，局部检查通过不能解释成全项目 lint 通过。
 
 最终审阅的范围边界：不承诺原请求结果重放、任意崩溃/应答丢失恢复、共享认证刷新重构、跨账号导航通知验收、绕过 DB 约束的坏行行为、任意配置和所有并发交错的穷举审计或外部日志平台验收。账号快照保护、已测资金行为和查询结果有上述证据；未运行 UI 交互和生产验收，不将它们计入通过结论。最终修复复核没有遗留同项问题。
+
+
+## 与最新 main 合并后的验证
+
+用户随后授权阶段性推送、合并 PR 并触发现有自动部署。远端 main 为 `1e496b8`，已包含 FX 纯 AMM、增量行情及统一信贷作为唯一贷款模式的后续实现。本次在隔离 worktree 合入 main，解决 17 处冲突；保留这些主线行为，并接入本轮可靠性与账户投影改动。与 main 对比没有新增模型、迁移、依赖、新闻或干预逻辑。原工作目录四份未跟踪文档保持原样。
+
+合并树的实际检查：后端完整默认回归 **1387 passed、1 skipped、32 deselected**（220.87 秒），保留前述同一 SQLAlchemy 连接回收警告；独立 PostgreSQL 选定信用并发/强平/兼容性用例 **9 passed**（15.93 秒），此版本百人用例按主线保留并发交易、已删除旧 FX tick；前端 **160 passed**（14 文件），类型检查与构建 exit 0，触及 12 个 TS/Vue 文件只读 lint exit 0；116 个 app 文件编译与 app.main 导入通过，差异检查通过。
+
+后端命令为 `DATABASE_URL=sqlite+aiosqlite:////tmp/thccb-credit-integration-full.db venv/bin/python -m pytest -q`。PG 命令沿用前述三文件，父环境使用 `/tmp/thccb-credit-integration-pg-parent.db`，测试库仍为独立 `thccb_credit_test_20261010`。第一次复用旧合成库时，残留已被主线删除的 fx_event 表使建表夹具报依赖错误；只重建这一可丢弃测试库后，9 个用例通过，未改产品代码或生产库。前端执行 `npm run test:unit`、`npm run type-check`、`npm run build`，并按与 main 的差异文件列表执行只读 ESLint。服务器重启导致代理结果丢失，前端检查重新执行并确认退出状态；原后端进程继续完成，其完整日志保存结果。
+
+以上检查工作目录为 `/tmp/thccb-credit-integration-20261010`，日志为 `/tmp/sunyunbo-credit-integration-backend-20261010.log`、`/tmp/sunyunbo-credit-integration-pg-fresh-20261010.log` 和 `/tmp/sunyunbo-credit-integration-frontend-build-recovery-20261010.log`。没有重新运行性能对照；本文前面的查询及扫描数值仍属于原先明确标注的代码版本，不能解释成最新合并树的生产性能验收。独立 medium 合并兼容性审阅已核对最终暂存树及本节验证边界，没有需修问题；PR 的远端 CI 与部署结果在 GitHub 记录。

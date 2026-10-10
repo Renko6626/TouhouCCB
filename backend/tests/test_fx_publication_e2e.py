@@ -19,14 +19,15 @@ from sqlmodel import SQLModel
 from app.core.database import async_session_maker, engine
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
 from app.services.fx import market_data, publisher, trading
 from app.services.realtime import BROKER
 
 _TABLES = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-           FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__, AuditEvent.__table__]
+           FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__,
+           FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
 
 _ENGINE_URL = str(engine.url)
 

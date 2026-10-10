@@ -5,7 +5,7 @@ an async-shaped adapter over a real synchronous SQLAlchemy transaction so the
 commit/rollback boundary of ``execute_trade`` / ``execute_trade_in_session``
 is observable.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -19,8 +19,10 @@ from sqlmodel import SQLModel, Session as ModelSession
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxCandle, FxMarketDataState, FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
+from app.services.credit.gates import GATES
+from app.services.credit.keys import GroupKey
 from app.services import site_config
 from app.services.fx import publisher, trading
 
@@ -46,8 +48,9 @@ class AsyncCompatSession:
 async def db_session():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
-              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__, AuditEvent.__table__]
-    SQLModel.metadata.create_all(engine, tables=tables)
+              FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
+              FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
+    SQLModel.metadata.create_all(engine)
     with ModelSession(engine) as raw:
         session = AsyncCompatSession(raw)
         session.add(SiteConfig(key="fx_enabled", value="true", value_type="bool"))
@@ -103,28 +106,29 @@ async def test_in_session_execution_does_not_commit_and_rollback_reverts_all(db_
     uid, pid = await seed(db_session)
     before_cash = (await db_session.get(User, uid)).cash
 
-    execution = await trading.execute_trade_in_session(
-        db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "tx-1")
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        execution = await trading.execute_trade_in_session(
+            db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "tx-1")
 
-    assert execution.replay is False
-    assert execution.public.id == execution.trade.id
-    assert execution.public.post_price == execution.trade.post_price
-    # The caller's transaction is still open: nothing was committed.
-    assert db_session.in_transaction() is True
-    assert (await db_session.get(User, uid)).cash < before_cash
+        assert execution.replay is False
+        assert execution.public.id == execution.trade.id
+        assert execution.public.post_price == execution.trade.post_price
+        # The caller's transaction is still open: nothing was committed.
+        assert db_session.in_transaction() is True
+        assert (await db_session.get(User, uid)).cash < before_cash
 
-    await db_session.rollback()
+        await db_session.rollback()
 
-    user = await db_session.get(User, uid)
-    pair = await db_session.get(FxPair, pid)
-    treasury = (await db_session.execute(select(FxTreasury))).scalars().first()
-    assert user.cash == before_cash
-    assert _trades(db_session) == []
-    assert (await db_session.execute(select(FxWallet))).scalars().all() == []
-    assert (await db_session.execute(select(AuditEvent))).scalars().all() == []
-    assert pair.pool_version == 1
-    assert pair.gold_reserve == Decimal("100") and pair.foreign_reserve == Decimal("100")
-    assert treasury.gold_balance == Decimal("0") and treasury.foreign_balance == Decimal("0")
+        user = await db_session.get(User, uid)
+        pair = await db_session.get(FxPair, pid)
+        treasury = (await db_session.execute(select(FxTreasury))).scalars().first()
+        assert user.cash == before_cash
+        assert _trades(db_session) == []
+        assert (await db_session.execute(select(FxWallet))).scalars().all() == []
+        assert (await db_session.execute(select(AuditEvent))).scalars().all() == []
+        assert pair.pool_version == 1
+        assert pair.gold_reserve == Decimal("100") and pair.foreign_reserve == Decimal("100")
+        assert treasury.gold_balance == Decimal("0") and treasury.foreign_balance == Decimal("0")
 
 
 @pytest.mark.asyncio
@@ -162,30 +166,32 @@ async def test_wrapper_replay_rolls_back_and_returns_materialized_public(db_sess
 @pytest.mark.asyncio
 async def test_in_session_replay_reports_replay_and_leaves_transaction_open(db_session):
     uid, pid = await seed(db_session)
-    first = await trading.execute_trade_in_session(
-        db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "same-key")
-    assert first.replay is False
-    await db_session.commit()  # caller-owned boundary
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        first = await trading.execute_trade_in_session(
+            db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "same-key")
+        assert first.replay is False
+        await db_session.commit()  # caller-owned boundary
 
-    second = await trading.execute_trade_in_session(
-        db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "same-key")
+        second = await trading.execute_trade_in_session(
+            db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "same-key")
 
-    assert second.replay is True
-    assert second.trade.id == first.trade.id
-    assert second.public.id == first.public.id
-    # In-session never rolls back: the caller still owns the transaction.
-    assert db_session.in_transaction() is True
-    assert len(_trades(db_session)) == 1
-    await db_session.rollback()
+        assert second.replay is True
+        assert second.trade.id == first.trade.id
+        assert second.public.id == first.public.id
+        # In-session never rolls back: the caller still owns the transaction.
+        assert db_session.in_transaction() is True
+        assert len(_trades(db_session)) == 1
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
 async def test_player_cannot_reserve_liquidation_idempotency_key(db_session):
     uid, pid = await seed(db_session)
-    with pytest.raises(trading.TradeRejected, match="reserved"):
-        await trading.execute_trade_in_session(
-            db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), "liq:7:3")
-    assert _trades(db_session) == []
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(trading.TradeRejected, match="reserved"):
+            await trading.execute_trade_in_session(
+                db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), "liq:7:3")
+        assert _trades(db_session) == []
 
 
 @pytest.mark.asyncio
@@ -193,68 +199,72 @@ async def test_in_session_idempotency_mismatch_is_409_and_mutates_nothing(db_ses
     uid, pid = await seed(db_session)
     await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "k-1")
 
-    with pytest.raises(HTTPException) as exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
-                                               Decimal("1"), "k-1")
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(HTTPException) as exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
+                                                   Decimal("1"), "k-1")
 
-    assert exc.value.status_code == 409
-    await db_session.rollback()
-    assert len(_trades(db_session)) == 1
+        assert exc.value.status_code == 409
+        await db_session.rollback()
+        assert len(_trades(db_session)) == 1
 
 
 @pytest.mark.asyncio
 async def test_in_session_error_status_codes_and_no_partial_mutation(db_session):
     uid, pid = await seed(db_session, cash="5")
 
-    with pytest.raises(HTTPException) as missing:
-        await trading.execute_trade_in_session(db_session, uid, pid + 10_000, "buy",
-                                               Decimal("1"), Decimal("0"), uuid4().hex)
-    assert missing.value.status_code == 404
-    await db_session.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(HTTPException) as missing:
+            await trading.execute_trade_in_session(db_session, uid, pid + 10_000, "buy",
+                                                   Decimal("1"), Decimal("0"), uuid4().hex)
+        assert missing.value.status_code == 404
+        await db_session.rollback()
 
-    with pytest.raises(HTTPException) as cash_exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
-                                               Decimal("0"), uuid4().hex)
-    assert cash_exc.value.status_code == 400
-    await db_session.rollback()
+        with pytest.raises(HTTPException) as cash_exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
+                                                   Decimal("0"), uuid4().hex)
+        assert cash_exc.value.status_code == 400
+        await db_session.rollback()
 
-    with pytest.raises(HTTPException) as wallet_exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "sell", Decimal("1"),
-                                               Decimal("0"), uuid4().hex)
-    assert wallet_exc.value.status_code == 400
-    await db_session.rollback()
+        with pytest.raises(HTTPException) as wallet_exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "sell", Decimal("1"),
+                                                   Decimal("0"), uuid4().hex)
+        assert wallet_exc.value.status_code == 400
+        await db_session.rollback()
 
-    quote = await trading.quote(db_session, pid, "buy", Decimal("1"), uid)
-    with pytest.raises(HTTPException) as min_out:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
-                                               quote.output_amount + 1, uuid4().hex)
-    assert min_out.value.status_code == 409
-    await db_session.rollback()
+        quote = await trading.quote(db_session, pid, "buy", Decimal("1"), uid)
+        with pytest.raises(HTTPException) as min_out:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
+                                                   quote.output_amount + 1, uuid4().hex)
+        assert min_out.value.status_code == 409
+        await db_session.rollback()
 
-    with pytest.raises(trading.TradeRejected):
-        await trading.execute_trade_in_session(db_session, uid, pid, "hold", Decimal("1"),
-                                               Decimal("0"), uuid4().hex)
-    await db_session.rollback()
+        with pytest.raises(trading.TradeRejected):
+            await trading.execute_trade_in_session(db_session, uid, pid, "hold", Decimal("1"),
+                                                   Decimal("0"), uuid4().hex)
+        await db_session.rollback()
 
-    assert _trades(db_session) == []
-    assert (await db_session.execute(select(FxWallet))).scalars().all() == []
-    assert (await db_session.get(User, uid)).cash == Decimal("5")
+        assert _trades(db_session) == []
+        assert (await db_session.execute(select(FxWallet))).scalars().all() == []
+        assert (await db_session.get(User, uid)).cash == Decimal("5")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs,status", [
     ({"bot": True}, 403),
     ({"tos": False}, 403),
-    ({"debt": "1"}, 403),
     ({"status": "paused"}, 403),
 ])
 async def test_guard_status_codes_match_between_wrapper_and_in_session(db_session, kwargs, status):
     uid, pid = await seed(db_session, **kwargs)
     for call in (trading.execute_trade, trading.execute_trade_in_session):
-        with pytest.raises(HTTPException) as exc:
-            await call(db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), uuid4().hex)
-        assert exc.value.status_code == status
-        await db_session.rollback()
+        gate = (GATES.hold(exclusive=[GroupKey("fx", pid)])
+                if call is trading.execute_trade_in_session else nullcontext())
+        async with gate:
+            with pytest.raises(HTTPException) as exc:
+                await call(db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), uuid4().hex)
+            assert exc.value.status_code == status
+            await db_session.rollback()
     assert _trades(db_session) == []
 
 
@@ -279,38 +289,41 @@ async def test_f9_player_side_matrix(db_session, status, reduce_only, side, allo
                                 cost_basis=Decimal("1")))
         await db_session.commit()
 
-    if allowed:
-        execution = await trading.execute_trade_in_session(
-            db_session, uid, pid, side, Decimal("1"), Decimal("0"), uuid4().hex)
-        assert execution.public.side == side
-    else:
-        with pytest.raises(HTTPException) as exc:
-            await trading.execute_trade_in_session(
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        if allowed:
+            execution = await trading.execute_trade_in_session(
                 db_session, uid, pid, side, Decimal("1"), Decimal("0"), uuid4().hex)
-        assert exc.value.status_code == 403
-    await db_session.rollback()
+            assert execution.public.side == side
+        else:
+            with pytest.raises(HTTPException) as exc:
+                await trading.execute_trade_in_session(
+                    db_session, uid, pid, side, Decimal("1"), Decimal("0"), uuid4().hex)
+            assert exc.value.status_code == 403
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
 async def test_reduce_only_buy_rejection_detail_is_actionable(db_session):
     uid, pid = await seed(db_session, status="trading", reduce_only=True)
-    with pytest.raises(HTTPException) as exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
-                                               Decimal("0"), uuid4().hex)
-    assert exc.value.status_code == 403
-    assert exc.value.detail == "FX pair is reduce-only"
-    await db_session.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(HTTPException) as exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
+                                                   Decimal("0"), uuid4().hex)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "FX pair is reduce-only"
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
 async def test_paused_without_reduce_only_keeps_legacy_detail(db_session):
     uid, pid = await seed(db_session, status="paused", reduce_only=False)
-    with pytest.raises(HTTPException) as exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "sell", Decimal("1"),
-                                               Decimal("0"), uuid4().hex)
-    assert exc.value.status_code == 403
-    assert exc.value.detail == "FX pair is not trading"
-    await db_session.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(HTTPException) as exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "sell", Decimal("1"),
+                                                   Decimal("0"), uuid4().hex)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "FX pair is not trading"
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
@@ -322,22 +335,24 @@ async def test_disabled_fx_returns_403_without_commit(db_session):
     await db_session.commit()
     site_config.clear_cache()
 
-    with pytest.raises(HTTPException) as exc:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
-                                               Decimal("0"), uuid4().hex)
-    assert exc.value.status_code == 403
-    await db_session.rollback()
-    assert _trades(db_session) == []
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with pytest.raises(HTTPException) as exc:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("1"),
+                                                   Decimal("0"), uuid4().hex)
+        assert exc.value.status_code == 403
+        await db_session.rollback()
+        assert _trades(db_session) == []
 
 
 @pytest.mark.asyncio
 async def test_lock_order_is_pair_user_wallet_treasury(db_session):
     uid, pid = await seed(db_session)
-    with record_lock_order() as order:
-        await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
-                                               Decimal("0"), "lock-1")
-    assert order == ["fx_pair", "user", "fx_wallet", "fx_treasury"]
-    await db_session.rollback()
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with record_lock_order() as order:
+            await trading.execute_trade_in_session(db_session, uid, pid, "buy", Decimal("10"),
+                                                   Decimal("0"), "lock-1")
+        assert order == ["fx_pair", "user", "fx_wallet", "fx_treasury"]
+        await db_session.rollback()
 
 
 @pytest.mark.asyncio
@@ -345,13 +360,14 @@ async def test_sell_path_keeps_lock_order_and_conserves_value(db_session):
     uid, pid = await seed(db_session)
     bought = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"),
                                          Decimal("0"), "buy-1")
-    with record_lock_order() as order:
-        sold = await trading.execute_trade_in_session(
-            db_session, uid, pid, "sell", bought.output_amount, Decimal("0"), "sell-1")
-    assert order == ["fx_pair", "user", "fx_wallet", "fx_treasury"]
-    assert sold.public.side == "sell"
-    assert sold.public.output_amount > 0
-    await db_session.commit()
+    async with GATES.hold(exclusive=[GroupKey("fx", pid), GroupKey("fx", pid + 10_000)]):
+        with record_lock_order() as order:
+            sold = await trading.execute_trade_in_session(
+                db_session, uid, pid, "sell", bought.output_amount, Decimal("0"), "sell-1")
+        assert order == ["fx_pair", "user", "fx_wallet", "fx_treasury"]
+        assert sold.public.side == "sell"
+        assert sold.public.output_amount > 0
+        await db_session.commit()
 
 
 # ── post-commit publication is off the response path ────────────────────────

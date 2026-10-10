@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # 放 tmpfs（/dev/shm）：每个测试 drop_all+create_all 的 fsync 是整套测试的主要耗时
 # （480 测 × ~0.8s setup），/tmp 在磁盘上；/dev/shm 不存在时回落 /tmp。
 _PYTEST_DB_DIR = "/dev/shm" if os.path.isdir("/dev/shm") else "/tmp"
-os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest.db")
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest_{os.getpid()}.db")
 
 import pytest
 import pytest_asyncio
@@ -57,7 +57,7 @@ def _disable_scheduler():
     - start_bot_detection_scheduler / stop_bot_detection_scheduler
     所以要 patch 这些绑定在 app.main 命名空间的本地名，patch 原始模块无效。
     """
-    async def _noop():
+    async def _noop(*_args, **_kwargs):
         return None
 
     with (
@@ -69,8 +69,10 @@ def _disable_scheduler():
         patch("app.main.stop_bot_detection_scheduler", _noop),
         patch("app.main.start_pve_scheduler", _noop),
         patch("app.main.stop_pve_scheduler", _noop),
-        patch("app.main.start_fx_scheduler", _noop),
-        patch("app.main.stop_fx_scheduler", _noop),
+        # The FX market-data runtime owns a process-wide background consumer;
+        # keep it out of the shared pytest database across drop_all/create_all.
+        patch("app.main.start_fx_market_data", _noop),
+        patch("app.main.stop_fx_market_data", _noop),
     ):
         yield
 
@@ -108,12 +110,17 @@ async def setup_db():
     from app.core.database import async_session_maker
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
+    from app.services.fx.market_state import FX_MARKET_DATA
 
     # 防上一测试的 writer/flusher 状态泄漏：module-scope lifespan 意味着 lifespan
     # 只在 module 首测启动、且当时 flag 缺失 → writer 默认不启，测试用 writer_on
     # fixture 显式启
     await WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
+    # The FX market-data singleton owns a background consumer and a bounded ring;
+    # stop it (best effort) and drop all local state before the schema is dropped.
+    await FX_MARKET_DATA.stop()
+    FX_MARKET_DATA.reset()
     # Unit tests invoke economic services without the app lifespan. Establish
     # the same ownership precondition on their disposable SQLite database.
     from app.services.credit.ownership import OWNERSHIP
@@ -125,13 +132,17 @@ async def setup_db():
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     clear_cache()
+    from app.services.credit import flags as credit_flags
+    credit_flags.clear_flags()
     from app.api.v1.market import clear_leaderboard_cache
     clear_leaderboard_cache()
     async with async_session_maker() as s:
         async with s.begin():
-            s.add(SiteConfig(
-                key="activity_mode_enabled", value="false", value_type="bool",
-            ))
+            s.add_all([
+                SiteConfig(key="activity_mode_enabled", value="false", value_type="bool"),
+                SiteConfig(key="credit_leverage", value="2", value_type="decimal"),
+                SiteConfig(key="credit_maintenance_ratio", value="0.2", value_type="decimal"),
+            ])
     yield
 
 

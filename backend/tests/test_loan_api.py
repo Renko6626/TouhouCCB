@@ -113,13 +113,14 @@ async def _set_fixed_interest_clock(uid, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_snapshot_repayment_leaves_newly_accrued_interest(client, monkeypatch):
+async def test_quota_repayment_includes_pending_interest(client, monkeypatch):
     uid, h = await _make_user(cash=Decimal("500"), debt=Decimal("100"))
     await _set_fixed_interest_clock(uid, monkeypatch)
     quota = (await client.get("/api/v1/loan/quota", headers=h)).json()
     r = await client.post("/api/v1/loan/repay", json={"amount": quota["debt"]}, headers=h)
     assert r.status_code == 200, r.text
-    assert Decimal(r.json()["debt"]) == Decimal("1")
+    assert Decimal(quota["debt"]) >= Decimal("101")
+    assert Decimal(r.json()["debt"]) == Decimal("0")
 
 
 @pytest.mark.asyncio
@@ -256,15 +257,9 @@ async def test_operation_survives_unavailable_result_valuation(
         await s.commit()
     from app.services import site_config
     site_config.clear_cache()
-    original = loan._holdings_value
-    admitted = False
-    async def unavailable_after_admission(*args, **kwargs):
-        nonlocal admitted
-        if operation == "borrow" and not admitted:
-            admitted = True
-            return await original(*args, **kwargs)
+    async def unavailable_result_quota(*args, **kwargs):
         raise RuntimeError("result valuation unavailable")
-    monkeypatch.setattr(loan, "_holdings_value", unavailable_after_admission)
+    monkeypatch.setattr(loan, "_unified_quota", unavailable_result_quota)
     response = await client.post(f"/api/v1/loan/{operation}", headers=headers,
                                  **({"json": {"amount": amount}} if amount else {}))
     assert response.status_code == 200, response.text

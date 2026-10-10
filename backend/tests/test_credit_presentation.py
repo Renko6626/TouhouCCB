@@ -9,7 +9,7 @@ from tests.test_user_summary_contract import _make_user, _seed_position
 
 @pytest.fixture(autouse=True)
 def unified_flags():
-    flags.set_flags(flags.CreditFlags(unified_credit_enabled=True,
+    flags.set_flags(flags.CreditFlags(
         credit_leverage=Decimal('20'), credit_maintenance_ratio=Decimal('.04')))
     yield
     flags.clear_flags()
@@ -30,9 +30,8 @@ async def test_summary_debt_free_still_uses_actual_lcv_and_multiple_wallets(clie
     response = await client.get('/api/v1/user/summary', headers=headers)
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data['unified_credit_enabled'] is True
+
     assert data['display_equity'] > data['liquidation_equity']
-    assert data['equity_to_debt'] is None
     assert data['debt_with_interest'] == 0
     assert data['risk_status'] == 'healthy'
     assert {w['currency_code'] for w in data['fx_wallets']} == {'MORA', 'LMD'}
@@ -59,11 +58,11 @@ async def test_policy_reports_running_thresholds_and_marks_old_fields(client):
     response = await client.get('/api/v1/loan/liquidation-policy')
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data['unified_credit_enabled'] is True
+
     assert data['r_initial'] == pytest.approx(1 / 19)
     assert data['r_maintenance'] == .04
     assert data['partial_pct'] == .25
-    assert data['legacy']['legacy'] is True
+
     assert 'sell_fee_rate' in data and 'fx_sell_fee_rates' in data
 
 @pytest.mark.asyncio
@@ -79,8 +78,7 @@ async def test_summary_paused_fx_has_display_value_but_no_collateral(client):
     data = (await client.get('/api/v1/user/summary', headers=headers)).json()
     assert data['display_equity'] == 200
     assert data['liquidation_equity'] == 0
-    assert data['equity_to_debt'] == 0
-    assert data['risk_status'] == data['margin_status'] == 'danger'
+    assert data['risk_status'] == 'danger'
 
 @pytest.mark.asyncio
 async def test_public_liquidation_exposes_product_only(client):
@@ -134,8 +132,7 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
     assert data['cash'] == 21 and Decimal(str(data['available_cash'])) == 1
     assert Decimal(str(data['restricted_cash'])) == 20
     assert data['debt'] == data['debt_with_interest'] == 0
-    assert data['equity_to_debt'] is None
-    assert data['risk_status'] == data['margin_status'] == expected
+    assert data['risk_status'] == expected
     short = data['short_positions'][0]
     assert short['pair_id'] == pid and Decimal(short['pending_short_debt']) > Decimal(quantity)
     assert (short['reference_cover_cost'] is None if expected == 'blocked' else
