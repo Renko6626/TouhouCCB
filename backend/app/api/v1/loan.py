@@ -14,7 +14,7 @@ from app.services.credit.cash import available_cash
 from app.models.base import User, LiquidationEvent
 from app.models.fx import FxPair
 from app.models.title import Title as _Title
-from app.api.v1.user import account_risk_fields, own_short_positions
+from app.services.credit.account_read import account_risk_fields, build_short_positions, borrow_blocked_reason
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
 from app.services.wealth import compute_users_holdings_value
@@ -58,7 +58,9 @@ async def _unified_quota(db: AsyncSession, user_id: int):
     user = (await db.execute(select(User).where(User.id == user_id)
                             .execution_options(populate_existing=True))).scalar_one()
     await credit_flags.refresh_new_risk_frozen(db)
-    frozen = user.credit_frozen or credit_flags.new_risk_frozen()
+    enabled = await site_config.get_bool(db, "loan_enabled")
+    reason = borrow_blocked_reason(valuation, thresholds, loan_enabled=enabled,
+        credit_frozen=user.credit_frozen, new_risk_frozen=credit_flags.new_risk_frozen())
     # 整组正资产 A 与空头回补成本 K 与 valuation 同源；K 未知（或现金用途不变量
     # 被破坏）时 liquidation_equity 为 None，不得折算成 0 或抛 500（spec §5.2）。
     positive_assets = sum(
@@ -68,7 +70,7 @@ async def _unified_quota(db: AsyncSession, user_id: int):
     )
     cover = valuation.short_cover_cost
     equity = valuation.liquidation_equity
-    if frozen or cover is None or equity is None:
+    if reason is not None:
         max_borrow = Decimal("0")
     else:
         # 共享空头公式 max(0, (L-1)E - D - αK)；绝不退回金债-only max_borrow。
@@ -77,7 +79,8 @@ async def _unified_quota(db: AsyncSession, user_id: int):
             positive_assets=positive_assets, short_cover=cover,
         )
     return LoanQuotaResponse(
-        enabled=await site_config.get_bool(db, "loan_enabled"),
+        enabled=enabled, credit_frozen=user.credit_frozen,
+        new_risk_frozen=credit_flags.new_risk_frozen(), borrow_blocked_reason=reason,
         cash=valuation.cash, debt=valuation.debt_effective,
         net_worth=valuation.liquidation_equity,
         leverage_k=thresholds.leverage - Decimal("1"), daily_rate=rate,
@@ -87,7 +90,9 @@ async def _unified_quota(db: AsyncSession, user_id: int):
         liquidation_equity=valuation.liquidation_equity,
         r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
         **account_risk_fields(valuation, thresholds),
-        short_positions=await own_short_positions(db, user_id),
+        short_positions=build_short_positions(valuation,
+            fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
+            unified_enabled=credit_flags.get_flags().unified_credit_enabled),
     )
 
 

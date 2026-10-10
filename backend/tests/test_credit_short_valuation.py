@@ -427,3 +427,22 @@ async def test_short_valuation_batches_sql_for_many_users():
         # Detect per-account queries without fixing the number of batched reads.
         assert second_count <= first_count, statements
         assert all(v.short_cover_cost is not None for v in second.values())
+
+
+async def test_materialized_short_projection_keeps_same_clock_and_reference_cost():
+    from app.services.credit.account_read import build_short_positions
+    _enable_unified()
+    clock = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    async with async_session_maker() as session:
+        user = await _user(session, cash='100')
+        pair = await _pair(session)
+        row = await _short(session, user, pair, principal='10', accrued=clock)
+        value = await value_user_detailed(session, user.id, daily_rate=RATE)
+        positions = build_short_positions(value, fx_enabled=False, unified_enabled=True)
+        assert len(positions) == 1
+        assert sum((p.reference_cover_cost for p in positions), ZERO) == value.short_cover_cost
+        assert all(p.blocked_reason == 'fx_disabled' and not p.executable for p in positions)
+        assert all(p.risk_status == 'ok' for p in positions)
+        assert positions[0].pending_short_debt == value.short_positions[0].pending_short_debt
+        await session.refresh(row)
+        assert row.interest_last_accrued_at.replace(tzinfo=timezone.utc) == clock

@@ -14,6 +14,9 @@ export interface LoanQuota {
   risk_basis?: string | null
   equity_to_risk_basis?: number | null
   risk_status?: 'healthy' | 'warning' | 'danger' | 'blocked' | null
+  new_risk_frozen?: boolean
+  borrow_blocked_reason?: string | null
+  credit_frozen?: boolean
   blocked_reason?: string | null
   debt: string
   net_worth: string | null

@@ -1746,57 +1746,24 @@ async def read_short_position(
         except ShortRejected:
             pending = None
 
-    if pending is None:
-        return FxShortPositionRead(
-            pair_id=pair_id, currency_code=str(pair.currency_code),
-            principal_foreign=principal, interest_foreign=interest,
-            pending_short_debt=None, restricted_gold=restricted,
-            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-            reference_cover_cost=None, reference_cover_fee=None,
-            executable=False, risk_status="blocked",
-            blocked_reason=BLOCKED_INVALID_DEBT,
-        )
+    from app.services.credit.valuation import ShortPositionValuation
+    from app.services.credit.account_read import short_position_fields
 
     snapshot = FxShortPairSnapshot(
-        pair_id=pair_id,
-        status=str(pair.status),
-        reduce_only=bool(pair.reduce_only),
-        gold_reserve=Decimal(pair.gold_reserve),
-        foreign_reserve=Decimal(pair.foreign_reserve),
-        buy_fee_rate=Decimal(pair.buy_fee_rate),
-        sell_fee_rate=Decimal(pair.sell_fee_rate),
-        pool_version=int(pair.pool_version),
-    )
-    quote = quote_fx_short_group(snapshot, foreign_debt=pending)
-    if quote.gold_in is None:
-        return FxShortPositionRead(
-            pair_id=pair_id, currency_code=str(pair.currency_code),
-            principal_foreign=principal, interest_foreign=interest,
-            pending_short_debt=pending, restricted_gold=restricted,
-            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-            reference_cover_cost=None, reference_cover_fee=None,
-            executable=False, risk_status="blocked",
-            blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
-        )
-    # Order eligibility is the intersection of the pair status, the total
-    # player-trading stop and the process-global unified-credit gate, matching
-    # the quote/write routes; the mathematical reference K and ``risk_status``
-    # stay valid even when trading is stopped.
-    if not await site_config.get_bool_or(db, "fx_enabled", False):
-        order_reason: Optional[str] = BLOCKED_FX_DISABLED
-    elif not credit_flags.get_flags().unified_credit_enabled:
-        order_reason = BLOCKED_UNIFIED_CREDIT
-    else:
-        order_reason = quote.blocked_reason
-    return FxShortPositionRead(
+        pair_id=pair_id, status=str(pair.status), reduce_only=bool(pair.reduce_only),
+        gold_reserve=Decimal(pair.gold_reserve), foreign_reserve=Decimal(pair.foreign_reserve),
+        buy_fee_rate=Decimal(pair.buy_fee_rate), sell_fee_rate=Decimal(pair.sell_fee_rate),
+        pool_version=int(pair.pool_version))
+    quote = None if pending is None else quote_fx_short_group(snapshot, foreign_debt=pending)
+    materialized = ShortPositionValuation(
         pair_id=pair_id, currency_code=str(pair.currency_code),
         principal_foreign=principal, interest_foreign=interest,
         pending_short_debt=pending, restricted_gold=restricted,
-        proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-        reference_cover_cost=quote.gold_in, reference_cover_fee=quote.fee_gold,
-        executable=order_reason is None, risk_status="ok",
-        blocked_reason=order_reason,
-    )
+        proceeds_basis_gold=basis, interest_last_accrued_at=accrued, quote=quote,
+        blocked_reason=BLOCKED_INVALID_DEBT if pending is None else None)
+    return FxShortPositionRead(**short_position_fields(materialized,
+        fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
+        unified_enabled=credit_flags.get_flags().unified_credit_enabled))
 
 
 async def _quote_open_block(

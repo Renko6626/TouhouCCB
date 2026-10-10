@@ -44,6 +44,19 @@ const dailyRatePct = computed(() => {
   return (Number(r) * 100).toFixed(2) + '%'
 })
 
+const borrowRestriction = computed(() => {
+  const labels: Record<string, string> = {
+    loan_disabled: '借款功能已关闭。',
+    frozen_by_operator: '运营已暂停新增风险，仍可还款或回补。',
+    credit_frozen: '账户信用已冻结，仍可还款或回补。',
+    valuation_unavailable: '账户估值暂不可用，请刷新后重试。',
+    insufficient_initial_margin: '账户低于借款保证金门槛，请先还款或减少风险。',
+    no_borrow_headroom: '当前没有可用借款额度。',
+  }
+  const reason = store.quota?.borrow_blocked_reason
+  return reason ? labels[reason] ?? '暂时无法新增借款，请刷新账户信息。' : null
+})
+
 const shortPositions = computed(() => store.quota?.short_positions ?? [])
 const marginRatio = computed(() => {
   if (store.quota?.equity_to_risk_basis != null) return store.quota.equity_to_risk_basis
@@ -51,6 +64,19 @@ const marginRatio = computed(() => {
   const ratio = divideFxAmount(store.quota.net_worth, store.quota.debt, 12)
   return ratio == null ? null : Number(ratio)
 })
+function shortRestriction(reason: string | null | undefined) {
+  const labels: Record<string, string> = {
+    fx_disabled: '外汇交易已暂停，参考回补成本仍有效。',
+    unified_credit_disabled: '统一信贷未启用，暂无法回补。',
+    pair_paused: '该币种交易已暂停。',
+    pair_closed: '该币种交易已关闭。',
+    insufficient_pool_foreign: '池内外币不足，暂无法报价全仓回补。',
+    invalid_short_debt: '外币债务数据异常，请联系管理员。',
+    short_quote_failed: '暂无法计算全仓回补报价，请稍后重试。',
+  }
+  return reason ? labels[reason] ?? '暂无法执行全仓回补，请查看具体报价。' : '暂无法执行全仓回补，请查看具体报价。'
+}
+
 function pendingInterest(position: AccountShortPosition) {
   if (position.pending_short_debt == null) return null
   const interest = subtractFxAmounts(position.pending_short_debt, position.principal_foreign)
@@ -151,8 +177,12 @@ async function repayAll() {
     <NSpin :show="store.loading">
       <NAlert v-if="store.error" class="page-alert" type="error" :title="store.error" />
       <NAlert v-else-if="store.quota && !store.quota.enabled" class="page-alert" type="warning" title="借款功能维护中，已有借款仍可还款" />
+      <NAlert v-if="borrowRestriction" class="page-alert" type="warning" title="借款限制">
+        {{ borrowRestriction }}
+      </NAlert>
       <NAlert v-if="store.quota?.risk_status === 'blocked'" class="page-alert" type="warning" title="暂时无法新增借款或风险">
-        {{ store.quota.blocked_reason || '账户估值暂不可用，请刷新后重试。' }}
+        账户估值暂不可用，请刷新后重试。
+        <small v-if="store.quota.blocked_reason">诊断原因：{{ store.quota.blocked_reason }}</small>
       </NAlert>
       <NAlert v-else-if="store.quota?.risk_status === 'danger'" class="page-alert" type="error" title="有强平风险，请优先还款或回补">
         {{ policy?.enabled === false ? '强平检查目前暂停；恢复后会按最新账户状态检查。' : '系统可能自动卖出持仓或回补外币来还债。' }}
@@ -302,7 +332,7 @@ async function repayAll() {
               <div><dt>锁定用于回补</dt><dd>金 {{ formatFxAmount(position.restricted_gold, 2) }}</dd></div>
               <div><dt>预计全部买回需花费</dt><dd>{{ position.reference_cover_cost == null ? '估值待恢复' : `金 ${formatFxAmount(position.reference_cover_cost, 2)}` }}</dd></div>
             </dl>
-            <p v-if="!position.executable || position.blocked_reason" class="position-warning">{{ position.blocked_reason || '暂无法执行全仓回补，请查看具体报价。' }}</p>
+            <p v-if="!position.executable || position.blocked_reason" class="position-warning">{{ shortRestriction(position.blocked_reason) }}</p>
             <router-link :to="{ path: '/fx', query: { pair: position.pair_id, action: 'cover' } }" class="cover-link">买回归还 {{ position.currency_code }}</router-link>
             <details class="position-details">
               <summary>本金、利息与费用</summary>

@@ -65,6 +65,8 @@ export interface UserSummary {
   r_maintenance?: number | null
   equity_to_debt?: number | null
   risk_status?: 'healthy' | 'warning' | 'danger' | 'blocked' | null
+  new_risk_frozen?: boolean
+  borrow_blocked_reason?: string | null
   credit_frozen?: boolean
   fx_wallets?: { pair_id: number; currency_code: string; currency_name?: string; cost_basis?: number; foreign_amount: number; mtm_gold: number }[]
   /** FX 展示市值；统一模式清算净值来自服务端产品报价 */
