@@ -121,14 +121,15 @@ async def _borrow_unified(db: AsyncSession, user_id: int, amount: Decimal):
                     db, user_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
                     source="borrow", operator_user_id=None, now=now,
                 )
-                cash, debt = u.cash, u.debt
+                response = LoanActionResponse(
+                    cash=u.cash, debt=u.debt, max_borrow=decision.max_borrow,
+                )
                 _require_writes()
                 await db.commit()
             except BaseException:
                 await db.rollback()
                 raise
-        quota = await _unified_quota(db, user_id)
-        return LoanActionResponse(cash=cash, debt=debt, max_borrow=quota.max_borrow)
+        return response
     raise HTTPException(status_code=409, detail="version_conflict; retry")
 
 
@@ -192,19 +193,18 @@ async def borrow(
         db, user.id, amount, grant_cash=True, daily_rate=rate,
         source="borrow", operator_user_id=None,
     )
+    response = LoanActionResponse(
+        cash=u.cash, debt=u.debt,
+        max_borrow=loan_service.compute_max_borrow(u, hv, k),
+    )
+    user_id = int(u.id)
     _require_writes()
     await db.commit()
-    await db.refresh(u)
     logger.info(
         "LOAN_BORROW user_id=%s amount=%s new_cash=%s new_debt=%s",
-        user.id, amount, u.cash, u.debt,
+        user_id, amount, response.cash, response.debt,
     )
-    hv2 = await _holdings_value(db, u.id)
-    return LoanActionResponse(
-        cash=u.cash,
-        debt=u.debt,
-        max_borrow=loan_service.compute_max_borrow(u, hv2, k),
-    )
+    return response
 
 
 @router.post("/repay", response_model=LoanActionResponse)
@@ -228,8 +228,6 @@ async def repay_all(
 async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     _require_writes()
     rate = await site_config.get_decimal(db, "loan_daily_rate")
-    k = (None if credit_flags.get_flags().unified_credit_enabled
-         else await site_config.get_decimal(db, "loan_leverage_k"))
 
     # 不预检金额上限：服务层在锁内结息后按真实 debt/cash 封顶；None 表示还到上限。
     # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
@@ -248,23 +246,17 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     except (ValueError, loan_service.LoanServiceError) as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    response = LoanActionResponse(
+        cash=u.cash, debt=u.debt, max_borrow=None, effective=effective,
+    )
+    user_id = int(u.id)
     _require_writes()
     await db.commit()
-    await db.refresh(u)
     logger.info(
         "LOAN_REPAY user_id=%s requested=%s effective=%s new_cash=%s new_debt=%s",
-        user.id, amount, effective, u.cash, u.debt,
+        user_id, amount, effective, response.cash, response.debt,
     )
-    if credit_flags.get_flags().unified_credit_enabled:
-        quota = await _unified_quota(db, u.id)
-        return LoanActionResponse(cash=u.cash, debt=u.debt, max_borrow=quota.max_borrow, effective=effective)
-    hv = await _holdings_value(db, u.id)
-    return LoanActionResponse(
-        cash=u.cash,
-        debt=u.debt,
-        max_borrow=loan_service.compute_max_borrow(u, hv, k),
-        effective=effective,
-    )
+    return response
 
 
 @router.get("/recent-liquidations", summary="最近强平记录（公开，首页展示）")

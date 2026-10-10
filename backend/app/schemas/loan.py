@@ -46,7 +46,7 @@ class LoanQuotaResponse(BaseModel):
 class LoanActionResponse(BaseModel):
     cash: Decimal
     debt: Decimal
-    max_borrow: Decimal
+    max_borrow: Optional[Decimal] = None
     # 实际生效金额（仅 repay 有意义；borrow 永远等于请求金额）
     # 用户输入 amount > 真实 debt 或 > cash 时，effective 会被服务层封顶
     effective: Optional[Decimal] = None
