@@ -30,7 +30,7 @@ export interface LoanQuota {
 export interface LoanActionResult {
   cash: string
   debt: string
-  max_borrow: string
+  max_borrow: string | null
   /** 实际生效金额（repay / repay-all；按提交时的负债与现金封顶） */
   effective?: string | null
 }

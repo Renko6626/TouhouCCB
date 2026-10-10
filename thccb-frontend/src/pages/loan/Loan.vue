@@ -73,16 +73,30 @@ const repayOverflow = computed(() => {
   return 0
 })
 
+function operationError(error: unknown, fallback: string) {
+  const detail = extractErrorMessage(error, fallback)
+  if (/timeout|timed out|超时/i.test(detail)) {
+    return '请求超时，操作可能已执行。请刷新并核对账户后再决定是否重新提交。'
+  }
+  return detail
+}
+
+function warnRefreshFailure() {
+  if (store.error) msg.warning(store.error)
+}
+
 async function submitBorrow() {
   if (busy.value || !store.quota?.enabled || !borrowAmount.value || borrowAmount.value <= 0
     || borrowAmount.value > maxBorrowNumber.value) return
   submitting.value = true
   try {
-    await store.borrow(String(borrowAmount.value))
-    msg.success(`借入 ${borrowAmount.value}`)
+    const amount = String(borrowAmount.value)
+    const result = await store.borrow(amount)
+    msg.success(`借入 金 ${formatFxAmount(result.effective ?? amount, 2)}`)
+    warnRefreshFailure()
     borrowAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '借款失败'))
+    msg.error(operationError(e, '借款失败'))
   } finally {
     submitting.value = false
   }
@@ -93,15 +107,12 @@ async function submitRepay() {
   submitting.value = true
   try {
     const r = await store.repay(String(repayAmount.value))
-    const eff = r.effective ? Number(r.effective) : Number(repayAmount.value)
-    if (Math.abs(eff - Number(repayAmount.value)) > 0.001) {
-      msg.success(`实际还款 金 ${eff.toFixed(2)}（输入 金 ${repayAmount.value} 已自动按真实负债 / 现金封顶）`)
-    } else {
-      msg.success(`还款 金 ${eff.toFixed(2)}`)
-    }
+    const effective = r.effective ?? String(repayAmount.value)
+    msg.success(`实际还款 金 ${formatFxAmount(effective, 2)}`)
+    warnRefreshFailure()
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '还款失败'))
+    msg.error(operationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }
@@ -117,9 +128,10 @@ async function repayAll() {
     } else {
       msg.success(`已用可用现金还款 金 ${r.effective ?? '0'}，剩余借款 金 ${r.debt}（含利息）`)
     }
+    warnRefreshFailure()
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '还款失败'))
+    msg.error(operationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }
