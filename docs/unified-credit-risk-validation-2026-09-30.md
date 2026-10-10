@@ -56,4 +56,4 @@
 
 现已有离线旧利率结息改息工具，在线仍禁止直接改息。离线维护须停止全部经济写入，取得 PostgreSQL 事务级所有权，在同一 T 按旧利率结算金债与外币债并记录审计，再原子修改利率；恢复服务须重启写实例确认启动缓存。仅冻结新增风险不足以安全维护。参数与流程见[当前运行手册](unified-credit-risk-2026-10.md)。
 
-本轮同时修复操作成功与刷新失败的边界、冻结原因与权威等级展示、账户读取及扫描统计，范围见[可靠性设计](superpowers/specs/2026-10-10-unified-credit-reliability-design.md)。[2026-10-10 验证记录](unified-credit-reliability-validation-2026-10-10.md)待控制器完成最终验证后汇总，当前尚未形成。本文不补写新的测试数量或性能结论，尚未完成的发布验收继续保留。贷款/LMSR 请求去重仍[延期](superpowers/specs/2026-10-10-trade-request-idempotency-deferred.md)，未知结果不自动重发。
+本轮同时修复操作成功与刷新失败的边界、冻结原因与权威等级展示、账户读取及扫描统计，范围见[可靠性设计](superpowers/specs/2026-10-10-unified-credit-reliability-design.md)。[2026-10-10 验证记录](unified-credit-reliability-validation-2026-10-10.md)记录本轮回归、隔离查询与扫描测量及未验证范围。本文不补写新的测试数量或性能结论，尚未完成的发布验收继续保留。贷款/LMSR 请求去重仍[延期](superpowers/specs/2026-10-10-trade-request-idempotency-deferred.md)，未知结果不自动重发。

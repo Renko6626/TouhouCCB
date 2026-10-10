@@ -160,7 +160,7 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | [FX 做空与统一债务风控设计](superpowers/specs/2026-09-30-fx-short-debt-design.md) | 待审阅 spec：借币、锁金、统一额度、回补与反向强平 |
 | [统一信贷运行手册](unified-credit-risk-2026-10.md) | 操作响应、账户刷新、冻结与风险等级、扫描统计及离线改息 |
 | [统一信贷历史验证（2026-09-30）](unified-credit-risk-validation-2026-09-30.md) | 历史回归、性能证据及未完成发布验收 |
-| [统一信贷可靠性验证（2026-10-10）](unified-credit-reliability-validation-2026-10-10.md) | 本轮最终验证记录，当前文档更新时尚未形成 |
+| [统一信贷可靠性验证（2026-10-10）](unified-credit-reliability-validation-2026-10-10.md) | 本轮回归、隔离查询与扫描测量及未验证范围 |
 | [交易请求编号与重试去重待办](superpowers/specs/2026-10-10-trade-request-idempotency-deferred.md) | 延期：区分新操作与重试，评估复用流水及交易热路径负载 |
 | `docs/migrations.md` | Alembic 数据库迁移工作流 |
 | `docs/schema-conventions.md` | 数据库字段 / Decimal 序列化约定 |

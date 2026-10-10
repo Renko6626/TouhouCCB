@@ -101,4 +101,4 @@ python scripts/change_loan_daily_rate.py --rate 0.02 --operator-user-id 1
 
 `retry_exhausted_count` 单独统计执行重试耗尽，不再计入普通 `skipped_count`；执行器 blocked 仍计入 `skipped_count` 以兼容旧统计，因此各字段并非互斥。`triggered_count`、`recovered_count`、`errors`、`deadlocks` 保留。重试耗尽仍等待下一轮扫描，不无限重试，不通过行情触发强平。`valuation_duration_ms` 为批量估值耗时；`execution_duration_ms` 与 `max_user_execution_ms` 为含等待的端到端执行耗时，不是行锁持有时间。
 
-本轮修复范围见[可靠性设计](superpowers/specs/2026-10-10-unified-credit-reliability-design.md)。[2026-10-10 验证记录](unified-credit-reliability-validation-2026-10-10.md)由本轮最终验证汇总，当前手册更新时尚未形成，不能据此宣称已通过发布门槛。
+本轮修复范围见[可靠性设计](superpowers/specs/2026-10-10-unified-credit-reliability-design.md)。[2026-10-10 验证记录](unified-credit-reliability-validation-2026-10-10.md)记录本轮回归、隔离查询与扫描测量及未验证范围，不能据此宣称已通过发布门槛。
