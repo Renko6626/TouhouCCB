@@ -8,6 +8,13 @@ import NotFound from '@/pages/NotFound.vue'
  * 顶层用 layout 组件作为 component，子路由通过 layout 内部的 <router-view /> 渲染。
  */
 export const routes: RouteRecordRaw[] = [
+  // FX 交互样稿：仅使用页面内存中的示例数据，不连接交易 API。
+  {
+    path: '/fx-preview',
+    name: 'fx-preview',
+    component: () => import('@/pages/fx-preview/FxPreview.vue'),
+    meta: { title: '外汇交易样稿', requiresAuth: false },
+  },
   // 独立宣传演示页：免登录，全部数据在浏览器内生成，不连接交易 API。
   {
     path: '/promo',

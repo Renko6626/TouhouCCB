@@ -48,6 +48,16 @@ export function fxAvailableCash(summary: Pick<UserSummary, 'cash' | 'available_c
   return summary.available_cash ?? null
 }
 
+/** 现金差额不等于可借额度；买入投入已包含手续费。 */
+export function fxFundingPreview(amount: string, summary: Pick<UserSummary, 'cash' | 'available_cash'> | null) {
+  const cash = fxAvailableCash(summary)
+  if (cash == null || compareFxAmounts(amount, '0') !== 1 || compareFxAmounts(cash, '0') == null
+    || compareFxAmounts(cash, '0') === -1) return null
+  const cashInput = subtractFxAmounts(compareFxAmounts(amount, cash) === 1 ? cash : amount, '0')
+  const shortfall = cashInput == null ? null : subtractFxAmounts(amount, cashInput)
+  return cashInput == null || shortfall == null ? null : { cashInput, shortfall }
+}
+
 /** 仅拦截已知不可执行条件，权威的逐笔风控检查仍由服务端完成。 */
 export function fxBuyBlockReason(summary: BuySummary | null, amount: string): string {
   if (!summary) return '账户信息暂不可用，请刷新后买入'

@@ -1,6 +1,6 @@
 import { resolveCreditRiskStatus } from '../creditRiskStatus'
 import { describe, expect, it } from 'vitest'
-import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings } from '../fxPresentation'
+import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings, fxFundingPreview } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 
@@ -67,6 +67,23 @@ describe('FX 交易展示口径', () => {
     expect(fxBuyBlockReason({ ...summary, available_cash: null }, '1')).not.toBe('')
     expect(fxAvailableCash({ ...summary, available_cash: '0' })).toBe('0')
     expect(fxAvailableCash({ cash: 100 })).toBeNull()
+  })
+
+  it('买入资金差额只使用未锁定现金，保留六位金额精度', () => {
+    expect(fxFundingPreview('100.000001', {
+      cash: 1000, available_cash: '10.000001',
+    })).toEqual({ cashInput: '10.000001', shortfall: '90.000000' })
+  })
+
+  it('买入资金充足时只预览本笔投入，不把全部余额算作投入', () => {
+    expect(fxFundingPreview('5', {
+      cash: 100, available_cash: '100',
+    })).toEqual({ cashInput: '5.000000', shortfall: '0.000000' })
+  })
+
+  it('账户现金未知或输入无效时不伪造资金拆分', () => {
+    expect(fxFundingPreview('5', { cash: 100 })).toBeNull()
+    expect(fxFundingPreview('-1', { cash: 100, available_cash: '100' })).toBeNull()
   })
 
   it('只减仓状态与后端买卖许可一致', () => {
