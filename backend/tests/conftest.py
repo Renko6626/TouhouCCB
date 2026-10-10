@@ -10,6 +10,7 @@
 """
 import os
 import sys
+from decimal import Decimal
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -143,6 +144,12 @@ async def setup_db():
                 SiteConfig(key="credit_leverage", value="2", value_type="decimal"),
                 SiteConfig(key="credit_maintenance_ratio", value="0.2", value_type="decimal"),
             ])
+    # This shared fixture deliberately uses an existing 2x operator profile.
+    # Keep its process snapshot aligned with its persisted values, independently
+    # of fresh-install defaults (covered on an empty configuration separately).
+    credit_flags.set_flags(credit_flags.CreditFlags(
+        credit_leverage=Decimal("2"), credit_maintenance_ratio=Decimal("0.2"),
+    ))
     yield
 
 

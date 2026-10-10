@@ -55,19 +55,26 @@ async def _config_value(key):
 @pytest.mark.asyncio
 async def test_fresh_config_defaults_and_idempotence(setup_db):
     await auto_migrate()
-    assert await _config_value("credit_leverage") == "2"
-    assert await _config_value("credit_maintenance_ratio") == "0.2"
-    assert await _config_value("loan_enabled") == "false"
+    assert await _config_value("credit_leverage") == "10"
+    assert await _config_value("credit_maintenance_ratio") == "0.04"
+    assert await _config_value("loan_enabled") == "true"
     assert await seed_credit_risk_configs() == []
     async with async_session_maker() as s:
         flags = await credit_flags.load_flags(s)
-    assert flags.thresholds.r_maintenance == Decimal(".2")
+    assert flags.thresholds.r_maintenance == Decimal(".04")
+    # Fresh-install policy grants 500 equity up to 4,500 debt (10x assets),
+    # while persisting the same settings across a second startup.
+    assert flags.thresholds.max_new_gold_loan(
+        equity=Decimal("500"), debt=Decimal("0"),
+        positive_assets=Decimal("0"), short_cover=Decimal("0"),
+    ) == Decimal("4500.000000")
 
 
 @pytest.mark.asyncio
 async def test_existing_params_and_operator_gates_preserved(setup_db):
     for key, value in {"credit_leverage":"3", "credit_maintenance_ratio":".2", "loan_leverage_k":"9", "liquidation_hard_threshold":".05", "unified_credit_enabled":"false", "loan_enabled":"false", "credit_new_risk_frozen":"true"}.items():
         await _seed_config(key, value)
+    await auto_migrate()
     assert await seed_credit_risk_configs() == []
     assert await _config_value("credit_leverage") == "3"
     assert await _config_value("credit_maintenance_ratio") == ".2"

@@ -12,6 +12,7 @@ from sqlmodel import select
 
 from app.core.database import async_session_maker, engine
 from app.core.config import settings
+from app.services.credit.flags import DEFAULT_CREDIT_LEVERAGE, DEFAULT_CREDIT_MAINTENANCE_RATIO
 from app.services.site_config import FX_DEFAULT_CONFIGS
 
 logger = logging.getLogger("thccb.loan_migrate")
@@ -28,7 +29,7 @@ CREDIT_MIGRATION_SOURCE = "credit_migration"
 
 DEFAULT_CONFIGS = [
     ("homepage_fx_enabled", "true", "bool"),  # 仅首页展示，保留管理员已有选择
-    ("loan_enabled", "false", "bool"),
+    ("loan_enabled", "true", "bool"),
     ("loan_daily_rate", "0.01", "decimal"),
     ("loan_sweep_interval_sec", "60", "int"),
     ("loan_sweep_min_accrual_sec", "3600", "int"),   # 定时结息折叠窗口（审计 M1）
@@ -129,8 +130,8 @@ def resolve_credit_config(raw: dict[str, str]) -> dict[str, str]:
 
     values = {}
     for key, legacy, default in (
-        (CREDIT_LEVERAGE_KEY, LEGACY_LEVERAGE_KEY, "2"),
-        (CREDIT_MAINTENANCE_KEY, LEGACY_HARD_THRESHOLD_KEY, "0.2"),
+        (CREDIT_LEVERAGE_KEY, LEGACY_LEVERAGE_KEY, str(DEFAULT_CREDIT_LEVERAGE)),
+        (CREDIT_MAINTENANCE_KEY, LEGACY_HARD_THRESHOLD_KEY, str(DEFAULT_CREDIT_MAINTENANCE_RATIO)),
     ):
         if key in raw:
             values[key] = raw[key]

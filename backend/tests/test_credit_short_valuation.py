@@ -306,6 +306,7 @@ async def test_unsourced_marginal_makes_display_equity_unknown(monkeypatch):
 
 
 async def test_no_short_account_keeps_old_values_and_neutral_short_fields():
+    _enable_unified("2", "0.2")  # Historical account profile, not fresh-install defaults.
     async with async_session_maker() as session:
         user = await _user(session, cash="5", debt="0")
         pair = await _pair(session, gold="120", foreign="80")
@@ -334,7 +335,7 @@ async def test_no_short_account_keeps_old_values_and_neutral_short_fields():
         assert v.restricted_cash == ZERO
         assert v.available_cash == Decimal("5")
         assert v.risk_status == "ok" and v.blocked_reason is None
-        # Debt-free assets still contribute to the shared risk basis at default leverage2.
+        # Debt-free assets still contribute to the risk basis of the 2x profile.
         assert v.risk_basis == (Decimal("0.5") * expected_asset).quantize(Q6, rounding=ROUND_CEILING)
 
 

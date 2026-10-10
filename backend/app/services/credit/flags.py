@@ -27,6 +27,8 @@ KEY_CREDIT_RISK_RETRY_LIMIT = "credit_risk_retry_limit"
 READ_ONLY_ENV = "THCCB_READ_ONLY_INSTANCE"
 
 DEFAULT_RETRY_LIMIT = 3
+DEFAULT_CREDIT_LEVERAGE = Decimal("10")
+DEFAULT_CREDIT_MAINTENANCE_RATIO = Decimal("0.04")
 
 FLAG_KEYS = (
     KEY_CREDIT_NEW_RISK_FROZEN,
@@ -78,8 +80,8 @@ class CreditFlags:
     """统一信贷进程级配置快照；``thresholds`` 为 None 表示风险引擎不可用。"""
 
     credit_new_risk_frozen: bool = False
-    credit_leverage: Optional[Decimal] = Decimal("2")
-    credit_maintenance_ratio: Optional[Decimal] = Decimal("0.2")
+    credit_leverage: Optional[Decimal] = DEFAULT_CREDIT_LEVERAGE
+    credit_maintenance_ratio: Optional[Decimal] = DEFAULT_CREDIT_MAINTENANCE_RATIO
     credit_risk_retry_limit: int = DEFAULT_RETRY_LIMIT
     read_only_instance: bool = False
     @property
