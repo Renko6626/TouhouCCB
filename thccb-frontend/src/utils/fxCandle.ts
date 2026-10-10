@@ -23,6 +23,22 @@ export interface FxCandle {
   v: number
 }
 
+/** 图表库无法把空时间轴映射为可视区间；首笔成交前保持空态。 */
+export function fxCandleVisibleRange(
+  candles: readonly FxCandle[], nowSeconds: number, stepSeconds: number,
+): { from: number; to: number } | null {
+  const last = candles[candles.length - 1]
+  if (!last) return null
+  const to = Math.max(nowSeconds, last.t + stepSeconds)
+  return { from: to - Math.max(60, 80 * stepSeconds), to }
+}
+
+/** lightweight-charts 可视时间端点取真实桶，不能用墙钟差判断用户回看。 */
+export function fxCandleScrolledBack(candles: readonly FxCandle[], visibleTo: number): boolean {
+  const last = candles[candles.length - 1]
+  return !!last && visibleTo < last.t
+}
+
 export interface FxPriceApply {
   /** 跨桶过多，组件应重新拉取整段历史 */
   reload: boolean

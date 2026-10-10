@@ -34,6 +34,7 @@ import {
   fxHoldingValue,
   fxPairAllowsSide,
   fxSellAllocation,
+  fxShortRiskStatus,
 } from '@/utils/fxPresentation'
 import { resolveCreditRiskStatus } from '@/utils/creditRiskStatus'
 import type {
@@ -487,17 +488,12 @@ const riskLabels = {
   protected: '保护中',
   none: '无借款风险占用',
   unknown: '数据待恢复',
+  unestimated: '未生成风险预估',
 }
 const accountRiskLabel = computed(() => riskLabels[accountRisk.value])
 const quotedShortRiskLabel = computed(() =>
   shortQuote.value
-    ? riskLabels[
-        resolveCreditRiskStatus({
-          authoritativeStatus: shortQuote.value.margin_status,
-          ratio: shortPostMargin.value,
-          noRisk: compareFxAmounts(shortQuote.value.estimated_risk_basis, '0') === 0,
-        })
-      ]
+    ? riskLabels[fxShortRiskStatus(shortQuote.value, shortPostMargin.value)]
     : '等待报价',
 )
 

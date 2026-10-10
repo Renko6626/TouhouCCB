@@ -45,6 +45,8 @@ import {
   FxCandleEngine,
   FX_MA_PERIODS,
   fxTimestampToSeconds,
+  fxCandleVisibleRange,
+  fxCandleScrolledBack,
   type FxCandle,
   type FxCandleTrade,
 } from '@/utils/fxCandle'
@@ -85,7 +87,6 @@ const props = withDefaults(
 
 const LOOKBACK_MINUTES: Record<FxChartInterval, number> = { '1m': 480, '15m': 1200, '1h': 4800 }
 const INTERVAL_SECONDS: Record<FxChartInterval, number> = { '1m': 60, '15m': 900, '1h': 3600 }
-const DEFAULT_VISIBLE_CANDLE_COUNT = 80
 const MA_COLORS: Record<number, string> = { 10: '#f59e0b', 20: '#2563eb' }
 /** 加载/补尾期间允许缓冲的实时成交上限；超过则放弃缓冲并请求补尾段，绝不伪造零成交。 */
 const FX_MAX_PENDING_TRADES = 5000
@@ -191,15 +192,13 @@ const buildLegend = (index: number) => {
 
 const applyVisibleRangeToNow = () => {
   if (!chartInstance) return
-  const candles = engine.candles
-  const clientNow = Math.floor(Date.now() / 1000)
-  const last = candles[candles.length - 1]
-  const step = INTERVAL_SECONDS[props.interval]
-  const to = Math.max(clientNow, last ? last.t + step : clientNow)
-  const lookback = Math.max(60, DEFAULT_VISIBLE_CANDLE_COUNT * step)
+  const range = fxCandleVisibleRange(
+    engine.candles, Math.floor(Date.now() / 1000), INTERVAL_SECONDS[props.interval],
+  )
+  if (!range) return
   chartInstance.timeScale().setVisibleRange({
-    from: (to - lookback) as UTCTimestamp,
-    to: to as UTCTimestamp,
+    from: range.from as UTCTimestamp,
+    to: range.to as UTCTimestamp,
   })
 }
 
@@ -234,6 +233,7 @@ const renderAll = (resetRange = true) => {
  */
 const applyChanged = (changed: FxCandle[]) => {
   if (!candleSeries || !volumeSeries || changed.length === 0) return
+  const wasEmpty = candleCount.value === 0
   const candles = engine.candles
   const startIndex = engine.count - changed.length
   const trailing = startIndex >= 0
@@ -255,6 +255,10 @@ const applyChanged = (changed: FxCandle[]) => {
   })
   candleCount.value = engine.count
   applyPriceAxis(changed[changed.length - 1]!.c)
+  if (wasEmpty) {
+    userScrolledBack = false
+    applyVisibleRangeToNow()
+  }
   if (!userScrolledBack) buildLegend(engine.count - 1)
 }
 
@@ -599,8 +603,7 @@ const initChart = () => {
   // 用户拖时间轴看历史 → 暂停 1Hz ticker 平移（同市场页）
   chartInstance.timeScale().subscribeVisibleTimeRangeChange((range) => {
     if (!range) return
-    const nowSec = Math.floor(Date.now() / 1000)
-    userScrolledBack = nowSec - (range.to as number) > 2
+    userScrolledBack = fxCandleScrolledBack(engine.candles, range.to as number)
   })
 
   // 十字线移动 → 图例展示该根 OHLC / MA / 成交量；移出后回到最新根

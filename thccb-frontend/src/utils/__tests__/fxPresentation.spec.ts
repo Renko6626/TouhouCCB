@@ -1,10 +1,20 @@
 import { resolveCreditRiskStatus } from '../creditRiskStatus'
 import { describe, expect, it } from 'vitest'
-import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings, fxFundingPreview } from '../fxPresentation'
+import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings, fxFundingPreview, fxShortRiskStatus } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 
 describe('FX 交易展示口径', () => {
+  it('额度拦截未进入风险模拟时不报告风险检查失败，真实失败仍保留', () => {
+    const quote = { estimated_equity: null, estimated_risk_basis: null,
+      margin_status: 'blocked' as const, risk_blocked_reason: null,
+      blocked_reason: 'short_lending_limit' }
+    expect(fxShortRiskStatus(quote, null)).toBe('unestimated')
+    expect(fxShortRiskStatus({ ...quote, risk_blocked_reason: 'risk_engine_unavailable' }, null))
+      .toBe('blocked')
+    expect(fxShortRiskStatus({ ...quote, blocked_reason: 'risk_engine_unavailable' }, null))
+      .toBe('blocked')
+  })
   const short: AccountShortPosition = {
     pair_id: 1, currency_code: 'MORA', principal_foreign: '100', interest_foreign: '1',
     pending_short_debt: '101', restricted_gold: '10', proceeds_basis_gold: '50.000001',

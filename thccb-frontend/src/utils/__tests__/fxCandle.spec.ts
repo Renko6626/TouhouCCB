@@ -7,6 +7,8 @@ import {
   fxBucketStart,
   fxChartPointsToCandles,
   fxMovingAverage,
+  fxCandleVisibleRange,
+  fxCandleScrolledBack,
   type FxCandle,
 } from '@/utils/fxCandle'
 import type { FxChartPoint } from '@/types/fx'
@@ -32,6 +34,23 @@ const engineWith = (count: number, step = 60): FxCandleEngine => {
   engine.load(series(count, step))
   return engine
 }
+
+describe('fxCandleVisibleRange', () => {
+  it('空历史没有可设置的时间范围，第一根成交后恢复跟随', () => {
+    expect(fxCandleVisibleRange([], BASE, 60)).toBeNull()
+    const candles = fxChartPointsToCandles([point(BASE + 60, 5)])
+    expect(fxCandleVisibleRange(candles, BASE, 60)).toEqual({
+      from: BASE + 120 - 80 * 60,
+      to: BASE + 120,
+    })
+  })
+  it('首笔成交自动显示最新桶不算回看，只有移到旧桶才暂停跟随', () => {
+    const candles = fxChartPointsToCandles([point(BASE, 5), point(BASE + 60, 6)])
+    // Chart reports the last visible real bucket, not the wall-clock endpoint.
+    expect(fxCandleScrolledBack(candles, BASE + 60)).toBe(false)
+    expect(fxCandleScrolledBack(candles, BASE)).toBe(true)
+  })
+})
 
 describe('fxBucketStart', () => {
   it('按周期向下对齐', () => {

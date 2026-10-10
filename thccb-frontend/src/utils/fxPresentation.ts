@@ -1,6 +1,20 @@
 import { addFxAmounts, compareFxAmounts, divideFxAmount, formatFxAmount, multiplyFxAmount, subtractFxAmounts } from '@/api/fx'
-import type { FxPairPublic, FxSide, FxTradePublic, FxWalletPublic } from '@/types/fx'
+import type { FxPairPublic, FxShortQuote, FxSide, FxTradePublic, FxWalletPublic } from '@/types/fx'
 import type { UserSummary } from '@/types/user'
+import { resolveCreditRiskStatus, type CreditRiskStatus } from './creditRiskStatus'
+
+/** 外币额度/库存门槛先于风险模拟；没有成交后估值不等于风险引擎故障。 */
+export function fxShortRiskStatus(quote: Pick<FxShortQuote,
+  'estimated_equity' | 'estimated_risk_basis' | 'margin_status' | 'risk_blocked_reason' | 'blocked_reason'>,
+  ratio: number | null,
+): CreditRiskStatus | 'unestimated' {
+  if ((quote.blocked_reason === 'short_lending_limit' || quote.blocked_reason === 'insufficient_treasury_foreign')
+    && !quote.risk_blocked_reason && quote.estimated_equity == null && quote.estimated_risk_basis == null) {
+    return 'unestimated'
+  }
+  return resolveCreditRiskStatus({ authoritativeStatus: quote.margin_status, ratio,
+    noRisk: compareFxAmounts(quote.estimated_risk_basis, '0') === 0 })
+}
 
 type CreditSummary = Pick<UserSummary, 'debt' | 'debt_with_interest'>
 type BuySummary = CreditSummary & Pick<UserSummary, 'cash' | 'credit_frozen' | 'available_cash'>
