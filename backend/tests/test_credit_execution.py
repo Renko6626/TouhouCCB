@@ -199,3 +199,39 @@ async def test_last_sale_with_paused_asset_keeps_run_active():
         run=(await s.execute(select(LiquidationRun))).scalar_one()
         assert run.status=='active' and run.last_blocked_reason=='no_executable_group'
         assert (await s.get(User,uid)).credit_frozen
+
+
+@pytest.mark.asyncio
+async def test_finite_version_conflicts_exhaust_without_mutation_then_resume(monkeypatch, caplog):
+    from app.services.credit import execution
+    from app.services.credit.flags import get_flags
+    from app.models.audit import AuditEvent
+    uid = await seed(debt='200', fx=['500'])
+    original = execution.lock_user
+    attempts = 0
+    async def conflict(session, user_id):
+        nonlocal attempts
+        user = await original(session, user_id)
+        # Simulate a conflicting snapshot only; never persist the injected version.
+        attempts += 1
+        from sqlalchemy.orm.attributes import set_committed_value
+        set_committed_value(user, 'economic_version', user.economic_version + 1)
+        return user
+    monkeypatch.setattr(execution, 'lock_user', conflict)
+    with caplog.at_level('INFO', logger=execution.__name__):
+        assert await execute(uid) == 'retry_exhausted'
+    assert attempts == get_flags().credit_risk_retry_limit + 1
+    assert [r.retry_reason for r in caplog.records if hasattr(r, 'retry_reason')] == [
+        'economic_version_drift'] * attempts
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert (user.cash, user.debt, user.economic_version) == (D('0'), D('200'), 0)
+        assert (await s.execute(select(FxWallet))).scalar_one().foreign_amount == 500
+        for model in (LiquidationRun, LiquidationAction, LiquidationEvent, AuditEvent):
+            assert not list((await s.execute(select(model))).scalars())
+    monkeypatch.setattr(execution, 'lock_user', original)
+    assert await execute(uid) == 'triggered'
+    async with async_session_maker() as s:
+        assert (await s.execute(select(FxWallet))).scalar_one().foreign_amount == 0
+        assert (await s.get(User, uid)).debt < 200
+        assert (await s.execute(select(LiquidationAction))).scalar_one().kind == 'sell_group'

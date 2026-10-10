@@ -934,6 +934,7 @@ async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(
     # Risk/valuation-level: the simulation short-circuited on the freeze, so the
     # portfolio estimate stays nullable and the reason is still reported.
     assert body["risk_status"] == "blocked"
+    assert body["margin_status"] == "blocked"
     assert body["risk_blocked_reason"] == "credit_frozen"
     assert body["estimated_equity"] is None
     assert body["estimated_risk_basis"] is None
@@ -1027,6 +1028,7 @@ async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
     assert body["executable"] is True
     assert body["blocked_reason"] is None
     assert body["risk_status"] == "blocked"
+    assert body["margin_status"] == "blocked"
     assert body["risk_blocked_reason"] == "insufficient_pool_foreign"
     assert body["estimated_equity"] is None
     assert body["estimated_risk_basis"] is None
@@ -1065,6 +1067,7 @@ async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis
     assert body["executable"] is True
     assert body["risk_status"] == "ok", body
     assert body["risk_blocked_reason"] is None
+    assert body["margin_status"] == "healthy"
 
     expected_buy = quote_buy_exact_out(D("100"), D("1000"), D("1000"), D("0"))
     expected_cash = D("1000") - expected_buy.input_amount
@@ -1087,3 +1090,27 @@ async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis
         actual = await value_user_detailed(s, user_id, daily_rate=D("0"))
     assert actual.liquidation_equity == D(body["estimated_equity"])
     assert actual.risk_basis == D(body["estimated_risk_basis"])
+
+async def test_cover_quote_margin_status_uses_exact_basis_at_rounding_boundary(client, monkeypatch):
+    flags = credit_flags.parse_flags({
+        "unified_credit_enabled": "true", "credit_leverage": "4.5",
+        "credit_maintenance_ratio": "0.1", "credit_risk_retry_limit": "3",
+    })
+    monkeypatch.setattr(credit_flags, "get_flags", lambda: flags)
+    _, admin_headers = await _make_user(superuser=True)
+    user_id, user_headers = await _make_user(cash="0.000007")
+    await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
+    pair_id = await _create_pair(client, admin_headers, gold_reserve="100",
+                                 foreign_reserve="100", buy_fee_rate="0", sell_fee_rate="0",
+                                 short_lending_limit_foreign="0")
+    await _seed_short_direct(pair_id, user_id, principal="0.000004", restricted="0",
+                             accrued=datetime.now(timezone.utc))
+    response = await _quote(client, user_headers, pair_id,
+                            {"action": "cover", "foreign_amount": "0.000001"})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["executable"] is True
+    assert D(body["input_amount"]) == D("0.000002")
+    assert D(body["estimated_equity"]) == D("0.000001")
+    assert D(body["estimated_risk_basis"]) == D("0.000004")
+    assert body["margin_status"] == "healthy"

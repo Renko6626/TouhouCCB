@@ -76,16 +76,50 @@ async def test_disabled_run_now_and_no_extra_triggers(monkeypatch):
 async def test_blocked_and_deadlock_metrics_are_real(monkeypatch):
     from sqlalchemy.exc import DBAPIError
     async with async_session_maker() as s:
-        s.add_all([User(username=f'metric{i}',cash=D('0'),debt=D('1')) for i in range(3)])
+        s.add_all([User(username=f'metric{i}',cash=D('0'),debt=D('1')) for i in range(4)])
         await s.commit()
         ids=list((await s.execute(select(User.id).order_by(User.id))).scalars())
     async def execute(uid,**kwargs):
         if uid==ids[0]:return 'blocked'
         if uid==ids[1]:raise DBAPIError('test',{},Exception('deadlock detected'))
+        if uid==ids[2]:return 'retry_exhausted'
         return 'triggered'
     monkeypatch.setattr(sweep,'execute_user',execute)
     result=await liquidation_sweep.run_liquidation_sweep_once()
+    assert result['retry_exhausted_count']==1
+    assert result['execution_blocked_count']==1
     assert result['blocked_count']==1 and result['skipped_count']==1
     assert result['deadlocks']==1 and result['errors']==1
     assert result['monetary_action_count']==1
     assert result['execution_duration_ms']>=result['max_user_execution_ms']>=0
+
+
+@pytest.mark.asyncio
+async def test_warning_and_unknown_cover_scan_preserves_funds():
+    from datetime import datetime, timezone
+    from app.models.fx import FxPair, FxShortPosition
+    from app.models.credit import LiquidationAction
+    from app.models.base import LiquidationEvent
+    async with async_session_maker() as s:
+        warning = User(username='warning', cash=D('105'), debt=D('100'))
+        blocked = User(username='unknown', cash=D('50'), debt=D('0'))
+        pair = FxPair(currency_code='UNKNOWN', currency_name='unknown',
+                      gold_reserve=D('1000'), foreign_reserve=D('1000'))
+        s.add_all([warning, blocked, pair]); await s.flush()
+        s.add(FxShortPosition(user_id=blocked.id, pair_id=pair.id,
+                             principal_foreign=D('1000'), interest_last_accrued_at=datetime.now(timezone.utc),
+                             restricted_gold=D('0'),
+                             proceeds_basis_gold=D('0')))
+        await s.commit(); warning_id, blocked_id = warning.id, blocked.id
+    result = await liquidation_sweep.run_liquidation_sweep_once()
+    assert result['scanned_count'] == 2 and result['soft_warning_count'] == 1
+    assert result['valuation_blocked_count'] == result['execution_blocked_count'] == 1
+    assert result['blocked_count'] == 1 and result['monetary_action_count'] == 0
+    assert result['valuation_duration_ms'] >= 0
+    async with async_session_maker() as s:
+        warning = await s.get(User, warning_id); blocked = await s.get(User, blocked_id)
+        assert (warning.cash, warning.debt) == (D('105'), D('100'))
+        assert (blocked.cash, blocked.debt) == (D('50'), D('0'))
+        assert (await s.execute(select(FxShortPosition))).scalar_one().principal_foreign == 1000
+        assert (await s.execute(select(LiquidationAction))).scalar_one().kind == 'blocked'
+        assert not list((await s.execute(select(LiquidationEvent))).scalars())

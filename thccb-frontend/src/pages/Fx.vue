@@ -1051,7 +1051,7 @@ onUnmounted(() => {
                 <CreditRiskStatus
                   :ratio="summaryLoading || summaryFailed ? null : summary?.equity_to_risk_basis ?? null"
                   :initial="summary?.r_initial ?? null" :maintenance="summary?.r_maintenance ?? null"
-                  :blocked="summary?.risk_status === 'blocked'"
+                  :authoritative-status="summaryLoading || summaryFailed ? 'unknown' : summary?.risk_status"
                   :no-risk="!summaryLoading && !summaryFailed && compareFxAmounts(summary?.risk_basis, '0') === 0"
                 />
                 <p class="fx-hint">低于开仓门槛不能新增风险；回补减仓仍按本笔报价判断。借金不会增加账户净值。</p>
@@ -1080,7 +1080,7 @@ onUnmounted(() => {
                 <CreditRiskStatus
                   title="本笔成交后保证金率（预估）" :ratio="shortPostMargin"
                   :initial="summary?.r_initial ?? null" :maintenance="summary?.r_maintenance ?? null"
-                  :blocked="shortQuote.estimated_equity == null || shortQuote.estimated_risk_basis == null"
+                  :authoritative-status="shortQuote.margin_status"
                   :no-risk="compareFxAmounts(shortQuote.estimated_risk_basis, '0') === 0"
                 />
                 <div class="fx-preview-row"><span>{{ shortAction === 'open' ? '最低金所得' : '最高金支出' }}</span><strong>{{ shortLimit }} 金圆券</strong></div>

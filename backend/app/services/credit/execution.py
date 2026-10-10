@@ -15,6 +15,7 @@ WP4c 在 WP4a 的候选发现/WP4b 的预算受限回补内核之上补齐已知
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import ROUND_CEILING, Decimal
@@ -54,6 +55,8 @@ from app.services.fx.shorts import (
     pending_short_debt,
 )
 from app.services.market_locks import lock_user
+
+logger = logging.getLogger(__name__)
 
 ZERO = Decimal('0')
 Q6 = Decimal('0.000001')
@@ -793,7 +796,12 @@ async def execute_user(user_id, *, rate, pct, source):
     from app.services.writer_ops import LiquidateGroupCmd
 
     retries = get_flags().credit_risk_retry_limit + 1
-    for _ in range(retries):
+    def log_retry(reason, attempt):
+        logger.info('unified liquidation retry', extra={
+            'user_id': user_id, 'retry_reason': reason, 'retry_attempt': attempt,
+            'retry_attempt_limit': retries})
+
+    for attempt in range(1, retries + 1):
         async with async_session_maker() as session:
             deps = await discover_dependencies(session, user_id)
             preliminary = await value_user_detailed(session, user_id, daily_rate=rate)
@@ -816,15 +824,18 @@ async def execute_user(user_id, *, rate, pct, source):
                                 .order_by(FxPair.id).with_for_update())
                         user = await lock_user(session, user_id)
                         if user.economic_version != deps.economic_version:
+                            log_retry('economic_version_drift', attempt)
                             continue
                         fresh = await discover_dependencies(session, user_id)
                         if set(fresh.groups) != set(deps.groups):
+                            log_retry('dependency_selection_drift', attempt)
                             continue
                         current = await value_user_detailed(session, user_id, daily_rate=rate)
                         now = datetime.now(timezone.utc)
                         current_choice = await choose_liquidation_action(
                             session, current, fresh, pct=pct, daily_rate=rate, now=now)
                         if not _same_choice(guess, current_choice):
+                            log_retry('selection_drift', attempt)
                             continue
                         plan = await prepare_locked(
                             session, user, fresh, rate=rate, pct=pct, source=source,
@@ -885,10 +896,11 @@ async def execute_user(user_id, *, rate, pct, source):
                                            result.public.id)
                         else:
                             return plan.status
-        except ShortRetryCredit:
+        except ShortRetryCredit as exc:
             # Covers: version/economic drift or a rollback-required post-settlement
             # mismatch. The whole transaction is already rolled back; rediscover.
             # Never persist a post-settlement failure as a committable blocked round.
+            log_retry(type(exc).__name__, attempt)
             continue
         if publication is not None:
             # Forced sell/cover committed: hint the incremental market-data
@@ -905,9 +917,13 @@ async def execute_user(user_id, *, rate, pct, source):
                 raise RuntimeError('unified LMSR liquidation requires market writer')
             result = await WRITER.submit(command)
             if result.get('blocked_reason') == 'selection_changed':
+                log_retry('writer_selection_drift', attempt)
                 continue
             if result.get('blocked_reason'):
                 return 'blocked'
             return ('triggered' if result.get('sold_count') or result.get('repaid')
                     else 'recovered')
-    return 'skipped'
+    logger.warning('unified liquidation retries exhausted', extra={
+        'user_id': user_id, 'execution_status': 'retry_exhausted',
+        'retry_attempt_limit': retries})
+    return 'retry_exhausted'

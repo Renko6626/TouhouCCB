@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import { NInputNumber, NButton, NSpin, NAlert, useMessage } from 'naive-ui'
 import { useLoanStore } from '@/stores/loan'
 import { fetchLiquidationPolicy, type LiquidationPolicy } from '@/api/loan'
-import { extractErrorMessage } from '@/utils/errors'
+import { loanOperationError } from '@/utils/errors'
 import { compareFxAmounts, formatFxAmount, subtractFxAmounts } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
@@ -44,8 +44,33 @@ const dailyRatePct = computed(() => {
   return (Number(r) * 100).toFixed(2) + '%'
 })
 
+const borrowRestriction = computed(() => {
+  const labels: Record<string, string> = {
+    loan_disabled: '借款功能已关闭。',
+    frozen_by_operator: '运营已暂停新增风险，仍可还款或回补。',
+    credit_frozen: '账户信用已冻结，仍可还款或回补。',
+    valuation_unavailable: '账户估值暂不可用，请刷新后重试。',
+    insufficient_initial_margin: '账户低于借款保证金门槛，请先还款或减少风险。',
+    no_borrow_headroom: '当前没有可用借款额度。',
+  }
+  const reason = store.quota?.borrow_blocked_reason
+  return reason ? labels[reason] ?? '暂时无法新增借款，请刷新账户信息。' : null
+})
+
 const shortPositions = computed(() => store.quota?.short_positions ?? [])
-const marginRatio = computed(() => store.quota?.risk_status === 'blocked' ? null : store.quota?.equity_to_risk_basis ?? null)
+const marginRatio = computed(() => store.quota?.equity_to_risk_basis ?? null)
+function shortRestriction(reason: string | null | undefined) {
+  const labels: Record<string, string> = {
+    fx_disabled: '外汇交易已暂停，参考回补成本仍有效。',
+    pair_paused: '该币种交易已暂停。',
+    pair_closed: '该币种交易已关闭。',
+    insufficient_pool_foreign: '池内外币不足，暂无法报价全仓回补。',
+    invalid_short_debt: '外币债务数据异常，请联系管理员。',
+    short_quote_failed: '暂无法计算全仓回补报价，请稍后重试。',
+  }
+  return reason ? labels[reason] ?? '暂无法执行全仓回补，请查看具体报价。' : '暂无法执行全仓回补，请查看具体报价。'
+}
+
 function pendingInterest(position: AccountShortPosition) {
   if (position.pending_short_debt == null) return null
   const interest = subtractFxAmounts(position.pending_short_debt, position.principal_foreign)
@@ -67,16 +92,21 @@ const repayOverflow = computed(() => {
   return 0
 })
 
+watch(() => store.error, (error) => {
+  if (error?.startsWith('操作已完成，账户信息刷新失败：')) msg.warning(error)
+})
+
 async function submitBorrow() {
   if (busy.value || !store.quota?.enabled || !borrowAmount.value || borrowAmount.value <= 0
     || borrowAmount.value > maxBorrowNumber.value) return
   submitting.value = true
   try {
-    await store.borrow(String(borrowAmount.value))
-    msg.success(`借入 ${borrowAmount.value}`)
+    const amount = String(borrowAmount.value)
+    const result = await store.borrow(amount)
+    msg.success(`借入 金 ${formatFxAmount(result.effective ?? amount, 2)}`)
     borrowAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '借款失败'))
+    msg.error(loanOperationError(e, '借款失败'))
   } finally {
     submitting.value = false
   }
@@ -87,15 +117,11 @@ async function submitRepay() {
   submitting.value = true
   try {
     const r = await store.repay(String(repayAmount.value))
-    const eff = r.effective ? Number(r.effective) : Number(repayAmount.value)
-    if (Math.abs(eff - Number(repayAmount.value)) > 0.001) {
-      msg.success(`实际还款 金 ${eff.toFixed(2)}（输入 金 ${repayAmount.value} 已自动按真实负债 / 现金封顶）`)
-    } else {
-      msg.success(`还款 金 ${eff.toFixed(2)}`)
-    }
+    const effective = r.effective ?? String(repayAmount.value)
+    msg.success(`实际还款 金 ${formatFxAmount(effective, 2)}`)
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '还款失败'))
+    msg.error(loanOperationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }
@@ -113,7 +139,7 @@ async function repayAll() {
     }
     repayAmount.value = null
   } catch (e: unknown) {
-    msg.error(extractErrorMessage(e, '还款失败'))
+    msg.error(loanOperationError(e, '还款失败'))
   } finally {
     submitting.value = false
   }
@@ -133,8 +159,12 @@ async function repayAll() {
     <NSpin :show="store.loading">
       <NAlert v-if="store.error" class="page-alert" type="error" :title="store.error" />
       <NAlert v-else-if="store.quota && !store.quota.enabled" class="page-alert" type="warning" title="借款功能维护中，已有借款仍可还款" />
+      <NAlert v-if="borrowRestriction" class="page-alert" type="warning" title="借款限制">
+        {{ borrowRestriction }}
+      </NAlert>
       <NAlert v-if="store.quota?.risk_status === 'blocked'" class="page-alert" type="warning" title="暂时无法新增借款或风险">
-        {{ store.quota.blocked_reason || '账户估值暂不可用，请刷新后重试。' }}
+        账户估值暂不可用，请刷新后重试。
+        <small v-if="store.quota.blocked_reason">诊断原因：{{ store.quota.blocked_reason }}</small>
       </NAlert>
       <NAlert v-else-if="store.quota?.risk_status === 'danger'" class="page-alert" type="error" title="有强平风险，请优先还款或回补">
         {{ policy?.enabled === false ? '强平检查目前暂停；恢复后会按最新账户状态检查。' : '系统可能自动卖出持仓或回补外币来还债。' }}
@@ -250,7 +280,7 @@ async function repayAll() {
             :ratio="marginRatio"
             :initial="store.quota?.r_initial ?? policy?.r_initial"
             :maintenance="store.quota?.r_maintenance ?? policy?.r_maintenance"
-            :blocked="store.quota?.risk_status === 'blocked'"
+            :authoritative-status="store.loading || store.error ? 'unknown' : store.quota?.risk_status"
             :no-risk="compareFxAmounts(store.quota?.risk_basis, '0') === 0"
           />
           <p class="risk-note">低于强平线时，系统可能自动减仓还债。</p>
@@ -283,7 +313,7 @@ async function repayAll() {
               <div><dt>锁定用于回补</dt><dd>金 {{ formatFxAmount(position.restricted_gold, 2) }}</dd></div>
               <div><dt>预计全部买回需花费</dt><dd>{{ position.reference_cover_cost == null ? '估值待恢复' : `金 ${formatFxAmount(position.reference_cover_cost, 2)}` }}</dd></div>
             </dl>
-            <p v-if="!position.executable || position.blocked_reason" class="position-warning">{{ position.blocked_reason || '暂无法执行全仓回补，请查看具体报价。' }}</p>
+            <p v-if="!position.executable || position.blocked_reason" class="position-warning">{{ shortRestriction(position.blocked_reason) }}</p>
             <router-link :to="{ path: '/fx', query: { pair: position.pair_id, action: 'cover' } }" class="cover-link">买回归还 {{ position.currency_code }}</router-link>
             <details class="position-details">
               <summary>本金、利息与费用</summary>

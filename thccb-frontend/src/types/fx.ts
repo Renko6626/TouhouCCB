@@ -277,6 +277,7 @@ export interface FxShortQuote {
   affordable: boolean | null
   estimated_equity: string | null
   estimated_risk_basis: string | null
+  margin_status: 'healthy' | 'warning' | 'danger' | 'blocked'
   risk_status: string
   risk_blocked_reason: string | null
   executable: boolean

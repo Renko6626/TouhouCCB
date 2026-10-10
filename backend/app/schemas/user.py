@@ -68,6 +68,8 @@ class UserSummary(BaseModel):
     r_initial: Optional[float] = None
     r_maintenance: Optional[float] = None
     risk_status: Optional[str] = None
+    new_risk_frozen: bool = False
+    borrow_blocked_reason: Optional[str] = None
     credit_frozen: bool = False
     fx_mtm: Money = Decimal("0")
     fx_cost_basis: Money = Decimal("0")

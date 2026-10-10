@@ -38,6 +38,7 @@ from app.services.credit.fx_quote import (
     BLOCKED_SHORT_QUOTE_FAILED,
     FxPairSnapshot,
     FxShortPairSnapshot,
+    FxShortQuote,
     quote_fx_group,
     quote_fx_short_group,
 )
@@ -86,6 +87,20 @@ class GroupLiquidation:
 
 
 @dataclass(frozen=True)
+class ShortPositionValuation:
+    pair_id: int
+    currency_code: str
+    principal_foreign: Decimal
+    interest_foreign: Decimal
+    interest_last_accrued_at: datetime | None
+    restricted_gold: Decimal
+    proceeds_basis_gold: Decimal
+    pending_short_debt: Decimal | None
+    quote: FxShortQuote | None
+    blocked_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class AccountValuation:
     user_id: int
     cash: Decimal
@@ -105,6 +120,7 @@ class AccountValuation:
     restricted_cash: Decimal = ZERO
     risk_status: str = RISK_STATUS_OK
     blocked_reason: str | None = None
+    short_positions: tuple[ShortPositionValuation, ...] = ()
 
 
 def _as_decimal(value: object, name: str) -> Decimal:
@@ -214,6 +230,8 @@ async def _account_valuations(
             FxShortPosition.interest_foreign,
             FxShortPosition.interest_last_accrued_at,
             FxShortPosition.restricted_gold,
+            FxShortPosition.proceeds_basis_gold,
+            FxPair.currency_code,
             FxPair.status,
             FxPair.reduce_only,
             FxPair.gold_reserve,
@@ -228,7 +246,7 @@ async def _account_valuations(
     )).all()
     restricted_by_user: dict[int, Decimal] = {}
     shorts_by_user: dict[int, list[tuple[FxShortPairSnapshot, object]]] = {}
-    for (uid, pair_id, principal, interest, accrued, restricted,
+    for (uid, pair_id, principal, interest, accrued, restricted, basis, code,
          status, reduce_only, gold_reserve, foreign_reserve,
          buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
         uid = int(uid)
@@ -245,6 +263,9 @@ async def _account_valuations(
                 pool_version=int(pool_version),
             ),
             SimpleNamespace(
+                currency_code=code,
+                restricted_gold=Decimal(restricted),
+                proceeds_basis_gold=Decimal(basis),
                 principal_foreign=Decimal(principal),
                 interest_foreign=Decimal(interest),
                 interest_last_accrued_at=accrued,
@@ -348,10 +369,23 @@ async def _account_valuations(
         short_marginal = ZERO
         marginal_incomplete = False
 
+        short_positions: list[ShortPositionValuation] = []
         for snapshot, position in shorts_by_user.get(uid, []):
+            if not any((position.principal_foreign, position.interest_foreign,
+                        position.restricted_gold, position.proceeds_basis_gold)):
+                continue
+            fields = dict(pair_id=snapshot.pair_id, currency_code=position.currency_code,
+                          principal_foreign=position.principal_foreign,
+                          interest_foreign=position.interest_foreign,
+                          interest_last_accrued_at=position.interest_last_accrued_at,
+                          restricted_gold=position.restricted_gold,
+                          proceeds_basis_gold=position.proceeds_basis_gold)
             try:
                 foreign_debt = pending_short_debt(position, daily_rate, now)
             except (ValueError, ArithmeticError):
+                short_positions.append(ShortPositionValuation(
+                    **fields, pending_short_debt=None, quote=None,
+                    blocked_reason=REASON_INVALID_SHORT_DEBT))
                 unknown_reasons.append(REASON_INVALID_SHORT_DEBT)
                 # 负债本身无法解析：不可能有有来源的边际估计，展示净值必须未知。
                 marginal_incomplete = True
@@ -363,9 +397,11 @@ async def _account_valuations(
                     role="short_cover",
                 ))
                 continue
+            quote = quote_fx_short_group(snapshot, foreign_debt=foreign_debt)
+            short_positions.append(ShortPositionValuation(
+                **fields, pending_short_debt=foreign_debt, quote=quote))
             if foreign_debt <= ZERO:
                 continue
-            quote = quote_fx_short_group(snapshot, foreign_debt=foreign_debt)
             groups.append(GroupLiquidation(
                 key=GroupKey("fx", snapshot.pair_id),
                 value=quote.gold_in,
@@ -422,6 +458,7 @@ async def _account_valuations(
         result[uid] = AccountValuation(
             user_id=uid,
             cash=cash,
+            short_positions=tuple(short_positions),
             debt_persisted=debt,
             debt_effective=debt_effective,
             mtm_lmsr=mtm_lmsr,

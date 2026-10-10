@@ -25,6 +25,9 @@ class LoanQuotaResponse(BaseModel):
     risk_basis: Optional[Decimal] = None
     equity_to_risk_basis: Optional[float] = None
     risk_status: Optional[str] = None
+    new_risk_frozen: bool = False
+    borrow_blocked_reason: Optional[str] = None
+    credit_frozen: bool = False
     economic_version: Optional[int] = None
     # 注意：本字段是 LCV 口径（含 LMSR 滑点 + 扣 sell_fee），与 /user/summary.net_worth
     # 的 MTM 口径不同！borrow/repay 路径走保守口径，避免 MTM 虚高估值导致过度杠杆。
@@ -46,7 +49,7 @@ class LoanQuotaResponse(BaseModel):
 class LoanActionResponse(BaseModel):
     cash: Decimal
     debt: Decimal
-    max_borrow: Decimal
+    max_borrow: Optional[Decimal] = None
     # 实际生效金额（仅 repay 有意义；borrow 永远等于请求金额）
     # 用户输入 amount > 真实 debt 或 > cash 时，effective 会被服务层封顶
     effective: Optional[Decimal] = None

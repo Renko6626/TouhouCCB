@@ -4,7 +4,6 @@ import json
 import time
 from datetime import datetime, timezone
 from decimal import Decimal as D
-from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, func
@@ -98,7 +97,7 @@ async def test_pg_liquidation_repayment_contention_and_other_symbol_progress(pg_
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==1
     assert not GATES.held_keys()
 
-async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker):
+async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker,tmp_path):
     ids,trader,pairs=await seed(pg_sessionmaker,100,mixed=True)
     await market_writer.WRITER.start()
     async def trades():
@@ -118,6 +117,6 @@ async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker):
         assert len({a.user_id for a in actions})==100
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==100
     evidence={'users':100,'fx_pairs':3,'lmsr_markets':1,'concurrent_fx_buys':count,'scan':result,'total_wall_sec':elapsed,'scope':'One real PG scan, three bounded workers, FX/LMSR liquidation, concurrent debt-free FX buys. No HTTP/WebSocket, production DB, sustained load or concurrent LMSR player orders.'}
-    path=Path(__file__).resolve().parents[3]/'.superpowers/sdd/2026-09-30-unified-credit-risk/perf/pg-mixed-scan.json'
+    path=tmp_path/'pg-mixed-scan.json'
     path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(evidence,indent=2)+'\n')
     print(json.dumps(evidence))

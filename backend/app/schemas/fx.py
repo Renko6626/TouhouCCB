@@ -307,6 +307,7 @@ class FxShortQuoteResponse(BaseModel):
     estimated_equity: Optional[Decimal] = None
     estimated_risk_basis: Optional[Decimal] = None
     risk_status: str
+    margin_status: str
     risk_blocked_reason: Optional[str] = None
     executable: bool
     blocked_reason: Optional[str] = None

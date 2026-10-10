@@ -13,7 +13,7 @@ const shouldShow = computed(() => {
 })
 
 const ratio = computed(() => userStore.marginRatioEstimate)
-const status = computed(() => summary.value?.risk_status ?? 'blocked')
+const status = computed(() => userStore.loading || userStore.error ? 'unknown' : summary.value?.risk_status ?? 'unknown')
 const hardThr = computed(() => summary.value?.r_maintenance ?? null)
 const softThr = computed(() => summary.value?.r_initial ?? null)
 // net_worth 是 MTM 主显示（账面），net_worth_liquidation 是 LCV（保证金计算用）
@@ -27,6 +27,7 @@ const statusLabel = computed(() => {
   if (status.value === 'blocked') return '风险检查阻塞'
   if (status.value === 'danger') return '危险'
   if (status.value === 'warning') return '警戒'
+  if (status.value === 'unknown') return '数据待恢复'
   return '健康'
 })
 
@@ -69,8 +70,8 @@ function relativeTime(ms: number): string {
     </p>
     <p v-if="status === 'blocked'">{{ summary?.blocked_reason || '估值待恢复，新增风险暂不可用。' }}</p>
     <CreditRiskStatus
-      :ratio="ratio" :initial="softThr" :maintenance="hardThr"
-      :blocked="status === 'blocked'"
+      :ratio="status === 'unknown' ? null : ratio" :initial="softThr" :maintenance="hardThr"
+      :authoritative-status="status"
       :no-risk="compareFxAmounts(summary?.risk_basis, '0') === 0"
     />
     <details class="risk-details">

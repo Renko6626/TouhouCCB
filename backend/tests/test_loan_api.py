@@ -66,10 +66,14 @@ async def test_borrow_success_updates_cash_and_debt(client):
 
 @pytest.mark.asyncio
 async def test_borrow_exceeds_quota_400(client):
-    _, h = await _make_user(cash=Decimal("100"))
+    uid, h = await _make_user(cash=Decimal("100"))
     # k=1, net_worth=100, max_borrow=100；借 200 应拒
     r = await client.post("/api/v1/loan/borrow", json={"amount": "200"}, headers=h)
     assert r.status_code == 400
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert user.cash == Decimal("100") and user.debt == 0
+        assert (await s.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all() == []
 
 
 @pytest.mark.asyncio
@@ -151,6 +155,10 @@ async def test_repay_all_already_repaid_is_safe_noop(client):
     assert r.status_code == 200, r.text
     assert Decimal(r.json()["debt"]) == Decimal(r.json()["effective"]) == 0
     assert Decimal(r.json()["cash"]) == Decimal("500")
+    assert r.json()["max_borrow"] is None
+    async with async_session_maker() as s:
+        assert (await s.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all() == []
+        assert (await s.execute(select(AuditEvent).where(AuditEvent.user_id == uid))).scalars().all() == []
 
 
 @pytest.mark.asyncio
@@ -161,6 +169,7 @@ async def test_repay_all_without_cash_fails_without_forgiving_debt(client):
     async with async_session_maker() as s:
         u = await s.get(User, uid)
         assert u.cash == 0 and u.debt == Decimal("100")
+        assert (await s.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all() == []
 
 
 @pytest.mark.asyncio
@@ -228,3 +237,44 @@ async def test_repay_clamps_to_cash(client):
     assert u2.cash == Decimal("0") or u2.cash == Decimal("0.000000")
     # debt = 200 - 30 = 170（允许复利微增）
     assert abs(u2.debt - Decimal("170")) < Decimal("0.01")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation,amount,cash,debt,effective", [
+    ("borrow", "10", "110", "10", None),
+    ("repay", "5", "95", "15", "5"),
+    ("repay-all", None, "80", "0", "20"),
+])
+async def test_operation_survives_unavailable_result_valuation(
+    client, monkeypatch, operation, amount, cash, debt, effective,
+):
+    from app.api.v1 import loan
+    uid, headers = await _make_user(cash=Decimal("100"), debt=Decimal("0" if operation == "borrow" else "20"))
+    await _set_fixed_interest_clock(uid, monkeypatch)
+    async with async_session_maker() as s:
+        config = (await s.execute(select(SiteConfig).where(SiteConfig.key == "loan_daily_rate"))).scalar_one()
+        config.value = "0"
+        await s.commit()
+    from app.services import site_config
+    site_config.clear_cache()
+    async def unavailable_result_quota(*args, **kwargs):
+        raise RuntimeError("result valuation unavailable")
+    monkeypatch.setattr(loan, "_unified_quota", unavailable_result_quota)
+    response = await client.post(f"/api/v1/loan/{operation}", headers=headers,
+                                 **({"json": {"amount": amount}} if amount else {}))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert Decimal(body["cash"]) == Decimal(cash)
+    assert Decimal(body["debt"]) == Decimal(debt)
+    if effective is not None:
+        assert Decimal(body["effective"]) == Decimal(effective)
+        assert body["max_borrow"] is None
+    else:
+        assert Decimal(body["max_borrow"]) == Decimal("90")
+    async with async_session_maker() as s:
+        user = await s.get(User, uid)
+        assert user.cash == Decimal(cash) and user.debt == Decimal(debt)
+        entry = (await s.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalar_one()
+        delta = Decimal(amount) if operation == "borrow" else -Decimal(effective)
+        assert entry.cash_delta == entry.debt_delta == delta
+        assert entry.cash_after == user.cash and entry.debt_after == user.debt

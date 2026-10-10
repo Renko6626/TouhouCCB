@@ -14,10 +14,9 @@ from app.services.credit.cash import available_cash
 from app.models.base import User, LiquidationEvent
 from app.models.fx import FxPair
 from app.models.title import Title as _Title
-from app.api.v1.user import account_risk_fields, own_short_positions
+from app.services.credit.account_read import account_risk_fields, build_short_positions, borrow_blocked_reason
 from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionResponse, RepayRequest
 from app.services import site_config, loan_service
-from app.services.wealth import compute_users_holdings_value
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
@@ -30,22 +29,7 @@ router = APIRouter()
 logger = logging.getLogger("thccb.loan")
 
 
-async def _holdings_value(db: AsyncSession, user_id: int) -> Decimal:
-    """借款相关接口的持仓估值 —— 用 LCV (立即清算价值) 保守口径。
-
-    历史上这里用 MTM (瞬时价 × 数量)，导致借款页 NW 偏高、Portfolio NW 偏低的
-    分裂体感。统一改 LCV 后：借款额度更保守（按可变现金额算 max_borrow），
-    避免用户被 MTM 高估值"骗"出超出真实清算能力的杠杆。详见
-    docs/holdings-value-semantics.md。
-    """
-    return (
-        await compute_users_holdings_value(db, user_ids=[user_id])
-    ).get(user_id, Decimal("0"))
-
-
-
 def _require_writes():
-    flags = credit_flags.get_flags()
     OWNERSHIP.require_writes()
 
 
@@ -56,7 +40,9 @@ async def _unified_quota(db: AsyncSession, user_id: int):
     user = (await db.execute(select(User).where(User.id == user_id)
                             .execution_options(populate_existing=True))).scalar_one()
     await credit_flags.refresh_new_risk_frozen(db)
-    frozen = user.credit_frozen or credit_flags.new_risk_frozen()
+    enabled = await site_config.get_bool(db, "loan_enabled")
+    reason = borrow_blocked_reason(valuation, thresholds, loan_enabled=enabled,
+        credit_frozen=user.credit_frozen, new_risk_frozen=credit_flags.new_risk_frozen())
     # 整组正资产 A 与空头回补成本 K 与 valuation 同源；K 未知（或现金用途不变量
     # 被破坏）时 liquidation_equity 为 None，不得折算成 0 或抛 500（spec §5.2）。
     positive_assets = sum(
@@ -66,7 +52,7 @@ async def _unified_quota(db: AsyncSession, user_id: int):
     )
     cover = valuation.short_cover_cost
     equity = valuation.liquidation_equity
-    if frozen or cover is None or equity is None:
+    if reason is not None:
         max_borrow = Decimal("0")
     else:
         # 共享空头公式 max(0, (L-1)E - D - αK)；绝不退回金债-only max_borrow。
@@ -75,7 +61,8 @@ async def _unified_quota(db: AsyncSession, user_id: int):
             positive_assets=positive_assets, short_cover=cover,
         )
     return LoanQuotaResponse(
-        enabled=await site_config.get_bool(db, "loan_enabled"),
+        enabled=enabled, credit_frozen=user.credit_frozen,
+        new_risk_frozen=credit_flags.new_risk_frozen(), borrow_blocked_reason=reason,
         cash=valuation.cash, debt=valuation.debt_effective,
         net_worth=valuation.liquidation_equity,
         credit_leverage=thresholds.leverage, daily_rate=rate,
@@ -85,7 +72,9 @@ async def _unified_quota(db: AsyncSession, user_id: int):
         liquidation_equity=valuation.liquidation_equity,
         r_initial=thresholds.r_initial, r_maintenance=thresholds.r_maintenance,
         **account_risk_fields(valuation, thresholds),
-        short_positions=await own_short_positions(db, user_id),
+        short_positions=build_short_positions(valuation,
+            fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
+            unified_enabled=True),
     )
 
 
@@ -119,14 +108,15 @@ async def _borrow_unified(db: AsyncSession, user_id: int, amount: Decimal):
                     db, user_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
                     source="borrow", operator_user_id=None, now=now,
                 )
-                cash, debt = u.cash, u.debt
+                response = LoanActionResponse(
+                    cash=u.cash, debt=u.debt, max_borrow=decision.max_borrow,
+                )
                 _require_writes()
                 await db.commit()
             except BaseException:
                 await db.rollback()
                 raise
-        quota = await _unified_quota(db, user_id)
-        return LoanActionResponse(cash=cash, debt=debt, max_borrow=quota.max_borrow)
+        return response
     raise HTTPException(status_code=409, detail="version_conflict; retry")
 
 
@@ -151,8 +141,6 @@ async def borrow(
 
     return await _borrow_unified(db, int(user.id), Decimal(req.amount))
 
-
-
 @router.post("/repay", response_model=LoanActionResponse)
 async def repay(
     req: RepayRequest,
@@ -175,7 +163,6 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     _require_writes()
     rate = await site_config.get_decimal(db, "loan_daily_rate")
 
-
     # 不预检金额上限：服务层在锁内结息后按真实 debt/cash 封顶；None 表示还到上限。
     # 这样：(1) 不会因复利让 cash 跑负 (2) 用户输入超额（>debt 或 >cash）会被静默封顶，
     # 实际扣减由 effective 字段返回，前端可展示"实际还款 金 N"。
@@ -193,15 +180,17 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     except (ValueError, loan_service.LoanServiceError) as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    response = LoanActionResponse(
+        cash=u.cash, debt=u.debt, max_borrow=None, effective=effective,
+    )
+    user_id = int(u.id)
     _require_writes()
     await db.commit()
-    await db.refresh(u)
     logger.info(
         "LOAN_REPAY user_id=%s requested=%s effective=%s new_cash=%s new_debt=%s",
-        user.id, amount, effective, u.cash, u.debt,
+        user_id, amount, effective, response.cash, response.debt,
     )
-    quota = await _unified_quota(db, u.id)
-    return LoanActionResponse(cash=u.cash, debt=u.debt, max_borrow=quota.max_borrow, effective=effective)
+    return response
 
 
 @router.get("/recent-liquidations", summary="最近强平记录（公开，首页展示）")

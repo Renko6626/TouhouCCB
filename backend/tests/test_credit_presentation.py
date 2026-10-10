@@ -13,6 +13,7 @@ def unified_flags():
         credit_leverage=Decimal('20'), credit_maintenance_ratio=Decimal('.04')))
     yield
     flags.clear_flags()
+    flags.set_new_risk_frozen(None)
 
 @pytest.mark.asyncio
 async def test_summary_debt_free_still_uses_actual_lcv_and_multiple_wallets(client):
@@ -103,6 +104,11 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
     uid, headers = await _make_user(cash=Decimal('21'))
     clock = datetime.now(timezone.utc)
     async with async_session_maker() as db:
+        if expected == 'blocked':
+            from app.models.base import User
+            from sqlalchemy import select
+            own = (await db.execute(select(User).where(User.id == uid))).scalar_one()
+            own.credit_frozen = True
         db.add_all([SiteConfig(key=k, value=v, value_type=t) for k,v,t in [
             ('loan_daily_rate', '.001', 'decimal'), ('loan_enabled', 'true', 'bool'),
             ('fx_enabled', 'true', 'bool')]])
@@ -129,6 +135,8 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
     assert data['risk_status'] == expected
     short = data['short_positions'][0]
     assert short['pair_id'] == pid and Decimal(short['pending_short_debt']) > Decimal(quantity)
+    assert (short['reference_cover_cost'] is None if expected == 'blocked' else
+            Decimal(short['reference_cover_cost']) == Decimal(str(data['short_cover_cost'])))
     assert 'short_lending_limit_foreign' not in short and 'treasury' not in short
     response = await client.get('/api/v1/loan/quota', headers=headers)
     assert response.status_code == 200, response.text
@@ -139,6 +147,7 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
         assert data['short_cover_cost'] is data['risk_basis'] is data['equity_to_risk_basis'] is None
         assert data['liquidation_equity'] is None and data['blocked_reason']
         assert quota['net_worth'] is None and quota['blocked_reason']
+        assert quota['borrow_blocked_reason'] == data['borrow_blocked_reason'] == 'credit_frozen'
     else:
         assert Decimal(str(data['short_cover_cost'])) > 20
         assert Decimal(str(data['risk_basis'])) > 0 and data['equity_to_risk_basis'] is not None
@@ -156,3 +165,37 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
         # Module-scoped app startup rejects leftover live debt with legacy flags.
         await db.delete(row)
         await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('enabled,operator,user_frozen,reason', [
+    (False, True, True, 'loan_disabled'),
+    (True, True, True, 'frozen_by_operator'),
+    (True, False, True, 'credit_frozen'),
+])
+async def test_healthy_frozen_account_explains_borrow_gate_and_can_repay(
+        client, enabled, operator, user_frozen, reason):
+    from app.models.base import SiteConfig, User
+    from sqlalchemy import select
+    uid, headers = await _make_user(cash=Decimal('100'), debt=Decimal('1'))
+    async with async_session_maker() as db:
+        row = (await db.execute(select(User).where(User.id == uid))).scalar_one()
+        row.credit_frozen = user_frozen
+        db.add_all([SiteConfig(key=k, value=v, value_type=t) for k,v,t in [
+            ('loan_enabled', str(enabled).lower(), 'bool'),
+            ('credit_new_risk_frozen', str(operator).lower(), 'bool'),
+            ('loan_daily_rate', '0', 'decimal')]])
+        await db.commit()
+    for endpoint in ['user/summary', 'loan/quota']:
+        response = await client.get('/api/v1/' + endpoint, headers=headers)
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data['risk_status'] == 'healthy'
+        assert data['blocked_reason'] is None
+        assert data['credit_frozen'] is True and data['new_risk_frozen'] is operator
+        assert data['borrow_blocked_reason'] == reason
+        if endpoint == 'loan/quota':
+            assert Decimal(data['max_borrow']) == 0
+    response = await client.post('/api/v1/loan/repay-all', headers=headers)
+    assert response.status_code == 200, response.text
+    assert Decimal(response.json()['debt']) == 0

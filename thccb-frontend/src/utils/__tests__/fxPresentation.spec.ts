@@ -1,3 +1,4 @@
+import { resolveCreditRiskStatus } from '../creditRiskStatus'
 import { describe, expect, it } from 'vitest'
 import { fxAvailableCash, fxHoldingValue, fxBuyBlockReason, fxPairAllowsSide, fxSellAllocation, fxGoldPerForeign, fxHomeHoldings } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
@@ -82,5 +83,15 @@ describe('FX 交易展示口径', () => {
     expect(fxSellAllocation('2', { debt: 3 }))
       .toEqual({ repayment: '2.000000', cashIncrease: '0.000000' })
     expect(fxSellAllocation('10', null)).toBeNull()
+  })
+})
+
+describe('账户风险等级展示', () => {
+  const boundary = { ratio: 0.25, initial: 1 / 3.5, maintenance: 0.2 }
+  it('统一模式使用完整组合的权威等级，不以展示比率重新判定', () => {
+    expect(resolveCreditRiskStatus({ ...boundary, authoritativeStatus: 'healthy' })).toBe('healthy')
+    expect(resolveCreditRiskStatus({ ...boundary, authoritativeStatus: 'blocked', noRisk: true })).toBe('blocked')
+    expect(resolveCreditRiskStatus({ ...boundary, authoritativeStatus: 'unknown', noRisk: true })).toBe('unknown')
+    expect(resolveCreditRiskStatus(boundary)).toBe('unknown')
   })
 })

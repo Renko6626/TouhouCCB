@@ -183,6 +183,10 @@ async def test_borrow_rejects_pending_interest_reducing_headroom():
             await borrow(BorrowRequest(amount='90'),user=user,db=db)
         assert exc.value.status_code==400
         assert not GATES.held_keys()
+        from app.models.ledger import LedgerEntry
+        assert (await db.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all() == []
+        user = await db.get(User, uid)
+        assert user.cash == D("100") and user.debt == D("50")
 
 
 async def test_owner_lost_during_fx_user_lock_is_rejected(monkeypatch):
@@ -223,3 +227,39 @@ async def test_new_principal_starts_now_when_old_interest_rounds_to_zero():
         assert entry.debt_after - entry.debt_delta == D('0.000001')
         assert entry.cash_after - entry.cash_delta == D('100')
         assert entry.debt_last_accrued_at_after.replace(tzinfo=timezone.utc) == now
+
+
+@pytest.mark.parametrize("operation,cash,debt,effective", [
+    ("borrow", "110", "60", None),
+    ("repay", "95", "45", "5"),
+    ("repay-all", "50", "0", "50"),
+])
+async def test_loan_result_does_not_require_quota_valuation(monkeypatch, operation, cash, debt, effective):
+    from app.api.v1 import loan
+    from app.schemas.loan import RepayRequest
+    from app.models.ledger import LedgerEntry
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("result quota unavailable")
+    monkeypatch.setattr(loan, "_unified_quota", unavailable)
+    async with async_session_maker() as db:
+        uid, _ = await seed(db)
+        user = await db.get(User, uid)
+        if operation == "borrow":
+            result = await loan.borrow(BorrowRequest(amount='10'), user=user, db=db)
+        elif operation == "repay":
+            result = await loan.repay(RepayRequest(amount='5'), user=user, db=db)
+        else:
+            result = await loan.repay_all(user=user, db=db)
+        assert result.cash == D(cash) and result.debt == D(debt)
+        if effective is not None:
+            assert result.effective == D(effective) and result.max_borrow is None
+        else:
+            assert result.max_borrow == D('90')
+        assert not GATES.held_keys()
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.cash == D(cash) and user.debt == D(debt)
+        entry = (await db.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalar_one()
+        delta = D('10') if operation == 'borrow' else -D(effective)
+        assert entry.cash_delta == entry.debt_delta == delta
+        assert entry.cash_after == user.cash and entry.debt_after == user.debt

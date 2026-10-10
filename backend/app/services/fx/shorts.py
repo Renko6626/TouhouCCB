@@ -1643,6 +1643,7 @@ class FxShortQuoteRead:
     estimated_equity: Optional[Decimal]
     estimated_risk_basis: Optional[Decimal]
     risk_status: str
+    margin_status: str
     risk_blocked_reason: Optional[str]
     executable: bool
     blocked_reason: Optional[str]
@@ -1690,6 +1691,7 @@ def _blocked_quote(
         estimated_equity=estimated_equity,
         estimated_risk_basis=estimated_risk_basis,
         risk_status="blocked",
+        margin_status="blocked",
         risk_blocked_reason=risk_reason,
         executable=executable,
         blocked_reason=reason,
@@ -1735,55 +1737,24 @@ async def read_short_position(
         except ShortRejected:
             pending = None
 
-    if pending is None:
-        return FxShortPositionRead(
-            pair_id=pair_id, currency_code=str(pair.currency_code),
-            principal_foreign=principal, interest_foreign=interest,
-            pending_short_debt=None, restricted_gold=restricted,
-            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-            reference_cover_cost=None, reference_cover_fee=None,
-            executable=False, risk_status="blocked",
-            blocked_reason=BLOCKED_INVALID_DEBT,
-        )
+    from app.services.credit.valuation import ShortPositionValuation
+    from app.services.credit.account_read import short_position_fields
 
     snapshot = FxShortPairSnapshot(
-        pair_id=pair_id,
-        status=str(pair.status),
-        reduce_only=bool(pair.reduce_only),
-        gold_reserve=Decimal(pair.gold_reserve),
-        foreign_reserve=Decimal(pair.foreign_reserve),
-        buy_fee_rate=Decimal(pair.buy_fee_rate),
-        sell_fee_rate=Decimal(pair.sell_fee_rate),
-        pool_version=int(pair.pool_version),
-    )
-    quote = quote_fx_short_group(snapshot, foreign_debt=pending)
-    if quote.gold_in is None:
-        return FxShortPositionRead(
-            pair_id=pair_id, currency_code=str(pair.currency_code),
-            principal_foreign=principal, interest_foreign=interest,
-            pending_short_debt=pending, restricted_gold=restricted,
-            proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-            reference_cover_cost=None, reference_cover_fee=None,
-            executable=False, risk_status="blocked",
-            blocked_reason=quote.blocked_reason or BLOCKED_RISK_UNKNOWN,
-        )
-    # Order eligibility is the intersection of the pair status, the total
-    # player-trading stop, matching
-    # the quote/write routes; the mathematical reference K and ``risk_status``
-    # stay valid even when trading is stopped.
-    if not await site_config.get_bool_or(db, "fx_enabled", False):
-        order_reason: Optional[str] = BLOCKED_FX_DISABLED
-    else:
-        order_reason = quote.blocked_reason
-    return FxShortPositionRead(
+        pair_id=pair_id, status=str(pair.status), reduce_only=bool(pair.reduce_only),
+        gold_reserve=Decimal(pair.gold_reserve), foreign_reserve=Decimal(pair.foreign_reserve),
+        buy_fee_rate=Decimal(pair.buy_fee_rate), sell_fee_rate=Decimal(pair.sell_fee_rate),
+        pool_version=int(pair.pool_version))
+    quote = None if pending is None else quote_fx_short_group(snapshot, foreign_debt=pending)
+    materialized = ShortPositionValuation(
         pair_id=pair_id, currency_code=str(pair.currency_code),
         principal_foreign=principal, interest_foreign=interest,
         pending_short_debt=pending, restricted_gold=restricted,
-        proceeds_basis_gold=basis, interest_last_accrued_at=accrued,
-        reference_cover_cost=quote.gold_in, reference_cover_fee=quote.fee_gold,
-        executable=order_reason is None, risk_status="ok",
-        blocked_reason=order_reason,
-    )
+        proceeds_basis_gold=basis, interest_last_accrued_at=accrued, quote=quote,
+        blocked_reason=BLOCKED_INVALID_DEBT if pending is None else None)
+    return FxShortPositionRead(**short_position_fields(materialized,
+        fx_enabled=await site_config.get_bool_or(db, "fx_enabled", False),
+        unified_enabled=True))
 
 
 async def _quote_open_block(
@@ -2029,6 +2000,7 @@ async def quote_short(
         estimated_basis: Optional[Decimal],
         risk_reason: Optional[str],
         order_reason: Optional[str],
+        margin_status: str = "blocked",
     ) -> FxShortQuoteRead:
         """Split order eligibility from the portfolio-valuation signal.
 
@@ -2057,6 +2029,7 @@ async def quote_short(
             estimated_equity=estimated_equity,
             estimated_risk_basis=estimated_basis,
             risk_status="ok" if estimated_equity is not None else "blocked",
+            margin_status=margin_status,
             risk_blocked_reason=risk_reason,
             executable=order_reason is None,
             blocked_reason=order_reason,
@@ -2105,6 +2078,7 @@ async def quote_short(
         _logger.exception("FX short quote risk simulation failed")
         return _risk_unavailable()
 
+    margin_status = "blocked"
     if decision.reason in _RISK_SHORT_CIRCUIT_REASONS:
         # 风控短路（冻结/版本冲突）不是可信的完整净值：不报价，透出原因。
         estimated_equity = None
@@ -2123,6 +2097,12 @@ async def quote_short(
         estimated_equity = valuation.equity
         estimated_basis = valuation.risk_basis
         risk_reason = valuation.blocked_reason
+        from app.services.credit.account_read import classify_account_risk
+        margin_status = classify_account_risk(
+            thresholds, equity=valuation.equity, debt=valuation.debt_after,
+            positive_assets=valuation.holdings_value, short_cover=valuation.short_cover_cost,
+            blocked_reason=valuation.blocked_reason,
+        )
 
     if cover:
         order_reason = cover_order_reason
@@ -2133,5 +2113,5 @@ async def quote_short(
         order_reason = decision.reason or BLOCKED_RISK_UNKNOWN
     return _result(
         estimated_equity=estimated_equity, estimated_basis=estimated_basis,
-        risk_reason=risk_reason, order_reason=order_reason,
+        risk_reason=risk_reason, order_reason=order_reason, margin_status=margin_status,
     )

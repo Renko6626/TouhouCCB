@@ -9,6 +9,7 @@ from app.models.base import User
 from app.models.credit import LiquidationRun
 from app.models.fx import FxShortPosition
 from app.services import site_config
+from app.services.credit.account_read import classify_account_risk
 from app.services.credit.flags import get_flags
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.valuation import RISK_STATUS_OK, value_users_batch
@@ -58,8 +59,11 @@ async def run_sweep(trigger_source='scheduler'):
         raise ValueError('invalid liquidation configuration')
     result = dict(triggered_count=0, soft_warning_count=0, errors=0, deadlocks=0,
                   recovered_count=0, skipped_count=0, scanned_count=0,
-                  blocked_count=0, monetary_action_count=0,
+                  blocked_count=0, valuation_blocked_count=0, execution_blocked_count=0,
+                  retry_exhausted_count=0, valuation_duration_ms=0, monetary_action_count=0,
                   execution_duration_ms=0, max_user_execution_ms=0)
+    valuation_blocked = set()
+    execution_blocked = set()
     sem = asyncio.Semaphore(WORKERS)
 
     async def worker(uid):
@@ -68,10 +72,12 @@ async def run_sweep(trigger_source='scheduler'):
             status = 'error'
             try:
                 status = await execute_user(uid, rate=rate, pct=pct, source=trigger_source)
-                key = {'triggered': 'triggered_count', 'recovered': 'recovered_count'}.get(status, 'skipped_count')
+                key = {'triggered': 'triggered_count', 'recovered': 'recovered_count',
+                       'retry_exhausted': 'retry_exhausted_count'}.get(status, 'skipped_count')
                 result[key] += 1
                 if status == 'blocked':
-                    result['blocked_count'] += 1
+                    # Preserve skipped_count's historical inclusion of execution blockers.
+                    execution_blocked.add(uid)
                 elif status == 'triggered':
                     result['monetary_action_count'] += 1
             except Exception as exc:
@@ -107,7 +113,9 @@ async def run_sweep(trigger_source='scheduler'):
                 User.id <= upper, or_(User.debt > 0, active, foreign_debt)).order_by(User.id).limit(PAGE_SIZE))).scalars())
             if not ids:
                 break
+            valuation_start = time.monotonic()
             values = await value_users_batch(session, ids, daily_rate=rate)
+            result['valuation_duration_ms'] += int((time.monotonic() - valuation_start) * 1000)
             active_ids = set((await session.execute(select(LiquidationRun.user_id).where(
                 LiquidationRun.user_id.in_(ids), LiquidationRun.status == 'active'))).scalars())
             thresholds = get_flags().thresholds
@@ -116,6 +124,17 @@ async def run_sweep(trigger_source='scheduler'):
                 value = values.get(uid)
                 if value is None:
                     continue
+                risk = classify_account_risk(
+                    thresholds, equity=value.liquidation_equity, debt=value.debt_effective,
+                    positive_assets=_positive_assets(value), short_cover=value.short_cover_cost,
+                    blocked_reason=value.blocked_reason)
+                if risk == 'warning':
+                    result['soft_warning_count'] += 1
+                elif risk == 'blocked':
+                    valuation_blocked.add(uid)
+                    logger.info('unified liquidation initial valuation blocked', extra={
+                        'user_id': uid, 'phase': 'initial_valuation',
+                        'valuation_status': risk, 'blocked_reason': value.blocked_reason})
                 if uid in active_ids:
                     candidates.append(uid)
                     continue
@@ -131,6 +150,9 @@ async def run_sweep(trigger_source='scheduler'):
         cursor = ids[-1]
         await asyncio.gather(*(worker(uid) for uid in candidates))
         await asyncio.sleep(0)
+    result['valuation_blocked_count'] = len(valuation_blocked)
+    result['execution_blocked_count'] = len(execution_blocked)
+    result['blocked_count'] = len(valuation_blocked | execution_blocked)
     result['sweep_duration_ms'] = int((time.monotonic()-start)*1000)
     if result['sweep_duration_ms'] > int(cfg.get('liquidation_sweep_interval_sec', '600'))*1000:
         logger.warning('liquidation scan exceeded interval: %s', result)
