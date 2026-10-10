@@ -91,6 +91,18 @@ python scripts/change_loan_daily_rate.py --rate 0.02 --operator-user-id 1
 
 前端收到操作成功结果后展示实际结果，再 GET quota 一次。若该刷新失败，提示“操作已完成，账户信息刷新失败”，清空旧 quota，避免用旧现金或旧额度继续提交。超时、断网或提交结果未知时不自动重发借还款或 LMSR 买卖；先刷新账户并核对，但刷新本身无法证明某个原请求是否执行。用户手动再次提交按新操作处理。贷款和 LMSR 暂无请求编号、去重或原结果重放，见[交易请求编号与重试去重待办](superpowers/specs/2026-10-10-trade-request-idempotency-deferred.md)。
 
+### FX 原子融资买入
+
+FX 做多页新增“借款并买入”，同时填写买入总额和本次新增本金。融资报价展示现金拆分、含息债务及
+成交后保证金风险，沿用全账户共同担保。接口 `/fx/pairs/{pair_id}/borrow-buy` 将借款和买入放在同一事务，
+任一失败均回滚；现有卖出偿债和空头回补规则保持。请求总额和借款本金都参与 FX 幂等身份校验。
+未知结果保留原编号，通过“重试原订单”确认；身份变化、登录失效和限流时不将原订单发送到新账号。
+贷款和 LMSR 的请求编号待办仍独立延期。
+
+上线需先执行 Alembic `fx_borrow_buy_20261010` 迁移；已有融资成交时迁移拒绝 downgrade，避免丢失
+融资身份。额度页的可借金额不能替代本笔融资成交后检查。测试与性能范围见
+[FX 借款买入验证记录](fx-borrow-buy-validation-2026-10-10.md)。
+
 ### 冻结与风险等级
 
 quota 和 UserSummary 返回 `credit_frozen`（账户信用冻结）、`new_risk_frozen`（运营冻结新增风险）和 `borrow_blocked_reason`。借款原因按以下优先级返回：`loan_disabled`、`frozen_by_operator`、`credit_frozen`、`valuation_unavailable`、`insufficient_initial_margin`、`no_borrow_headroom`；没有阻塞时为 null。`blocked_reason` 仍表示估值原因。冻结与保证金等级分别展示，healthy 账户也可能冻结；冻结不阻断还款、安全减仓和回补。

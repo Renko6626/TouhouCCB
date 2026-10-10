@@ -12,6 +12,7 @@ from app.core.users import current_active_user
 from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
+    FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyResponse,
     FxPairPublic,
     FxPersonalTrade,
     FxQuote,
@@ -27,7 +28,7 @@ from app.schemas.fx import (
     FxTradeRequest,
     FxWalletPublic,
 )
-from app.services.fx import shorts, trading
+from app.services.fx import borrow_buy, shorts, trading
 
 router = APIRouter()
 
@@ -48,6 +49,7 @@ async def all_my_trades(
         currency_code=pair.currency_code, currency_name=pair.currency_name,
         is_liquidation=trade.source == "liquidation",
         purpose=str(trade.purpose),
+        borrow_amount=trade.borrow_amount,
     ) for trade, pair in rows]
 
 
@@ -79,6 +81,27 @@ async def create_trade(pair_id: int, req: FxTradeRequest,
                                            req.min_out, req.idempotency_key)
     except trading.TradeRejected as exc:
         await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post('/pairs/{pair_id}/borrow-buy/quote', response_model=FxBorrowBuyQuote)
+async def quote_financed_buy(pair_id: int, req: FxBorrowBuyQuoteRequest,
+                            user: User = Depends(current_active_user),
+                            db: AsyncSession = Depends(get_async_session)):
+    try:
+        return await borrow_buy.quote_borrow_buy(db, int(user.id), pair_id, req.amount, req.borrow_amount)
+    except trading.TradeRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post('/pairs/{pair_id}/borrow-buy', response_model=FxBorrowBuyResponse)
+async def create_financed_buy(pair_id: int, req: FxBorrowBuyRequest,
+                             user: User = Depends(current_active_user),
+                             db: AsyncSession = Depends(get_async_session)):
+    try:
+        return await borrow_buy.execute_borrow_buy(db, int(user.id), pair_id, req.amount,
+            req.borrow_amount, req.min_out, req.idempotency_key)
+    except trading.TradeRejected as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -196,4 +219,5 @@ async def list_my_trades(pair_id: int, limit: int = Query(50, ge=1, le=100),
         **FxTradePublic.model_validate(trade).model_dump(),
         currency_code=pair.currency_code, currency_name=pair.currency_name,
         is_liquidation=trade.source == "liquidation", purpose=str(trade.purpose),
+        borrow_amount=trade.borrow_amount,
     ) for trade, pair in rows]

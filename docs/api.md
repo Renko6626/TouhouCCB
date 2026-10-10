@@ -459,10 +459,36 @@ SSE 的主页做缓存历史引导用的追加公开字段：未回填时 `histo
 - 幂等：`(user_id, idempotency_key)` 唯一。同键同参重放返回原成交且不重复扣款；
   同键换参数返回 409。
 - 拒绝条件（403）：bot 账号、未接受 TOS、货币对非 trading、gate 关闭；
-  传统信贷模式有金债时禁止买入；统一信贷模式按成交后的全仓风险准入，卖出与回补沿用各自减仓规则。
+  按成交后的全账户风险准入检查负债买入，卖出与回补沿用各自减仓规则。
 - 金额必须有限、正、最多 6 位小数（否则 422）。
 - 返回 `FxTradePublic`：`id`、`pair_id`、`side`、`input_amount`、`output_amount`、
   `fee_amount`、`post_price`、`created_at`（不含内部 `source`）。
+
+### POST `/fx/pairs/{pair_id}/borrow-buy/quote` — 融资买入报价（需登录）
+
+请求：`{ "amount": "50", "borrow_amount": "20" }`。`amount` 是含手续费的买入总投入，
+`borrow_amount` 是本次新增金圆券本金；两者有限、正、最多 6 位小数且借款不超过总投入。
+差额为使用现金，可为零；无新增借款继续使用原现货接口。
+
+只读、不锁价格、不写计息或资金记录。返回 `pair_id/input_amount/borrow_amount/cash_amount`、
+`output_amount/fee_amount/effective_price/post_price`、`available_cash/affordable`，以及
+`estimated_debt/estimated_equity/estimated_risk_basis/equity_to_risk_basis/margin_status`。
+`leverage/daily_rate/r_initial/r_maintenance` 表示生效授信配置；`executable/blocked_reason`
+表示本笔可否融资，`expires_at` 为 30 秒参考期限。缺失估值为 null，禁止融资提交。
+名义杠杆不能解释为单笔实际倍数；报价按完整买入后的钱包、储备和含息债务检查全账户风险。
+
+### POST `/fx/pairs/{pair_id}/borrow-buy` — 借款并买入（需登录）
+
+请求：`{ "amount": "50", "borrow_amount": "20", "min_out": "40", "idempotency_key": "fx-..." }`。
+仅统一信贷启用、借款开启且 FX 允许买入时可新增融资；冻结、保证金不足、同币种欠币或现金不足拒绝。
+空头锁金不能承担现金差额。成交锁内重报价，`min_out` 保护沿用 FX 规则；借款、计息、买入、钱包、
+池子、手续费及审计在同一事务提交，失败全部回滚，新本金从本次操作时点起息。
+
+返回 `trade_id/pair_id/input_amount/borrow_amount/cash_amount/output_amount/fee_amount/post_price/replay/created_at`，
+金额均为字符串。当前账户快照另行刷新，刷新失败不改变成交成功结果。
+与现货、开空、回补共用 `(user_id,idempotency_key)` 身份空间：同键同用途、同 pair、同总投入、
+同本金和同 min_out 返回原成交；改参数或跨用途为 409。重放不再次借款、买入或计息。
+网页首次发送前保存原请求，未知结果沿用原编号恢复；账号变化时停止自动重发，原订单不能转发给新账号。
 
 ### GET `/fx/pairs/{pair_id}/trades` — 公开成交流（公开）
 
@@ -476,8 +502,9 @@ pair 的隐藏参数。
 
 ### GET `/fx/pairs/{pair_id}/my-trades` — 个人成交历史（需登录）
 
-当前用户在该货币对的成交（新到旧，`limit` 1–100，默认 50），返回 `FxTradePublic` 列表；
-只含本人成交，不含其他用户身份。
+当前用户在该货币对的成交（新到旧，`limit` 1–100，默认 50），返回 `FxPersonalTrade` 列表；
+除公开成交字段外含币种、`purpose`、`is_liquidation` 和可空 `borrow_amount`。
+融资用途为 `borrow_buy`，只含本人的融资信息，公开成交及 SSE 不暴露借款金额。
 
 ### GET `/fx/pairs/{pair_id}/chart?interval=1m&from=&to=` — K 线（公开）
 

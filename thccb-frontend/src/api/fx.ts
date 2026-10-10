@@ -2,6 +2,7 @@
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
 import type {
+  FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyTrade,
   FxShortPosition, FxShortQuote, FxShortQuoteRequest, FxShortTrade,
   FxFundRequest,
   FxPersonalTrade,
@@ -37,6 +38,10 @@ export const FX_PUBLIC_FRAME_KEYS = ['price', 'buy_price', 'sell_price', 'spread
 
 // 后端 detail → 中文提示。动态文案（如首轮失败原因）走 fallback。
 const FX_ERROR_DETAILS: Record<string, string> = {
+  risk_engine_unavailable: '信用风控暂不可用，无法借款买入',
+  loan_disabled: '借款功能已暂停，仍可使用现金买入',
+  same_pair_short: '请先回补当前币种的空头，再借款买入',
+  incomplete_asset_valuation: '账户持仓暂无法完整估值，请更新账户和报价',
   'FX trading is disabled': 'FX 交易总闸未开启，管理员开市后才能交易',
   'FX pair is not trading': '该货币对当前暂停或未开市，无法交易',
   'FX pair is reduce-only': '当前币种只允许卖出，暂不能买入',
@@ -694,6 +699,12 @@ export class FxOrderSubmitter {
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
+  quoteBorrowBuy(pairId: number, body: FxBorrowBuyQuoteRequest): Promise<FxBorrowBuyQuote> {
+    return api.postForCurrentUser<FxBorrowBuyQuote>(`/api/v1/fx/pairs/${pairId}/borrow-buy/quote`, body)
+  },
+  borrowBuy(pairId: number, body: FxBorrowBuyRequest): Promise<FxBorrowBuyTrade> {
+    return api.postForCurrentUser<FxBorrowBuyTrade>(`/api/v1/fx/pairs/${pairId}/borrow-buy`, body)
+  },
   getShort(pairId: number): Promise<FxShortPosition> {
     return api.get(`/api/v1/fx/pairs/${pairId}/short`)
   },

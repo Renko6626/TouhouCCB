@@ -205,6 +205,8 @@ class RiskDecision:
     risk_basis: Optional[Decimal] = None
     short_cover_cost: Optional[Decimal] = None
     short_debt_after: Decimal = ZERO
+    # Optional full valuation projected by financed buys without a second pass.
+    holdings_value: Optional[Decimal] = None
 
 
 @dataclass(frozen=True)
@@ -1358,6 +1360,7 @@ async def check_new_risk(
     thresholds: RiskThresholds,
     partial_pct: Decimal,
     now: datetime,
+    include_valuation: bool = False,
 ) -> RiskDecision:
     """交易后风险检查（借款 / 买入 / 开仓等增险路径）。
 
@@ -1447,18 +1450,26 @@ async def check_new_risk(
         if guarded is None:
             return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
         deps = guarded
-    holdings_value, _ = await _collateral_value(
+    holdings_value, complete = await _collateral_value(
         session, user_id=uid, deps=deps, post=post, partial_pct=pct,
     )
+    if include_valuation and not complete:
+        return RiskDecision(False, REASON_INCOMPLETE_ASSET_VALUATION, None, debt_after, ZERO)
 
     if not has_short:
         # 无空头账户逐字保持旧决策行为（K=0 时 W 形式与旧式代数等价）。
         equity = _q6(post.cash + holdings_value - debt_after)
         max_borrow = thresholds.max_borrow(equity, debt_after)
+        projection = (dict(holdings_value=holdings_value, short_cover_cost=ZERO,
+                           risk_basis=thresholds.risk_basis(debt=debt_after,
+                               positive_assets=holdings_value, short_cover=ZERO)
+                               .quantize(Q6, rounding=ROUND_CEILING))
+                      if include_valuation else {})
         if equity >= thresholds.r_initial * debt_after:
-            return RiskDecision(True, None, equity, debt_after, max_borrow)
+            return RiskDecision(True, None, equity, debt_after, max_borrow, **projection)
         return RiskDecision(
             False, REASON_INSUFFICIENT_INITIAL_MARGIN, equity, debt_after, max_borrow,
+            **projection,
         )
 
     cover, short_total, unknown, not_exec = _short_risk_after(deps, post, now)
@@ -1468,11 +1479,12 @@ async def check_new_risk(
             False, unknown, None, debt_after, ZERO,
             risk_basis=None, short_cover_cost=None, short_debt_after=short_total,
         )
-    return _decide_short(
+    decision = _decide_short(
         thresholds=thresholds, cash_after=post.cash,
         holdings_value=holdings_value, debt_after=debt_after,
         cover=cover, short_total=short_total, not_executable=not_exec,
     )
+    return replace(decision, holdings_value=holdings_value) if include_valuation else decision
 
 
 async def value_post_state(

@@ -132,6 +132,76 @@ class FxTradePublic(BaseModel):
     created_at: datetime
 
 
+class FxBorrowBuyQuoteRequest(BaseModel):
+    amount: Decimal
+    borrow_amount: Decimal
+
+    @field_validator('amount', 'borrow_amount')
+    @classmethod
+    def valid_amount(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value, positive=True)
+        if value > _MAX_GOLD:
+            raise ValueError('amount exceeds storage limit')
+        return value
+
+    @model_validator(mode='after')
+    def valid_funding(self):
+        if self.borrow_amount > self.amount:
+            raise ValueError('borrow_amount cannot exceed amount')
+        return self
+
+
+class FxBorrowBuyRequest(FxBorrowBuyQuoteRequest):
+    min_out: Decimal
+    idempotency_key: str = Field(min_length=1, max_length=128)
+
+    @field_validator('min_out')
+    @classmethod
+    def valid_minimum(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        if value > _MAX_GOLD:
+            raise ValueError('min_out exceeds storage limit')
+        return value
+
+
+class FxBorrowBuyResponse(BaseModel):
+    trade_id: int
+    pair_id: int
+    input_amount: Decimal
+    borrow_amount: Decimal
+    cash_amount: Decimal
+    output_amount: Decimal
+    fee_amount: Decimal
+    post_price: Decimal
+    replay: bool
+    created_at: datetime
+
+
+class FxBorrowBuyQuote(BaseModel):
+    pair_id: int
+    input_amount: Decimal
+    borrow_amount: Decimal
+    cash_amount: Decimal
+    output_amount: Optional[Decimal] = None
+    fee_amount: Optional[Decimal] = None
+    effective_price: Optional[Decimal] = None
+    post_price: Optional[Decimal] = None
+    available_cash: Optional[Decimal] = None
+    affordable: Optional[bool] = None
+    estimated_debt: Optional[Decimal] = None
+    estimated_equity: Optional[Decimal] = None
+    estimated_risk_basis: Optional[Decimal] = None
+    equity_to_risk_basis: Optional[Decimal] = None
+    margin_status: str = 'blocked'
+    executable: bool = False
+    blocked_reason: Optional[str] = None
+    leverage: Optional[Decimal] = None
+    daily_rate: Optional[Decimal] = None
+    r_initial: Optional[Decimal] = None
+    r_maintenance: Optional[Decimal] = None
+    expires_at: datetime
+
+
 class FxShortOpenRequest(BaseModel):
     """One borrow-and-sell short open request (spec §7.1 / §10)."""
     foreign_amount: Decimal
@@ -319,6 +389,7 @@ class FxPersonalTrade(FxTradePublic):
     currency_name: str
     is_liquidation: bool
     purpose: str = "spot"
+    borrow_amount: Optional[Decimal] = None
 
 
 class FxSnapshot(BaseModel):

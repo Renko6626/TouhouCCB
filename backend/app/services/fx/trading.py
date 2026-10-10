@@ -25,7 +25,7 @@ documented on :func:`_player_side_allowed`.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -261,7 +261,8 @@ def notify_market_data_committed(pair_id: int) -> None:
 async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
                                    amount: Decimal, min_out: Decimal,
                                    idempotency_key: str, *,
-                                   credit_deps: Optional[DependencySet] = None) -> FxTradeExecution:
+                                   credit_deps: Optional[DependencySet] = None,
+                                   borrow_amount: Optional[Decimal] = None) -> FxTradeExecution:
     """Execute one player FX trade inside the caller's transaction.
 
     Unified callers must acquire the target exclusive gate and every collateral
@@ -285,6 +286,12 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         raise TradeRejected("idempotency_key prefix is reserved")
 
     normalized = str(side).lower()
+    financed = borrow_amount is not None
+    if financed:
+        from app.services.fx.borrow_buy import validate_funding
+        amount, borrow_amount = validate_funding(amount, borrow_amount)
+        if normalized != 'buy':
+            raise TradeRejected('financing is only available for buys')
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
     # User 锁后同一 SQL 读取外币欠币、锁金及幂等成交。其他 pair 的空头写入
@@ -309,7 +316,18 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         old = (await db.execute(select(FxTrade).where(
             FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
         ))).scalars().first()
-    requires_credit = normalized == "buy" and (user.debt > 0 or has_short_debt)
+    if old is not None:
+        purpose = 'borrow_buy' if financed else 'spot'
+        if (old.purpose != purpose or old.pair_id != pair_id or old.side != normalized
+                or old.input_amount != amount or old.min_out != min_out
+                or old.borrow_amount != borrow_amount):
+            raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
+        return FxTradeExecution(trade=old, public=FxTradePublic.model_validate(old), replay=True)
+
+    if financed:
+        if not await site_config.get_bool_or(db, 'loan_enabled', False):
+            raise HTTPException(status_code=403, detail='loan_disabled')
+    requires_credit = normalized == "buy" and (financed or user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
         if (credit_deps is None
@@ -332,20 +350,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                 and (snapshot.short_debt.principal_foreign > 0
                      or snapshot.short_debt.interest_foreign > 0)):
             same_pair_short = True
-
-    if old is not None:
-        # A spot request may only replay a spot trade.  Without the purpose
-        # check a spot buy could replay a same-pair short_cover (or a spot sell
-        # a short_open) merely because pair/side/amount/min_out happen to match
-        # (spec §11: spot and short share the (user_id, key) uniqueness, so they
-        # must be treated as distinct identities).
-        if (old.purpose != "spot" or old.pair_id != pair_id or old.side != normalized
-                or old.input_amount != amount or old.min_out != min_out):
-            raise HTTPException(status_code=409, detail="idempotency key parameter mismatch")
-        # Materialize before returning: the wrapper rolls back to release the
-        # pair/user locks, which expires ORM instances.
-        return FxTradeExecution(trade=old, public=FxTradePublic.model_validate(old),
-                                replay=True)
 
     enabled = await site_config.get_bool_or(db, "fx_enabled", False)
     if not enabled:
@@ -379,22 +383,31 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
 
     if q.input_amount <= 0 or q.output_amount <= 0:
         raise TradeRejected("trade amount must be positive")
-    if normalized == "buy" and await available_cash(db, user, locked=short_locked) < q.input_amount:
+    if normalized == "buy" and await available_cash(db, user, locked=short_locked) < q.input_amount - (borrow_amount or 0):
         raise HTTPException(status_code=400, detail="insufficient cash")
     wallet = await _wallet_lock(db, user_id, pair_id, create=normalized == "buy")
     trade_now = utcnow()
     if requires_credit:
         holdings = Decimal(wallet.foreign_amount) + q.output_amount
+        post_debt = Decimal(user.debt)
+        risk_deps = credit_deps
+        if financed:
+            from app.services.fx.borrow_buy import check_storage_bounds
+            post_debt = loan_service.pending_debt(user, credit_deps.daily_rate, trade_now) + borrow_amount
+            check_storage_bounds(user, q, borrow_amount, post_debt,
+                                 foreign_amount=wallet.foreign_amount, cost_basis=wallet.cost_basis)
+            # Only old principal earned pending interest; new principal starts at T.
+            risk_deps = replace(credit_deps, debt_last_accrued_at=trade_now)
         decision = await check_new_risk(
-            db, user=user, deps=credit_deps,
+            db, user=user, deps=risk_deps,
             post=PostTradeState(
-                cash=Decimal(user.cash) - q.input_amount, debt=Decimal(user.debt),
+                cash=Decimal(user.cash) + (borrow_amount or 0) - q.input_amount, debt=post_debt,
                 fx_reserves={pair_id: (q.post_gold_reserve, q.post_foreign_reserve)},
                 post_holdings={key: {pair_id: holdings}},
                 base_versions=({key: credit_deps.snapshots[key].version}
                                if key in credit_deps.snapshots else {}),
             ), thresholds=credit_flags.get_flags().thresholds,
-            partial_pct=Decimal("1"), now=trade_now,
+            partial_pct=Decimal("1"), now=trade_now, include_valuation=financed,
         )
         if not decision.allowed:
             if decision.reason == "version_conflict":
@@ -402,8 +415,13 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
             raise HTTPException(status_code=400, detail=decision.reason)
         _require_writes()
         before_debt = user.debt
-        loan_service.accrue_interest(user, credit_deps.daily_rate, trade_now)
-        if user.debt != before_debt:
+        if financed:
+            user = await loan_service.increase_debt(
+                db, user_id, borrow_amount, grant_cash=True, daily_rate=credit_deps.daily_rate,
+                source='borrow', reason=f'fx_borrow_buy:{pair_id}:{idempotency_key}', now=trade_now)
+        else:
+            loan_service.accrue_interest(user, credit_deps.daily_rate, trade_now)
+        if not financed and user.debt != before_debt:
             audit_service.record(
                 db, "interest_accrual", user_id=user.id,
                 payload={"debt_before": before_debt, "debt_after": user.debt,
@@ -440,6 +458,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         treasury.foreign_balance += q.fee_amount
     treasury.updated_at = utcnow()
     trade = FxTrade(pair_id=pair_id, user_id=user_id, side=normalized,
+                    purpose='borrow_buy' if financed else 'spot', borrow_amount=borrow_amount,
                     input_amount=q.input_amount, output_amount=q.output_amount,
                     min_out=min_out,
                     fee_amount=q.fee_amount, pre_gold_reserve=pre_gold,

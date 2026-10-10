@@ -68,6 +68,36 @@ def _short_revision():
     return revision
 
 
+def test_borrow_buy_migration_preserves_history_and_refuses_lossy_downgrade():
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*_fx_borrow_buy.py'))
+    spec = importlib.util.spec_from_file_location('borrow_buy_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        _legacy_short_schema(conn)
+        with Operations.context(MigrationContext.configure(conn)):
+            _short_revision().upgrade()
+            revision.upgrade()
+        assert conn.execute(text('SELECT purpose,input_amount,borrow_amount FROM fx_trade')).one() == ('spot', 1, None)
+        for principal in ('NULL', '-1', '2'):
+            with pytest.raises(IntegrityError):
+                conn.execute(text(f"UPDATE fx_trade SET purpose='borrow_buy',borrow_amount={principal}"))
+        conn.execute(text("UPDATE fx_trade SET purpose='borrow_buy',borrow_amount=0.5"))
+        with Operations.context(MigrationContext.configure(conn)):
+            with pytest.raises(RuntimeError, match='history'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT cash,debt FROM user')).one() == (123, 45)
+        # Restore the legacy fixture identity to exercise a reversible downgrade.
+        conn.execute(text("UPDATE fx_trade SET purpose='spot',borrow_amount=NULL"))
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+        assert 'borrow_amount' not in {c['name'] for c in inspect(conn).get_columns('fx_trade')}
+        assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)
+
+
 def _legacy_short_schema(conn):
     """Use real legacy DDL, retaining an independent cash authority."""
     from sqlalchemy import text

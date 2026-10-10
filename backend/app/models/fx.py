@@ -89,7 +89,8 @@ class FxTrade(SQLModel, table=True):
     __tablename__ = "fx_trade"
     __table_args__ = (
         UniqueConstraint("user_id", "idempotency_key", name="uq_fx_trade_user_idempotency"),
-        CheckConstraint("purpose IN ('spot','short_open','short_cover')", name="ck_fx_trade_purpose"),
+        CheckConstraint("purpose IN ('spot','short_open','short_cover','borrow_buy')", name="ck_fx_trade_purpose"),
+        CheckConstraint("(purpose = 'borrow_buy' AND side = 'buy' AND borrow_amount IS NOT NULL AND borrow_amount > 0 AND borrow_amount <= input_amount) OR (purpose <> 'borrow_buy' AND borrow_amount IS NULL)", name="ck_fx_trade_borrow_amount"),
         CheckConstraint("side IN ('buy','sell')", name="ck_fx_trade_side"),
         CheckConstraint("input_amount > 0 AND output_amount > 0", name="ck_fx_trade_amounts_positive"),
         Index("ix_fx_trade_pair_created", "pair_id", "created_at"),
@@ -107,6 +108,7 @@ class FxTrade(SQLModel, table=True):
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     purpose: str = Field(default="spot", max_length=16, nullable=False, sa_column_kwargs={"server_default": text("'spot'")})
     requested_foreign_amount: Optional[Decimal] = Field(default=None, sa_type=Numeric(24, 6))
+    borrow_amount: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
     max_gold_in: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
     cover_all: Optional[bool] = Field(default=None)
     side: str = Field(max_length=8, nullable=False)

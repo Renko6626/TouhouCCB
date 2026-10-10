@@ -2,6 +2,15 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/auth'
 
+interface UserBoundConfig extends AxiosRequestConfig { authContextGuard?: () => boolean }
+type UserBoundInternalConfig = InternalAxiosRequestConfig & { _retry?: boolean; authContextGuard?: () => boolean }
+function changedAuthContext() {
+  return { code: 'AUTH_CONTEXT_CHANGED', message: '登录账号已变化，原请求保留待确认，请切回原账号核对。' }
+}
+function assertAuthContext(config: { authContextGuard?: () => boolean } | undefined) {
+  if (config?.authContextGuard && !config.authContextGuard()) throw changedAuthContext()
+}
+
 // 创建axios实例
 const instance: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004',
@@ -13,6 +22,7 @@ const instance: AxiosInstance = axios.create({
 
 // refresh token 锁：防止多个 401 同时触发多次刷新
 let isRefreshing = false
+let activeRefreshContext: (() => boolean) | null = null
 let pendingRequests: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
 
 function onRefreshed(token: string) {
@@ -27,6 +37,7 @@ function onRefreshFailed(err: any) {
 
 // 请求拦截器 - 添加认证令牌
 instance.interceptors.request.use(async (config) => {
+  assertAuthContext(config as UserBoundInternalConfig)
   const authStore = useAuthStore()
   const token = authStore.accessToken
 
@@ -57,10 +68,13 @@ instance.interceptors.request.use(async (config) => {
 // 响应拦截器 - 统一错误处理 + 自动 refresh
 instance.interceptors.response.use(
   (response) => {
+    assertAuthContext(response.config as UserBoundInternalConfig)
     return response.data
   },
   async (error) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    if (error.code === 'AUTH_CONTEXT_CHANGED') return Promise.reject(error)
+    const originalRequest = error.config as UserBoundInternalConfig
+    assertAuthContext(originalRequest)
 
     // 403 + detail USER_BANNED → 触发全局封号弹窗 (BannedDialog 监听这个事件)
     // 后端 core/users.py + auth.py 用此 marker 区分"被封"vs"无效凭证"
@@ -105,10 +119,14 @@ instance.interceptors.response.use(
       }
 
       if (isRefreshing) {
+        if (originalRequest.authContextGuard && activeRefreshContext && !activeRefreshContext())
+          return Promise.reject(changedAuthContext())
         // 已有一个 refresh 在进行，排队等新 token
         return new Promise((resolve, reject) => {
           pendingRequests.push({
             resolve: (newToken: string) => {
+              try { assertAuthContext(originalRequest) }
+              catch (e) { reject(e); return }
               originalRequest.headers.Authorization = `Bearer ${newToken}`
               originalRequest._retry = true
               resolve(instance(originalRequest))
@@ -120,12 +138,20 @@ instance.interceptors.response.use(
 
       isRefreshing = true
       originalRequest._retry = true
+      const refreshUserId = authStore.user?.id
+      const refreshToken = authStore.refreshToken
+      const sameRefreshContext = () => authStore.user?.id === refreshUserId && authStore.refreshToken === refreshToken
+      activeRefreshContext = sameRefreshContext
 
       try {
         const { data } = await axios.post(
           `${instance.defaults.baseURL}/api/v1/auth/refresh`,
           { refresh_token: authStore.refreshToken },
         )
+        // An unbound request can also have started this shared refresh. Never
+        // install its token into a later login or supply it to that login's queue.
+        if (!sameRefreshContext()) throw changedAuthContext()
+        assertAuthContext(originalRequest)
         const newToken = data.access_token
         authStore.accessToken = newToken
         localStorage.setItem('access_token', newToken)
@@ -135,10 +161,13 @@ instance.interceptors.response.use(
         return instance(originalRequest)
       } catch (refreshError) {
         onRefreshFailed(refreshError)
+        if (!sameRefreshContext() || (originalRequest.authContextGuard && !originalRequest.authContextGuard()))
+          return Promise.reject(changedAuthContext())
         authStore.logout()
         return Promise.reject(error)
       } finally {
         isRefreshing = false
+        activeRefreshContext = null
       }
     }
 
@@ -155,6 +184,14 @@ instance.interceptors.response.use(
 
 // 创建包装函数以提供更好的类型支持
 const api = {
+  /** Bound economic requests cannot be refreshed or replayed under a new login. */
+  postForCurrentUser: <T>(url: string, data: unknown, config?: AxiosRequestConfig): Promise<T> => {
+    const auth = useAuthStore(), userId = auth.user?.id, refreshToken = auth.refreshToken
+    if (userId == null) return Promise.reject(changedAuthContext())
+    const bound: UserBoundConfig = { ...config,
+      authContextGuard: () => auth.user?.id === userId && auth.refreshToken === refreshToken }
+    return instance.post(url, data, bound).then(res => res as T)
+  },
   get: <T = any>(url: string, config?: AxiosRequestConfig): Promise<T> => 
     instance.get(url, config).then(res => res as T),
   

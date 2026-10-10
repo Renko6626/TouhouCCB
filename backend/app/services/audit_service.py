@@ -269,6 +269,8 @@ def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], 
     """Record the replay payload for a committed FX pool trade."""
     payload = {
             "pair_id": pair.id, "side": trade.side,
+            "purpose": trade.purpose,
+            "borrow_amount": trade.borrow_amount,
             "input_amount": trade.input_amount, "output_amount": trade.output_amount,
             "fee_amount": trade.fee_amount,
             "pre_gold_reserve": trade.pre_gold_reserve,

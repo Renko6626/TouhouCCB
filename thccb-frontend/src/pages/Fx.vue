@@ -26,6 +26,9 @@ import { useAuthStore } from '@/stores/auth'
 import type { UserSummary } from '@/types/user'
 import { useFxResource } from '@/composables/useFxResource'
 import { useFxShortQuote, type ShortQuoteOrder } from '@/composables/useFxShortQuote'
+import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
+import type { FxBorrowBuyRequest, FxBorrowBuyTrade } from '@/types/fx'
+import FxBorrowBuyForm from '@/components/market/FxBorrowBuyForm.vue'
 import {
   fxAvailableCash,
   fxBuyBlockReason,
@@ -155,7 +158,7 @@ const canSellSpotHolding = computed(
   () =>
     fxPairAllowsSide(activePair.value, 'sell') &&
     !submitting.value &&
-    !pendingShort.value &&
+    !pendingRisk.value &&
     !walletLoading.value &&
     !walletFailed.value &&
     wallet.value?.pair_id === pairId.value &&
@@ -261,11 +264,28 @@ const shortReceiptCurrency = computed(
 )
 const shortSubmitter = new FxPendingShortOrder(authStore.user?.id ?? null)
 const pendingShort = ref<FxPendingShortRequest | null>(shortSubmitter.pending)
+const borrowing = ref(false)
+const borrowSubmitter = new FxPendingBorrowBuyOrder(authStore.user?.id ?? null)
+const borrowPending = ref(borrowSubmitter.pending)
+const borrowUnreadable = ref(borrowSubmitter.unreadable)
+const borrowUnresolved = ref(borrowSubmitter.hasUnresolved)
+const pendingRisk = computed(() => !!pendingShort.value || borrowUnresolved.value)
+const borrowError = ref('')
+const borrowResetToken = ref(0)
+const borrowReceipt = ref<{ trade: FxBorrowBuyTrade; currency: string } | null>(null)
+let borrowGeneration = 0
 if (pendingShort.value) tradeMode.value = 'short'
 const shortStorageBlocked = ref(shortSubmitter.unreadable || !authStore.user?.id)
 watch(
   () => authStore.user?.id,
   (id) => {
+    borrowGeneration++
+    if (borrowSubmitter.busy) submitting.value = false
+    borrowSubmitter.setUser(id ?? null)
+    syncBorrowState()
+    borrowReceipt.value = null
+    borrowError.value = ''
+    borrowing.value = false
     shortSubmitter.setUser(id ?? null)
     pendingShort.value = shortSubmitter.pending
     shortStorageBlocked.value = shortSubmitter.unreadable || !id
@@ -287,7 +307,7 @@ const shortQuoteOrder = computed<ShortQuoteOrder | null>(() => {
     !pairId.value ||
     !shortValid.value ||
     submitting.value ||
-    pendingShort.value ||
+    pendingRisk.value ||
     shortStorageBlocked.value
   )
     return null
@@ -310,14 +330,14 @@ const shortGoldPresets = ['100', '500', '1000']
 const canFillShortOpen = computed(
   () =>
     !submitting.value &&
-    !pendingShort.value &&
+    !pendingRisk.value &&
     !shortStorageBlocked.value &&
     !snapshotLoading.value &&
     !snapshotFailed.value &&
     snapshot.value?.pair.id === pairId.value,
 )
 const canFillCoverAll = computed(
-  () => !submitting.value && !pendingShort.value && !shortStorageBlocked.value,
+  () => !submitting.value && !pendingRisk.value && !shortStorageBlocked.value,
 )
 const canFillCover = computed(
   () =>
@@ -371,7 +391,7 @@ function onShortGoldInput(event: Event) {
   updateShortGoldAmount((event.target as HTMLInputElement).value)
 }
 function setShortSizeUnit(unit: 'gold' | 'foreign') {
-  if (submitting.value || pendingShort.value) return
+  if (submitting.value || pendingRisk.value) return
   if (unit === 'gold')
     shortGoldAmount.value = snapshot.value
       ? (multiplyFxAmount(shortAmount.value, snapshot.value.price) ?? '')
@@ -424,7 +444,7 @@ const shortCanSubmit = computed(
     !shortExpired.value &&
     !submitting.value &&
     !shortQuoting.value &&
-    !pendingShort.value &&
+    !pendingRisk.value &&
     !shortStorageBlocked.value,
 )
 const pendingShortInterest = computed(() => {
@@ -498,7 +518,7 @@ const quotedShortRiskLabel = computed(() =>
 )
 
 function selectDirection(mode: 'spot' | 'short') {
-  if (submitting.value || pendingShort.value) return
+  if (submitting.value || pendingRisk.value) return
   if (mode === 'spot') setSide('buy')
   else {
     if (shortAction.value !== 'open') {
@@ -561,8 +581,55 @@ watch(
   },
   { flush: 'sync' },
 )
+function syncBorrowState() {
+  borrowPending.value = borrowSubmitter.pending
+  borrowUnreadable.value = borrowSubmitter.unreadable
+  borrowUnresolved.value = borrowSubmitter.hasUnresolved
+}
+async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
+  if (submitting.value) return
+  const generation = borrowGeneration
+  submitting.value = true
+  borrowError.value = ''
+  let completed = false
+  try {
+    const promise = run()
+    syncBorrowState()
+    const result = await promise
+    if (!result || generation !== borrowGeneration) return
+    completed = true
+    borrowReceipt.value = { trade: result,
+      currency: pairs.value.find(p => p.id === result.pair_id)?.currency_name ?? `外币（${result.pair_id}）` }
+    borrowResetToken.value++
+    syncBorrowState()
+    await refreshAll()
+    if (generation !== borrowGeneration) return
+    chartReloadToken.value++
+    if (summaryFailed.value || walletFailed.value || tradesFailed.value || snapshotFailed.value)
+      borrowError.value = '借款买入已完成，部分账户或行情信息刷新失败，请更新账户后再下单。'
+    else msg.success(result.replay ? '已确认原融资成交' : '借款并买入已成交')
+  } catch (e) {
+    if (generation !== borrowGeneration) return
+    borrowError.value = completed ? '借款买入已完成，账户信息刷新失败。'
+      : borrowSubmitter.hasUnresolved
+        ? '成交结果尚未确认，请重试原订单核对同一笔成交；期间不能提交新的交易。'
+        : mapFxError(e, '借款买入失败，请重新报价')
+  } finally {
+    if (generation === borrowGeneration) { syncBorrowState(); submitting.value = false }
+  }
+}
+function submitBorrowBuy(body: Omit<FxBorrowBuyRequest, 'idempotency_key'>) {
+  if (!pairId.value || submitting.value || pendingRisk.value || borrowUnreadable.value
+    || summaryFailed.value || summaryLoading.value || !summary.value) return
+  const pid = pairId.value
+  void sendBorrowBuy(() => borrowSubmitter.start(pid, body, r => fxApi.borrowBuy(r.pairId, r.body)))
+}
+function retryBorrowBuy() {
+  if (!borrowPending.value || submitting.value) return
+  void sendBorrowBuy(() => borrowSubmitter.retry(r => fxApi.borrowBuy(r.pairId, r.body)))
+}
 async function submitShort() {
-  if (submitting.value || pendingShort.value) return
+  if (submitting.value || pendingRisk.value) return
   if (shortExpired.value) {
     await fetchShortQuote()
     shortError.value = '报价已刷新，请确认新价格后再次提交'
@@ -847,7 +914,7 @@ async function fetchQuote() {
 
 async function submitTrade() {
   const pid = pairId.value
-  if (!pid || submitting.value) return
+  if (!pid || submitting.value || pendingRisk.value) return
   if (quoteExpired.value) {
     tradeError.value = '报价已超过 30 秒，请重新报价后确认'
     return
@@ -1046,6 +1113,23 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <div v-if="borrowPending" class="fx-pending-short" role="status">
+      <div>
+        <strong>一笔借款买入订单尚未确认</strong>
+        <p>货币对 {{ borrowPending.pairId }}，投入 {{ formatFxAmount(borrowPending.body.amount) }} 金圆券，
+          新增借款 {{ formatFxAmount(borrowPending.body.borrow_amount) }}。重试沿用原订单编号。</p>
+      </div>
+      <button class="btn-secondary" :disabled="submitting" @click="retryBorrowBuy">{{ submitting ? '核对中…' : '重试原订单' }}</button>
+    </div>
+    <p v-if="borrowUnreadable" class="fx-error" role="alert">融资订单记录无法安全读取或保存，暂不能新增融资。
+      {{ borrowUnresolved && !borrowPending ? '请核对成交记录并联系管理员，当前暂停新增交易。' : '' }}</p>
+    <p v-if="borrowError" class="fx-error" role="status">{{ borrowError }}</p>
+    <section v-if="borrowReceipt" class="fx-receipt" role="status">
+      <h2>{{ borrowReceipt.trade.replay ? '原借款买入已确认' : '借款并买入已成交' }}</h2>
+      <p>使用现金 {{ formatFxAmount(borrowReceipt.trade.cash_amount) }}，新增借款 {{ formatFxAmount(borrowReceipt.trade.borrow_amount) }} 金圆券，
+        实际买入 {{ formatFxAmount(borrowReceipt.trade.output_amount) }} {{ borrowReceipt.currency }}。
+        手续费 {{ formatFxAmount(borrowReceipt.trade.fee_amount) }} 金圆券（已含）。</p>
+    </section>
     <div v-if="loading" class="fx-state">行情加载中…</div>
     <div v-else-if="error" class="fx-state fx-state-error">
       {{ error }}<button class="btn-secondary" @click="load">重试</button>
@@ -1338,7 +1422,7 @@ onUnmounted(() => {
               class="fx-direction-long"
               :class="{ active: tradeMode === 'spot' }"
               :aria-pressed="tradeMode === 'spot'"
-              :disabled="submitting || !!pendingShort"
+              :disabled="submitting || pendingRisk"
               @click="selectDirection('spot')"
             >
               <span aria-hidden="true">↗</span><strong>看涨做多</strong><small>Long</small>
@@ -1347,7 +1431,7 @@ onUnmounted(() => {
               class="fx-direction-short"
               :class="{ active: tradeMode === 'short' }"
               :aria-pressed="tradeMode === 'short'"
-              :disabled="submitting || !!pendingShort"
+              :disabled="submitting || pendingRisk"
               @click="selectDirection('short')"
             >
               <span aria-hidden="true">↘</span><strong>看跌做空</strong><small>Short</small>
@@ -1357,7 +1441,7 @@ onUnmounted(() => {
             <strong>{{ tradeMode === 'spot' ? '卖出多头持仓' : '买回归还空头' }}</strong
             ><button
               class="fx-text-button"
-              :disabled="submitting || !!pendingShort"
+              :disabled="submitting || pendingRisk"
               @click="selectDirection(tradeMode)"
             >
               返回开仓
@@ -1371,7 +1455,23 @@ onUnmounted(() => {
             }}
           </p>
 
-          <div v-show="tradeMode === 'spot'" class="fx-trade-body">
+          <label v-if="tradeMode === 'spot' && side === 'buy'" class="fx-borrow-toggle">
+            <input v-model="borrowing" type="checkbox"
+              :disabled="submitting || pendingRisk || borrowUnreadable || !summary || summaryLoading || summaryFailed" />
+            借款并买入
+            <small v-if="!summary || summaryLoading || summaryFailed">账户更新后可用</small>
+          </label>
+          <FxBorrowBuyForm
+            v-show="tradeMode === 'spot' && side === 'buy' && borrowing"
+            :key="authStore.user?.id ?? 'anonymous'"
+            :pair-id="pairId" :currency="currencyName"
+            :active="tradeMode === 'spot' && side === 'buy' && borrowing"
+            :blocked="submitting || pendingRisk || borrowUnreadable || !tradable || hasShortHolding"
+            :blocked-reason="hasShortHolding ? '请先回补当前币种的空头，再借款买入。' : !tradable ? '当前币种暂不允许买入。' : ''"
+            :account-ready="!summaryLoading && !summaryFailed && !!summary && !snapshotFailed && !snapshotLoading"
+            :reset-token="borrowResetToken" @submit="submitBorrowBuy"
+          />
+          <div v-show="tradeMode === 'spot' && !(side === 'buy' && borrowing)" class="fx-trade-body">
             <label class="fx-field"
               ><span
                 >{{ side === 'buy' ? '买入金额（含手续费）' : '平仓数量' }}
@@ -1382,7 +1482,7 @@ onUnmounted(() => {
                 inputmode="decimal"
                 autocomplete="off"
                 placeholder="0"
-                :disabled="!tradable || submitting || !!pendingShort"
+                :disabled="!tradable || submitting || pendingRisk"
             /></label>
             <div class="fx-sell-shortcuts">
               <button
@@ -1398,7 +1498,7 @@ onUnmounted(() => {
             <p class="fx-field-note">
               {{
                 side === 'buy'
-                  ? '按可用现金比例填写，可先借款扩大买入规模。'
+                  ? '按可用现金比例填写；需要融资时开启借款并买入。'
                   : '按当前多头持仓比例填写。'
               }}
             </p>
@@ -1433,7 +1533,9 @@ onUnmounted(() => {
             </div>
             <p v-if="fundingNeeded" class="fx-hint">
               还需 {{ formatFxAmount(fundingPreview?.shortfall) }} 金圆券。{{
-                summary ? '请先借款，再确认做多；现金差额不等于可借额度。' : '请补充现金后再做多。'
+                summary
+                  ? '可开启借款并买入，明确填写新增借款并获取融资报价。'
+                  : '请补充现金后再做多。'
               }}
             </p>
             <p v-if="summaryFailed" class="fx-error" role="alert">
@@ -1507,7 +1609,7 @@ onUnmounted(() => {
                 class="fx-submit"
                 :disabled="
                   submitting ||
-                  !!pendingShort ||
+                  pendingRisk ||
                   !amountValid ||
                   !!tradeBlockReason ||
                   quoting ||
@@ -1519,7 +1621,7 @@ onUnmounted(() => {
                 {{ submitting ? '提交中…' : side === 'buy' ? '确认做多' : '确认多头平仓' }}</button
               ><button
                 class="fx-text-button"
-                :disabled="quoting || submitting || !tradable || !amountValid || !!pendingShort"
+                :disabled="quoting || submitting || !tradable || !amountValid || pendingRisk"
                 @click="fetchQuote"
               >
                 重新报价
@@ -1601,7 +1703,7 @@ onUnmounted(() => {
                 ><select
                   :value="shortSizeUnit"
                   aria-label="做空金额单位"
-                  :disabled="submitting || !!pendingShort"
+                  :disabled="submitting || pendingRisk"
                   @change="
                     setShortSizeUnit(
                       ($event.target as HTMLSelectElement).value as 'gold' | 'foreign',
@@ -1631,7 +1733,7 @@ onUnmounted(() => {
                 inputmode="decimal"
                 autocomplete="off"
                 placeholder="0"
-                :disabled="submitting || !!pendingShort || shortStorageBlocked"
+                :disabled="submitting || pendingRisk || shortStorageBlocked"
               />
               <div class="fx-short-presets">
                 <button
@@ -1662,7 +1764,7 @@ onUnmounted(() => {
                   class="fx-input fx-size-input"
                   inputmode="decimal"
                   autocomplete="off"
-                  :disabled="submitting || !!pendingShort || coverAll"
+                  :disabled="submitting || pendingRisk || coverAll"
                   :placeholder="coverAll ? '全部欠币（含成交时利息）' : '0'"
               /></label>
               <div class="fx-sell-shortcuts">
@@ -1681,7 +1783,7 @@ onUnmounted(() => {
                 ><input
                   v-model="coverAll"
                   type="checkbox"
-                  :disabled="submitting || !!pendingShort"
+                  :disabled="submitting || pendingRisk"
                 />全部归还，包含成交时新计利息</label
               >
               <p v-if="shortFailed" class="fx-error">持仓更新失败，可选择全部平仓获取最新报价。</p>
@@ -1782,7 +1884,7 @@ onUnmounted(() => {
               ><button
                 class="fx-text-button"
                 :disabled="
-                  !shortValid || shortQuoting || submitting || !!pendingShort || shortStorageBlocked
+                  !shortValid || shortQuoting || submitting || pendingRisk || shortStorageBlocked
                 "
                 @click="fetchShortQuote"
               >
@@ -1904,8 +2006,10 @@ onUnmounted(() => {
                   <td>{{ formatTime(t.created_at) }}</td>
                   <td>
                     {{
-                      t.purpose === 'short_open'
-                        ? '做空'
+                      t.purpose === 'borrow_buy'
+                        ? '借款做多'
+                        : t.purpose === 'short_open'
+                          ? '做空'
                         : t.purpose === 'short_cover'
                           ? '空头平仓'
                           : t.side === 'buy'
@@ -1915,6 +2019,7 @@ onUnmounted(() => {
                   </td>
                   <td>
                     {{ formatFxAmount(t.input_amount) }}
+                    <small v-if="t.purpose === 'borrow_buy'">（借款 {{ formatFxAmount(t.borrow_amount) }} 金圆券）</small>
                     {{ t.side === 'buy' ? '金圆券' : currencyName }}
                   </td>
                   <td>
@@ -1972,7 +2077,7 @@ onUnmounted(() => {
       :visible="!loading && !error && !!activePair && !tradePanelVisible"
       :label="currencyName"
       :side="side"
-      :disabled="submitting || !!pendingShort"
+      :disabled="submitting || pendingRisk"
       :show-short="true"
       :short-active="tradeMode === 'short'"
       :show-sell="hasSpotHolding || hasShortHolding"
@@ -1986,6 +2091,9 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.fx-borrow-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 14px 0; font-size: 13px; font-weight: 700; }
+.fx-borrow-toggle input { accent-color: #111; }
+.fx-borrow-toggle small { width: 100%; margin-left: 24px; color: #666; font-weight: 400; }
 .fx-page {
   max-width: 1360px;
   color: #000;

@@ -20,11 +20,12 @@ from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.models.redemption import DanmukuExchange
+from app.models.ledger import LedgerEntry
 from app.schemas.loan import BorrowRequest
 from app.services import danmuku, loan_sweep, site_config
 from app.services.credit import flags, ownership
 from app.services.credit.gates import GATES
-from app.services.fx import shorts, trading
+from app.services.fx import borrow_buy, shorts, trading
 from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
@@ -105,6 +106,35 @@ async def open_short(db, uid, pid, key='shared'):
 
 async def spot_buy(db, uid, pid, key='shared'):
     return await trading.execute_trade(db, uid, pid, 'buy', D('100'), D('0'), key)
+
+
+@pytest.mark.parametrize('same_key', [True, False])
+async def test_financed_buy_concurrency_replays_or_checks_remaining_margin(pg_sessionmaker, same_key):
+    uid, pid = await seed(pg_sessionmaker, cash='40')
+    before = await state(pg_sessionmaker, uid, pid)
+    async def attempt(key):
+        async with pg_sessionmaker() as db:
+            try:
+                return await borrow_buy.execute_borrow_buy(db, uid, pid, D('80'), D('70'), D('0'), key)
+            except HTTPException as exc:
+                return exc
+    async with asyncio.timeout(10):
+        results = await asyncio.gather(attempt('fin-race'), attempt('fin-race' if same_key else 'fin-race-2'))
+    successes = [r for r in results if not isinstance(r, HTTPException)]
+    if same_key:
+        assert len(successes) == 2 and successes[0].trade_id == successes[1].trade_id
+        assert sorted(r.replay for r in successes) == [False, True]
+    else:
+        assert len(successes) == 1
+        failure = next(r for r in results if isinstance(r, HTTPException))
+        assert failure.detail == 'insufficient_initial_margin'
+    after = await state(pg_sessionmaker, uid, pid)
+    assert after['cash'] == D('30') and after['debt'] == D('70')
+    assert after['gold'] - after['debt'] == before['gold']
+    assert after['foreign'] == before['foreign'] and len(after['trades']) == 1
+    async with pg_sessionmaker() as db:
+        entries = (await db.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all()
+        assert len(entries) == 1 and entries[0].cash_delta == entries[0].debt_delta == D('70')
 
 
 @pytest.mark.parametrize('first', ['short', 'spot'])

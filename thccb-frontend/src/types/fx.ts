@@ -78,6 +78,7 @@ export interface FxPersonalTrade extends FxTradePublic {
   currency_name: string
   purpose: string
   is_liquidation: boolean
+  borrow_amount?: string | null
 }
 
 export interface FxQuoteRequest {
@@ -288,4 +289,46 @@ export interface FxShortTrade extends Omit<FxTradePublic, 'id'> {
   trade_id: number
   purpose: string
   replay: boolean
+}
+
+export interface FxBorrowBuyQuoteRequest { amount: string; borrow_amount: string }
+export interface FxBorrowBuyRequest extends FxBorrowBuyQuoteRequest {
+  min_out: string
+  idempotency_key: string
+}
+export interface FxBorrowBuyQuote {
+  borrow_amount: string
+  pair_id: number
+  input_amount: string
+  cash_amount: string
+  output_amount: string | null
+  fee_amount: string | null
+  effective_price: string | null
+  post_price: string | null
+  available_cash: string | null
+  affordable: boolean | null
+  estimated_debt: string | null
+  estimated_equity: string | null
+  estimated_risk_basis: string | null
+  equity_to_risk_basis: string | null
+  margin_status: 'healthy' | 'warning' | 'danger' | 'blocked'
+  executable: boolean
+  blocked_reason: string | null
+  leverage: string | null
+  daily_rate: string | null
+  r_initial: string | null
+  r_maintenance: string | null
+  expires_at: string
+}
+export interface FxBorrowBuyTrade {
+  trade_id: number
+  pair_id: number
+  input_amount: string
+  borrow_amount: string
+  cash_amount: string
+  output_amount: string
+  fee_amount: string
+  post_price: string
+  replay: boolean
+  created_at: string
 }
