@@ -1,6 +1,6 @@
 # 统一信贷可靠性与查询优化设计
 
-状态：用户已确认本轮信贷优化；2026-10-10 后续讨论将贷款及买卖请求编号/去重延期。尚未修改业务代码。本版取代原独立回执表方案。
+状态：用户已确认本轮信贷优化；2026-10-10 后续讨论将贷款及买卖请求编号/去重延期。本轮实施、集中验证及最终补修复核已完成，记录见[本轮证据](../../unified-credit-reliability-validation-2026-10-10.md)。本版取代原独立回执表方案。
 
 ## 目标与范围
 
@@ -46,7 +46,7 @@ valuation.py 仍负责现有批量读取与估值。增加内部 ShortPositionVa
 
 新增 credit/account_read.py，仅负责纯展示投影：风险等级、公开空头 DTO 和资金用途展示，不 commit、不抓锁、不重新报价。user.py、loan.py 不再相互导入账户辅助函数。AccountValuation 的类型依赖使用 TYPE_CHECKING，FX shorts 按需局部导入投影函数，避免现有 valuation 对 pending_short_debt 的依赖形成循环。FX 单仓读取复用相同的纯空头 DTO 构造器，独立接口仍只查目标仓位，不为读一个仓位计算整个组合。
 
-空头 DTO 的可执行性继续区分数学报价是否完整、pair 全停/reduce-only、fx_enabled 和统一信贷开关；正仓已清零但锁金/所得基准仍非零的记录仍返回。保留原公开错误码及 None 语义。组合 E/B 不以展示明细的 executable 反推，关停交易不伪造 K=0。
+空头 DTO 的可执行性继续区分数学报价是否完整、pair 全停/reduce-only、fx_enabled 和统一信贷开关；没有正钱包但仍有空头欠币的记录仍返回，完全清仓的零记录保持现有单仓/列表语义。原 ck_fx_short_position_state 禁止零欠币而锁金/所得基准非零，不改该约束。保留原公开错误码及 None 语义。组合 E/B 不以展示明细的 executable 反推，关停交易不伪造 K=0。
 
 LoanQuotaResponse 与统一模式 UserSummary 新增 credit_frozen、new_risk_frozen、borrow_blocked_reason。借款原因优先为 loan_disabled、frozen_by_operator、credit_frozen、valuation_unavailable、insufficient_initial_margin、no_borrow_headroom；无阻塞为 null。blocked_reason 继续表示估值原因。healthy 与冻结可以同时存在，页面分别说明；冻结不阻断还款、安全减仓和回补。
 
