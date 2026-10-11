@@ -2672,16 +2672,17 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 380px;
   gap: 24px;
-  height: var(--fx-workbench-height, calc(100dvh - 240px));
-  min-height: 440px;
+  min-height: max(440px, var(--fx-workbench-height, calc(100dvh - 240px)));
   align-items: stretch;
 }
 .fx-market-column {
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .fx-chart-panel {
-  height: 100%;
+  flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2881,11 +2882,10 @@ onUnmounted(() => {
 .fx-trade-panel {
   min-width: 0;
   min-height: 0;
-  height: 100%;
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   box-sizing: border-box;
   border: 2px solid #000;
   padding: var(--trade-panel-padding);
@@ -2914,9 +2914,6 @@ onUnmounted(() => {
 .fx-panel-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  padding-right: 2px;
 }
 .fx-current-position {
   display: grid;
@@ -3532,22 +3529,6 @@ onUnmounted(() => {
   }
   .fx-page {
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
-  }
-}
-@media (min-width: 951px) {
-  .fx-trade-body,
-  .fx-panel-scroll :deep(.financing-form) {
-    display: contents;
-  }
-  .fx-panel-scroll :deep(.financing-form > *) {
-    margin-bottom: var(--trade-panel-gap);
-  }
-  .fx-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 2;
-    padding-top: 8px;
-    background: #fff;
   }
 }
 @media (max-width: 640px) {
