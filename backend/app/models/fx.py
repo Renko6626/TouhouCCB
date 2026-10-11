@@ -85,10 +85,26 @@ class FxWallet(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 
 
+class FxExecution(SQLModel, table=True):
+    """Immutable successful player request, linked to its real market legs."""
+    __tablename__ = "fx_execution"
+    __table_args__ = (UniqueConstraint("user_id", "idempotency_key", name="uq_fx_execution_user_key"),)
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", nullable=False)
+    pair_id: int = Field(foreign_key="fx_pair.id", nullable=False)
+    idempotency_key: str = Field(max_length=128, nullable=False)
+    request_payload: dict = Field(sa_column=Column(JSON, nullable=False))
+    response_version: int = Field(default=1, nullable=False)
+    response_payload: dict = Field(sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+
+
 class FxTrade(SQLModel, table=True):
     __tablename__ = "fx_trade"
     __table_args__ = (
         UniqueConstraint("user_id", "idempotency_key", name="uq_fx_trade_user_idempotency"),
+        UniqueConstraint("execution_id", "execution_leg", name="uq_fx_trade_execution_leg"),
+        CheckConstraint("(execution_id IS NULL AND execution_leg IS NULL) OR (execution_id IS NOT NULL AND execution_leg IS NOT NULL AND execution_leg IN (1,2) AND idempotency_key IS NULL)", name="ck_fx_trade_execution_link"),
         CheckConstraint("purpose IN ('spot','short_open','short_cover','borrow_buy')", name="ck_fx_trade_purpose"),
         CheckConstraint("(purpose = 'borrow_buy' AND side = 'buy' AND borrow_amount IS NOT NULL AND borrow_amount > 0 AND borrow_amount <= input_amount) OR (purpose <> 'borrow_buy' AND borrow_amount IS NULL)", name="ck_fx_trade_borrow_amount"),
         CheckConstraint("side IN ('buy','sell')", name="ck_fx_trade_side"),
@@ -104,6 +120,8 @@ class FxTrade(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    execution_id: Optional[int] = Field(default=None, foreign_key="fx_execution.id", index=True)
+    execution_leg: Optional[int] = Field(default=None)
     pair_id: int = Field(foreign_key="fx_pair.id", nullable=False)
     user_id: Optional[int] = Field(default=None, foreign_key="user.id")
     purpose: str = Field(default="spot", max_length=16, nullable=False, sa_column_kwargs={"server_default": text("'spot'")})

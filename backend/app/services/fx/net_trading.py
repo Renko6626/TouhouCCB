@@ -1,0 +1,375 @@
+"""Sequential net FX simulation and one-transaction execution.
+
+AMM math and physical ledgers belong to the existing FX primitives. This
+module owns whole-request classification, funding, risk and identity.
+"""
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from decimal import Decimal
+
+from fastapi import HTTPException
+from sqlalchemy import select
+
+from app.models.base import User
+from app.models.fx import FxPair, FxShortPosition, FxTreasury, FxWallet
+from app.schemas.fx import FxNetLeg, FxNetQuote, FxNetQuoteRequest
+from app.services import loan_service, site_config
+from app.services.credit import flags
+from app.services.credit.keys import GroupKey
+from app.services.credit.risk import PostTradeState, check_new_risk, discover_dependencies
+from app.services.credit.version import economic_version_of
+from app.services.fx import shorts, trading
+from app.services.fx.amm import quote_buy, quote_buy_exact_out, quote_sell
+from app.services.fx.quantize import amount_down
+
+ZERO = Decimal('0')
+MAX = Decimal('9999999999.999999')
+
+
+@dataclass
+class Simulation:
+    quote: FxNetQuote
+    maths: list
+    cash_after: Decimal
+    debt_after: Decimal
+    cover_release: Decimal
+    now: object
+    daily_rate: Decimal
+
+
+async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, deps=None):
+    """Read-only projection, shared by advisory quote and locked execution."""
+    rate = deps.daily_rate if deps else await site_config.get_decimal_or(db, 'loan_daily_rate', ZERO)
+    target = next((p for p in positions if p.pair_id == pair.id), None)
+    foreign_debt = shorts.pending_short_debt(target, rate, now) if target else ZERO
+    holdings = Decimal(wallet.foreign_amount) if wallet else ZERO
+    if holdings > 0 and foreign_debt > 0:
+        raise HTTPException(status_code=409, detail='same_pair_long_and_short; manual review required')
+    cash = Decimal(user.cash)
+    old_debt = loan_service.pending_debt(user, rate, now)
+    debt = old_debt
+    locks = sum((Decimal(p.restricted_gold) for p in positions), ZERO)
+    own_lock = Decimal(target.restricted_gold) if target else ZERO
+    remaining_lock = own_lock
+    release = ZERO
+    treasury_gold = Decimal(treasury.gold_balance) if treasury else ZERO
+    treasury_foreign = Decimal(treasury.foreign_balance) if treasury else ZERO
+    repaid = ZERO
+    growth = ZERO
+    gold, foreign = Decimal(pair.gold_reserve), Decimal(pair.foreign_reserve)
+    maths, legs = [], []
+
+    def add(purpose, side, math):
+        nonlocal gold, foreign
+        maths.append(math)
+        legs.append(FxNetLeg(purpose=purpose, side=side,
+            input_currency='gold' if side == 'buy' else pair.currency_code,
+            output_currency=pair.currency_code if side == 'buy' else 'gold',
+            input_amount=math.input_amount, output_amount=math.output_amount,
+            fee_amount=math.fee_amount, pre_gold_reserve=gold, pre_foreign_reserve=foreign,
+            post_gold_reserve=math.post_gold_reserve, post_foreign_reserve=math.post_foreign_reserve))
+        gold, foreign = math.post_gold_reserve, math.post_foreign_reserve
+
+    reason = None
+    def block(value):
+        nonlocal reason
+        reason = reason or value
+
+    if req.side == 'sell':
+        own = min(holdings, req.amount)
+        if own:
+            q = quote_sell(own, gold, foreign, pair.sell_fee_rate)
+            add('spot', 'sell', q)
+            treasury_foreign += q.fee_amount
+            holdings -= own
+            if cash + q.output_amount > MAX:
+                block('trade exceeds storage limit')
+            repaid = min(debt, q.output_amount)
+            cash += q.output_amount - repaid
+            debt -= repaid
+        residual = req.amount - own
+        if residual:
+            q = quote_sell(residual, gold, foreign, pair.sell_fee_rate)
+            add('short_open', 'sell', q)
+            growth = residual
+            foreign_debt += residual
+            cash += q.output_amount
+            remaining_lock += q.output_amount
+            if treasury_foreign < residual:
+                block('insufficient treasury foreign balance')
+            treasury_foreign += q.fee_amount - residual
+            outstanding = await shorts._pair_principal_sum(db, pair.id)
+            if outstanding + residual > pair.short_lending_limit_foreign:
+                block('short lending limit exceeded')
+    else:
+        budget = req.amount
+        if foreign_debt:
+            try:
+                exact = quote_buy_exact_out(foreign_debt, gold, foreign, pair.buy_fee_rate)
+            except (ValueError, ArithmeticError):
+                exact = None
+            q = (exact if exact and budget >= exact.input_amount else
+                 quote_buy(budget, gold, foreign, pair.buy_fee_rate))
+            if q.output_amount > foreign_debt:
+                raise trading.TradeRejected('cover output exceeds foreign debt')
+            full = q.output_amount == foreign_debt
+            base_release = own_lock if full else amount_down(own_lock * q.output_amount / foreign_debt)
+            free_cash = cash - locks
+            release = max(base_release, q.input_amount - free_cash)
+            if release > own_lock or cash < locks:
+                block('insufficient cash to cover')
+            release = min(own_lock, release)
+            add('short_cover', 'buy', q)
+            treasury_gold += q.fee_amount
+            treasury_foreign += q.output_amount
+            foreign_debt -= q.output_amount
+            cash -= q.input_amount
+            remaining_lock -= release
+            budget -= q.input_amount
+        if budget:
+            q = quote_buy(budget, gold, foreign, pair.buy_fee_rate)
+            add('borrow_buy' if req.borrow_amount else 'spot', 'buy', q)
+            growth = q.output_amount
+            treasury_gold += q.fee_amount
+            if cash + req.borrow_amount > MAX:
+                block('trade exceeds storage limit')
+            if req.borrow_amount > budget:
+                block('borrow_amount exceeds new long budget')
+            if cash - (locks - own_lock + remaining_lock) < budget - req.borrow_amount:
+                block('insufficient cash')
+            cash += req.borrow_amount - budget
+            debt += req.borrow_amount
+            holdings += q.output_amount
+        elif req.borrow_amount:
+            block('financing requires a new long leg')
+
+    if not await site_config.get_bool_or(db, 'fx_enabled', False):
+        block('FX trading is disabled')
+    if any(l.purpose != 'short_cover' for l in legs):
+        if user.is_bot:
+            block('bot accounts cannot trade FX')
+        if user.tos_accepted_at is None:
+            block('TOS acceptance required')
+    status = str(pair.status)
+    if status != 'trading' and not (status == 'paused' and pair.reduce_only):
+        block('FX pair is not trading')
+    if pair.archived and any(l.purpose == 'short_cover' for l in legs):
+        block('FX pair is not coverable')
+    if growth:
+        if pair.reduce_only or status != 'trading' or pair.archived:
+            block('FX pair is reduce-only')
+        if any(l.purpose == 'short_open' for l in legs):
+            if not await site_config.get_bool_or(db, 'fx_short_enabled', False):
+                block('FX short opening is disabled')
+            if not await site_config.get_bool_or(db, 'loan_enabled', False):
+                block('loans are disabled')
+        if req.borrow_amount and not await site_config.get_bool_or(db, 'loan_enabled', False):
+            block('loan_disabled')
+        requires_risk = bool(debt or foreign_debt or any(
+            p.pair_id != pair.id and (p.principal_foreign or p.interest_foreign) for p in positions))
+        if requires_risk and not reason:
+            deps = deps or await discover_dependencies(db, user.id, extra_groups=[GroupKey('fx', pair.id)])
+            key = GroupKey('fx', pair.id)
+            snapshot = deps.snapshots.get(key)
+            decision = await check_new_risk(db, user=user,
+                deps=replace(deps, debt_last_accrued_at=now),
+                post=PostTradeState(cash=cash, debt=debt,
+                    fx_reserves={pair.id: (gold, foreign)}, short_reserves={pair.id: (gold, foreign)},
+                    post_holdings={key: {pair.id: holdings}}, short_debt={pair.id: foreign_debt},
+                    base_versions={key: snapshot.version} if snapshot else {}),
+                thresholds=flags.get_flags().thresholds, partial_pct=Decimal('1'), now=now)
+            if not decision.allowed:
+                block(decision.reason)
+    basis = Decimal(wallet.cost_basis) if wallet else ZERO
+    if req.side == 'buy':
+        basis += sum((l.input_amount for l in legs if l.purpose in ('spot', 'borrow_buy')), ZERO)
+    values = [cash, debt, holdings, basis, remaining_lock, gold, foreign, treasury_gold, treasury_foreign,
+              *(v for q in maths for v in (q.input_amount, q.output_amount, q.fee_amount, q.post_price))]
+    if any(v < 0 or v > MAX or not v.is_finite() for v in values):
+        block('trade exceeds storage limit')
+    result = FxNetQuote(pair_id=pair.id, side=req.side, input_amount=req.amount,
+        output_amount=sum((q.output_amount for q in maths), ZERO),
+        fee_amount=sum((q.fee_amount for q in maths), ZERO), post_price=maths[-1].post_price,
+        legs=legs, final_direction='long' if holdings > 0 else 'short' if foreign_debt > 0 else 'flat',
+        wallet_after=holdings, foreign_debt_after=foreign_debt,
+        cash_delta=cash - Decimal(user.cash), gold_debt_delta=debt - Decimal(user.debt),
+        restricted_gold_delta=remaining_lock - own_lock, growth_amount=growth,
+        borrow_amount=req.borrow_amount, repaid_gold=repaid, executable=not reason,
+        blocked_reason=reason, economic_version=economic_version_of(user),
+        pool_version=pair.pool_version, expires_at=now + timedelta(seconds=30))
+    return Simulation(result, maths, cash, debt, release, now, rate)
+
+
+async def quote_net_trade(db, user_id: int, pair_id: int, req: FxNetQuoteRequest) -> FxNetQuote:
+    pair = await trading._pair(db, pair_id)
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+    wallet = (await db.execute(select(FxWallet).where(
+        FxWallet.user_id == user_id, FxWallet.pair_id == pair_id))).scalar_one_or_none()
+    positions = list((await db.execute(select(FxShortPosition).where(
+        FxShortPosition.user_id == user_id).order_by(FxShortPosition.pair_id))).scalars())
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one_or_none()
+    try:
+        return (await _simulate(db, user, pair, wallet, positions, treasury, req, now=trading.utcnow())).quote
+    except (ValueError, ArithmeticError) as exc:
+        raise trading.TradeRejected(str(exc)) from exc
+
+
+async def reject_net_key(db, user_id, key):
+    """Legacy endpoints share net receipt namespace while holding User lock."""
+    from app.models.fx import FxExecution
+    if (await db.execute(select(FxExecution.id).where(
+            FxExecution.user_id == user_id, FxExecution.idempotency_key == key))).first():
+        raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
+
+
+def _canonical_request(pair_id, req):
+    # Decimal equality must not depend on caller's trailing zeros.
+    payload = req.model_dump(mode='json')
+    for key in ('amount', 'borrow_amount', 'min_out'):
+        payload[key] = format(getattr(req, key).quantize(Decimal('0.000001')), 'f')
+    return {'type': 'net', 'pair_id': pair_id, **payload}
+
+
+async def execute_net_trade(db, user_id, pair_id, req):
+    from app.models.fx import FxExecution, FxTrade
+    from app.schemas.fx import FxNetTradeResponse
+    from app.services import audit_service
+    from app.services.credit.gates import GATES
+    from app.services.market_locks import lock_user
+    from app.services.fx import publisher
+
+    payload = _canonical_request(pair_id, req)
+    key = GroupKey('fx', pair_id)
+    needs_discovery = False
+    for attempt in range(flags.get_flags().credit_risk_retry_limit + 2):
+        try:
+            # Start with target only for cash/reductions. If locked state needs
+            # collateral gates, roll back and rediscover outside all gates.
+            deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
+            if db.in_transaction():
+                await db.rollback()
+            async with GATES.hold(exclusive=[key], shared=deps.groups if deps else ()):
+                try:
+                    pair = await trading._pair(db, pair_id, lock=True)
+                    user = await lock_user(db, user_id)
+                    old = (await db.execute(select(FxExecution).where(
+                        FxExecution.user_id == user_id,
+                        FxExecution.idempotency_key == req.idempotency_key))).scalar_one_or_none()
+                    if old:
+                        if old.request_payload != payload:
+                            raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
+                        result = FxNetTradeResponse.model_validate(old.response_payload).model_copy(update={'replay': True})
+                        await db.rollback()
+                        return result
+                    legacy = (await db.execute(select(FxTrade.id).where(
+                        FxTrade.user_id == user_id, FxTrade.idempotency_key == req.idempotency_key))).first()
+                    if legacy:
+                        raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
+                    trading._require_writes()
+                    if economic_version_of(user) != req.expected_economic_version:
+                        raise HTTPException(status_code=409, detail='economic_version_changed; requote')
+                    if deps and (deps.economic_version != economic_version_of(user)
+                                 or not set(deps.groups).issubset(GATES.held_keys_by_current_task())):
+                        raise trading._RetryCredit()
+                    wallet = await trading._wallet_lock(db, user_id, pair_id, create=False)
+                    positions = await shorts._lock_short_rows(db, user_id)
+                    requires_deps = bool(req.borrow_amount or user.debt or any(
+                        p.principal_foreign or p.interest_foreign for p in positions)
+                        or (req.side == 'sell' and req.amount > (wallet.foreign_amount if wallet else 0)))
+                    if requires_deps and deps is None:
+                        raise trading._RetryCredit()
+                    if deps:
+                        deps = await discover_dependencies(db, user_id, extra_groups=[key])
+                        if not set(deps.groups).issubset(GATES.held_keys_by_current_task()):
+                            raise trading._RetryCredit()
+                    treasury = await shorts._lock_treasury(db, pair_id)
+                    now = trading.utcnow()
+                    simulation = await _simulate(db, user, pair, wallet, positions, treasury, req, now=now, deps=deps)
+                    quote = simulation.quote
+                    if quote.growth_amount > 0 and not req.allow_growth:
+                        raise HTTPException(status_code=409, detail='growth_requires_confirmation; requote')
+                    if not quote.executable:
+                        if quote.blocked_reason == 'version_conflict':
+                            raise trading._RetryCredit()
+                        raise HTTPException(status_code=400, detail=quote.blocked_reason)
+                    if quote.output_amount < req.min_out:
+                        raise HTTPException(status_code=409, detail='quoted output is below min_out')
+                    if treasury is None:
+                        treasury = FxTreasury(pair_id=pair_id)
+                        db.add(treasury)
+                    # All old interest settles at the simulation's T. New debt
+                    # is posted only when reaching its new LONG leg.
+                    if requires_deps:
+                        await shorts._settle_interest_at_T(db, user=user, positions=positions,
+                            daily_rate=simulation.daily_rate, now=now, source='fx_net')
+                    target = next((p for p in positions if p.pair_id == pair_id), None)
+                    receipt = FxExecution(user_id=user_id, pair_id=pair_id,
+                        idempotency_key=req.idempotency_key, request_payload=payload,
+                        response_payload={}, created_at=now)
+                    db.add(receipt)
+                    await db.flush()
+                    trades = []
+                    for index, (leg, math) in enumerate(zip(quote.legs, simulation.maths), start=1):
+                        if leg.purpose == 'short_cover':
+                            effective = Decimal(target.principal_foreign) + Decimal(target.interest_foreign)
+                            cover = await shorts._write_cover_ledger(db, pair=pair, user=user,
+                                target=target, positions=positions, treasury=treasury, now=now,
+                                quote=math, q=math.output_amount, x=math.input_amount,
+                                q_effective=effective, release=simulation.cover_release,
+                                full_cover=math.output_amount == effective, limited_by_cash=False,
+                                requested_foreign_amount=math.output_amount, cover_all=None,
+                                max_gold_in=math.input_amount, idempotency_key=None, source='player',
+                                treasury_before={'gold_balance': treasury.gold_balance,
+                                    'foreign_balance': treasury.foreign_balance, 'updated_at': treasury.updated_at},
+                                user_before={'cash': user.cash, 'debt': user.debt,
+                                    'debt_last_accrued_at': user.debt_last_accrued_at},
+                                short_before=shorts._short_snapshot(target),
+                                pre_gold=pair.gold_reserve, pre_foreign=pair.foreign_reserve,
+                                reject=shorts.ShortCoverRejected,
+                                execution_id=receipt.id, execution_leg=index)
+                            trade = cover.trade
+                        elif leg.purpose == 'short_open':
+                            opened = await shorts._write_open_ledger(db, user=user, pair=pair,
+                                positions=positions, target=target, treasury=treasury,
+                                amount=math.input_amount, q=math, now=now,
+                                daily_rate=simulation.daily_rate, min_out=ZERO, idempotency_key=None,
+                                execution_id=receipt.id, execution_leg=index)
+                            trade = opened.trade
+                        else:
+                            if wallet is None:
+                                wallet = FxWallet(user_id=user_id, pair_id=pair_id)
+                                db.add(wallet)
+                            borrowed = req.borrow_amount if leg.purpose == 'borrow_buy' else None
+                            if borrowed:
+                                user = await loan_service.increase_debt(db, user_id, borrowed,
+                                    grant_cash=True, daily_rate=simulation.daily_rate, now=now,
+                                    source='borrow', reason=f'fx_net:{pair_id}:{req.idempotency_key}')
+                            spot = await trading._write_spot_ledger(db, user=user, pair=pair,
+                                wallet=wallet, treasury=treasury, normalized=leg.side, q=math,
+                                min_out=ZERO, idempotency_key=None, financed=bool(borrowed),
+                                borrow_amount=borrowed, trade_now=now,
+                                execution_id=receipt.id, execution_leg=index)
+                            trade = spot.trade
+                        trade.execution_id, trade.execution_leg = receipt.id, index
+                        trades.append(trade)
+                    result = FxNetTradeResponse(**quote.model_dump(), execution_id=receipt.id,
+                        trade_ids=[t.id for t in trades], created_at=now)
+                    receipt.response_payload = result.model_dump(mode='json')
+                    trading._require_writes()
+                    await db.commit()
+                    trading.notify_market_data_committed(pair_id)
+                except BaseException:
+                    await trading._rollback_quietly(db)
+                    raise
+            publisher.enqueue_publication(pair_id=pair_id, post_price=result.post_price, trade_id=result.trade_ids[-1])
+            return result
+        except trading._RetryCredit:
+            needs_discovery = True
+            if attempt == flags.get_flags().credit_risk_retry_limit + 1:
+                raise HTTPException(status_code=409, detail='version_conflict; retry') from None
+        except (ValueError, ArithmeticError) as exc:
+            await trading._rollback_quietly(db)
+            raise trading.TradeRejected(str(exc)) from exc
+        except BaseException:
+            await trading._rollback_quietly(db)
+            raise

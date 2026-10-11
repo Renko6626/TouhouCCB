@@ -118,3 +118,54 @@ describe('空头自动报价', () => {
     expect(resource.error.value).toBe('报价与当前请求不一致，请重试')
   })
 })
+
+vi.mock('@/api/fxNetTrading', () => ({ fxNetApi: { quote: vi.fn() } }))
+import { fxNetApi } from '@/api/fxNetTrading'
+import { useFxNetQuote, type NetQuoteOrder } from '../useFxNetQuote'
+import type { FxNetQuote } from '@/types/fx'
+
+it('net quotes debounce, invalidate on account/order changes and ignore price frames', async () => {
+  vi.useFakeTimers()
+  const order = ref<NetQuoteOrder | null>({
+    pairId: 1,
+    account: '1',
+    economicVersion: 0,
+    body: { side: 'sell', amount: '10', borrow_amount: '0' },
+  })
+  const reference = ref('1')
+  const scope = effectScope()
+  scopes.push(scope)
+  const resource = scope.run(() => useFxNetQuote(order, () => reference.value))!
+  const response = {
+    pair_id: 1,
+    side: 'sell',
+    input_amount: '10',
+    output_amount: '9',
+    fee_amount: '0',
+    borrow_amount: '0',
+    executable: true,
+    economic_version: 0,
+    expires_at: '2030-01-01T00:00:00Z',
+  } as FxNetQuote
+  let finish!: (value: FxNetQuote) => void
+  vi.mocked(fxNetApi.quote).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  await vi.advanceTimersByTimeAsync(349)
+  expect(fxNetApi.quote).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(1)
+  order.value = { ...order.value!, account: '2', economicVersion: 1 }
+  expect(resource.quote.value).toBeNull()
+  vi.mocked(fxNetApi.quote).mockResolvedValueOnce({ ...response, economic_version: 1 })
+  await vi.advanceTimersByTimeAsync(350)
+  expect(resource.quote.value?.economic_version).toBe(1)
+  finish(response)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(resource.quote.value?.economic_version).toBe(1)
+  reference.value = '2'
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(fxNetApi.quote).toHaveBeenCalledTimes(2)
+})

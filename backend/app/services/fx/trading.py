@@ -294,6 +294,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
             raise TradeRejected('financing is only available for buys')
     pair = await _pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
+    from app.services.fx.net_trading import reject_net_key
+    await reject_net_key(db, user_id, idempotency_key)
     # User 锁后同一 SQL 读取外币欠币、锁金及幂等成交。其他 pair 的空头写入
     # 也要先拿 User 锁，因此此快照不会在资金校验前变旧。普通卖出仍走旧查重路径。
     if normalized == "buy":
@@ -428,6 +430,16 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                          "interest": user.debt - before_debt,
                          "daily_rate": credit_deps.daily_rate, "source": "fx_buy"},
                 user_after=audit_service.user_snapshot(user))
+    return await _write_spot_ledger(db, user=user, pair=pair, wallet=wallet,
+        normalized=normalized, q=q, min_out=min_out, idempotency_key=idempotency_key,
+        financed=financed, borrow_amount=borrow_amount, trade_now=trade_now)
+
+
+async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
+                             idempotency_key, financed=False, borrow_amount=None,
+                             trade_now, treasury=None, execution_id=None, execution_leg=None):
+    """Post a validated spot leg; caller owns guards, risk and transaction."""
+    user_id, pair_id = int(user.id), int(pair.id)
     _require_writes()
     if normalized == "buy":
         user.cash -= q.input_amount
@@ -446,8 +458,9 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     pair.gold_reserve, pair.foreign_reserve = q.post_gold_reserve, q.post_foreign_reserve
     pair.pool_version += 1
     pair.updated_at = utcnow()
-    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
-                                 .with_for_update().execution_options(populate_existing=True))).scalars().first()
+    if treasury is None:
+        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
+                                     .with_for_update().execution_options(populate_existing=True))).scalars().first()
     _require_writes()
     if treasury is None:
         treasury = FxTreasury(pair_id=pair_id)
@@ -458,6 +471,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         treasury.foreign_balance += q.fee_amount
     treasury.updated_at = utcnow()
     trade = FxTrade(pair_id=pair_id, user_id=user_id, side=normalized,
+                    execution_id=execution_id, execution_leg=execution_leg,
                     purpose='borrow_buy' if financed else 'spot', borrow_amount=borrow_amount,
                     input_amount=q.input_amount, output_amount=q.output_amount,
                     min_out=min_out,

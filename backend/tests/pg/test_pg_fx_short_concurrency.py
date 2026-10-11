@@ -576,3 +576,75 @@ async def test_cover_requotes_after_concurrent_player_buy_changes_pool(
         assert covered.input_amount == new_quote.input_amount
         assert after['treasury_foreign'] == (before['treasury_foreign']
             + D('100'))
+
+
+async def test_net_same_key_cross_zero_commits_one_receipt(pg_sessionmaker):
+    from app.models.fx import FxExecution
+    from app.schemas.fx import FxNetTradeRequest
+    from app.services.fx.net_trading import execute_net_trade
+    uid, pid = await seed(pg_sessionmaker)
+    async with pg_sessionmaker() as db:
+        db.add(FxWallet(user_id=uid, pair_id=pid, foreign_amount=D('100'), cost_basis=D('80')))
+        await db.commit()
+    async def attempt():
+        async with pg_sessionmaker() as db:
+            return await execute_net_trade(db, uid, pid, FxNetTradeRequest(
+                side='sell', amount=D('140'), min_out=D('0'),
+                idempotency_key='net-race', expected_economic_version=0, allow_growth=True))
+    async with asyncio.timeout(10):
+        a, b = await asyncio.gather(attempt(), attempt())
+    assert a.execution_id == b.execution_id and a.trade_ids == b.trade_ids
+    assert a.replay != b.replay
+    after = await state(pg_sessionmaker, uid, pid)
+    assert len(after['trades']) == 2 and after['principal'] == 40
+    async with pg_sessionmaker() as db:
+        assert len(list((await db.execute(select(FxExecution))).scalars())) == 1
+
+
+async def test_net_competing_close_rejects_stale_version_then_reclassifies(pg_sessionmaker):
+    from app.schemas.fx import FxNetQuoteRequest, FxNetTradeRequest
+    from app.services.fx.net_trading import execute_net_trade, quote_net_trade
+    uid, pid = await seed(pg_sessionmaker)
+    async with pg_sessionmaker() as db:
+        db.add(FxWallet(user_id=uid, pair_id=pid, foreign_amount=D('100'), cost_basis=D('80')))
+        await db.commit()
+    async def attempt(key):
+        async with pg_sessionmaker() as db:
+            try:
+                return await execute_net_trade(db, uid, pid, FxNetTradeRequest(
+                    side='sell', amount=D('100'), min_out=D('0'),
+                    idempotency_key=key, expected_economic_version=0))
+            except HTTPException as exc:
+                return exc
+    async with asyncio.timeout(10):
+        results = await asyncio.gather(attempt('net-close-a'), attempt('net-close-b'))
+    assert len([r for r in results if isinstance(r, HTTPException) and r.status_code == 409]) == 1
+    after = await state(pg_sessionmaker, uid, pid)
+    assert after['principal'] == 0 and len(after['trades']) == 1
+    async with pg_sessionmaker() as db:
+        q = await quote_net_trade(db, uid, pid, FxNetQuoteRequest(side='sell', amount=D('100')))
+        assert q.final_direction == 'short' and [l.purpose for l in q.legs] == ['short_open']
+
+
+async def test_net_and_legacy_contend_for_shared_key(pg_sessionmaker):
+    from app.schemas.fx import FxNetTradeRequest
+    from app.services.fx.net_trading import execute_net_trade
+    uid, pid = await seed(pg_sessionmaker)
+    async def net():
+        async with pg_sessionmaker() as db:
+            try:
+                return await execute_net_trade(db, uid, pid, FxNetTradeRequest(
+                    side='buy', amount=D('100'), min_out=D('0'),
+                    idempotency_key='shared', expected_economic_version=0, allow_growth=True))
+            except HTTPException as exc:
+                return exc
+    async def legacy():
+        async with pg_sessionmaker() as db:
+            try:
+                return await spot_buy(db, uid, pid)
+            except HTTPException as exc:
+                return exc
+    async with asyncio.timeout(10):
+        results = await asyncio.gather(net(), legacy())
+    assert len([r for r in results if isinstance(r, HTTPException) and r.status_code == 409]) == 1
+    assert len((await state(pg_sessionmaker, uid, pid))['trades']) == 1

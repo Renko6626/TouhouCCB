@@ -2,8 +2,14 @@
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
 import type {
-  FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyTrade,
-  FxShortPosition, FxShortQuote, FxShortQuoteRequest, FxShortTrade,
+  FxBorrowBuyQuote,
+  FxBorrowBuyQuoteRequest,
+  FxBorrowBuyRequest,
+  FxBorrowBuyTrade,
+  FxShortPosition,
+  FxShortQuote,
+  FxShortQuoteRequest,
+  FxShortTrade,
   FxFundRequest,
   FxPersonalTrade,
   FxPairAdmin,
@@ -34,21 +40,30 @@ import {
 export const FX_EMPTY = '—'
 
 // ── SSE 公开帧白名单（镜像 market_data._FRAME_KEYS） ──
-export const FX_PUBLIC_FRAME_KEYS = ['price', 'buy_price', 'sell_price', 'spread', 'volume'] as const
+export const FX_PUBLIC_FRAME_KEYS = [
+  'price',
+  'buy_price',
+  'sell_price',
+  'spread',
+  'volume',
+] as const
 
 // 后端 detail → 中文提示。动态文案（如首轮失败原因）走 fallback。
 const FX_ERROR_DETAILS: Record<string, string> = {
   risk_engine_unavailable: '信用风控暂不可用，无法借款买入',
   loan_disabled: '借款功能已暂停，仍可使用现金买入',
+  'economic_version_changed; requote': '账户已变化，请重新报价后确认',
+  'growth_requires_confirmation; requote': '新的报价包含开仓，请重新确认交易结果',
+  'insufficient cash to cover': '现金与本仓锁金不足以完成回补',
   same_pair_short: '请先回补当前币种的空头，再借款买入',
   incomplete_asset_valuation: '账户持仓暂无法完整估值，请更新账户和报价',
   'FX trading is disabled': 'FX 交易总闸未开启，管理员开市后才能交易',
   'FX pair is not trading': '该货币对当前暂停或未开市，无法交易',
-  'FX pair is reduce-only': '当前币种只允许卖出，暂不能买入',
-  'insufficient_initial_margin': '本笔买入后不满足初始保证金要求，请减少投入或先还款',
-  'credit_frozen': '账户已冻结新增信用，请先还款或安全减仓',
-  'frozen_by_operator': '当前暂停新增信用风险，暂不能负债买入；仍可还款或安全减仓',
-  'version_conflict': '账户或行情已变化，请刷新后重新确认报价',
+  'FX pair is reduce-only': '当前币种只允许减仓，跨零开仓暂不可用',
+  insufficient_initial_margin: '本笔买入后不满足初始保证金要求，请减少投入或先还款',
+  credit_frozen: '账户已冻结新增信用，请先还款或安全减仓',
+  frozen_by_operator: '当前暂停新增信用风险，暂不能负债买入；仍可还款或安全减仓',
+  version_conflict: '账户或行情已变化，请刷新后重新确认报价',
   'version_conflict; retry': '账户或行情已变化，请刷新后重新确认报价',
   'FX pair not found': 'FX 货币对不存在',
   'bot accounts cannot trade FX': '机器人账户不能参与 FX 交易',
@@ -127,10 +142,7 @@ function incrementScaled(intPart: string, fracPart: string): { int: string; frac
  * 把十进制字符串/数字格式化为固定小数位（half-up），全程字符串运算，
  * 避免 `Number()` 在 1e15 级金额上丢精度。非法输入返回 `—`。
  */
-export function formatFxAmount(
-  value: string | number | null | undefined,
-  digits = 6,
-): string {
+export function formatFxAmount(value: string | number | null | undefined, digits = 6): string {
   if (value === null || value === undefined) return FX_EMPTY
   const expanded = expandExponential(String(value))
   if (expanded === null) return FX_EMPTY
@@ -268,7 +280,10 @@ function scaledToString(value: bigint, scale: number): string {
 }
 
 /** 金额比较保持十进制语义；非法输入不参与比较。 */
-export function compareFxAmounts(a: string | number | null | undefined, b: string | number | null | undefined): number | null {
+export function compareFxAmounts(
+  a: string | number | null | undefined,
+  b: string | number | null | undefined,
+): number | null {
   const left = parseScaled(a, 6)
   const right = parseScaled(b, 6)
   if (left === null || right === null) return null
@@ -291,7 +306,9 @@ export function addFxAmounts(a: string | number, b: string | number): string | n
 export function multiplyFxAmount(amount: string, price: string): string | null {
   const quantity = parseScaled(amount, 6)
   const rate = parseScaled(price, 12)
-  return quantity === null || rate === null ? null : scaledToString(quantity * rate / 10n ** 12n, 6)
+  return quantity === null || rate === null
+    ? null
+    : scaledToString((quantity * rate) / 10n ** 12n, 6)
 }
 
 /** 按数量分摊六位金额，一次整数乘除后截断，避免中间比率损失精度。 */
@@ -303,8 +320,17 @@ export function allocateFxAmount(
   const basis = parseScaled(amount, 6)
   const part = parseScaled(quantity, 6)
   const whole = parseScaled(total, 6)
-  if (basis === null || part === null || whole === null || basis < 0n || part <= 0n || whole <= 0n || part > whole) return null
-  return scaledToString(basis * part / whole, 6)
+  if (
+    basis === null ||
+    part === null ||
+    whole === null ||
+    basis < 0n ||
+    part <= 0n ||
+    whole <= 0n ||
+    part > whole
+  )
+    return null
+  return scaledToString((basis * part) / whole, 6)
 }
 
 function clampBps(value: number): number {
@@ -481,11 +507,7 @@ export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
     if (typeof row !== 'object' || row === null) continue
     const r = row as Record<string, unknown>
     const t =
-      typeof r.bucket_start === 'string'
-        ? r.bucket_start
-        : typeof r.t === 'string'
-          ? r.t
-          : null
+      typeof r.bucket_start === 'string' ? r.bucket_start : typeof r.t === 'string' ? r.t : null
     if (!t) continue
     points.push({
       t,
@@ -539,7 +561,8 @@ export async function getChartWithMeta(
 ): Promise<FxChartMeta> {
   const params = new URLSearchParams({ interval, from: fromIso, to: toIso })
   const resp = await fetch(
-    `${fxPublicBaseUrl()}/api/v1/fx/pairs/${pairId}/chart?${params.toString()}`, { signal },
+    `${fxPublicBaseUrl()}/api/v1/fx/pairs/${pairId}/chart?${params.toString()}`,
+    { signal },
   )
   if (!resp.ok) throw new Error(`FX chart failed: ${resp.status}`)
   const throughTradeId = requiredSafeIntHeader(resp.headers, 'X-FX-Through-Trade-ID')
@@ -698,7 +721,10 @@ export class FxOrderSubmitter {
    * 并发单飞执行：已在途时返回 null 且不调用 `run`。
    * 返回 null 表示本次点击被合并，调用方不应做成功处理。
    */
-  async submit<T>(signature: string, run: (idempotencyKey: string) => Promise<T>): Promise<T | null> {
+  async submit<T>(
+    signature: string,
+    run: (idempotencyKey: string) => Promise<T>,
+  ): Promise<T | null> {
     if (this.inFlight) return null
     this.inFlight = true
     try {
@@ -713,7 +739,10 @@ export class FxOrderSubmitter {
 
 export const fxApi = {
   quoteBorrowBuy(pairId: number, body: FxBorrowBuyQuoteRequest): Promise<FxBorrowBuyQuote> {
-    return api.postForCurrentUser<FxBorrowBuyQuote>(`/api/v1/fx/pairs/${pairId}/borrow-buy/quote`, body)
+    return api.postForCurrentUser<FxBorrowBuyQuote>(
+      `/api/v1/fx/pairs/${pairId}/borrow-buy/quote`,
+      body,
+    )
   },
   borrowBuy(pairId: number, body: FxBorrowBuyRequest): Promise<FxBorrowBuyTrade> {
     return api.postForCurrentUser<FxBorrowBuyTrade>(`/api/v1/fx/pairs/${pairId}/borrow-buy`, body)
@@ -724,10 +753,21 @@ export const fxApi = {
   quoteShort(pairId: number, body: FxShortQuoteRequest): Promise<FxShortQuote> {
     return api.post(`/api/v1/fx/pairs/${pairId}/short/quote`, body)
   },
-  openShort(pairId: number, body: { foreign_amount: string; min_gold_out: string; idempotency_key: string }): Promise<FxShortTrade> {
+  openShort(
+    pairId: number,
+    body: { foreign_amount: string; min_gold_out: string; idempotency_key: string },
+  ): Promise<FxShortTrade> {
     return api.post(`/api/v1/fx/pairs/${pairId}/short/open`, body)
   },
-  coverShort(pairId: number, body: { foreign_amount?: string; cover_all?: boolean; max_gold_in: string; idempotency_key: string }): Promise<FxShortTrade> {
+  coverShort(
+    pairId: number,
+    body: {
+      foreign_amount?: string
+      cover_all?: boolean
+      max_gold_in: string
+      idempotency_key: string
+    },
+  ): Promise<FxShortTrade> {
     return api.post(`/api/v1/fx/pairs/${pairId}/short/cover`, body)
   },
   getAllMyTrades(limit = 100): Promise<FxPersonalTrade[]> {
@@ -740,7 +780,6 @@ export const fxApi = {
   getSnapshot(pairId: number): Promise<FxSnapshot> {
     return api.get<FxSnapshot>(`/api/v1/fx/pairs/${pairId}/snapshot`)
   },
-
 
   getQuote(pairId: number, body: FxQuoteRequest): Promise<FxQuote> {
     return api.post<FxQuote>(`/api/v1/fx/pairs/${pairId}/quote`, body)
@@ -830,7 +869,6 @@ export const fxAdminApi = {
   setConfig(key: string, value: string): Promise<Record<string, string>> {
     return api.put<Record<string, string>>('/api/v1/admin/fx/config', { key, value })
   },
-
 }
 
 // ── SSE 客户端：/api/v1/fx/stream/{pair_id}（命名事件 `fx`） ──
@@ -868,7 +906,10 @@ export class FxStream {
     }
     this.gen += 1
     this.pairId = pairId
-    const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004').replace(/\/$/, '')
+    const baseUrl = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8004').replace(
+      /\/$/,
+      '',
+    )
     const url = `${baseUrl}/api/v1/fx/stream/${pairId}`
     try {
       const source = new EventSource(url)
@@ -1019,26 +1060,42 @@ type PendingShortStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 const PENDING_SHORT_PREFIX = 'fx-short-pending-v1:'
 
 function browserPendingStorage(): PendingShortStorage | null {
-  try { return typeof sessionStorage === 'undefined' ? null : sessionStorage }
-  catch { return null }
+  try {
+    return typeof sessionStorage === 'undefined' ? null : sessionStorage
+  } catch {
+    return null
+  }
 }
 
 function restoredShortRequest(value: unknown): FxPendingShortRequest | null {
   if (!value || typeof value !== 'object') return null
   const request = value as Partial<FxPendingShortRequest>
   const body = request.body
-  if (!Number.isSafeInteger(request.pairId) || Number(request.pairId) <= 0
-    || (request.action !== 'open' && request.action !== 'cover')
-    || !body || typeof body !== 'object'
-    || typeof body.idempotency_key !== 'string' || !body.idempotency_key || body.idempotency_key.length > 128) return null
+  if (
+    !Number.isSafeInteger(request.pairId) ||
+    Number(request.pairId) <= 0 ||
+    (request.action !== 'open' && request.action !== 'cover') ||
+    !body ||
+    typeof body !== 'object' ||
+    typeof body.idempotency_key !== 'string' ||
+    !body.idempotency_key ||
+    body.idempotency_key.length > 128
+  )
+    return null
   const amount = (v: unknown) => typeof v === 'string' && /^\d+(?:\.\d{0,6})?$/.test(v)
   if (request.action === 'open') {
     if (!amount(body.foreign_amount) || !amount(body.min_gold_out)) return null
-  } else if (!amount(body.max_gold_in)
-    || (body.cover_all !== true && !amount(body.foreign_amount))
-    || (body.cover_all === true && body.foreign_amount !== undefined)) return null
-  return Object.freeze({ pairId: request.pairId!, action: request.action,
-    body: Object.freeze({ ...body }) })
+  } else if (
+    !amount(body.max_gold_in) ||
+    (body.cover_all !== true && !amount(body.foreign_amount)) ||
+    (body.cover_all === true && body.foreign_amount !== undefined)
+  )
+    return null
+  return Object.freeze({
+    pairId: request.pairId!,
+    action: request.action,
+    body: Object.freeze({ ...body }),
+  })
 }
 
 /** Retain the exact wire identity across route changes and reloads for one user. */
@@ -1047,63 +1104,99 @@ export class FxPendingShortOrder {
   unreadable = false
   private busy = false
   private userId: string | null = null
+  private generation = 0
 
-  constructor(userId: number | string | null = null,
-    private readonly storage: PendingShortStorage | null = browserPendingStorage()) {
+  constructor(
+    userId: number | string | null = null,
+    private readonly storage: PendingShortStorage | null = browserPendingStorage(),
+  ) {
     this.setUser(userId)
   }
 
   setUser(userId: number | string | null): void {
     const next = userId == null ? null : String(userId)
     if (next === this.userId) return
+    this.generation++
     this.userId = next
     this.pending = null
     this.unreadable = false
     if (next === null) return
-    if (!this.storage) { this.unreadable = true; return }
+    if (!this.storage) {
+      this.unreadable = true
+      return
+    }
     try {
       const raw = this.storage.getItem(PENDING_SHORT_PREFIX + next)
       if (!raw) return
       const restored = restoredShortRequest(JSON.parse(raw))
       if (restored) this.pending = restored
       else this.unreadable = true
-    } catch { this.unreadable = true }
+    } catch {
+      this.unreadable = true
+    }
   }
 
-  get hasUnresolved(): boolean { return this.unreadable || this.pending !== null }
+  get hasUnresolved(): boolean {
+    return this.unreadable || this.pending !== null
+  }
 
   private persist(request: FxPendingShortRequest): void {
     if (this.userId === null || !this.storage || this.unreadable)
       throw new Error('Cannot safely persist the short request identity')
     // This must complete before the first network write. A storage failure
     // fails closed, so a lost response can never turn into a fresh key.
-    try { this.storage.setItem(PENDING_SHORT_PREFIX + this.userId, JSON.stringify(request)) }
-    catch { this.unreadable = true; throw new Error('Cannot safely persist the short request identity') }
+    try {
+      this.storage.setItem(PENDING_SHORT_PREFIX + this.userId, JSON.stringify(request))
+    } catch {
+      this.unreadable = true
+      throw new Error('Cannot safely persist the short request identity')
+    }
     this.pending = request
   }
 
   private clear(userId: string | null, request: FxPendingShortRequest): void {
-    if (userId === null || !this.storage) { this.unreadable = true; return }
+    if (userId === null || !this.storage) {
+      this.unreadable = true
+      return
+    }
     try {
       const key = PENDING_SHORT_PREFIX + userId
       const raw = this.storage.getItem(key)
       if (raw !== null) {
         const stored = restoredShortRequest(JSON.parse(raw))
-        if (!stored) { if (this.userId === userId) this.unreadable = true; return }
+        if (!stored) {
+          if (this.userId === userId) this.unreadable = true
+          return
+        }
         // A response from a component that has since unmounted must not erase
         // a newer request saved by the remounted component.
         if (stored.body.idempotency_key !== request.body.idempotency_key) return
         this.storage.removeItem(key)
       }
-      if (this.userId === userId && this.pending?.body.idempotency_key === request.body.idempotency_key)
+      if (
+        this.userId === userId &&
+        this.pending?.body.idempotency_key === request.body.idempotency_key
+      )
         this.pending = null
-    } catch { if (this.userId === userId) this.unreadable = true }
+    } catch {
+      if (this.userId === userId) this.unreadable = true
+    }
   }
 
-  async start<T>(pairId: number, action: 'open' | 'cover', body: Omit<FxPendingShortRequest['body'], 'idempotency_key'>,
-    run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
-    if (this.hasUnresolved) throw new Error('A short request is awaiting its result')
-    this.persist(Object.freeze({ pairId, action, body: Object.freeze({ ...body, idempotency_key: newFxIdempotencyKey() }) }))
+  async start<T>(
+    pairId: number,
+    action: 'open' | 'cover',
+    body: Omit<FxPendingShortRequest['body'], 'idempotency_key'>,
+    run: (request: FxPendingShortRequest) => Promise<T>,
+  ): Promise<T | null> {
+    if (this.busy || this.hasUnresolved) throw new Error('A short request is awaiting its result')
+    this.persist(
+      Object.freeze({
+        pairId,
+        action,
+        body: Object.freeze({ ...body, idempotency_key: newFxIdempotencyKey() }),
+      }),
+    )
     return this.retry(run)
   }
 
@@ -1111,17 +1204,21 @@ export class FxPendingShortOrder {
     if (this.busy || !this.pending) return null
     const request = this.pending
     const userId = this.userId
+    const generation = this.generation
     this.busy = true
     try {
       const result = await run(request)
       this.clear(userId, request)
-      return result
+      return userId === this.userId && generation === this.generation ? result : null
     } catch (error) {
       const e = error as { status?: unknown; response?: { status?: unknown } } | null
       const status = Number(e?.response?.status ?? e?.status)
       // A request timeout can occur after commit. Unknown/5xx outcomes remain pending.
-      if (status >= 400 && status < 500 && status !== 408) this.clear(userId, request)
+      if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))
+        this.clear(userId, request)
       throw error
-    } finally { this.busy = false }
+    } finally {
+      this.busy = false
+    }
   }
 }

@@ -327,6 +327,8 @@ async def execute_short_open_in_session(
 
     pair = await _lock_pair(db, pair_id)
     user = await lock_user(db, user_id)
+    from app.services.fx.net_trading import reject_net_key
+    await reject_net_key(db, user_id, idempotency_key)
 
     # Idempotency identity includes purpose/pair/foreign Q/min gold.  A hit
     # returns the saved execution with no mutation; the caller may roll back to
@@ -437,6 +439,17 @@ async def execute_short_open_in_session(
             raise ShortRetryCredit()
         raise HTTPException(status_code=400, detail=decision.reason)
 
+    return await _write_open_ledger(db, user=user, pair=pair, positions=positions,
+        target=target, treasury=treasury, amount=amount, q=q, now=now,
+        daily_rate=daily_rate, min_out=min_out, idempotency_key=idempotency_key)
+
+
+async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
+                             amount, q, now, daily_rate, min_out, idempotency_key,
+                             execution_id=None, execution_leg=None):
+    """Post a validated borrow/sell leg; caller owns guards/risk/transaction."""
+    user_id, pair_id = int(user.id), int(pair.id)
+    gold_reserve, foreign_reserve = Decimal(pair.gold_reserve), Decimal(pair.foreign_reserve)
     _require_writes()
     pre_gold, pre_foreign = gold_reserve, foreign_reserve
     pre_treasury_gold = Decimal(treasury.gold_balance)
@@ -527,6 +540,7 @@ async def execute_short_open_in_session(
     # the first execution reported.
     post_price = q.post_price.quantize(_Q6)
     trade = FxTrade(
+        execution_id=execution_id, execution_leg=execution_leg,
         pair_id=pair_id, user_id=user_id, side="sell", purpose=SHORT_OPEN_PURPOSE,
         requested_foreign_amount=amount, input_amount=q.input_amount,
         output_amount=q.output_amount, min_out=min_out, fee_amount=q.fee_amount,
@@ -642,6 +656,7 @@ async def _write_cover_ledger(
     pre_gold: Decimal,
     pre_foreign: Decimal,
     reject: type[Exception],
+    execution_id=None, execution_leg=None,
 ) -> _CoverLedger:
     """Validate every post-state, then post one cover in the caller's txn.
 
@@ -716,6 +731,7 @@ async def _write_cover_ledger(
 
     post_price = quote.post_price.quantize(_Q6)
     trade = FxTrade(
+        execution_id=execution_id, execution_leg=execution_leg,
         pair_id=int(pair.id), user_id=int(user.id), side="buy",
         purpose=SHORT_COVER_PURPOSE,
         requested_foreign_amount=requested_foreign_amount,
@@ -829,6 +845,8 @@ async def execute_short_cover_in_session(
 
     pair = await _lock_pair(db, pair_id)
     user = await lock_user(db, user_id)
+    from app.services.fx.net_trading import reject_net_key
+    await reject_net_key(db, user_id, idempotency_key)
 
     # A replay after the position is fully closed returns the saved execution
     # and never buys foreign again.  Purpose/pair/cover_all/q/max identity must

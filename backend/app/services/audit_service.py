@@ -270,6 +270,7 @@ def record_fx_trade(session: AsyncSession, *, trade: Any, user: Optional[User], 
     payload = {
             "pair_id": pair.id, "side": trade.side,
             "purpose": trade.purpose,
+            "execution_id": trade.execution_id, "execution_leg": trade.execution_leg,
             "borrow_amount": trade.borrow_amount,
             "input_amount": trade.input_amount, "output_amount": trade.output_amount,
             "fee_amount": trade.fee_amount,
@@ -328,6 +329,7 @@ def record_fx_short_open(
         "accrued_at": _utc_iso(accrued_at),
         "pair_id": pair.id,
         "purpose": trade.purpose,
+            "execution_id": trade.execution_id, "execution_leg": trade.execution_leg,
         "side": trade.side,
         "input_amount": trade.input_amount,
         "output_amount": trade.output_amount,
@@ -424,6 +426,7 @@ def record_fx_short_cover(
     payload = {
         "pair_id": pair.id,
         "purpose": trade.purpose,
+            "execution_id": trade.execution_id, "execution_leg": trade.execution_leg,
         "side": trade.side,
         "input_amount": trade.input_amount,
         "output_amount": trade.output_amount,
