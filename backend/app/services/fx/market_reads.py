@@ -226,6 +226,7 @@ async def _load_tail_trades(db: AsyncSession, pair_id: int, after_id: int,
         return []
     stmt = select(
         FxTrade.id, FxTrade.pair_id, FxTrade.created_at, FxTrade.post_price,
+        FxTrade.pre_gold_reserve, FxTrade.pre_foreign_reserve,
         FxTrade.side, FxTrade.input_amount, FxTrade.output_amount,
     ).where(
         FxTrade.pair_id == int(pair_id),

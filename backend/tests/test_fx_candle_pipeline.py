@@ -123,6 +123,7 @@ async def _rebuild_pair(pair_id: int, *, through_trade_id: int, new_version: str
             projected = (await db.execute(
                 select(
                     FxTrade.id, FxTrade.pair_id, FxTrade.created_at, FxTrade.post_price,
+                    FxTrade.pre_gold_reserve, FxTrade.pre_foreign_reserve,
                     FxTrade.side, FxTrade.input_amount, FxTrade.output_amount,
                 ).where(FxTrade.pair_id == pair_id, FxTrade.id <= through_trade_id)
             )).all()
@@ -166,7 +167,7 @@ async def test_startup_uses_per_pair_cursor_and_restart_does_not_double_count():
         assert service.state(pair_a)["applied_trade_id"] == a2  # pair max, not global max at start
         assert service.state(pair_b)["applied_trade_id"] == b1
         candle = await _read_candle(pair_a, "1m", NOW)
-        assert candle["open"] == Decimal("1.10")
+        assert candle["open"] == Decimal("1.00")
         assert candle["close"] == Decimal("1.30")
         assert candle["volume"] == Decimal("5")
         assert candle["n"] == 2
@@ -200,10 +201,10 @@ async def test_multipage_backfill_merges_order_and_volume_once():
     await service.start(write_owner=True)
     try:
         candle = await _read_candle(pair, "1m", NOW)
-        assert candle["open"] == Decimal("1.10")   # id 2 at :10
+        assert candle["open"] == Decimal("1.00")   # id 2 at :10
         assert candle["close"] == Decimal("1.30")  # id 1 at :30
         assert candle["high"] == Decimal("1.30")
-        assert candle["low"] == Decimal("1.10")
+        assert candle["low"] == Decimal("1.00")
         assert candle["volume"] == Decimal("6")
         assert candle["n"] == 3
         assert (candle["first_id"], candle["last_id"]) == (2, 1)
@@ -428,6 +429,7 @@ async def test_interrupted_backfill_resumes_and_marks_ready_at_cutoff():
             projected = (await db.execute(
                 select(
                     FxTrade.id, FxTrade.pair_id, FxTrade.created_at, FxTrade.post_price,
+                    FxTrade.pre_gold_reserve, FxTrade.pre_foreign_reserve,
                     FxTrade.side, FxTrade.input_amount, FxTrade.output_amount,
                 ).where(FxTrade.id == t1)
             )).all()
@@ -473,6 +475,7 @@ async def test_public_trade_buffer_overflow_invalidates_without_losing_candles()
         assert [delta["id"] for delta in deltas] == [1, 2]
         assert Decimal(deltas[1]["gold_volume"]) == Decimal("3.5")  # sell uses gold-out
         assert Decimal(deltas[1]["post_price"]) == Decimal("1.20")
+        assert deltas[1]["pre_price"] == "1.000000"
         assert deltas[0]["ts"].endswith("+00:00")
         assert isinstance(deltas[0]["post_price"], str)
 
@@ -515,7 +518,7 @@ async def test_get_candles_and_tail_are_ready_gated_and_use_decimal_strings():
         rows = service.get_candles(pair, "1m", NOW, NOW + timedelta(minutes=1))
         assert rows is not None and len(rows) == 1
         assert rows[0]["interval"] == "1m"
-        assert Decimal(rows[0]["open_price"]) == Decimal("1.25")
+        assert Decimal(rows[0]["open_price"]) == Decimal("1.00")
 
         tail = service.tail(pair, NOW + timedelta(seconds=30))
         assert tail["history_version"]
@@ -533,7 +536,7 @@ async def test_get_candles_and_tail_are_ready_gated_and_use_decimal_strings():
         one_min = tail["history_tail"]["1m"]
         # The LMSR codec emits ints (float * 1e8); FX must emit decimal strings.
         assert isinstance(one_min["o"][0], str)
-        assert Decimal(one_min["o"][0]) == Decimal("1.25")
+        assert Decimal(one_min["o"][0]) == Decimal("1.00")
         assert isinstance(one_min["v"][0], str)
         assert Decimal(one_min["v"][0]) == Decimal("2")
         assert one_min["trades"] == [1]

@@ -63,6 +63,7 @@ from app.services.fx.candles import (
     compute_fx_candle_rows,
     merge_row,
     new_history_version,
+    trade_pre_price,
 )
 from app.services.history_ring import RING_SPEC, seal_boundary
 
@@ -134,6 +135,7 @@ def _public_delta(trade: Any) -> dict:
     return {
         "id": int(getattr(trade, "id")),
         "ts": _utc(getattr(trade, "created_at")).isoformat(),
+        "pre_price": str(trade_pre_price(trade)),
         "post_price": str(_dec(getattr(trade, "post_price"))),
         "gold_volume": str(_dec(amount)),
     }
@@ -826,6 +828,8 @@ class FxMarketDataService:
                 FxTrade.pair_id,
                 FxTrade.created_at,
                 FxTrade.post_price,
+                FxTrade.pre_gold_reserve,
+                FxTrade.pre_foreign_reserve,
                 FxTrade.side,
                 FxTrade.input_amount,
                 FxTrade.output_amount,

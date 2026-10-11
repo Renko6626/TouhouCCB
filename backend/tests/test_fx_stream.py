@@ -181,7 +181,7 @@ def test_public_frame_to_wire_recurses_while_retaining_the_allowlist():
             }},
         },
         trades=[{"id": 3, "ts": "2026-10-01T00:00:00+00:00",
-                 "post_price": Decimal("1.11"), "gold_volume": Decimal("2.5"),
+                 "pre_price": Decimal("1.10"), "post_price": Decimal("1.11"), "gold_volume": Decimal("2.5"),
                  "user_id": 42, "target_price": "leak"}],
     )
     wire = public_frame_to_wire(frame)
@@ -192,7 +192,7 @@ def test_public_frame_to_wire_recurses_while_retaining_the_allowlist():
     assert wire["history_tail"]["1m"]["o"] == ["1.10"]
     assert "private" not in wire["history_tail"]["1m"]
     assert wire["trades"][0] == {"id": 3, "ts": "2026-10-01T00:00:00+00:00",
-                                 "post_price": "1.11", "gold_volume": "2.5"}
+                                 "pre_price": "1.10", "post_price": "1.11", "gold_volume": "2.5"}
 
 
 class _StubRuntime:

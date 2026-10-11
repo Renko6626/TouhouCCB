@@ -169,7 +169,8 @@ async def test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_
         assert len(rows) == 1
         assert rows[0]["volume"] == public.input_amount
         assert rows[0]["n"] == 1
-        assert rows[0]["open"] == rows[0]["close"] == Decimal(public.post_price)
+        assert rows[0]["open"] == Decimal("1.00")
+        assert rows[0]["close"] == Decimal(public.post_price)
 
         # Ready history wiring: get_public_snapshot uses the exact helper and
         # carries the real generation/readiness instead of the SQL fallback.
@@ -239,10 +240,10 @@ async def test_rebuild_pair_matches_fresh_aggregation_and_rotates_generation():
             cutoff = await rebuild_pair(db, pair_id, through)
     assert cutoff == through
     row = await _candle(pair_id, "1m", BASE)
-    assert row["open"] == Decimal("1.10")     # earliest created_at
+    assert row["open"] == Decimal("1.00")     # earliest created_at
     assert row["close"] == Decimal("1.30")    # latest created_at
     assert row["high"] == Decimal("1.30")
-    assert row["low"] == Decimal("1.10")
+    assert row["low"] == Decimal("1.00")
     assert row["volume"] == Decimal("6")      # 1 + 2 + sell gold out 3
     assert row["n"] == 3
     assert (row["first_id"], row["last_id"]) == (2, 1)

@@ -4,7 +4,8 @@ Two responsibilities live here:
 
 * :func:`compute_fx_candle_rows` is pure: it turns any iterable of trade-like
   objects (real ``FxTrade`` rows or projected rows exposing ``id``, ``pair_id``,
-  ``created_at``, ``post_price``, ``side``, ``input_amount``, ``output_amount``)
+  ``created_at``, ``pre_gold_reserve``, ``pre_foreign_reserve``, ``post_price``,
+  ``side``, ``input_amount``, ``output_amount``)
   into 4-interval candle rows.  It never touches the ORM.
 * :func:`apply_candle_batch` / :func:`load_market_data_state` own persistence:
   candle upsert, durable cursor and history version move in the caller's
@@ -17,7 +18,7 @@ only freezes the storage contract.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any, Iterable, Sequence
 from uuid import uuid4
 
@@ -81,10 +82,21 @@ def _gold_volume(trade: Any) -> Decimal:
     return Decimal(amount)
 
 
+def trade_pre_price(trade: Any) -> Decimal:
+    """Pre-trade marginal price, at the same six-place precision as post_price."""
+    from app.services.fx.amm import marginal_price
+
+    return marginal_price(
+        Decimal(_get(trade, "pre_gold_reserve")),
+        Decimal(_get(trade, "pre_foreign_reserve")),
+    ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
+
+
 def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
     """Fold trades into one row per ``(pair_id, interval, bucket_start)``.
 
-    Buckets are UTC; OHLC is ``post_price`` taken in ``(created_at, id)`` order;
+    Buckets are UTC; open is the first pre-trade price, close the last post-trade
+    price, and high/low include both, ordered by ``(created_at, id)``;
     ``gold_volume`` is buy ``input_amount`` / sell ``output_amount``.  Each row
     carries the first/last ordering keys so later batches can merge without
     re-reading history.
@@ -93,6 +105,7 @@ def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
 
     for trade in trades:
         pair_id = int(_get(trade, "pair_id"))
+        pre_price = trade_pre_price(trade)
         for interval, step in FX_CANDLE_INTERVALS:
             ts = _utc(_get(trade, "created_at"))
             trade_id = int(_get(trade, "id"))
@@ -106,9 +119,9 @@ def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
                     "pair_id": pair_id,
                     "interval": interval,
                     "bucket_start": bucket_start,
-                    "open_price": price,
-                    "high_price": price,
-                    "low_price": price,
+                    "open_price": pre_price,
+                    "high_price": max(pre_price, price),
+                    "low_price": min(pre_price, price),
                     "close_price": price,
                     "gold_volume": volume,
                     "n_trades": 1,
@@ -120,15 +133,15 @@ def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
                 continue
 
             if _order_key(ts, trade_id) < _order_key(row["first_trade_at"], row["first_trade_id"]):
-                row["open_price"] = price
+                row["open_price"] = pre_price
                 row["first_trade_at"] = ts
                 row["first_trade_id"] = trade_id
             if _order_key(ts, trade_id) > _order_key(row["last_trade_at"], row["last_trade_id"]):
                 row["close_price"] = price
                 row["last_trade_at"] = ts
                 row["last_trade_id"] = trade_id
-            row["high_price"] = max(row["high_price"], price)
-            row["low_price"] = min(row["low_price"], price)
+            row["high_price"] = max(row["high_price"], pre_price, price)
+            row["low_price"] = min(row["low_price"], pre_price, price)
             row["gold_volume"] += volume
             row["n_trades"] += 1
 

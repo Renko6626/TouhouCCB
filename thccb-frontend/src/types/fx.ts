@@ -140,6 +140,8 @@ export interface FxTradeTick {
   id: number
   /** 真实成交时间 ISO UTC（不是客户端接收时间） */
   ts: string
+  /** 成交前边际汇率，由交易前储备推导，Decimal 字符串 */
+  pre_price: string
   /** 成交后边际汇率 Decimal 字符串 */
   post_price: string
   /** 金侧成交量 Decimal 字符串（buy 金入 / sell 金出） */

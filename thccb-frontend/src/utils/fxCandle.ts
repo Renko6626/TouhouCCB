@@ -6,8 +6,7 @@
 //   - 实时 tick 跨桶时本地合成空桶（o=h=l=c=prevClose, v=0），跨桶过多才要求整页重载；
 //   - 同一 bucket 合并 h/l/c/v；MA 增量维护，避免每 tick O(N) 重算。
 //
-// 与市场页的唯一语义差异：FX 的 SSE 帧是「当前价格」而不是带成交量的逐笔成交，
-// 所以乱序/落后 bucket 的 tick 也更新最后一根（视为客户端时钟略慢），而不是丢弃。
+// 生产 SSE 的 trades 使用真实成交时间和交易前后边际价；旧 applyPrice 仅作兼容。
 //
 // 放到 `utils/` 下让 Vitest（node 环境）可直接对 bucket/MA/实时合并做行为断言。
 
@@ -57,6 +56,7 @@ export interface FxPriceApply {
 export interface FxCandleTrade {
   id: number
   ts: number
+  prePrice: number
   price: number
   volume: number
 }
@@ -307,8 +307,8 @@ export class FxCandleEngine {
 
   /**
    * 批量应用真实成交（含金侧成交量与真实成交时间）：
-   * - 按 `ts`（真实成交时间）分桶，不用客户端接收时间；新桶 O/H/L/C 从**首笔成交**
-   *   `post_price` 开始，不用 prevClose（prevClose 只用于无成交的空桶）；
+   * - 按 `ts`（真实成交时间）分桶；O 为首笔成交前价，C 为末笔成交后价，
+   *   H/L 包含每笔成交前后价，与历史聚合一致；prevClose 只用于空桶；
    * - `id <= coverageTradeId` 或重复 id 的成交被跳过，保证成交量不重复累计；
    * - 桶内按 `(ts,id)` 维护首末排序键：实时创建的桶可跨批次正确回填 open/close；
    * - 预加载（`load`）的桶没有历史首末键：只有“当前 forming 桶的追加”可安全应用，
@@ -406,7 +406,7 @@ export class FxCandleEngine {
       const key: FxTradeKey = { ts: trade.ts, id: trade.id }
       const candles = this._candles
       if (candles.length === 0) {
-        candles.push({ t: bucket, o: trade.price, h: trade.price, l: trade.price, c: trade.price, v: trade.volume })
+        candles.push({ t: bucket, o: trade.prePrice, h: Math.max(trade.prePrice, trade.price), l: Math.min(trade.prePrice, trade.price), c: trade.price, v: trade.volume })
         this.tradeRanges.set(bucket, { first: key, last: key })
         changedIndexes.add(0)
         result.added += 1
@@ -419,8 +419,8 @@ export class FxCandleEngine {
             changedIndexes.add(candles.length - 1)
             result.added += 1
           }
-          // 有真实成交的新桶：O/H/L/C 从首笔成交价开始，不用 prevClose
-          candles.push({ t: bucket, o: trade.price, h: trade.price, l: trade.price, c: trade.price, v: trade.volume })
+          // 新桶以真实交易前价开盘；不把额外池价变化伪装成前收盘。
+          candles.push({ t: bucket, o: trade.prePrice, h: Math.max(trade.prePrice, trade.price), l: Math.min(trade.prePrice, trade.price), c: trade.price, v: trade.volume })
           this.tradeRanges.set(bucket, { first: key, last: key })
           changedIndexes.add(candles.length - 1)
           result.added += 1
@@ -435,37 +435,37 @@ export class FxCandleEngine {
           if (!range) {
             if (candle.v === 0) {
               // 合成空桶（merge 平推 / gap 补出，v=0）：首笔真实成交定义整根
-              // O/H/L/C，而不是保留 carry 的 prevClose / 错误极值。
-              candle.o = trade.price
-              candle.h = trade.price
-              candle.l = trade.price
+              // O/H/L/C，不保留空桶 carry 的旧价格/极值。
+              candle.o = trade.prePrice
+              candle.h = Math.max(trade.prePrice, trade.price)
+              candle.l = Math.min(trade.prePrice, trade.price)
               candle.c = trade.price
               candle.v = trade.volume
               this.tradeRanges.set(bucket, { first: key, last: key })
             } else {
               // 预加载真实 forming 桶：历史首笔未知，实时成交只能追加到 close
-              candle.h = Math.max(candle.h, trade.price)
-              candle.l = Math.min(candle.l, trade.price)
+              candle.h = Math.max(candle.h, trade.prePrice, trade.price)
+              candle.l = Math.min(candle.l, trade.prePrice, trade.price)
               candle.c = trade.price
               candle.v += trade.volume
               this.tradeRanges.set(bucket, { first: null, last: key })
             }
           } else if (range.first === null) {
-            candle.h = Math.max(candle.h, trade.price)
-            candle.l = Math.min(candle.l, trade.price)
+            candle.h = Math.max(candle.h, trade.prePrice, trade.price)
+            candle.l = Math.min(candle.l, trade.prePrice, trade.price)
             candle.c = trade.price
             candle.v += trade.volume
             range.last = key
           } else {
             if (compareFxTradeKeys(key, range.first) < 0) {
-              candle.o = trade.price
+              candle.o = trade.prePrice
               range.first = key
             } else if (compareFxTradeKeys(key, range.last) > 0) {
               candle.c = trade.price
               range.last = key
             }
-            candle.h = Math.max(candle.h, trade.price)
-            candle.l = Math.min(candle.l, trade.price)
+            candle.h = Math.max(candle.h, trade.prePrice, trade.price)
+            candle.l = Math.min(candle.l, trade.prePrice, trade.price)
             candle.v += trade.volume
           }
           changedIndexes.add(index)
@@ -514,6 +514,7 @@ function FX_CANDLE_STEP(stepSeconds: number): number {
 function isValidTrade(trade: FxCandleTrade): boolean {
   return Number.isSafeInteger(trade.id) && trade.id >= 0
     && Number.isFinite(trade.ts) && trade.ts > 0
+    && Number.isFinite(trade.prePrice) && trade.prePrice >= 0
     && Number.isFinite(trade.price) && trade.price > 0
     && Number.isFinite(trade.volume) && trade.volume >= 0
 }

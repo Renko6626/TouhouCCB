@@ -55,10 +55,11 @@ class _LoseCommitAfterSuccessSession(AsyncSession):
         return _Ctx()
 
 
-def _trade(tid, ts, price, *, side="buy", input_amount="2", output_amount="1", pair_id=1):
+def _trade(tid, ts, price, *, side="buy", input_amount="2", output_amount="1", pair_id=1, pre_price=None):
     return SimpleNamespace(
         id=tid, pair_id=pair_id, created_at=ts, post_price=Decimal(price),
         side=side, input_amount=Decimal(input_amount), output_amount=Decimal(output_amount),
+        pre_gold_reserve=Decimal(pre_price or price), pre_foreign_reserve=Decimal("1"),
     )
 
 
@@ -113,21 +114,34 @@ def _hold_before_apply(monkeypatch):
 # ── pure aggregation ──────────────────────────────────────────────────────
 def test_compute_rows_orders_open_close_by_created_at_then_id_for_all_intervals():
     rows = compute_fx_candle_rows([
-        _trade(3, _at(20), "1.30"),
-        _trade(1, _at(5), "1.10"),
-        _trade(2, _at(5), "1.20"),   # same second as id 1: id breaks the tie
+        _trade(3, _at(20), "1.30", pre_price="1.20"),
+        _trade(1, _at(5), "1.10", pre_price="1.00"),
+        _trade(2, _at(5), "1.20", pre_price="1.10"),   # same second as id 1: id breaks the tie
     ])
 
     assert {row["interval"] for row in rows} == {"10s", "1m", "15m", "1h"}
     minute = next(row for row in rows if row["interval"] == "1m")
     assert minute["bucket_start"] == BASE
-    assert minute["open_price"] == Decimal("1.10")   # id 1 at :05
+    assert minute["open_price"] == Decimal("1.00")   # id 1 at :05
     assert minute["close_price"] == Decimal("1.30")  # id 3 at :20
     assert minute["high_price"] == Decimal("1.30")
-    assert minute["low_price"] == Decimal("1.10")
+    assert minute["low_price"] == Decimal("1.00")
     assert minute["gold_volume"] == Decimal("6")     # three buys × input 2
     assert minute["n_trades"] == 3
     assert (minute["first_trade_id"], minute["last_trade_id"]) == (1, 3)
+
+
+def test_single_trade_buckets_connect_pre_price_to_previous_close():
+    rows = compute_fx_candle_rows([
+        _trade(1, _at(5), "1.10", pre_price="1"),
+        _trade(2, _at(65), "0.90", pre_price="1.10"),
+    ])
+    candles = [row for row in rows if row["interval"] == "1m"]
+    assert candles[0]["open_price"] == Decimal("1")
+    assert candles[0]["close_price"] == candles[1]["open_price"] == Decimal("1.10")
+    assert candles[1]["close_price"] == candles[1]["low_price"] == Decimal("0.90")
+    assert candles[1]["high_price"] == Decimal("1.10")
+    assert candles[1]["gold_volume"] == Decimal("2")
 
 
 def test_compute_rows_sell_uses_output_for_gold_volume():
@@ -141,8 +155,10 @@ def test_compute_rows_accepts_projected_mapping_fields():
     row = compute_fx_candle_rows([{
         "id": 7, "pair_id": 1, "created_at": _at(3), "post_price": Decimal("1.42"),
         "side": "sell", "input_amount": Decimal("9"), "output_amount": Decimal("2.5"),
+        "pre_gold_reserve": Decimal("4.50"), "pre_foreign_reserve": Decimal("3"),
     }])[0]
-    assert row["close_price"] == Decimal("1.42")
+    assert row["open_price"] == row["high_price"] == Decimal("1.50")
+    assert row["low_price"] == row["close_price"] == Decimal("1.42")
     assert row["gold_volume"] == Decimal("2.5")
 
 

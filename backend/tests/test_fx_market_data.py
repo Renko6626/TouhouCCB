@@ -5,31 +5,34 @@ from types import SimpleNamespace
 from app.services.fx.market_data import build_price_buckets, build_public_frame
 
 
-def _trade(ts, price, amount="2", *, source="player", user_id=7):
+def _trade(ts, price, amount="2", *, source="player", user_id=7, pre_price=None):
     return SimpleNamespace(
         id=1, pair_id=3, created_at=ts, post_price=Decimal(price),
         input_amount=Decimal(amount), output_amount=Decimal("1"),
         side="buy", source=source, user_id=user_id,
+        pre_gold_reserve=Decimal(pre_price or price), pre_foreign_reserve=Decimal("1"),
     )
 
 
-def test_price_buckets_use_post_price_ohlcv_and_include_system_trades():
+def test_price_buckets_use_pre_to_post_ohlcv_and_include_system_trades():
     start = datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc)
     trades = [
-        _trade(datetime(2026, 9, 28, 12, 0, 5, tzinfo=timezone.utc), "1.10"),
-        _trade(datetime(2026, 9, 28, 12, 0, 20, tzinfo=timezone.utc), "1.20", "3"),
-        _trade(datetime(2026, 9, 28, 12, 1, 2, tzinfo=timezone.utc), "1.05", "4", source="system", user_id=None),
+        _trade(datetime(2026, 9, 28, 12, 0, 5, tzinfo=timezone.utc), "1.10", pre_price="1"),
+        _trade(datetime(2026, 9, 28, 12, 0, 20, tzinfo=timezone.utc), "1.20", "3", pre_price="1.10"),
+        _trade(datetime(2026, 9, 28, 12, 1, 2, tzinfo=timezone.utc), "1.05", "4", source="system", user_id=None, pre_price="1.20"),
     ]
 
     candles = build_price_buckets(trades, "1m", start, datetime(2026, 9, 28, 12, 2, tzinfo=timezone.utc))
 
     assert len(candles) == 2
-    assert candles[0].open == Decimal("1.10")
+    assert candles[0].open == Decimal("1")
     assert candles[0].high == Decimal("1.20")
-    assert candles[0].low == Decimal("1.10")
+    assert candles[0].low == Decimal("1")
     assert candles[0].close == Decimal("1.20")
     assert candles[0].volume == Decimal("5")
-    assert candles[1].open == candles[1].close == Decimal("1.05")
+    assert candles[1].open == candles[0].close == Decimal("1.20")
+    assert candles[1].close == candles[1].low == Decimal("1.05")
+    assert candles[1].high == Decimal("1.20")
     assert candles[1].volume == Decimal("4")
 
 
@@ -65,7 +68,7 @@ def test_incremental_candle_rows_match_legacy_1m_ohlcv():
     """The durable aggregation must reproduce the chart's FX 口径 for 1m.
 
     Guards against the new incremental path silently drifting from the legacy
-    ``build_price_buckets`` OHLCV (post_price order, buy-input/sell-output gold
+    ``build_price_buckets`` OHLCV (pre/post price order, buy-input/sell-output gold
     volume) while the read path is being migrated.
     """
     from app.services.fx.candles import compute_fx_candle_rows

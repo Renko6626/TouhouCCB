@@ -141,10 +141,10 @@ export function sanitizeFxHistorySegment(
       const parsed = decimalToNumber(price)
       if (parsed === null || parsed < 0) return null
     }
-    const parsedOpen = decimalToNumber(open)!
     const parsedHigh = decimalToNumber(high)!
     const parsedLow = decimalToNumber(low)!
-    if (parsedHigh < parsedLow || parsedOpen <= 0) return null
+    // A positive pool price below half a six-place tick rounds to zero.
+    if (parsedHigh < parsedLow) return null
     if (!isValidEpoch(t0 + offset * step)) return null
     const parsedVolume = decimalToNumber(volume)
     const parsedCount = safeNonNegativeInt(count)
@@ -180,10 +180,11 @@ export function sanitizeFxTradeTick(raw: unknown): FxTradeTick | null {
   if (id === null) return null
   const ts = source.ts
   if (typeof ts !== 'string' || fxTimestampToSeconds(ts) === null) return null
+  const prePrice = decimalToNumber(source.pre_price)
   const postPrice = decimalToNumber(source.post_price)
   const goldVolume = decimalToNumber(source.gold_volume)
-  if (postPrice === null || postPrice <= 0 || goldVolume === null || goldVolume < 0) return null
-  return { id, ts, post_price: source.post_price as string, gold_volume: source.gold_volume as string }
+  if (prePrice === null || prePrice < 0 || postPrice === null || postPrice <= 0 || goldVolume === null || goldVolume < 0) return null
+  return { id, ts, pre_price: source.pre_price as string, post_price: source.post_price as string, gold_volume: source.gold_volume as string }
 }
 
 /** 校验增量帧里的公开成交列表；非法项直接丢弃。 */
@@ -222,9 +223,10 @@ export function decodeFxTradeTick(tick: FxTradeTick): FxCandleTrade | null {
   const ts = fxTimestampToSeconds(tick.ts)
   if (ts === null) return null
   const price = Number(tick.post_price)
+  const prePrice = Number(tick.pre_price)
   const volume = Number(tick.gold_volume)
-  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(volume) || volume < 0) return null
-  return { id: tick.id, ts, price, volume }
+  if (!Number.isFinite(prePrice) || prePrice < 0 || !Number.isFinite(price) || price <= 0 || !Number.isFinite(volume) || volume < 0) return null
+  return { id: tick.id, ts, prePrice, price, volume }
 }
 
 /**

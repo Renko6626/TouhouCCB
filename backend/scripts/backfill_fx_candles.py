@@ -58,6 +58,8 @@ _AGGREGATION_COLUMNS = (
     FxTrade.pair_id,
     FxTrade.created_at,
     FxTrade.post_price,
+    FxTrade.pre_gold_reserve,
+    FxTrade.pre_foreign_reserve,
     FxTrade.side,
     FxTrade.input_amount,
     FxTrade.output_amount,

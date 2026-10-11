@@ -307,3 +307,33 @@ def test_cleanup_roundtrip_schema_matches_current_model_metadata():
             revision.upgrade()
         assert {table:shape(table) for table in expected} == expected
         assert 'fx_event' not in inspect(conn).get_table_names()
+
+
+def test_candle_price_upgrade_and_downgrade_only_invalidate_derived_history():
+    from sqlalchemy import text
+
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*_fx_candle_pre_price.py'))
+    spec = importlib.util.spec_from_file_location('candle_pre_price_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        conn.execute(text('CREATE TABLE fx_candle (id INTEGER PRIMARY KEY, close_price NUMERIC)'))
+        conn.execute(text('CREATE TABLE fx_market_data_state (pair_id INTEGER PRIMARY KEY, last_trade_id INTEGER, history_version TEXT)'))
+        conn.execute(text('CREATE TABLE fx_trade (id INTEGER PRIMARY KEY, pre_gold_reserve NUMERIC, pre_foreign_reserve NUMERIC, post_price NUMERIC)'))
+        conn.execute(text('CREATE TABLE fx_wallet (id INTEGER PRIMARY KEY, foreign_amount NUMERIC, cost_basis NUMERIC)'))
+        conn.execute(text('CREATE TABLE user (id INTEGER PRIMARY KEY, cash NUMERIC, debt NUMERIC)'))
+        conn.execute(text('INSERT INTO fx_trade VALUES (7, 100, 50, 2.5)'))
+        conn.execute(text('INSERT INTO fx_wallet VALUES (1, 20, 40)'))
+        conn.execute(text('INSERT INTO user VALUES (1, 123, 45)'))
+        names = set(inspect(conn).get_table_names())
+        for migrate in (revision.upgrade, revision.downgrade):
+            conn.execute(text("INSERT INTO fx_candle VALUES (1, 2.5)"))
+            conn.execute(text("INSERT INTO fx_market_data_state VALUES (1, 7, 'old')"))
+            with Operations.context(MigrationContext.configure(conn)):
+                migrate()
+            assert conn.execute(text('SELECT * FROM fx_candle')).all() == []
+            assert conn.execute(text('SELECT * FROM fx_market_data_state')).all() == []
+            assert conn.execute(text('SELECT * FROM fx_trade')).one() == (7, 100, 50, 2.5)
+            assert conn.execute(text('SELECT * FROM fx_wallet')).one() == (1, 20, 40)
+            assert conn.execute(text('SELECT * FROM user')).one() == (1, 123, 45)
+            assert set(inspect(conn).get_table_names()) == names

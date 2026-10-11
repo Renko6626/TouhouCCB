@@ -79,7 +79,7 @@ describe('FX envelope 解析', () => {
       },
       history_tail_at: '2026-01-01T00:00:00.000Z',
       history_tail_through_trade_id: 42,
-      trades: [{ id: 43, ts: '2026-01-01T00:01:00.000Z', post_price: '1.29000000', gold_volume: '5.000000' }],
+      trades: [{ id: 43, ts: '2026-01-01T00:01:00.000Z', pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' }],
       history_invalidated: true,
     })
 
@@ -90,7 +90,7 @@ describe('FX envelope 解析', () => {
     expect(env.history_version).toBe('11111111-1111-1111-1111-111111111111')
     expect(env.history_tail?.['1m']?.o).toEqual(['1.25000000'])
     expect(env.history_tail_through_trade_id).toBe(42)
-    expect(env.trades?.[0]).toMatchObject({ id: 43, post_price: '1.29000000', gold_volume: '5.000000' })
+    expect(env.trades?.[0]).toMatchObject({ id: 43, pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' })
     expect(env.history_invalidated).toBe(true)
     expect('gold_reserve' in env).toBe(false)
     expect('shock_ratio' in env).toBe(false)

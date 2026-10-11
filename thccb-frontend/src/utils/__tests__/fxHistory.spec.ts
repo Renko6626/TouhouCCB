@@ -18,6 +18,7 @@ import {
   FX_HISTORY_MAX_SEGMENTS,
   FX_HISTORY_SEGMENT_SECONDS,
   decodeFxHistorySegment,
+  decodeFxTradeTick,
   fxHistorySegmentEpochs,
   mergeFxHistoryCandles,
   sanitizeFxHistorySegment,
@@ -141,16 +142,36 @@ describe('decodeFxHistorySegment', () => {
   })
 })
 
+it('六位精度下前价舍入为零时，历史与实时仍显示完整涨幅', () => {
+  const raw = { ...segment(BOUNDARY, [[0, 0.000001, 2]]), o: ['0.000000'], l: ['0.000000'] }
+  const history = sanitizeFxHistorySegment(raw)
+  expect(history).not.toBeNull()
+  const historical = new FxCandleEngine(60)
+  historical.load(decodeFxHistorySegment(history!))
+  const expected = { t: BOUNDARY, o: 0, h: 0.000001, l: 0, c: 0.000001, v: 2 }
+  expect(historical.candles[0]).toEqual(expected)
+
+  const ticks = sanitizeFxTradeTicks([{ id: 1, ts: iso(BOUNDARY), pre_price: '0.000000', post_price: '0.000001', gold_volume: '2' }])
+  expect(ticks).toHaveLength(1)
+  const live = new FxCandleEngine(60)
+  live.load([])
+  expect(live.applyTrades([decodeFxTradeTick(ticks[0]!)!]).reload).toBe(false)
+  expect(live.candles[0]).toEqual(expected)
+})
+
 describe('sanitizeFxTradeTicks', () => {
   it('只保留白名单字段，非法项被丢弃', () => {
     const ticks = sanitizeFxTradeTicks([
-      { id: 1, ts: iso(NOW_SEC), post_price: '1.25000000', gold_volume: '3.000000', account_id: 7 },
+      { id: 1, ts: iso(NOW_SEC), pre_price: '1.200000', post_price: '1.25000000', gold_volume: '3.000000', account_id: 7 },
       { id: 2, ts: 'nope', post_price: '1', gold_volume: '1' },
       { id: -1, ts: iso(NOW_SEC), post_price: '1', gold_volume: '1' },
-      { id: 3, ts: iso(NOW_SEC), post_price: '1', gold_volume: '-1' },
+      { id: 3, ts: iso(NOW_SEC), pre_price: '1', post_price: '1', gold_volume: '-1' },
+      { id: 4, ts: iso(NOW_SEC), post_price: '1', gold_volume: '1' },
+      { id: 5, ts: iso(NOW_SEC), pre_price: '-1', post_price: '1', gold_volume: '1' },
     ])
     expect(ticks).toHaveLength(1)
-    expect(ticks[0]).toEqual({ id: 1, ts: iso(NOW_SEC), post_price: '1.25000000', gold_volume: '3.000000' })
+    expect(ticks[0]).toEqual({ id: 1, ts: iso(NOW_SEC), pre_price: '1.200000', post_price: '1.25000000', gold_volume: '3.000000' })
+    expect(decodeFxTradeTick(ticks[0]!)).toEqual({ id: 1, ts: NOW_SEC, prePrice: 1.2, price: 1.25, volume: 3 })
   })
 })
 
@@ -267,7 +288,7 @@ describe('loadFxHistoryResult', () => {
     const engine = new FxCandleEngine(60)
     engine.load(result.points, result.throughTradeId)
     const applied = engine.applyTrades([
-      { id: result.throughTradeId + 1, ts: UNALIGNED_NOW_SEC, price: 7, volume: 3 },
+      { id: result.throughTradeId + 1, ts: UNALIGNED_NOW_SEC, prePrice: 7, price: 7, volume: 3 },
     ])
     expect(applied.reload).toBe(false)
     const forming = engine.candles.at(-1)!

@@ -195,40 +195,40 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     engine.load([point(BASE, 10, 1)], 100)   // 历史含 v=1；尾段覆盖到 id=100
 
     const first = engine.applyTrades([
-      { id: 100, ts: BASE + 60, price: 11, volume: 5 },   // <= coverage → 跳过
-      { id: 101, ts: BASE + 60, price: 11, volume: 5 },
-      { id: 101, ts: BASE + 60, price: 11, volume: 5 },   // 同批重复 → 跳过
+      { id: 100, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },   // <= coverage → 跳过
+      { id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },
+      { id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },   // 同批重复 → 跳过
     ])
     expect(first.reload).toBe(false)
     expect(first.applied).toBe(1)
     expect(first.skipped).toBe(2)
     expect(engine.count).toBe(2)
-    // 有真实成交的新桶 O/H/L/C 从首笔 post_price=11 开始，不用 prevClose=10
-    expect(engine.candles[1]).toMatchObject({ t: BASE + 60, o: 11, h: 11, l: 11, c: 11, v: 5 })
+    // 首笔交易将池价从10推到11，新桶应显示完整涨幅
+    expect(engine.candles[1]).toMatchObject({ t: BASE + 60, o: 10, h: 11, l: 10, c: 11, v: 5 })
 
     // 断线重放同一笔成交：不得再次累计成交量
-    const replay = engine.applyTrades([{ id: 101, ts: BASE + 60, price: 11, volume: 5 }])
+    const replay = engine.applyTrades([{ id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 }])
     expect(replay.applied).toBe(0)
     expect(replay.skipped).toBe(1)
     expect(engine.candles[1]!.v).toBe(5)
     expect(engine.throughTradeId).toBe(101)
   })
 
-  it('合成空桶（v=0）的首笔真实成交重置 O/H/L/C，不保留 carry prevClose/极值', () => {
+  it('合成空桶首笔成交以真实交易前价重置OHLC，不保留未知池变化之前的极值', () => {
     const engine = new FxCandleEngine(60)
     // merge 平推出的 forming 桶：o=h=l=c=10、v=0（合成空桶，非真实成交）
     engine.load([point(BASE, 10, 0)])
     const result = engine.applyTrades([
-      { id: 1, ts: BASE + 5, price: 11, volume: 2 },   // 首笔定义整根 OHLC
-      { id: 2, ts: BASE + 10, price: 12, volume: 3 },
-      { id: 3, ts: BASE + 20, price: 13, volume: 4 },
+      { id: 1, ts: BASE + 5, prePrice: 9, price: 11, volume: 2 },   // 首笔定义整根 OHLC
+      { id: 2, ts: BASE + 10, prePrice: 12, price: 12, volume: 3 },
+      { id: 3, ts: BASE + 20, prePrice: 13, price: 13, volume: 4 },
     ])
     expect(result.reload).toBe(false)
     expect(result.applied).toBe(3)
     const candle = engine.candles[0]!
-    expect(candle.o).toBe(11)   // 首笔 post_price，而不是 carry 的 10
+    expect(candle.o).toBe(9)   // 真实交易前价，不用旧空桶10或交易后11
     expect(candle.h).toBe(13)
-    expect(candle.l).toBe(11)   // 不能把 carry 的 10 当成最低价
+    expect(candle.l).toBe(9)
     expect(candle.c).toBe(13)
     expect(candle.v).toBe(9)
   })
@@ -237,7 +237,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 7)])
     const far = BASE + (FX_MAX_LOCAL_FILL_BUCKETS + 3) * 60
-    const result = engine.applyTrades([{ id: 1, ts: far, price: 20, volume: 5 }])
+    const result = engine.applyTrades([{ id: 1, ts: far, prePrice: 20, price: 20, volume: 5 }])
     expect(result.reload).toBe(true)
     expect(result.applied).toBe(0)
     expect(engine.count).toBe(1)
@@ -247,7 +247,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
   it('早于已知历史的成交要求 reload，避免静默丢弃或错桶累计', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1), point(BASE + 60, 11, 1)])
-    const result = engine.applyTrades([{ id: 5, ts: BASE - 120, price: 9, volume: 3 }])
+    const result = engine.applyTrades([{ id: 5, ts: BASE - 120, prePrice: 9, price: 9, volume: 3 }])
     expect(result.reload).toBe(true)
     expect(engine.candles[0]!.v).toBe(1)
   })
@@ -256,10 +256,10 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1)])
     const result = engine.applyTrades([
-      { id: -1, ts: BASE, price: 10, volume: 5 },
-      { id: 1.5, ts: BASE, price: 10, volume: 5 },
-      { id: 2, ts: BASE, price: 10, volume: -5 },
-      { id: 3, ts: Number.NaN, price: 10, volume: 5 },
+      { id: -1, ts: BASE, prePrice: 10, price: 10, volume: 5 },
+      { id: 1.5, ts: BASE, prePrice: 10, price: 10, volume: 5 },
+      { id: 2, ts: BASE, prePrice: 10, price: 10, volume: -5 },
+      { id: 3, ts: Number.NaN, prePrice: 10, price: 10, volume: 5 },
     ])
     expect(result.applied).toBe(0)
     expect(engine.candles[0]!.v).toBe(1)
@@ -269,29 +269,29 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([])
     // 批次 1：以 id=1/ts=BASE+65 创建桶 BASE+60
-    engine.applyTrades([{ id: 1, ts: BASE + 65, price: 10, volume: 1 }])
+    engine.applyTrades([{ id: 1, ts: BASE + 65, prePrice: 10, price: 10, volume: 1 }])
     expect(engine.candles[0]).toMatchObject({ t: BASE + 60, o: 10, c: 10 })
 
     // 批次 2：更高 id 但更早 ts（发布乱序）→ 成为新的 open，close 不动
-    const result = engine.applyTrades([{ id: 2, ts: BASE + 61, price: 12, volume: 2 }])
+    const result = engine.applyTrades([{ id: 2, ts: BASE + 61, prePrice: 13, price: 12, volume: 2 }])
     expect(result.reload).toBe(false)
     const candle = engine.candles[0]!
-    expect(candle.o).toBe(12)
+    expect(candle.o).toBe(13)
     expect(candle.c).toBe(10)
-    expect(candle.h).toBe(12)
+    expect(candle.h).toBe(13)
     expect(candle.l).toBe(10)
     expect(candle.v).toBe(3)
 
     // 批次 3：更晚 ts → 更新 close
-    engine.applyTrades([{ id: 3, ts: BASE + 70, price: 8, volume: 4 }])
-    expect(engine.candles[0]).toMatchObject({ o: 12, c: 8, h: 12, l: 8, v: 7 })
+    engine.applyTrades([{ id: 3, ts: BASE + 70, prePrice: 8, price: 8, volume: 4 }])
+    expect(engine.candles[0]).toMatchObject({ o: 13, c: 8, h: 13, l: 8, v: 7 })
   })
 
   it('预加载的更早桶出现乱序成交时要求 reload，不猜 O/C', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1), point(BASE + 60, 11, 1), point(BASE + 120, 12, 1)])
     // 成交落在中间预加载桶（非 forming 末桶）→ 无历史首末键，无法判定时序
-    const result = engine.applyTrades([{ id: 5, ts: BASE + 61, price: 99, volume: 3 }])
+    const result = engine.applyTrades([{ id: 5, ts: BASE + 61, prePrice: 99, price: 99, volume: 3 }])
     expect(result.reload).toBe(true)
     expect(engine.candles[1]!.v).toBe(1)
   })

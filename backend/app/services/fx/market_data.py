@@ -10,6 +10,7 @@ from typing import Any, Iterable
 
 from app.services.credit.keys import symbol_namespace
 from app.services.realtime import MarketEventBroker
+from app.services.fx.candles import trade_pre_price
 
 logger = logging.getLogger(__name__)
 
@@ -69,9 +70,11 @@ def build_price_buckets(trades: Iterable[Any], interval: str,
     result: list[FxCandle] = []
     for bucket_start, rows in sorted(buckets.items()):
         prices = [Decimal(row.post_price) for row in rows]
+        pre_prices = [trade_pre_price(row) for row in rows]
         result.append(FxCandle(
             bucket_start=bucket_start, interval=interval,
-            open=prices[0], high=max(prices), low=min(prices), close=prices[-1],
+            open=pre_prices[0], high=max(prices + pre_prices),
+            low=min(prices + pre_prices), close=prices[-1],
             volume=sum((_volume(row) for row in rows), Decimal("0")),
         ))
     return result
@@ -85,7 +88,7 @@ _HISTORY_SCALAR_KEYS = (
     "history_tail_through_trade_id",
 )
 _SEGMENT_KEYS = ("t0", "step", "n_buckets", "t", "o", "h", "l", "c", "v", "trades")
-_TRADE_KEYS = ("id", "ts", "post_price", "gold_volume")
+_TRADE_KEYS = ("id", "ts", "pre_price", "post_price", "gold_volume")
 
 
 def build_public_frame(snapshot: Any) -> dict[str, Any]:
