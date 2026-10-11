@@ -294,6 +294,19 @@ export function multiplyFxAmount(amount: string, price: string): string | null {
   return quantity === null || rate === null ? null : scaledToString(quantity * rate / 10n ** 12n, 6)
 }
 
+/** 按数量分摊六位金额，一次整数乘除后截断，避免中间比率损失精度。 */
+export function allocateFxAmount(
+  amount: string | null | undefined,
+  quantity: string | null | undefined,
+  total: string | null | undefined,
+): string | null {
+  const basis = parseScaled(amount, 6)
+  const part = parseScaled(quantity, 6)
+  const whole = parseScaled(total, 6)
+  if (basis === null || part === null || whole === null || basis < 0n || part <= 0n || whole <= 0n || part > whole) return null
+  return scaledToString(basis * part / whole, 6)
+}
+
 function clampBps(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(10000, Math.trunc(value)))
