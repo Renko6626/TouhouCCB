@@ -75,3 +75,11 @@
 - `npm run test:unit -- src/utils/__tests__/fxPresentation.spec.ts` 新增 5 个用例先失败，再 23 passed；`npm run test:unit` 16 文件、183 passed；`npm run type-check`、对改动文件运行 ESLint、`npm run build`、`git diff --check` 均 exit 0。构建保留原有 chunk 提示。
 - `node /tmp/sunyunbo/fx-close-pnl-screenshots.mjs` 截图保存于 `output/fx-close-pnl/`：真实 FX 页面全回补桌面/手机，以及真实盈亏组件的全部/部分多空固定示例。页面报价预览 +9.60 金圆券，示例覆盖 +100/-10/-50/+50；未发现页面运行时异常、横向溢出或成交写请求。桌面全回补面板约 691px，手机约 730px。临时挂载文件已删除。
 - 独立只读审查无 Critical / Important 或必要 Minor 问题。未自动填写/点击、未执行真实交易、未部署或提交；成交后最终已实现盈亏仍待未来后端回执提供权威成本，本次只展示报价预览。
+
+## 部署阻塞排查
+
+- FX 前端阶段性提交 `e544d3f` 已推送至 main，但 CI/CD run `38113232598` 的后端检查失败，Deploy 被跳过；前端检查、生产构建和产物上传成功。代码实际接入正式 `/fx` 路由，`/fx-preview` 独立样稿未改动。
+- 两个失败用例位于 `backend/tests/test_stream_history_tail.py`。种子数据总是放在封存边界 +60 秒；CI 在 2026-10-11 05:00:23 UTC 运行时，该桶尚在未来，DB 和 ring 尾段都正确排除了它，导致测试断言失败。
+- 将进程时钟固定到失败时刻后，两项失败稳定复现。只修正已有用例的时间夹具，让 seed、writer 回灌和 snapshot 使用同一个边界后时刻；保留原断言和生产逻辑，没有新增测试或跳过检查。
+- 在原失败时钟条件下重新运行 `tests/test_stream_history_tail.py` 与 `tests/test_stream_build_hash.py`：4 passed。
+- `timeout 300 env -u DATABASE_URL venv/bin/python -m pytest -q`：1406 passed、1 skipped、34 deselected，exit 0；保留既有 SQLite 连接清理警告。测试使用隔离临时数据库，不访问生产数据。

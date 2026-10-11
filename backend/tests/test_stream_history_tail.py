@@ -22,14 +22,17 @@ from app.services.market_writer import WRITER
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _teardown():
+async def _teardown(monkeypatch):
+    # seed、writer 回灌和 snapshot 共用同一时钟，种子桶已开始且不会跨封存边界。
+    # 真实整点后首分钟时，boundary+60 仍在未来，不能拿它断言已有尾段。
+    snapshot_time = datetime(2026, 10, 11, 5, 10, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(time, "time", lambda: snapshot_time)
     yield
     await WRITER.stop()
 
 
 async def _seed(now_epoch: int):
-    # 注意：seed 与请求之间若恰好跨过 1h 封存边界会 flaky（概率 ~1/3600）。
-    # 边界紧邻时把种子桶放到"新边界后"仍成立，这里接受该极小概率重跑。
+    # 固定时钟保证 boundary+60 在当前尾段内，且 seed 与读取边界一致。
     boundary = seal_boundary("1m", now_epoch)
     ts = datetime.fromtimestamp(boundary + 60, tz=timezone.utc)   # 边界之后 → 属于尾巴
     async with async_session_maker() as s:
