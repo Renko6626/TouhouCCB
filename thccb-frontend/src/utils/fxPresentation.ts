@@ -101,6 +101,15 @@ export function fxHoldingValue(
   return { marketValue, pnl: subtractFxAmounts(marketValue, wallet.cost_basis) }
 }
 
+/** 当前持仓成本参考；空头分母使用含息欠币，不是原始借币数量。 */
+export function fxHoldingAveragePrice(
+  basis: string | null | undefined,
+  quantity: string | null | undefined,
+) {
+  if (compareFxAmounts(basis, '0') !== 1 || compareFxAmounts(quantity, '0') !== 1) return null
+  return divideFxAmount(basis, quantity, 12)
+}
+
 /** 报价净所得减对应持仓成本；还债不改变本笔交易盈亏。 */
 export function fxSpotClosePreview(
   quote: Pick<FxQuote, 'pair_id' | 'side' | 'input_amount' | 'output_amount'> | null,

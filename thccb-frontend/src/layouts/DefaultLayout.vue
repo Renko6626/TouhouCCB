@@ -39,7 +39,7 @@ const showBreadcrumb = computed(
 )
 
 // 哪些路由不显示侧栏（交易页自己是全屏工作台）
-const hideSidebarNames = new Set(['trading-view'])
+const hideSidebarNames = new Set(['trading-view', 'fx'])
 const sidebarActive = computed(() =>
   !route.matched.some(r => hideSidebarNames.has(r.name as string))
   && authStore.isAuthenticated

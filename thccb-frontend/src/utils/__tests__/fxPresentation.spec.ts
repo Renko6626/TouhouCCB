@@ -17,11 +17,28 @@ import {
   fxOrderScale,
   fxSpotClosePreview,
   fxShortClosePreview,
+  fxHoldingAveragePrice,
 } from '../fxPresentation'
 import { mapFxError } from '@/api/fx'
 import type { AccountShortPosition } from '@/types/user'
 
 describe('FX 交易展示口径', () => {
+  it('持仓均价取剩余成本或开空所得除以当前数量，空头数量包含欠币利息', () => {
+    expect(fxHoldingAveragePrice('500', '300')).toBe('1.666666666666')
+    expect(fxHoldingAveragePrice('130', '60.1')).toBe('2.163061564059')
+    // 部分回补分摊所得后，按当前剩余欠币更新参考价。
+    expect(fxHoldingAveragePrice('65', '30.05')).toBe('2.163061564059')
+    expect(fxHoldingAveragePrice('130', '65')).toBe('2.000000000000')
+  })
+
+  it('清仓、成本缺失或无效时不生成虚假的零价格横线', () => {
+    expect(fxHoldingAveragePrice('130', '0')).toBeNull()
+    expect(fxHoldingAveragePrice(null, '60')).toBeNull()
+    expect(fxHoldingAveragePrice('130', null)).toBeNull()
+    expect(fxHoldingAveragePrice('-1', '60')).toBeNull()
+    expect(fxHoldingAveragePrice('0', '60')).toBeNull()
+  })
+
   const closeWallet = { pair_id: 1, foreign_amount: '100', cost_basis: '1000' }
   const sellQuote = {
     pair_id: 1,

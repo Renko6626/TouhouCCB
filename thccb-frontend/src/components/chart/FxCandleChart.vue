@@ -23,11 +23,14 @@ import {
   ColorType,
   HistogramSeries,
   LineSeries,
+  LineStyle,
   createChart,
+  type AutoscaleInfo,
   type CandlestickData,
   type HistogramData,
   type IChartApi,
   type ISeriesApi,
+  type IPriceLine,
   type LineData,
   type Time,
   type UTCTimestamp,
@@ -40,6 +43,7 @@ import type {
   FxPriceTick,
   FxPublicEnvelope,
   FxTradeTick,
+  FxHoldingPriceLine,
 } from '@/types/fx'
 import {
   FxCandleEngine,
@@ -55,10 +59,7 @@ import {
   decodeFxTradeTick,
   mergeFxHistoryCandles,
 } from '@/utils/fxHistory'
-import {
-  loadFxHistoryResult,
-  loadFxHistoryTailResult,
-} from '@/composables/useFxCandleHistory'
+import { loadFxHistoryResult, loadFxHistoryTailResult } from '@/composables/useFxCandleHistory'
 import { getPalette, withAlpha } from '@/utils/palette'
 
 const props = withDefaults(
@@ -75,6 +76,8 @@ const props = withDefaults(
     /** 递增：重连/手动刷新/成交后优先补尾段（不重读封存段）。 */
     reloadToken?: number
     height?: string
+    /** 当前持仓平均成本参考，与实时成交和 MA 数据独立。 */
+    holdingPriceLines?: FxHoldingPriceLine[]
   }>(),
   {
     interval: '1m',
@@ -82,6 +85,7 @@ const props = withDefaults(
     tick: null,
     reloadToken: 0,
     height: '100%',
+    holdingPriceLines: () => [],
   },
 )
 
@@ -111,6 +115,40 @@ const legend = ref<FxLegend | null>(null)
 let chartInstance: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick', Time> | null = null
 let volumeSeries: ISeriesApi<'Histogram', Time> | null = null
+const holdingLineHandles = new Map<FxHoldingPriceLine['side'], IPriceLine>()
+const holdingLines = computed(() =>
+  props.holdingPriceLines
+    .map((line) => ({ ...line, value: Number(line.price) }))
+    .filter((line) => Number.isFinite(line.value) && line.value > 0),
+)
+const holdingLineTitle = (side: FxHoldingPriceLine['side']) =>
+  side === 'long' ? '多头均价' : '空头均价'
+const syncHoldingLines = () => {
+  if (!candleSeries) return
+  const desired = new Map(holdingLines.value.map((line) => [line.side, line]))
+  for (const [side, handle] of holdingLineHandles) {
+    if (!desired.has(side)) {
+      candleSeries.removePriceLine(handle)
+      holdingLineHandles.delete(side)
+    }
+  }
+  const palette = getPalette()
+  for (const line of desired.values()) {
+    const options = {
+      price: line.value,
+      color: line.side === 'long' ? palette.up : palette.down,
+      lineWidth: 2 as const,
+      lineStyle: LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: holdingLineTitle(line.side),
+    }
+    const handle = holdingLineHandles.get(line.side)
+    if (handle) handle.applyOptions(options)
+    else holdingLineHandles.set(line.side, candleSeries.createPriceLine(options))
+  }
+  // Recalculate automatic scale without changing the user's time range.
+  candleSeries.applyOptions({})
+}
 const maSeries: Record<number, ISeriesApi<'Line', Time> | null> = {}
 
 let resizeObserver: ResizeObserver | null = null
@@ -193,7 +231,9 @@ const buildLegend = (index: number) => {
 const applyVisibleRangeToNow = () => {
   if (!chartInstance) return
   const range = fxCandleVisibleRange(
-    engine.candles, Math.floor(Date.now() / 1000), INTERVAL_SECONDS[props.interval],
+    engine.candles,
+    Math.floor(Date.now() / 1000),
+    INTERVAL_SECONDS[props.interval],
   )
   if (!range) return
   chartInstance.timeScale().setVisibleRange({
@@ -236,8 +276,9 @@ const applyChanged = (changed: FxCandle[]) => {
   const wasEmpty = candleCount.value === 0
   const candles = engine.candles
   const startIndex = engine.count - changed.length
-  const trailing = startIndex >= 0
-    && changed.every((candle, offset) => candles[startIndex + offset]?.t === candle.t)
+  const trailing =
+    startIndex >= 0 &&
+    changed.every((candle, offset) => candles[startIndex + offset]?.t === candle.t)
   if (!trailing) {
     renderAll(!userScrolledBack)
     return
@@ -321,7 +362,12 @@ const tailUsableForLoad = (): boolean => {
   if (!snapshotTail?.history_tail) return false
   // 适配层可能因封存段/HTTP 版本不一致而整窗重建：重建后 SSE 版本落后于已加载版本，
   // 此时绝不再用旧版本尾段与旧封存点拼接。
-  if (loadedVersion && snapshotTail.history_version && snapshotTail.history_version !== loadedVersion) return false
+  if (
+    loadedVersion &&
+    snapshotTail.history_version &&
+    snapshotTail.history_version !== loadedVersion
+  )
+    return false
   const coverage = snapshotTail.history_tail_through_trade_id
   const applied = engine.throughTradeId
   if (applied === null) return true
@@ -351,8 +397,10 @@ function syncTailFromEnvelope(env: FxPublicEnvelope): void {
       history_version: env.history_version ?? null,
       history_tail: env.history_tail ?? null,
       history_tail_at: env.history_tail_at ?? null,
-      history_tail_through_trade_id: typeof env.history_tail_through_trade_id === 'number'
-        ? env.history_tail_through_trade_id : null,
+      history_tail_through_trade_id:
+        typeof env.history_tail_through_trade_id === 'number'
+          ? env.history_tail_through_trade_id
+          : null,
       history_ready: env.history_ready,
     }
     return
@@ -364,8 +412,10 @@ function syncTailFromEnvelope(env: FxPublicEnvelope): void {
       history_version: env.history_version ?? previous.history_version,
       history_tail: env.history_tail,
       history_tail_at: env.history_tail_at ?? null,
-      history_tail_through_trade_id: typeof env.history_tail_through_trade_id === 'number'
-        ? env.history_tail_through_trade_id : null,
+      history_tail_through_trade_id:
+        typeof env.history_tail_through_trade_id === 'number'
+          ? env.history_tail_through_trade_id
+          : null,
       history_ready: env.history_ready ?? previous.history_ready,
     }
     return
@@ -448,7 +498,10 @@ async function loadFull(): Promise<void> {
   error.value = null
   try {
     const result = await loadFxHistoryResult(
-      pairId, props.interval, LOOKBACK_MINUTES[props.interval], tailForLoad(false),
+      pairId,
+      props.interval,
+      LOOKBACK_MINUTES[props.interval],
+      tailForLoad(false),
     )
     if (gen !== loadGen) return
     const stepSec = INTERVAL_SECONDS[props.interval]
@@ -524,7 +577,13 @@ async function refreshTail(forceHttp: boolean): Promise<void> {
     // 对齐的 exclusive 结束桶：now 未对齐时不产出一个未来空桶（与适配层一致）。
     const endExclusive = nowSec - (nowSec % stepSec) + stepSec
     // 只替换 [封存边界, now) 的尾巴，封存点原样保留。
-    const points = mergeFxHistoryCandles(sealedPoints, result.points, stepSec, loadedFromSec, endExclusive)
+    const points = mergeFxHistoryCandles(
+      sealedPoints,
+      result.points,
+      stepSec,
+      loadedFromSec,
+      endExclusive,
+    )
     engine.load(points, result.throughTradeId)
     loadedVersion = result.historyVersion
     error.value = null
@@ -579,8 +638,21 @@ const initChart = () => {
     priceFormat: fxPricePrecision(1),
     priceLineVisible: true,
     lastValueVisible: true,
+    autoscaleInfoProvider: (original: () => AutoscaleInfo | null) => {
+      const info = original()
+      if (!info?.priceRange || !holdingLines.value.length) return info
+      const prices = holdingLines.value.map((line) => line.value)
+      return {
+        ...info,
+        priceRange: {
+          minValue: Math.min(info.priceRange.minValue, ...prices),
+          maxValue: Math.max(info.priceRange.maxValue, ...prices),
+        },
+      }
+    },
   })
   lastPricePrecision = fxPricePrecision(1).precision
+  syncHoldingLines()
 
   for (const period of FX_MA_PERIODS) {
     maSeries[period] = chartInstance.addSeries(LineSeries, {
@@ -683,6 +755,7 @@ watch(
   () => props.tick,
   (tick) => onTick(tick),
 )
+watch(holdingLines, syncHoldingLines, { flush: 'sync' })
 
 watch(
   () => [props.pairId, props.interval],
@@ -734,6 +807,7 @@ onUnmounted(() => {
     chartInstance = null
   }
   candleSeries = null
+  holdingLineHandles.clear()
   volumeSeries = null
   for (const period of FX_MA_PERIODS) maSeries[period] = null
 })
@@ -755,17 +829,40 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 
     <div v-if="legend" class="fx-candle-legend">
       <span class="fx-legend-time">{{ formatChartTime(legend.t) }}</span>
-      <span class="fx-legend-item">开 <b>{{ formatFxPrice(legend.o) }}</b></span>
-      <span class="fx-legend-item">高 <b>{{ formatFxPrice(legend.h) }}</b></span>
-      <span class="fx-legend-item">低 <b>{{ formatFxPrice(legend.l) }}</b></span>
-      <span class="fx-legend-item">收 <b>{{ formatFxPrice(legend.c) }}</b></span>
-      <span v-if="legend.changePct !== null" class="fx-legend-item" :class="legendUp ? 'up' : 'down'">
+      <span class="fx-legend-item"
+        >开 <b>{{ formatFxPrice(legend.o) }}</b></span
+      >
+      <span class="fx-legend-item"
+        >高 <b>{{ formatFxPrice(legend.h) }}</b></span
+      >
+      <span class="fx-legend-item"
+        >低 <b>{{ formatFxPrice(legend.l) }}</b></span
+      >
+      <span class="fx-legend-item"
+        >收 <b>{{ formatFxPrice(legend.c) }}</b></span
+      >
+      <span
+        v-if="legend.changePct !== null"
+        class="fx-legend-item"
+        :class="legendUp ? 'up' : 'down'"
+      >
         {{ legendUp ? '+' : '' }}{{ legend.changePct.toFixed(2) }}%
       </span>
-      <span class="fx-legend-item">量 <b>{{ formatFxAmount(legend.v) }}</b></span>
+      <span class="fx-legend-item"
+        >量 <b>{{ formatFxAmount(legend.v) }}</b></span
+      >
       <span v-for="period in FX_MA_PERIODS" :key="period" class="fx-legend-item">
         <i class="fx-legend-dot" :style="{ background: MA_COLORS[period] }"></i>
         MA{{ period }} <b>{{ formatFxPrice(legend.ma[period]) }}</b>
+      </span>
+      <span
+        v-for="line in holdingLines"
+        :key="line.side"
+        class="fx-legend-item"
+        :class="line.side === 'long' ? 'up' : 'down'"
+        title="当前持仓均价参考；实际平仓仍计入手续费和价格影响。空头使用当前含息欠币计算。"
+      >
+        {{ holdingLineTitle(line.side) }} <b>{{ formatFxPrice(line.price) }}</b>
       </span>
     </div>
 
@@ -825,8 +922,12 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 .fx-legend-item b {
   font-weight: 700;
 }
-.fx-legend-item.up { color: var(--color-up, #16a34a); }
-.fx-legend-item.down { color: var(--color-down, #dc2626); }
+.fx-legend-item.up {
+  color: var(--color-up, #16a34a);
+}
+.fx-legend-item.down {
+  color: var(--color-down, #dc2626);
+}
 .fx-legend-dot {
   display: inline-block;
   width: 8px;

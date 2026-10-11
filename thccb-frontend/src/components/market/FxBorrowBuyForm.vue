@@ -408,4 +408,13 @@ details p {
     font-size: 15px;
   }
 }
+@media (min-width: 951px) {
+  .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-top: 8px;
+    background: #fff;
+  }
+}
 </style>

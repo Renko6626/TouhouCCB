@@ -198,6 +198,12 @@ export interface FxPriceTick {
   ts: number
 }
 
+/** 图表的当前持仓参考线，价格单位为金圆券 / 外币。 */
+export interface FxHoldingPriceLine {
+  side: 'long' | 'short'
+  price: string
+}
+
 // ── 管理员 schema（仅在 /admin/fx 使用；含 reserves） ──
 
 export interface FxPairAdmin extends FxPairPublic {
@@ -215,7 +221,6 @@ export interface FxPairAdminDetail extends FxPairAdmin {
   gold_balance: string
   foreign_balance: string
 }
-
 
 export interface FxPairCreate {
   short_lending_limit_foreign?: string
@@ -291,7 +296,10 @@ export interface FxShortTrade extends Omit<FxTradePublic, 'id'> {
   replay: boolean
 }
 
-export interface FxBorrowBuyQuoteRequest { amount: string; borrow_amount: string }
+export interface FxBorrowBuyQuoteRequest {
+  amount: string
+  borrow_amount: string
+}
 export interface FxBorrowBuyRequest extends FxBorrowBuyQuoteRequest {
   min_out: string
   idempotency_key: string
