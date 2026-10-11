@@ -8,10 +8,11 @@ from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, literal, select
+from sqlalchemy.exc import NoResultFound
 
 from app.models.base import User
-from app.models.fx import FxPair, FxShortPosition, FxTreasury, FxWallet
+from app.models.fx import FxExecution, FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxNetLeg, FxNetQuote, FxNetQuoteRequest
 from app.services import loan_service, site_config
 from app.services.credit import flags
@@ -98,9 +99,6 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
             if treasury_foreign < residual:
                 block('insufficient treasury foreign balance')
             treasury_foreign += q.fee_amount - residual
-            outstanding = await shorts._pair_principal_sum(db, pair.id)
-            if outstanding + residual > pair.short_lending_limit_foreign:
-                block('short lending limit exceeded')
     else:
         budget = req.amount
         if foreign_debt:
@@ -200,14 +198,27 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
     return Simulation(result, maths, cash, debt, release, now, rate)
 
 
+async def _read_quote_base(db, user_id: int, pair_id: int) -> tuple[FxPair, User, FxWallet | None, FxTreasury | None]:
+    row = (await db.execute(
+        select(FxPair, User, FxWallet, FxTreasury)
+        .select_from(FxPair)
+        .outerjoin(User, User.id == user_id)
+        .outerjoin(FxWallet, and_(FxWallet.user_id == user_id, FxWallet.pair_id == FxPair.id))
+        .outerjoin(FxTreasury, FxTreasury.pair_id == FxPair.id)
+        .where(FxPair.id == pair_id)
+    )).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    pair, user, wallet, treasury = row
+    if user is None:
+        raise NoResultFound("No row was found when one was required")
+    return pair, user, wallet, treasury
+
+
 async def quote_net_trade(db, user_id: int, pair_id: int, req: FxNetQuoteRequest) -> FxNetQuote:
-    pair = await trading._pair(db, pair_id)
-    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
-    wallet = (await db.execute(select(FxWallet).where(
-        FxWallet.user_id == user_id, FxWallet.pair_id == pair_id))).scalar_one_or_none()
+    pair, user, wallet, treasury = await _read_quote_base(db, user_id, pair_id)
     positions = list((await db.execute(select(FxShortPosition).where(
         FxShortPosition.user_id == user_id).order_by(FxShortPosition.pair_id))).scalars())
-    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one_or_none()
     try:
         return (await _simulate(db, user, pair, wallet, positions, treasury, req, now=trading.utcnow())).quote
     except (ValueError, ArithmeticError) as exc:
@@ -222,6 +233,17 @@ async def reject_net_key(db, user_id, key):
         raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
 
 
+async def _read_net_request_identity(db, user_id: int, key: str) -> tuple[FxExecution | None, bool]:
+    """Read receipt and legacy key even when neither has a receipt row."""
+    single_row = select(literal(1).label('anchor')).subquery()
+    legacy_exists = select(FxTrade.id).where(
+        FxTrade.user_id == user_id, FxTrade.idempotency_key == key).exists()
+    statement = select(FxExecution, legacy_exists).select_from(single_row).outerjoin(
+        FxExecution, and_(FxExecution.user_id == user_id, FxExecution.idempotency_key == key))
+    receipt, legacy = (await db.execute(statement)).one()
+    return receipt, bool(legacy)
+
+
 def _canonical_request(pair_id, req):
     # Decimal equality must not depend on caller's trailing zeros.
     payload = req.model_dump(mode='json')
@@ -231,7 +253,6 @@ def _canonical_request(pair_id, req):
 
 
 async def execute_net_trade(db, user_id, pair_id, req):
-    from app.models.fx import FxExecution, FxTrade
     from app.schemas.fx import FxNetTradeResponse
     from app.services import audit_service
     from app.services.credit.gates import GATES
@@ -252,17 +273,13 @@ async def execute_net_trade(db, user_id, pair_id, req):
                 try:
                     pair = await trading._pair(db, pair_id, lock=True)
                     user = await lock_user(db, user_id)
-                    old = (await db.execute(select(FxExecution).where(
-                        FxExecution.user_id == user_id,
-                        FxExecution.idempotency_key == req.idempotency_key))).scalar_one_or_none()
+                    old, legacy = await _read_net_request_identity(db, user_id, req.idempotency_key)
                     if old:
                         if old.request_payload != payload:
                             raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
                         result = FxNetTradeResponse.model_validate(old.response_payload).model_copy(update={'replay': True})
                         await db.rollback()
                         return result
-                    legacy = (await db.execute(select(FxTrade.id).where(
-                        FxTrade.user_id == user_id, FxTrade.idempotency_key == req.idempotency_key))).first()
                     if legacy:
                         raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
                     trading._require_writes()

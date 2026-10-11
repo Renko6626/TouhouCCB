@@ -648,3 +648,72 @@ async def test_net_and_legacy_contend_for_shared_key(pg_sessionmaker):
         results = await asyncio.gather(net(), legacy())
     assert len([r for r in results if isinstance(r, HTTPException) and r.status_code == 409]) == 1
     assert len((await state(pg_sessionmaker, uid, pid))['trades']) == 1
+
+
+async def test_competing_short_opens_cannot_overborrow_treasury(pg_sessionmaker):
+    from app.schemas.fx import FxNetTradeRequest
+    from app.services.fx.net_trading import execute_net_trade
+    uid, pid = await seed(pg_sessionmaker)
+    async with pg_sessionmaker() as db:
+        pair = await db.get(FxPair, pid)
+        pair.buy_fee_rate = pair.sell_fee_rate = D('0')
+        pair.short_lending_limit_foreign = D('0')
+        treasury = (await db.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == pid))).scalar_one()
+        treasury.foreign_balance = D('100')
+        other = User(username='inventory-contender', cash=D('1000'), debt=D('0'),
+                     tos_accepted_at=datetime.now(timezone.utc))
+        db.add(other)
+        await db.commit()
+        other_uid = other.id
+    before = {user_id: await state(pg_sessionmaker, user_id, pid)
+              for user_id in (uid, other_uid)}
+    start = asyncio.Event()
+
+    async def attempt(user_id, use_net):
+        async with pg_sessionmaker() as db:
+            await start.wait()
+            try:
+                if use_net:
+                    result = await execute_net_trade(db, user_id, pid, FxNetTradeRequest(
+                        side='sell', amount=D('80'), min_out=D('0'),
+                        idempotency_key='inventory-net', expected_economic_version=0,
+                        allow_growth=True))
+                else:
+                    result = await shorts.execute_short_open(db, user_id=user_id,
+                        pair_id=pid, foreign_amount=D('80'), min_gold_out=D('0'),
+                        idempotency_key='inventory-legacy')
+                return user_id, result
+            except HTTPException as exc:
+                await db.rollback()
+                return user_id, exc
+
+    async with asyncio.timeout(10):
+        tasks = [asyncio.create_task(attempt(uid, True)),
+                 asyncio.create_task(attempt(other_uid, False))]
+        start.set()
+        results = await asyncio.gather(*tasks)
+    successes = [(user_id, result) for user_id, result in results
+                 if not isinstance(result, HTTPException)]
+    failures = [(user_id, result) for user_id, result in results
+                if isinstance(result, HTTPException)]
+    assert len(successes) == len(failures) == 1
+    failed_uid, failure = failures[0]
+    assert failure.status_code == 400
+    assert failure.detail == 'insufficient treasury foreign balance'
+    after = {user_id: await state(pg_sessionmaker, user_id, pid)
+             for user_id in (uid, other_uid)}
+    assert after[uid]['treasury_foreign'] == D('20')
+    assert sum(row['principal'] for row in after.values()) == D('80')
+    assert len(after[uid]['trades']) == 1
+    trade_id = after[uid]['trades'][0][0]
+    assert after[uid]['audits'] == [(after[uid]['audits'][0][0], 'fx_trade', trade_id)]
+    for field in ('cash', 'debt', 'locked', 'principal', 'interest', 'version'):
+        assert after[failed_uid][field] == before[failed_uid][field], field
+    async with pg_sessionmaker() as db:
+        assert not (await db.execute(select(LedgerEntry).where(
+            LedgerEntry.user_id == failed_uid))).scalars().all()
+        assert not (await db.execute(select(FxTrade).where(
+            FxTrade.user_id == failed_uid))).scalars().all()
+        assert not (await db.execute(select(FxWallet).where(
+            FxWallet.user_id == failed_uid))).scalars().all()

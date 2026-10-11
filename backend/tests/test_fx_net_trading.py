@@ -400,3 +400,65 @@ async def test_private_history_completes_cross_zero_at_row_limit():
             assert [t.id for t in history] == sorted((t.id for t in history), reverse=True)
         legacy_only = await list_my_trades(pid, limit=49, user=user, db=db)
         assert len(legacy_only) == 49 and all(t.execution_id is None for t in legacy_only)
+
+
+@pytest.mark.parametrize('missing_treasury', [False, True])
+async def test_quote_missing_associations_ignores_other_users_wallet(missing_treasury):
+    from uuid import uuid4
+    from app.models.base import User
+    from app.models.fx import FxTreasury, FxWallet
+    uid, pid = await _seed()
+    async with async_session_maker() as db:
+        other = User(username=uuid4().hex)
+        db.add(other)
+        await db.flush()
+        other_wallet = FxWallet(user_id=other.id, pair_id=pid, foreign_amount=D('100'))
+        db.add(other_wallet)
+        if missing_treasury:
+            treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
+            await db.delete(treasury)
+        await db.commit()
+        before = other_wallet.model_dump()
+        cash = (await db.get(User, uid)).cash
+        q = await quote_net_trade(db, uid, pid, FxNetQuoteRequest(side='buy', amount=D('10')))
+        assert q.executable and q.final_direction == 'long'
+        assert q.wallet_after == q.output_amount
+        assert other_wallet.model_dump() == before and (await db.get(User, uid)).cash == cash
+        assert (await db.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one_or_none() is None
+        assert not db.new and not db.dirty and not db.deleted
+        if missing_treasury:
+            assert (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one_or_none() is None
+
+
+async def test_quote_missing_pair_precedes_missing_user():
+    from fastapi import HTTPException
+    from sqlalchemy.exc import NoResultFound
+    uid, pid = await _seed()
+    async with async_session_maker() as db:
+        req = FxNetQuoteRequest(side='buy', amount=D('10'))
+        with pytest.raises(HTTPException) as caught:
+            await quote_net_trade(db, uid + 1, pid + 1, req)
+        assert caught.value.status_code == 404 and caught.value.detail == 'FX pair not found'
+        with pytest.raises(NoResultFound):
+            await quote_net_trade(db, uid + 1, pid, req)
+        assert not db.new and not db.dirty
+
+
+@pytest.mark.parametrize('side,balance_field', [('buy', 'gold_balance'), ('sell', 'foreign_balance')])
+async def test_quote_treasury_fee_storage_limit_keeps_balances(side, balance_field):
+    from app.models.base import User
+    from app.models.fx import FxPair, FxTreasury, FxWallet
+    uid, pid = await _seed(wallet_foreign='100', buy_fee='0.01', sell_fee='0.01')
+    async with async_session_maker() as db:
+        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
+        setattr(treasury, balance_field, D('9999999999.999999'))
+        await db.commit()
+        user = await db.get(User, uid)
+        pair = await db.get(FxPair, pid)
+        wallet = (await db.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one()
+        entities = (user, pair, wallet, treasury)
+        before = [entity.model_dump() for entity in entities]
+        q = await quote_net_trade(db, uid, pid, FxNetQuoteRequest(side=side, amount=D('10')))
+        assert not q.executable and q.blocked_reason == 'trade exceeds storage limit'
+        assert [entity.model_dump() for entity in entities] == before
+        assert not db.new and not db.dirty

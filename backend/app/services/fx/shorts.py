@@ -33,7 +33,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -265,15 +265,6 @@ async def _lock_treasury(db: AsyncSession, pair_id: int) -> Optional[FxTreasury]
     )).scalars().first()
 
 
-async def _pair_principal_sum(db: AsyncSession, pair_id: int) -> Decimal:
-    """Σ unreturned foreign principal for one pair (interest is not capped)."""
-    value = (await db.execute(
-        select(func.coalesce(func.sum(FxShortPosition.principal_foreign), Decimal("0")))
-        .where(FxShortPosition.pair_id == pair_id)
-    )).scalar_one()
-    return Decimal(value)
-
-
 def _short_snapshot(position: Optional[FxShortPosition]) -> dict:
     if position is None:
         return {
@@ -393,10 +384,6 @@ async def execute_short_open_in_session(
 
     if treasury is None or Decimal(treasury.foreign_balance) < amount:
         raise HTTPException(status_code=400, detail="insufficient treasury foreign balance")
-    outstanding = await _pair_principal_sum(db, pair_id)
-    limit = Decimal(pair.short_lending_limit_foreign)
-    if outstanding + amount > limit:
-        raise HTTPException(status_code=400, detail="short lending limit exceeded")
 
     target = next((p for p in positions if int(p.pair_id) == pair_id), None)
     now = utcnow()
@@ -1804,9 +1791,6 @@ async def _quote_open_block(
         FxTreasury.pair_id == int(pair.id)))).scalars().first()
     if treasury is None or Decimal(treasury.foreign_balance) < amount:
         return BLOCKED_TREASURY_FOREIGN
-    outstanding = await _pair_principal_sum(db, int(pair.id))
-    if outstanding + amount > Decimal(pair.short_lending_limit_foreign):
-        return BLOCKED_LENDING_LIMIT
     return None
 
 

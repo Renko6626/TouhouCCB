@@ -563,7 +563,8 @@ pair 的隐藏参数。
 
 ### 管理端 `/admin/fx`（仅超管）
 
-- `GET /pairs`：包含草稿的管理列表，返回储备、费率、开盘元数据、借币上限及 treasury 的 `gold_balance/foreign_balance`。
+- `short_lending_limit_foreign`：旧列及管理员请求/响应字段保留，格式与范围校验不变，但不再约束开空；0 也不再禁止新增。需停止开空时使用全局开空开关或品种状态。管理页面不再提供该设置。
+- `GET /pairs`：包含草稿的管理列表，返回储备、费率、开盘元数据、兼容字段 `short_lending_limit_foreign` 及 treasury 的 `gold_balance/foreign_balance`。
 - `POST /pairs`、`PATCH /pairs/{id}`：创建／修改货币对，同时最多 3 个 trading；开市后币种代码不可更改，名称可修正。费率满足 `0 <= rate < 1`；target 字段已移除，旧客户端额外字段返回 422。
 - `POST /pairs/{id}/fund`、`POST /pairs/{id}/withdraw`：注撤资入口，请求 `gold_amount/foreign_amount`，保留储备检查、版本推进和审计。
 - `POST /pairs/{id}/archive`、`DELETE /pairs/{id}`：保留持仓、债务、成交历史检查；不再依赖新闻表。
