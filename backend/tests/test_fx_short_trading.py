@@ -474,9 +474,8 @@ async def test_gold_debt_settles_at_T_and_proceeds_do_not_repay_it():
 
 @pytest.mark.parametrize("overrides, detail", [
     ({"treasury_foreign": "50"}, "treasury"),
-    ({"limit": "50"}, "limit"),
 ])
-async def test_insufficient_treasury_or_limit_changes_nothing(overrides, detail):
+async def test_insufficient_treasury_changes_nothing(overrides, detail):
     uid, pid = await _seed(cash="1000", **overrides)
     async with async_session_maker() as db:
         before = await _full_state(db, uid, pid)
@@ -489,6 +488,21 @@ async def test_insufficient_treasury_or_limit_changes_nothing(overrides, detail)
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
     assert after == before
+
+
+@pytest.mark.parametrize("limit", ["0", "50"])
+async def test_retired_lending_limit_does_not_block_short_open(limit):
+    uid, pid = await _seed(cash="1000", limit=limit)
+    opened = await _open(uid, pid, "100")
+    async with async_session_maker() as db:
+        position = (await db.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid))).scalar_one()
+        treasury = (await db.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == pid))).scalar_one()
+        assert position.principal_foreign == D("100")
+        trade = await db.get(FxTrade, opened.trade_id)
+        assert trade.output_amount > 0
+        assert treasury.foreign_balance == D("100000") - D("100") + trade.fee_amount
 
 
 async def test_failed_post_trade_shared_margin_changes_nothing():

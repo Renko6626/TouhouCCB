@@ -83,13 +83,7 @@ describe('SSE 公开帧白名单', () => {
       parameter_snapshot: { spent: '5' },
     })
     expect(out).not.toBeNull()
-    expect(Object.keys(out!)).toEqual([
-      'price',
-      'buy_price',
-      'sell_price',
-      'spread',
-      'volume',
-    ])
+    expect(Object.keys(out!)).toEqual(['price', 'buy_price', 'sell_price', 'spread', 'volume'])
     const serialized = JSON.stringify(out)
     expect(serialized).not.toContain('gold_reserve')
     expect(serialized).not.toContain('shock_ratio')
@@ -120,8 +114,24 @@ describe('SSE 公开帧白名单', () => {
 describe('normalizeFxCandles', () => {
   it('把 /chart 的 Decimal-as-float 行归一化为 number 并按时间排序', () => {
     const points = normalizeFxCandles([
-      { bucket_start: '2026-01-01T00:01:00Z', interval: '1m', open: '1.10', high: 1.2, low: 1, close: 1.15, volume: '5' },
-      { bucket_start: '2026-01-01T00:00:00Z', interval: '1m', open: 1, high: 1.1, low: 0.9, close: 1.05, volume: 3 },
+      {
+        bucket_start: '2026-01-01T00:01:00Z',
+        interval: '1m',
+        open: '1.10',
+        high: 1.2,
+        low: 1,
+        close: 1.15,
+        volume: '5',
+      },
+      {
+        bucket_start: '2026-01-01T00:00:00Z',
+        interval: '1m',
+        open: 1,
+        high: 1.1,
+        low: 0.9,
+        close: 1.05,
+        volume: 3,
+      },
     ])
     expect(points).toEqual([
       { t: '2026-01-01T00:00:00Z', o: 1, h: 1.1, l: 0.9, c: 1.05, v: 3 },
@@ -133,7 +143,9 @@ describe('normalizeFxCandles', () => {
 
 describe('错误映射', () => {
   it('按后端 detail 映射玩家可读文案', () => {
-    expect(mapFxError({ status: 403, data: { detail: 'FX trading is disabled' } })).toContain('总闸')
+    expect(mapFxError({ status: 403, data: { detail: 'FX trading is disabled' } })).toContain(
+      '总闸',
+    )
     expect(
       mapFxError({ status: 409, data: { detail: 'quoted output is below min_out' } }),
     ).toContain('最低可接受金额')
@@ -229,10 +241,7 @@ describe('I1 并发 submit 单飞', () => {
       await Promise.resolve()
       return 'ok'
     }
-    const [a, b] = await Promise.all([
-      submitter.submit('sig', run),
-      submitter.submit('sig', run),
-    ])
+    const [a, b] = await Promise.all([submitter.submit('sig', run), submitter.submit('sig', run)])
     expect(calls).toBe(1)
     expect(a).toBe('ok')
     expect(b).toBeNull()
@@ -394,49 +403,70 @@ describe('ambiguous short response retries', () => {
     const values = new Map<string, string>()
     return {
       getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => { values.set(key, value) },
-      removeItem: (key: string) => { values.delete(key) },
+      setItem: (key: string, value: string) => {
+        values.set(key, value)
+      },
+      removeItem: (key: string) => {
+        values.delete(key)
+      },
     }
   }
 
-  it.each(['open', 'cover'] as const)('replays identical %s request after a committed response is lost', async action => {
-    const saved = storage()
-    const order = new FxPendingShortOrder(42, saved)
-    const calls: unknown[] = []
-    const executed = new Set<string>()
-    const run = async (request: { body: { idempotency_key: string } }) => {
-      calls.push(request)
-      executed.add(request.body.idempotency_key)
-      if (calls.length === 1) throw new Error('response lost')
-      return { replay: true }
-    }
-    const body = action === 'open' ? { foreign_amount: '3.123456', min_gold_out: '4.000001' }
-      : { foreign_amount: '1.000001', max_gold_in: '2.123456' }
-    await expect(order.start(7, action, body, run)).rejects.toThrow('response lost')
-    await expect(order.start(7, action, body, run)).rejects.toThrow()
-    expect(calls).toHaveLength(1)
-    const remounted = new FxPendingShortOrder(42, saved)
-    expect(remounted.pending).toEqual(calls[0])
-    expect(new FxPendingShortOrder(43, saved).pending).toBeNull()
-    await expect(remounted.start(7, action, body, run)).rejects.toThrow()
-    expect(await remounted.retry(run)).toEqual({ replay: true })
-    expect(calls[1]).toEqual(calls[0])
-    expect(executed.size).toBe(1)
-    expect(new FxPendingShortOrder(42, saved).pending).toBeNull()
-  })
+  it.each(['open', 'cover'] as const)(
+    'replays identical %s request after a committed response is lost',
+    async (action) => {
+      const saved = storage()
+      const order = new FxPendingShortOrder(42, saved)
+      const calls: unknown[] = []
+      const executed = new Set<string>()
+      const run = async (request: { body: { idempotency_key: string } }) => {
+        calls.push(request)
+        executed.add(request.body.idempotency_key)
+        if (calls.length === 1) throw new Error('response lost')
+        return { replay: true }
+      }
+      const body =
+        action === 'open'
+          ? { foreign_amount: '3.123456', min_gold_out: '4.000001' }
+          : { foreign_amount: '1.000001', max_gold_in: '2.123456' }
+      await expect(order.start(7, action, body, run)).rejects.toThrow('response lost')
+      await expect(order.start(7, action, body, run)).rejects.toThrow()
+      expect(calls).toHaveLength(1)
+      const remounted = new FxPendingShortOrder(42, saved)
+      expect(remounted.pending).toEqual(calls[0])
+      expect(new FxPendingShortOrder(43, saved).pending).toBeNull()
+      await expect(remounted.start(7, action, body, run)).rejects.toThrow()
+      expect(await remounted.retry(run)).toEqual({ replay: true })
+      expect(calls[1]).toEqual(calls[0])
+      expect(executed.size).toBe(1)
+      expect(new FxPendingShortOrder(42, saved).pending).toBeNull()
+    },
+  )
 })
 
 it('retains ambiguous server failures but releases a definitively rejected short request', async () => {
   const saved = new Map<string, string>()
   const storage = {
     getItem: (key: string) => saved.get(key) ?? null,
-    setItem: (key: string, value: string) => { saved.set(key, value) },
-    removeItem: (key: string) => { saved.delete(key) },
+    setItem: (key: string, value: string) => {
+      saved.set(key, value)
+    },
+    removeItem: (key: string) => {
+      saved.delete(key)
+    },
   }
   const order = new FxPendingShortOrder(42, storage)
-  await expect(order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => { throw { response: { status: 503 } } })).rejects.toEqual({ response: { status: 503 } })
+  await expect(
+    order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => {
+      throw { response: { status: 503 } }
+    }),
+  ).rejects.toEqual({ response: { status: 503 } })
   expect(order.pending).not.toBeNull()
-  await expect(order.retry(async () => { throw { status: 422 } })).rejects.toEqual({ status: 422 })
+  await expect(
+    order.retry(async () => {
+      throw { status: 422 }
+    }),
+  ).rejects.toEqual({ status: 422 })
   expect(order.pending).toBeNull()
   expect(new FxPendingShortOrder(42, storage).pending).toBeNull()
 })
@@ -444,13 +474,19 @@ it('retains ambiguous server failures but releases a definitively rejected short
 it('never sends a short write when its retry identity cannot be persisted', async () => {
   const storage = {
     getItem: () => null,
-    setItem: () => { throw new Error('quota') },
+    setItem: () => {
+      throw new Error('quota')
+    },
     removeItem: () => {},
   }
   const order = new FxPendingShortOrder(42, storage)
   let writes = 0
-  await expect(order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => { writes++; return {} }))
-    .rejects.toThrow('Cannot safely persist')
+  await expect(
+    order.start(7, 'open', { foreign_amount: '1', min_gold_out: '2' }, async () => {
+      writes++
+      return {}
+    }),
+  ).rejects.toThrow('Cannot safely persist')
   expect(writes).toBe(0)
   expect(order.hasUnresolved).toBe(true)
 })
@@ -459,21 +495,107 @@ it('a late response from an unmounted page cannot erase a newer pending short', 
   const values = new Map<string, string>()
   const storage = {
     getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => { values.set(key, value) },
-    removeItem: (key: string) => { values.delete(key) },
+    setItem: (key: string, value: string) => {
+      values.set(key, value)
+    },
+    removeItem: (key: string) => {
+      values.delete(key)
+    },
   }
   const oldPage = new FxPendingShortOrder(42, storage)
   let finishOld!: (value: string) => void
-  const oldResponse = oldPage.start(7, 'open', { foreign_amount: '1.', min_gold_out: '2' },
-    () => new Promise<string>(resolve => { finishOld = resolve }))
+  const oldResponse = oldPage.start(
+    7,
+    'open',
+    { foreign_amount: '1.', min_gold_out: '2' },
+    () =>
+      new Promise<string>((resolve) => {
+        finishOld = resolve
+      }),
+  )
   const remounted = new FxPendingShortOrder(42, storage)
   expect(remounted.pending?.body.foreign_amount).toBe('1.')
   expect(await remounted.retry(async () => 'old replay')).toBe('old replay')
-  await expect(remounted.start(7, 'open', { foreign_amount: '3', min_gold_out: '4' },
-    async () => { throw new Error('new response lost') })).rejects.toThrow('new response lost')
+  await expect(
+    remounted.start(7, 'open', { foreign_amount: '3', min_gold_out: '4' }, async () => {
+      throw new Error('new response lost')
+    }),
+  ).rejects.toThrow('new response lost')
   const newKey = remounted.pending?.body.idempotency_key
   expect(newKey).toBeTruthy()
   finishOld('old committed')
   expect(await oldResponse).toBe('old committed')
   expect(new FxPendingShortOrder(42, storage).pending?.body.idempotency_key).toBe(newKey)
+})
+
+it('late short success after an account change is hidden and cannot clear the other account pending', async () => {
+  const data = new Map<string, string>()
+  const storage = {
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      data.set(k, v)
+    },
+    removeItem: (k: string) => {
+      data.delete(k)
+    },
+  }
+  const order = new FxPendingShortOrder(1, storage)
+  let finish!: (value: string) => void
+  const old = order.start(
+    7,
+    'cover',
+    { cover_all: true, max_gold_in: '20' },
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve
+      }),
+  )
+  const other = new FxPendingShortOrder(2, storage)
+  await expect(
+    other.start(8, 'open', { foreign_amount: '1', min_gold_out: '0' }, async () => {
+      throw new Error('unknown B')
+    }),
+  ).rejects.toThrow()
+  const key = other.pending?.body.idempotency_key
+  order.setUser(2)
+  finish('A success')
+  expect(await old).toBeNull()
+  expect(order.pending?.body.idempotency_key).toBe(key)
+})
+
+it.each([401, 403, 408, 429])(
+  'short recovery preserves identity when status %i can precede replay',
+  async (status) => {
+    const data = new Map<string, string>()
+    const storage = {
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        data.set(k, v)
+      },
+      removeItem: (k: string) => {
+        data.delete(k)
+      },
+    }
+    const order = new FxPendingShortOrder(1, storage)
+    await expect(
+      order.start(7, 'cover', { cover_all: true, max_gold_in: '20' }, async () => {
+        throw { status }
+      }),
+    ).rejects.toEqual({ status })
+    expect(order.hasUnresolved).toBe(true)
+    expect(new FxPendingShortOrder(1, storage).pending).toEqual(order.pending)
+  },
+)
+
+it('corrupt saved short identity blocks a new write', async () => {
+  const storage = { getItem: () => '{invalid', setItem: () => {}, removeItem: () => {} }
+  const order = new FxPendingShortOrder(1, storage)
+  expect(order.hasUnresolved).toBe(true)
+  let sent = false
+  await expect(
+    order.start(7, 'cover', { cover_all: true, max_gold_in: '20' }, async () => {
+      sent = true
+    }),
+  ).rejects.toThrow()
+  expect(sent).toBe(false)
 })

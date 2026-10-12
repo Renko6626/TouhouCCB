@@ -87,50 +87,28 @@ async def _drain_frames(sub):
 
 
 @pytest.mark.asyncio
-async def test_buy_emits_tick_frame_and_legacy_event_with_identical_trade_payload():
-    """双发默认开：一笔 buy → 1 条 legacy trade + 1 帧 tick，trade payload 逐字段相同（MIN-11）。"""
+async def test_buy_emits_one_tick_frame_with_trade_payload():
+    """一笔 buy 只发送一帧 tick，包含完整成交和权威价格。"""
     mid, oids = await _seed_market(shares=("0", "0"))
     uid = await _seed_user()
     await WRITER.start()
-    sub, _ = await BROKER.subscribe(mid)
+    sub, _ = await BROKER.subscribe(f"lmsr:{mid}")
     try:
         await WRITER.submit(_buy(mid, oids[0], uid, shares="10", accept_any_slippage=True))
         payloads = await _drain_frames(sub)
-        legacy = [p for p in payloads if p["type"] == "trade"]
-        ticks = [p for p in payloads if p["type"] == "tick"]
-        assert len(legacy) == 1 and len(ticks) == 1
-        legacy_trade = legacy[0]["data"]["trade"]
+        assert [p["type"] for p in payloads] == ["tick"]
+        ticks = payloads
         tick_trade = ticks[0]["data"]["trades"][0]
-        assert set(legacy_trade.keys()) == TRADE_KEYS
-        assert tick_trade == legacy_trade                       # 同一 payload 对象双投
-        # seq 连续（共用计数器）
-        seqs = sorted(p["seq"] for p in payloads)
-        assert seqs == list(range(seqs[0], seqs[0] + len(seqs)))
+        assert set(tick_trade) == TRADE_KEYS
+        assert tick_trade["shares"] == 10.0
         # 帧价格 = writer state 的 8dp 量化
         st = WRITER.get_state(mid)
         assert ticks[0]["data"]["prices"] == [float(quantize_price(p)) for p in st.prices]
         assert ticks[0]["data"]["status"] == "trading"
     finally:
-        await BROKER.unsubscribe(mid, sub)
+        await BROKER.unsubscribe(f"lmsr:{mid}", sub)
 
 
-@pytest.mark.asyncio
-async def test_legacy_off_only_tick(monkeypatch):
-    mid, oids = await _seed_market(shares=("0", "0"))
-    uid = await _seed_user()
-    await WRITER.start()
-
-    async def _off():
-        return False
-    monkeypatch.setattr("app.services.tick_broadcaster.legacy_events_enabled", _off)
-
-    sub, _ = await BROKER.subscribe(mid)
-    try:
-        await WRITER.submit(_buy(mid, oids[0], uid, shares="5", accept_any_slippage=True))
-        payloads = await _drain_frames(sub)
-        assert [p["type"] for p in payloads] == ["tick"]
-    finally:
-        await BROKER.unsubscribe(mid, sub)
 
 
 @pytest.mark.asyncio
@@ -149,7 +127,7 @@ async def test_prices_fixpoint_after_buy():
 async def test_close_frame_carries_status_and_resolve_carries_settlement():
     mid, oids = await _seed_market(shares=("2", "0"))
     await WRITER.start()
-    sub, _ = await BROKER.subscribe(mid)
+    sub, _ = await BROKER.subscribe(f"lmsr:{mid}")
     try:
         await WRITER.submit(CloseCmd(market_id=mid))
         frames = [p for p in await _drain_frames(sub) if p["type"] == "tick"]
@@ -167,4 +145,4 @@ async def test_close_frame_carries_status_and_resolve_carries_settlement():
         assert settled["settlement"]["winning_outcome_id"] == oids[0]
         assert "settled_at" in settled["settlement"]
     finally:
-        await BROKER.unsubscribe(mid, sub)
+        await BROKER.unsubscribe(f"lmsr:{mid}", sub)

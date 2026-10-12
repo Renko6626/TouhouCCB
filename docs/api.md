@@ -247,11 +247,13 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 ### GET `/stream/market/{id}` — SSE
 
-事件类型:
-- `snapshot` — 市场当前状态快照
-- `trade` — 新成交
-- `market_status` — 状态变更（熔断/恢复/结算）
-- `ping` — 心跳（30s）
+事件类型：
+
+- `snapshot` — 市场当前状态和历史尾段快照
+- `tick` — 8 Hz 帧，包含价格、逐笔成交及状态变化；无变更时不发帧
+- `ping` — 心跳（25s）
+
+LMSR 经济写只通过 market writer；writer 不可用时返回 503。已结算市场的重复结算读取既有结果，不再次写账。
 
 ---
 
@@ -464,6 +466,32 @@ SSE 的主页做缓存历史引导用的追加公开字段：未回填时 `histo
 - 返回 `FxTradePublic`：`id`、`pair_id`、`side`、`input_amount`、`output_amount`、
   `fee_amount`、`post_price`、`created_at`（不含内部 `source`）。
 
+### POST `/fx/pairs/{pair_id}/net/quote` — 统一买卖报价（需登录）
+
+请求 `{ "side": "buy"|"sell", "amount": "30", "borrow_amount": "0" }`。
+买入 amount 是含费金圆券预算，卖出 amount 是含费外币数量；borrow_amount 仅表示显式同意新增的金圆券本金，只能用于新增多头段。
+
+卖出先卖自有外币，不足部分借真实 treasury 外币开空；买入先回补含息欠币，再把剩余预算用于多头。
+第二段使用第一段成交后的池子储备。报价只读，不落计息、审计或资金记录；expires_at 为统一时点加30秒。
+返回总 input_amount/output_amount/fee_amount、legs（真实用途、各段输入输出币种/金额/费用及前后储备）、
+final_direction、wallet_after、foreign_debt_after、cash_delta、gold_debt_delta、restricted_gold_delta、
+growth_amount、borrow_amount、repaid_gold、executable/blocked_reason、economic_version、pool_version、post_price。
+所有金额为十进制字符串。
+
+### POST `/fx/pairs/{pair_id}/net/trades` — 原子统一成交（需登录）
+
+请求在报价参数上增加 `min_out`、`idempotency_key`、`expected_economic_version`、`allow_growth`。
+前端根据本次报价 `growth_amount>0` 明确传 allow_growth；默认 false。报价原本只减仓，池价变化后出现新增仓位时，
+服务端返回409要求重报，不能因价格更便宜而静默开仓。账户版本变化也返回409；正常池价变化仍按整笔 min_out 重报价。
+
+一次请求全部成功或回滚，保存一个成功回执及一至两条真实成交，无汇总 FxTrade。
+返回完整报价资金拆分、execution_id、trade_ids、created_at、replay。
+成功回放优先于当前账户版本/开仓开关检查；同用户请求编号与所有旧FX写入口共用命名空间，换参数或跨入口占用返回409。
+现货卖出所得优先还金债；新开空只锁其自身所得。回补只花自由现金及本仓锁金，不能消费其他仓锁金或先借新金债回补。
+纯减仓沿用原允许规则；增仓按整笔最终组合风控一次。总闸 fx_enabled=false 继续暂停用户交易。
+私人历史增加可空 execution_id/execution_leg；按limit先读真实腿，若最旧边界落在net请求中间，补齐同用户同pair的兄弟腿（正常最多额外一条），按created_at/id降序稳定返回。旧单腿limit行为不变；公开逐笔、行情和K线仍只消费每条真实腿一次。
+旧现货、融资、开空和回补入口保留原动作，旧pending请求继续用原入口恢复。
+
 ### POST `/fx/pairs/{pair_id}/borrow-buy/quote` — 融资买入报价（需登录）
 
 请求：`{ "amount": "50", "borrow_amount": "20" }`。`amount` 是含手续费的买入总投入，
@@ -537,7 +565,8 @@ pair 的隐藏参数。
 
 ### 管理端 `/admin/fx`（仅超管）
 
-- `GET /pairs`：包含草稿的管理列表，返回储备、费率、开盘元数据、借币上限及 treasury 的 `gold_balance/foreign_balance`。
+- `short_lending_limit_foreign`：旧列及管理员请求/响应字段保留，格式与范围校验不变，但不再约束开空；0 也不再禁止新增。需停止开空时使用全局开空开关或品种状态。管理页面不再提供该设置。
+- `GET /pairs`：包含草稿的管理列表，返回储备、费率、开盘元数据、兼容字段 `short_lending_limit_foreign` 及 treasury 的 `gold_balance/foreign_balance`。
 - `POST /pairs`、`PATCH /pairs/{id}`：创建／修改货币对，同时最多 3 个 trading；开市后币种代码不可更改，名称可修正。费率满足 `0 <= rate < 1`；target 字段已移除，旧客户端额外字段返回 422。
 - `POST /pairs/{id}/fund`、`POST /pairs/{id}/withdraw`：注撤资入口，请求 `gold_amount/foreign_amount`，保留储备检查、版本推进和审计。
 - `POST /pairs/{id}/archive`、`DELETE /pairs/{id}`：保留持仓、债务、成交历史检查；不再依赖新闻表。

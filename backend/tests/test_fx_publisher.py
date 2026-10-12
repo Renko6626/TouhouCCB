@@ -217,7 +217,7 @@ async def test_default_publish_writes_wire_frame_when_subscribed(monkeypatch):
             broker, pair_id, {"price": post_price, "volume": Decimal("4")})
 
     monkeypatch.setattr(market_data, "publish_pair_frame", fake_frame)
-    sub, _anchor = await BROKER.subscribe(987655)
+    sub, _anchor = await BROKER.subscribe('fx:987655')
     instance = FxPublisher()
     await instance.start()
     try:
@@ -231,7 +231,7 @@ async def test_default_publish_writes_wire_frame_when_subscribed(monkeypatch):
         assert instance.stats()["published"] == 1
     finally:
         await instance.stop()
-        await BROKER.unsubscribe(987655, sub)
+        await BROKER.unsubscribe('fx:987655', sub)
 
 
 @pytest.mark.asyncio

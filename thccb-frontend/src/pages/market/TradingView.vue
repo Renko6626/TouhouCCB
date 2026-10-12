@@ -32,7 +32,7 @@ const marketIdForSSE = computed<number | null>(() =>
   Number.isFinite(marketId.value) ? marketId.value : null,
 )
 
-// SSE 实时流：useMarketRealtime 内部建立 EventSource、跟踪 seq、暴露 latestTrade /
+// SSE 实时流：useMarketRealtime 内部建立 EventSource、跟踪 seq、暴露 latestTick /
 // pricesByOutcome / gapToken 等反应式状态。通过 provide 注入给子组件（PriceChart /
 // CandleChart）共享同一实例，避免重复建连接。
 const realtime = useMarketRealtime(marketIdForSSE)
@@ -149,24 +149,9 @@ const scheduleRealtimeRefresh = () => {
 
 // ── SSE 驱动的本地状态更新（不再 refetch）──
 // 每条 trade → 增量 append 到 marketTrades + 用 market_prices_post 全量 patch outcomes 当前价
-watch(realtime.latestTrade, (trade) => {
-  if (!trade) return
-  // 不再跳过 tradeLoading 窗口：成交后已无 refetch 可冲突（阶段 3 本地 apply），
-  // 自己那笔的事件靠 appendTradeFromSSE 的 trade.id 去重；跳过反而会把自己
-  // 下单引发的价格变动丢掉，安静市场上要等下一笔别人交易才能纠正。
-  marketStore.appendTradeFromSSE(trade)
-  if (trade.market_prices_post) {
-    marketStore.patchAllPricesFromTrade(trade.market_prices_post)
-  } else {
-    // 老后端没带 market_prices_post → 退化只 patch 被交易那个
-    marketStore.patchOutcomePriceFromTrade(trade.outcome_id, trade.post_market_price)
-  }
-})
 
 // ── tick 帧驱动的本地状态更新（阶段 2）──
 // 一帧可含多笔成交，逐笔 append；帧价格向量整体 patch（服务端 8dp 权威值）。
-// 老 latestTrade watcher 保留作为「新前端+老后端」部署窗口的降级路径：
-// tickSeen 后 latestTrade 不再更新，它自然沉默。
 watch(realtime.latestTick, (frame) => {
   if (!frame) return
   // 同上：tradeLoading 窗口内的帧不能丢（自己下单的帧常在响应返回前后 125ms 内
@@ -302,7 +287,7 @@ const quoteResult = computed<QuoteResponse | null>(() => {
 const estimatedNewCash = computed(() => {
   if (!quoteResult.value || !userStore.summary) return 0
   const netCost = quoteResult.value.net || 0
-  return tradeType.value === 'buy' 
+  return tradeType.value === 'buy'
     ? userStore.summary.cash - netCost
     : userStore.summary.cash + Math.abs(netCost)
 })

@@ -110,7 +110,7 @@ async def repay_sale_proceeds(session, user, net):
 
 
 def _require_trading_state(state: MarketState) -> None:
-    """与 market.py::_require_trading 同语义，输入换成内存 state。"""
+    """校验 writer 内存中的市场状态与截止时间。"""
     if state.status != MarketStatus.TRADING:
         raise HTTPException(status_code=400, detail="市场当前不可交易")
     if state.closes_at and datetime.now(timezone.utc) >= state.closes_at:
@@ -173,7 +173,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
         async with session.begin():
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
-            # title 门槛：与老路径同位置（锁内、扣款前），语义不变
+            # title 门槛：在锁内、扣款前检查
             await assert_user_can_trade_market(session, cmd.user_id, state.market_id)
             if await available_cash(session, locked_user) < pay:
                 raise HTTPException(status_code=400, detail="现金不足")
@@ -267,7 +267,6 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
         new_q_dec=new_q_dec,
         candle_rows=candle_rows,
         tick_trade=trade_payload,
-        publishes=[("trade", {"trade": trade_payload})],
     )
 
 
@@ -286,12 +285,8 @@ class SellCmd:
 async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
     """与 op_buy 结构对称。
 
-    **与老路径的已知行为差**：老路径先查持仓再算 LMSR；writer 路径滑点/总量
-    守卫在内存先算（Step 1，零 IO）、持仓在 DB 事务里查（Step 2）——任何
-    「持仓不足 **且**（滑点超限 或 市场总量不足）」的双违规请求，都会先收到
-    内存阶段的错误而不是持仓错误。这在单一交易者市场里尤其容易碰到：卖出量
-    超过自己全部持仓时，市场总量与持仓数值恒等（持仓 ≤ 总量的不变式），
-    「总量不足」会抢在「持仓不足」之前触发。单违规行为完全一致。
+    滑点和市场总量先在内存中校验，持仓随后在 DB 事务里检查。
+    同时违反多个条件的请求会先收到内存阶段的错误。
     """
     # 1. 内存定价与校验
     _require_trading_state(state)
@@ -403,7 +398,6 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
         new_q_dec=new_q_dec,
         candle_rows=candle_rows,
         tick_trade=trade_payload,
-        publishes=[("trade", {"trade": trade_payload})],
     )
 
 
@@ -438,7 +432,6 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
     return OpOutcome(
         response={"message": f"市场 {title} 已停止交易（熔断）"},
         new_status=MarketStatus.HALT,
-        publishes=[("market_status", {"status": MarketStatus.HALT})],
     )
 
 
@@ -463,7 +456,6 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
     return OpOutcome(
         response={"message": f"市场 {title} 已恢复交易"},
         new_status=MarketStatus.TRADING,
-        publishes=[("market_status", {"status": MarketStatus.TRADING})],
     )
 
 
@@ -677,11 +669,6 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
         new_status=MarketStatus.SETTLED,
         tick_settlement={"winning_outcome_id": winning_id,
                          "settled_at": settled_at.isoformat()},
-        publishes=[("market_status", {
-            "status": MarketStatus.SETTLED,
-            "winning_outcome_id": winning_id,
-            "settled_at": settled_at.isoformat(),
-        })],
     )
 
 
@@ -932,7 +919,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 defer_repay = bool(plan.defer_repay)
 
             if not market_is_open(state.status, state.closes_at):
-                # 与 legacy op 同语义：HALT/SETTLED/已过 closes_at 不强平（用户自己也卖不了）
+                # HALT/SETTLED/已过 closes_at 不强平（用户自己也卖不了）
                 logger.warning(
                     "liquidation_skip_non_trading_market(unified) user_id=%s market_id=%s status=%s",
                     cmd.user_id, market_id, state.status,
@@ -942,7 +929,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=BLOCKED_MARKET_NOT_OPEN, replayed=False)
 
-            # ── 2. 该 market 全部持仓行锁（Position.id ASC；与 legacy 同序）──
+            # ── 2. 该 market 全部持仓行锁（Position.id ASC）──
             positions = (await session.execute(
                 select(Position)
                 .join(Outcome, Position.outcome_id == Outcome.id)
@@ -1015,7 +1002,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 idx = index_of[int(leg.outcome_id)]
                 pos = pos_by_outcome[int(leg.outcome_id)]
 
-                # 持仓：全卖删除、部分卖按真实比例减 cost_basis（与 legacy 逐字同口径）
+                # 持仓：全卖删除、部分卖按真实比例减 cost_basis
                 pos_deleted = leg.amount >= pos.amount
                 if pos_deleted:
                     await session.delete(pos)

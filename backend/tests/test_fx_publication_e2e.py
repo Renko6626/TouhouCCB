@@ -83,7 +83,7 @@ async def _seed():
 @pytest.mark.asyncio
 async def test_trade_response_returns_while_publication_is_still_blocked(monkeypatch):
     uid, pid = await _seed()
-    sub, _anchor = await BROKER.subscribe(pid)
+    sub, _anchor = await BROKER.subscribe(f"fx:{pid}")
     instance = publisher.FxPublisher()
     monkeypatch.setattr(publisher, "PUBLISHER", instance)
 
@@ -123,7 +123,7 @@ async def test_trade_response_returns_while_publication_is_still_blocked(monkeyp
     finally:
         release.set()
         await instance.stop()
-        await BROKER.unsubscribe(pid, sub)
+        await BROKER.unsubscribe(f"fx:{pid}", sub)
 
 
 @pytest.mark.asyncio

@@ -284,19 +284,11 @@ watch(() => [props.outcomeId, props.interval], () => {
   loadFull()
 })
 
-// SSE 实时增量：监听 latestTrade
+// SSE 实时增量：逐帧处理成交
 if (realtime) {
-  watch(realtime.latestTrade, (trade) => {
-    if (!trade) return
-    // 用 pricesByOutcome 取当前 outcome 的最新价（含其他 outcome 联动 patch 后的值）
-    const price = realtime.pricesByOutcome.value.get(props.outcomeId)
-    if (price === undefined) return
-    const tsMs = new Date(trade.timestamp).getTime()
-    appendPoint(price, tsMs)
-  })
 
   // tick 帧：一帧多笔逐笔 append（用每笔的 market_prices_post 取本 outcome 的成交后价，
-  // 保证帧内多笔的中间点不丢；latestTrade watcher 在 tick 模式下自然沉默，见 TradingView 注释）
+  // 保证帧内多笔的中间点不丢）
   watch(realtime.latestTick, (frame) => {
     if (!frame) return
     const order = realtime.outcomesOrder.value

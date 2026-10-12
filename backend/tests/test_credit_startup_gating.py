@@ -139,12 +139,6 @@ async def test_read_only_skips_all_startup_writes(startup, monkeypatch):
 
 
 async def test_owner_runs_startup_writes_after_acquiring_lock(startup, monkeypatch):
-    from app.core.database import async_session_maker
-    from app.models.base import SiteConfig
-
-    async with async_session_maker() as s:
-        async with s.begin():
-            s.add(SiteConfig(key="single_writer_enabled", value="true", value_type="bool"))
     own = _install_ownership(monkeypatch, owner=True, events=startup)
     _install_flags(monkeypatch, {})
 

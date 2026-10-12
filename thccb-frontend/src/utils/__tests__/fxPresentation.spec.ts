@@ -204,7 +204,7 @@ describe('FX 交易展示口径', () => {
     )
     expect(mapFxError({ status: 400, data: { detail: 'credit_frozen' } })).toContain('冻结')
     expect(mapFxError({ status: 403, data: { detail: 'FX pair is reduce-only' } })).toContain(
-      '卖出',
+      '减仓',
     )
   })
   it('只用当前钱包估值，保留六位资金精度，不依赖账户 FX 汇总', () => {
@@ -338,4 +338,119 @@ describe('账户风险等级展示', () => {
     ).toBe('unknown')
     expect(resolveCreditRiskStatus(boundary)).toBe('unknown')
   })
+})
+
+import { fxNetActionLabel } from '../fxPresentation'
+it('describes net results from their real legs', () => {
+  expect(
+    fxNetActionLabel([
+      { purpose: 'spot', side: 'sell' },
+      { purpose: 'short_open', side: 'sell' },
+    ]),
+  ).toBe('平多后开空')
+  expect(
+    fxNetActionLabel([
+      { purpose: 'short_cover', side: 'buy' },
+      { purpose: 'borrow_buy', side: 'buy' },
+    ]),
+  ).toBe('回补后做多')
+  expect(fxNetActionLabel([{ purpose: 'short_cover', side: 'buy' }])).toBe('回补空头')
+})
+
+import { fxGroupPersonalTrades } from '../fxPresentation'
+import type { FxPersonalTrade } from '@/types/fx'
+it('groups only linked legs and retains the real leg details', () => {
+  const row = {
+    id: 1,
+    pair_id: 1,
+    side: 'sell',
+    purpose: 'spot',
+    input_amount: '100',
+    output_amount: '90',
+    fee_amount: '1',
+    post_price: '1',
+    created_at: '2030-01-01',
+    currency_code: 'T',
+    currency_name: '测试',
+    is_liquidation: false,
+  } as FxPersonalTrade
+  const groups = fxGroupPersonalTrades([
+    {
+      ...row,
+      id: 3,
+      execution_id: 5,
+      execution_leg: 2,
+      purpose: 'short_open',
+      input_amount: '40',
+      output_amount: '30',
+    },
+    { ...row, id: 2, execution_id: 5, execution_leg: 1 },
+    row,
+  ])
+  expect(groups).toHaveLength(2)
+  expect(groups[0]?.actionLabel).toBe('平多后开空')
+  expect(groups[0]?.input_amount).toBe('140.000000')
+  expect(groups[0]?.output_amount).toBe('120.000000')
+  expect(groups[0]?.legs.map((leg) => leg.id)).toEqual([2, 3])
+  expect(groups[1]?.legs).toHaveLength(1)
+})
+
+import { fxNetFundingPreview, fxNetAllowsGrowth, fxNetNewExposure } from '../fxPresentation'
+it('net financing spends only free cash and this covered pair lock, loans only the new long gap', () => {
+  const summary = { cash: '150', available_cash: '50' }
+  const position = { pending_short_debt: '80', restricted_gold: '100' }
+  const cross = {
+    legs: [
+      { purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '87.834871' },
+      { purpose: 'spot' as const, side: 'buy' as const, input_amount: '112.165129' },
+    ],
+  }
+  expect(fxNetFundingPreview('200', summary, position, cross)).toEqual({
+    cashInput: '50.000000',
+    lockedInput: '100',
+    shortfall: '50.000000',
+    loanApplicable: true,
+  })
+  const pureCover = {
+    legs: [{ purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '80' }],
+  }
+  expect(fxNetFundingPreview('80', summary, position, pureCover)).toEqual({
+    cashInput: '50.000000',
+    lockedInput: '30.000000',
+    shortfall: '0.000000',
+    loanApplicable: false,
+  })
+  // Another pair's 100 locked gold stays outside this order's funding sources.
+  expect(
+    fxNetFundingPreview('200', { cash: '250', available_cash: '50' }, position, cross)?.shortfall,
+  ).toBe('50.000000')
+  expect(
+    fxNetFundingPreview('200', summary, { ...position, restricted_gold: '0' }, cross)
+      ?.loanApplicable,
+  ).toBe(false)
+})
+
+it('quick close never permits growth and return estimates use only the opening leg', () => {
+  expect(fxNetAllowsGrowth({ growth_amount: '40' }, true)).toBe(false)
+  expect(fxNetAllowsGrowth({ growth_amount: '40' }, false)).toBe(true)
+  expect(fxNetAllowsGrowth({ growth_amount: '0' }, false)).toBe(false)
+  const cover = {
+    purpose: 'short_cover' as const,
+    side: 'buy' as const,
+    input_amount: '80',
+    output_amount: '75',
+  }
+  expect(fxNetNewExposure([cover])).toBeNull()
+  expect(
+    fxNetNewExposure([
+      cover,
+      { purpose: 'spot', side: 'buy', input_amount: '20', output_amount: '15' },
+    ]),
+  ).toEqual({ direction: 'long', quantity: '15' })
+  expect(
+    fxNetNewExposure([
+      { purpose: 'spot', side: 'sell', input_amount: '100', output_amount: '90' },
+      { purpose: 'short_open', side: 'sell', input_amount: '40', output_amount: '30' },
+    ]),
+  ).toEqual({ direction: 'short', quantity: '40' })
 })

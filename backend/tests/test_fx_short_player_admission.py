@@ -297,32 +297,6 @@ async def test_foreign_only_short_blocks_lmsr_writer_buy():
     assert not GATES.held_keys()
 
 
-async def test_foreign_only_short_blocks_legacy_lmsr_buy():
-    from app.api.v1.market import buy_shares
-    from app.schemas.market import TradeRequest
-
-    async with async_session_maker() as db:
-        user = await _user(db, name="lmsr_legacy_short")
-        short_pair = await _pair(db, code="LMSRLSHORT")
-        await _short(db, user_id=user.id, pair_id=short_pair.id, principal="500")
-        market, outcomes = await _market(db, title="lmsr_legacy_block")
-        await db.commit()
-        uid, oid = user.id, outcomes[0].id
-
-    async with async_session_maker() as db:
-        user = await db.get(User, uid)
-        with pytest.raises(HTTPException) as exc:
-            await buy_shares(
-                TradeRequest(outcome_id=oid, shares=D("10"), accept_any_slippage=True),
-                user, db,
-            )
-        assert exc.value.status_code == 400
-        assert "insufficient_initial_margin" in str(exc.value.detail)
-
-        assert (await db.get(User, uid)).cash == D("100")
-        assert (await db.get(Outcome, oid)).total_shares == ZERO
-        assert (await db.execute(select(Position))).scalars().all() == []
-    assert not GATES.held_keys()
 
 
 async def test_quota_known_short_uses_shared_headroom_not_gold_only():

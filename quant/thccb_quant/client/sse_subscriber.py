@@ -35,9 +35,6 @@ class SseSubscriber:
         self._log = logger
         self._dispatch_timeout_sec = dispatch_timeout_sec
         self._last_event_handled_ts = time.monotonic()
-        # 诊断计数：trade event 因 trade_id 重复被跳过的总次数。
-        # 突然涨 = backend SSE race 或 重连风暴异常；正常 << 1/分钟。
-        self._dedup_skipped_count = 0
         self._last_status: dict[int, str] = {}
         self._tick_dedup_count = 0
 
@@ -47,14 +44,8 @@ class SseSubscriber:
         return self._last_event_handled_ts
 
     @property
-    def dedup_skipped_count(self) -> int:
-        """累计 dedup 触发次数；WebUI 用以监控 SSE 流是否健康。"""
-        return self._dedup_skipped_count
-
-    @property
     def tick_dedup_count(self) -> int:
-        """帧内成交与 legacy 事件重复被跳过的次数（双发期设计内常态，与
-        dedup_skipped_count 的异常告警语义分开）。"""
+        """重复 tick 帧中的成交被跳过的次数（重连或重放）。"""
         return self._tick_dedup_count
 
     async def run(self) -> None:
@@ -94,33 +85,7 @@ class SseSubscriber:
 
     async def _handle_event(self, market_id: int, event: SseEvent) -> None:
         try:
-            if event.type == "trade":
-                # log_trade 返回 False 表示这个 trade_id 已经在 DB 里，是重复事件
-                # （backend snapshot+event 双推 / SSE 重连后重发 / etc.）。
-                # 跳过 dispatch 防策略 EMA 等内部状态多更新一次。
-                is_new = await self._store.log_trade(
-                    market_id=market_id, payload=event.data,
-                )
-                if not is_new:
-                    trade_id = None
-                    try:
-                        trade_id = int(event.data["trade"]["id"])
-                    except (KeyError, TypeError, ValueError):
-                        pass
-                    self._dedup_skipped_count += 1
-                    self._log.info(
-                        "sse_trade_dedup_skipped",
-                        market_id=market_id, seq=event.seq, trade_id=trade_id,
-                        total_dedup_skipped=self._dedup_skipped_count,
-                    )
-                    return
-                await self._dispatch(market_id, event)
-            elif event.type == "market_status":
-                self._log.info("sse_market_status",
-                               market_id=market_id,
-                               status=event.data.get("status"))
-                await self._dispatch(market_id, event)
-            elif event.type == "tick":
+            if event.type == "tick":
                 await self._handle_tick(market_id, event)
             elif event.type == "snapshot":
                 self._log.info("sse_snapshot_bootstrapped",
@@ -137,9 +102,8 @@ class SseSubscriber:
             self._last_event_handled_ts = time.monotonic()
 
     async def _handle_tick(self, market_id: int, event: SseEvent) -> None:
-        """tick 帧适配器（主站阶段 2）：帧 → 合成逐笔 trade / market_status 事件，
-        喂给既有 dispatch，策略层零改动。双发期与 legacy 事件的重复靠
-        log_trade 的 trade_id 去重，静默跳过。"""
+        """tick 帧适配器：合成策略内部的逐笔 trade / market_status 事件。
+        log_trade 按 trade_id 去重，防止重连或重放重复推进策略状态。"""
         frame = event.data or {}
         for t in frame.get("trades", []):
             payload = {"trade": t}

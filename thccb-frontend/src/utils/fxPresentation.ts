@@ -9,6 +9,7 @@ import {
 } from '@/api/fx'
 import type {
   FxPairPublic,
+  FxPersonalTrade,
   FxQuote,
   FxShortPosition,
   FxShortQuote,
@@ -254,4 +255,107 @@ export function fxSellAllocation(output: string, summary: CreditSummary | null) 
       ? '0.000000'
       : formatFxAmount((compareFxAmounts(debt, output) ?? 0) > 0 ? output : debt)
   return { repayment, cashIncrease: subtractFxAmounts(output, repayment) }
+}
+
+/** Explain actual net legs without guessing from the requested direction. */
+export function fxNetActionLabel(legs: ReadonlyArray<{ purpose: string; side: string }>): string {
+  const cover = legs.some((l) => l.purpose === 'short_cover')
+  const short = legs.some((l) => l.purpose === 'short_open')
+  const spot = legs.some((l) => l.purpose === 'spot' || l.purpose === 'borrow_buy')
+  if (cover && spot) return '回补后做多'
+  if (short && spot) return '平多后开空'
+  if (cover) return '回补空头'
+  if (short) return '新增空头'
+  return legs[0]?.side === 'sell' ? '卖出现货' : '买入外币'
+}
+
+export function fxGroupPersonalTrades(rows: readonly FxPersonalTrade[]) {
+  const groups: Array<FxPersonalTrade & { legs: FxPersonalTrade[]; actionLabel: string | null }> =
+    []
+  const byExecution = new Map<number, (typeof groups)[number]>()
+  for (const row of rows) {
+    const existing = row.execution_id ? byExecution.get(row.execution_id) : undefined
+    if (existing) {
+      existing.legs.push(row)
+      existing.input_amount =
+        addFxAmounts(existing.input_amount, row.input_amount) ?? existing.input_amount
+      existing.output_amount =
+        addFxAmounts(existing.output_amount, row.output_amount) ?? existing.output_amount
+      existing.fee_amount = addFxAmounts(existing.fee_amount, row.fee_amount) ?? existing.fee_amount
+    } else {
+      const group = { ...row, legs: [row], actionLabel: null as string | null }
+      groups.push(group)
+      if (row.execution_id) byExecution.set(row.execution_id, group)
+    }
+  }
+  for (const group of groups) {
+    group.legs.sort((a, b) => (a.execution_leg ?? 0) - (b.execution_leg ?? 0))
+    if (group.execution_id) group.actionLabel = fxNetActionLabel(group.legs)
+  }
+  return groups
+}
+
+/** Allocate net buys from free cash and this pair's lock before any new loan. */
+export function fxNetFundingPreview(
+  amount: string,
+  summary: Pick<UserSummary, 'cash' | 'available_cash'> | null,
+  position: Pick<FxShortPosition, 'pending_short_debt' | 'restricted_gold'> | null,
+  quote: {
+    legs: readonly Pick<import('@/types/fx').FxNetLeg, 'purpose' | 'side' | 'input_amount'>[]
+  } | null,
+) {
+  const base = fxFundingPreview(amount, summary)
+  if (!base || !summary || summary.available_cash == null) return null
+  const ownLock =
+    position && compareFxAmounts(position.pending_short_debt, '0') === 1
+      ? position.restricted_gold
+      : '0'
+  const lockedCash = subtractFxAmounts(summary.cash, summary.available_cash)
+  if (
+    lockedCash == null ||
+    compareFxAmounts(ownLock, '0') == null ||
+    compareFxAmounts(ownLock, '0') === -1 ||
+    compareFxAmounts(ownLock, lockedCash) === 1
+  )
+    return null
+  const lockedInput = compareFxAmounts(base.shortfall, ownLock) === 1 ? ownLock : base.shortfall
+  const shortfall = subtractFxAmounts(base.shortfall, lockedInput)
+  const availableForCover = addFxAmounts(summary.available_cash, ownLock)
+  if (shortfall == null || availableForCover == null) return null
+  const cover = quote?.legs.find((leg) => leg.purpose === 'short_cover')
+  const long = quote?.legs.find(
+    (leg) => leg.side === 'buy' && ['spot', 'borrow_buy'].includes(leg.purpose),
+  )
+  const coverAffordable = !cover || compareFxAmounts(cover.input_amount, availableForCover) !== 1
+  return {
+    cashInput: base.cashInput,
+    lockedInput,
+    shortfall,
+    loanApplicable: !!long && coverAffordable && compareFxAmounts(shortfall, '0') === 1,
+  }
+}
+
+/** Quick close intent cannot grant permission to open, even after a requote. */
+export function fxNetAllowsGrowth(
+  quote: Pick<import('@/types/fx').FxNetQuote, 'growth_amount'>,
+  closeOnly: boolean,
+) {
+  return !closeOnly && compareFxAmounts(quote.growth_amount, '0') === 1
+}
+
+export function fxNetNewExposure(
+  legs: readonly Pick<
+    import('@/types/fx').FxNetLeg,
+    'purpose' | 'side' | 'input_amount' | 'output_amount'
+  >[],
+) {
+  const opening = legs.find(
+    (leg) =>
+      leg.purpose === 'short_open' ||
+      (leg.side === 'buy' && (leg.purpose === 'spot' || leg.purpose === 'borrow_buy')),
+  )
+  if (!opening) return null
+  return opening.purpose === 'short_open'
+    ? { direction: 'short' as const, quantity: opening.input_amount }
+    : { direction: 'long' as const, quantity: opening.output_amount }
 }

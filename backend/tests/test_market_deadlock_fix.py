@@ -1,16 +1,6 @@
-"""
-跨 outcome 死锁修复回归测试（P1 follow-up）
-
-根本原因：buy/sell 都先 _lock_outcome(单个 outcome) 再 _lock_market，
-然后又 _lock_outcomes_for_market（锁全部 outcome）。
-两个事务分别持有不同 outcome 的锁，都想拿 market 锁，形成环形等待 → PG 40P01。
-
-修复：用无锁 SELECT 拿 market_id，再按 market → all_outcomes 统一顺序加锁。
-"""
-import re
+"""同市场不同 outcome 的买卖回归；经济操作由市场 writer 串行执行。"""
 import uuid
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -59,55 +49,6 @@ async def _make_market(liquidity_b: float = 10000.0, n_outcomes: int = 2):
                 await s.flush()
                 outcome_ids.append(o.id)
     return m.id, outcome_ids
-
-
-# ────────────────────────────────────────────────
-# 源码级断言：锁顺序不形成环
-# ────────────────────────────────────────────────
-
-def _get_fn_body(text: str, fn_name: str) -> str:
-    m = re.search(rf"async def {fn_name}\b", text)
-    assert m, f"找不到 {fn_name} 函数定义"
-    start = m.start()
-    next_fn = re.search(r"\n(@router|async def )", text[start + 1:])
-    end = start + 1 + next_fn.start() if next_fn else len(text)
-    return text[start:end]
-
-
-def test_buy_locks_market_before_individual_outcome():
-    """
-    buy_shares 不应在 _lock_market 之前调用 _lock_outcome。
-    若违反，与另一个持有不同 outcome 的事务必然形成 cross-outcome 环形等待。
-    """
-    src = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "market.py"
-    body = _get_fn_body(src.read_text(encoding="utf-8"), "buy_shares")
-
-    lock_market_pos = body.find("_lock_market(")
-    lock_outcome_pos = body.find("await _lock_outcome(")
-
-    assert lock_market_pos != -1, "buy_shares 中缺失 _lock_market 调用"
-    # _lock_outcome 不应出现在 _lock_market 之前
-    assert lock_outcome_pos == -1 or lock_market_pos < lock_outcome_pos, (
-        f"buy_shares: _lock_outcome (pos={lock_outcome_pos}) 出现在 _lock_market "
-        f"(pos={lock_market_pos}) 之前——跨 outcome 并发必然触发 PG 40P01 死锁"
-    )
-
-
-def test_sell_locks_market_before_individual_outcome():
-    """
-    sell_shares 不应在 _lock_market 之前调用 _lock_outcome。
-    """
-    src = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "market.py"
-    body = _get_fn_body(src.read_text(encoding="utf-8"), "sell_shares")
-
-    lock_market_pos = body.find("_lock_market(")
-    lock_outcome_pos = body.find("await _lock_outcome(")
-
-    assert lock_market_pos != -1, "sell_shares 中缺失 _lock_market 调用"
-    assert lock_outcome_pos == -1 or lock_market_pos < lock_outcome_pos, (
-        f"sell_shares: _lock_outcome (pos={lock_outcome_pos}) 出现在 _lock_market "
-        f"(pos={lock_market_pos}) 之前——跨 outcome 并发必然触发 PG 40P01 死锁"
-    )
 
 
 # ────────────────────────────────────────────────

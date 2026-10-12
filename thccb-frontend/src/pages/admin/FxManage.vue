@@ -36,7 +36,7 @@ const pairBusy = ref(false)
 const editingPairId = ref<number | null>(null)
 const editPanel = ref<HTMLElement | null>(null)
 const editError = ref<string | null>(null)
-const editForm = ref({ currency_code: '', currency_name: '', buy_fee_rate: '', sell_fee_rate: '', short_lending_limit_foreign: '0' })
+const editForm = ref({ currency_code: '', currency_name: '', buy_fee_rate: '', sell_fee_rate: '' })
 
 const CONFIG_LABELS: Record<string, string> = {
   fx_enabled: 'FX 交易总闸',
@@ -124,13 +124,6 @@ function snapshotOf(pairId: number | null): FxSnapshot | null {
 function treasuryOf(pairId: number | null): FxPairAdminDetail | null {
   if (pairId === null) return null
   return treasuryByPair.value[pairId] ?? null
-}
-
-function snapString(snapshot: Record<string, unknown> | null | undefined, key: string): string {
-  if (!snapshot) return '—'
-  const value = snapshot[key]
-  if (value === undefined || value === null) return '—'
-  return typeof value === 'string' ? value : String(value)
 }
 
 function combinePairStatus(status: FxPairStatus): string {
@@ -263,7 +256,6 @@ async function startEditingPair(pair: FxPairPublic) {
   editError.value = null
   editForm.value = {
     currency_code: detail.currency_code, currency_name: detail.currency_name,
-    short_lending_limit_foreign: detail.short_lending_limit_foreign ?? '0',
     buy_fee_rate: detail.buy_fee_rate, sell_fee_rate: detail.sell_fee_rate,
   }
   await nextTick()
@@ -284,11 +276,7 @@ async function savePairEdit() {
     editError.value = '买卖费率必须在 0（含）与 1（不含）之间'
     return
   }
-  if (!/^\d+(\.\d{0,6})?$/.test(f.short_lending_limit_foreign.trim())) {
-    editError.value = '借币本金上限须为非负数，最多六位小数'
-    return
-  }
-  const body: FxPairPatch = { ...f, short_lending_limit_foreign: f.short_lending_limit_foreign.trim() }
+  const body: FxPairPatch = { ...f }
   if (f.currency_code === original.currency_code) delete body.currency_code
   pairBusy.value = true
   try {
@@ -500,7 +488,6 @@ onMounted(async () => {
           <div class="fx-setup-fields">
             <label>币种代码<input v-model="editForm.currency_code" class="fx-input" maxlength="16" :disabled="detailOf(editingPairId)?.status !== 'draft' || pairBusy" /></label>
             <label>币种名称<input v-model="editForm.currency_name" class="fx-input" maxlength="64" :disabled="pairBusy" /></label>
-            <label>开空本金上限（外币，0 禁止新增）<input v-model="editForm.short_lending_limit_foreign" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
             <label>买入费率（小数）<input v-model="editForm.buy_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
             <label>卖出费率（小数）<input v-model="editForm.sell_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
           </div>

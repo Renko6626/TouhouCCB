@@ -6,11 +6,11 @@ cash / pool / treasury / wallet / short-debt / trade postconditions, never
 source text or private helper names.
 
 A regression here means: an operator can open shorts while the site gate or
-pair lending cap is off; a same-key retry borrows/sells/buys twice or lets a
+pair is paused; a same-key retry borrows/sells/buys twice or lets a
 spot request replay a short trade (in either direction); a reduce-only pair
 still lets an ordinary buy or a new short through; turning the opening gate or
 the loan gate off strands an existing short with no cover path; a malformed or
-overflowing request becomes a 500 or mutates the book; the admin pair limit
+overflowing request becomes a 500 or mutates the book; the legacy admin pair limit
 leaks into the public pair payload; the read route advances an interest clock or
 shows another account's obligation; or a quote prices a different amount/cost
 than the AMM or claims a reduce-only cover is disallowed.
@@ -866,15 +866,15 @@ async def test_quote_status_matrix_gates_reduce_only_and_closed(client):
     assert cover_quote.status_code == 200, cover_quote.text
     assert cover_quote.json()["executable"] is True
 
-    # The pair lending cap of zero blocks a new open quote but not the cover.
+    # The retired pair lending cap of zero blocks neither opening nor covering.
     assert (await _set_gate(client, admin_headers, "true")).status_code == 200
     assert (await _patch_pair(client, admin_headers, pair_id,
                               short_lending_limit_foreign="0")).status_code == 200
     capped = await _quote(client, user_headers, pair_id,
                           {"action": "open", "foreign_amount": "10"})
     assert capped.status_code == 200, capped.text
-    assert capped.json()["executable"] is False
-    assert capped.json()["blocked_reason"] == "short_lending_limit"
+    assert capped.json()["executable"] is True
+    assert capped.json()["blocked_reason"] is None
     still_cover = await _quote(client, user_headers, pair_id,
                                {"action": "cover", "foreign_amount": "10"})
     assert still_cover.status_code == 200, still_cover.text

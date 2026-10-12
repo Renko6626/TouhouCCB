@@ -96,12 +96,6 @@ async def test_writer_buy_releases_request_connection_before_submit(client, monk
     from app.api.v1 import market as market_api
     from tests.test_writer_e2e import _dev_login, _create_market
 
-    async with async_session_maker() as s:
-        await s.execute(text(
-            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
-            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
-            "ON CONFLICT (key) DO UPDATE SET value='true'"))
-        await s.commit()
     clear_cache()
     await WRITER.start()
     try:
@@ -181,12 +175,6 @@ async def test_quote_matches_fill_and_respects_closes_at(client):
     from app.models.base import Market
     from tests.test_writer_e2e import _dev_login, _create_market
 
-    async with async_session_maker() as s:
-        await s.execute(text(
-            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
-            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
-            "ON CONFLICT (key) DO UPDATE SET value='true'"))
-        await s.commit()
     clear_cache()
     await WRITER.start()
     try:
@@ -235,12 +223,6 @@ async def test_snapshot_reports_history_tail_through_trade_id(client):
     from app.api.v1.stream import _build_snapshot
     from tests.test_writer_e2e import _dev_login, _create_market
 
-    async with async_session_maker() as s:
-        await s.execute(text(
-            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
-            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
-            "ON CONFLICT (key) DO UPDATE SET value='true'"))
-        await s.commit()
     clear_cache()
     await WRITER.start()
     try:

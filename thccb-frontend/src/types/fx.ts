@@ -74,6 +74,8 @@ export interface FxWalletPublic {
 }
 
 export interface FxPersonalTrade extends FxTradePublic {
+  execution_id?: number | null
+  execution_leg?: number | null
   currency_code: string
   currency_name: string
   purpose: string
@@ -341,4 +343,50 @@ export interface FxBorrowBuyTrade {
   post_price: string
   replay: boolean
   created_at: string
+}
+
+export interface FxNetQuoteRequest extends FxQuoteRequest {
+  borrow_amount: string
+}
+export interface FxNetTradeRequest extends FxNetQuoteRequest {
+  allow_growth: boolean
+  min_out: string
+  idempotency_key: string
+  expected_economic_version: number
+}
+export interface FxNetLeg {
+  purpose: 'spot' | 'short_cover' | 'short_open' | 'borrow_buy'
+  side: FxSide
+  input_currency: string
+  output_currency: string
+  input_amount: string
+  output_amount: string
+  fee_amount: string
+  pre_gold_reserve: string
+  pre_foreign_reserve: string
+  post_gold_reserve: string
+  post_foreign_reserve: string
+}
+export interface FxNetQuote extends Omit<FxQuote, 'effective_price'> {
+  legs: FxNetLeg[]
+  final_direction: 'long' | 'short' | 'flat'
+  wallet_after: string
+  foreign_debt_after: string
+  cash_delta: string
+  gold_debt_delta: string
+  restricted_gold_delta: string
+  growth_amount: string
+  borrow_amount: string
+  repaid_gold: string
+  executable: boolean
+  blocked_reason: string | null
+  economic_version: number
+  pool_version: number
+  expires_at: string
+}
+export interface FxNetTrade extends FxNetQuote {
+  execution_id: number
+  trade_ids: number[]
+  created_at: string
+  replay: boolean
 }

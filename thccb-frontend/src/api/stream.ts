@@ -18,8 +18,6 @@ export class MarketStream {
   constructor() {
     this.listeners.set('open', new Set())
     this.listeners.set('snapshot', new Set())
-    this.listeners.set('trade', new Set())
-    this.listeners.set('market_status', new Set())
     this.listeners.set('ping', new Set())
     this.listeners.set('tick', new Set())
     this.listeners.set('error', new Set())
@@ -61,7 +59,8 @@ export class MarketStream {
     return (
       typeof d.market_id === 'number' &&
       typeof d.ts === 'string' &&
-      ['snapshot', 'trade', 'market_status', 'ping', 'tick'].includes(d.type as string)
+      typeof d.seq === 'number' &&
+      ['snapshot', 'ping', 'tick'].includes(d.type as string)
     )
   }
 
@@ -88,10 +87,8 @@ export class MarketStream {
       this.handleEvent({ ...parsed, type: eventType })
     }
 
-    // 后端使用命名 SSE event: trade / market_status / snapshot / ping
+    // 后端使用命名 SSE event: snapshot / tick / ping
     this.eventSource.addEventListener('snapshot', handleNamedEvent('snapshot'))
-    this.eventSource.addEventListener('trade', handleNamedEvent('trade'))
-    this.eventSource.addEventListener('market_status', handleNamedEvent('market_status'))
     this.eventSource.addEventListener('ping', handleNamedEvent('ping'))
     this.eventSource.addEventListener('tick', handleNamedEvent('tick'))
 

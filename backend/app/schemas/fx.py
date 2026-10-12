@@ -385,6 +385,8 @@ class FxShortQuoteResponse(BaseModel):
 
 
 class FxPersonalTrade(FxTradePublic):
+    execution_id: Optional[int] = None
+    execution_leg: Optional[int] = None
     currency_code: str
     currency_name: str
     is_liquidation: bool
@@ -405,3 +407,88 @@ class FxSnapshot(BaseModel):
     # coverage claim.
     history_version: Optional[str] = None
     history_ready: bool = False
+
+
+class FxNetQuoteRequest(FxQuoteRequest):
+    borrow_amount: Decimal = Decimal("0")
+
+    @field_validator("amount", "borrow_amount")
+    @classmethod
+    def net_bounds(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        if value > _MAX_GOLD:
+            raise ValueError("amount exceeds storage limit")
+        return value
+
+    @model_validator(mode="after")
+    def funding(self):
+        if self.borrow_amount > self.amount or (self.side != "buy" and self.borrow_amount):
+            raise ValueError("financing is only available within a buy budget")
+        return self
+
+
+class FxNetTradeRequest(FxNetQuoteRequest):
+    allow_growth: bool = False
+    min_out: Decimal = Decimal("0")
+    idempotency_key: str = Field(min_length=1, max_length=128)
+    expected_economic_version: int = Field(ge=0)
+
+    @field_validator("min_out")
+    @classmethod
+    def valid_min_out(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        if value > _MAX_GOLD:
+            raise ValueError("min_out exceeds storage limit")
+        return value
+
+    @field_validator("idempotency_key")
+    @classmethod
+    def valid_key(cls, value: str) -> str:
+        if value.startswith("liq:"):
+            raise ValueError("idempotency_key prefix is reserved")
+        return value
+
+
+class FxNetLeg(BaseModel):
+    purpose: str
+    side: str
+    input_currency: str
+    output_currency: str
+    input_amount: Decimal
+    output_amount: Decimal
+    fee_amount: Decimal
+    pre_gold_reserve: Decimal
+    pre_foreign_reserve: Decimal
+    post_gold_reserve: Decimal
+    post_foreign_reserve: Decimal
+
+
+class FxNetQuote(BaseModel):
+    pair_id: int
+    side: str
+    input_amount: Decimal
+    output_amount: Decimal
+    fee_amount: Decimal
+    post_price: Decimal
+    legs: list[FxNetLeg]
+    final_direction: str
+    wallet_after: Decimal
+    foreign_debt_after: Decimal
+    cash_delta: Decimal
+    gold_debt_delta: Decimal
+    restricted_gold_delta: Decimal
+    growth_amount: Decimal
+    borrow_amount: Decimal
+    repaid_gold: Decimal
+    executable: bool
+    blocked_reason: Optional[str] = None
+    economic_version: int
+    pool_version: int
+    expires_at: datetime
+
+
+class FxNetTradeResponse(FxNetQuote):
+    execution_id: int
+    trade_ids: list[int]
+    created_at: datetime
+    replay: bool = False

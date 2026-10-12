@@ -1,10 +1,8 @@
 import { ref, onBeforeUnmount, watch, type InjectionKey, type Ref } from 'vue'
 import { MarketStream } from '@/api/stream'
-import type { MarketEvent, MarketStatusEventData, TickFrameData, TradeEventData } from '@/types/stream'
+import type { MarketEvent, MarketStatusEventData, TickFrameData } from '@/types/stream'
 import { reportServerBuild } from '@/composables/useBuildVersion'
 import type { HistoryTailMap } from '@/api/history'
-
-type TradePayload = TradeEventData['trade']
 
 interface SnapshotData {
   status?: string
@@ -16,10 +14,8 @@ interface SnapshotData {
 export interface UseMarketRealtimeReturn {
   isConnected: Ref<boolean>
   reconnectCount: Ref<number>
-  // 各 outcome 当前 LMSR 价；snapshot 初始化，trade 用 market_prices_post 全量 patch
+  // 各 outcome 当前 LMSR 价；snapshot 初始化，tick 用 prices 全量 patch
   pricesByOutcome: Ref<Map<number, number>>
-  // 最新一条 trade（snapshot/market_status 不写这个）。图表 watch 此值实现增量 append
-  latestTrade: Ref<TradePayload | null>
   // 最新一条 market_status 事件（halt/settled 等），TradingView watch 用于重拉 market detail
   latestMarketStatus: Ref<MarketStatusEventData | null>
   // 每次 snapshot 成功（含初次连上/重连后再次锚定）递增；charts 可监听用于完全重建
@@ -30,8 +26,6 @@ export interface UseMarketRealtimeReturn {
   latestTick: Ref<TickFrameData | null>
   // outcome.id 升序数组，供消费方把 tick 帧的价格/market_prices_post 索引换回 outcomeId
   outcomesOrder: Ref<number[]>
-  // 收到首个 tick 帧后置 true；此后 legacy trade/market_status 只参与 seq 连续性、不再更新状态
-  tickSeen: Ref<boolean>
   // snapshot 首包携带的历史尾巴（最后封存边界 → now），图表初始化用（阶段 4）
   historyTail: Ref<HistoryTailMap | null>
   // 尾巴已覆盖到的最后成交 id：subscribe 取 anchor 与读 ring 之间成交的会同时出现在
@@ -55,7 +49,7 @@ export const MarketRealtimeKey: InjectionKey<UseMarketRealtimeReturn> = Symbol('
  *
  * 使用方（charts/TradingView）的契约：
  *   1) 初始数据从 REST API 拉（snapshot 也只携带 current_price，不带历史）
- *   2) 后续靠 latestTrade 增量推
+ *   2) 后续靠 latestTick 逐笔增量推
  *   3) onGap 触发时做一次 silent refetch 重建状态
  */
 export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealtimeReturn {
@@ -63,13 +57,11 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   const isConnected = ref(false)
   const reconnectCount = ref(0)
   const pricesByOutcome = ref<Map<number, number>>(new Map())
-  const latestTrade = ref<TradePayload | null>(null)
   const latestMarketStatus = ref<MarketStatusEventData | null>(null)
   const snapshotToken = ref(0)
   const gapToken = ref(0)
   const latestTick = ref<TickFrameData | null>(null)
   const outcomesOrderRef = ref<number[]>([])
-  const tickSeen = ref(false)
   const historyTail = ref<HistoryTailMap | null>(null)
   const historyTailThroughTradeId = ref(0)
   const historyTailAtSec = ref<number | null>(null)
@@ -107,10 +99,10 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     // 重连场景：旧 lastSeq > 0 且 snapshot.seq ≠ 旧 lastSeq → 期间发生过事件 → 触发 gap。
     // seq < lastSeq 也算：服务端 seq 是进程内计数器，重启后归零，不报 gap 会静默吃掉
     // 重启到重连之间别人的成交（审计 M9）
-    if (lastSeq > 0 && evt.seq !== undefined && evt.seq !== lastSeq) {
+    if (lastSeq > 0 && evt.seq !== lastSeq) {
       fireGap(lastSeq + 1, evt.seq)
     }
-    lastSeq = evt.seq ?? 0
+    lastSeq = evt.seq
     historyTail.value = (evt.data as { history_tail?: HistoryTailMap }).history_tail ?? null
     historyTailThroughTradeId.value =
       (evt.data as { history_tail_through_trade_id?: number }).history_tail_through_trade_id ?? 0
@@ -119,9 +111,9 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     reportServerBuild(snap.frontend_build)
   }
 
-  // 检测 inline gap（trade / market_status 期间序号断档）
+  // 检测 tick 帧序号断档
   const checkInlineGap = (evt: MarketEvent) => {
-    if (evt.seq === undefined || lastSeq === 0) return
+    if (lastSeq === 0) return
     const expected = lastSeq + 1
     if (evt.seq !== expected) {
       fireGap(expected, evt.seq)
@@ -130,11 +122,10 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   }
 
   const handleTick = (evt: MarketEvent) => {
-    tickSeen.value = true
     checkInlineGap(evt)
     const frame = evt.data as TickFrameData
 
-    // 价格向量全量 patch（帧价格是服务端 8dp 权威值；空数组 = 老路径纯状态帧，跳过）
+    // 价格向量全量 patch（帧价格是服务端 8dp 权威值）
     if (frame.prices.length && frame.prices.length === outcomesOrder.length) {
       const next = new Map<number, number>()
       for (let i = 0; i < outcomesOrder.length; i++) {
@@ -155,35 +146,6 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     latestTick.value = frame
   }
 
-  const handleTrade = (evt: MarketEvent) => {
-    checkInlineGap(evt)
-    if (tickSeen.value) return   // tick 帧已接管状态更新；老事件只参与 seq 连续性（双发防重）
-    const payload = (evt.data as TradeEventData).trade
-
-    // 用 market_prices_post 全量 patch 所有 outcome 价（含未被交易的，LMSR 联动）
-    const mpp = payload.market_prices_post
-    if (mpp && outcomesOrder.length === mpp.length) {
-      const next = new Map(pricesByOutcome.value)
-      for (let i = 0; i < outcomesOrder.length; i++) {
-        next.set(outcomesOrder[i]!, mpp[i]!)
-      }
-      pricesByOutcome.value = next
-    } else if (mpp) {
-      // outcomesOrder 长度不匹配（snapshot 未到 / 数据异常）→ 退化只 patch 被交易那个
-      const next = new Map(pricesByOutcome.value)
-      next.set(payload.outcome_id, payload.post_market_price)
-      pricesByOutcome.value = next
-    }
-
-    latestTrade.value = payload
-  }
-
-  const handleMarketStatus = (evt: MarketEvent) => {
-    checkInlineGap(evt)
-    if (tickSeen.value) return   // tick 帧已接管状态更新；老事件只参与 seq 连续性（双发防重）
-    latestMarketStatus.value = evt.data as MarketStatusEventData
-  }
-
   const handleError = () => {
     isConnected.value = false
     reconnectCount.value = stream.reconnectCount
@@ -191,8 +153,6 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
 
   stream.on('open', handleOpen)
   stream.on('snapshot', handleSnapshot)
-  stream.on('trade', handleTrade)
-  stream.on('market_status', handleMarketStatus)
   stream.on('tick', handleTick)
   stream.on('error', handleError)
 
@@ -227,10 +187,8 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
         lastSeq = 0
         outcomesOrder = []
         pricesByOutcome.value = new Map()
-        latestTrade.value = null
         latestMarketStatus.value = null
         latestTick.value = null
-        tickSeen.value = false
         lastFrameStatus = null
         outcomesOrderRef.value = []
         historyTail.value = null
@@ -247,8 +205,6 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
   onBeforeUnmount(() => {
     stream.off('open', handleOpen)
     stream.off('snapshot', handleSnapshot)
-    stream.off('trade', handleTrade)
-    stream.off('market_status', handleMarketStatus)
     stream.off('tick', handleTick)
     stream.off('error', handleError)
     stream.disconnect()
@@ -260,13 +216,11 @@ export function useMarketRealtime(marketId: Ref<number | null>): UseMarketRealti
     isConnected,
     reconnectCount,
     pricesByOutcome,
-    latestTrade,
     latestMarketStatus,
     snapshotToken,
     gapToken,
     latestTick,
     outcomesOrder: outcomesOrderRef,
-    tickSeen,
     historyTail,
     historyTailThroughTradeId,
     historyTailAtSec,

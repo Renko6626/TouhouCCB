@@ -49,7 +49,6 @@ async def test_list_returns_editable_keys(client):
             s.add_all([
                 SiteConfig(key="fx_enabled", value="false", value_type="bool"),
                 SiteConfig(key="pve_enabled", value="false", value_type="bool"),
-                SiteConfig(key="single_writer_enabled", value="true", value_type="bool"),
             ])
     _, h = await _make_user(superuser=True)
     r = await client.get("/api/v1/admin/site-config", headers=h)

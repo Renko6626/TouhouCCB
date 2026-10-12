@@ -1,6 +1,7 @@
 """Player-facing FX market and trading endpoints."""
 from __future__ import annotations
 
+from datetime import timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,6 +14,7 @@ from app.models.base import User
 from app.models.fx import FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
     FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyResponse,
+    FxNetQuote, FxNetQuoteRequest, FxNetTradeRequest, FxNetTradeResponse,
     FxPairPublic,
     FxPersonalTrade,
     FxQuote,
@@ -28,9 +30,30 @@ from app.schemas.fx import (
     FxTradeRequest,
     FxWalletPublic,
 )
-from app.services.fx import borrow_buy, shorts, trading
+from app.services.fx import borrow_buy, net_trading, shorts, trading
 
 router = APIRouter()
+
+
+async def _complete_boundary_execution(db, rows, user_id, limit):
+    """A private row limit must not present half of a linked execution."""
+    if len(rows) < limit or not rows or rows[-1][0].execution_id is None:
+        return rows
+    boundary = rows[-1][0]
+    present = {trade.id for trade, _ in rows}
+    siblings = (await db.execute(
+        select(FxTrade, FxPair).join(FxPair, FxPair.id == FxTrade.pair_id)
+        .where(FxTrade.user_id == user_id, FxTrade.pair_id == boundary.pair_id,
+               FxTrade.execution_id == boundary.execution_id)
+        .order_by(FxTrade.created_at.desc(), FxTrade.id.desc())
+    )).all()
+    result = list(rows) + [row for row in siblings if row[0].id not in present]
+    # At most one extra leg for today's one/two-leg successful execution.
+    def order(row):
+        created = row[0].created_at
+        normalized = created.replace(tzinfo=timezone.utc) if created.tzinfo is None else created.astimezone(timezone.utc)
+        return normalized, row[0].id
+    return sorted(result, key=order, reverse=True)
 
 
 @router.get("/my-trades", response_model=list[FxPersonalTrade])
@@ -44,12 +67,14 @@ async def all_my_trades(
         .where(FxTrade.user_id == user.id)
         .order_by(FxTrade.created_at.desc(), FxTrade.id.desc()).limit(limit)
     )).all()
+    rows = await _complete_boundary_execution(db, rows, user.id, limit)
     return [FxPersonalTrade(
         **FxTradePublic.model_validate(trade).model_dump(),
         currency_code=pair.currency_code, currency_name=pair.currency_name,
         is_liquidation=trade.source == "liquidation",
         purpose=str(trade.purpose),
         borrow_amount=trade.borrow_amount,
+        execution_id=trade.execution_id, execution_leg=trade.execution_leg,
     ) for trade, pair in rows]
 
 
@@ -214,10 +239,33 @@ async def list_my_trades(pair_id: int, limit: int = Query(50, ge=1, le=100),
     rows = (await db.execute(select(FxTrade, FxPair)
         .join(FxPair, FxPair.id == FxTrade.pair_id)
         .where(FxTrade.pair_id == pair_id, FxTrade.user_id == user.id)
-        .order_by(FxTrade.created_at.desc()).limit(limit))).all()
+        .order_by(FxTrade.created_at.desc(), FxTrade.id.desc()).limit(limit))).all()
+    rows = await _complete_boundary_execution(db, rows, user.id, limit)
     return [FxPersonalTrade(
         **FxTradePublic.model_validate(trade).model_dump(),
         currency_code=pair.currency_code, currency_name=pair.currency_name,
         is_liquidation=trade.source == "liquidation", purpose=str(trade.purpose),
         borrow_amount=trade.borrow_amount,
+        execution_id=trade.execution_id, execution_leg=trade.execution_leg,
     ) for trade, pair in rows]
+
+
+@router.post('/pairs/{pair_id}/net/quote', response_model=FxNetQuote)
+async def quote_net(pair_id: int, req: FxNetQuoteRequest,
+                    user: User = Depends(current_active_user),
+                    db: AsyncSession = Depends(get_async_session)):
+    try:
+        return await net_trading.quote_net_trade(db, int(user.id), pair_id, req)
+    except trading.TradeRejected as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post('/pairs/{pair_id}/net/trades', response_model=FxNetTradeResponse)
+async def trade_net(pair_id: int, req: FxNetTradeRequest,
+                    user: User = Depends(current_active_user),
+                    db: AsyncSession = Depends(get_async_session)):
+    try:
+        return await net_trading.execute_net_trade(db, int(user.id), pair_id, req)
+    except trading.TradeRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

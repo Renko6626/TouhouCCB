@@ -337,3 +337,34 @@ def test_candle_price_upgrade_and_downgrade_only_invalidate_derived_history():
             assert conn.execute(text('SELECT * FROM fx_wallet')).one() == (1, 20, 40)
             assert conn.execute(text('SELECT * FROM user')).one() == (1, 123, 45)
             assert set(inspect(conn).get_table_names()) == names
+
+
+def test_net_execution_upgrade_keeps_legacy_and_guards_request_identity():
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*_fx_net_execution.py'))
+    spec = importlib.util.spec_from_file_location('net_execution_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        _legacy_short_schema(conn)
+        with Operations.context(MigrationContext.configure(conn)):
+            _short_revision().upgrade()
+            revision.upgrade()
+        assert conn.execute(text('SELECT input_amount,output_amount,execution_id FROM fx_trade')).one() == (1, 2, None)
+        assert conn.execute(text('SELECT cash,debt FROM user')).one() == (123, 45)
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+            revision.upgrade()
+        conn.execute(text("INSERT INTO fx_execution (id,user_id,pair_id,idempotency_key,request_payload,response_version,response_payload,created_at) VALUES (1,1,1,'net','{}',1,'{}',CURRENT_TIMESTAMP)"))
+        with pytest.raises(IntegrityError):
+            conn.execute(text("INSERT INTO fx_execution (id,user_id,pair_id,idempotency_key,request_payload,response_version,response_payload,created_at) VALUES (2,1,1,'net','{}',1,'{}',CURRENT_TIMESTAMP)"))
+        with pytest.raises(IntegrityError):
+            conn.execute(text('UPDATE fx_trade SET execution_id=1,execution_leg=3'))
+        with pytest.raises(IntegrityError):
+            conn.execute(text('UPDATE fx_trade SET execution_id=1,execution_leg=NULL,idempotency_key=NULL'))
+        with Operations.context(MigrationContext.configure(conn)):
+            with pytest.raises(RuntimeError, match='history'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)

@@ -33,7 +33,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -265,15 +265,6 @@ async def _lock_treasury(db: AsyncSession, pair_id: int) -> Optional[FxTreasury]
     )).scalars().first()
 
 
-async def _pair_principal_sum(db: AsyncSession, pair_id: int) -> Decimal:
-    """Σ unreturned foreign principal for one pair (interest is not capped)."""
-    value = (await db.execute(
-        select(func.coalesce(func.sum(FxShortPosition.principal_foreign), Decimal("0")))
-        .where(FxShortPosition.pair_id == pair_id)
-    )).scalar_one()
-    return Decimal(value)
-
-
 def _short_snapshot(position: Optional[FxShortPosition]) -> dict:
     if position is None:
         return {
@@ -327,6 +318,8 @@ async def execute_short_open_in_session(
 
     pair = await _lock_pair(db, pair_id)
     user = await lock_user(db, user_id)
+    from app.services.fx.net_trading import reject_net_key
+    await reject_net_key(db, user_id, idempotency_key)
 
     # Idempotency identity includes purpose/pair/foreign Q/min gold.  A hit
     # returns the saved execution with no mutation; the caller may roll back to
@@ -391,10 +384,6 @@ async def execute_short_open_in_session(
 
     if treasury is None or Decimal(treasury.foreign_balance) < amount:
         raise HTTPException(status_code=400, detail="insufficient treasury foreign balance")
-    outstanding = await _pair_principal_sum(db, pair_id)
-    limit = Decimal(pair.short_lending_limit_foreign)
-    if outstanding + amount > limit:
-        raise HTTPException(status_code=400, detail="short lending limit exceeded")
 
     target = next((p for p in positions if int(p.pair_id) == pair_id), None)
     now = utcnow()
@@ -437,6 +426,17 @@ async def execute_short_open_in_session(
             raise ShortRetryCredit()
         raise HTTPException(status_code=400, detail=decision.reason)
 
+    return await _write_open_ledger(db, user=user, pair=pair, positions=positions,
+        target=target, treasury=treasury, amount=amount, q=q, now=now,
+        daily_rate=daily_rate, min_out=min_out, idempotency_key=idempotency_key)
+
+
+async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
+                             amount, q, now, daily_rate, min_out, idempotency_key,
+                             execution_id=None, execution_leg=None):
+    """Post a validated borrow/sell leg; caller owns guards/risk/transaction."""
+    user_id, pair_id = int(user.id), int(pair.id)
+    gold_reserve, foreign_reserve = Decimal(pair.gold_reserve), Decimal(pair.foreign_reserve)
     _require_writes()
     pre_gold, pre_foreign = gold_reserve, foreign_reserve
     pre_treasury_gold = Decimal(treasury.gold_balance)
@@ -527,6 +527,7 @@ async def execute_short_open_in_session(
     # the first execution reported.
     post_price = q.post_price.quantize(_Q6)
     trade = FxTrade(
+        execution_id=execution_id, execution_leg=execution_leg,
         pair_id=pair_id, user_id=user_id, side="sell", purpose=SHORT_OPEN_PURPOSE,
         requested_foreign_amount=amount, input_amount=q.input_amount,
         output_amount=q.output_amount, min_out=min_out, fee_amount=q.fee_amount,
@@ -642,6 +643,7 @@ async def _write_cover_ledger(
     pre_gold: Decimal,
     pre_foreign: Decimal,
     reject: type[Exception],
+    execution_id=None, execution_leg=None,
 ) -> _CoverLedger:
     """Validate every post-state, then post one cover in the caller's txn.
 
@@ -716,6 +718,7 @@ async def _write_cover_ledger(
 
     post_price = quote.post_price.quantize(_Q6)
     trade = FxTrade(
+        execution_id=execution_id, execution_leg=execution_leg,
         pair_id=int(pair.id), user_id=int(user.id), side="buy",
         purpose=SHORT_COVER_PURPOSE,
         requested_foreign_amount=requested_foreign_amount,
@@ -829,6 +832,8 @@ async def execute_short_cover_in_session(
 
     pair = await _lock_pair(db, pair_id)
     user = await lock_user(db, user_id)
+    from app.services.fx.net_trading import reject_net_key
+    await reject_net_key(db, user_id, idempotency_key)
 
     # A replay after the position is fully closed returns the saved execution
     # and never buys foreign again.  Purpose/pair/cover_all/q/max identity must
@@ -1786,9 +1791,6 @@ async def _quote_open_block(
         FxTreasury.pair_id == int(pair.id)))).scalars().first()
     if treasury is None or Decimal(treasury.foreign_balance) < amount:
         return BLOCKED_TREASURY_FOREIGN
-    outstanding = await _pair_principal_sum(db, int(pair.id))
-    if outstanding + amount > Decimal(pair.short_lending_limit_foreign):
-        return BLOCKED_LENDING_LIMIT
     return None
 
 

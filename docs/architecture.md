@@ -52,8 +52,8 @@ thccb-backend
 | `audit_service.py` | 审计事件写入助手：`record` / `record_trade` / 快照构造；与业务变更同事务 |
 | `audit_replay.py` | 审计事件折叠（T 时刻状态）、独立增量校验、与线上表比对；`scripts/audit_verify.py` / `audit_export.py` 的核心 |
 | `ledger_service.py` | 资金账本写入助手：`record_entry` 构造 `LedgerEntry`，与资金变动同事务提交，调用方负责 user 字段已反映操作后的最终值 |
-| `liquidation_service.py` | 强制平仓原子操作：按 LCV 判定保证金不足后逐持仓卖出，写 `LiquidationEvent` 快照和 LIQUIDATE 类型 `Transaction` |
-| `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，触发 `liquidation_service.liquidate_user` |
+| `credit/execution.py` | 统一强平执行编排；LMSR 操作提交 writer，FX 操作在受保护事务内执行 |
+| `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，调用统一信贷 `credit/sweep.py` |
 | `loan_service.py` | 借款业务原子操作：复利结息（`accrue_interest`）、借款/还款资金变动，写 `LedgerEntry` |
 | `loan_sweep.py` | APScheduler 定时结息：扫全体 `debt > 0` 用户，按 `(1+r)^(Δt/天)` 按日复利增加 debt（分段精确可合成，与 tick 间隔无关；增量不足 1 LSB 不推进锚点） |
 | `title_service.py` | 称号目录 admin 端 CRUD + 状态查询 |
@@ -62,7 +62,8 @@ thccb-backend
 | `redemption.py` | 实物兑换码：CSV 批量解析、购买事务（单用户单批次上限 5 张）、库存查询 |
 | `danmuku.py` | 弹幕系统兑换：HMAC 激活码生成（base64url + HMAC-SHA256），站内 cash → yuan/huo 汇率 1:1 |
 | `rank.py` | 净值称号映射（`rank_title`）：按 net_worth 区间返回东方主题称号（"人类灵(已爆仓)" → "ZUN"） |
-| `candle_writer.py` | OHLCV K 线物化：每笔 buy/sell 在事务内同步 UPSERT 四档（10s/1m/15m/1h）candle 行 |
+| `market_writer.py` / `writer_ops.py` | LMSR 唯一经济写路径：队列串行执行命令、独立事务提交，再更新内存价格与历史 ring |
+| `candle_writer.py` / `candle_flusher.py` | 计算四档 OHLCV candle；writer 更新 ring 并交给 flusher 批量落库 |
 | `anti_bot.py` | L2 HMAC client_token 验证（30s 时间窗），buy 请求携带前端生成的 HMAC 才能通过 |
 | `bot_detection.py` | L4 行为监控（APScheduler 每 30min 扫近 2h 交易），触发信号写 `BotSuspicion` |
 | `site_config.py` | 站点运行时 key-value 配置读写（借款利率、强平阈值等，超管可热改） |
@@ -71,12 +72,12 @@ thccb-backend
 
 `main.py` 的 `lifespan` 依次执行：
 
-1. `init_db()` — 建表（SQLModel.metadata.create_all）
-2. `auto_migrate()` — LoanV1 幂等补列 + 种默认 site_config
-3. `setup_admin(app, engine)` — 挂载 SQLAdmin 管理面板
-4. `_resync_recent_candles()` — 清重建近 1h 的 candle，覆盖 migration→新代码上线间的 race window
-5. 启动三个 APScheduler：`loan_sweep` → `liquidation_sweep` → `bot_detection`
-6. 优雅停机时逆序停止各 scheduler，最后 `engine.dispose()` 释放连接池
+1. 获取经济写所有权；只读实例跳过建表、迁移和所有写调度器。
+2. 写 owner 执行 `init_db()` 和 `auto_migrate()`，加载统一信贷参数。
+3. 写 owner 挂载受限 SQLAdmin；启动 FX 行情 runtime，只读实例仅预热持久数据。
+4. 写 owner 重建近期 candle，然后始终启动 market writer 和 candle flusher。
+5. 写 owner 启动结息、强平、bot 检测、PvE 和 FX publisher；tick broadcaster 在只读实例也可以启动。
+6. 停机先停止经济调度器，再停止 writer/broadcaster/flusher，最后释放数据库连接和所有权。
 
 ### 2.3 已注册的 API 路由
 
@@ -132,12 +133,154 @@ C(q) = b · ln(Σ exp(q_i / b))
 
 单笔交易对价格的影响可达 ±10%，远超传统交易所，quant 策略参数（滑点上限/网格步长）需据此校准，详见 `docs/` 内 LMSR 相关记录。
 
+#### 4.1.1 Writer 内存与 SQL 的关系：通俗解释
+
+可以把 writer 的内存看作交易台上的**市场工作表**，SQL 数据库看作**保存下来的正式账本**。
+工作表让系统随手就能拿到份额和价格；账本保存每笔资金和持仓变动，服务重启后也从这里恢复。
+
+每个市场有自己的工作表。例如，一个市场有 A、B、C 三个选项，内存里会有类似这样的内容：
+
+```text
+选项顺序：A、B、C
+份额向量 q：100、80、60
+流动性参数 b：100
+价格：根据 q 和 b 算出的 A、B、C 当前价格
+状态：交易中；截止时间：某个时刻
+```
+
+**q 是定价用的市场份额数。** 买入 A 10 份，就把 A 对应的数从 100 改为 110；
+卖出 A 10 份，就减少 10。LMSR 用整组 q 和 b 算价格，所以 A 的买卖也会改变 B、C 的价格。
+初始化时可以加入用于设定起始价格的“种子份额”，因此 q 可能包含这些起始值；
+查“某个用户持有多少份”要读个人持仓表，不能直接拿市场 q 代替。
+
+内存工作表对应代码里的 `MarketState`，内容如下：
+
+| 保存的内容 | 通俗含义 | 与 SQL 的关系 |
+|---|---|---|
+| `market_id`、`outcome_ids`、`outcome_labels` | 这是哪个市场，选项按什么顺序排列 | 从 `Market`、`Outcome` 加载；份额和价格数组用同一顺序 |
+| `q_dec` | 用于更新和保存的精确份额数，保留 6 位小数 | 从 `Outcome.total_shares` 恢复；成交时新值随账务事务写回 SQL |
+| `q` | 同一组份额的浮点数版本，方便计算对数等数学函数 | 由 `q_dec` 转换，恢复时可以重新生成 |
+| `b`、`prices` | 流动性参数，以及已经算好的当前价格 | b 来自 `Market.liquidity_b`；prices 由 q 和 b 算出 |
+| `status`、`closes_at`、`unavailable` | 市场是否开门、何时截止，以及当前工作表是否可用 | 状态和截止时间从 `Market` 加载；unavailable 是进程内的暂停标记 |
+| `rings` | 每个选项的一段近期 K 线，方便直接供给图表 | 启动从 `OutcomeCandle` 加载，成交后先在内存中更新，随后批量写入 SQL |
+| `last_ring_trade_id` | 图表这份内存数据已经处理到哪笔成交 | 随快照发给前端，帮助它跳过历史尾段里已包含的成交，避免重复计入成交量 |
+
+这里同时存 q_dec 和 q，是为了兼顾记账精度与数学计算。正式份额按 Decimal 保存；
+计算 LMSR 时使用 float。prices 也可以根据份额重新计算，无需逐笔扫描历史交易。
+
+writer 还在内存里维护**每个市场的指令队列和一个处理任务**。可以想象成每个市场有一个柜员，
+同一个市场的请求排队办理，不会有两个请求同时拿着同一份旧价格修改市场。
+不同市场有各自的柜员；跨市场的账户操作还要由用户行锁和风控门闩协调。
+队列临时保存待处理指令，处理完成便移除，服务重启时不会恢复这份排队列表。
+
+**用户的现金、债务、个人持仓、完整成交记录和审计记录，仍保存在 SQL 中。**
+writer 会在交易事务里读取、锁定和更新相关账户行；这些数据没有全部搬进市场工作表。
+
+**一笔买入如何连接内存和 SQL？** 假设玩家买入 A 10 份，流程是：
+
+1. 指令进入这个市场的队列。writer 根据内存里的 q 和 b 试算价格、费用和滑点，准备一份新的份额数；此时正式工作表还保持原值。
+2. 开启 SQL 事务，锁定用户，检查余额、准入和风控。通过后，在同一个事务里扣现金、增加个人持仓、记录成交与审计，并把新的市场份额写入 `Outcome.total_shares`。
+3. 等 SQL 提交成功，再把内存的 q_dec 更新为新值，重新生成 q 和 prices，同时更新内存 K 线。
+4. 将成交和最新价格交给 tick broadcaster，再返回成交结果。行情随后通过 tick 帧推给前端。
+
+```mermaid
+flowchart LR
+    A[请求在市场队列中排队] --> B[用内存工作表试算]
+    B --> C[SQL 事务保存资金、持仓、成交和市场份额]
+    C -->|提交成功| D[更新内存份额、价格和 K 线]
+    D --> E[返回结果并准备 tick 行情]
+```
+
+因此，“内存中的 q 是权威”指的是**运行时的市场定价和串行处理以 writer 的份额为准**。
+SQL 则保存已提交的经济结果，承担持久化和恢复。一次操作正常完成后，内存 q_dec 与 SQL 的
+`Outcome.total_shares` 对齐；提交成功到更新内存之间有短暂的先后顺序，它们通过 writer 的流程保持一致。
+普通 SQL UPDATE 不会自动通知内存重读，所以直接修改数据库可能让运行中的工作表继续使用旧值。
+
+**K 线的落库节奏与账务不同。** 现金、持仓、成交和市场份额每笔都在 SQL 事务中提交；
+K 线是根据成交整理出的图表数据，先更新内存 ring 和待写缓冲，flusher 正常每 5 秒合并一批写入
+`OutcomeCandle`。数据库写入失败或拥堵时，这段延迟可能更长。K 线表暂时晚一点更新，不代表这笔成交尚未记账。
+
+**重启时会发生什么？** 进程内的工作表、队列和行情缓冲会消失。写实例启动时先按现有的最近
+1 小时窗口重放已落库交易，修补近期 K 线，再从 SQL 加载交易中和熔断中的市场，重建份额、价格和 ring。
+启动前已经结算的市场不加载交易工作表，其历史和重复结算结果仍可从 SQL 读取。
+如果进程在 SQL 已提交、响应尚未返回时中断，交易可能已经成功；应根据已有成交流水确认结果。
+
+这套实现的性能收益主要来自：定价所需的市场数据常驻内存，同市场操作按队列处理，近期图表直接读取 ring，
+K 线落库按批合并。**每笔真实交易仍需等待 SQL 账务提交。** SQL 在当前实现中仍是成交过程中的必要环节。
+
+实现入口：[`MarketState` 与 writer 生命周期](../backend/app/services/market_writer.py)、
+[`买卖事务与命令处理](../backend/app/services/writer_ops.py)、
+[`K 线批量落库](../backend/app/services/candle_flusher.py)。
+
+#### 4.1.2 FX 与 LMSR 的内存、SQL 分工有什么不同？
+
+两者都把资金、持仓和真实成交保存进 SQL。区别在于：**LMSR 的运行时定价份额常驻 writer 内存，
+FX 的权威池储备仍保存在 SQL。** FX 的内存服务主要整理行情和图表。
+
+继续用交易台作比喻：LMSR 的柜员手边有一张份额工作表，用它计算本次价格，然后把结果记到账本。
+FX 的柜员办理交易时，会从 SQL 取出池里的金币、外币数量，锁住这份记录，完成兑换并写回。
+FX 的内存更像旁边的行情显示屏：它把已经成交的记录整理成价格变化和 K 线，供玩家查看。
+
+| 对比项 | LMSR | FX |
+|---|---|---|
+| 核心定价数据 | 每个选项的份额 q，以及流动性参数 b | 池中的金币储备和外币储备 |
+| 运行时从哪里取核心数据 | 常驻内存的 `MarketState` | SQL 的 `FxPair`；正式成交时重新读取并锁行 |
+| 常驻内存主要保存什么 | 份额、价格、状态、近期 K 线，以及市场指令队列 | 近期 K 线、行情处理进度、历史版本、待推送的成交变化 |
+| 同一市场如何协调写入 | 一个市场一个 writer 队列，再配合品种门闩与账户行锁 | 品种门闩配合池子、账户等数据库行锁；没有同类的经济 writer 队列 |
+| SQL 中的市场数据承担什么职责 | 保存已提交的份额和状态，供恢复及其他读取使用 | 保存权威池储备和版本，也是报价、成交的输入 |
+| 真实资金与持仓 | 每笔在 SQL 事务中更新 | 每笔在 SQL 事务中更新 |
+| 图表如何推进 | writer 成交后直接更新内存 ring，并交给 flusher 落库 | 行情服务读取 SQL 中新提交的 `FxTrade`，增量整理 ring 和持久 K 线 |
+
+**FX 定价用的是两桶储备。** 例如，池里有 1,000 金币和 1,000 外币，当前参考价就是
+1 金币／外币。玩家用金币买外币时，金币桶变多、外币桶变少，后续价格随之上升。
+具体成交价格还要考虑成交数量造成的滑点、手续费和舍入。计算这些结果所用的真实储备来自
+`fx_pair.gold_reserve` 与 `fx_pair.foreign_reserve`。
+
+FX 一笔正式交易的过程是：
+
+1. 取得相关品种门闩，在 SQL 事务里锁住池子和账户记录。
+2. 用锁内读到的储备重新计算成交，并检查资金、滑点、版本和风控；先前的预估报价不能替代这一步。
+3. 在同一事务里更新池储备、账户、钱包或欠币仓位，保存 `FxTrade` 和审计记录；统一跨零交易的多条腿也在同一事务内提交。
+4. SQL 提交成功后，通知行情服务这个币种有新成交，并把行情发布任务加入缓冲。
+5. 行情服务读取已提交成交，推进内存 K 线和待推送数据，再将派生 K 线批量保存。
+
+```text
+LMSR：内存份额试算 → SQL 账务提交 → 更新内存份额与 K 线 → 推送行情
+FX：  SQL 读取并锁定储备 → 计算与账务提交 → 行情服务读取新成交 → 更新图表并推送
+```
+
+这里的 `FX_MARKET_DATA` 管理的是**行情处理进度**。例如：SQL 中已有某币种的成交 ID 120，
+内存图表也已处理到 120，但图表的 SQL 保存进度还停在 115。这表示 115 之后的成交已经记账，
+派生图表数据还在等待落库。它不表示池子的储备仍停在 115。
+
+代码分别用 `applied_trade_id` 表示内存已处理到哪笔，用 `durable_trade_id` 表示图表已经保存到哪笔。
+SQL 的 `FxMarketDataState.last_trade_id` 保存持久进度，K 线和该进度在同一个事务里更新。
+重启后可以读取已保存的 K 线，再从持久进度之后的真实成交继续整理，避免丢掉一段图表或重复累计成交量。
+成交通知用于加快整理；行情服务也会周期性检查 SQL，因此恢复进度依赖已提交记录和持久游标。
+
+**两者的内存服务职责不同。** LMSR writer 参与决定和提交经济变动，FX 行情服务负责整理已经提交的结果。
+FX 的正式报价和风控不使用行情 ring 作为权威储备。行情落后会影响图表的新鲜程度，
+成交仍按锁内 SQL 储备重新计算；交易提交后遗漏一次行情通知，也不会撤销已经成功的交易。
+
+从性能上看，LMSR writer 减少的是市场定价数据的重复读取和同市场写竞争；
+FX 现有优化减少重复 SQL 查询，以及行情接口反复扫描、聚合大量成交的工作。
+两者仍保留每笔 SQL 账务提交。这个分工来自当前实现选择，定价算法本身并不强制某一种存储方式。
+
+实现入口：[`FX 储备读取与成交](../backend/app/services/fx/trading.py)、
+[`FX 统一交易](../backend/app/services/fx/net_trading.py)、
+[`FX 行情内存与增量整理](../backend/app/services/fx/market_state.py)、
+[`FX K 线与持久游标`](../backend/app/services/fx/candles.py)。
+
+后续优化的阶段划分、尚待确认的模块/存储方案，以及 FX 内存 writer 待办，见
+[LMSR 内存行情与恢复计划](superpowers/plans/2026-10-12-lmsr-market-data.md)和
+[配套设计](superpowers/specs/2026-10-12-lmsr-market-data-design.md)。用户已将这些方案延期待办，之后明确恢复再实施；本文描述的运行实现保持现状。
+
 ### 4.2 SSE 实时广播
 
-- **服务端**：`services/realtime.py` 中的 `MarketEventBroker`（进程内 pubsub，单进程适用；多进程部署需引入外部 broker）维护 per-market 订阅者集合和单调递增序号（`seq`）。buy/sell 成交后，`market.py` 调用 `BROKER.publish(market_id, "trade", data)` 广播。
+- **服务端**：`services/realtime.py` 中的 `MarketEventBroker`（进程内 pubsub，单进程适用；多进程部署需引入外部 broker）维护 per-market 订阅者集合和单调递增序号（`seq`）。writer 提交成交后投喂 tick broadcaster，以 8 Hz 发布帧。topic 只接受 `lmsr:{market_id}` / `fx:{pair_id}` 字符串，两个产品的订阅、seq 和 IP 限额独立。
 - **SSE 端点**：`GET /api/v1/stream/market/{market_id}`（`api/v1/stream.py`）。连接建立时先发 `snapshot`（当前市场状态 + 所有选项现价），之后从 broker 队列拉事件推送；每 25s 发 `ping` 心跳保活；单连接最长 1 小时（`MAX_SSE_DURATION=3600`）。连接期间不占用 DB 连接（snapshot 完成后立即归还）。
 - **前端**：`api/stream.ts` 中的 `MarketStream` 封装 `EventSource`；`composables/useMarketRealtime.ts` 在其上叠加 seq gap 检测（断线期间漏事件触发 `gapToken` 递增，图表 watch 它做静默重拉）和 `pricesByOutcome` 反应式价格 map。
-- **推送内容**：价格变动（`trade` 事件，含 `market_prices_post` 全市场价格快照）、市场状态变更（`market_status`，如 HALT/SETTLED）、弹幕消息。
+- **推送内容**：`tick` 帧包含全市场价格、逐笔成交和状态；结算帧携带 `settlement`。LMSR wire 只发送 snapshot、tick、ping。
 
 ### 4.3 认证体系
 
@@ -186,36 +329,13 @@ C(q) = b · ln(Σ exp(q_i / b))
 
 ## 5. 典型数据流：用户买入
 
-```
-前端 TradePanel
-  │  POST /api/v1/market/buy  (带 X-Client-Token HMAC + Authorization JWT)
-  ▼
-market.py (buy 路由)
-  ├─ anti_bot.verify_client_token()         // L2 HMAC 校验
-  ├─ assert_user_can_trade_market()         // 市场 title 门槛
-  ├─ 限速：nginx 10 r/s 限速在上游已拦截
-  ├─ managed_transaction(db)               // 数据库事务
-  │    ├─ market_locks.lock_market()        // SELECT FOR UPDATE market
-  │    ├─ market_locks.lock_user()          // SELECT FOR UPDATE user
-  │    ├─ market_locks.lock_outcomes_for_market()  // SELECT FOR UPDATE outcomes
-  │    ├─ lmsr.calculate_lmsr_cost()        // 交易前总成本
-  │    ├─ lmsr.calculate_lmsr_cost()        // 交易后总成本（含新份额）
-  │    ├─ 滑点保护：(cost_after - cost_before) vs max_cost
-  │    ├─ 更新 outcome.total_shares + user.cash
-  │    ├─ 写 Transaction（buy 类型）
-  │    ├─ 更新 Position（amount / cost_basis）
-  │    └─ candle_writer.upsert_candles()    // UPSERT 10s/1m/15m/1h 四档 K 线
-  │
-  ├─ BROKER.publish(market_id, "trade", {...})  // 事务提交后广播
-  │    └─ 所有 /stream/market/{id} SSE 连接接收推送
-  │
-  └─ 返回 TradeResponse（cost / shares / pre_price / post_prices）
+1. API 完成鉴权和反 bot 校验，释放请求读事务，再提交 `BuyCmd`。
+2. market writer 持有对应品种门闩，执行内存定价与滑点检查，在独立事务中锁定用户并校验准入与全仓风控。
+3. 同事务更新资金、持仓、成交、审计和数据库份额镜像；提交成功后更新 writer 内存、历史 ring 和 flusher 待写 candle。
+4. tick broadcaster 发布 `lmsr:{market_id}` 帧；前端按帧内逐笔成交更新列表和图表。
 
-前端接收 SSE trade 事件
-  ├─ useMarketRealtime 更新 pricesByOutcome（用 market_prices_post 全量刷新）
-  ├─ market store 追加到 marketTrades 列表
-  └─ PriceChart / CandleChart watch latestTrade 增量 append 数据点
-```
+writer 停止或活跃市场缺少 state 时，API 明确拒绝经济写，不回退到直接 SQL 写入。
+已结算市场重启后可以从 DB 读取重复结算结果；只读实例、历史市场和超出 ring 窗口的行情仍读取持久数据。
 
 ---
 

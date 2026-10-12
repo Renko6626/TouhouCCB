@@ -116,3 +116,12 @@ quota 和 UserSummary 返回 `credit_frozen`（账户信用冻结）、`new_risk
 `retry_exhausted_count` 单独统计执行重试耗尽，不再计入普通 `skipped_count`；执行器 blocked 仍计入 `skipped_count` 以兼容旧统计，因此各字段并非互斥。`triggered_count`、`recovered_count`、`errors`、`deadlocks` 保留。重试耗尽仍等待下一轮扫描，不无限重试，不通过行情触发强平。`valuation_duration_ms` 为批量估值耗时；`execution_duration_ms` 与 `max_user_execution_ms` 为含等待的端到端执行耗时，不是行锁持有时间。
 
 本轮修复范围见[可靠性设计](superpowers/specs/2026-10-10-unified-credit-reliability-design.md)。[2026-10-10 验证记录](unified-credit-reliability-validation-2026-10-10.md)记录本轮回归、隔离查询与扫描测量及未验证范围，不能据此宣称已通过发布门槛。
+
+
+### FX统一反向交易
+
+常规FX买卖使用 `/fx/pairs/{pair_id}/net/quote` 与 `/net/trades`，先减少同币种已有仓位，超过零仓位的部分再开相反方向。
+整笔风控同时使用最终钱包、含息欠币、金债、现金及池子储备，不增加多空抵消授信或修改保证金公式。
+现货卖出先还金债，新开空所得独立计现金并锁定；回补先用自由现金和本仓锁金，显式新增金债只支持后续多头段。
+信用冻结及贷款/开空关闭不阻止原本允许的纯回补或现货卖出；涉及增长仍做完整准入，FX总闸关闭继续全停用户交易。
+报价账户版本与增仓确认保护平仓意图；失败原子回滚，回放返回已存整笔结果。旧写入口仍保留原有用途和身份。

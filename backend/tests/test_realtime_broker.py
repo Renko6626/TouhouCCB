@@ -43,17 +43,17 @@ async def setup_db():
 async def test_subscribe_returns_subscriber_with_event():
     """subscribe 返回 (Subscriber, anchor) tuple；Subscriber 含 queue + kicked Event。"""
     b = MarketEventBroker()
-    sub, anchor = await b.subscribe(1)
+    sub, anchor = await b.subscribe('lmsr:1')
     try:
         assert isinstance(sub, Subscriber)
         assert isinstance(sub.q, asyncio.Queue)
         assert isinstance(sub.kicked, asyncio.Event)
         assert not sub.kicked.is_set()
-        assert b.subscriber_count(1) == 1
+        assert b.subscriber_count('lmsr:1') == 1
         assert anchor == 0  # fresh market, 没人 publish 过
     finally:
-        await b.unsubscribe(1, sub)
-        assert b.subscriber_count(1) == 0
+        await b.unsubscribe('lmsr:1', sub)
+        assert b.subscriber_count('lmsr:1') == 0
 
 
 @pytest.mark.asyncio
@@ -61,20 +61,20 @@ async def test_subscribe_anchor_reflects_current_seq():
     """先 publish 几笔再 subscribe → anchor = 最新 seq。"""
     b = MarketEventBroker()
     # 没订阅者时 publish 三笔 → seq 递增到 3 但没 q 接收
-    await b.publish(1, "trade", {})
-    await b.publish(1, "trade", {})
-    await b.publish(1, "trade", {})
-    sub, anchor = await b.subscribe(1)
+    await b.publish('lmsr:1', "trade", {})
+    await b.publish('lmsr:1', "trade", {})
+    await b.publish('lmsr:1', "trade", {})
+    sub, anchor = await b.subscribe('lmsr:1')
     try:
         assert anchor == 3, f"anchor 应该是当前 seq=3, got {anchor}"
         # 现在 publish 第 4 笔，应该是新订阅者收到的第一个 event 且 seq=4
-        await b.publish(1, "trade", {"i": 4})
+        await b.publish('lmsr:1', "trade", {"i": 4})
         blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
         payload = _parse_sse(blob)
         assert payload["seq"] == 4, "新 event seq 必须 > anchor"
         assert payload["seq"] > anchor
     finally:
-        await b.unsubscribe(1, sub)
+        await b.unsubscribe('lmsr:1', sub)
 
 
 @pytest.mark.asyncio
@@ -88,13 +88,13 @@ async def test_subscribe_anchor_atomicity_under_concurrent_publish():
 
     async def publisher():
         for _ in range(200):
-            await b.publish(1, "trade", {})
+            await b.publish('lmsr:1', "trade", {})
             await asyncio.sleep(0)  # let other coroutines run
 
     # 同时跑发布者 + 订阅者
     pub_task = asyncio.create_task(publisher())
     await asyncio.sleep(0.001)  # 让 publisher 跑几笔
-    sub, anchor = await b.subscribe(1)
+    sub, anchor = await b.subscribe('lmsr:1')
 
     # 等 publisher 完成
     await pub_task
@@ -110,16 +110,16 @@ async def test_subscribe_anchor_atomicity_under_concurrent_publish():
         f"违反原子性！anchor={anchor}, q 内最小 seq={min(seqs_seen)}, " \
         f"应该全部 > anchor"
 
-    await b.unsubscribe(1, sub)
+    await b.unsubscribe('lmsr:1', sub)
 
 
 @pytest.mark.asyncio
 async def test_publish_to_subscriber_queue():
     """publish 应该把 event 推到 subscriber 的 q。"""
     b = MarketEventBroker()
-    sub, _ = await b.subscribe(1)
+    sub, _ = await b.subscribe('lmsr:1')
     try:
-        await b.publish(1, "trade", {"x": 1})
+        await b.publish('lmsr:1', "trade", {"x": 1})
         blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
         payload = _parse_sse(blob)
         assert payload["type"] == "trade"
@@ -127,15 +127,15 @@ async def test_publish_to_subscriber_queue():
         assert payload["data"] == {"x": 1}
         assert payload["seq"] == 1
     finally:
-        await b.unsubscribe(1, sub)
+        await b.unsubscribe('lmsr:1', sub)
 
 
 @pytest.mark.asyncio
 async def test_publish_serializes_once_across_subscribers():
     """3 个订阅者收到的必须是同一个 bytes 对象（identity），证明只序列化一次。"""
     b = MarketEventBroker()
-    subs = [await b.subscribe(1) for _ in range(3)]
-    await b.publish(1, "trade", {"x": 1})
+    subs = [await b.subscribe('lmsr:1') for _ in range(3)]
+    await b.publish('lmsr:1', "trade", {"x": 1})
     blobs = [s.q.get_nowait() for s, _ in subs]
     assert all(isinstance(bl, bytes) for bl in blobs)
     assert blobs[0] is blobs[1] is blobs[2]
@@ -144,17 +144,17 @@ async def test_publish_serializes_once_across_subscribers():
     assert payload["data"] == {"x": 1}
     assert payload["seq"] == 1
     for s, _ in subs:
-        await b.unsubscribe(1, s)
+        await b.unsubscribe('lmsr:1', s)
 
 
 @pytest.mark.asyncio
 async def test_publish_increments_seq_but_ping_does_not():
     b = MarketEventBroker()
-    sub, _ = await b.subscribe(1)
+    sub, _ = await b.subscribe('lmsr:1')
     try:
-        await b.publish(1, "trade", {})
-        await b.publish(1, "trade", {})
-        await b.publish(1, "ping", {})
+        await b.publish('lmsr:1', "trade", {})
+        await b.publish('lmsr:1', "trade", {})
+        await b.publish('lmsr:1', "ping", {})
         seqs = []
         for _ in range(3):
             blob = await asyncio.wait_for(sub.q.get(), timeout=1.0)
@@ -162,21 +162,21 @@ async def test_publish_increments_seq_but_ping_does_not():
         # 两笔 trade seq 递增，ping 复用上一笔 seq
         assert seqs == [1, 2, 2]
     finally:
-        await b.unsubscribe(1, sub)
+        await b.unsubscribe('lmsr:1', sub)
 
 
 @pytest.mark.asyncio
 async def test_subscribe_respects_max_cap(monkeypatch):
     b = MarketEventBroker()
     monkeypatch.setattr(b, "MAX_SUBSCRIBERS_PER_MARKET", 2)
-    s1, _ = await b.subscribe(1)
-    s2, _ = await b.subscribe(1)
+    s1, _ = await b.subscribe('lmsr:1')
+    s2, _ = await b.subscribe('lmsr:1')
     try:
         with pytest.raises(RuntimeError, match="订阅者已满"):
-            await b.subscribe(1)
+            await b.subscribe('lmsr:1')
     finally:
-        await b.unsubscribe(1, s1)
-        await b.unsubscribe(1, s2)
+        await b.unsubscribe('lmsr:1', s1)
+        await b.unsubscribe('lmsr:1', s2)
 
 
 # ─── 关键：dead consumer kicked 行为 ──────────────────────
@@ -188,14 +188,14 @@ async def test_publish_full_queue_kicks_subscriber():
     # 测试加速：把 QUEUE_MAXSIZE 临时调小，省去发 2000 笔
     sub = Subscriber(q=asyncio.Queue(maxsize=3))
     async with b._lock:
-        b._topics.setdefault(1, set()).add(sub)
+        b._topics.setdefault('lmsr:1', set()).add(sub)
 
     # publish 4 笔（容量 3）：第 4 笔触发 QueueFull → kick
     for i in range(4):
-        await b.publish(1, "trade", {"i": i})
+        await b.publish('lmsr:1', "trade", {"i": i})
 
     # 验证：sub 被移除
-    assert b.subscriber_count(1) == 0
+    assert b.subscriber_count('lmsr:1') == 0
     # kicked 已 set —— 这是 fix 的核心：generator 能立即感知
     assert sub.kicked.is_set()
 
@@ -232,10 +232,10 @@ async def test_slow_consumer_does_not_starve_others():
     slow = Subscriber(q=asyncio.Queue(maxsize=2))
     fast = Subscriber(q=asyncio.Queue(maxsize=10))
     async with b._lock:
-        b._topics.setdefault(1, set()).update({slow, fast})
+        b._topics.setdefault('lmsr:1', set()).update({slow, fast})
 
     for i in range(5):
-        await b.publish(1, "trade", {"i": i})
+        await b.publish('lmsr:1', "trade", {"i": i})
 
     # slow 被踢
     assert slow.kicked.is_set()
@@ -249,14 +249,14 @@ async def test_slow_consumer_does_not_starve_others():
 @pytest.mark.asyncio
 async def test_ip_limiter_basic_acquire_release():
     lim = IpConcurrencyLimiter()
-    ok1 = await lim.try_acquire(1, "1.2.3.4")
-    ok2 = await lim.try_acquire(1, "1.2.3.4")
+    ok1 = await lim.try_acquire('lmsr:1', "1.2.3.4")
+    ok2 = await lim.try_acquire('lmsr:1', "1.2.3.4")
     assert ok1 and ok2
-    assert lim.count(1, "1.2.3.4") == 2
-    await lim.release(1, "1.2.3.4")
-    assert lim.count(1, "1.2.3.4") == 1
-    await lim.release(1, "1.2.3.4")
-    assert lim.count(1, "1.2.3.4") == 0
+    assert lim.count('lmsr:1', "1.2.3.4") == 2
+    await lim.release('lmsr:1', "1.2.3.4")
+    assert lim.count('lmsr:1', "1.2.3.4") == 1
+    await lim.release('lmsr:1', "1.2.3.4")
+    assert lim.count('lmsr:1', "1.2.3.4") == 0
 
 
 @pytest.mark.asyncio
@@ -264,12 +264,12 @@ async def test_ip_limiter_rejects_over_cap(monkeypatch):
     lim = IpConcurrencyLimiter()
     monkeypatch.setattr(lim, "MAX_PER_IP", 3)
     for _ in range(3):
-        assert await lim.try_acquire(1, "1.1.1.1") is True
+        assert await lim.try_acquire('lmsr:1', "1.1.1.1") is True
     # 第 4 次应拒
-    assert await lim.try_acquire(1, "1.1.1.1") is False
+    assert await lim.try_acquire('lmsr:1', "1.1.1.1") is False
     # 释放一个，再试可成功
-    await lim.release(1, "1.1.1.1")
-    assert await lim.try_acquire(1, "1.1.1.1") is True
+    await lim.release('lmsr:1', "1.1.1.1")
+    assert await lim.try_acquire('lmsr:1', "1.1.1.1") is True
 
 
 @pytest.mark.asyncio
@@ -277,16 +277,16 @@ async def test_ip_limiter_isolates_per_market_per_ip():
     """市场 + IP 是独立的 key；不同 market 或 IP 互不影响。"""
     lim = IpConcurrencyLimiter()
     for _ in range(IpConcurrencyLimiter.MAX_PER_IP):
-        assert await lim.try_acquire(1, "a") is True
+        assert await lim.try_acquire('lmsr:1', "a") is True
     # 同 IP 不同 market：不受影响
-    assert await lim.try_acquire(2, "a") is True
+    assert await lim.try_acquire('lmsr:2', "a") is True
     # 同 market 不同 IP：不受影响
-    assert await lim.try_acquire(1, "b") is True
+    assert await lim.try_acquire('lmsr:1', "b") is True
 
 
 @pytest.mark.asyncio
 async def test_ip_limiter_release_unknown_is_safe():
     """release 一个从没 acquire 过的 (market, ip) 不应该崩溃也不会让计数变负。"""
     lim = IpConcurrencyLimiter()
-    await lim.release(1, "x.x.x.x")
-    assert lim.count(1, "x.x.x.x") == 0
+    await lim.release('lmsr:1', "x.x.x.x")
+    assert lim.count('lmsr:1', "x.x.x.x") == 0

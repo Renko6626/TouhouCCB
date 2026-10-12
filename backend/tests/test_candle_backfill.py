@@ -1,3 +1,4 @@
+from app.services.candle_flusher import CANDLE_FLUSHER
 """测试回填函数：跑一批历史 transaction 后 candle 表与实时积累等价。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -45,9 +46,11 @@ async def test_backfill_matches_live_writes(client):
     for _ in range(3):
         await client.post("/api/v1/market/buy", headers=headers,
                           json={"outcome_id": oids[0], "shares": 1})
+        await CANDLE_FLUSHER.flush_once()
     for _ in range(2):
         await client.post("/api/v1/market/buy", headers=headers,
                           json={"outcome_id": oids[1], "shares": 1})
+        await CANDLE_FLUSHER.flush_once()
 
     async with async_session_maker() as s:
         live = sorted([
@@ -81,6 +84,7 @@ async def test_backfill_idempotent(client):
     mid, oids, headers = await _seed_user_market()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     async with async_session_maker() as s:
         await s.execute(delete(OutcomeCandle))
@@ -116,6 +120,7 @@ async def test_backfill_skips_settle_rows(client):
 
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     async with async_session_maker() as s:
         s.add(Transaction(
