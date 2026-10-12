@@ -115,35 +115,28 @@ const hasHolding = computed(() =>
 )
 
 const pnlDirection = computed<'up' | 'down' | 'flat'>(() => {
-  const v = props.userHolding?.unrealized_pnl ?? 0
+  const v = props.userHolding?.unrealized_pnl_liquidation ?? 0
   if (v > 0) return 'up'
   if (v < 0) return 'down'
   return 'flat'
 })
 
 const pnlSign = computed(() => {
-  const v = props.userHolding?.unrealized_pnl ?? 0
+  const v = props.userHolding?.unrealized_pnl_liquidation ?? 0
   return v > 0 ? '+' : v < 0 ? '−' : ''
 })
 
 const pnlPercent = computed(() => {
   const h = props.userHolding
   if (!h || h.cost_basis <= 0) return null
-  return (h.unrealized_pnl / h.cost_basis) * 100
+  return (h.unrealized_pnl_liquidation / h.cost_basis) * 100
 })
 
-// 卖出均价 = market_value / amount，即"全部卖出可得的平均每份价格（含 LMSR 滑点 + 扣 sell_fee）"
-// 注意：和"均价 (cost_basis/amount)"配合，amount × (卖出均价 - 均价) ≡ unrealized_pnl_liquidation
-// 而 holding box 显示的"浮盈"现在是 MTM 口径（与顶部资产栏统一），所以这两个数不直接相等。
-// MTM 浮盈 用 current_price（瞬时价）算；LCV 浮盈 用 market_value（含滑点）算。
+// 全仓净卖出均价，与卡片主盈亏使用相同的变现口径。
 const sellAvgPrice = computed(() => {
   const h = props.userHolding
-  if (!h || h.amount <= 0) return null
-  return h.market_value / h.amount
+  return h && h.amount > 0 ? h.market_value / h.amount : null
 })
-
-// LCV 浮盈：用于 tooltip 副显示，告诉用户"实际变现你能拿多少"
-const pnlLcv = computed(() => props.userHolding?.unrealized_pnl_liquidation ?? 0)
 
 // 账面市值 (MTM) = amount × current_price，按瞬时价的持仓估值
 // 跟 market_value (LCV) 对照让用户看到滑点损耗
@@ -180,7 +173,7 @@ const disabledReason = computed(() => {
   return ''
 })
 
-// 一键平仓：切到 sell 并把份额填满
+// 填入全部持仓，用户确认后提交卖出。
 const closePosition = () => {
   if (!props.userHolding || props.userHolding.amount <= 0) return
   emit('update:tradeType', 'sell')
@@ -267,43 +260,17 @@ const actionHint = computed<string>(() => {
 
     <!-- 当前选项的持仓 + 浮盈（仅持有时显示） -->
     <div v-if="hasHolding && props.userHolding" class="holding-box" :class="`holding-box--${pnlDirection}`">
-      <!-- 行 1：我现在有什么（数量 + 瞬时价 + 账面市值 MTM） -->
       <div class="holding-meta">
-        <div class="holding-cell">
-          <span class="holding-label">持仓</span>
-          <span class="holding-value">{{ props.userHolding.amount.toLocaleString() }} 份</span>
-        </div>
-        <div class="holding-cell">
-          <span class="holding-label" title="LMSR 瞬时单价（再买/再卖第 1 份的边际价）">现价</span>
-          <span class="holding-value">金 {{ props.userHolding.current_price.toFixed(4) }}</span>
-        </div>
-        <div class="holding-cell">
-          <span class="holding-label" title="账面市值 = 持仓 × 瞬时价（MTM 口径，不含全卖滑点）">账面市值</span>
-          <span class="holding-value">金 {{ holdingMtmValue !== null ? holdingMtmValue.toFixed(2) : '—' }}</span>
-        </div>
+        <div class="holding-cell"><span class="holding-label">持仓数量</span><span class="holding-value">{{ props.userHolding.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }} 份</span></div>
+        <div class="holding-cell"><span class="holding-label" title="剩余持仓成本除以持仓数量">持仓等效均价</span><span class="holding-value">金 {{ props.userHolding.avg_price.toFixed(4) }}</span></div>
+        <div class="holding-cell"><span class="holding-label" title="全仓卖出均价，包含价格影响和手续费">预计平仓均价</span><span class="holding-value">金 {{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span></div>
       </div>
-      <!-- 行 2：买卖对照（买入均价 + 卖出均价，让用户看到滑点） -->
-      <div class="holding-meta">
-        <div class="holding-cell">
-          <span class="holding-label" title="买入加权均价 = 成本 / 持仓数量">买入均价</span>
-          <span class="holding-value">金 {{ props.userHolding.avg_price.toFixed(4) }}</span>
-        </div>
-        <div class="holding-cell">
-          <span class="holding-label" title="全部卖出可获得的平均每份价格（已含 LMSR 滑点 + 扣手续费，跟现价的差额就是滑点损耗）">卖出均价</span>
-          <span class="holding-value">金 {{ sellAvgPrice !== null ? sellAvgPrice.toFixed(4) : '—' }}</span>
-        </div>
-        <div class="holding-cell">
-          <!-- 占位让 grid 对齐；如果想之后塞"滑点 -X" 可以替换 -->
-        </div>
-      </div>
+      <div class="holding-amount"><span class="holding-label">预计所得</span><strong>金 {{ props.userHolding.market_value.toFixed(2) }}</strong></div>
       <div class="holding-pnl-row">
-        <div
-          class="holding-pnl"
-          :title="`账面浮盈（按瞬时价）${pnlSign}金${Math.abs(props.userHolding.unrealized_pnl).toFixed(2)}\n立即变现浮盈（含滑点）${pnlLcv >= 0 ? '+' : '−'}金${Math.abs(pnlLcv).toFixed(2)}`"
-        >
-          <span class="holding-pnl-label">浮盈</span>
+        <div class="holding-pnl" title="全仓卖出预估，包含价格影响和手续费，未扣金圆券借款利息。">
+          <span class="holding-pnl-label">预计平仓盈亏</span>
           <span class="holding-pnl-value" :class="`pnl-${pnlDirection}`">
-            {{ pnlSign }}金 {{ Math.abs(props.userHolding.unrealized_pnl).toFixed(2) }}
+            {{ pnlSign }}金 {{ Math.abs(props.userHolding.unrealized_pnl_liquidation).toFixed(2) }}
             <span v-if="pnlPercent !== null" class="holding-pnl-pct">
               ({{ pnlSign }}{{ Math.abs(pnlPercent).toFixed(2) }}%)
             </span>
@@ -316,10 +283,15 @@ const actionHint = computed<string>(() => {
           :disabled="props.userHolding.amount <= 0"
           :title="`卖出 ${props.userHolding.amount.toLocaleString()} 份，预计可得（含 LMSR 滑点+扣手续费，最终以下单 quote 为准）`"
         >
-          一键平仓
-          <span class="close-position-est">≈ 金 {{ props.userHolding.market_value.toFixed(2) }}</span>
+          卖出全部
         </button>
       </div>
+      <details class="holding-details"><summary>持仓详情</summary>
+        <div><span>现价</span><strong>金 {{ props.userHolding.current_price.toFixed(4) }}</strong></div>
+        <div><span>账面市值</span><strong>金 {{ holdingMtmValue !== null ? holdingMtmValue.toFixed(2) : '—' }}</strong></div>
+        <div><span>账面盈亏</span><strong>金 {{ props.userHolding.unrealized_pnl.toFixed(2) }}</strong></div>
+        <p>平仓预估包含手续费和价格影响，未扣金圆券借款利息。</p>
+      </details>
     </div>
 
     <!-- 份额 -->
@@ -479,6 +451,12 @@ const actionHint = computed<string>(() => {
 .asset-pnl-down  { color: var(--color-down-strong); }
 .asset-pnl-flat  { color: rgba(255, 255, 255, 0.75); }
 
+.holding-amount{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
+.holding-amount>strong{font-size:15px;font-weight:700}
+.holding-details{font-size:11px;color:#777}
+.holding-details summary{cursor:pointer}
+.holding-details>div{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
+.holding-details p{margin:6px 0 0}
 /* 当前选项持仓块 */
 .holding-box {
   border: 1.5px solid #000;
@@ -514,7 +492,7 @@ const actionHint = computed<string>(() => {
 }
 
 .holding-value {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: #000;
   font-variant-numeric: tabular-nums;
@@ -548,7 +526,7 @@ const actionHint = computed<string>(() => {
 }
 
 .holding-pnl-value {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   line-height: 1.1;
@@ -582,18 +560,6 @@ const actionHint = computed<string>(() => {
   cursor: pointer;
   transition: transform 0.1s, box-shadow 0.1s;
   line-height: 1.1;
-}
-
-.close-position-est {
-  font-size: 10px;
-  font-weight: 600;
-  color: #666;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.close-position-btn:hover:not(:disabled) .close-position-est {
-  color: #ccc;
 }
 
 .close-position-btn:hover:not(:disabled) {
@@ -773,9 +739,10 @@ const actionHint = computed<string>(() => {
 
 /* 执行按钮 */
 .exec-btn {
+  font-size: 14px;
   width: 100%;
   min-height: var(--trade-action-height);
-  font-weight: 700;
+  font-weight: 800;
 }
 
 /* 移动端：防 iOS 聚焦放大 + 更大的触控目标 */

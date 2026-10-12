@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { formatFxPrice, tradeSlippageBps } from '@/api/fx'
+import { formatFxAmount, formatFxPrice, tradeSlippageBps } from '@/api/fx'
 
 const props = defineProps<{
   average: string | null
@@ -17,7 +17,7 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
     <div class="price-row">
       <span>成交均价（含费）</span>
       <strong
-        >{{ formatFxPrice(average) }} <small>金圆券 / {{ currency }}</small></strong
+        >{{ formatFxAmount(average, 4) }} <small>金圆券 / {{ currency }}</small></strong
       >
     </div>
     <div
@@ -34,8 +34,8 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
 <style scoped>
 .execution-price {
   display: grid;
-  gap: 5px;
-  padding: 0 0 6px;
+  gap: 3px;
+  padding: 0 0 4px;
 }
 .price-row,
 .deviation-row {
@@ -45,10 +45,10 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
   gap: 8px;
 }
 .price-row {
-  font-size: 12px;
+  font-size: 11px;
 }
 .deviation-row {
-  font-size: 11px;
+  font-size: 10px;
   color: #777;
 }
 .price-row > span {

@@ -122,7 +122,7 @@ function onInput(event: Event) {
 .order-size {
   --size-color: #000;
   display: grid;
-  gap: var(--trade-panel-gap);
+  gap: 6px;
   margin-bottom: var(--trade-panel-gap);
 }
 .order-size.short {
@@ -155,13 +155,13 @@ small {
 }
 .multiplier > strong {
   color: var(--size-color);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .multiplier small {
   color: inherit;
-  font-size: 13px;
+  font-size: 11px;
 }
 .size-range {
   appearance: none;
@@ -227,13 +227,13 @@ small {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  min-height: var(--trade-action-height);
+  min-height: var(--trade-control-height);
   padding: 5px 8px;
   border: 2px solid #000;
   background: #fff;
   color: #000;
   font: inherit;
-  font-size: 18px;
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 p {
@@ -254,7 +254,7 @@ button:disabled {
 @media (max-width: 640px) {
   .amount input {
     min-height: 44px;
-    font-size: 18px;
+    font-size: 16px;
   }
   .presets button {
     min-height: 38px;
