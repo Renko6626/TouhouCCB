@@ -1,8 +1,8 @@
 """审计事件流：每条写路径落事件 + 折叠/增量校验与线上表一致。
 
-场景走 HTTP API（legacy 与 writer 两条路径各跑一遍），覆盖：
+场景走 writer 的 HTTP API，覆盖：
 注册(dev-login) → 建市场 → 买/卖 → 借/还 → 定时结息 → 熔断/恢复 → 结算 → 管理员调账/大赦 → 配置变更。
-强平单独用 service 层跑（legacy）与 split 路径跑（writer）。
+强平使用统一信贷执行路径。
 """
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -73,10 +73,9 @@ async def _fold_and_verify(check=True):
     return evs, snap, mism, live
 
 
-async def _scenario(client, *, writer: bool):
+async def _scenario(client):
     """完整一轮。返回 (admin_uid, alice_uid, market_id, outcome_ids)。"""
-    if writer:
-        await WRITER.start()
+    await WRITER.start()
     admin_uid, ah = await _dev_login(client, "admin_a")      # 首用户 = 超管
     alice_uid, h = await _dev_login(client, "alice_a")
 
@@ -135,9 +134,8 @@ async def _scenario(client, *, writer: bool):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("writer", [False, True])
-async def test_full_scenario_emits_events_and_replays_consistently(client, writer):
-    admin_uid, alice_uid, mid, oids = await _scenario(client, writer=writer)
+async def test_full_scenario_emits_events_and_replays_consistently(client):
+    admin_uid, alice_uid, mid, oids = await _scenario(client)
 
     types = [e.event_type for e in await _events()]
     for t in ["user_register", "market_create", "trade_buy", "trade_sell", "loan_borrow",
@@ -145,9 +143,8 @@ async def test_full_scenario_emits_events_and_replays_consistently(client, write
               "admin_adjust_cash", "config_set", "settle_win", "settle_lose",
               "market_settle", "admin_amnesty"]:
         assert t in types, f"missing {t}: {types}"
-    path = "writer" if writer else "legacy"
     buys = await _events(event_type="trade_buy")
-    assert all(b.payload["path"] == path for b in buys)
+    assert all(b.payload["path"] == "writer" for b in buys)
 
     # 交易事件带全市场 q 向量、持仓快照、用户快照、ref 到 transaction
     b0 = buys[0]

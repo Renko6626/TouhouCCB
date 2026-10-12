@@ -81,7 +81,7 @@ async def _build_snapshot(db: AsyncSession, market_id: int) -> dict:
                     iv: ring.tail(iv, now_epoch) for iv in RING_SPEC
                 }
     if not history_tail:
-        # writer off（旧路径）：从 DB 组装。每档一次范围查询（snapshot 本就
+        # 只读实例或已结算市场：从 DB 组装。每档一次范围查询（snapshot 本就
         # 是 per-connection DB 读，这里 4 次小查询可接受；writer on 时零 DB）。
         oid_list = [int(o.id) for o in outcomes]
         rings = {oid: HistoryRing() for oid in oid_list}
@@ -142,7 +142,7 @@ async def stream_market(market_id: int, request: Request):
     """
     SSE 输出：
     - 首包：snapshot（市场当前状态+outcomes现价）
-    - 后续：trade / market_status
+    - 后续：tick（价格、逐笔成交和市场状态）
     - 心跳：ping
 
     注意：SSE 连接可持续到 MAX_SSE_DURATION（1h），且 snapshot 之后不再用 DB。

@@ -1,9 +1,8 @@
-"""writer 路径 E2E：flag 开启时端到端可用，证明 flag 开启时端到端可用。"""
+"""writer 路径 E2E：真实 API 成交、candle 落库和停止写入。"""
 from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
 from sqlmodel import select
 
 from app.core.database import async_session_maker
@@ -15,13 +14,7 @@ from app.services.site_config import clear_cache
 
 @pytest_asyncio.fixture
 async def writer_on(client):
-    """启用 writer（模拟「flag=true 后重启」：显式 start）。"""
-    async with async_session_maker() as s:
-        await s.execute(text(
-            "INSERT INTO siteconfig (key, value, value_type, updated_at) "
-            "VALUES ('single_writer_enabled', 'true', 'bool', CURRENT_TIMESTAMP) "
-            "ON CONFLICT (key) DO UPDATE SET value='true'"))
-        await s.commit()
+    """显式启动 writer。"""
     clear_cache()
     await WRITER.start()
     yield
@@ -116,25 +109,24 @@ async def test_e2e_buy_sell_via_api_uses_writer(client, writer_on):
 
 
 @pytest.mark.asyncio
-async def test_e2e_flag_off_uses_old_path(client):
-    # 不开 writer_on：flag 关闭
-    assert WRITER.enabled is False
+async def test_e2e_stopped_writer_rejects_buy(client):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
 
-    admin_headers = await _dev_login(client, "admin_old")
-    mid, oids = await _create_market(client, admin_headers, "old path market")
-    # create_market 不注册进 writer（flag off）
-    assert WRITER.get_state(mid) is None
+    admin_headers = await _dev_login(client, "admin_stopped")
+    mid, oids = await _create_market(client, admin_headers, "stopped writer market")
+    user_headers = await _dev_login(client, "user_stopped")
+    await WRITER.stop()
 
-    user_headers = await _dev_login(client, "user_old")
-
-    resp = await client.post(
-        "/api/v1/market/buy",
-        headers=user_headers,
-        json={"outcome_id": oids[0], "shares": 5, "accept_any_slippage": True},
-    )
-    assert resp.status_code == 200, resp.text
-
-    # 老路径事务内 UPSERT candle：交易后立刻有行，无需 flusher.flush_once()
+    # A raw transport intentionally bypasses preparation of test-seeded markets.
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as raw:
+        resp = await raw.post(
+            "/api/v1/market/buy", headers=user_headers,
+            json={"outcome_id": oids[0], "shares": 5, "accept_any_slippage": True},
+        )
+    assert resp.status_code == 503, resp.text
     async with async_session_maker() as s:
-        rows = (await s.execute(select(OutcomeCandle))).scalars().all()
-    assert len(rows) == 8, "老路径应在事务内直接落 candle，不经 flusher pending"
+        assert (await s.get(Outcome, oids[0])).total_shares == 0
+        assert (await s.execute(select(Transaction))).scalars().all() == []
+        assert (await s.execute(select(Position))).scalars().all() == []
+        assert (await s.execute(select(OutcomeCandle))).scalars().all() == []

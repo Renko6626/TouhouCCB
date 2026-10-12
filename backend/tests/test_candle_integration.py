@@ -1,3 +1,4 @@
+from app.services.candle_flusher import CANDLE_FLUSHER
 """通过 API 调 buy/sell/settle 验 candle 表副作用。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -79,6 +80,7 @@ async def test_single_buy_writes_n_times_4_rows(client):
         headers=headers,
         json={"outcome_id": oids[0], "shares": 1},
     )
+    await CANDLE_FLUSHER.flush_once()
     assert resp.status_code == 200, resp.text
 
     # 每个 outcome 4 行（10s/1m/15m/1h）
@@ -114,8 +116,10 @@ async def test_two_buys_same_bucket_merge(client):
 
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     async with async_session_maker() as s:
         # 1m bucket 几乎肯定是同一个（两次买间隔 <1 秒）
@@ -142,11 +146,13 @@ async def test_sell_writes_candle(client):
     # 先 buy 建持仓
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 5})
+    await CANDLE_FLUSHER.flush_once()
     candle_count_before = await _count_candles(oids[0])
 
     # sell
     resp = await client.post("/api/v1/market/sell", headers=headers,
                              json={"outcome_id": oids[0], "shares": 2})
+    await CANDLE_FLUSHER.flush_once()
     assert resp.status_code == 200, resp.text
 
     candle_count_after = await _count_candles(oids[0])
@@ -174,6 +180,7 @@ async def test_settle_does_not_write_candle(client):
     # 一笔 buy 让 candle 表有些数据
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 3})
+    await CANDLE_FLUSHER.flush_once()
     candle_count_before = await _count_candles(oids[0]) + await _count_candles(oids[1])
 
     # admin settle（ResolveRequest 要求 payout 字段）
@@ -182,6 +189,7 @@ async def test_settle_does_not_write_candle(client):
         headers=admin_headers,
         json={"winning_outcome_id": oids[0], "payout": 1},
     )
+    await CANDLE_FLUSHER.flush_once()
     assert resp.status_code == 200, resp.text
 
     candle_count_after = await _count_candles(oids[0]) + await _count_candles(oids[1])
@@ -198,15 +206,18 @@ async def test_halt_blocks_trade_and_no_candle(client):
     # 先 buy 一笔
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
     candle_count_before = await _count_candles(oids[0])
 
     # HALT
     resp = await client.post(f"/api/v1/market/{mid}/close", headers=admin_headers)
+    await CANDLE_FLUSHER.flush_once()
     assert resp.status_code == 200
 
     # 再 buy → 拒绝
     resp = await client.post("/api/v1/market/buy", headers=headers,
                              json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
     assert resp.status_code == 400
 
     candle_count_after = await _count_candles(oids[0])

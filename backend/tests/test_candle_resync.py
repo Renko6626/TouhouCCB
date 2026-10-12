@@ -1,3 +1,4 @@
+from app.services.candle_flusher import CANDLE_FLUSHER
 """startup hook _resync_recent_candles 兜底扫测试。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -42,6 +43,7 @@ async def test_resync_fills_missing_recent_candles(client):
     mid, oids, headers = await _seed_user_market()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     # 手工删除 outcome[0] 的 10s candle 行（模拟"漏写"）
     async with async_session_maker() as s:
@@ -71,8 +73,10 @@ async def test_resync_idempotent(client):
     mid, oids, headers = await _seed_user_market()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[1], "shares": 2})
+    await CANDLE_FLUSHER.flush_once()
 
     async with async_session_maker() as s:
         before = sorted([
@@ -104,6 +108,7 @@ async def test_resync_outside_window_not_touched(client):
     mid, oids, headers = await _seed_user_market()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     # 手工塞一个"很久以前"的 candle（2 年前），模拟 resync 窗口外的历史数据
     ancient = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)

@@ -52,8 +52,8 @@ thccb-backend
 | `audit_service.py` | 审计事件写入助手：`record` / `record_trade` / 快照构造；与业务变更同事务 |
 | `audit_replay.py` | 审计事件折叠（T 时刻状态）、独立增量校验、与线上表比对；`scripts/audit_verify.py` / `audit_export.py` 的核心 |
 | `ledger_service.py` | 资金账本写入助手：`record_entry` 构造 `LedgerEntry`，与资金变动同事务提交，调用方负责 user 字段已反映操作后的最终值 |
-| `liquidation_service.py` | 强制平仓原子操作：按 LCV 判定保证金不足后逐持仓卖出，写 `LiquidationEvent` 快照和 LIQUIDATE 类型 `Transaction` |
-| `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，触发 `liquidation_service.liquidate_user` |
+| `credit/execution.py` | 统一强平执行编排；LMSR 操作提交 writer，FX 操作在受保护事务内执行 |
+| `liquidation_sweep.py` | APScheduler 定时扫描全体借贷用户的保证金水位，调用统一信贷 `credit/sweep.py` |
 | `loan_service.py` | 借款业务原子操作：复利结息（`accrue_interest`）、借款/还款资金变动，写 `LedgerEntry` |
 | `loan_sweep.py` | APScheduler 定时结息：扫全体 `debt > 0` 用户，按 `(1+r)^(Δt/天)` 按日复利增加 debt（分段精确可合成，与 tick 间隔无关；增量不足 1 LSB 不推进锚点） |
 | `title_service.py` | 称号目录 admin 端 CRUD + 状态查询 |
@@ -62,7 +62,8 @@ thccb-backend
 | `redemption.py` | 实物兑换码：CSV 批量解析、购买事务（单用户单批次上限 5 张）、库存查询 |
 | `danmuku.py` | 弹幕系统兑换：HMAC 激活码生成（base64url + HMAC-SHA256），站内 cash → yuan/huo 汇率 1:1 |
 | `rank.py` | 净值称号映射（`rank_title`）：按 net_worth 区间返回东方主题称号（"人类灵(已爆仓)" → "ZUN"） |
-| `candle_writer.py` | OHLCV K 线物化：每笔 buy/sell 在事务内同步 UPSERT 四档（10s/1m/15m/1h）candle 行 |
+| `market_writer.py` / `writer_ops.py` | LMSR 唯一经济写路径：队列串行执行命令、独立事务提交，再更新内存价格与历史 ring |
+| `candle_writer.py` / `candle_flusher.py` | 计算四档 OHLCV candle；writer 更新 ring 并交给 flusher 批量落库 |
 | `anti_bot.py` | L2 HMAC client_token 验证（30s 时间窗），buy 请求携带前端生成的 HMAC 才能通过 |
 | `bot_detection.py` | L4 行为监控（APScheduler 每 30min 扫近 2h 交易），触发信号写 `BotSuspicion` |
 | `site_config.py` | 站点运行时 key-value 配置读写（借款利率、强平阈值等，超管可热改） |
@@ -71,12 +72,12 @@ thccb-backend
 
 `main.py` 的 `lifespan` 依次执行：
 
-1. `init_db()` — 建表（SQLModel.metadata.create_all）
-2. `auto_migrate()` — LoanV1 幂等补列 + 种默认 site_config
-3. `setup_admin(app, engine)` — 挂载 SQLAdmin 管理面板
-4. `_resync_recent_candles()` — 清重建近 1h 的 candle，覆盖 migration→新代码上线间的 race window
-5. 启动三个 APScheduler：`loan_sweep` → `liquidation_sweep` → `bot_detection`
-6. 优雅停机时逆序停止各 scheduler，最后 `engine.dispose()` 释放连接池
+1. 获取经济写所有权；只读实例跳过建表、迁移和所有写调度器。
+2. 写 owner 执行 `init_db()` 和 `auto_migrate()`，加载统一信贷参数。
+3. 写 owner 挂载受限 SQLAdmin；启动 FX 行情 runtime，只读实例仅预热持久数据。
+4. 写 owner 重建近期 candle，然后始终启动 market writer 和 candle flusher。
+5. 写 owner 启动结息、强平、bot 检测、PvE 和 FX publisher；tick broadcaster 在只读实例也可以启动。
+6. 停机先停止经济调度器，再停止 writer/broadcaster/flusher，最后释放数据库连接和所有权。
 
 ### 2.3 已注册的 API 路由
 
@@ -134,10 +135,10 @@ C(q) = b · ln(Σ exp(q_i / b))
 
 ### 4.2 SSE 实时广播
 
-- **服务端**：`services/realtime.py` 中的 `MarketEventBroker`（进程内 pubsub，单进程适用；多进程部署需引入外部 broker）维护 per-market 订阅者集合和单调递增序号（`seq`）。buy/sell 成交后，`market.py` 调用 `BROKER.publish(market_id, "trade", data)` 广播。
+- **服务端**：`services/realtime.py` 中的 `MarketEventBroker`（进程内 pubsub，单进程适用；多进程部署需引入外部 broker）维护 per-market 订阅者集合和单调递增序号（`seq`）。writer 提交成交后投喂 tick broadcaster，以 8 Hz 发布帧。topic 只接受 `lmsr:{market_id}` / `fx:{pair_id}` 字符串，两个产品的订阅、seq 和 IP 限额独立。
 - **SSE 端点**：`GET /api/v1/stream/market/{market_id}`（`api/v1/stream.py`）。连接建立时先发 `snapshot`（当前市场状态 + 所有选项现价），之后从 broker 队列拉事件推送；每 25s 发 `ping` 心跳保活；单连接最长 1 小时（`MAX_SSE_DURATION=3600`）。连接期间不占用 DB 连接（snapshot 完成后立即归还）。
 - **前端**：`api/stream.ts` 中的 `MarketStream` 封装 `EventSource`；`composables/useMarketRealtime.ts` 在其上叠加 seq gap 检测（断线期间漏事件触发 `gapToken` 递增，图表 watch 它做静默重拉）和 `pricesByOutcome` 反应式价格 map。
-- **推送内容**：价格变动（`trade` 事件，含 `market_prices_post` 全市场价格快照）、市场状态变更（`market_status`，如 HALT/SETTLED）、弹幕消息。
+- **推送内容**：`tick` 帧包含全市场价格、逐笔成交和状态；结算帧携带 `settlement`。LMSR wire 只发送 snapshot、tick、ping。
 
 ### 4.3 认证体系
 
@@ -186,36 +187,13 @@ C(q) = b · ln(Σ exp(q_i / b))
 
 ## 5. 典型数据流：用户买入
 
-```
-前端 TradePanel
-  │  POST /api/v1/market/buy  (带 X-Client-Token HMAC + Authorization JWT)
-  ▼
-market.py (buy 路由)
-  ├─ anti_bot.verify_client_token()         // L2 HMAC 校验
-  ├─ assert_user_can_trade_market()         // 市场 title 门槛
-  ├─ 限速：nginx 10 r/s 限速在上游已拦截
-  ├─ managed_transaction(db)               // 数据库事务
-  │    ├─ market_locks.lock_market()        // SELECT FOR UPDATE market
-  │    ├─ market_locks.lock_user()          // SELECT FOR UPDATE user
-  │    ├─ market_locks.lock_outcomes_for_market()  // SELECT FOR UPDATE outcomes
-  │    ├─ lmsr.calculate_lmsr_cost()        // 交易前总成本
-  │    ├─ lmsr.calculate_lmsr_cost()        // 交易后总成本（含新份额）
-  │    ├─ 滑点保护：(cost_after - cost_before) vs max_cost
-  │    ├─ 更新 outcome.total_shares + user.cash
-  │    ├─ 写 Transaction（buy 类型）
-  │    ├─ 更新 Position（amount / cost_basis）
-  │    └─ candle_writer.upsert_candles()    // UPSERT 10s/1m/15m/1h 四档 K 线
-  │
-  ├─ BROKER.publish(market_id, "trade", {...})  // 事务提交后广播
-  │    └─ 所有 /stream/market/{id} SSE 连接接收推送
-  │
-  └─ 返回 TradeResponse（cost / shares / pre_price / post_prices）
+1. API 完成鉴权和反 bot 校验，释放请求读事务，再提交 `BuyCmd`。
+2. market writer 持有对应品种门闩，执行内存定价与滑点检查，在独立事务中锁定用户并校验准入与全仓风控。
+3. 同事务更新资金、持仓、成交、审计和数据库份额镜像；提交成功后更新 writer 内存、历史 ring 和 flusher 待写 candle。
+4. tick broadcaster 发布 `lmsr:{market_id}` 帧；前端按帧内逐笔成交更新列表和图表。
 
-前端接收 SSE trade 事件
-  ├─ useMarketRealtime 更新 pricesByOutcome（用 market_prices_post 全量刷新）
-  ├─ market store 追加到 marketTrades 列表
-  └─ PriceChart / CandleChart watch latestTrade 增量 append 数据点
-```
+writer 停止或活跃市场缺少 state 时，API 明确拒绝经济写，不回退到直接 SQL 写入。
+已结算市场重启后可以从 DB 读取重复结算结果；只读实例、历史市场和超出 ring 窗口的行情仍读取持久数据。
 
 ---
 

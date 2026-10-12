@@ -67,14 +67,13 @@ async def test_tick_trades_dispatched_as_synthetic_trade_events():
 
 
 @pytest.mark.asyncio
-async def test_tick_dedups_against_legacy_events_silently():
-    """双发期：legacy 事件先到已入库 → 帧内同 id 静默跳过，不派发第二次。"""
+async def test_replayed_tick_trades_are_deduplicated():
+    """重复帧中的同 id 成交静默跳过，不派发第二次。"""
     store, strat = FakeStore(), FakeStrategy()
     sub = _subscriber(store, strat)
-    await sub._handle_event(1, SseEvent(type="trade", seq=4, data={"trade": _t(1)}))
+    await sub._handle_event(1, SseEvent(type="tick", seq=4, data={"trades": [_t(1)], "status": "trading"}))
     await sub._handle_event(1, _tick(5, [_t(1)]))
     assert [e.data["trade"]["id"] for e in strat.events if e.type == "trade"] == [1]
-    assert sub.dedup_skipped_count == 0            # 帧内重复不污染异常告警计数器
     assert sub.tick_dedup_count == 1
 
 

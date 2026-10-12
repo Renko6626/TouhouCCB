@@ -52,10 +52,6 @@ DEFAULT_CONFIGS = [
     # ── 经济参数（admin 热配）──
     ("sell_fee_rate", "0", "decimal"),                         # 卖出手续费率，默认 0
     ("initial_balance", str(settings.INITIAL_BALANCE), "decimal"),  # 新用户初始余额
-    # ── 单写者重构（spec 2026-08-21）──
-    # 保留已有配置与默认值；统一信贷下，取得写所有权的实例始终启动 writer。
-    ("single_writer_enabled", "true", "bool"),
-    ("legacy_trade_events", "false", "bool"),     # 老 SSE 事件双发关闭（bot 已内建 tick 适配）；阶段 5 删
     # 统一信贷的运营冻结与重试配置。
     ("credit_new_risk_frozen", "false", "bool"),
     ("credit_risk_retry_limit", str(DEFAULT_CREDIT_RISK_RETRY_LIMIT), "int"),
@@ -115,6 +111,7 @@ async def auto_migrate() -> None:
 
 
 OBSOLETE_CONFIG_KEYS = (
+    "single_writer_enabled", "legacy_trade_events",
     "unified_credit_enabled", "loan_leverage_k", "liquidation_hard_threshold",
     "liquidation_soft_threshold", "liquidation_target_margin", "liquidation_emergency_threshold",
 )

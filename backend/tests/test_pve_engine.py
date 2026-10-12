@@ -49,7 +49,10 @@ async def _seed_market() -> int:
             await s.flush()
             for label in ("A", "B"):
                 s.add(Outcome(market_id=m.id, label=label, total_shares=Decimal("0")))
-            return m.id
+            mid = m.id
+    from app.services.market_writer import WRITER
+    await WRITER.start()
+    return mid
 
 
 async def _seed_bot(template: str, params: dict, cash: str = "100") -> tuple[int, int]:

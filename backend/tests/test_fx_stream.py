@@ -13,7 +13,7 @@ from app.services.fx.market_data import publish_public_frame, publish_trade
 @pytest.mark.asyncio
 async def test_fx_public_stream_uses_broker_and_disconnects_kicked_subscriber():
     broker = MarketEventBroker()
-    sub, _ = await broker.subscribe(3)
+    sub, _ = await broker.subscribe('fx:3')
     try:
         await publish_public_frame(broker, 3, {"price": "1.1", "spread": "0.2", "volume": "4"})
         payload = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])
@@ -28,7 +28,7 @@ async def test_fx_public_stream_uses_broker_and_disconnects_kicked_subscriber():
             task.cancel()
         assert kicked_task in done
     finally:
-        await broker.unsubscribe(3, sub)
+        await broker.unsubscribe('fx:3', sub)
 
 
 @pytest.mark.asyncio
@@ -101,7 +101,7 @@ async def test_fx_stream_subscribes_before_snapshot(monkeypatch):
         order.append("snapshot")
         # A trade committed while the snapshot is being read must remain in
         # the subscriber queue even when the returned snapshot is stale.
-        await broker.publish(pair_id, "fx", {"price": "2", "volume": "1"})
+        await broker.publish(f"fx:{pair_id}", "fx", {"price": "2", "volume": "1"})
         return {"price": Decimal("1"), "volume_24h": Decimal("0")}
     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
@@ -121,7 +121,7 @@ async def test_publish_trade_uses_committed_snapshot_quotes_and_cumulative_volum
     from app.services.fx import market_data, trading
     from app.core import database
     broker = MarketEventBroker()
-    sub, _ = await broker.subscribe(4)
+    sub, _ = await broker.subscribe('fx:4')
     class FakeDB:
         async def __aenter__(self): return self
         async def __aexit__(self, *args): return False
@@ -141,7 +141,7 @@ async def test_publish_trade_uses_committed_snapshot_quotes_and_cumulative_volum
         assert payload["data"] == {"price": "1.25", "buy_price": "1.3",
                                     "sell_price": "1.1", "spread": "0.2", "volume": "9.5"}
     finally:
-        await broker.unsubscribe(4, sub)
+        await broker.unsubscribe('fx:4', sub)
 
 
 @pytest.mark.asyncio
@@ -243,7 +243,7 @@ async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkey
     )
     market_data = _patch_publish(monkeypatch, stub)
     broker = MarketEventBroker()
-    sub, _ = await broker.subscribe(5)
+    sub, _ = await broker.subscribe('fx:5')
     try:
         await market_data.publish_pair_frame(5, Decimal("1.25"), broker=broker)
         payload = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])
@@ -255,7 +255,7 @@ async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkey
         assert data["trades"][0]["gold_volume"] == "2.5"
         assert stub.caught_up == [5]
     finally:
-        await broker.unsubscribe(5, sub)
+        await broker.unsubscribe('fx:5', sub)
 
 
 @pytest.mark.asyncio
@@ -265,14 +265,14 @@ async def test_publish_pair_frame_surfaces_buffer_overflow_as_invalidation(monke
                                "applied_trade_id": 9, "durable_trade_id": 9})
     market_data = _patch_publish(monkeypatch, stub)
     broker = MarketEventBroker()
-    sub, _ = await broker.subscribe(6)
+    sub, _ = await broker.subscribe('fx:6')
     try:
         await market_data.publish_pair_frame(6, Decimal("1.25"), broker=broker)
         data = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])["data"]
         assert data["history_invalidated"] is True
         assert "trades" not in data
     finally:
-        await broker.unsubscribe(6, sub)
+        await broker.unsubscribe('fx:6', sub)
 
 
 @pytest.mark.asyncio

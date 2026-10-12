@@ -257,7 +257,7 @@ async function refresh() {
     document.getElementById('sse-idle').textContent = idle != null ? fmt(idle, 1)+'s' : '—';
     document.getElementById('sse-markets').textContent = JSON.stringify(st.sse.subscribed_markets);
     const dedupEl = document.getElementById('sse-dedup');
-    const ddp = st.sse.dedup_skipped_count;
+    const ddp = st.sse.tick_dedup_count;
     dedupEl.textContent = ddp ?? '—';
     // dedup 不应该高频涨，>10 标黄 >100 标红提醒
     dedupEl.className = 'v ' + (ddp > 100 ? 'err' : ddp > 10 ? 'warn' : 'ok');
@@ -315,7 +315,7 @@ def make_app() -> FastAPI:
             try:
                 idle = time.monotonic() - sub.last_event_handled_ts
                 markets = sorted(sub._market_ids)
-                dedup_count = getattr(sub, "dedup_skipped_count", 0)
+                dedup_count = getattr(sub, "tick_dedup_count", 0)
             except Exception:
                 pass
         return {
@@ -328,7 +328,7 @@ def make_app() -> FastAPI:
                 "active": sub is not None,
                 "idle_sec": idle,
                 "subscribed_markets": markets,
-                "dedup_skipped_count": dedup_count,
+                "tick_dedup_count": dedup_count,
             },
         }
 

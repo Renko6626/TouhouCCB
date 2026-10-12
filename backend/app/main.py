@@ -200,7 +200,7 @@ async def _startup(app: FastAPI) -> None:
         # PvE 机器人引擎（spec 2026-08-29）：tick 内检查 pve_enabled 急停闸，默认关
         await start_pve_scheduler()
         await start_fx_publisher()
-    # ── 定频广播帧（spec § 5.1）：writer 与老路径共用，无条件启动（只读，不写库）──
+    # ── 定频广播帧（spec § 5.1）：统一 tick 帧发布，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
 
@@ -218,9 +218,9 @@ async def _shutdown() -> None:
     # shutdown: 停 sweep + 释放连接池，避免优雅停机时残留连接
     # 启动顺序 loan → liquidation → bot_detection，停止时反序。
     # 调度器（含 liquidation sweep）必须先于 writer/flusher 停——反过来，在途 sweep
-    # 会读到 WRITER.enabled=False 落回老路径，或在阶段 B 全部 submit 失败后写出
+    # 可能在 writer 停止后全部 submit 失败，写出
     # sold_positions_count=0 的假 LiquidationEvent（final review IMP-4）。
-    # writer 再停（断新增命令）→ broadcaster 再停（此时 writer/老路径都不再 feed，
+    # writer 再停（断新增命令）→ broadcaster 再停（此时 writer 不再 feed，
     # 做最后一次 flush 把残帧发给订阅者）→ flusher 最后停（做最终 flush），避免停
     # flusher 时 writer 仍在往 _pending 塞数据
     # PvE 最先停：它经回环 HTTP 下单，必须在 uvicorn 停止接收请求前住手

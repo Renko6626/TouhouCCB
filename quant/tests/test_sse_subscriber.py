@@ -19,14 +19,14 @@ async def store(tmp_path: Path):
 
 def _trade_event(seq, market_id, trade_id, outcome_id=1):
     return SseEvent(
-        type="trade", seq=seq,
-        data={"trade": {
+        type="tick", seq=seq,
+        data={"trades": [{
             "id": trade_id, "type": "BUY", "outcome_id": outcome_id,
             "username": "u", "shares": 1.0, "price": 0.5,
             "gross": 0.5, "fee": 0.0, "post_market_price": 0.5,
             "market_prices_post": [0.5, 0.5],
             "timestamp": "2026-05-17T07:00:00Z",
-        }},
+        }], "status": "trading", "prices": [0.5, 0.5]},
     )
 
 

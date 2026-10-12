@@ -48,6 +48,29 @@ def _sqlite_fast_pragmas(dbapi_conn, _rec):
 from app.services.site_config import clear_cache
 
 
+class _WriterTestTransport(ASGITransport):
+    """Load markets seeded directly by tests before exercising the writer API."""
+
+    async def handle_async_request(self, request):
+        if request.url.path.startswith(("/api/v1/market/", "/api/v1/admin/pve/")):
+            from app.core.database import async_session_maker
+            from app.models.base import Market, MarketStatus
+            from app.services.market_writer import WRITER
+            from sqlalchemy import select
+
+            if not WRITER.enabled:
+                await WRITER.start()
+            else:
+                async with async_session_maker() as session:
+                    ids = (await session.execute(select(Market.id).where(
+                        Market.status.in_([MarketStatus.TRADING, MarketStatus.HALT])
+                    ))).scalars().all()
+                for market_id in ids:
+                    if WRITER.get_state(market_id) is None:
+                        await WRITER.register_market(market_id)
+        return await super().handle_async_request(request)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _disable_scheduler():
     """禁用后台调度器，避免真实五秒 FX tick 干扰账务断言。
@@ -91,7 +114,7 @@ async def client():
     clear_cache()
     async with LifespanManager(app):
         async with AsyncClient(
-            transport=ASGITransport(app=app),
+            transport=_WriterTestTransport(app=app),
             base_url="http://localhost:8004",
         ) as ac:
             yield ac
@@ -113,9 +136,8 @@ async def setup_db():
     from app.services.candle_flusher import CANDLE_FLUSHER
     from app.services.fx.market_state import FX_MARKET_DATA
 
-    # 防上一测试的 writer/flusher 状态泄漏：module-scope lifespan 意味着 lifespan
-    # 只在 module 首测启动、且当时 flag 缺失 → writer 默认不启，测试用 writer_on
-    # fixture 显式启
+    # Drop previous state before replacing the schema. The client loads markets
+    # seeded by each test before its first LMSR request.
     await WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
     # The FX market-data singleton owns a background consumer and a bounded ring;

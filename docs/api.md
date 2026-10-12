@@ -247,11 +247,13 @@ LMSR 交易任何选项会改变**所有**选项的价格。图表 API 不是只
 
 ### GET `/stream/market/{id}` — SSE
 
-事件类型:
-- `snapshot` — 市场当前状态快照
-- `trade` — 新成交
-- `market_status` — 状态变更（熔断/恢复/结算）
-- `ping` — 心跳（30s）
+事件类型：
+
+- `snapshot` — 市场当前状态和历史尾段快照
+- `tick` — 8 Hz 帧，包含价格、逐笔成交及状态变化；无变更时不发帧
+- `ping` — 心跳（25s）
+
+LMSR 经济写只通过 market writer；writer 不可用时返回 503。已结算市场的重复结算读取既有结果，不再次写账。
 
 ---
 

@@ -3,7 +3,6 @@
 覆盖验收：
 - ``lmsr:{id}`` 与 ``fx:{id}``（同号 ID）互不串流，seq / anchor / subscriber_count 独立；
 - 公开 wire 帧形状不变（``{"type","market_id","ts","data","seq"}``）；
-- 迁移期裸 int 兼容语义（publish 按事件类型归 lane、subscribe 未命名空间订阅）；
 - ``fx.market_data.publish_public_frame`` 只进 fx lane、tick 帧只进 lmsr lane；
 - ``IpConcurrencyLimiter`` 限流键按命名空间隔离。
 """
@@ -117,47 +116,6 @@ async def test_wire_frame_shape_preserved_with_numeric_market_id():
 
 
 @pytest.mark.asyncio
-async def test_new_style_subscriber_ignores_legacy_raw_int_publish_of_other_product():
-    """裸 int + "fx" 事件进 fx lane：lmsr 命名空间订阅者收不到。"""
-    broker = MarketEventBroker()
-    lmsr_sub, _ = await broker.subscribe("lmsr:5")
-    fx_sub, _ = await broker.subscribe("fx:5")
-    try:
-        await broker.publish(5, "fx", {"leak": True})
-        assert _drain(lmsr_sub) == []
-        assert [e["data"] for e in _drain(fx_sub)] == [{"leak": True}]
-
-        await broker.publish(5, "trade", {"ok": True})
-        assert [e["data"] for e in _drain(lmsr_sub)] == [{"ok": True}]
-        assert _drain(fx_sub) == []
-    finally:
-        await broker.unsubscribe("lmsr:5", lmsr_sub)
-        await broker.unsubscribe("fx:5", fx_sub)
-
-
-@pytest.mark.asyncio
-async def test_legacy_raw_int_subscription_covers_both_lanes_once():
-    """裸 int 订阅是迁移期"未命名空间"订阅：两 lane 都收，但只算一个连接。"""
-    broker = MarketEventBroker()
-    sub, anchor = await broker.subscribe(5)
-    try:
-        assert anchor == 0
-        assert broker.subscriber_count(5) == 1
-        assert broker.subscriber_count("lmsr:5") == 1
-        assert broker.subscriber_count("fx:5") == 1
-
-        await broker.publish(5, "trade", {"n": 1})     # 裸 int + trade → lmsr lane
-        await broker.publish("fx:5", "fx", {"n": 2})   # 命名 fx lane
-        await broker.publish(5, "fx", {"n": 3})        # 裸 int + fx 事件 → fx lane
-        assert [e["data"]["n"] for e in _drain(sub)] == [1, 2, 3]
-    finally:
-        await broker.unsubscribe(5, sub)
-    # 退订必须把两个 lane 都摘干净，不然会留下永远收不到消费者的死连接。
-    assert broker.subscriber_count("lmsr:5") == 0
-    assert broker.subscriber_count("fx:5") == 0
-
-
-@pytest.mark.asyncio
 async def test_fx_public_frame_publishes_to_fx_lane_only():
     from app.services.fx.market_data import publish_public_frame
 
@@ -170,9 +128,6 @@ async def test_fx_public_frame_publishes_to_fx_lane_only():
         payloads = _drain(fx_sub)
         assert [p["type"] for p in payloads] == ["fx"]
         assert payloads[0]["market_id"] == 7
-        # 遗留（裸 int）订阅者仍能看到 fx lane，fx.publisher 的订阅者预检也依赖这一点：
-        # 裸 int 视图是两 lane 去重后的连接数（这里 lmsr/fx 各一个连接 = 2，非 0 即可发布）。
-        assert broker.subscriber_count(7) == 2
     finally:
         await broker.unsubscribe("lmsr:7", lmsr_sub)
         await broker.unsubscribe("fx:7", fx_sub)
@@ -212,26 +167,11 @@ async def test_ip_limiter_keys_are_namespaced(monkeypatch):
     assert limiter.count("lmsr:5", ip) == 2
     assert limiter.count("fx:5", ip) == 1
     # 裸 int 是 lmsr lane 的迁移期别名。
-    assert limiter.count(5, ip) == 2
-    assert not await limiter.try_acquire(5, ip)
-    await limiter.release(5, ip)
+    assert limiter.count('lmsr:5', ip) == 2
+    assert not await limiter.try_acquire('lmsr:5', ip)
+    await limiter.release('lmsr:5', ip)
     assert limiter.count("lmsr:5", ip) == 1
     assert limiter.count("fx:5", ip) == 1
-
-
-@pytest.mark.asyncio
-async def test_legacy_subscriber_count_sees_fx_lane_for_unmigrated_publisher_gate():
-    """``fx.publisher`` 仍以裸 pair_id 预检订阅者（该文件不在 WP8a 所有权内）。
-
-    裸 int 视图必须看得到 fx lane，否则所有 FX 帧都会被判成"无人观看"而跳过。
-    """
-    broker = MarketEventBroker()
-    sub, _ = await broker.subscribe("fx:7")
-    try:
-        assert broker.subscriber_count(7) == 1
-    finally:
-        await broker.unsubscribe("fx:7", sub)
-    assert broker.subscriber_count(7) == 0
 
 
 @pytest.mark.asyncio
@@ -261,19 +201,6 @@ async def test_fx_publisher_delivers_frame_to_namespaced_subscriber(monkeypatch)
     finally:
         await instance.stop()
         await broker.unsubscribe("fx:987655", sub)
-
-
-@pytest.mark.asyncio
-async def test_kicked_legacy_subscriber_is_detached_from_both_lanes(monkeypatch):
-    """慢消费者踢出时两个 lane 都要摘掉（否则另一 lane 留下永久死连接）。"""
-    broker = MarketEventBroker()
-    monkeypatch.setattr(broker, "QUEUE_MAXSIZE", 2)
-    sub, _ = await broker.subscribe(5)
-    for _ in range(3):
-        await broker.publish("lmsr:5", "trade", {})
-    assert sub.kicked.is_set()
-    assert broker.subscriber_count("lmsr:5") == 0
-    assert broker.subscriber_count("fx:5") == 0
 
 
 @pytest.mark.asyncio

@@ -497,12 +497,12 @@ async def test_sse_frames_only_expose_allowlisted_market_fields(ctx, monkeypatch
     assert isinstance(initial["data"]["volume"], str)
 
     # 2) A real committed trade publishes a frame with the same allowlist.
-    sub, _ = await broker.subscribe(pair_id)
+    sub, _ = await broker.subscribe(f"fx:{pair_id}")
     try:
         await market_data.publish_trade(trade, broker)
         published = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])
     finally:
-        await broker.unsubscribe(pair_id, sub)
+        await broker.unsubscribe(f"fx:{pair_id}", sub)
     assert set(published["data"]) == allowed
     for secret in ("target_price", "shock_ratio", "user_id", "source", "idempotency_key"):
         assert secret not in json.dumps(published["data"])

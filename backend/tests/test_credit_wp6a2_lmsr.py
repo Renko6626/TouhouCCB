@@ -69,21 +69,6 @@ async def test_selling_frozen_debtor_reduces_debt():
         assert u.cash == 0
         assert u.economic_version > 0
 
-@pytest.mark.asyncio
-async def test_legacy_debtor_rejected_and_debt_free_versioned():
-    from app.api.v1.market import buy_shares
-    from app.schemas.market import TradeRequest
-    uid,mid,oid=await seed(cash='100',debt='100')
-    async with async_session_maker() as s:
-        u=await s.get(User,uid)
-        with pytest.raises(HTTPException) as err:
-            await buy_shares(TradeRequest(outcome_id=oid,shares=D('10'),accept_any_slippage=True),u,s)
-        assert err.value.detail == 'insufficient_initial_margin'
-    async with async_session_maker() as s:
-        u=await s.get(User,uid); u.debt=D('0'); await s.commit()
-        await buy_shares(TradeRequest(outcome_id=oid,shares=D('10'),accept_any_slippage=True),u,s)
-    async with async_session_maker() as s:
-        assert (await s.get(User,uid)).economic_version == 1
 
 @pytest.mark.asyncio
 async def test_full_collateral_gates_and_version_retry(monkeypatch):
@@ -178,35 +163,3 @@ async def test_zero_payout_settlement_versions_winner():
     await WRITER.submit(ResolveCmd(mid,oid,D('0'),uid))
     async with async_session_maker() as s:
         assert (await s.get(User,uid)).economic_version == 1
-
-@pytest.mark.asyncio
-async def test_legacy_postcommit_config_and_publish_release_gates(monkeypatch):
-    import asyncio
-    from app.api.v1 import market as api
-    from app.schemas.market import TradeRequest
-    from app.services.credit.keys import GroupKey
-    uid,mid,oid=await seed()
-    original=api.site_config.get_bool_or
-    seen=[]
-    async def config(db,key,default):
-        if key == 'legacy_trade_events':
-            assert not GATES.held_keys_by_current_task()
-            async with GATES.hold(exclusive=[GroupKey('lmsr',mid)]):
-                await asyncio.sleep(0)
-            seen.append('config')
-            return True
-        return await original(db,key,default)
-    async def publish(topic,event,data):
-        assert not GATES.held_keys_by_current_task()
-        async with GATES.hold(exclusive=[GroupKey('lmsr',mid)]):
-            await asyncio.sleep(0)
-        assert topic == f'lmsr:{mid}' and event == 'trade'
-        assert data['trade']['shares'] == 10.0
-        seen.append('publish')
-    monkeypatch.setattr(api.site_config,'get_bool_or',config)
-    monkeypatch.setattr(api.BROKER,'publish',publish)
-    async with async_session_maker() as s:
-        u=await s.get(User,uid)
-        result=await api.buy_shares(TradeRequest(outcome_id=oid,shares=D('10'),accept_any_slippage=True),u,s)
-    assert result['shares'] == 10.0
-    assert seen == ['config','publish']

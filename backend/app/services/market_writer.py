@@ -2,7 +2,7 @@
 
 每个市场一条 asyncio.Queue + 常驻 consumer task；内存 q 是权威，
 DB outcome.total_shares 是镜像（每笔 commit 内同步写、值恒等，
-spec § 4.4 的 6dp 不动点）。启用与否在进程启动时决定（翻转需重启）。
+spec § 4.4 的 6dp 不动点）。有经济写所有权的实例在启动时运行 writer；只读实例不运行。
 """
 from __future__ import annotations
 
@@ -108,8 +108,7 @@ class OpOutcome:
     new_q_dec: Optional[list[Decimal]] = None
     new_status: Optional[MarketStatus] = None
     candle_rows: list[dict] = field(default_factory=list)
-    publishes: list[tuple[str, dict]] = field(default_factory=list)
-    tick_trade: Optional[dict] = None        # 本笔成交 payload（与 legacy trade 事件同一 dict）
+    tick_trade: Optional[dict] = None        # 本笔成交 payload，投喂 tick 帧
     tick_settlement: Optional[dict] = None   # 仅 resolve：{"winning_outcome_id", "settled_at"}
 
 
@@ -242,7 +241,6 @@ class MarketWriter:
             raise HTTPException(status_code=503, detail="服务繁忙，本次操作结果未知，请刷新后确认")
 
     async def _consume(self, market_id: int) -> None:
-        from app.services.realtime import BROKER   # 局部 import 避免环
         q = self._queues[market_id]
         while True:
             cmd, fut = await q.get()
@@ -268,10 +266,6 @@ class MarketWriter:
                 elif outcome.new_q_dec is not None:
                     # 强平：q 变了但没有成交事件 → 空 trades 帧推新价格
                     _tick.TICK_BROADCASTER.feed_prices(market_id, prices_8dp, st.status)
-                # ── 老事件双发（legacy_trade_events；阶段 5 删）──
-                if outcome.publishes and await _tick.legacy_events_enabled():
-                    for event_type, data in outcome.publishes:
-                        await BROKER.publish(f"lmsr:{market_id}", event_type, data)
                 if not fut.done():
                     fut.set_result(outcome.response)
             except HTTPException as e:

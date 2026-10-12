@@ -2,15 +2,12 @@
 P1 修复回归测试：
 1. TradeRequest 新字段 max_cost / min_proceeds / max_slippage_bps 验证
 2. BUY/SELL 路径滑点拒绝 + 默认兜底
-3. SELL 锁顺序源码级 assert（防止未来 PR 静默回退）
 """
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import re
 import uuid
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -332,29 +329,3 @@ async def test_sell_accepts_when_within_slippage(client):
 # ────────────────────────────────────────────────
 # 锁顺序回归（源码级 assert）
 # ────────────────────────────────────────────────
-
-def test_lock_order_smoke():
-    """
-    读源码确认 SELL handler 中 _lock_market 出现在 select(Position) 之前。
-    防止未来 PR 静默回退锁顺序触发死锁。
-
-    P1 follow-up 后：_lock_outcome 从 buy/sell 热路径移除，
-    改为先无锁读 market_id，再按 market → all_outcomes → user → position 统一加锁。
-    """
-    src = Path(__file__).resolve().parent.parent / "app" / "api" / "v1" / "market.py"
-    text = src.read_text(encoding="utf-8")
-
-    m = re.search(r"async def sell_shares\b", text)
-    assert m, "找不到 sell_shares 函数定义"
-    sell_start = m.start()
-    next_fn = re.search(r"\n(@router|async def )", text[sell_start + 1:])
-    sell_end = sell_start + 1 + next_fn.start() if next_fn else len(text)
-    sell_body = text[sell_start:sell_end]
-
-    lock_market_pos = sell_body.find("_lock_market(")
-    select_position_pos = sell_body.find("select(Position)")
-    assert lock_market_pos != -1, "sell 函数中缺失 _lock_market 调用"
-    assert select_position_pos != -1, "sell 函数中缺失 select(Position) 调用"
-    assert lock_market_pos < select_position_pos, (
-        "SELL 锁顺序回退：_lock_market 必须在 select(Position) 之前出现"
-    )

@@ -1,3 +1,4 @@
+from app.services.candle_flusher import CANDLE_FLUSHER
 """/chart/candles endpoint 端到端测试。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -52,6 +53,7 @@ async def test_candles_direct_read_10s(client):
     headers = await _seed_user()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     now = datetime.now(timezone.utc)
     resp = await client.get("/api/v1/chart/candles", params={
@@ -76,6 +78,7 @@ async def test_candles_rollup_30s(client):
     headers = await _seed_user()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     now = datetime.now(timezone.utc)
     resp = await client.get("/api/v1/chart/candles", params={
@@ -95,6 +98,7 @@ async def test_candles_rollup_5m(client):
     headers = await _seed_user()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     now = datetime.now(timezone.utc)
     resp = await client.get("/api/v1/chart/candles", params={
@@ -115,6 +119,7 @@ async def test_candles_fill_true_pads_empty_buckets(client):
     headers = await _seed_user()
     await client.post("/api/v1/market/buy", headers=headers,
                       json={"outcome_id": oids[0], "shares": 1})
+    await CANDLE_FLUSHER.flush_once()
 
     now = datetime.now(timezone.utc)
     resp = await client.get("/api/v1/chart/candles", params={

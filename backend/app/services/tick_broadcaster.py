@@ -1,16 +1,11 @@
 """定频广播帧 broadcaster（spec § 5.1）。
 
-writer 新路径与 market.py 老路径在每笔成交/状态变更/强平后 feed 本模块；
+market writer 在每笔成交、状态变更或强平后 feed 本模块；
 全局 8 Hz tick loop 扫 dirty 市场，把「价格向量 + 帧窗口内逐笔成交 + 市场
 状态」打成一个 tick 帧经 BROKER.publish 发出——publish 已是序列化一次投
 bytes（阶段 0），tick 帧天然继承。
 
-迁移期兼容不变式（本文件最重要的约束）：tick 帧与老 trade/market_status
-事件共用 BROKER 的同一个 per-topic seq 计数器。LMSR topic 是
-``symbol_namespace("lmsr", market_id)``（WP8a 命名空间），老路径以裸 int publish
-也会解析到同一 lane。quant bot 的 SSE 解析器对未知事件类型也参与 gap 检测
-（quant/.../sse.py:74），共用计数器让 bot 收到 tick 帧时 seq 仍连续、内容被忽略
-——双发期间 bot 零改动不受影响。
+LMSR 行情统一通过 tick 帧发布到带产品前缀的 topic。
 """
 from __future__ import annotations
 
@@ -19,22 +14,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from app.core.database import async_session_maker
 from app.models.base import MarketStatus
-from app.services import site_config
 from app.services.credit.keys import symbol_namespace
 
 logger = logging.getLogger(__name__)
-
-
-async def legacy_events_enabled() -> bool:
-    """老 trade/market_status 事件双发开关（spec § 5.4，阶段 5 连代码一起删）。
-
-    site_config 60 s 进程缓存：缓存命中时 async_session_maker() 上下文不执行
-    任何 SQL、不 checkout 连接，可在每次 publish 前调用。
-    """
-    async with async_session_maker() as s:
-        return await site_config.get_bool_or(s, "legacy_trade_events", True)
 
 
 def _status_str(status: Any) -> str:

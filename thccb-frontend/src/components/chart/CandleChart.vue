@@ -395,16 +395,6 @@ watch(() => [props.outcomeId, props.interval], () => {
 
 // SSE 实时增量
 if (realtime) {
-  watch(realtime.latestTrade, (trade) => {
-    if (!trade) return
-    const price = realtime.pricesByOutcome.value.get(props.outcomeId)
-    if (price === undefined) return
-    const tsMs = new Date(trade.timestamp).getTime()
-    // 只有交易的 outcome 才把 shares 计入 volume；其他 outcome 的图表 v 只随价格动
-    const isDirectTrade = trade.outcome_id === props.outcomeId
-    const sharesForThisChart = isDirectTrade ? trade.shares : 0
-    applyTrade(price, sharesForThisChart, tsMs, isDirectTrade)
-  })
 
   watch(realtime.latestTick, (frame) => {
     if (!frame) return
