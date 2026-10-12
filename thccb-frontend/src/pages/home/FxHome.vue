@@ -159,7 +159,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
         <!-- 未登录：原品牌介绍 -->
         <template v-else>
           <div class="hero-eyebrow">当前主玩法 · FX战士</div>
-          <h1 class="hero-title">东方炒炒币<br>FX战士</h1>
+          <h1 class="hero-title">东方fx天则<br>FX战士</h1>
           <p class="hero-desc">
             用金圆券买卖幻想外币，跟随汇率变化做出判断。<br>
             查看汇率、管理持仓，在模拟市场中体验交易。
@@ -309,7 +309,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 .prediction-content { display: flex; flex-direction: column; gap: 32px; padding-top: 24px; }
 
 .home-page {
-  max-width: 1200px;
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

@@ -6,7 +6,7 @@ const emit = defineEmits<{ openTos: [] }>()
 <template>
   <div class="app-footer">
     <div class="footer-left">
-      <span class="footer-copy">© {{ currentYear }} 东方炒炒币</span>
+      <span class="footer-copy">© {{ currentYear }} 东方fx天则</span>
       <span class="footer-sep" aria-hidden="true">/</span>
       <span class="footer-tagline">外汇与预测市场模拟交易</span>
       <span class="footer-sep" aria-hidden="true">/</span>

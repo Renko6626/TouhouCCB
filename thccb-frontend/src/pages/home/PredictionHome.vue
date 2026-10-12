@@ -144,7 +144,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
         <!-- 未登录：原品牌介绍 -->
         <template v-else>
           <div class="hero-eyebrow">预测市场学习 · 东方 Project</div>
-          <h1 class="hero-title">东方炒炒币<br>预测市场</h1>
+          <h1 class="hero-title">东方fx天则<br>预测市场</h1>
           <p class="hero-desc">
             基于 LMSR 的预测市场学习平台。<br>
             用模拟资金交易对幻想乡事件的判断，理解市场如何发现真实概率。

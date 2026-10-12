@@ -56,7 +56,7 @@ onBeforeUnmount(() => {
   >
     <div class="tos-card">
       <div class="tos-header">
-        <span id="tos-title" class="tos-title">东方炒炒币 — 用户须知</span>
+        <span id="tos-title" class="tos-title">东方fx天则 — 用户须知</span>
         <button
           v-if="viewOnly"
           type="button"

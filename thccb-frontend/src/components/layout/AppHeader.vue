@@ -68,7 +68,7 @@ const handleUserMenuClick = (key: string) => {
 
       <router-link to="/" class="brand">
         <div class="brand-logo">T</div>
-        <span class="brand-name">东方炒炒币</span>
+        <span class="brand-name">东方fx天则</span>
       </router-link>
     </div>
 

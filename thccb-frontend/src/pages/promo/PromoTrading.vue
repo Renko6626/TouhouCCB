@@ -89,7 +89,7 @@ function reset() {
     <header class="terminal-header">
       <div class="brand">
         <span class="brand-mark">東</span>
-        <div><strong>东方炒炒币</strong><span>TOUHOU CCB / FANTASY MARKET</span></div>
+        <div><strong>东方fx天则</strong><span>TOUHOU CCB / FANTASY MARKET</span></div>
       </div>
       <nav aria-label="展示页导航">
         <span class="nav-active">交易工作台</span><a href="#positions">我的持仓</a

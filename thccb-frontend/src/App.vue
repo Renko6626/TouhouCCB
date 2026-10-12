@@ -82,7 +82,7 @@ const industrialThemeOverrides = {
         <NMessageProvider>
           <NNotificationProvider>
             <!-- 全局通知组件 -->
-            <div class="fixed top-4 right-4 z-50 w-80 space-y-2">
+            <div class="fixed top-4 right-4 z-1100 w-80 space-y-2">
               <div
                 v-for="notification in notificationStore.notifications"
                 :key="notification.id"

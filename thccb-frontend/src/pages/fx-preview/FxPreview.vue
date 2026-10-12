@@ -209,7 +209,7 @@ const candles = computed(() =>
       </label>
     </div>
     <header class="app-nav">
-      <router-link to="/" class="brand">东方炒炒币<span>FX战士</span></router-link>
+      <router-link to="/" class="brand">东方fx天则<span>FX战士</span></router-link>
       <nav aria-label="主导航">
         <span class="nav-active">外汇交易</span
         ><router-link to="/user/portfolio">我的资产</router-link

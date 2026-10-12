@@ -15,7 +15,7 @@ const pageTitle = route.meta?.title as string | undefined
       <div class="auth-brand">
         <router-link to="/" class="brand-link">
           <div class="brand-logo">T</div>
-          <span class="brand-name">东方炒炒币</span>
+          <span class="brand-name">东方fx天则</span>
         </router-link>
         <p class="brand-tagline">预测市场学习平台</p>
       </div>
@@ -48,7 +48,7 @@ const pageTitle = route.meta?.title as string | undefined
 
       <!-- 底部版权 -->
       <div class="auth-footer">
-        © {{ new Date().getFullYear() }} 东方炒炒币
+        © {{ new Date().getFullYear() }} 东方fx天则
       </div>
     </div>
   </div>

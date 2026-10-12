@@ -33,7 +33,7 @@ router.onError((err) => {
 // 设置页面标题
 router.afterEach((to) => {
   const title = to.meta?.title as string | undefined
-  const appName = '东方炒炒币'
+  const appName = '东方fx天则'
   
   if (title) {
     document.title = `${title} - ${appName}`

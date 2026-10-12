@@ -14,18 +14,18 @@ const authStore = useAuthStore()
 // 用户协议查看模式开关（footer 点击触发；与 needsTos 的强制模式互斥）
 const tosViewOpen = ref(false)
 
-// 外汇工作台默认收窄侧栏，仍可通过顶栏随时展开。
+// 桌面默认展开侧栏，移动端默认收起为抽屉。
 const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth <= 768 : false)
-const collapsed = ref(isMobile.value || route.name === 'fx')
+const collapsed = ref(isMobile.value)
 const updateViewport = () => {
   const mobile = window.innerWidth <= 768
-  if (mobile !== isMobile.value) collapsed.value = mobile || route.name === 'fx'
+  if (mobile !== isMobile.value) collapsed.value = mobile
   isMobile.value = mobile
 }
 onMounted(() => window.addEventListener('resize', updateViewport))
 onBeforeUnmount(() => window.removeEventListener('resize', updateViewport))
 watch(() => route.path, () => {
-  if (isMobile.value || route.name === 'fx') collapsed.value = true
+  if (isMobile.value) collapsed.value = true
 })
 
 // 面包屑（空则隐藏，避免首页只显示"首页"一个字）
@@ -39,7 +39,7 @@ const showBreadcrumb = computed(
 )
 
 // 哪些路由不显示侧栏（交易页自己是全屏工作台）
-const hideSidebarNames = new Set(['trading-view', 'fx'])
+const hideSidebarNames = new Set(['trading-view'])
 const sidebarActive = computed(() =>
   !route.matched.some(r => hideSidebarNames.has(r.name as string))
   && authStore.isAuthenticated
@@ -156,7 +156,7 @@ const sidebarActive = computed(() =>
   background: #ffffff;
 }
 .app-main-inner {
-  max-width: 1320px;
+  max-width: none;
   margin: 0 auto;
   padding: 20px 24px 32px;
 }

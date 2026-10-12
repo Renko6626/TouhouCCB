@@ -305,7 +305,7 @@ export const routes: RouteRecordRaw[] = [
  */
 export const getRouteTitle = (route: any): string => {
   const title = route.meta?.title || ''
-  const appName = '东方炒炒币'
+  const appName = '东方fx天则'
 
   if (title) {
     return `${title} - ${appName}`

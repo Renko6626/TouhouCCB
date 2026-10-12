@@ -1032,7 +1032,6 @@ async function loadTrades() {
   if (pid) await tradeResource.load(() => fxApi.getMyTrades(pid, 50))
 }
 
-function loadSummary() { tradingSession.requestRefresh(undefined, 'manual_refresh') }
 function startAccountSession() {
   if (pairId.value) tradingLease = tradingSession.start({ product: 'fx', id: pairId.value })
 }
@@ -2170,7 +2169,7 @@ onUnmounted(() => {
 
 <style scoped>
 .fx-page {
-  max-width: 1360px;
+  max-width: none;
   color: #000;
   font-size: 13px;
   padding: 4px;
@@ -2473,6 +2472,8 @@ onUnmounted(() => {
 .fx-market-column {
   min-width: 0;
   min-height: 0;
+  height: max(440px, var(--fx-workbench-height, calc(100dvh - 240px)));
+  align-self: start;
   display: flex;
   flex-direction: column;
 }
@@ -3063,6 +3064,7 @@ onUnmounted(() => {
   }
   .fx-market-column {
     width: 100%;
+    height: auto;
     position: static;
   }
   .fx-market-volume {

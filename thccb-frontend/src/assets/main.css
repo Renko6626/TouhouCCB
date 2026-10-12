@@ -229,8 +229,9 @@ select,
 
 @media (min-width: 1200px) {
   #app {
-    width: min(100% - 80px, 1440px);
-    padding: 24px;
+    max-width: 1800px;
+    width: min(100% - 64px, 1800px);
+    padding: 0;
   }
 
   body {
