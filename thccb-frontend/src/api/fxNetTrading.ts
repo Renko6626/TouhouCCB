@@ -146,3 +146,10 @@ export const fxNetApi = {
     return api.post(`/api/v1/fx/pairs/${pairId}/net/trades`, body)
   },
 }
+
+/** Convert the legacy writer version without silent precision loss. */
+export function safeEconomicVersion(version: string | undefined): number | null {
+  if (!version || !/^\d+$/.test(version)) return null
+  const value = BigInt(version)
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null
+}

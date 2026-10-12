@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { User } from '@/types/api'
 import { authApi } from '@/api/auth'
 
@@ -7,6 +7,9 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const accessToken = ref<string | null>(localStorage.getItem('access_token'))
   const refreshToken = ref<string | null>(localStorage.getItem('refresh_token'))
+
+  const sessionGeneration = ref(0)
+  watch(() => [user.value?.id, refreshToken.value], () => { sessionGeneration.value++ }, { flush: 'sync' })
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const isAdmin = computed(() => user.value?.is_superuser ?? false)
@@ -28,20 +31,23 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  let isFetchingUser = false
+  let fetchGeneration: number | null = null
 
   const fetchCurrentUser = async () => {
-    if (!accessToken.value || isFetchingUser) return null
-    isFetchingUser = true
+    if (!accessToken.value || fetchGeneration === sessionGeneration.value) return null
+    const generation = sessionGeneration.value
+    fetchGeneration = generation
     try {
-      user.value = await authApi.getCurrentUser()
+      const current = await authApi.getCurrentUser()
+      if (generation !== sessionGeneration.value) return null
+      user.value = current
       localStorage.setItem('user', JSON.stringify(user.value))
       return user.value
     } catch (err: any) {
-      if (err?.status === 401) logout()
+      if (generation === sessionGeneration.value && err?.status === 401) logout()
       return null
     } finally {
-      isFetchingUser = false
+      if (fetchGeneration === generation) fetchGeneration = null
     }
   }
 
@@ -103,6 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user,
+    sessionGeneration,
     accessToken,
     refreshToken,
     isAuthenticated,

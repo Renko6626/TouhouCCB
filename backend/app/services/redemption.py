@@ -7,6 +7,7 @@
 - 通过后扣款并自增 `economic_version`。
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -164,7 +165,7 @@ async def purchase_code(
     deps = await _deps_for_spend(session, user_id)
     await session.commit()
     async with GATES.hold(shared=() if deps is None else deps.groups):
-        async with managed_transaction(session):
+        async with notifying_transaction(session, managed_transaction(session), "redemption"):
             return await _purchase_code_impl(
                 session, user_id=user_id, batch_id=batch_id, deps=deps, thresholds=thresholds,
             )

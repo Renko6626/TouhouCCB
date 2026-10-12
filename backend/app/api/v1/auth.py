@@ -316,8 +316,13 @@ async def accept_tos(
     db: AsyncSession = Depends(get_async_session),
 ):
     if user.tos_accepted_at is None:
+        from app.services.credit.version import bump_economic_version
+        from app.services.account_events import capture_accounts, publish_accounts
         user.tos_accepted_at = datetime.now(timezone.utc)
+        bump_economic_version(user)
         db.add(user)
+        account_hints = capture_accounts(db)
         await db.commit()
+        publish_accounts(account_hints, "tos_accepted")
         await db.refresh(user)
     return {"tos_accepted_at": user.tos_accepted_at}

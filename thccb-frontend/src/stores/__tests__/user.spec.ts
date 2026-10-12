@@ -112,3 +112,24 @@ describe('unified local fill refresh failure', () => {
     }
   })
 })
+
+
+it('maps shared account basis without inventing authoritative valuation', () => {
+  setActivePinia(createPinia())
+  const store = useUserStore()
+  store.installTradingBasis({ user_id: 1, economic_version: '9007199254740992', cash: '100.000001',
+    debt: '10', debt_last_accrued_at: null, credit_frozen: true, is_active: true, is_bot: false,
+    tos_accepted_at: null, last_liquidated_at: null, fx_wallets: [], fx_shorts: [],
+    lmsr_positions: [{ market_id: 3, outcome_id: 4, amount: '2', cost_basis: '1' }] },
+  { rule_version: 'a', loan_daily_rate: '0', lmsr_sell_fee_rate: '0.01', fx_enabled: true,
+    fx_short_enabled: true, loan_enabled: true, unified_credit_enabled: true, credit_new_risk_frozen: false,
+    risk_engine_ready: true, leverage: '3', initial_ratio: '0.166667', maintenance_ratio: '0.1' },
+  [{ market_id: 3, market_title: 'Market', outcome_id: 4, outcome_label: 'Outcome', amount: 0, cost_basis: 0 }])
+  expect(store.summary?.cash).toBe(100.000001)
+  expect(store.summary?.credit_frozen).toBe(true)
+  expect(store.summary?.economic_version).toBeUndefined()
+  expect(store.netWorth).toBeNull()
+  expect(store.netWorthLcv).toBeNull()
+  expect(store.summary?.available_cash).toBeNull()
+  expect(store.getHoldingByOutcome(4)).toMatchObject({ amount: 2, cost_basis: 1, outcome_label: 'Outcome' })
+})

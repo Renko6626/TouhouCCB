@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 from decimal import Decimal as D
 import pytest
 import pytest_asyncio
@@ -41,9 +42,12 @@ async def execute(uid):
     return await execute_user(uid,rate=D('0'),pct=D('.1'),source='scheduler')
 
 @pytest.mark.asyncio
-async def test_cash_recovers_without_selling_and_event_product_nullable():
+async def test_cash_recovers_without_selling_and_event_product_nullable(private_events):
     uid=await seed(cash='101',debt='100')
+    queue = private_events(uid)
     assert await execute(uid)=='triggered'
+    assert queue.get_nowait()[1]['reason'] == 'liquidation'
+    assert queue.empty()
     async with async_session_maker() as s:
         u=await s.get(User,uid);assert u.cash==1 and u.debt==0 and u.last_liquidated_at
         a=(await s.execute(select(LiquidationAction))).scalar_one()
@@ -102,13 +106,15 @@ async def test_lmsr_writer_batch_and_replay_no_duplicate_event():
         assert (await s.get(User,uid)).credit_frozen
 
 @pytest.mark.asyncio
-async def test_fx_crash_before_action_rolls_back_and_retry(monkeypatch):
+async def test_fx_crash_before_action_rolls_back_and_retry(monkeypatch, private_events):
     from app.services.credit import execution
     uid=await seed(debt='200',fx=['500'])
+    queue = private_events(uid)
     original=execution.record_action
     async def crash(*args,**kwargs): raise RuntimeError('simulated crash')
     monkeypatch.setattr(execution,'record_action',crash)
     with pytest.raises(RuntimeError,match='simulated crash'):await execute(uid)
+    assert queue.empty()
     async with async_session_maker() as s:
         assert (await s.get(User,uid)).debt==200
         assert (await s.execute(select(FxWallet))).scalar_one().foreign_amount==500

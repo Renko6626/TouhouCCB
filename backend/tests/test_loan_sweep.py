@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -59,10 +60,13 @@ async def test_sweep_skips_users_with_zero_debt():
 
 
 @pytest.mark.asyncio
-async def test_sweep_accrues_interest():
+async def test_sweep_accrues_interest(private_events):
     now = datetime.now(timezone.utc)
     uid = await _seed_user(debt="1000", last_accrued=now - timedelta(hours=1))
+    queue = private_events(uid)
     await run_sweep_once()
+    assert queue.get_nowait()[1]["economic_version"] == "1"
+    assert queue.empty()
     async with async_session_maker() as s:
         u = await s.get(User, uid)
     # 1h @ 1%/day ≈ 1000 * (1 + 0.01/24) ≈ 1000.4167

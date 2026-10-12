@@ -1,4 +1,4 @@
-import { resolveCreditRiskStatus } from '../creditRiskStatus'
+import { resolveCreditRiskStatus, resolveMarginBannerState } from '../creditRiskStatus'
 import { describe, expect, it } from 'vitest'
 import {
   fxAvailableCash,
@@ -453,4 +453,17 @@ it('quick close never permits growth and return estimates use only the opening l
       { purpose: 'short_open', side: 'sell', input_amount: '40', output_amount: '30' },
     ]),
   ).toEqual({ direction: 'short', quantity: '40' })
+})
+
+
+it('selects authoritative home banners and fails closed only for active trading state', () => {
+  const home = { trading: false, authenticated: true, ready: false, preview: null }
+  expect(resolveMarginBannerState({ ...home, summary: { risk_status: 'healthy' } }).visible).toBe(false)
+  expect(resolveMarginBannerState({ ...home, summary: { risk_status: 'danger' } })).toMatchObject({ status: 'danger', visible: true })
+  expect(resolveMarginBannerState({ ...home, authenticated: false, summary: null }).visible).toBe(false)
+  expect(resolveMarginBannerState({ ...home, summary: { risk_status: 'blocked', blocked_reason: 'missing asset' } })).toMatchObject({ status: 'blocked', blockedReason: 'missing asset' })
+  expect(resolveMarginBannerState({ ...home, trading: true, summary: { risk_status: 'healthy' } })).toMatchObject({ status: 'blocked', visible: true })
+  expect(resolveMarginBannerState({ ...home, trading: true, ready: true,
+    preview: { risk_status: 'warning', initial_condition: 'rejected', maintenance_condition: 'rejected' },
+    summary: { risk_status: 'healthy' } })).toMatchObject({ status: 'danger', visible: true })
 })

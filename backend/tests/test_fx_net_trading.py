@@ -462,3 +462,24 @@ async def test_quote_treasury_fee_storage_limit_keeps_balances(side, balance_fie
         assert not q.executable and q.blocked_reason == 'trade exceeds storage limit'
         assert [entity.model_dump() for entity in entities] == before
         assert not db.new and not db.dirty
+
+
+async def test_private_commit_hints_skip_replay_and_failed_trade():
+    from app.services.account_events import EVENTS
+    from fastapi import HTTPException
+    uid, pid = await _seed(wallet_foreign='100')
+    sub = EVENTS.subscribe(uid)
+    try:
+        result = await _net(uid, pid, 'sell', '10', key='hint-once')
+        event, payload = sub.queue.get_nowait()
+        from app.models.base import User
+        async with async_session_maker() as db:
+            committed = await db.get(User, uid)
+            assert event == 'account_changed' and payload['economic_version'] == str(committed.economic_version)
+        replay = await _net(uid, pid, 'sell', '10', key='hint-once', version=0)
+        assert replay.replay and sub.queue.empty()
+        with pytest.raises(HTTPException):
+            await _net(uid, pid, 'buy', '1000000', key='hint-fail')
+        assert sub.queue.empty()
+    finally:
+        EVENTS.unsubscribe(sub)

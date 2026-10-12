@@ -1,5 +1,6 @@
 """Loan 玩家接口。所有 handler 为 loan_service 薄封装。"""
 from __future__ import annotations
+from app.services.account_events import capture_accounts, publish_accounts
 import logging
 from datetime import datetime, timezone
 from dataclasses import replace
@@ -112,7 +113,9 @@ async def _borrow_unified(db: AsyncSession, user_id: int, amount: Decimal):
                     cash=u.cash, debt=u.debt, max_borrow=decision.max_borrow,
                 )
                 _require_writes()
+                account_hints = capture_accounts(db)
                 await db.commit()
+                publish_accounts(account_hints, "loan")
             except BaseException:
                 await db.rollback()
                 raise
@@ -185,7 +188,9 @@ async def _repay(user: User, db: AsyncSession, amount: Decimal | None):
     )
     user_id = int(u.id)
     _require_writes()
+    account_hints = capture_accounts(db)
     await db.commit()
+    publish_accounts(account_hints, "loan")
     logger.info(
         "LOAN_REPAY user_id=%s requested=%s effective=%s new_cash=%s new_debt=%s",
         user_id, amount, effective, response.cash, response.debt,

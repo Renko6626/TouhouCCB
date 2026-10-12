@@ -11,6 +11,7 @@
 （版本复检 + 交易后 E / 冻结判定），通过后扣款并自增 `economic_version`。
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 
 import base64
 import hashlib
@@ -162,7 +163,7 @@ async def exchange(
     deps = await _deps_for_spend(session, user_id)
     await session.commit()
     async with GATES.hold(shared=() if deps is None else deps.groups):
-        async with managed_transaction(session):
+        async with notifying_transaction(session, managed_transaction(session), "danmuku"):
             return await _exchange_impl(
                 session, user_id=user_id, qq_user_id=qq_user_id, room_id=room_id,
                 yuan=yuan, huo=huo, amount=amount, deps=deps, thresholds=thresholds,

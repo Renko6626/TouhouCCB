@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FxPendingBorrowBuyOrder } from '../fxBorrowBuy'
-import { FxPendingNetOrder } from '../fxNetTrading'
+import { FxPendingNetOrder, safeEconomicVersion } from '../fxNetTrading'
 
 function memory() {
   const data = new Map<string, string>()
@@ -114,5 +114,30 @@ describe.each([
     expect(await inFlight).toBeNull()
     expect(order.pending?.body.idempotency_key).toBe(key)
     expect(new Order(2, storage).pending?.body.idempotency_key).toBe(key)
+  })
+})
+
+
+describe('net writer admission identity', () => {
+  it('rejects versions that cannot be represented by the legacy JSON integer', () => {
+    expect(safeEconomicVersion('9007199254740991')).toBe(9007199254740991)
+    expect(safeEconomicVersion('9007199254740992')).toBeNull()
+    expect(safeEconomicVersion('7.1')).toBeNull()
+    expect(safeEconomicVersion('-1')).toBeNull()
+  })
+  it('restores pure-reduction wire parameters without broadening intent', async () => {
+    const storage = memory(), order = new FxPendingNetOrder(1, storage)
+    const body = { side: 'buy' as const, amount: '50.000001', borrow_amount: '0',
+      min_out: '40.000001', expected_economic_version: 7, allow_growth: false }
+    await expect(order.start(7, body, async () => { throw new Error('lost') })).rejects.toThrow('lost')
+    const saved = order.pending
+    const restored = new FxPendingNetOrder(1, storage)
+    const receipt = await restored.retry(async request => {
+      expect(request).toEqual(saved)
+      expect(request.body).toMatchObject(body)
+      return { succeeded: true }
+    })
+    expect(receipt).toEqual({ succeeded: true })
+    expect(new FxPendingNetOrder(1, storage).hasUnresolved).toBe(false)
   })
 })

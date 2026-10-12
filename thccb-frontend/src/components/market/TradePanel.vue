@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { NButton, NInputNumber, NSelect } from 'naive-ui'
+import type { AccountPreview } from '@/utils/tradingRisk'
 import type { SelectOption } from 'naive-ui'
+import { useTradingSessionStore } from '@/stores/tradingSession'
 import { useUserStore } from '@/stores/user'
 import { useAuthStore } from '@/stores/auth'
 import { useMarketStore } from '@/stores/market'
 import type { MarketDetail, OutcomeQuote, QuoteResponse, Holding } from '@/types/api'
 
 const props = withDefaults(defineProps<{
+  postTradePreview?: AccountPreview | null
+  postTradeReady?: boolean
   market: MarketDetail | null
   selectedOutcomeId: number | null
   tradeType: 'buy' | 'sell'
@@ -48,6 +52,7 @@ const slippageOptions: SelectOption[] = [
 ]
 
 const userStore = useUserStore()
+const session = useTradingSessionStore()
 const authStore = useAuthStore()
 const marketStore = useMarketStore()
 
@@ -71,7 +76,7 @@ const isSubmitting = ref(false)
 
 const executeTrade = async () => {
   if (!props.selectedOutcomeId || props.shares <= 0 || props.shares > props.maxShares || !props.quoteResult || props.quoteExceedsCash) return
-  if (props.tradeType === 'buy' && !props.userCanTrade) return
+  if (props.tradeType === 'buy' && (!props.userCanTrade || buyDisabledByRisk.value)) return
   if (isSubmitting.value) return
   isSubmitting.value = true
   try {
@@ -183,8 +188,8 @@ const closePosition = () => {
 }
 
 // 新增风险需等待可用的账户风险快照。
-const buyDisabledByRisk = computed(() => !userStore.summary || !!userStore.summary.credit_frozen
-  || userStore.summary.risk_status !== 'healthy')
+const buyDisabledByRisk = computed(() => !session.ready || !(props.postTradeReady ?? (session.accountPreview?.initial_condition === 'satisfied'))
+  || !!session.account?.credit_frozen || !!session.rules?.credit_new_risk_frozen)
 
 // 操作类型提示
 const actionHint = computed<string>(() => {
@@ -201,6 +206,8 @@ const actionHint = computed<string>(() => {
 <template>
   <div class="trade-panel">
     <!-- 资产概览条 -->
+    <p v-if="authStore.isAuthenticated" class="trade-hint">本地预估{{ session.accountPreview?.error_status === 'approximate' ? '（近似）' : '' }}；当前账面净值 {{ session.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ session.accountPreview?.liquidation_equity ?? '未知' }}。库存、版本与价格保护在提交时检查。</p>
+    <p v-if="props.postTradePreview" class="trade-hint">订单后账面净值 {{ props.postTradePreview.display_equity ?? '未知' }}；订单后清算净值 {{ props.postTradePreview.liquidation_equity ?? '未知' }}。{{ !session.ready || props.postTradePreview.initial_condition === 'unknown' ? '风险条件待确认。' : props.postTradePreview.initial_condition === 'rejected' ? '低于新增风险门槛。' : '已满足已知本地风险条件。' }}</p>
     <div v-if="authStore.isAuthenticated && userStore.summary" class="asset-bar">
       <div class="asset-item">
         <span class="asset-label">总现金</span>
@@ -208,11 +215,11 @@ const actionHint = computed<string>(() => {
       </div>
         <div class="asset-item">
           <span class="asset-label">未锁定现金</span>
-          <span class="asset-value">金 {{ userStore.summary.available_cash ?? '—' }}</span>
+          <span class="asset-value">金 {{ session.accountPreview?.available_cash ?? '—' }}</span>
         </div>
         <div class="asset-item">
           <span class="asset-label" title="空头锁定所得（专用于回补）">空头锁金</span>
-          <span class="asset-value">金 {{ userStore.summary.restricted_cash ?? '—' }}</span>
+          <span class="asset-value">金 {{ session.account?.fx_shorts.reduce((sum, row) => sum + Number(row.restricted_gold), 0).toFixed(6) ?? '—' }}</span>
         </div>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
@@ -230,7 +237,7 @@ const actionHint = computed<string>(() => {
       </div>
       <div class="asset-item">
         <span class="asset-label">净值</span>
-        <span class="asset-value asset-value--highlight">金 {{ userStore.netWorth?.toFixed(2) ?? '估值待恢复' }}</span>
+        <span class="asset-value asset-value--highlight">金 {{ session.accountPreview?.display_equity == null ? '估值待恢复' : Number(session.accountPreview.display_equity).toFixed(2) }}</span>
       </div>
     </div>
 

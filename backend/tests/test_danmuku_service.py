@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -37,14 +38,17 @@ async def test_generate_giftcode_deterministic_format(setup_db):
 
 
 @pytest.mark.asyncio
-async def test_exchange_happy_path(setup_db):
+async def test_exchange_happy_path(setup_db, private_events):
     uid = await _seed_user(Decimal("100"))
+    queue = private_events(uid)
     async with async_session_maker() as s:
         result = await exchange(
             s, user_id=uid, qq_user_id="123456", room_id="弹幕群",
             yuan=Decimal("10"), huo=Decimal("5"),
         )
+        assert queue.get_nowait()[1]["economic_version"] == "1"
         await s.commit()
+        assert queue.empty()
         assert result.amount == Decimal("15.000000")
         assert result.cash_after == Decimal("85.000000")
         assert result.code_string and "." in result.code_string

@@ -589,3 +589,22 @@ pair 的隐藏参数。
 | `gross` | Decimal(16,6) | 手续费前总额 |
 | `fee` | Decimal(16,6) | 手续费 |
 | `cost` | Decimal(16,6) | 净现金流（buy=+, sell=-） |
+
+
+## 私有交易基准与同步（2026-10-12）
+
+以下读取接口均需 bearer 认证，路径前缀为 `/api/v1/user`：
+
+| GET 路径 | 参数及响应 |
+| --- | --- |
+| `/trading-context` | 可选 `current_product=fx\|lmsr` 和正整数 `current_id`，必须成对。返回 schema_version=1、account、rules、groups、minimum_group_stamps、missing_groups、as_of、server_time。 |
+| `/trading-versions` | 同样的当前组参数；返回 economic_version、rule_version、group_stamps、missing_groups、server_time，不计算账户估值。 |
+| `/trading-prices` | 重复 `key=fx:1`／`key=lmsr:2`，最多200项；当前组参数同上。返回 groups、missing_groups、server_time；非账户依赖且非指定当前组拒绝403。 |
+
+缺少成对参数、无效组键或超过200项返回422。完整基准最多重试3次独立读取窗口，账户版本持续变化返回409 `account_context_changed`，客户端保持同步中并恢复，不安装混合基准。聚合一次 HTTP 包含多条 SQL，并不承诺单查询。
+
+金额、仓位、储备、费率、债务及数学参数为十进制字符串；economic_version、pool_version、revision 为整数串。rule_version、input_hash 和 epoch 是身份，不能按大小比较。组 stamp 为 `{epoch,revision,input_hash}`；账户版本和定价版本独立，broker seq 不代表定价覆盖。FX 包含完整储备、双向费率及状态；LMSR 包含排序 outcome_ids/q_dec、b、状态与 closes_at。缺失组和可空 market_id 明确保留未知性。
+
+`GET /api/v1/stream/trading` 使用 fetch SSE 和 Authorization header，当前组参数同上；长期 bearer 不放 URL。单流事件包括 sync、pricing、account_changed、rules、heartbeat。account_changed 含 event_id、economic_version、reason、occurred_at，可选 operation_ref；事件是同步提示，不能确认未知订单成功。首包重读账户版本并补齐依赖。连接在凭证过期／最多1h、封禁、队列溢出或客户端退出时关闭；有界队列64项，约15s检查身份／规则并心跳，持续流量也不能饿死检查。恢复通过首包和轻量版本校对，事件无持久重放保证。
+
+旧成交、summary、图表和历史接口保留。真实资金、价格保护、幂等回执和准入仍由原服务端事务决定。具体验证范围见[实施验证记录](browser-local-trading-validation-2026-10-12.md)。

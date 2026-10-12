@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMarketStore } from '@/stores/market'
 import { useUserStore } from '@/stores/user'
+import { useTradingSessionStore } from '@/stores/tradingSession'
 import { useAuthStore } from '@/stores/auth'
 import { NButton, NCard, NSpin, NAlert, NTag, NEmpty, NModal, useMessage } from 'naive-ui'
 import { useMarketRealtime, MarketRealtimeKey } from '@/composables/useMarketRealtime'
@@ -17,6 +18,7 @@ import MarginCallBanner from '@/components/market/MarginCallBanner.vue'
 import TitleChip from '@/components/title/TitleChip.vue'
 import type { ChartInterval, QuoteResponse, TradeLimit } from '@/types/api'
 import { buyCost, sellProceeds } from '@/utils/lmsr'
+import { previewLmsrOrder } from '@/utils/tradingRisk'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +26,9 @@ const marketStore = useMarketStore()
 const userStore = useUserStore()
 const authStore = useAuthStore()
 const message = useMessage()
+const tradingSession = useTradingSessionStore()
+let tradingLease: number | undefined
+watch(() => authStore.user?.id, () => userStore.clearData(), { flush: 'sync' })
 
 // 状态
 const loading = ref(false)
@@ -86,15 +91,26 @@ const loadMarketData = async () => {
   }
 }
 
-// 加载用户资产（并行请求）
-const loadUserData = async () => {
-  if (authStore.isAuthenticated) {
-    await Promise.all([
-      userStore.fetchSummary(),
-      userStore.fetchHoldings()
-    ])
-  }
+// Trading baseline and admission are owned by the common session.
+const loadUserData = () => {
+  tradingLease = tradingSession.start({ product: 'lmsr', id: marketId.value })
 }
+watch([() => tradingSession.account, () => tradingSession.rules, () => marketStore.currentMarket], () => {
+  const account = tradingSession.account, rules = tradingSession.rules, market = marketStore.currentMarket
+  if (!account || !rules || account.user_id !== authStore.user?.id) return
+  userStore.installTradingBasis(account, rules, market?.outcomes.map(o => ({
+    market_id: market.id, market_title: market.title, outcome_id: o.id, outcome_label: o.label,
+    amount: 0, cost_basis: 0,
+  })) ?? [])
+  if (market) {
+    const sorted = [...market.outcomes].sort((a, b) => a.id - b.id)
+    userStore.priceContext = new Map(userStore.priceContext).set(market.id, {
+      b: market.liquidity_b, status: market.status, title: market.title,
+      outcomeIds: sorted.map(o => o.id), prices: sorted.map(o => o.current_price),
+      outcomeLabels: sorted.map(o => o.label), prices24hAgo: sorted.map(() => null),
+    })
+  }
+})
 
 // 称号准入门槛 — 不达标用户首次进入市场弹窗引导到兑换页
 const showGateModal = ref(false)
@@ -123,6 +139,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (tradingLease !== undefined) tradingSession.stop(tradingLease)
   // useMarketRealtime 自己有 onBeforeUnmount disconnect
   if (realtimeRefreshTimer) {
     clearTimeout(realtimeRefreshTimer)
@@ -132,6 +149,7 @@ onBeforeUnmount(() => {
 
 // 监听市场 ID 变化：SSE 重连由 useMarketRealtime 内部 watch 完成；这里只重拉市场数据
 watch(marketId, () => {
+  loadUserData()
   loadMarketData()
 })
 
@@ -176,12 +194,11 @@ watch(realtime.latestMarketStatus, (status) => {
 })
 
 // SSE seq gap 检测触发的 reconcile：拉一次成交列表覆盖断线期间漏的；
-// summary + holdings 一起刷（断线期间可能被强平，只刷 summary 会让 holdings 陈旧，审计 M10）
+// 账户缺口由共用协调器核对，公开成交列表保持原路径。
 watch(realtime.gapToken, () => {
   if (realtime.gapToken.value > 0 && marketId.value) {
     marketStore.fetchMarketTrades(marketId.value, 50).catch(() => {})
-    userStore.fetchSummary(false).catch(() => {})
-    userStore.fetchHoldings(false).catch(() => {})
+    void tradingSession.checkVersions()
   }
 })
 
@@ -226,10 +243,8 @@ const userHolding = computed(() => {
 
 // Unified cash includes restricted short proceeds; absent valuation fails closed.
 const availableTradeCash = computed(() => {
-  const s = userStore.summary
-  if (!s) return 0
-  if (s.available_cash == null) return 0
-  const value = Number(s.available_cash)
+  if (!tradingSession.ready) return 0
+  const value = Number(tradingSession.accountPreview?.available_cash)
   return Number.isFinite(value) ? Math.max(0, value) : 0
 })
 
@@ -265,10 +280,14 @@ const quoteResult = computed<QuoteResponse | null>(() => {
   if (!oid || !mkt || n <= 0) return null
   const outcome = mkt.outcomes.find(o => o.id === oid)
   if (!outcome) return null
-  // 优先 SSE 实时价（tick 帧续写），回退 REST 详情价
-  const p = realtime.pricesByOutcome.value.get(oid) ?? outcome.current_price
-  if (p <= 0) return null
-  const b = mkt.liquidity_b
+  // Trading pricing has one owner; public frames remain the chart/volume source.
+  const group = tradingSession.groups.get(`lmsr:${mkt.id}`)
+  if (group?.product !== 'lmsr') return null
+  const index = group.outcome_ids.indexOf(oid), q = group.q_dec.map(Number), b = Number(group.b)
+  if (index < 0 || !(b > 0) || q.some(v => !Number.isFinite(v))) return null
+  const max = Math.max(...q), weights = q.map(v => Math.exp((v - max) / b))
+  const p = weights[index]! / weights.reduce((sum, v) => sum + v, 0)
+  if (!(p > 0)) return null
   if (tradeType.value === 'buy') {
     const gross = buyCost(p, n, b)
     if (gross <= 0) return null
@@ -277,24 +296,27 @@ const quoteResult = computed<QuoteResponse | null>(() => {
   }
   const gross = sellProceeds(p, n, b)
   if (gross <= 0) return null
-  const feeRate = userStore.summary?.sell_fee_rate ?? 0
+  const feeRate = Number(tradingSession.rules?.lmsr_sell_fee_rate ?? 0)
   const fee = gross * feeRate
   return { outcome_id: oid, side: 'sell', shares: n,
            avg_price: gross / n, gross, fee, net: gross - fee }
 })
 
-// 计算交易后现金
-const estimatedNewCash = computed(() => {
-  if (!quoteResult.value || !userStore.summary) return 0
-  const netCost = quoteResult.value.net || 0
-  return tradeType.value === 'buy'
-    ? userStore.summary.cash - netCost
-    : userStore.summary.cash + Math.abs(netCost)
+// Whole-account post-order risk uses the complete group, while the existing writer quote remains unchanged.
+const localLmsrOrder = computed(() => {
+  const a = tradingSession.account, r = tradingSession.rules, oid = selectedOutcomeId.value
+  if (!a || !r || !oid || !(shares.value > 0)) return null
+  try {
+    return previewLmsrOrder(a, [...tradingSession.groups.values()], r, marketId.value, oid,
+      tradeType.value, shares.value.toFixed(6), tradingSession.now, tradingSession.accountPreview?.valuation_cache)
+  } catch { return null }
 })
+const postTradePreview = computed(() => localLmsrOrder.value?.account_preview ?? null)
+const postTradeReady = computed(() => tradingSession.ready && postTradePreview.value?.initial_condition === 'satisfied'
+  && !tradingSession.account?.credit_frozen && !tradingSession.rules?.credit_new_risk_frozen)
+const estimatedNewCash = computed(() => Number(localLmsrOrder.value?.account_after.cash ?? tradingSession.account?.cash ?? '0'))
 
-// 执行交易：成交后本地 apply（spec §6.4），不再 refetch 市场/用户数据。
-// pay 用后端返回的 6dp 精确成交额（不再从本地现金差推导——prevCash 是缓存，
-// 多标签 / bot / 借还款 / 强平任一存在都会把外部现金变动算进 cost_basis）。
+// 成交回执先提示成功，再由共用协调器更新账户基准。
 //
 // 价格保护：用户设了滑点上限时，把本地预览 net 换算成绝对 max_cost / min_proceeds
 // 一并发给后端。后端 bps 检查是相对「执行时刻边际价」的，预览价与成交价之间
@@ -302,10 +324,10 @@ const estimatedNewCash = computed(() => {
 // 「所见即所得」成立；「无限制」档两者都不发。
 const executeTrade = async () => {
   if (!selectedOutcomeId.value || shares.value <= 0) return
+  if (tradeType.value === 'buy' && !postTradeReady.value) return
 
   const acceptAnySlippage = maxSlippageBps.value === -1
   const effectiveBps = acceptAnySlippage ? undefined : maxSlippageBps.value
-  const prevCash = userStore.summary?.cash ?? null
 
   let limit: TradeLimit | undefined
   const preview = quoteResult.value
@@ -327,21 +349,7 @@ const executeTrade = async () => {
     }
     message.success(`${tradeType.value === 'buy' ? '买入' : '卖出'}成功`)
 
-    if (result.data && prevCash !== null && marketStore.currentMarket) {
-      userStore.applyTradeFill({
-        side: tradeType.value,
-        outcomeId: selectedOutcomeId.value,
-        marketId: marketStore.currentMarket.id,
-        shares: result.data.shares,
-        pay: result.data.pay ?? Math.abs(prevCash - result.data.new_cash),
-        newCash: result.data.new_cash,
-        outcomeLabel: selectedOutcome.value?.label,
-        marketTitle: marketStore.currentMarket.title,
-      })
-    }
-    // Unified spendable cash and equity require a fresh authoritative snapshot.
-    // fetchSummary discards responses older than a subsequent local fill.
-    if (userStore.summary) await userStore.fetchSummary(false)
+    tradingSession.requestRefresh(undefined, 'lmsr_trade')
     // 份数不重置：连续加仓/分批减仓是常规用法。卖出后持仓不足时
     // TradePanel 的 shares > maxShares 门会禁用按钮，不会误下单。
   } catch (err: any) {
@@ -373,7 +381,7 @@ const relTime = (iso: string): string => {
 <template>
   <div class="trading-view-page">
     <!-- ── 保证金警告横幅（warning/danger 时可见） ── -->
-    <MarginCallBanner />
+    <MarginCallBanner trading />
 
     <!-- 加载状态 -->
     <div v-if="loading" class="text-center py-12">
@@ -520,6 +528,8 @@ const relTime = (iso: string): string => {
             :max-shares="maxShares"
             :quote-result="quoteResult"
             :estimated-new-cash="estimatedNewCash"
+            :post-trade-preview="postTradePreview"
+            :post-trade-ready="postTradeReady"
             :user-holding="userHolding"
             :quote-exceeds-cash="quoteExceedsCash"
             :max-slippage-bps="maxSlippageBps"

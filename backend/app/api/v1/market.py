@@ -1,3 +1,4 @@
+from app.services.trading_prices import notify_pricing_changed
 import logging
 import inspect
 from functools import wraps
@@ -229,6 +230,7 @@ async def create_market(
     )
 
     await db.commit()
+    notify_pricing_changed(())
 
     from app.services.market_writer import WRITER
     await WRITER.register_market(int(new_market.id))

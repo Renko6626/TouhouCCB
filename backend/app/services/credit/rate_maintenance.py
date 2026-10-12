@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from app.services.account_events import capture_accounts, publish_accounts
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Callable
@@ -165,9 +166,11 @@ async def change_loan_daily_rate(*, new_rate: Decimal, operator_user_id: int) ->
             result = await _change_rate_in_session(session, new_rate=new_rate,
                 operator_user_id=operator_user_id, now=datetime.now(timezone.utc),
                 assert_offline_owner=assert_transaction_owner)
+            account_hints = capture_accounts(session)
         # Session cleanup occurs before the external transaction commits.
         assert_transaction_owner()
         await transaction.commit()
+        publish_accounts(account_hints, "rate_maintenance")
         try:
             site_config.clear_cache()
         except Exception as exc:

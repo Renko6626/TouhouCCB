@@ -1,5 +1,6 @@
 """SiteConfig 读写服务。值按 value_type 解析。"""
 from __future__ import annotations
+from app.services.trading_prices import notify_pricing_changed
 import time
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -175,6 +176,7 @@ async def set_value(
     )
     _require_writes()
     await session.commit()
+    notify_pricing_changed(())
     await session.refresh(row)
     _cache.pop(key, None)  # 主动失效，让下次读取拿到新值
     return row

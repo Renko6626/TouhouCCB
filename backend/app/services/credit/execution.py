@@ -14,6 +14,7 @@ WP4c 在 WP4a 的候选发现/WP4b 的预算受限回补内核之上补齐已知
    事务内记录 ``cover_group``，提交后才发布 FX 价格。
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 
 import logging
 from dataclasses import dataclass
@@ -814,7 +815,7 @@ async def execute_user(user_id, *, rate, pct, source):
             async with GATES.hold(exclusive=[guess.target] if guess else (),
                                   shared=deps.groups):
                 async with async_session_maker() as session:
-                    async with session.begin():
+                    async with notifying_transaction(session, session.begin(), "liquidation"):
                         # FX product rows precede User, for both sell and cover.
                         ids = ([guess.target.group_id]
                                if guess and guess.target.product == 'fx' else [])

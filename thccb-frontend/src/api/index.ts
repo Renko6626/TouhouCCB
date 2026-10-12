@@ -20,20 +20,40 @@ const instance: AxiosInstance = axios.create({
   },
 })
 
-// refresh token 锁：防止多个 401 同时触发多次刷新
-let isRefreshing = false
-let activeRefreshContext: (() => boolean) | null = null
-let pendingRequests: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = []
-
-function onRefreshed(token: string) {
-  pendingRequests.forEach((p) => p.resolve(token))
-  pendingRequests = []
+// HTTP and fetch-SSE share this identity-bound renewal, never a write queue.
+let renewal: { valid: () => boolean; promise: Promise<string> } | null = null
+export function authIdentityGuard() {
+  const auth = useAuthStore(), id = auth.user?.id, token = auth.refreshToken, generation = auth.sessionGeneration
+  return () => auth.user?.id === id && auth.refreshToken === token && auth.sessionGeneration === generation
 }
-
-function onRefreshFailed(err: any) {
-  pendingRequests.forEach((p) => p.reject(err))
-  pendingRequests = []
+/** Profile bootstrap has credentials before it has a user. Bind before interceptors run. */
+export function authSessionGuard() {
+  const auth = useAuthStore(), refresh = auth.refreshToken, generation = auth.sessionGeneration
+  const access = auth.accessToken
+  return () => auth.sessionGeneration === generation && auth.refreshToken === refresh && (refresh != null || auth.accessToken === access)
 }
+export function refreshAccessToken(guard: () => boolean = authIdentityGuard()): Promise<string> {
+  if (!guard()) return Promise.reject(changedAuthContext())
+  if (renewal) {
+    if (!renewal.valid()) return Promise.reject(changedAuthContext())
+    return renewal.promise.then(token => { if (!guard()) throw changedAuthContext(); return token })
+  }
+  const auth = useAuthStore(), valid = authIdentityGuard(), refreshToken = auth.refreshToken
+  if (!refreshToken) { auth.logout(); return Promise.reject(new Error('Authentication required')) }
+  const promise = axios.post(`${instance.defaults.baseURL}/api/v1/auth/refresh`, { refresh_token: refreshToken })
+    .then(({ data }) => {
+      if (!valid() || !guard()) throw changedAuthContext()
+      auth.accessToken = data.access_token
+      localStorage.setItem('access_token', data.access_token)
+      return data.access_token as string
+    }).catch(error => {
+      if (!valid() || !guard()) throw changedAuthContext()
+      auth.logout(); throw error
+    }).finally(() => { if (renewal?.promise === promise) renewal = null })
+  renewal = { valid, promise }
+  return promise
+}
+export const apiBaseUrl = String(instance.defaults.baseURL)
 
 // 请求拦截器 - 添加认证令牌
 instance.interceptors.request.use(async (config) => {
@@ -111,64 +131,11 @@ instance.interceptors.response.use(
       !originalRequest._retry &&
       !originalRequest.url?.includes('/auth/refresh')
     ) {
-      const authStore = useAuthStore()
-
-      if (!authStore.refreshToken) {
-        authStore.logout()
-        return Promise.reject(error)
-      }
-
-      if (isRefreshing) {
-        if (originalRequest.authContextGuard && activeRefreshContext && !activeRefreshContext())
-          return Promise.reject(changedAuthContext())
-        // 已有一个 refresh 在进行，排队等新 token
-        return new Promise((resolve, reject) => {
-          pendingRequests.push({
-            resolve: (newToken: string) => {
-              try { assertAuthContext(originalRequest) }
-              catch (e) { reject(e); return }
-              originalRequest.headers.Authorization = `Bearer ${newToken}`
-              originalRequest._retry = true
-              resolve(instance(originalRequest))
-            },
-            reject,
-          })
-        })
-      }
-
-      isRefreshing = true
       originalRequest._retry = true
-      const refreshUserId = authStore.user?.id
-      const refreshToken = authStore.refreshToken
-      const sameRefreshContext = () => authStore.user?.id === refreshUserId && authStore.refreshToken === refreshToken
-      activeRefreshContext = sameRefreshContext
-
-      try {
-        const { data } = await axios.post(
-          `${instance.defaults.baseURL}/api/v1/auth/refresh`,
-          { refresh_token: authStore.refreshToken },
-        )
-        // An unbound request can also have started this shared refresh. Never
-        // install its token into a later login or supply it to that login's queue.
-        if (!sameRefreshContext()) throw changedAuthContext()
-        assertAuthContext(originalRequest)
-        const newToken = data.access_token
-        authStore.accessToken = newToken
-        localStorage.setItem('access_token', newToken)
-
-        originalRequest.headers.Authorization = `Bearer ${newToken}`
-        onRefreshed(newToken)
-        return instance(originalRequest)
-      } catch (refreshError) {
-        onRefreshFailed(refreshError)
-        if (!sameRefreshContext() || (originalRequest.authContextGuard && !originalRequest.authContextGuard()))
-          return Promise.reject(changedAuthContext())
-        authStore.logout()
-        return Promise.reject(error)
-      } finally {
-        isRefreshing = false
-        activeRefreshContext = null
-      }
+      const token = await refreshAccessToken(originalRequest.authContextGuard)
+      assertAuthContext(originalRequest)
+      originalRequest.headers.Authorization = `Bearer ${token}`
+      return instance(originalRequest)
     }
 
     const message = error.response?.data?.detail || error.message || '请求失败'
@@ -186,11 +153,20 @@ instance.interceptors.response.use(
 const api = {
   /** Bound economic requests cannot be refreshed or replayed under a new login. */
   postForCurrentUser: <T>(url: string, data: unknown, config?: AxiosRequestConfig): Promise<T> => {
-    const auth = useAuthStore(), userId = auth.user?.id, refreshToken = auth.refreshToken
+    const auth = useAuthStore(), userId = auth.user?.id
     if (userId == null) return Promise.reject(changedAuthContext())
     const bound: UserBoundConfig = { ...config,
-      authContextGuard: () => auth.user?.id === userId && auth.refreshToken === refreshToken }
+      authContextGuard: authIdentityGuard() }
     return instance.post(url, data, bound).then(res => res as T)
+  },
+  getForCurrentSession: <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+    const bound: UserBoundConfig = { ...config, authContextGuard: authSessionGuard() }
+    return instance.get(url, bound).then(res => res as T)
+  },
+  getForCurrentUser: <T>(url: string, config?: AxiosRequestConfig): Promise<T> => {
+    if (useAuthStore().user?.id == null) return Promise.reject(changedAuthContext())
+    const bound: UserBoundConfig = { ...config, authContextGuard: authIdentityGuard() }
+    return instance.get(url, bound).then(res => res as T)
   },
   get: <T = any>(url: string, config?: AxiosRequestConfig): Promise<T> => 
     instance.get(url, config).then(res => res as T),

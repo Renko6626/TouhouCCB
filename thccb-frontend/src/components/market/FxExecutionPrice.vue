@@ -23,7 +23,7 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
     <div
       class="deviation-row"
       :class="{ prominent }"
-      :title="`相对请求报价时的参考汇率 ${formatFxPrice(reference)} 金圆券 / ${currency}，已计入手续费。`"
+      :title="`相对本次预估同组输入的参考汇率 ${formatFxPrice(reference)} 金圆券 / ${currency}，已计入手续费。`"
     >
       <span>偏离参考价（含费）</span>
       <strong>{{ deviation == null ? '—' : `${(deviation / 100).toFixed(2)}%` }}</strong>

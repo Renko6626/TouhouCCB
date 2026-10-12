@@ -1,0 +1,334 @@
+{
+  "source_sha": "559552fbee02218cb95658a97c8b1d98873bfe14",
+  "collected_at": "2026-10-12",
+  "sources": [
+    "/tmp/sunyunbo/task0-probe.py",
+    "/tmp/sunyunbo/task3-net-probe.py"
+  ],
+  "production": {
+    "buy8dp": {
+      "input_amount": "123.456789",
+      "fee_amount": "15.241578",
+      "net_input": "108.215211",
+      "output_amount": "195.296382",
+      "post_gold_reserve": "1108.215211",
+      "post_foreign_reserve": "1804.703618",
+      "post_price": "0.6140704766958582115503909850",
+      "effective_price": "1.581900708595296448217197679"
+    },
+    "exact8dp": {
+      "input_amount": "0.570709",
+      "fee_amount": "0.070458",
+      "net_input": "0.500251",
+      "output_amount": "1.000001",
+      "post_gold_reserve": "1000.500251",
+      "post_foreign_reserve": "1998.999999",
+      "post_price": "0.50050037593821929761791860811301581196248915055652283669660972320990981651321151",
+      "effective_price": "1.7522082181987667970892346186935899030854603659658424871519460881114543488888383"
+    },
+    "large_exact": {
+      "input_amount": "1.000001",
+      "fee_amount": "0.000001",
+      "net_input": "1.000000",
+      "output_amount": "4999999999.999999",
+      "post_gold_reserve": "2.000000",
+      "post_foreign_reserve": "5000000000.000000",
+      "post_price": "4E-10",
+      "effective_price": "4999995000.0049989950010049989950010049989950010049989950010049989950010049989950"
+    },
+    "interest_100": {
+      "debt": "100",
+      "rate": "0.1",
+      "sec": 43200,
+      "result": "104.880885"
+    },
+    "interest_9999999999.999999": {
+      "debt": "9999999999.999999",
+      "rate": "0.1",
+      "sec": 1,
+      "result": "10000011031.276894"
+    },
+    "interest_1000000000": {
+      "debt": "1000000000",
+      "rate": "0.1",
+      "sec": 1,
+      "result": "1000001103.127690"
+    },
+    "interest_0.000001": {
+      "debt": "0.000001",
+      "rate": "0.1",
+      "sec": 86400,
+      "result": "0.000001"
+    },
+    "lmsr_normal": {
+      "q": [
+        "100",
+        "200"
+      ],
+      "held": {
+        "1": "10",
+        "2": "20"
+      },
+      "b": 100,
+      "prices": [
+        0.2689414213699951,
+        0.7310585786300049
+      ],
+      "net": "16.998302",
+      "legs": [
+        {
+          "outcome_id": "1",
+          "amount": "10",
+          "gross": "2.592636",
+          "fee": "0.032008",
+          "net": "2.560628"
+        },
+        {
+          "outcome_id": "2",
+          "amount": "20",
+          "gross": "14.618145",
+          "fee": "0.180471",
+          "net": "14.437674"
+        }
+      ]
+    },
+    "lmsr_extreme": {
+      "q": [
+        "10000",
+        "0"
+      ],
+      "held": {
+        "1": "100"
+      },
+      "b": 1,
+      "prices": [
+        1.0,
+        0.0
+      ],
+      "net": "98.765433",
+      "legs": [
+        {
+          "outcome_id": "1",
+          "amount": "100",
+          "gross": "100.000000",
+          "fee": "1.234567",
+          "net": "98.765433"
+        }
+      ]
+    },
+    "lmsr_large_q": {
+      "q": [
+        "9999999999",
+        "9999999998"
+      ],
+      "held": {
+        "1": "1"
+      },
+      "b": 100,
+      "prices": [
+        0.5024999791668749,
+        0.497500020833125
+      ],
+      "net": "0.495061",
+      "legs": [
+        {
+          "outcome_id": "1",
+          "amount": "1",
+          "gross": "0.501249",
+          "fee": "0.006188",
+          "net": "0.495061"
+        }
+      ]
+    }
+  },
+  "net": [
+    {
+      "side": "sell",
+      "amount": "10",
+      "cash": "100",
+      "held": "10",
+      "principal": "0",
+      "interest": "0",
+      "lock": "0",
+      "quote": {
+        "pair_id": 1,
+        "side": "sell",
+        "input_amount": "10",
+        "output_amount": "4.914004",
+        "fee_amount": "0.123457",
+        "post_price": "0.4950980693145986927416964237",
+        "legs": [
+          {
+            "purpose": "spot",
+            "side": "sell",
+            "input_currency": "X",
+            "output_currency": "gold",
+            "input_amount": "10",
+            "output_amount": "4.914004",
+            "fee_amount": "0.123457",
+            "pre_gold_reserve": "1000",
+            "pre_foreign_reserve": "2000",
+            "post_gold_reserve": "995.085996",
+            "post_foreign_reserve": "2009.876543"
+          }
+        ],
+        "final_direction": "flat",
+        "wallet_after": "0",
+        "foreign_debt_after": "0",
+        "cash_delta": "4.914004",
+        "gold_debt_delta": "0",
+        "restricted_gold_delta": "0",
+        "growth_amount": "0",
+        "borrow_amount": "0",
+        "repaid_gold": "0",
+        "executable": true,
+        "blocked_reason": null,
+        "economic_version": 1,
+        "pool_version": 1,
+        "expires_at": "2026-01-01T00:00:30Z"
+      }
+    },
+    {
+      "side": "buy",
+      "amount": "10",
+      "cash": "100",
+      "held": "0",
+      "principal": "1",
+      "interest": "0.1",
+      "lock": "5",
+      "quote": {
+        "pair_id": 1,
+        "side": "buy",
+        "input_amount": "10",
+        "output_amount": "19.559901",
+        "fee_amount": "0.123457",
+        "post_price": "0.5099253158476872468133155084",
+        "legs": [
+          {
+            "purpose": "short_cover",
+            "side": "buy",
+            "input_currency": "gold",
+            "output_currency": "X",
+            "input_amount": "0.557182",
+            "output_amount": "1.1",
+            "fee_amount": "0.006879",
+            "pre_gold_reserve": "1000",
+            "pre_foreign_reserve": "2000",
+            "post_gold_reserve": "1000.550303",
+            "post_foreign_reserve": "1998.9"
+          },
+          {
+            "purpose": "spot",
+            "side": "buy",
+            "input_currency": "gold",
+            "output_currency": "X",
+            "input_amount": "9.442818",
+            "output_amount": "18.459901",
+            "fee_amount": "0.116578",
+            "pre_gold_reserve": "1000.550303",
+            "pre_foreign_reserve": "1998.9",
+            "post_gold_reserve": "1009.876543",
+            "post_foreign_reserve": "1980.440099"
+          }
+        ],
+        "final_direction": "long",
+        "wallet_after": "18.459901",
+        "foreign_debt_after": "0.0",
+        "cash_delta": "-10.000000",
+        "gold_debt_delta": "0",
+        "restricted_gold_delta": "-5",
+        "growth_amount": "18.459901",
+        "borrow_amount": "0",
+        "repaid_gold": "0",
+        "executable": true,
+        "blocked_reason": null,
+        "economic_version": 1,
+        "pool_version": 1,
+        "expires_at": "2026-01-01T00:00:30Z"
+      }
+    },
+    {
+      "side": "buy",
+      "amount": "0.2",
+      "cash": "100",
+      "held": "0",
+      "principal": "1",
+      "interest": "0.1",
+      "lock": "5",
+      "quote": {
+        "pair_id": 1,
+        "side": "buy",
+        "input_amount": "0.2",
+        "output_amount": "0.394981",
+        "fee_amount": "0.002470",
+        "post_price": "0.5001975492641029423221306687",
+        "legs": [
+          {
+            "purpose": "short_cover",
+            "side": "buy",
+            "input_currency": "gold",
+            "output_currency": "X",
+            "input_amount": "0.2",
+            "output_amount": "0.394981",
+            "fee_amount": "0.002470",
+            "pre_gold_reserve": "1000",
+            "pre_foreign_reserve": "2000",
+            "post_gold_reserve": "1000.197530",
+            "post_foreign_reserve": "1999.605019"
+          }
+        ],
+        "final_direction": "short",
+        "wallet_after": "0",
+        "foreign_debt_after": "0.705019",
+        "cash_delta": "-0.2",
+        "gold_debt_delta": "0",
+        "restricted_gold_delta": "-1.795368",
+        "growth_amount": "0",
+        "borrow_amount": "0",
+        "repaid_gold": "0",
+        "executable": true,
+        "blocked_reason": null,
+        "economic_version": 1,
+        "pool_version": 1,
+        "expires_at": "2026-01-01T00:00:30Z"
+      }
+    }
+  ],
+  "net_input_common": {
+    "now": "2026-01-01T00:00:00+00:00",
+    "gold_reserve": "1000",
+    "foreign_reserve": "2000",
+    "buy_fee_rate": "0.01234567",
+    "sell_fee_rate": "0.01234567",
+    "daily_rate": "0",
+    "gold_debt": "0",
+    "wallet_cost_basis": "4",
+    "treasury_gold": "1000",
+    "treasury_foreign": "1000",
+    "short_proceeds_basis_equals_lock": true,
+    "short_clock_equals_now": true,
+    "borrow_amount": "0"
+  },
+  "cross_sell_legs": {
+    "first": {
+      "input_amount": "10",
+      "fee_amount": "0.123457",
+      "net_input": "9.876543",
+      "output_amount": "4.914004",
+      "post_gold_reserve": "995.085996",
+      "post_foreign_reserve": "2009.876543",
+      "post_price": "0.4950980693145986927416964237",
+      "effective_price": "0.4914004"
+    },
+    "second": {
+      "input_amount": "5",
+      "fee_amount": "0.061729",
+      "net_input": "4.938271",
+      "output_amount": "2.438935",
+      "post_gold_reserve": "992.647061",
+      "post_foreign_reserve": "2014.814814",
+      "post_price": "0.4926740929749784934825280672",
+      "effective_price": "0.487787"
+    }
+  }
+}

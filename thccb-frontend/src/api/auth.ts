@@ -1,4 +1,5 @@
 import api from './index'
+import type { AxiosRequestConfig } from 'axios'
 import type { User } from '@/types/api'
 
 export const authApi = {
@@ -19,8 +20,8 @@ export const authApi = {
     return api.post('/api/v1/auth/dev-login', { username })
   },
 
-  async getCurrentUser(): Promise<User> {
-    return api.get<User>('/api/v1/auth/me')
+  async getCurrentUser(config?: AxiosRequestConfig): Promise<User> {
+    return api.getForCurrentSession<User>('/api/v1/auth/me', config)
   },
 
   async acceptTos(): Promise<{ tos_accepted_at: string }> {

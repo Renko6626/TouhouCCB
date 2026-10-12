@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 """WP5：统一 LMSR 组强平 `op_liquidate_group` 的语义、幂等与审计一致性。
 
 覆盖：
@@ -182,7 +183,7 @@ async def test_group_liquidation_repays_debt_in_same_transaction():
 
 
 @pytest.mark.asyncio
-async def test_replay_same_run_round_does_not_sell_twice():
+async def test_replay_same_run_round_does_not_sell_twice(private_events):
     mid, oids = await _seed_market(("0", "0"))
     uid = await _seed_user(cash="0", debt="50", username="replay_user")
     await _give_position(uid, oids[0], "20", "10")
@@ -190,12 +191,16 @@ async def test_replay_same_run_round_does_not_sell_twice():
     run_id = await _new_run(uid)
     cmd = _cmd(mid, uid, run_id, mode="full", fee_rate=Decimal("0.01"))
 
+    queue = private_events(uid)
     first = await WRITER.submit(cmd)
+    assert queue.get_nowait()[1]["reason"] == "lmsr"
+    assert queue.empty()
     assert first["replayed"] is False
     snap_first = await _snapshot(uid, oids)
 
     second = await WRITER.submit(_cmd(mid, uid, run_id, mode="full",
                                       fee_rate=Decimal("0.01")))
+    assert queue.empty()
     assert second["replayed"] is True
     assert second["sold_count"] == first["sold_count"]
     assert second["gross"] == first["gross"]

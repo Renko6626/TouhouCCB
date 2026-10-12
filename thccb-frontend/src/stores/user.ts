@@ -7,6 +7,7 @@ import { userApi } from '@/api/user'
 import { extractErrorMessage } from '@/utils/errors'
 import { marketApi } from '@/api/market'
 import { useAuthStore } from '@/stores/auth'
+import type { AccountBasis, TradingRules } from '@/types/tradingContext'
 import {
   applyFillToRows, computeHoldingsValueLcv, computeHoldingsValueMtm,
   enrichHolding, rankFromThresholds,
@@ -237,6 +238,40 @@ export const useUserStore = defineStore('user', () => {
     }
   }
 
+  /** Compatibility baseline only. Local approximate valuation is never installed as authority. */
+  const installTradingBasis = (account: AccountBasis, rules: TradingRules, labels: HoldingSlim[] = []) => {
+    summaryFetchVersion++
+    localApplyVersion++
+    loading.value = false
+    error.value = null
+    const prior = summary.value
+    summary.value = {
+      cash: Number(account.cash), debt: Number(account.debt),
+      positions: account.lmsr_positions.filter(p => p.market_id != null).map(p => ({
+        market_id: p.market_id!, outcome_id: p.outcome_id,
+        amount: Number(p.amount), cost_basis: Number(p.cost_basis),
+      })),
+      credit_frozen: account.credit_frozen, new_risk_frozen: rules.credit_new_risk_frozen,
+      sell_fee_rate: Number(rules.lmsr_sell_fee_rate),
+      credit_leverage: rules.leverage == null ? null : Number(rules.leverage),
+      r_initial: rules.initial_ratio == null ? null : Number(rules.initial_ratio),
+      r_maintenance: rules.maintenance_ratio == null ? null : Number(rules.maintenance_ratio),
+      last_liquidated_at: account.last_liquidated_at,
+      rank_thresholds: prior?.rank_thresholds ?? [], equipped_title: prior?.equipped_title,
+      fx_mtm: 0, fx_cost_basis: account.fx_wallets.reduce((n, w) => n + Number(w.cost_basis), 0),
+      fx_unrealized_pnl: 0,
+      available_cash: null, display_equity: null, liquidation_equity: null,
+      risk_basis: null, equity_to_risk_basis: null, risk_status: 'blocked',
+      blocked_reason: '最近账户基准；交易页估值由实时交易会话提供。',
+    }
+    holdingsRaw.value = summary.value.positions.map(p => {
+      const label = labels.find(v => v.outcome_id === p.outcome_id)
+        ?? holdingsRaw.value.find(v => v.outcome_id === p.outcome_id)
+      return { ...p, market_title: label?.market_title ?? `市场 ${p.market_id}`,
+        outcome_label: label?.outcome_label ?? `选项 ${p.outcome_id}` }
+    })
+  }
+
   const getHoldingByOutcome = (outcomeId: number) =>
     holdings.value.find(h => h.outcome_id === outcomeId)
 
@@ -261,7 +296,7 @@ export const useUserStore = defineStore('user', () => {
     rankTitle, marginRatioEstimate, holdingsByMarket,
 
     fetchSummary, fetchHoldings, fetchTransactions, fetchAllUserData,
-    refreshPriceContext, patchMarketPrices, applyTradeFill,
+    refreshPriceContext, patchMarketPrices, applyTradeFill, installTradingBasis,
     getHoldingByOutcome, getHoldingsByMarket, clearData, clearError,
   }
 })

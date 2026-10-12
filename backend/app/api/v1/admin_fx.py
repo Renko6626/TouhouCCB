@@ -1,5 +1,6 @@
 """Superuser-only FX operations."""
 from __future__ import annotations
+from app.services.trading_prices import notify_pricing_changed
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -256,6 +257,7 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
                                       "pool_after": {"gold": str(req.gold_reserve), "foreign": str(req.foreign_reserve)},
                                       "treasury_after": {"gold": str(req.gold_reserve), "foreign": str(req.foreign_reserve)}})
         await db.commit()
+        notify_pricing_changed(())
     await db.refresh(pair)
     return pair
 
@@ -305,6 +307,7 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
                      {key: str(value) for key, value in values.items()}, action=action)
         try:
             await db.commit()
+            notify_pricing_changed(())
         except IntegrityError:
             await db.rollback()
             raise HTTPException(409, "currency code already exists") from None
@@ -360,6 +363,7 @@ async def archive_pair(pair_id: int, admin: User = Depends(current_superuser), d
             _admin_audit(db, "fx_pair_archive", admin.id, "fx_pair", pair_id, before,
                          {"status": "closed", "archived": True})
         await db.commit()
+        notify_pricing_changed(())
     await db.refresh(pair)
     return pair
 
@@ -378,6 +382,7 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
             await db.execute(delete(model).where(model.pair_id == pair_id))
         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
         await db.commit()
+        notify_pricing_changed(())
     return Response(status_code=204)
 
 

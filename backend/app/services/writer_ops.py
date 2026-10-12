@@ -5,6 +5,7 @@
 consumer 统一 apply——op 返回即视为已 commit（spec § 4.4）。
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 
 import logging
 from contextvars import ContextVar
@@ -170,7 +171,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
 
     # ── 3. DB 事务（唯一阻塞点）──
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
             # title 门槛：在锁内、扣款前检查
@@ -317,7 +318,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
 
     # 2. DB 事务：fee 率读取 + 滑点（fee 依赖 site_config，在事务 session 上读，60s 缓存）
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             sell_fee_rate = await site_config.get_decimal_or(session, "sell_fee_rate", ZERO)
             fee = (proceeds * sell_fee_rate).quantize(Decimal("0.000001"))
             net = proceeds - fee
@@ -417,7 +418,7 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
     if state.status == MarketStatus.SETTLED:
         raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             market.status = MarketStatus.HALT
@@ -441,7 +442,7 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
     if state.status != MarketStatus.HALT:
         raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             market.status = MarketStatus.TRADING
@@ -480,7 +481,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
 
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             if not market:
@@ -850,7 +851,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
     index_of = {int(oid): i for i, oid in enumerate(state.outcome_ids)}
 
     async with async_session_maker() as session:
-        async with session.begin():
+        async with notifying_transaction(session, session.begin(), "lmsr"):
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
             version_before = locked_user.economic_version

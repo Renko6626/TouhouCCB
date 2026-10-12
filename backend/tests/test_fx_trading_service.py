@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 """Runnable FX service tests; independent of the application lifespan fixture."""
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,11 @@ class AsyncCompatSession:
     """
     def __init__(self, session):
         self._session = session
+
+    @property
+    def sync_session(self): return self._session
+    @property
+    def info(self): return self._session.info
 
     def add(self, value): self._session.add(value)
     def add_all(self, values): self._session.add_all(values)
@@ -81,8 +87,9 @@ async def seed(db, *, cash="100", debt="0", bot=False, tos=True, status="trading
 
 
 @pytest.mark.asyncio
-async def test_buy_sell_update_balances_and_audit(db_session):
+async def test_buy_sell_update_balances_and_audit(db_session, private_events):
     uid, pid = await seed(db_session)
+    queue = private_events(uid)
     bought = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "buy-1")
     wallet = (await db_session.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one()
     treasury = (await db_session.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
@@ -92,6 +99,9 @@ async def test_buy_sell_update_balances_and_audit(db_session):
                                        Decimal("0"), "sell-1")
     assert sold.output_amount > 0 and wallet.updated_at is not None
     event = (await db_session.execute(select(AuditEvent).where(AuditEvent.event_type == "fx_trade"))).scalars().all()
+    assert queue.get_nowait()[1]["reason"] == "trading"
+    assert queue.get_nowait()[1]["reason"] == "trading"
+    assert queue.empty()
     assert len(event) == 2
     assert event[-1].payload["wallet_after"]["foreign_amount"] == "0.000000"
     assert "treasury_after" in event[-1].payload

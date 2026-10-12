@@ -15,6 +15,7 @@
   冻结用户的批量大赦核销是**显式运营动作**，ledger 审计带 operator+reason；
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 
 import logging
 from dataclasses import replace
@@ -203,7 +204,7 @@ async def _adjust_cash_unified(
             admin_id=admin_id, thresholds=thresholds,
         )
     # 充值 / 赠予不恶化保证金，冻结期也允许（spec §4.1）
-    async with managed_transaction(db):
+    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         u = await _lock_user(db, target_id)
         new_cash = await _apply_cash_change(
             db, user=u, amount=amount, reason=reason, admin_id=admin_id,
@@ -232,7 +233,7 @@ async def _debit_cash_unified(
         await db.commit()  # release discovery connection before waiting on gates
         try:
             async with GATES.hold(shared=deps.groups):
-                async with managed_transaction(db):
+                async with notifying_transaction(db, managed_transaction(db), "admin_account"):
                     u = await _lock_user(db, target_id)
                     if economic_version_of(u) != deps.economic_version:
                         raise _RiskRetry()
@@ -292,7 +293,7 @@ async def _force_loan_unified(
         try:
             async with GATES.hold(shared=deps.groups):
                 try:
-                    async with managed_transaction(db):
+                    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
                         u = await _lock_user(db, target_id)
                         if economic_version_of(u) != deps.economic_version:
                             raise _RiskRetry()
@@ -345,7 +346,7 @@ async def _forgive_debt_unified(
     """
     OWNERSHIP.require_writes()
     try:
-        async with managed_transaction(db):
+        async with notifying_transaction(db, managed_transaction(db), "admin_account"):
             await _lock_user(db, target_id)
             u, effective = await loan_service.decrease_debt(
                 db, target_id, amount, consume_cash=False, daily_rate=rate,
@@ -366,7 +367,7 @@ async def set_role(
     """安全围栏：不能改自己；不能取消最后一个管理员。"""
     if target_id == admin_id:
         raise AdminUserError(400, "不能修改自己的管理员权限")
-    async with managed_transaction(db):
+    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         t = await _lock_user(db, target_id)
         if t.is_superuser == is_admin:
             return {"user_id": t.id, "username": t.username, "is_admin": t.is_superuser, "changed": False}
@@ -389,7 +390,7 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int, reason: Option
     安全围栏：不能封自己；不能封最后一个活跃管理员。"""
     if target_id == admin_id:
         raise AdminUserError(400, "不能封禁自己")
-    async with managed_transaction(db):
+    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         t = await _lock_user(db, target_id)
         if t.is_superuser and t.is_active:
             n = int((await db.execute(
@@ -402,17 +403,19 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int, reason: Option
         was_active = t.is_active
         t.is_active = False
         if was_active:
+            bump_economic_version(t)
             audit_service.record(db, "admin_ban", user_id=t.id, operator_user_id=admin_id,
                                  payload={"reason": reason})
     return {"user_id": t.id, "username": t.username, "is_active": False, "changed": was_active}
 
 
 async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = None) -> Dict[str, Any]:
-    async with managed_transaction(db):
+    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         t = await _lock_user(db, target_id)
         was_active = t.is_active
         t.is_active = True
         if not was_active:
+            bump_economic_version(t)
             audit_service.record(db, "admin_unban", user_id=t.id, operator_user_id=admin_id)
     return {"user_id": t.id, "username": t.username, "is_active": True, "changed": not was_active}
 
@@ -568,7 +571,7 @@ async def _batch_adjust_one(
             await db.commit()
             try:
                 async with GATES.hold(shared=deps.groups):
-                    async with managed_transaction(db):
+                    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
                         u = await _lock_user(db, user_id)
                         if economic_version_of(u) != deps.economic_version:
                             raise _RiskRetry()
@@ -605,7 +608,7 @@ async def _batch_adjust_one(
                 if attempt >= limit:
                     raise AdminUserError(409, _VERSION_CONFLICT_DETAIL)
         raise AssertionError("unreachable")
-    async with managed_transaction(db):
+    async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         u = await _lock_user(db, user_id)
         new_cash = u.cash + amount
         if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
@@ -728,7 +731,7 @@ async def _amnesty_one(
         await db.commit()
         try:
             async with GATES.hold(shared=deps.groups):
-                async with managed_transaction(db):
+                async with notifying_transaction(db, managed_transaction(db), "admin_account"):
                     u = await _lock_user(db, user_id)
                     if economic_version_of(u) != deps.economic_version:
                         # post.cash 是绝对值，不能被 _rebase_post 的增量语义重放；重发现重试
@@ -831,7 +834,7 @@ async def writeoff_fx_short(
     if db.in_transaction():
         await db.rollback()
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        async with managed_transaction(db):
+        async with notifying_transaction(db, managed_transaction(db), "admin_account"):
             pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
             user = await _lock_user(db, target_id)

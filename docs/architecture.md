@@ -346,3 +346,16 @@ writer 停止或活跃市场缺少 state 时，API 明确拒绝经济写，不�
 - **交易手续费**：`SELL_FEE_RATE = Decimal("0")`，当前硬编码为 0，待后续决策后才开启。
 - **初始余额**：新用户注册获得 `settings.INITIAL_BALANCE` 的初始现金（由 `.env` 配置，`.env.example` 示例为 100）。注：`User.cash` 模型层另有 `default=500`，与 `INITIAL_BALANCE` 存在双重定义不一致（已知待清理项）。
 - **强平死锁处理**：`liquidation_sweep` 的锁顺序（user → outcomes）与 `market.py` hot path（market → user → outcomes）存在潜在环形等待；sweep 层捕获 `DeadlockError` 后跳过该用户本轮，下次 sweep 再试。
+
+
+## 浏览器本地交易预估与账户同步
+
+2026-10-12隔离分支已实现，尚待最终整段审阅，未发布。后端 trading_context 只批量读取账户基准、有效规则和依赖覆盖；trading_prices 只维护已提交定价投影及组 stamp。账户 economic_version 与定价 epoch/revision 分域，账户安装须覆盖 minimum_group_stamps。读接口不拥有资金状态、不在内部调用旧 HTTP，也不读取称号／图表／成交历史。
+
+原事务 owner 在成功 commit 后发布轻量本人提示；回滚、失败和成功幂等回放不新增通知。通知故障不能改变资金结果。account_events 使用短生命周期有界队列，认证交易流在短数据库会话结束后进入 generator。不存在长连接占用资金行锁／连接。当前单进程投影由生命周期启动／关闭，错过通知可由新首包或15s版本校对重新读取权威状态。
+
+前端 fxSimulation/tradingRisk 负责纯模拟、整组LMSR滚动清算、账面与清算双净值；tradingSession 负责版本覆盖、统一时钟及单个在途刷新。行情只改变定价组和本地派生，不触发 summary／net quote；200ms合并账户事件，活跃页面15000ms只核对版本，1000ms只本地计息。后台停止校对，回前台先恢复权威覆盖，账号切换废弃旧 HTTP／SSE／通知。账户改变刷新 context，只有定价落后补 prices；规则身份变更单独同步。
+
+非线性利息及LMSR仍有近似误差；无法约束的边界／缺价保持 unknown，stale 不能显示健康或授权增险。纯减仓沿原服务端路径。旧 pending 保留账号、入口、完整请求和编号，不因提示推定成功；融资同意捕获金额，后续行情不扩大授权。旧 spot 本来没有持久 pending 存储，本轮没有宣称为其新增恢复机制。图表仍沿用公共流，与私有账户流分离。
+
+[验证记录](browser-local-trading-validation-2026-10-12.md)列出检查、指标限制及未验收范围；尤其不能将 mock 请求计数当成真实网络吞吐。

@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -89,12 +90,15 @@ def test_parse_csv_dedupes_within_input():
 
 
 @pytest.mark.asyncio
-async def test_purchase_happy_path(setup_db):
+async def test_purchase_happy_path(setup_db, private_events):
     uid = await _seed_user(Decimal("100"))
     bid = await _seed_batch(Decimal("30"), ["A1", "A2"])
+    queue = private_events(uid)
     async with async_session_maker() as s:
         result = await purchase_code(s, user_id=uid, batch_id=bid)
+        assert queue.get_nowait()[1]["economic_version"] == "1"
         await s.commit()
+        assert queue.empty()
     assert result.code_string in {"A1", "A2"}
     assert result.paid_amount == Decimal("30")
     async with async_session_maker() as s:

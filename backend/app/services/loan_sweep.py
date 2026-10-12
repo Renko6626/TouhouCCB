@@ -4,6 +4,7 @@
 - reschedule(interval_sec)：管理员改间隔后调用
 """
 from __future__ import annotations
+from app.services.account_events import notifying_transaction
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -72,7 +73,7 @@ async def run_sweep_once() -> int:
     touched = 0
     for uid in ids:
         async with async_session_maker() as session:
-            async with session.begin():
+            async with notifying_transaction(session, session.begin(), "interest"):
                 result = await session.execute(
                     select(User).where(User.id == uid).with_for_update()
                 )

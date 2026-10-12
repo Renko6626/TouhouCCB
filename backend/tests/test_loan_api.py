@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -53,12 +54,15 @@ async def test_quota_returns_fields(client):
 
 
 @pytest.mark.asyncio
-async def test_borrow_success_updates_cash_and_debt(client):
+async def test_borrow_success_updates_cash_and_debt(client, private_events):
     uid, h = await _make_user(cash=Decimal("1000"))
+    queue = private_events(uid)
     r = await client.post("/api/v1/loan/borrow", json={"amount": "500"}, headers=h)
     assert r.status_code == 200, r.text
     async with async_session_maker() as s:
         u = await s.get(User, uid)
+    assert queue.get_nowait()[1]["economic_version"] == str(u.economic_version)
+    assert queue.empty()
     assert u.cash == Decimal("1500.000000")
     assert u.debt == Decimal("500.000000")
     assert u.debt_last_accrued_at is not None

@@ -1,5 +1,6 @@
 """FX liquidity funding and withdrawals, preserving accounting and pair gates."""
 from __future__ import annotations
+from app.services.trading_prices import notify_pricing_changed
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -25,6 +26,7 @@ async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreig
                     operator_user_id: int):
     OWNERSHIP.require_writes()
     await db.commit()
+    notify_pricing_changed(())
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
         return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
 
@@ -52,7 +54,9 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
                                   "treasury_before": {"gold": before["treasury_gold"], "foreign": before["treasury_foreign"]},
                                   "pool_after": {"gold": str(pair.gold_reserve), "foreign": str(pair.foreign_reserve)},
                                   "treasury_after": {"gold": str(treasury.gold_balance), "foreign": str(treasury.foreign_balance)}})
-    await db.commit(); await db.refresh(pair)
+    await db.commit()
+    notify_pricing_changed(())
+    await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)
 
 
@@ -60,6 +64,7 @@ async def withdraw_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, fo
                         operator_user_id: int):
     OWNERSHIP.require_writes()
     await db.commit()
+    notify_pricing_changed(())
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
         return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
 
@@ -87,5 +92,7 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
                                   "treasury_before": {"gold": before["treasury_gold"], "foreign": before["treasury_foreign"]},
                                   "pool_after": {"gold": str(pair.gold_reserve), "foreign": str(pair.foreign_reserve)},
                                   "treasury_after": {"gold": str(treasury.gold_balance), "foreign": str(treasury.foreign_balance)}})
-    await db.commit(); await db.refresh(pair)
+    await db.commit()
+    notify_pricing_changed(())
+    await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)

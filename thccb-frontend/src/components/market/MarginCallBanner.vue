@@ -1,15 +1,24 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useTradingSessionStore } from '@/stores/tradingSession'
 import { useUserStore } from '@/stores/user'
-
-const userStore = useUserStore()
-
-const status = computed(() => userStore.summary?.risk_status ?? 'healthy')
-const visible = computed(() => !!userStore.summary && status.value !== 'healthy')
+import { useAuthStore } from '@/stores/auth'
+import { resolveMarginBannerState } from '@/utils/creditRiskStatus'
+const props = withDefaults(defineProps<{ trading?: boolean }>(), { trading: false })
+const session = useTradingSessionStore(), userStore = useUserStore(), auth = useAuthStore()
+const state = computed(() => resolveMarginBannerState({ trading: props.trading,
+  authenticated: auth.isAuthenticated, ready: session.ready, preview: session.accountPreview, summary: userStore.summary }))
+const status = computed(() => state.value.status)
+const visible = computed(() => state.value.visible)
 const message = computed(() => {
-  if (status.value === 'blocked') return userStore.summary?.blocked_reason || '账户估值待恢复，请刷新资产概览。'
-  if (status.value === 'danger') return '账户保证金率低于强平线，请还款或减少风险持仓。'
-  return '账户保证金率低于新增风险门槛，可尝试还款或回补减仓。'
+  if (status.value === 'blocked') return props.trading
+    ? '账户正在同步或估值未知，新增风险需等待恢复。'
+    : state.value.blockedReason || '账户估值待恢复，请刷新资产概览。'
+  if (status.value === 'danger') return props.trading
+    ? '本地清算预估低于强平线，请还款或减少风险持仓。'
+    : '账户保证金率低于强平线，请还款或减少风险持仓。'
+  return props.trading ? '本地清算预估低于新增风险门槛，可尝试还款或回补减仓。'
+    : '账户保证金率低于新增风险门槛，可尝试还款或回补减仓。'
 })
 </script>
 

@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 """CloseCmd/ResumeCmd/ResolveCmd op 单元测试（fixture 拷贝自 test_writer_buy.py，文件间不共享 import）。"""
 from decimal import Decimal
 
@@ -89,7 +90,7 @@ async def test_resume_requires_halt():
 
 
 @pytest.mark.asyncio
-async def test_resolve_pays_winner_deletes_positions_and_settles():
+async def test_resolve_pays_winner_deletes_positions_and_settles(private_events):
     mid, oids = await _seed_market(shares=("0", "0"))
     uid_w = await _seed_user()          # 买赢家
     uid_l = await _seed_user2()         # 买输家
@@ -98,8 +99,11 @@ async def test_resolve_pays_winner_deletes_positions_and_settles():
     await WRITER.submit(_buy(mid, oids[1], uid_l, shares="10", accept_any_slippage=True))
     async with async_session_maker() as s:
         cash_w_before = (await s.get(User, uid_w)).cash
+    queue = private_events(uid_w)
     res = await WRITER.submit(ResolveCmd(
         market_id=mid, winning_outcome_id=oids[0], payout=Decimal("1"), admin_id=uid_w))
+    assert queue.get_nowait()[1]["reason"] == "lmsr"
+    assert queue.empty()
     assert res.status == MarketStatus.SETTLED
     assert res.winning_outcome_id == oids[0]
     assert res.total_payout == Decimal("10.000000")

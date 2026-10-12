@@ -98,8 +98,15 @@ async def lifespan(app: FastAPI):
     """
     try:
         await _startup(app)
+        from app.services.trading_prices import PUBLISHER, REGISTRY
+        REGISTRY.reset()
+        PUBLISHER.start()
         yield
     finally:
+        from app.services.trading_prices import PUBLISHER
+        from app.services.account_events import EVENTS
+        EVENTS.close()
+        await PUBLISHER.stop()
         await _shutdown()
 
 
@@ -428,6 +435,9 @@ async def log_requests(request: Request, call_next):
 # 登录：POST /api/v1/auth/jwt/login
 # 查看自己：GET /api/v1/auth/me
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+from app.api.v1 import user_trading
+app.include_router(user_trading.stream_router, prefix="/api/v1/stream", tags=["UserTrading"])
+app.include_router(user_trading.router, prefix="/api/v1/user", tags=["UserTrading"])
 app.include_router(user.router, prefix="/api/v1/user", tags=["UserAssets"])
 app.include_router(market.router, prefix="/api/v1/market", tags=["Market"])
 app.include_router(chart.router, prefix="/api/v1/chart", tags=["Chart"])

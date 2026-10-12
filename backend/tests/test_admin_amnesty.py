@@ -1,3 +1,4 @@
+from tests.test_account_events import private_events
 """「大赦天下」批量重置：清债（先结息）+ 现金还原到目标值；持仓不动。"""
 import sys, os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -91,9 +92,10 @@ async def test_dry_run_previews_without_writing(client, admin_headers):
 
 
 @pytest.mark.asyncio
-async def test_execute_resets_cash_and_clears_debt_with_single_ledger_entry(client, admin_headers):
+async def test_execute_resets_cash_and_clears_debt_with_single_ledger_entry(client, admin_headers, private_events):
     rich = await _seed(cash="500", debt="0")
     poor = await _seed(cash="3", debt="80")
+    rich_events, poor_events = private_events(rich), private_events(poor)
     r = await client.post(URL, headers=admin_headers, json=_req(dry_run=False))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -101,6 +103,9 @@ async def test_execute_resets_cash_and_clears_debt_with_single_ledger_entry(clie
     assert body["total_debt_forgiven"] == 80.0
 
     u_rich, u_poor = await _get(rich), await _get(poor)
+    assert rich_events.get_nowait()[1]["economic_version"] == str(u_rich.economic_version)
+    assert poor_events.get_nowait()[1]["economic_version"] == str(u_poor.economic_version)
+    assert rich_events.empty() and poor_events.empty()
     assert u_rich.cash == Decimal("100") and u_rich.debt == 0
     assert u_poor.cash == Decimal("100") and u_poor.debt == 0
     assert u_poor.debt_last_accrued_at is None

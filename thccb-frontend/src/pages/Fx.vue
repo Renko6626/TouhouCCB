@@ -4,6 +4,7 @@ import { useMessage } from 'naive-ui'
 import { useRoute } from 'vue-router'
 import {
   FxPendingShortOrder,
+  addFxAmounts,
   computeMaxGoldIn,
   subtractFxAmounts,
   compareFxAmounts,
@@ -17,15 +18,17 @@ import {
   mapFxError,
 } from '@/api/fx'
 import type { FxPendingShortRequest } from '@/api/fx'
-import { userApi } from '@/api/user'
+import { useTradingSessionStore } from '@/stores/tradingSession'
+import { accrueTradingDebt } from '@/utils/tradingRisk'
+import { quoteFx, simulateFxShortCover, valueFxPostTrade } from '@/utils/fxSimulation'
+import { safeEconomicVersion } from '@/api/fxNetTrading'
 import { useAuthStore } from '@/stores/auth'
 import type { UserSummary } from '@/types/user'
 import { useFxResource } from '@/composables/useFxResource'
-import { useFxShortQuote, type ShortQuoteOrder } from '@/composables/useFxShortQuote'
+import type { ShortQuoteOrder } from '@/composables/useFxShortQuote'
 import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
-import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade } from '@/types/fx'
+import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
-import { useFxNetQuote } from '@/composables/useFxNetQuote'
 import FxOrderSize from '@/components/market/FxOrderSize.vue'
 import FxExecutionPrice from '@/components/market/FxExecutionPrice.vue'
 import FxPostTradeMargin from '@/components/market/FxPostTradeMargin.vue'
@@ -72,6 +75,13 @@ defineOptions({ name: 'FxPage' })
 const msg = useMessage()
 const route = useRoute()
 const authStore = useAuthStore()
+const tradingSession = useTradingSessionStore()
+let tradingLease: number | undefined
+const confirmedBorrow = ref('0')
+const currentPricing = computed(() => {
+  const group = tradingSession.groups.get(`fx:${pairId.value}`)
+  return group?.product === 'fx' ? group : null
+})
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -171,9 +181,13 @@ const activePair = computed(() =>
 const tradable = computed(() => fxPairAllowsSide(activePair.value, 'sell'))
 const currencyName = computed(() => activePair.value?.currency_name ?? '外币')
 /** 交易面板顶部按方向显示对应的有效买卖价 */
-const sidePrice = computed(() =>
-  side.value === 'buy' ? snapshot.value?.buy_price : snapshot.value?.sell_price,
-)
+const localReferencePrice = computed(() => divideFxAmount(currentPricing.value?.gold_reserve, currentPricing.value?.foreign_reserve, 12))
+const sidePrice = computed(() => {
+  const p = currentPricing.value, price = localReferencePrice.value
+  if (!p || !price) return null
+  return side.value === 'buy' ? divideFxAmount(price, subtractFxAmounts('1', p.buy_fee_rate) ?? undefined, 12)
+    : multiplyFxAmount(price, subtractFxAmounts('1', p.sell_fee_rate) ?? '0')
+})
 
 const amountValid = computed(
   () =>
@@ -221,7 +235,7 @@ const minOut = computed(() =>
 )
 const minOutDisplay = computed(() => (minOut.value ? formatFxAmount(minOut.value) : '—'))
 const effectiveGoldPerForeign = computed(() => (quote.value ? fxGoldPerForeign(quote.value) : null))
-const holdingValue = computed(() => fxHoldingValue(wallet.value, snapshot.value?.price))
+const holdingValue = computed(() => fxHoldingValue(wallet.value, localReferencePrice.value))
 const shortHoldingPnl = computed(() =>
   shortPosition.value?.reference_cover_cost == null
     ? null
@@ -320,7 +334,6 @@ const shortReceiptCurrency = computed(
 const shortSubmitter = new FxPendingShortOrder(authStore.user?.id ?? null)
 const pendingShort = ref<FxPendingShortRequest | null>(shortSubmitter.pending)
 const shortUnresolved = ref(shortSubmitter.hasUnresolved)
-let shortReadGeneration = 0
 let shortAccountGeneration = 0
 const borrowSubmitter = new FxPendingBorrowBuyOrder(authStore.user?.id ?? null)
 const borrowPending = ref(borrowSubmitter.pending)
@@ -342,7 +355,6 @@ watch(
   () => authStore.user?.id,
   (id) => {
     holdingAuthGeneration.value++
-    shortReadGeneration++
     shortAccountGeneration++
     shortLoading.value = false
     shortFailed.value = false
@@ -405,17 +417,68 @@ const shortQuoteOrder = computed<ShortQuoteOrder | null>(() => {
         : { action, foreign_amount: shortAmount.value.trim() },
   }
 })
-const {
-  quote: shortQuote,
-  loading: shortQuoting,
-  error: shortQuoteError,
-  refresh: fetchShortQuote,
-  quotedReferencePrice: shortReferencePrice,
-} = useFxShortQuote(shortQuoteOrder, () =>
-  !snapshotFailed.value && !snapshotLoading.value && snapshot.value?.pair.id === pairId.value
-    ? snapshot.value.price
-    : null,
-)
+const shortQuote = ref<FxShortQuote | null>(null)
+const shortQuoting = ref(false)
+const shortQuoteError = ref('')
+const shortReferencePrice = computed(() => localReferencePrice.value)
+const localShortPreview = computed(() => {
+  const order = shortQuoteOrder.value, pricing = currentPricing.value
+  if (!order || !pricing) return null
+  try {
+    const foreign = order.body.cover_all ? shortPosition.value?.pending_short_debt : order.body.foreign_amount
+    if (!foreign || compareFxAmounts(foreign, '0') !== 1) return null
+    const account = tradingSession.account, rules = tradingSession.rules
+    if (!account || !rules) return null
+    const preview = order.body.action === 'cover'
+      ? simulateFxShortCover(account, pricing, rules, order.body.cover_all ? null : foreign, tradingSession.now)
+      : tradingSession.previewFx({ side: 'sell', amount: foreign, borrow_amount: '0', allow_growth: true }, order.pairId)
+    if (preview && order.body.action === 'cover') {
+      preview.account_preview = valueFxPostTrade(account, preview, [...tradingSession.groups.values()], rules,
+        tradingSession.now, tradingSession.accountPreview?.valuation_cache)
+      if (!tradingSession.ready && preview.condition !== 'rejected') {
+        preview.condition = 'unknown'; preview.unchecked_reasons.push('trading_session_not_ready')
+      }
+    }
+    const budget = order.body.action === 'cover' ? preview?.legs[0]?.input_amount ?? '' : foreign
+    return preview ? { preview, budget, foreign, order } : null
+  } catch { return null }
+})
+watch(localShortPreview, (local) => {
+  shortQuoteError.value = ''
+  if (!local) { shortQuote.value = null; return }
+  const { preview: p, order, foreign, budget } = local
+  const account = p.account_preview
+  const risk = !tradingSession.ready || account?.risk_status === 'unknown' ? 'blocked'
+    : account?.maintenance_condition === 'rejected' ? 'danger' : account?.initial_condition === 'rejected' ? 'warning' : 'healthy'
+  const wrongEntry = order.body.action === 'open' && hasSpotHolding.value
+  shortQuote.value = {
+    pair_id: order.pairId, action: order.body.action, purpose: order.body.action === 'open' ? 'short_open' : 'short_cover',
+    requested_foreign_amount: order.body.foreign_amount ?? null, cover_all: !!order.body.cover_all,
+    actual_foreign_amount: foreign, input_amount: budget, output_amount: p.output_amount,
+    fee_amount: p.fee_amount, fee_currency: order.body.action === 'open' ? currencyName.value : '金圆券',
+    restricted_gold_delta: p.restricted_gold_delta, available_cash: account?.available_cash ?? null,
+    affordable: p.rejected_reasons.length === 0, estimated_equity: account?.liquidation_equity ?? null,
+    estimated_risk_basis: account?.risk_basis ?? null, margin_status: risk, risk_status: risk,
+    risk_blocked_reason: account?.unknown_reasons.join('、') || null,
+    executable: !wrongEntry && (p.condition === 'satisfied' || (order.body.action === 'cover' && p.condition === 'unknown' && p.rejected_reasons.length === 0 && compareFxAmounts(p.growth_amount, '0') === 0)),
+    blocked_reason: wrongEntry ? 'spot_position_exists' : p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
+    expires_at: new Date(Date.now() + 30000).toISOString(),
+  }
+}, { flush: 'sync' })
+async function fetchShortQuote() {
+  await tradingSession.checkVersions()
+  // Explicit reduction fallback keeps the original authoritative cover entry available.
+  if (localShortPreview.value || shortAction.value !== 'cover') return
+  const order = shortQuoteOrder.value, generation = shortAccountGeneration
+  if (!order) return
+  shortQuoting.value = true
+  try {
+    const result = await fxApi.quoteShort(order.pairId, order.body)
+    if (generation === shortAccountGeneration && shortQuoteOrder.value === order) shortQuote.value = result
+  } catch (e) {
+    if (generation === shortAccountGeneration) shortQuoteError.value = mapFxError(e, '回补报价失败')
+  } finally { if (generation === shortAccountGeneration) shortQuoting.value = false }
+}
 const shortAveragePrice = computed(() =>
   shortQuote.value ? fxShortGoldPerForeign(shortQuote.value) : null,
 )
@@ -424,9 +487,7 @@ const canFillShortOpen = computed(
     !submitting.value &&
     !pendingRisk.value &&
     !shortStorageBlocked.value &&
-    !snapshotLoading.value &&
-    !snapshotFailed.value &&
-    snapshot.value?.pair.id === pairId.value,
+    !!currentPricing.value && tradingSession.ready,
 )
 const canFillCoverAll = computed(
   () => !submitting.value && !pendingRisk.value && !shortStorageBlocked.value,
@@ -468,7 +529,7 @@ function updateShortGoldAmount(gold: string) {
   shortGoldAmount.value = gold
   shortAmount.value = ''
   if (!canFillShortOpen.value || !/^\d+(\.\d{0,6})?$/.test(gold.trim())) return
-  const quantity = divideFxAmount(gold, snapshot.value?.price, 6)
+  const quantity = divideFxAmount(gold, localReferencePrice.value, 6)
   if (quantity == null || compareFxAmounts(quantity, '0') !== 1) {
     return
   }
@@ -478,7 +539,7 @@ function setShortSizeUnit(unit: 'gold' | 'foreign') {
   if (submitting.value || pendingRisk.value) return
   if (unit === 'gold')
     shortGoldAmount.value = snapshot.value
-      ? (multiplyFxAmount(shortAmount.value, snapshot.value.price) ?? '')
+      ? (multiplyFxAmount(shortAmount.value, localReferencePrice.value ?? '0') ?? '')
       : ''
   shortSizeUnit.value = unit
 }
@@ -703,38 +764,51 @@ async function openFxTrade(next: FxSide) {
   setSide(next)
   await focusTradePanel()
 }
-async function loadShort() {
+// Shared baseline owns all pair balances; this projection is local display only.
+function syncAccountDisplay() {
+  const a = tradingSession.account, r = tradingSession.rules, p = tradingSession.accountPreview
+  summaryLoading.value = !a; walletLoading.value = !a; shortLoading.value = !a
+  summaryFailed.value = tradingSession.status === 'error'
+  walletFailed.value = summaryFailed.value; shortFailed.value = summaryFailed.value
+  if (!a || !r || !p || a.user_id !== authStore.user?.id) return
+  const risk = !tradingSession.ready || p.risk_status === 'unknown' ? 'blocked'
+    : p.maintenance_condition === 'rejected' ? 'danger' : p.initial_condition === 'rejected' ? 'warning' : 'healthy'
+  const fxMtm = a.fx_wallets.reduce((n, w) => n + Number(p.group_values[`fx:${w.pair_id}`]?.mtm ?? 0), 0)
+  const fxBasis = a.fx_wallets.reduce((n, w) => n + Number(w.cost_basis), 0)
+  summary.value = {
+    cash: Number(a.cash), debt: Number(a.debt), debt_with_interest: p.gold_debt == null ? null : Number(p.gold_debt),
+    available_cash: p.available_cash,
+    display_equity: p.display_equity == null ? null : Number(p.display_equity),
+    liquidation_equity: p.liquidation_equity == null ? null : Number(p.liquidation_equity), risk_basis: p.risk_basis,
+    equity_to_risk_basis: p.liquidation_equity && p.risk_basis && compareFxAmounts(p.risk_basis, '0') === 1
+      ? Number(divideFxAmount(p.liquidation_equity, p.risk_basis, 12)) : null,
+    risk_status: risk, blocked_reason: p.unknown_reasons.join('、'), credit_frozen: a.credit_frozen,
+    new_risk_frozen: r.credit_new_risk_frozen, credit_leverage: r.leverage == null ? null : Number(r.leverage),
+    r_initial: r.initial_ratio == null ? null : Number(r.initial_ratio),
+    r_maintenance: r.maintenance_ratio == null ? null : Number(r.maintenance_ratio),
+    positions: a.lmsr_positions.filter(v => v.market_id != null).map(v => ({ market_id: v.market_id!, outcome_id: v.outcome_id, amount: Number(v.amount), cost_basis: Number(v.cost_basis) })),
+    fx_mtm: fxMtm, fx_cost_basis: fxBasis, fx_unrealized_pnl: fxMtm - fxBasis,
+    sell_fee_rate: Number(r.lmsr_sell_fee_rate), rank_thresholds: [], last_liquidated_at: a.last_liquidated_at,
+  }
   const pid = pairId.value
   if (!pid) return
-  const holdingGeneration = holdingAuthGeneration.value
-  const generation = ++shortReadGeneration
-  shortLoading.value = true
+  wallet.value = a.fx_wallets.find(v => v.pair_id === pid) ?? { pair_id: pid, foreign_amount: '0', cost_basis: '0' }
+  walletHoldingGeneration.value = holdingAuthGeneration.value; shortHoldingGeneration.value = holdingAuthGeneration.value
+  const row = a.fx_shorts.find(v => v.pair_id === pid)
+  if (!row) { shortPosition.value = null; return }
+  let debt: string | null = null, cost: string | null = null, fee: string | null = null
   try {
-    const row = await fxApi.getShort(pid)
-    if (
-      pid === pairId.value &&
-      generation === shortReadGeneration &&
-      holdingGeneration === holdingAuthGeneration.value
-    ) {
-      shortPosition.value = row
-      shortFailed.value = false
-      shortHoldingGeneration.value = holdingGeneration
+    debt = accrueTradingDebt(addFxAmounts(row.principal_foreign, row.interest_foreign) ?? 'invalid', row.interest_last_accrued_at, r.loan_daily_rate, tradingSession.now).amount
+    if (currentPricing.value && compareFxAmounts(debt, '0') === 1) {
+      const cover = quoteFx('buyExactOut', debt, currentPricing.value)
+      cost = cover.input_amount; fee = cover.fee_amount
     }
-  } catch {
-    if (
-      pid === pairId.value &&
-      generation === shortReadGeneration &&
-      holdingGeneration === holdingAuthGeneration.value
-    ) {
-      shortFailed.value = true
-      // Snapshot failures belong to the holdings warning. A successful cover
-      // quote may still be executable, so do not label its order as failed.
-    }
-  } finally {
-    if (generation === shortReadGeneration && holdingGeneration === holdingAuthGeneration.value)
-      shortLoading.value = false
-  }
+  } catch { /* Unsupported accrued debt stays unknown. */ }
+  shortPosition.value = { ...row, currency_code: activePair.value?.currency_code ?? '', pending_short_debt: debt,
+    reference_cover_cost: cost, reference_cover_fee: fee, executable: false,
+    risk_status: risk, blocked_reason: p.unknown_reasons.join('、') || null }
 }
+watch([() => tradingSession.accountPreview, () => tradingSession.ready, () => tradingSession.status, pairId], syncAccountDisplay)
 watch(
   [shortAction, shortAmount, coverAll, pairId],
   () => {
@@ -767,12 +841,13 @@ async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
     }
     amount.value = ''
     syncBorrowState()
+    msg.success(result.replay ? '已确认原融资成交' : '借款并买入已成交')
     await refreshAll()
     if (generation !== borrowGeneration) return
     chartReloadToken.value++
     if (summaryFailed.value || walletFailed.value || tradesFailed.value || snapshotFailed.value)
       borrowError.value = '借款买入已完成，部分账户或行情信息刷新失败，请更新账户后再下单。'
-    else msg.success(result.replay ? '已确认原融资成交' : '借款并买入已成交')
+
   } catch (e) {
     if (generation !== borrowGeneration) return
     borrowError.value = completed
@@ -917,22 +992,14 @@ async function loadTrades() {
   if (pid) await tradeResource.load(() => fxApi.getMyTrades(pid, 50))
 }
 
-async function loadWallet() {
-  const pid = pairId.value
-  if (pid) {
-    const holdingGeneration = holdingAuthGeneration.value
-    await walletResource.load(() => fxApi.getWallet(pid))
-    if (holdingGeneration === holdingAuthGeneration.value)
-      walletHoldingGeneration.value = holdingGeneration
-  }
+function loadSummary() { tradingSession.requestRefresh(undefined, 'manual_refresh') }
+function startAccountSession() {
+  if (pairId.value) tradingLease = tradingSession.start({ product: 'fx', id: pairId.value })
 }
-
-async function loadSummary() {
-  await summaryResource.load(() => userApi.getSummary())
-}
-
 async function refreshAll() {
-  await Promise.allSettled([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+  startAccountSession()
+  tradingSession.requestRefresh(undefined, 'fx_refresh')
+  await Promise.allSettled([loadSnapshot(), loadTrades()])
 }
 
 // ── SSE ──
@@ -971,7 +1038,7 @@ function connectStream() {
       streamConnected.value = true
       streamFailed.value = false
       if (reconnected) {
-        void refreshAll()
+        void loadSnapshot()
         chartReloadToken.value += 1
       }
     })
@@ -994,7 +1061,6 @@ async function selectPair(id: number) {
   stream?.disconnect()
   streamConnected.value = false
   error.value = null
-  shortReadGeneration++
   shortReceipt.value = null
   shortQuote.value = null
   shortPosition.value = null
@@ -1012,7 +1078,8 @@ async function selectPair(id: number) {
   snapshot.value = null
   chartEnvelope.value = null
   try {
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+    startAccountSession()
+    await Promise.all([loadSnapshot(), loadTrades()])
     if (selection === selectionGeneration) connectStream()
   } catch (e) {
     if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
@@ -1035,7 +1102,8 @@ async function load() {
   try {
     await loadPairs()
     if (pairId.value === null) return
-    await Promise.all([loadSnapshot(), loadTrades(), loadWallet(), loadSummary(), loadShort()])
+    startAccountSession()
+    await Promise.all([loadSnapshot(), loadTrades()])
     connectStream()
   } catch (e) {
     error.value = mapFxError(e, 'FX 行情加载失败')
@@ -1045,78 +1113,66 @@ async function load() {
 }
 
 watch(
-  [amount, side, pairId, () => summary.value?.economic_version],
+  [amount, side, pairId, () => tradingSession.account?.economic_version],
   () => {
     allowBorrow.value = false
   },
   { flush: 'sync' },
 )
 
-// Quotes depend on order/account changes, never each SSE price frame.
+// Financing is captured once; price changes cannot enlarge the authorized loan.
+watch(allowBorrow, (allowed) => {
+  confirmedBorrow.value = allowed ? fundingAmounts.value?.shortfall ?? '0' : '0'
+}, { flush: 'sync' })
 const netOrder = computed(() =>
-  pairId.value &&
-  authStore.user?.id &&
-  tradeMode.value === 'spot' &&
-  amountValid.value &&
-  tradable.value &&
-  !pendingRisk.value &&
-  !summaryLoading.value &&
-  !summaryFailed.value
-    ? {
-        pairId: pairId.value,
-        account: String(authStore.user.id),
-        economicVersion: summary.value?.economic_version,
-        body: {
-          side: side.value,
-          amount: amount.value.trim(),
-          borrow_amount:
-            side.value === 'buy' && allowBorrow.value
-              ? (fundingAmounts.value?.shortfall ?? '0')
-              : '0',
-        },
-      }
-    : null,
+  pairId.value && authStore.user?.id && tradeMode.value === 'spot' && amountValid.value && !pendingRisk.value
+    ? { pairId: pairId.value, body: { side: side.value, amount: amount.value.trim(),
+        borrow_amount: side.value === 'buy' && allowBorrow.value ? confirmedBorrow.value : '0' } } : null,
 )
-const netQuotes = useFxNetQuote(netOrder, () =>
-  !snapshotFailed.value && !snapshotLoading.value && snapshot.value?.pair.id === pairId.value
-    ? snapshot.value.price
-    : null,
-)
-watch(
-  netQuotes.quote,
-  (q) => {
-    quote.value = q
-    if (
-      q &&
-      allowBorrow.value &&
-      !fxNetFundingPreview(
-        amount.value,
-        summary.value,
-        shortPosition.value?.pair_id === pairId.value ? shortPosition.value : null,
-        q,
-      )?.loanApplicable
-    )
-      allowBorrow.value = false
-    quoteUpdatedAt.value = q ? Date.now() : 0
-    now.value = Date.now()
-  },
-  { flush: 'sync' },
-)
-watch(
-  netQuotes.loading,
-  (v) => {
-    quoting.value = v
-  },
-  { flush: 'sync' },
-)
-watch(netQuotes.error, (v) => {
-  tradeError.value = v || null
-})
-watch(netQuotes.quotedReferencePrice, (v) => {
-  quoteReferencePrice.value = v
-})
+const localOrderPreview = computed(() => netOrder.value
+  ? tradingSession.previewFx({ ...netOrder.value.body, allow_growth: !closeOnly.value }, netOrder.value.pairId) : null)
+watch(localOrderPreview, (p) => {
+  const order = netOrder.value, pricing = currentPricing.value
+  const economicVersion = safeEconomicVersion(tradingSession.account?.economic_version)
+  const poolVersion = safeEconomicVersion(pricing?.pool_version)
+  quoteReferencePrice.value = localReferencePrice.value; quoting.value = false
+  if (!p || !order || !pricing || economicVersion == null || poolVersion == null) {
+    quote.value = null
+    tradeError.value = economicVersion == null && tradingSession.account ? '账户版本超出安全范围，暂不能提交。' : null
+    return
+  }
+  let g = pricing.gold_reserve, f = pricing.foreign_reserve
+  const legs = p.legs.map(leg => {
+    const result = { ...leg, input_currency: leg.side === 'buy' ? 'GOLD' : activePair.value?.currency_code ?? 'FOREIGN',
+      output_currency: leg.side === 'sell' ? 'GOLD' : activePair.value?.currency_code ?? 'FOREIGN',
+      pre_gold_reserve: g, pre_foreign_reserve: f }
+    g = leg.post_gold_reserve; f = leg.post_foreign_reserve
+    return result
+  })
+  quote.value = {
+    pair_id: order.pairId, side: order.body.side, input_amount: order.body.amount,
+    output_amount: p.output_amount, fee_amount: p.fee_amount, post_price: divideFxAmount(g, f, 12) ?? '0', legs,
+    final_direction: p.final_direction, wallet_after: p.wallet_after, foreign_debt_after: p.foreign_debt_after,
+    cash_delta: p.cash_delta, gold_debt_delta: p.gold_debt_delta, restricted_gold_delta: p.restricted_gold_delta,
+    growth_amount: p.growth_amount, borrow_amount: order.body.borrow_amount, repaid_gold: p.repaid_gold,
+    executable: p.condition === 'satisfied' || (closeOnly.value && p.condition === 'unknown' && p.rejected_reasons.length === 0 && compareFxAmounts(p.growth_amount, '0') === 0),
+    blocked_reason: p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
+    economic_version: economicVersion, pool_version: poolVersion, expires_at: new Date(Date.now() + 30000).toISOString(),
+  }
+  quoteUpdatedAt.value = Date.now(); now.value = Date.now()
+}, { flush: 'sync' })
 async function fetchQuote() {
-  await netQuotes.refresh()
+  await tradingSession.checkVersions()
+  if (localOrderPreview.value || !closeOnly.value) return
+  const order = netOrder.value, account = authStore.user?.id
+  if (!order) return
+  quoting.value = true
+  try {
+    const result = await fxNetApi.quote(order.pairId, order.body)
+    if (account === authStore.user?.id && netOrder.value === order && closeOnly.value && compareFxAmounts(result.growth_amount, '0') === 0) quote.value = result
+  } catch (e) {
+    if (account === authStore.user?.id) tradeError.value = mapFxError(e, '减仓报价失败')
+  } finally { if (account === authStore.user?.id) quoting.value = false }
 }
 
 async function sendNet(run: () => Promise<FxNetTrade | null>) {
@@ -1255,9 +1311,9 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', resizeWorkbench)
   workbenchObserver?.disconnect()
+  if (tradingLease !== undefined) tradingSession.stop(tradingLease)
   snapshotGeneration++
   selectionGeneration++
-  shortReadGeneration++
   if (freshnessTimer) clearInterval(freshnessTimer)
   walletResource.reset()
   tradeResource.reset()
@@ -1301,7 +1357,7 @@ onUnmounted(() => {
       </div>
       <div v-if="activePair && !loading" class="fx-account-bar" aria-label="账户概览">
         <div>
-          本金（净值）
+          本金（清算净值）
           <strong>{{
             summaryLoading
               ? '刷新中…'
@@ -2015,11 +2071,14 @@ onUnmounted(() => {
                 <p>
                   {{
                     quoteUpdatedAt
-                      ? `报价更新于 ${new Date(quoteUpdatedAt).toLocaleTimeString()}，30 秒内可提交。`
+                      ? `本地预估更新于 ${new Date(quoteUpdatedAt).toLocaleTimeString()}。`
                       : '填写金额后自动报价。'
                   }}实际所得低于最低金额时交易会取消。
                 </p>
-                <p>手续费从投入中扣除。当前账户风险来自最近快照，做多能否成交以提交时检查为准。</p>
+                <p>当前账面净值 {{ tradingSession.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ tradingSession.accountPreview?.liquidation_equity ?? '未知' }}。</p>
+                <p>订单后账面净值 {{ localOrderPreview?.account_preview?.display_equity ?? '未知' }}；订单后清算净值 {{ localOrderPreview?.account_preview?.liquidation_equity ?? '未知' }}。{{ localOrderPreview?.account_preview?.error_status === 'approximate' ? '金额与风险为近似预估。' : '' }}{{ localOrderPreview?.condition === 'unknown' ? '条件待确认：' + localOrderPreview.unchecked_reasons.join('、') : '' }}</p>
+                <FxPostTradeMargin :equity="localOrderPreview?.account_preview?.liquidation_equity" :basis="localOrderPreview?.account_preview?.risk_basis" :initial="summary?.r_initial" :caution="localOrderPreview?.condition !== 'satisfied'" />
+                <p>手续费从投入中扣除。当前风险使用本地清算预估。库存、借出额度、账户版本与价格保护在提交时检查。</p>
                 <CreditRiskStatus
                   v-if="summary"
                   :ratio="
@@ -2172,6 +2231,8 @@ onUnmounted(() => {
                     >
                   </div>
                 </div>
+                <p>当前账面净值 {{ tradingSession.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ tradingSession.accountPreview?.liquidation_equity ?? '未知' }}。</p>
+                <p>订单后账面净值 {{ localShortPreview?.preview.account_preview?.display_equity ?? '未知' }}；订单后清算净值 {{ shortQuote?.estimated_equity ?? '未知' }}。{{ localShortPreview?.preview.account_preview?.error_status === 'approximate' ? '金额与风险为近似预估。' : '' }}库存、借出额度与价格保护在提交时检查。</p>
                 <FxPostTradeMargin
                   :equity="shortQuote?.estimated_equity"
                   :basis="shortQuote?.estimated_risk_basis"

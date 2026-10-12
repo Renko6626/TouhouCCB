@@ -23,6 +23,7 @@ state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
 documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
+from app.services.account_events import capture_accounts, publish_accounts
 
 import logging
 from dataclasses import dataclass, replace
@@ -528,7 +529,9 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                         await db.rollback()
                         return execution.public
                     _require_writes()
+                    account_hints = capture_accounts(db)
                     await db.commit()
+                    publish_accounts(account_hints, "trading")
                 except BaseException:
                     await _rollback_quietly(db)
                     raise

@@ -24,6 +24,7 @@ gold proceeds; covering never credits ``FxWallet`` and never auto-repays gold
 debt.
 """
 from __future__ import annotations
+from app.services.account_events import capture_accounts, publish_accounts
 
 import logging
 from dataclasses import dataclass
@@ -1505,7 +1506,9 @@ async def _execute_player_short_write(
                         await db.rollback()
                         return response
                     _require_writes()
+                    account_hints = capture_accounts(db)
                     await db.commit()
+                    publish_accounts(account_hints, "shorts")
                 except IntegrityError as exc:
                     await _rollback_quietly(db)
                     if not _is_fx_trade_idempotency_conflict(exc):
