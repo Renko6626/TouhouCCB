@@ -8,6 +8,9 @@ vi.mock('@/stores/auth', () => ({ useAuthStore: () => mocks.auth }))
 vi.mock('@/api', () => ({ authIdentityGuard: () => { const generation = mocks.auth.sessionGeneration; return () => generation === mocks.auth.sessionGeneration } }))
 vi.mock('@/api/tradingContext', () => ({ groupKey: (key: { product: string; id: number }) => `${key.product}:${key.id}`, tradingContextApi: { getContext: mocks.context, getVersions: mocks.versions, getPrices: mocks.prices } }))
 vi.mock('@/api/tradingStream', () => ({ TradingStream: class { connect(_group: unknown, handlers: TradingStreamHandlers) { mocks.handlers = handlers } close() { mocks.close() } } }))
+import { formatUnits, units } from '@/utils/fxDecimal'
+import { quoteFx } from '@/utils/fxSimulation'
+import { accrueTradingDebt } from '@/utils/tradingRisk'
 import { useTradingSessionStore } from '../tradingSession'
 import { useNotificationStore } from '../notification'
 const time = '2026-01-01T00:00:00Z'
@@ -143,10 +146,13 @@ it('keeps the context-to-subscribe gap provisional until the sync account target
   expect(store.ready).toBe(true)
 })
 it('preserves genuine full-cover interest uncertainty even if whole-account margin passes', async () => {
-  const data = context('1', [fx()], { ...basis, debt: '1', debt_last_accrued_at: '2025-12-31T23:59:59Z', fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: time, restricted_gold: '2', proceeds_basis_gold: '2' }] })
+  const data = context('1', [fx()], { ...basis, debt: '1', debt_last_accrued_at: '2025-12-31T23:59:59Z', fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: '2025-12-31T23:59:59Z', restricted_gold: '2', proceeds_basis_gold: '2' }] })
   data.rules = { ...rules, loan_daily_rate: '0.1' }
   const store = await boot(data)
-  const preview = store.previewFx({ side: 'buy', amount: '10' })!
+  const owed = accrueTradingDebt('1', '2025-12-31T23:59:59Z', '0.1', store.now).amount
+  const amount = quoteFx('buyExactOut', owed, fx()).input_amount
+  const preview = store.previewFx({ side: 'buy', amount })!
+  expect(preview.growth_amount).toBe('0.000000')
   expect(preview.account_preview!.initial_condition).toBe('satisfied')
   expect(preview.condition).toBe('unknown')
   expect(preview.unchecked_reasons).toContain('interest_exact_cover_uncertainty')
@@ -216,4 +222,27 @@ it('a forced versionless refresh survives coverage arriving for an older pending
   expect(mocks.context).toHaveBeenCalledTimes(2)
   expect(store.account!.economic_version).toBe('2')
   expect(store.ready).toBe(true)
+})
+
+it('allows a funded short-to-long reversal despite fractional-day interest rounding', async () => {
+  const data = context('1', [fx()], { ...basis, fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0.1', interest_last_accrued_at: time, restricted_gold: '5', proceeds_basis_gold: '5' }] })
+  data.rules = { ...rules, loan_daily_rate: '0.001' }
+  const store = await boot(data)
+  await vi.advanceTimersByTimeAsync(60000)
+  const preview = store.previewFx({ side: 'buy', amount: '150', borrow_amount: '50', allow_growth: true })!
+  expect(preview.account_preview?.initial_condition).toBe('satisfied')
+  expect(preview.condition).toBe('satisfied')
+  expect(preview.legs.map(leg => leg.purpose)).toEqual(['short_cover', 'borrow_buy'])
+  expect(preview.foreign_debt_after).toBe('0.000000')
+  expect(preview.account_after.debt).toBe('50.000000')
+  expect(store.account?.fx_shorts[0]?.principal_foreign).toBe('1')
+  await vi.advanceTimersByTimeAsync(60000)
+  const cover = store.previewFx({ side: 'buy', amount: '150', borrow_amount: '50' })!.legs[0]!
+  const atBoundary = store.previewFx({ side: 'buy', amount: formatUnits(units(cover.input_amount) + 1n) })!
+  expect(Number(atBoundary.growth_amount)).toBeGreaterThan(0)
+  expect(atBoundary.account_preview?.initial_condition).toBe('satisfied')
+  expect(atBoundary.condition).toBe('unknown')
+  const tooLeveraged = store.previewFx({ side: 'buy', amount: '1000', borrow_amount: '900', allow_growth: true })!
+  expect(tooLeveraged.condition).toBe('rejected')
+  expect(tooLeveraged.rejected_reasons).toContain('insufficient_initial_margin')
 })

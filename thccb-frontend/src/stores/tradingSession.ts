@@ -7,8 +7,8 @@ import { groupKey, tradingContextApi } from '@/api/tradingContext'
 import { TradingStream, type StreamFrame } from '@/api/tradingStream'
 import type { AccountBasis, AccountChanged, GroupCoverage, GroupKey, PricingGroup, TradingContext, TradingRules, TradingSessionStatus } from '@/types/tradingContext'
 import { simulateFxOrder, valueFxPostTrade, type FxOrder } from '@/utils/fxSimulation'
-import { valueTradingAccount, type AccountPreview, type TradingValuationCache } from '@/utils/tradingRisk'
-import { units } from '@/utils/fxDecimal'
+import { accrueTradingDebt, valueTradingAccount, type AccountPreview, type TradingValuationCache } from '@/utils/tradingRisk'
+import { formatUnits, units } from '@/utils/fxDecimal'
 export function compareVersion(a: string, b: string) { const x = BigInt(a), y = BigInt(b); return x < y ? -1 : x > y ? 1 : 0 }
 function covers(group: PricingGroup | undefined, minimum: GroupCoverage) {
   return !!group && group.stamp.epoch === minimum.stamp.epoch && (compareVersion(group.stamp.revision, minimum.stamp.revision) > 0 || group.stamp.revision === minimum.stamp.revision && group.stamp.input_hash === minimum.stamp.input_hash)
@@ -232,11 +232,37 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
     const whole = valueFxPostTrade(account.value, preview, [...groups.value.values()], rules.value, now.value, cache)
     // Current-only missing dependencies are replaced by complete portfolio valuation.
     const trueRejections = preview.rejected_reasons.filter(reason => reason !== 'insufficient_initial_margin')
-    const approximateCover = preview.error_status === 'approximate' && preview.legs.some(leg => leg.purpose === 'short_cover' && units(preview.foreign_debt_after) === 0n) && (units(preview.interest_uncertainty.gold) > 0n || Object.values(preview.interest_uncertainty.shorts).some(value => units(value) > 0n))
+    let approximateCover = preview.legs.some(leg => leg.purpose === 'short_cover')
+      && units(preview.foreign_debt_after) === 0n
+      && units(preview.interest_uncertainty.shorts[pairId!] ?? '0') > 0n
     const growth = units(preview.growth_amount) > 0n
+    if (approximateCover && growth && order.side === 'buy') {
+      // A full cover is ambiguous only if rounding can change admission. Check
+      // both accrued-debt bounds with the real sequential order and whole portfolio.
+      const target = account.value.fx_shorts.find(row => row.pair_id === pairId)
+      if (target) {
+        try {
+          const accrued = accrueTradingDebt(formatUnits(units(target.principal_foreign) + units(target.interest_foreign)), target.interest_last_accrued_at, rules.value.loan_daily_rate, now.value)
+          const center = units(accrued.amount), error = units(accrued.uncertainty)
+          const bounds = [center > error ? center - error : 0n, center + error]
+          approximateCover = !bounds.every(total => {
+            const principal = units(target.principal_foreign) < total ? units(target.principal_foreign) : total
+            const boundedAccount = { ...account.value!, fx_shorts: account.value!.fx_shorts.map(row => row === target
+              ? { ...row, principal_foreign: formatUnits(principal), interest_foreign: formatUnits(total - principal), interest_last_accrued_at: now.value }
+              : row) }
+            const bounded = simulateFxOrder(boundedAccount, pricing, rules.value!, order, now.value)
+            const risk = valueFxPostTrade(boundedAccount, bounded, [...groups.value.values()], rules.value!, now.value)
+            return bounded.rejected_reasons.every(reason => reason === 'insufficient_initial_margin')
+              && bounded.final_direction === 'long' && units(bounded.growth_amount) > 0n
+              && units(bounded.foreign_debt_after) === 0n && risk.initial_condition === 'satisfied'
+          })
+        } catch { /* Keep admission unknown if either bound cannot be valued. */ }
+      }
+    }
     if (growth && whole.has_debt !== false && whole.initial_condition === 'rejected') trueRejections.push('insufficient_initial_margin')
     preview.rejected_reasons = trueRejections; preview.account_preview = whole
-    if (!approximateCover) preview.unchecked_reasons = preview.unchecked_reasons.filter(reason => reason !== 'interest_exact_cover_uncertainty')
+    preview.unchecked_reasons = preview.unchecked_reasons.filter(reason => reason !== 'interest_exact_cover_uncertainty')
+    if (approximateCover) preview.unchecked_reasons.unshift('interest_exact_cover_uncertainty')
     if (!ready.value) preview.unchecked_reasons.push('trading_session_not_ready')
     if (growth && whole.initial_condition === 'unknown') preview.unchecked_reasons.push(...whole.unknown_reasons)
     preview.condition = trueRejections.length ? 'rejected' : !ready.value || approximateCover || growth && whole.has_debt !== false && whole.initial_condition === 'unknown' ? 'unknown' : 'satisfied'

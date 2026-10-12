@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { NButton, NInputNumber, NSelect } from 'naive-ui'
+import { formatFxAmount } from '@/api/fx'
 import type { AccountPreview } from '@/utils/tradingRisk'
 import type { SelectOption } from 'naive-ui'
 import { useTradingSessionStore } from '@/stores/tradingSession'
@@ -199,8 +200,6 @@ const actionHint = computed<string>(() => {
 <template>
   <div class="trade-panel">
     <!-- 资产概览条 -->
-    <p v-if="authStore.isAuthenticated" class="trade-hint">本地预估{{ session.accountPreview?.error_status === 'approximate' ? '（近似）' : '' }}；当前账面净值 {{ session.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ session.accountPreview?.liquidation_equity ?? '未知' }}。库存、版本与价格保护在提交时检查。</p>
-    <p v-if="props.postTradePreview" class="trade-hint">订单后账面净值 {{ props.postTradePreview.display_equity ?? '未知' }}；订单后清算净值 {{ props.postTradePreview.liquidation_equity ?? '未知' }}。{{ !session.ready || props.postTradePreview.initial_condition === 'unknown' ? '风险条件待确认。' : props.postTradePreview.initial_condition === 'rejected' ? '低于新增风险门槛。' : '已满足已知本地风险条件。' }}</p>
     <div v-if="authStore.isAuthenticated && userStore.summary" class="asset-bar">
       <div class="asset-item">
         <span class="asset-label">总现金</span>
@@ -208,11 +207,11 @@ const actionHint = computed<string>(() => {
       </div>
         <div class="asset-item">
           <span class="asset-label">未锁定现金</span>
-          <span class="asset-value">金 {{ session.accountPreview?.available_cash ?? '—' }}</span>
+          <span class="asset-value">金 {{ formatFxAmount(session.accountPreview?.available_cash, 2) }}</span>
         </div>
         <div class="asset-item">
           <span class="asset-label" title="空头锁定所得（专用于回补）">空头锁金</span>
-          <span class="asset-value">金 {{ session.account?.fx_shorts.reduce((sum, row) => sum + Number(row.restricted_gold), 0).toFixed(6) ?? '—' }}</span>
+          <span class="asset-value">金 {{ session.account?.fx_shorts.reduce((sum, row) => sum + Number(row.restricted_gold), 0).toFixed(2) ?? '—' }}</span>
         </div>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
@@ -233,6 +232,19 @@ const actionHint = computed<string>(() => {
         <span class="asset-value asset-value--highlight">金 {{ session.accountPreview?.display_equity == null ? '估值待恢复' : Number(session.accountPreview.display_equity).toFixed(2) }}</span>
       </div>
     </div>
+
+    <details v-if="authStore.isAuthenticated" class="account-details">
+      <summary>账户与风控明细</summary>
+      <div><span>当前账面净值</span><strong>金 {{ formatFxAmount(session.accountPreview?.display_equity, 2) }}</strong></div>
+      <div><span>当前清算净值</span><strong>金 {{ formatFxAmount(session.accountPreview?.liquidation_equity, 2) }}</strong></div>
+      <template v-if="props.postTradePreview">
+        <div><span>成交后账面净值</span><strong>金 {{ formatFxAmount(props.postTradePreview.display_equity, 2) }}</strong></div>
+        <div><span>成交后清算净值</span><strong>金 {{ formatFxAmount(props.postTradePreview.liquidation_equity, 2) }}</strong></div>
+        <p v-if="!session.ready || props.postTradePreview.initial_condition === 'unknown'">风险条件待确认。</p>
+        <p v-else-if="props.postTradePreview.initial_condition === 'rejected'" class="account-risk-warning">低于新增风险门槛。</p>
+      </template>
+      <p>本地预估{{ session.accountPreview?.error_status === 'approximate' ? '（近似）' : '' }}，实际成交时检查库存、账户版本和价格保护。</p>
+    </details>
 
     <!-- 买/卖切换 -->
     <div class="type-switch">
@@ -403,10 +415,16 @@ const actionHint = computed<string>(() => {
   background: #fff;
 }
 
+.account-details { font-size: 11px; color: #777; }
+.account-details summary { cursor: pointer; }
+.account-details > div { display: flex; justify-content: space-between; gap: 8px; margin-top: 5px; }
+.account-details strong { text-align: right; overflow-wrap: anywhere; }
+.account-details p { margin: 6px 0 0; line-height: 1.5; }
+.account-risk-warning { color: var(--color-down); }
 /* 资产概览 */
 .asset-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 8px 8px;
   background: #000;
