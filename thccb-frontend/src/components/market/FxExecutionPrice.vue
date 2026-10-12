@@ -15,7 +15,7 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
 <template>
   <div class="execution-price">
     <div class="price-row">
-      <span>预计成交均价（含费）</span>
+      <span>成交均价（含费）</span>
       <strong
         >{{ formatFxPrice(average) }} <small>金圆券 / {{ currency }}</small></strong
       >
@@ -23,9 +23,9 @@ const prominent = computed(() => deviation.value != null && deviation.value >= 1
     <div
       class="deviation-row"
       :class="{ prominent }"
-      :title="`相对本次预估同组输入的参考汇率 ${formatFxPrice(reference)} 金圆券 / ${currency}，已计入手续费。`"
+      :title="`成交均价与参考汇率 ${formatFxPrice(reference)} 金圆券 / ${currency}的差异，已含手续费。`"
     >
-      <span>偏离参考价（含费）</span>
+      <span>偏离参考价</span>
       <strong>{{ deviation == null ? '—' : `${(deviation / 100).toFixed(2)}%` }}</strong>
     </div>
   </div>

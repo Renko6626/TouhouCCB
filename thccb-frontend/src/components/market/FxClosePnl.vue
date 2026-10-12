@@ -18,7 +18,11 @@ const direction = computed(() => compareFxAmounts(props.pnl, '0'))
         >{{ direction === 1 ? '+' : '' }}{{ formatFxAmount(pnl, 2) }} <small>金圆券</small></strong
       >
     </div>
-    <p>{{ pnl == null ? unavailable : note }}</p>
+    <p v-if="pnl == null">{{ unavailable }}</p>
+    <details v-else class="pnl-note">
+      <summary>盈亏说明</summary>
+      <p>{{ note }}</p>
+    </details>
   </div>
 </template>
 
@@ -55,6 +59,14 @@ small {
 }
 .loss strong {
   color: var(--color-down);
+}
+summary {
+  color: #777;
+  font-size: 10px;
+  cursor: pointer;
+}
+.pnl-note {
+  margin-top: 4px;
 }
 p {
   margin: 4px 0 0;

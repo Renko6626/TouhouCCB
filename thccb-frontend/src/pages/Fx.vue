@@ -33,8 +33,8 @@ import FxOrderSize from '@/components/market/FxOrderSize.vue'
 import FxBorrowConfirmation from '@/components/market/FxBorrowConfirmation.vue'
 import { useTradingPreferencesStore } from '@/stores/tradingPreferences'
 import { useFxBorrowConfirmation } from '@/composables/useFxBorrowConfirmation'
+import { useFxReferenceAmount } from '@/composables/useFxReferenceAmount'
 import FxExecutionPrice from '@/components/market/FxExecutionPrice.vue'
-import FxPostTradeMargin from '@/components/market/FxPostTradeMargin.vue'
 import FxClosePnl from '@/components/market/FxClosePnl.vue'
 import {
   fxAvailableCash,
@@ -43,12 +43,11 @@ import {
   fxGroupPersonalTrades,
   fxNetFundingPreview,
   fxNetAllowsGrowth,
-  fxNetNewExposure,
   fxGoldPerForeign,
   fxHoldingValue,
   fxPairAllowsSide,
-  fxShortRiskStatus,
   fxOrderPrincipal,
+  fxMarginPercent,
   fxOrderAmountLabel,
   fxShortGoldPerForeign,
   fxSpotClosePreview,
@@ -70,8 +69,6 @@ import type {
 } from '@/types/fx'
 import FxCandleChart from '@/components/chart/FxCandleChart.vue'
 import MobileTradeDock from '@/components/market/MobileTradeDock.vue'
-import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
-import CreditRiskStatus from '@/components/user/CreditRiskStatus.vue'
 import { useMobileTradeEntry } from '@/composables/useMobileTradeEntry'
 
 defineOptions({ name: 'FxPage' })
@@ -114,7 +111,6 @@ const {
   data: wallet,
   loading: walletLoading,
   failed: walletFailed,
-  updatedAt: walletUpdatedAt,
 } = walletResource
 const streamConnected = ref(false)
 const streamFailed = ref(false)
@@ -123,7 +119,6 @@ const snapshotLoading = ref(false)
 const snapshotFailed = ref(false)
 let snapshotGeneration = 0
 let selectionGeneration = 0
-const quoteUpdatedAt = ref(0)
 const now = ref(Date.now())
 let freshnessTimer: ReturnType<typeof setInterval> | null = null
 const quoteExpired = computed(
@@ -171,7 +166,7 @@ watch(
   { flush: 'post' },
 )
 const amount = ref('')
-const slippageBps = ref<number>(50)
+const slippageBps = ref<number>(500)
 const quote = ref<FxNetQuote | null>(null)
 const quoting = ref(false)
 const submitting = ref(false)
@@ -194,15 +189,10 @@ const activePair = computed(() =>
 )
 const tradable = computed(() => fxPairAllowsSide(activePair.value, 'sell'))
 const currencyName = computed(() => activePair.value?.currency_name ?? '外币')
-/** 交易面板顶部按方向显示对应的有效买卖价 */
+/** 当前交易池储备对应的参考汇率。 */
 const localReferencePrice = computed(() => divideFxAmount(currentPricing.value?.gold_reserve, currentPricing.value?.foreign_reserve, 12))
-const sidePrice = computed(() => {
-  const p = currentPricing.value, price = localReferencePrice.value
-  if (!p || !price) return null
-  return side.value === 'buy' ? divideFxAmount(price, subtractFxAmounts('1', p.buy_fee_rate) ?? undefined, 12)
-    : multiplyFxAmount(price, subtractFxAmounts('1', p.sell_fee_rate) ?? '0')
-})
-
+const sellSizeUnit = ref<'gold' | 'foreign'>('gold')
+const { goldAmount: sellGoldAmount, updateGoldAmount: updateSellGoldAmount } = useFxReferenceAmount(amount, localReferencePrice)
 const amountValid = computed(
   () =>
     /^\d+(\.\d{0,6})?$/.test(amount.value.trim()) &&
@@ -262,6 +252,18 @@ const spotPnlDirection = computed(() => {
   const direction = compareFxAmounts(holdingValue.value?.pnl, '0')
   return direction === 1 ? 'up' : direction === -1 ? 'down' : 'flat'
 })
+const newShortLeg = computed(() => quote.value?.legs.find(leg => leg.purpose === 'short_open'))
+const crossesPosition = computed(() => (quote.value?.legs.length ?? 0) > 1)
+const spotOutputLabel = computed(() => side.value === 'sell' ? '预计所得'
+  : crossesPosition.value ? '预计买回（含回补）' : quote.value?.legs[0]?.purpose === 'short_cover' ? '预计回补' : '预计买入')
+const shortNotice = computed(() => {
+  if (shortError.value || shortQuoteError.value) return shortError.value || shortQuoteError.value
+  const q = shortQuote.value
+  if (q?.blocked_reason) return shortBlockMessage(q.blocked_reason)
+  if (q?.affordable === false) return '回补资金不足，请减少数量或补充现金。'
+  if (summaryFailed.value) return '账户更新失败，请刷新账户。'
+  return ''
+})
 const outputCurrency = computed(() => (side.value === 'buy' ? currencyName.value : '金圆券'))
 const inputCurrency = computed(() => (side.value === 'buy' ? '金圆券' : currencyName.value))
 const spotClosePreview = computed(() =>
@@ -271,7 +273,8 @@ const spotClosePreview = computed(() =>
   !walletFailed.value &&
   wallet.value?.pair_id === pairId.value &&
   quote.value?.pair_id === pairId.value
-    ? fxSpotClosePreview(quote.value, wallet.value)
+    ? fxSpotClosePreview(quote.value.legs.find(leg => leg.purpose === 'spot' && leg.side === 'sell')
+        ? { ...quote.value, ...quote.value.legs.find(leg => leg.purpose === 'spot' && leg.side === 'sell')! } : quote.value, wallet.value)
     : null,
 )
 const spotCloseUnavailable = computed(() => {
@@ -522,7 +525,8 @@ function shortBlockMessage(reason: string) {
     spot_position_exists: '你持有这个币种的现货，需先卖出现货才能开空。',
     short_lending_limit: '该币种剩余借出额度不足，请减少开空数量。',
     insufficient_treasury_foreign: '可借外币库存不足，请减少开空数量。',
-    insufficient_cash: '本仓锁定所得与可用现金不足，请减少回补数量或补充现金。',
+    insufficient_cash: '回补资金不足，请减少数量或补充现金。',
+    'insufficient cash to cover': '回补资金不足，请减少数量或补充现金。',
     no_outstanding_short: '当前没有待回补欠币。',
     foreign_amount_exceeds_outstanding: '回补数量超过当前欠币，可选择全部回补。',
     insufficient_pool_foreign: '市场外币容量不足，请减少回补数量。',
@@ -577,13 +581,6 @@ function fillCoverPortion(percent: number) {
     shortAmount.value = quantity
   }
 }
-const shortPostMargin = computed(() => {
-  const q = shortQuote.value
-  if (q?.estimated_equity == null || q.estimated_risk_basis == null) return null
-  const ratio = divideFxAmount(q.estimated_equity, q.estimated_risk_basis, 12)
-  return ratio == null ? null : Number(ratio)
-})
-
 const shortExpired = computed(
   () => !!shortQuote.value && now.value >= Date.parse(shortQuote.value.expires_at),
 )
@@ -625,30 +622,26 @@ const shortCloseUnavailable = computed(() => {
 })
 const spotSubmitLabel = computed(() => {
   if (submitting.value) return '提交中…'
-  if (pendingRisk.value) return '待确认订单结果'
-  if (!amountValid.value) return amount.value ? '请输入有效金额' : '请输入交易金额'
+  if (pendingRisk.value) return '订单结果待确认'
+  if (!amountValid.value) return side.value === 'buy' ? '买入' : '卖出'
   if (tradeBlockReason.value) return '暂不能成交'
-  if (quote.value?.legs.some(leg => leg.purpose === 'short_open')) return `卖出并借币做空 ${fxOrderAmountLabel(amount.value)} ${currencyName.value}`
-  if (allowBorrow.value) return '借款并买入'
-  if (quoting.value) return '正在更新报价…'
+  if (quoting.value || !quote.value) return '报价中…'
   if (quoteExpired.value) return '报价已过期'
-  if (!quote.value) return tradeError.value ? '报价失败，请重试' : '等待报价…'
-  if (side.value === 'sell' && spotClosePreview.value?.full)
-    return `卖出全部 ${fxOrderAmountLabel(quote.value.input_amount)} ${currencyName.value}`
-  return `${side.value === 'buy' ? '买入' : '卖出'} ${fxOrderAmountLabel(amount.value)} ${inputCurrency.value}`
+  if (newShortLeg.value) return crossesPosition.value ? '卖出后做空' : '借币做空'
+  if (allowBorrow.value) return '借款买入'
+  if (side.value === 'sell' && spotClosePreview.value?.full) return '卖出全部'
+  return side.value === 'buy' ? '买入' : '卖出'
 })
 const shortSubmitLabel = computed(() => {
   if (submitting.value) return '提交中…'
-  if (pendingRisk.value) return '待确认订单结果'
-  if (shortStorageBlocked.value) return '暂不能提交订单'
-  if (!shortValid.value) return shortAmount.value ? '请输入有效数量' : '请输入交易金额'
-  if (shortQuoting.value) return '正在更新报价…'
+  if (pendingRisk.value) return '订单结果待确认'
+  if (shortStorageBlocked.value) return '暂不能提交'
+  if (!shortValid.value) return shortAction.value === 'open' ? '借币做空' : '回补'
   if (shortExpired.value) return '报价已过期'
-  if (shortQuoteError.value) return '报价失败，请重试'
-  if (!shortQuote.value) return '等待报价…'
-  if (!shortQuote.value.executable || shortQuote.value.affordable === false) return '本笔暂不能成交'
-  if (shortAction.value === 'cover' && coverAll.value) return '回补全部欠币'
-  return `${shortAction.value === 'open' ? '借币并做空' : '回补'} ${fxOrderAmountLabel(shortQuote.value.actual_foreign_amount)} ${currencyName.value}`
+  if (shortQuoteError.value) return '报价失败'
+  if (shortQuoting.value || !shortQuote.value) return '报价中…'
+  if (!shortQuote.value.executable || shortQuote.value.affordable === false) return '暂不能成交'
+  return shortAction.value === 'open' ? '借币做空' : coverAll.value ? '全部回补' : '回补'
 })
 const pendingShortInterest = computed(() => {
   const row = shortPosition.value
@@ -697,24 +690,6 @@ const orderMultiplierLimit = computed(() => {
     ? limit
     : null
 })
-const orderExposure = computed(() => {
-  if (tradeMode.value === 'spot')
-    return !quoting.value && !quoteExpired.value && quote.value
-      ? fxNetNewExposure(quote.value.legs)
-      : null
-  return !shortQuoting.value &&
-    !shortExpired.value &&
-    shortQuote.value?.action === 'open' &&
-    shortQuote.value.requested_foreign_amount != null
-    ? { direction: 'short' as const, quantity: shortQuote.value.requested_foreign_amount }
-    : null
-})
-const orderMove = computed(() => {
-  if (!orderExposure.value || snapshotLoading.value || snapshotFailed.value || !snapshot.value)
-    return null
-  const exposure = multiplyFxAmount(orderExposure.value.quantity, snapshot.value.price)
-  return exposure == null ? null : multiplyFxAmount(exposure, '0.01')
-})
 const orderHeading = computed(() =>
   tradeMode.value === 'short'
     ? shortAction.value === 'cover'
@@ -751,11 +726,32 @@ const riskLabels = {
   unestimated: '未生成风险预估',
 }
 const accountRiskLabel = computed(() => riskLabels[accountRisk.value])
-const quotedShortRiskLabel = computed(() =>
-  shortQuote.value
-    ? riskLabels[fxShortRiskStatus(shortQuote.value, shortPostMargin.value)]
-    : '等待报价',
-)
+const maintenancePercent = computed(() => {
+  const ratio = tradingSession.rules?.maintenance_ratio
+  return ratio == null ? '—' : `${formatFxAmount(multiplyFxAmount(ratio, '100'), 2)}%`
+})
+const currentMarginDisplay = computed(() => {
+  const account = tradingSession.accountPreview
+  if (!tradingSession.ready || !account || account.risk_status === 'unknown') return '暂无法确认'
+  if (account.has_debt === false) return '无负债'
+  return fxMarginPercent(account.liquidation_equity, account.risk_basis)
+})
+const postTradeMarginDisplay = computed(() => {
+  if (tradeMode.value === 'short') {
+    const q = shortQuote.value
+    if (!q) return '—'
+    if (shortExpired.value) return '报价已过期'
+    if (q.margin_status === 'blocked') return '暂无法确认'
+    if (localShortPreview.value?.preview.account_preview?.has_debt === false) return '无负债'
+    return fxMarginPercent(q.estimated_equity, q.estimated_risk_basis)
+  }
+  const account = localOrderPreview.value?.account_preview
+  if (!account) return '—'
+  if (quoteExpired.value) return '报价已过期'
+  if (!tradingSession.ready || account.risk_status === 'unknown') return '暂无法确认'
+  if (account.has_debt === false) return '无负债'
+  return fxMarginPercent(account.liquidation_equity, account.risk_basis)
+})
 
 function selectDirection(mode: 'spot' | 'short') {
   if (submitting.value || pendingRisk.value) return
@@ -1172,7 +1168,7 @@ watch(localOrderPreview, (p) => {
     blocked_reason: p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
     economic_version: economicVersion, pool_version: poolVersion, expires_at: new Date(Date.now() + 30000).toISOString(),
   }
-  quoteUpdatedAt.value = Date.now(); now.value = Date.now()
+  now.value = Date.now()
 }, { flush: 'sync' })
 async function fetchQuote() {
   await tradingSession.checkVersions()
@@ -1394,11 +1390,15 @@ onUnmounted(() => {
                 : formatFxAmount(fxAvailableCash(summary), 2)
           }}</strong>
         </div>
-        <div>
-          账户风险
-          <strong :class="{ 'fx-error': ['warning', 'danger', 'blocked'].includes(accountRisk) }">{{
-            accountRiskLabel
-          }}</strong>
+        <div class="fx-account-margin" :class="{ 'fx-account-margin--warning': ['warning', 'danger', 'blocked', 'unknown'].includes(accountRisk) }">
+          当前保证金率
+          <strong>{{ currentMarginDisplay }}</strong>
+          <span>{{ accountRiskLabel }}</span>
+        </div>
+        <div class="fx-account-maintenance">
+          维持门槛
+          <strong>{{ maintenancePercent }}</strong>
+          <span>低于此值会触发强平</span>
         </div>
       </div>
       <div class="fx-market-volume">
@@ -1580,14 +1580,6 @@ onUnmounted(() => {
                     <dt>多头持仓</dt>
                     <dd>{{ fxOrderAmountLabel(wallet?.foreign_amount) }} {{ currencyName }}</dd>
                   </div>
-                  <div>
-                    <dt>买入均价</dt>
-                    <dd>{{ formatFxPrice(walletAvgCost) }}</dd>
-                  </div>
-                  <div>
-                    <dt>账面市值</dt>
-                    <dd>{{ formatFxAmount(holdingValue?.marketValue, 2) }} 金圆券</dd>
-                  </div>
                 </dl>
                 <div class="fx-holding-pnl-row">
                   <div class="fx-holding-pnl">
@@ -1603,10 +1595,9 @@ onUnmounted(() => {
                     :disabled="!canSellSpotHolding"
                     @click="prepareSpotSellAll(100)"
                   >
-                    一键平仓<small>卖出全部 {{ currencyName }}</small>
+                    卖出全部
                   </button>
                 </div>
-                <p>按参考汇率估值，卖出费用和价格影响以平仓报价为准。</p>
               </article>
               <article
                 v-if="hasShortHolding"
@@ -1622,14 +1613,6 @@ onUnmounted(() => {
                     <dd>
                       {{ fxOrderAmountLabel(shortPosition?.pending_short_debt) }} {{ currencyName }}
                     </dd>
-                  </div>
-                  <div>
-                    <dt>锁定所得</dt>
-                    <dd>{{ formatFxAmount(shortPosition?.restricted_gold, 2) }} 金圆券</dd>
-                  </div>
-                  <div>
-                    <dt>参考回补成本</dt>
-                    <dd>{{ formatFxAmount(shortPosition?.reference_cover_cost, 2) }} 金圆券</dd>
                   </div>
                 </dl>
                 <div class="fx-holding-pnl-row">
@@ -1650,202 +1633,54 @@ onUnmounted(() => {
                     :disabled="!canFillCoverAll"
                     @click="prepareShortCover(100)"
                   >
-                    一键平仓<small>回补全部欠币</small>
+                    全部回补
                   </button>
                 </div>
-                <p>包含参考回补费用和欠币利息，成交以本笔报价为准。</p>
               </article>
               <p
                 v-if="!shortFailed && !shortLoading && shortPosition?.pending_short_debt === null"
                 class="fx-hint"
               >
-                空头欠币待估值，可选择全部回补获取报价。
+                欠币数量暂无法确认，可尝试全部回补。
               </p>
-              <p
-                v-else-if="
-                  !walletLoading &&
-                  !shortLoading &&
-                  !walletFailed &&
-                  !shortFailed &&
-                  wallet &&
-                  shortPosition &&
-                  !hasSpotHolding &&
-                  !hasShortHolding
-                "
-                class="fx-no-position"
-              >
-                暂无 {{ currencyName }} 持仓，买入或做空后在此查看盈亏。
-              </p>
-              <p v-else-if="!wallet || !shortPosition" class="fx-hint">等待持仓数据。</p>
+              <p v-else-if="!walletLoading && !shortLoading && !walletFailed && !shortFailed && tradingSession.account && !hasSpotHolding && !hasShortHolding" class="fx-no-position">暂无持仓</p>
+              <p v-else-if="!tradingSession.account" class="fx-hint">正在加载持仓…</p>
             </section>
-            <details
-              v-if="
-                hasSpotHolding ||
-                hasShortHolding ||
-                walletFailed ||
-                shortFailed ||
-                shortPosition?.pending_short_debt === null
-              "
-              class="fx-position-details"
-            >
-              <summary>持仓、利息与估值明细</summary>
-              <section class="fx-holdings" aria-labelledby="fx-holdings-title">
-                <div class="fx-panel-head">
-                  <h2 id="fx-holdings-title">我的 {{ currencyName }} 持仓</h2>
-                </div>
-                <p v-if="walletLoading || shortLoading" class="fx-hint" role="status">
-                  正在刷新持仓，已有数字为上次快照…
-                </p>
-                <p v-if="walletFailed" class="fx-error" role="alert">多头持仓更新失败。</p>
-                <p v-if="shortFailed" class="fx-error" role="alert">空头持仓更新失败。</p>
-                <article v-if="hasSpotHolding" class="fx-position-card" aria-label="多头持仓">
-                  <div class="fx-position-heading">
-                    <div>
-                      <span class="fx-position-tag fx-position-tag--long">↗ 多头</span
-                      ><strong>{{ currencyName }}</strong>
-                    </div>
-                    <div class="fx-spot-pnl">
-                      <span>账面盈亏</span
-                      ><strong :class="`fx-spot-pnl--${spotPnlDirection}`"
-                        >{{ spotPnlDirection === 'up' ? '+' : ''
-                        }}{{ formatFxAmount(holdingValue?.pnl, 2) }} <small>金圆券</small></strong
-                      >
-                    </div>
-                  </div>
-                  <dl class="fx-position-meta">
-                    <div>
-                      <dt>持仓数量</dt>
-                      <dd>{{ formatFxAmount(wallet?.foreign_amount) }} {{ currencyName }}</dd>
-                    </div>
-                    <div>
-                      <dt>买入均价</dt>
-                      <dd>{{ formatFxPrice(walletAvgCost) }}</dd>
-                    </div>
-                    <div>
-                      <dt>账面市值</dt>
-                      <dd>{{ formatFxAmount(holdingValue?.marketValue, 2) }} 金圆券</dd>
-                    </div>
-                  </dl>
-                  <details class="fx-details">
-                    <summary>持仓估值与费用说明</summary>
-                    <p>账面盈亏不含卖出费用与价格影响，实际所得以平仓报价为准。</p>
-                    <p>
-                      {{ walletUpdatedAt ? `持仓读取于 ${walletUpdatedAt}。` : ''
-                      }}{{
-                        snapshotFailed
-                          ? '行情更新失败，按上次行情估值。'
-                          : snapshotLoading
-                            ? '行情刷新中，按上次行情估值。'
-                            : '按当前边际汇率估值。'
-                      }}
-                    </p>
-                  </details>
-                </article>
-                <article v-if="hasShortHolding" class="fx-position-card" aria-label="空头持仓">
-                  <div class="fx-position-heading">
-                    <div>
-                      <span class="fx-position-tag fx-position-tag--short">↘ 空头</span
-                      ><strong>{{ currencyName }}</strong>
-                    </div>
-                    <ShortPositionPnl
-                      :proceeds-basis-gold="shortPosition!.proceeds_basis_gold"
-                      :reference-cover-cost="shortPosition!.reference_cover_cost"
-                    />
-                  </div>
-                  <dl class="fx-position-meta">
-                    <div>
-                      <dt>待归还（含息）</dt>
-                      <dd>
-                        {{ formatFxAmount(shortPosition?.pending_short_debt) }} {{ currencyName }}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>锁定卖出所得</dt>
-                      <dd>{{ formatFxAmount(shortPosition?.restricted_gold, 2) }} 金圆券</dd>
-                    </div>
-                    <div>
-                      <dt>参考买回成本</dt>
-                      <dd>{{ formatFxAmount(shortPosition?.reference_cover_cost, 2) }} 金圆券</dd>
-                    </div>
-                  </dl>
-                  <details class="fx-details">
-                    <summary>本金、利息与盈亏说明</summary>
-                    <div class="fx-preview-row">
-                      <span>外币本金</span
-                      ><strong
-                        >{{ formatFxAmount(shortPosition?.principal_foreign) }}
-                        {{ currencyName }}</strong
-                      >
-                    </div>
-                    <div class="fx-preview-row">
-                      <span>已结 / 待计利息</span
-                      ><strong
-                        >{{ formatFxAmount(shortPosition?.interest_foreign) }} /
-                        {{ formatFxAmount(pendingShortInterest) }} {{ currencyName }}</strong
-                      >
-                    </div>
-                    <p>
-                      盈亏以剩余开仓所得减去参考买回成本估算，包含回补估值中的利息、手续费及价格影响，实际以成交为准。
-                    </p>
-                    <p v-if="!shortPosition?.executable">
-                      全仓参考报价不可执行，获取本笔平仓报价后查看具体原因。
-                    </p>
-                  </details>
-                </article>
-                <p
-                  v-if="
-                    !shortFailed &&
-                    !shortLoading &&
-                    shortPosition &&
-                    shortPosition.pending_short_debt === null
-                  "
-                  class="fx-error"
-                  role="status"
-                >
-                  空头欠币暂无法估值，可尝试获取全部平仓报价。
-                </p>
-                <div
-                  v-if="
-                    !walletLoading &&
-                    !shortLoading &&
-                    !walletFailed &&
-                    !shortFailed &&
-                    wallet &&
-                    shortPosition &&
-                    compareFxAmounts(shortPosition.pending_short_debt, '0') === 0 &&
-                    !hasSpotHolding
-                  "
-                  class="fx-empty-holdings"
-                >
-                  <span aria-hidden="true">↗ ↘</span>
-                  <div>
-                    <strong>还没有 {{ currencyName }} 持仓</strong>
-                    <p>成交后在这里查看持仓与盈亏。</p>
-                  </div>
-                </div>
-              </section>
+            <details v-if="hasSpotHolding || hasShortHolding" class="fx-position-details">
+              <summary>持仓详情</summary>
+              <div v-if="hasSpotHolding" class="fx-position-extra">
+                <div class="fx-preview-row"><span>买入均价</span><strong>{{ formatFxPrice(walletAvgCost) }}</strong></div>
+                <div class="fx-preview-row"><span>账面市值</span><strong>{{ formatFxAmount(holdingValue?.marketValue, 2) }} 金圆券</strong></div>
+                <p>账面盈亏不含卖出费用和价格影响。</p>
+              </div>
+              <div v-if="hasShortHolding" class="fx-position-extra">
+                <div class="fx-preview-row"><span>锁定所得</span><strong>{{ formatFxAmount(shortPosition?.restricted_gold, 2) }} 金圆券</strong></div>
+                <div class="fx-preview-row"><span>参考回补成本</span><strong>{{ formatFxAmount(shortPosition?.reference_cover_cost, 2) }} 金圆券</strong></div>
+                <div class="fx-preview-row"><span>借币本金</span><strong>{{ formatFxAmount(shortPosition?.principal_foreign) }} {{ currencyName }}</strong></div>
+                <div class="fx-preview-row"><span>已计／待计利息</span><strong>{{ formatFxAmount(shortPosition?.interest_foreign) }} / {{ formatFxAmount(pendingShortInterest) }} {{ currencyName }}</strong></div>
+                <p>盈亏按剩余开空所得减去参考回补成本估算，包含利息、手续费和价格影响。</p>
+              </div>
             </details>
             <div class="fx-order-heading">
               <h2 class="fx-trade-heading">
                 {{ orderHeading }}
               </h2>
-              <label v-if="tradeMode === 'short' && shortAction === 'open'" class="fx-short-unit"
-                >规模单位
+              <label v-if="(tradeMode === 'spot' && side === 'sell' && !closeOnly) || (tradeMode === 'short' && shortAction === 'open')" class="fx-short-unit"
+                >输入方式
                 <select
-                  :value="shortSizeUnit"
-                  aria-label="做空金额单位"
+                  :value="tradeMode === 'spot' ? sellSizeUnit : shortSizeUnit"
+                  aria-label="卖出规模输入方式"
                   :disabled="submitting || pendingRisk"
                   @change="
-                    setShortSizeUnit(
-                      ($event.target as HTMLSelectElement).value as 'gold' | 'foreign',
-                    )
+                    tradeMode === 'spot'
+                      ? sellSizeUnit = ($event.target as HTMLSelectElement).value as 'gold' | 'foreign'
+                      : setShortSizeUnit(($event.target as HTMLSelectElement).value as 'gold' | 'foreign')
                   "
                 >
-                  <option value="gold">金圆券</option>
-                  <option value="foreign">{{ currencyName }}</option>
+                  <option value="gold">按金额</option>
+                  <option value="foreign">按数量</option>
                 </select></label
               >
-              <span v-else>交易 {{ currencyName }}</span>
             </div>
             <FxOrderSize
               v-if="tradeMode === 'spot' && side === 'buy'"
@@ -1853,8 +1688,15 @@ onUnmounted(() => {
               :principal="orderPrincipal"
               :limit="orderMultiplierLimit"
               tone="long"
-              label="买入总额（含手续费）"
+              label="买入金额（含费）"
               :disabled="!tradable || submitting || pendingRisk"
+            />
+            <FxOrderSize
+              v-if="tradeMode === 'spot' && side === 'sell' && !closeOnly && sellSizeUnit === 'gold'"
+              :model-value="sellGoldAmount" :principal="orderPrincipal" :limit="orderMultiplierLimit"
+              tone="short" label="卖出参考金额"
+              :disabled="!tradable || !tradingSession.ready || submitting || pendingRisk"
+              @update:model-value="updateSellGoldAmount"
             />
             <FxOrderSize
               v-if="tradeMode === 'short' && shortAction === 'open' && shortSizeUnit === 'gold'"
@@ -1862,7 +1704,7 @@ onUnmounted(() => {
               :principal="orderPrincipal"
               :limit="orderMultiplierLimit"
               tone="short"
-              label="做空参考规模"
+              label="做空参考金额"
               :disabled="
                 !canFillShortOpen ||
                 hasSpotHolding ||
@@ -1884,7 +1726,7 @@ onUnmounted(() => {
             />
             <div v-show="tradeMode === 'spot'" class="fx-trade-body">
               <template v-if="side === 'sell'">
-                <label class="fx-field"
+                <label v-if="closeOnly || sellSizeUnit === 'foreign'" class="fx-field"
                   ><span
                     >卖出数量 <small>{{ currencyName }}</small></span
                   >
@@ -1897,7 +1739,8 @@ onUnmounted(() => {
                     :disabled="!tradable || submitting || pendingRisk"
                   />
                 </label>
-                <div class="fx-sell-shortcuts">
+                <div v-if="!closeOnly && sellSizeUnit === 'gold'" class="fx-preview-row"><span>卖出数量</span><strong>{{ fxOrderAmountLabel(amount) }} {{ currencyName }}</strong></div>
+                <div v-if="hasSpotHolding" class="fx-sell-shortcuts">
                   <button
                     v-for="percent in portions"
                     :key="percent"
@@ -1908,44 +1751,33 @@ onUnmounted(() => {
                     {{ percent === 100 ? '全部' : `${percent}%` }}
                   </button>
                 </div>
-                <p class="fx-field-note">
-                  卖出先平已有多头，超出部分借币开空。快捷比例按钮只用于平仓。
-                </p>
+                <p v-if="newShortLeg" class="fx-field-note">{{ crossesPosition ? '超出持仓的' : '将借入并卖出' }} {{ fxOrderAmountLabel(newShortLeg.input_amount) }} {{ currencyName }}{{ crossesPosition ? '将借币做空。' : '。' }}</p>
               </template>
-              <div class="fx-quote-box" aria-label="交易报价">
+              <div v-if="amountValid" class="fx-quote-box" aria-label="交易报价">
                 <div v-if="side === 'buy'" class="fx-funding-preview">
                   <div>
-                    <span>自由现金投入</span
+                    <span>现金</span
                     ><strong>{{ formatFxAmount(fundingPreview?.cashInput, 2) }}</strong>
                   </div>
-                  <div>
-                    <span>本仓锁金投入</span
+                  <div v-if="compareFxAmounts(fundingPreview?.lockedInput, '0') !== 0">
+                    <span>锁金</span
                     ><strong>{{ formatFxAmount(fundingPreview?.lockedInput, 2) }}</strong>
                   </div>
-                  <div>
-                    <span>新增借款</span
+                  <div v-if="compareFxAmounts(fundingPreview?.shortfall, '0') !== 0">
+                    <span>借款</span
                     ><strong>{{
-                      formatFxAmount(allowBorrow ? fundingPreview?.shortfall : '0', 2)
+                      formatFxAmount(fundingPreview?.shortfall, 2)
                     }}</strong>
                   </div>
                 </div>
-                <p v-if="summaryFailed" class="fx-error" role="alert">
-                  账户更新失败，暂不能做多。<button
-                    class="fx-text-button"
-                    :disabled="summaryLoading"
-                    @click="loadSummary"
-                  >
-                    重新加载
-                  </button>
-                </p>
                 <FxExecutionPrice
                   :average="effectiveGoldPerForeign"
                   :reference="quoteReferencePrice"
                   :currency="currencyName"
                 />
                 <div class="fx-preview fx-order-summary">
-                  <div class="fx-preview-row">
-                    <span>{{ side === 'buy' ? '预计获得外币（含回补）' : '预计卖出所得' }}</span
+                  <div v-if="!crossesPosition || side === 'sell'" class="fx-preview-row">
+                    <span>{{ spotOutputLabel }}</span
                     ><strong
                       >{{ quote ? formatFxAmount(quote.output_amount) : '—' }}
                       {{ outputCurrency }}</strong
@@ -1959,19 +1791,10 @@ onUnmounted(() => {
                         {{ inputCurrency }}</strong
                       >
                     </div>
-                    <div v-if="side === 'buy'" class="fx-preview-row">
-                      <span>当前账户风险</span
-                      ><strong
-                        :class="{
-                          'fx-error': ['warning', 'danger', 'blocked'].includes(accountRisk),
-                        }"
-                        >{{ accountRiskLabel }}</strong
-                      >
-                    </div>
                   </div>
                 </div>
                 <FxClosePnl
-                  v-if="side === 'sell'"
+                  v-if="side === 'sell' && hasSpotHolding"
                   :pnl="spotClosePreview?.pnl ?? null"
                   :note="
                     spotClosePreview?.full
@@ -1981,56 +1804,22 @@ onUnmounted(() => {
                   :unavailable="spotCloseUnavailable"
                 />
               </div>
-              <div v-if="quote" class="fx-preview" aria-label="整笔交易结果">
-                <strong>{{ fxNetActionLabel(quote.legs) }}</strong>
-                <p v-for="(leg, index) in quote.legs" :key="index">
-                  {{
-                    leg.purpose === 'short_cover'
-                      ? '回补'
-                      : leg.purpose === 'short_open'
-                        ? '新增空头'
-                        : leg.side === 'sell'
-                          ? '卖出现货'
-                          : '买入多头'
-                  }}
-                  {{ formatFxAmount(leg.side === 'sell' ? leg.input_amount : leg.output_amount) }}
-                  {{ currencyName }}
-                </p>
-                <p>
-                  预计{{
-                    quote.final_direction === 'long'
-                      ? '剩余多头'
-                      : quote.final_direction === 'short'
-                        ? '剩余欠币'
-                        : '全部平仓'
-                  }}
-                  {{
-                    formatFxAmount(
-                      quote.final_direction === 'long'
-                        ? quote.wallet_after
-                        : quote.foreign_debt_after,
-                    )
-                  }}
-                  {{ currencyName }}
-                </p>
-                <p>
-                  现金变化 {{ formatFxAmount(quote.cash_delta, 2) }} 金圆券，自动还款
-                  {{ formatFxAmount(quote.repaid_gold, 2) }} 金圆券。
-                </p>
-                <p>
-                  新增借款 {{ formatFxAmount(quote.borrow_amount, 2) }} 金圆券，锁金变化
-                  {{ formatFxAmount(quote.restricted_gold_delta, 2) }} 金圆券。
-                </p>
+              <div v-if="quote && (crossesPosition || compareFxAmounts(quote.repaid_gold, '0') === 1)" class="fx-preview" aria-label="交易拆分">
+                <template v-if="crossesPosition">
+                  <div v-for="(leg, index) in quote.legs" :key="index" class="fx-preview-row">
+                    <span>{{ leg.purpose === 'short_cover' ? '回补' : leg.purpose === 'short_open' ? '新增空头' : leg.side === 'sell' ? '卖出多头' : '新增多头' }}</span>
+                    <strong>{{ fxOrderAmountLabel(leg.side === 'sell' ? leg.input_amount : leg.output_amount) }} {{ currencyName }}</strong>
+                  </div>
+                </template>
+                <div v-if="compareFxAmounts(quote.repaid_gold, '0') === 1" class="fx-preview-row"><span>自动还款</span><strong>{{ formatFxAmount(quote.repaid_gold, 2) }} 金圆券</strong></div>
               </div>
-              <p v-if="tradeBlockReason" class="fx-error" role="status">{{ tradeBlockReason }}</p>
               <div class="fx-submit-state" role="status">
-                <span v-if="tradeError" class="fx-error">{{ tradeError }}</span
-                ><span v-else-if="submitting" class="fx-hint">订单处理中…</span
-                ><span v-else-if="quoting" class="fx-hint">正在更新报价…</span
+                <span v-if="tradeError || tradeBlockReason" class="fx-error">{{ tradeError || tradeBlockReason }}</span
+                ><span v-else-if="submitting" class="fx-hint">提交中…</span
+                ><span v-else-if="quoting" class="fx-hint">报价中…</span
                 ><span v-else-if="amount && !amountValid" class="fx-hint"
                   >请输入正数，最多 6 位小数。</span
-                ><span v-else-if="quoteExpired" class="fx-error">报价已过期，请重新报价。</span
-                ><span v-else-if="!amount" class="fx-hint">填写金额后自动报价。</span>
+                ><span v-else-if="quoteExpired" class="fx-error">报价已过期，请重新报价。</span>
               </div>
               <div class="fx-actions">
                 <button
@@ -2056,82 +1845,25 @@ onUnmounted(() => {
                 </button>
               </div>
               <details class="fx-details fx-order-details">
-                <summary>费用、报价与风控明细</summary>
-                <div v-if="orderMove" class="fx-payoff-preview">
-                  <span>本笔汇率变化 1%</span>
-                  <div>
-                    <span
-                      >上涨 1%
-                      <strong :class="orderExposure?.direction === 'short' ? 'down' : 'up'"
-                        >{{ orderExposure?.direction === 'short' ? '−' : '+'
-                        }}{{ formatFxAmount(orderMove, 2) }}</strong
-                      ></span
-                    ><span
-                      >下跌 1%
-                      <strong :class="orderExposure?.direction === 'short' ? 'up' : 'down'"
-                        >{{ orderExposure?.direction === 'short' ? '+' : '−'
-                        }}{{ formatFxAmount(orderMove, 2) }}</strong
-                      ></span
-                    >
-                  </div>
-                  <small
-                    >仅按本笔新增{{
-                      orderExposure?.direction === 'short' ? '空头' : '多头'
-                    }}示意，未扣费用与利息</small
-                  >
-                </div>
-
-                <p>
-                  本金以账户清算净值为基准，本次倍数只用于选规模，可否成交以报价为准。全账户共同担保，亏损可能影响其他持仓。
-                </p>
-                <div class="fx-preview-row">
-                  <span>参考{{ side === 'buy' ? '买入' : '卖出' }}价</span
-                  ><strong>{{ formatFxPrice(sidePrice) }} 金圆券 / {{ currencyName }}</strong>
-                </div>
-                <div class="fx-preview-row">
-                  <span>{{ side === 'buy' ? '最低买入数量' : '最低卖出所得' }}</span
-                  ><strong>{{ minOutDisplay }} {{ outputCurrency }}</strong>
-                </div>
-                <label class="fx-field fx-field--inline"
-                  ><span>报价变动容忍度</span
-                  ><select
-                    v-model.number="slippageBps"
-                    class="fx-input"
-                    :disabled="!tradable || submitting"
-                  >
+                <summary>成交保护与风险</summary>
+                <label class="fx-field fx-field--inline">
+                  <span>报价变动容忍度</span>
+                  <select v-model.number="slippageBps" class="fx-input" :disabled="!tradable || submitting">
                     <option :value="50">0.5%</option>
                     <option :value="100">1%</option>
                     <option :value="200">2%</option>
                     <option :value="500">5%</option>
-                  </select></label
-                >
-                <p>
-                  {{
-                    quoteUpdatedAt
-                      ? `本地预估更新于 ${new Date(quoteUpdatedAt).toLocaleTimeString()}。`
-                      : '填写金额后自动报价。'
-                  }}实际所得低于最低金额时交易会取消。
-                </p>
-                <p>当前账面净值 {{ tradingSession.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ tradingSession.accountPreview?.liquidation_equity ?? '未知' }}。</p>
-                <p>订单后账面净值 {{ localOrderPreview?.account_preview?.display_equity ?? '未知' }}；订单后清算净值 {{ localOrderPreview?.account_preview?.liquidation_equity ?? '未知' }}。{{ localOrderPreview?.account_preview?.error_status === 'approximate' ? '金额与风险为近似预估。' : '' }}{{ localOrderPreview?.condition === 'unknown' ? '条件待确认：' + localOrderPreview.unchecked_reasons.join('、') : '' }}</p>
-                <FxPostTradeMargin :equity="localOrderPreview?.account_preview?.liquidation_equity" :basis="localOrderPreview?.account_preview?.risk_basis" :initial="summary?.r_initial" :caution="localOrderPreview?.condition !== 'satisfied'" />
-                <p>手续费从投入中扣除。当前风险使用本地清算预估。库存、借出额度、账户版本与价格保护在提交时检查。</p>
-                <CreditRiskStatus
-                  v-if="summary"
-                  :ratio="
-                    summaryLoading || summaryFailed ? null : (summary.equity_to_risk_basis ?? null)
-                  "
-                  :initial="summary.r_initial ?? null"
-                  :maintenance="summary.r_maintenance ?? null"
-                  :authoritative-status="
-                    summaryLoading || summaryFailed ? 'unknown' : summary.risk_status
-                  "
-                  :no-risk="
-                    !summaryLoading &&
-                    !summaryFailed &&
-                    compareFxAmounts(summary.risk_basis, '0') === 0
-                  "
-                />
+                  </select>
+                </label>
+                <div class="fx-preview-row">
+                  <span>{{ side === 'buy' ? '最低买入数量' : '最低卖出所得' }}</span>
+                  <strong>{{ minOutDisplay }} {{ outputCurrency }}</strong>
+                </div>
+                <div class="fx-preview-row">
+                  <span>预计成交后保证金率</span>
+                  <strong>{{ postTradeMarginDisplay }}</strong>
+                </div>
+                <p class="fx-protection-note">超出成交限额时，订单不会执行。</p>
               </details>
             </div>
 
@@ -2145,7 +1877,7 @@ onUnmounted(() => {
               </p>
               <div v-if="shortAction === 'open'" class="fx-short-size">
                 <div class="fx-preview-row fx-short-quantity">
-                  <span>借入并卖出</span
+                  <span>借币数量</span
                   ><strong
                     >{{ shortAmount ? formatFxAmount(shortAmount) : '—' }}
                     {{ currencyName }}</strong
@@ -2156,14 +1888,14 @@ onUnmounted(() => {
               <div v-else>
                 <label class="fx-field"
                   ><span
-                    >买回归还数量 <small>{{ currencyName }}</small></span
+                    >回补数量 <small>{{ currencyName }}</small></span
                   ><input
                     v-model="shortAmount"
                     class="fx-input fx-size-input"
                     inputmode="decimal"
                     autocomplete="off"
                     :disabled="submitting || pendingRisk || coverAll"
-                    :placeholder="coverAll ? '全部欠币（含成交时利息）' : '0'"
+                    :placeholder="coverAll ? '全部欠币' : '0'"
                 /></label>
                 <div class="fx-sell-shortcuts">
                   <button
@@ -2174,24 +1906,18 @@ onUnmounted(() => {
                     :aria-pressed="percent === 100 && coverAll"
                     @click="fillCoverPortion(percent)"
                   >
-                    {{ percent === 100 ? '全部平仓' : `${percent}%` }}
+                    {{ percent === 100 ? '全部回补' : `${percent}%` }}
                   </button>
                 </div>
-                <label class="fx-cover-all"
-                  ><input
-                    v-model="coverAll"
-                    type="checkbox"
-                    :disabled="submitting || pendingRisk"
-                  />全部归还，包含成交时新计利息</label
-                >
+                <p v-if="coverAll" class="fx-field-note">已选全部回补，包含成交时利息。</p>
                 <p v-if="shortFailed" class="fx-error">
                   持仓更新失败，可选择全部平仓获取最新报价。
                 </p>
               </div>
-              <div class="fx-quote-box" aria-label="空头交易报价">
+              <div v-if="shortValid" class="fx-quote-box" aria-label="空头交易报价">
                 <div class="fx-short-funding">
                   <div class="fx-preview-row">
-                    <span>{{ shortAction === 'open' ? '卖出所得锁定' : '预计买回成本' }}</span
+                    <span>{{ shortAction === 'open' ? '预计锁定所得' : '预计回补成本' }}</span
                     ><strong
                       >{{
                         shortQuote
@@ -2208,8 +1934,8 @@ onUnmounted(() => {
                   <p>
                     {{
                       shortAction === 'open'
-                        ? '锁定资金用于买回归还，不能花用。'
-                        : '先使用本仓锁金，不足部分使用可用现金。'
+                        ? '所得锁定用于回补。'
+                        : '优先使用本仓锁金。'
                     }}
                   </p>
                 </div>
@@ -2234,22 +1960,8 @@ onUnmounted(() => {
                       }}</strong
                     >
                   </div>
-                  <div class="fx-preview-row">
-                    <span>成交后账户风险</span
-                    ><strong
-                      :class="{ 'fx-error': shortQuote && shortQuote.margin_status !== 'healthy' }"
-                      >{{ quotedShortRiskLabel }}</strong
-                    >
-                  </div>
+
                 </div>
-                <p>当前账面净值 {{ tradingSession.accountPreview?.display_equity ?? '未知' }}；当前清算净值 {{ tradingSession.accountPreview?.liquidation_equity ?? '未知' }}。</p>
-                <p>订单后账面净值 {{ localShortPreview?.preview.account_preview?.display_equity ?? '未知' }}；订单后清算净值 {{ shortQuote?.estimated_equity ?? '未知' }}。{{ localShortPreview?.preview.account_preview?.error_status === 'approximate' ? '金额与风险为近似预估。' : '' }}库存、借出额度与价格保护在提交时检查。</p>
-                <FxPostTradeMargin
-                  :equity="shortQuote?.estimated_equity"
-                  :basis="shortQuote?.estimated_risk_basis"
-                  :initial="!summaryFailed && !summaryLoading ? summary?.r_initial : null"
-                  :caution="!!shortQuote && shortQuote.margin_status !== 'healthy'"
-                />
                 <FxClosePnl
                   v-if="shortAction === 'cover'"
                   :pnl="shortClosePreview?.pnl ?? null"
@@ -2261,33 +1973,12 @@ onUnmounted(() => {
                   :unavailable="shortCloseUnavailable"
                 />
               </div>
-              <p v-if="summaryFailed" class="fx-error">
-                账户更新失败，报价会重新检查资金与风险。<button
-                  class="fx-text-button"
-                  :disabled="summaryLoading"
-                  @click="loadSummary"
-                >
-                  重试
-                </button>
-              </p>
-              <p v-if="shortQuote?.blocked_reason" class="fx-error">
-                {{ shortBlockMessage(shortQuote.blocked_reason) }}
-              </p>
-              <p v-if="shortQuote?.affordable === false" class="fx-error">
-                锁定资金与可用现金不足，请减少买回数量或补充现金。
-              </p>
-              <p v-if="shortQuote?.risk_blocked_reason" class="fx-hint">
-                {{ shortBlockMessage(shortQuote.risk_blocked_reason) }}
-              </p>
               <div class="fx-submit-state" role="status">
-                <span v-if="shortError || shortQuoteError" class="fx-error">{{
-                  shortError || shortQuoteError
-                }}</span
-                ><span v-else-if="shortQuoting" class="fx-hint">正在更新报价…</span
-                ><span v-else-if="shortExpired" class="fx-error">报价已过期，请重新报价。</span
-                ><span v-else-if="!shortQuote" class="fx-hint">{{
-                  shortQuoteOrder ? '等待自动报价…' : '填写金额后自动报价。'
-                }}</span>
+                <span v-if="shortNotice" class="fx-error">{{ shortNotice }}</span>
+                <span v-else-if="shortQuote?.risk_blocked_reason" class="fx-hint">{{ shortBlockMessage(shortQuote.risk_blocked_reason) }}</span>
+                <span v-else-if="shortQuoting" class="fx-hint">报价中…</span>
+                <span v-else-if="shortExpired" class="fx-error">报价已过期，请重新报价。</span>
+                <span v-else-if="shortAmount && !shortValid" class="fx-hint">请输入正数，最多 6 位小数。</span>
               </div>
               <div class="fx-actions">
                 <button class="fx-submit" :disabled="!shortCanSubmit" @click="submitShort">
@@ -2303,67 +1994,25 @@ onUnmounted(() => {
                 </button>
               </div>
               <details class="fx-details fx-order-details">
-                <summary>费用、利息与风控明细</summary>
-                <p v-if="shortAction === 'open'" class="fx-field-note">
-                  {{
-                    shortSizeUnit === 'gold'
-                      ? `按输入时汇率换算，借入 ${shortAmount ? formatFxAmount(shortAmount) : '—'} ${currencyName}；实际卖出所得以报价为准。`
-                      : '外币借入后立即卖出，实际所得以报价为准。'
-                  }}
-                </p>
-                <div v-if="orderMove && shortAction === 'open'" class="fx-payoff-preview">
-                  <span>本笔汇率变化 1%</span>
-                  <div>
-                    <span
-                      >上涨 1%
-                      <strong class="down">−{{ formatFxAmount(orderMove, 2) }}</strong></span
-                    ><span
-                      >下跌 1% <strong class="up">+{{ formatFxAmount(orderMove, 2) }}</strong></span
-                    >
-                  </div>
-                  <small>价格盈亏示意，未扣费用与利息</small>
-                </div>
-
-                <p>
-                  全账户共同担保，亏损可能影响其他持仓。本金以账户清算净值为基准，倍数只用于选规模，可否成交以报价为准。
-                </p>
-                <div class="fx-preview-row">
-                  <span>可用现金</span
-                  ><strong
-                    >{{
-                      summaryLoading || summaryFailed
-                        ? '数据待恢复'
-                        : formatFxAmount(fxAvailableCash(summary))
-                    }}
-                    金圆券</strong
-                  >
-                </div>
-                <div class="fx-preview-row">
-                  <span>{{ shortAction === 'open' ? '最低卖出所得' : '最高买回支出' }}</span
-                  ><strong>{{ shortLimit || '—' }} 金圆券</strong>
-                </div>
-                <label class="fx-field fx-field--inline"
-                  ><span>报价变动容忍度</span
-                  ><select v-model.number="slippageBps" class="fx-input" :disabled="submitting">
+                <summary>成交保护与风险</summary>
+                <label class="fx-field fx-field--inline">
+                  <span>报价变动容忍度</span>
+                  <select v-model.number="slippageBps" class="fx-input" :disabled="submitting">
                     <option :value="50">0.5%</option>
                     <option :value="100">1%</option>
                     <option :value="200">2%</option>
                     <option :value="500">5%</option>
-                  </select></label
-                ><CreditRiskStatus
-                  v-if="shortQuote"
-                  title="成交后保证金率（预估）"
-                  :ratio="shortPostMargin"
-                  :initial="summary?.r_initial ?? null"
-                  :maintenance="summary?.r_maintenance ?? null"
-                  :authoritative-status="shortQuote.margin_status"
-                  :no-risk="compareFxAmounts(shortQuote.estimated_risk_basis, '0') === 0"
-                />
-                <p v-if="shortQuote">
-                  报价有效至 {{ formatTime(shortQuote.expires_at) }}，成交时重新检查价格与风险。
-                </p>
-                <p>欠币会产生利息，保证金不足时有强平风险。平仓不会自动借入金圆券。</p>
-                <router-link to="/loan#short-debt">查看空头借款与账户规则</router-link>
+                  </select>
+                </label>
+                <div class="fx-preview-row">
+                  <span>{{ shortAction === 'open' ? '最低卖出所得' : '最高回补支出' }}</span>
+                  <strong>{{ formatFxAmount(shortLimit) }} 金圆券</strong>
+                </div>
+                <div class="fx-preview-row">
+                  <span>预计成交后保证金率</span>
+                  <strong>{{ postTradeMarginDisplay }}</strong>
+                </div>
+                <p class="fx-protection-note">超出成交限额时，订单不会执行。</p>
               </details>
             </div>
           </div>
@@ -2793,6 +2442,28 @@ onUnmounted(() => {
 .fx-account-bar > div > strong.fx-error {
   color: var(--color-down-strong);
 }
+.fx-account-bar > .fx-account-margin > strong {
+  font-size: 22px;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.fx-account-bar > .fx-account-margin--warning > strong,
+.fx-account-bar > .fx-account-margin--warning > span {
+  color: #ffb3a7;
+}
+.fx-account-bar > .fx-account-maintenance > strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.fx-account-bar > div > span {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.65);
+}
+.fx-protection-note {
+  color: #777;
+  font-size: 11px;
+  line-height: 1.6;
+}
 .fx-account-bar small {
   color: #999;
   margin-left: auto;
@@ -2892,63 +2563,6 @@ onUnmounted(() => {
   font-size: 11px;
   padding-top: 10px;
 }
-.fx-holdings {
-  padding: 12px 0 0;
-  margin-top: 8px;
-  border-top: 1px solid #ddd;
-  background: #fff;
-  color: #000;
-  padding: 12px;
-}
-.fx-holdings > .fx-hint,
-.fx-holdings > .fx-error {
-  margin-bottom: 10px;
-}
-.fx-position-card {
-  padding: 14px 0 18px;
-  border-bottom: 1px solid #ddd;
-}
-.fx-position-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.fx-position-heading > div:first-child {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-}
-.fx-position-tag {
-  font-size: 11px;
-  font-weight: 650;
-  padding: 3px 7px;
-  white-space: nowrap;
-}
-.fx-position-tag--long {
-  background: var(--color-up-bg);
-  color: var(--color-up);
-}
-.fx-position-tag--short {
-  background: var(--color-down-bg);
-  color: var(--color-down);
-}
-.fx-spot-pnl {
-  text-align: right;
-}
-.fx-spot-pnl > span {
-  display: block;
-  font-size: 11px;
-  color: #777;
-}
-.fx-spot-pnl > strong {
-  font-size: 18px;
-  line-height: 1.4;
-}
-.fx-spot-pnl small {
-  font-size: 11px;
-}
 .fx-spot-pnl--up {
   color: var(--color-up);
 }
@@ -2957,89 +2571,6 @@ onUnmounted(() => {
 }
 .fx-spot-pnl--flat {
   color: #555;
-}
-.fx-position-heading :deep(.short-pnl) {
-  border: 0;
-  padding: 0;
-  text-align: right;
-}
-.fx-position-heading :deep(.short-pnl-label) {
-  font-size: 11px;
-  font-weight: 400;
-  color: #777;
-}
-.fx-position-heading :deep(.short-pnl-amount) {
-  font-size: 18px;
-  line-height: 1.4;
-  margin: 0;
-  font-weight: 650;
-}
-.fx-position-heading :deep(.short-pnl-note) {
-  display: none;
-}
-.fx-position-meta {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  padding: 16px 0;
-}
-.fx-position-meta > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: baseline;
-}
-.fx-position-meta dd {
-  margin: 0;
-  text-align: right;
-}
-.fx-position-meta dt {
-  color: #777;
-  font-size: 11px;
-}
-.fx-position-meta dd {
-  margin-top: 4px;
-  font-weight: 650;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.fx-position-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.fx-position-bottom > span {
-  color: #888;
-  font-size: 11px;
-  max-width: 100%;
-}
-.fx-position-bottom > div {
-  display: flex;
-  gap: 7px;
-  width: 100%;
-}
-.fx-position-bottom button {
-  white-space: nowrap;
-  flex: 1;
-}
-.fx-empty-holdings {
-  padding: 26px 12px;
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  border-bottom: 1px solid #ddd;
-}
-.fx-empty-holdings > span {
-  color: #aaa;
-  font-size: 26px;
-  letter-spacing: 4px;
-}
-.fx-empty-holdings p {
-  margin-top: 5px;
-  color: #888;
-  font-size: 12px;
 }
 .fx-trade-panel {
   min-width: 0;
@@ -3095,7 +2626,7 @@ onUnmounted(() => {
 }
 .fx-holding-meta {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 8px;
   margin: 0;
 }
@@ -3154,6 +2685,8 @@ onUnmounted(() => {
   margin: 4px 0 0;
   line-height: 1.4;
 }
+.fx-position-extra { padding: 10px 0; }
+.fx-position-extra p { margin: 8px 0 0; color: #777; font-size: 11px; line-height: 1.5; }
 .fx-position-details {
   font-size: 10px;
   color: #777;
@@ -3464,31 +2997,6 @@ onUnmounted(() => {
   gap: 5px;
   font-size: 11px;
 }
-.fx-payoff-preview {
-  padding: 10px 0 15px;
-  border-bottom: 1px solid #eee;
-  margin-bottom: 12px;
-}
-.fx-payoff-preview > span {
-  font-size: 11px;
-  color: #777;
-}
-.fx-payoff-preview > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 8px 0 4px;
-  color: #666;
-  font-size: 11px;
-}
-.fx-payoff-preview strong {
-  font-size: 14px;
-  margin-left: 5px;
-}
-.fx-payoff-preview > small {
-  color: #999;
-  font-size: 10px;
-}
 .fx-short-funding {
   padding: 0 0 6px;
   border-bottom: 1px solid #000;
@@ -3726,7 +3234,11 @@ onUnmounted(() => {
     margin-left: 0;
   }
   .fx-account-bar {
-    gap: 8px 14px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    box-sizing: border-box;
+    gap: 12px 18px;
     padding: 10px;
     margin-bottom: 18px;
   }
@@ -3771,15 +3283,6 @@ onUnmounted(() => {
   .fx-panel-head > .fx-hint {
     display: none;
   }
-  .fx-position-meta {
-    gap: 8px;
-  }
-  .fx-position-meta dd {
-    font-size: 11px;
-  }
-  .fx-position-meta dt {
-    font-size: 10px;
-  }
   .fx-position-bottom button {
     min-height: 40px;
   }
@@ -3788,10 +3291,6 @@ onUnmounted(() => {
   }
   .fx-freshness-bar .fx-text-button {
     min-height: 32px;
-  }
-  .fx-spot-pnl > strong,
-  .fx-position-heading :deep(.short-pnl-amount) {
-    font-size: 20px;
   }
 }
 </style>

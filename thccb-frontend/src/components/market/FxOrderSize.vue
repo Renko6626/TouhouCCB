@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { compareFxAmounts, divideFxAmount, formatFxAmount } from '@/api/fx'
+import { compareFxAmounts, divideFxAmount } from '@/api/fx'
 import { fxOrderScale } from '@/utils/fxPresentation'
 
 const props = defineProps<{
@@ -65,11 +65,8 @@ function onInput(event: Event) {
 <template>
   <div class="order-size" :class="tone">
     <div class="size-heading">
-      <div class="principal">
-        <span>本金</span><strong>{{ formatFxAmount(principal, 2) }}</strong>
-      </div>
       <div class="multiplier">
-        <span>本次开仓</span><strong>{{ displayedMultiplier ?? '—' }}<small> 倍</small></strong>
+        <span>本次规模</span><strong>{{ displayedMultiplier ?? '—' }}<small> 倍本金</small></strong>
       </div>
     </div>
     <input
@@ -111,15 +108,13 @@ function onInput(event: Event) {
         :value="modelValue"
         inputmode="decimal"
         autocomplete="off"
-        placeholder="0"
+        placeholder="输入金额"
         :disabled="disabled"
         @input="onInput"
       />
     </label>
-    <p v-if="principal == null">本金未知或不为正，暂不能按倍数选规模；仍可直接填写金额。</p>
-    <p v-if="limit != null && Number(multiplier) > limit">
-      金额已超出快捷滑条范围，能否成交以本笔报价为准。
-    </p>
+    <p v-if="principal == null">暂不能按倍数选规模，请输入金额。</p>
+    <p v-if="limit != null && Number(multiplier) > limit">已超出滑条范围。</p>
   </div>
 </template>
 
