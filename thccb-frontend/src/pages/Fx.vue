@@ -30,12 +30,16 @@ import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
 import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
 import FxOrderSize from '@/components/market/FxOrderSize.vue'
+import FxBorrowConfirmation from '@/components/market/FxBorrowConfirmation.vue'
+import { useTradingPreferencesStore } from '@/stores/tradingPreferences'
+import { useFxBorrowConfirmation } from '@/composables/useFxBorrowConfirmation'
 import FxExecutionPrice from '@/components/market/FxExecutionPrice.vue'
 import FxPostTradeMargin from '@/components/market/FxPostTradeMargin.vue'
 import FxClosePnl from '@/components/market/FxClosePnl.vue'
 import {
   fxAvailableCash,
   fxNetActionLabel,
+  fxNetBorrowAction,
   fxGroupPersonalTrades,
   fxNetFundingPreview,
   fxNetAllowsGrowth,
@@ -77,7 +81,17 @@ const route = useRoute()
 const authStore = useAuthStore()
 const tradingSession = useTradingSessionStore()
 let tradingLease: number | undefined
-const confirmedBorrow = ref('0')
+const tradingPreferences = useTradingPreferencesStore()
+const borrowConfirmation = useFxBorrowConfirmation(
+  () => JSON.stringify([authStore.sessionGeneration, authStore.user?.id, pairId.value,
+    tradingSession.account?.economic_version, tradingSession.rules?.rule_version, tradingSession.ready,
+    tradeMode.value, side.value, amount.value, shortAction.value, shortAmount.value, coverAll.value,
+    closeOnly.value, slippageBps.value, submitting.value, pendingRisk.value]),
+  () => tradingPreferences.confirmBorrow,
+  () => { if (!tradingPreferences.setConfirmBorrow(false)) msg.warning('本地设置未能保存，之后仍会显示借款确认。') },
+)
+const borrowConfirmationPending = borrowConfirmation.pending
+watch(borrowConfirmation.error, (error) => { if (error) msg.warning(error) })
 const currentPricing = computed(() => {
   const group = tradingSession.groups.get(`fx:${pairId.value}`)
   return group?.product === 'fx' ? group : null
@@ -129,7 +143,7 @@ const interval = ref<FxChartInterval>('1m')
 const tradeMode = ref<'spot' | 'short'>(route.query.action === 'cover' ? 'short' : 'spot')
 const side = ref<FxSide>(route.query.action === 'open' ? 'sell' : 'buy')
 const closeOnly = ref(false)
-const allowBorrow = ref(false)
+const allowBorrow = computed(() => side.value === 'buy' && compareFxAmounts(fundingAmounts.value?.shortfall, '0') === 1)
 const { tradePanelRef, tradePanelVisible } = useMobileTradeEntry(setSide)
 const workbenchRef = ref<HTMLElement | null>(null)
 const workbenchHeight = ref<string>()
@@ -371,7 +385,6 @@ watch(
     netStorageBlocked.value = netSubmitter.unreadable
     receipt.value = null
     quote.value = null
-    allowBorrow.value = false
     if (netSubmitter.busy) submitting.value = false
     borrowGeneration++
     if (borrowSubmitter.busy) submitting.value = false
@@ -451,6 +464,7 @@ watch(localShortPreview, (local) => {
   const risk = !tradingSession.ready || account?.risk_status === 'unknown' ? 'blocked'
     : account?.maintenance_condition === 'rejected' ? 'danger' : account?.initial_condition === 'rejected' ? 'warning' : 'healthy'
   const wrongEntry = order.body.action === 'open' && hasSpotHolding.value
+  const executable = !wrongEntry && (p.condition === 'satisfied' || (order.body.action === 'cover' && p.condition === 'unknown' && p.rejected_reasons.length === 0 && compareFxAmounts(p.growth_amount, '0') === 0))
   shortQuote.value = {
     pair_id: order.pairId, action: order.body.action, purpose: order.body.action === 'open' ? 'short_open' : 'short_cover',
     requested_foreign_amount: order.body.foreign_amount ?? null, cover_all: !!order.body.cover_all,
@@ -460,8 +474,8 @@ watch(localShortPreview, (local) => {
     affordable: p.rejected_reasons.length === 0, estimated_equity: account?.liquidation_equity ?? null,
     estimated_risk_basis: account?.risk_basis ?? null, margin_status: risk, risk_status: risk,
     risk_blocked_reason: account?.unknown_reasons.join('、') || null,
-    executable: !wrongEntry && (p.condition === 'satisfied' || (order.body.action === 'cover' && p.condition === 'unknown' && p.rejected_reasons.length === 0 && compareFxAmounts(p.growth_amount, '0') === 0)),
-    blocked_reason: wrongEntry ? 'spot_position_exists' : p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
+    executable,
+    blocked_reason: executable ? null : wrongEntry ? 'spot_position_exists' : p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
     expires_at: new Date(Date.now() + 30000).toISOString(),
   }
 }, { flush: 'sync' })
@@ -614,7 +628,8 @@ const spotSubmitLabel = computed(() => {
   if (pendingRisk.value) return '待确认订单结果'
   if (!amountValid.value) return amount.value ? '请输入有效金额' : '请输入交易金额'
   if (tradeBlockReason.value) return '暂不能成交'
-  if (allowBorrow.value) return '确认借款并交易'
+  if (quote.value?.legs.some(leg => leg.purpose === 'short_open')) return `卖出并借币做空 ${fxOrderAmountLabel(amount.value)} ${currencyName.value}`
+  if (allowBorrow.value) return '借款并买入'
   if (quoting.value) return '正在更新报价…'
   if (quoteExpired.value) return '报价已过期'
   if (!quote.value) return tradeError.value ? '报价失败，请重试' : '等待报价…'
@@ -633,7 +648,7 @@ const shortSubmitLabel = computed(() => {
   if (!shortQuote.value) return '等待报价…'
   if (!shortQuote.value.executable || shortQuote.value.affordable === false) return '本笔暂不能成交'
   if (shortAction.value === 'cover' && coverAll.value) return '回补全部欠币'
-  return `${shortAction.value === 'open' ? '借币做空' : '回补'} ${fxOrderAmountLabel(shortQuote.value.actual_foreign_amount)} ${currencyName.value}`
+  return `${shortAction.value === 'open' ? '借币并做空' : '回补'} ${fxOrderAmountLabel(shortQuote.value.actual_foreign_amount)} ${currencyName.value}`
 })
 const pendingShortInterest = computed(() => {
   const row = shortPosition.value
@@ -896,7 +911,16 @@ async function submitShort() {
     action === 'open'
       ? { foreign_amount: quantity, min_gold_out: limit }
       : { ...(all ? { cover_all: true } : { foreign_amount: quantity }), max_gold_in: limit }
-  await sendShortRequest(() => shortSubmitter.start(pid, action, body, executePendingShort))
+  const execute = () => sendShortRequest(() => shortSubmitter.start(pid, action, body, executePendingShort))
+  if (action === 'open') {
+    const account = localShortPreview.value?.preview.account_preview
+    await borrowConfirmation.request({
+      kind: 'short', currency: currencyName.value, borrowAmount: quantity, cashInput: null,
+      quantity, lockedGold: q.restricted_gold_delta, equity: q.estimated_equity,
+      basis: q.estimated_risk_basis, maintenance: tradingSession.rules?.maintenance_ratio ?? null,
+      reliable: !!account && account.risk_status !== 'unknown',
+    }, Date.parse(q.expires_at), execute)
+  } else await execute()
 }
 function executePendingShort(request: FxPendingShortRequest) {
   return request.action === 'open'
@@ -1112,22 +1136,11 @@ async function load() {
   }
 }
 
-watch(
-  [amount, side, pairId, () => tradingSession.account?.economic_version],
-  () => {
-    allowBorrow.value = false
-  },
-  { flush: 'sync' },
-)
-
-// Financing is captured once; price changes cannot enlarge the authorized loan.
-watch(allowBorrow, (allowed) => {
-  confirmedBorrow.value = allowed ? fundingAmounts.value?.shortfall ?? '0' : '0'
-}, { flush: 'sync' })
+// Preview the required financing; permission is granted only when submitting this captured order.
 const netOrder = computed(() =>
   pairId.value && authStore.user?.id && tradeMode.value === 'spot' && amountValid.value && !pendingRisk.value
     ? { pairId: pairId.value, body: { side: side.value, amount: amount.value.trim(),
-        borrow_amount: side.value === 'buy' && allowBorrow.value ? confirmedBorrow.value : '0' } } : null,
+        borrow_amount: side.value === 'buy' ? fundingAmounts.value?.shortfall ?? '0' : '0' } } : null,
 )
 const localOrderPreview = computed(() => netOrder.value
   ? tradingSession.previewFx({ ...netOrder.value.body, allow_growth: !closeOnly.value }, netOrder.value.pairId) : null)
@@ -1194,7 +1207,6 @@ async function sendNet(run: () => Promise<FxNetTrade | null>) {
     netPending.value = netSubmitter.pending
     netUnresolved.value = netSubmitter.hasUnresolved
     amount.value = ''
-    allowBorrow.value = false
     msg.success(result.replay ? '已确认原成交' : `${fxNetActionLabel(result.legs)}已成交`)
     await refreshAll()
     if (account !== authStore.user?.id) return
@@ -1230,18 +1242,25 @@ async function submitTrade() {
     tradeBlockReason.value
   )
     return
-  await sendNet(() =>
-    netSubmitter.start(
-      order.pairId,
-      {
-        ...order.body,
-        min_out: computeMinOut(q.output_amount, effectiveSlippageBps.value),
-        expected_economic_version: q.economic_version,
-        allow_growth: fxNetAllowsGrowth(q, closeOnly.value),
-      },
-      (r) => fxNetApi.trade(r.pairId, r.body),
-    ),
-  )
+  const body = {
+    ...order.body,
+    min_out: computeMinOut(q.output_amount, effectiveSlippageBps.value),
+    expected_economic_version: q.economic_version,
+    allow_growth: fxNetAllowsGrowth(q, closeOnly.value),
+  }
+  const execute = () => sendNet(() => netSubmitter.start(order.pairId, body, (r) => fxNetApi.trade(r.pairId, r.body)))
+  const borrowing = fxNetBorrowAction(q)
+  if (borrowing) {
+    const account = localOrderPreview.value?.account_preview
+    await borrowConfirmation.request({
+      ...borrowing, currency: currencyName.value,
+      cashInput: fundingPreview.value?.cashInput ?? null,
+      lockedGold: borrowing.kind === 'short' ? borrowing.lockedGold : fundingPreview.value?.lockedInput ?? null,
+      equity: account?.liquidation_equity ?? null, basis: account?.risk_basis ?? null,
+      maintenance: tradingSession.rules?.maintenance_ratio ?? null,
+      reliable: !!account && account.risk_status !== 'unknown',
+    }, Date.parse(q.expires_at), execute)
+  } else await execute()
 }
 async function retryNet() {
   if (submitting.value || !netPending.value) return
@@ -1253,7 +1272,6 @@ function setSide(next: FxSide) {
   if (submitting.value) return
   tradeMode.value = 'spot'
   closeOnly.value = false
-  allowBorrow.value = false
   if (side.value === next) return
   amount.value = ''
   side.value = next
@@ -1838,13 +1856,32 @@ onUnmounted(() => {
               label="买入总额（含手续费）"
               :disabled="!tradable || submitting || pendingRisk"
             />
-            <label
-              v-if="tradeMode === 'spot' && side === 'buy' && fundingPreview?.loanApplicable"
-              class="fx-field-note"
-            >
-              <input v-model="allowBorrow" type="checkbox" :disabled="submitting || pendingRisk" />
-              同意新增借款 {{ formatFxAmount(fundingPreview?.shortfall, 2) }} 金圆券，仅用于新增多头
-            </label>
+            <FxOrderSize
+              v-if="tradeMode === 'short' && shortAction === 'open' && shortSizeUnit === 'gold'"
+              :model-value="shortGoldAmount"
+              :principal="orderPrincipal"
+              :limit="orderMultiplierLimit"
+              tone="short"
+              label="做空参考规模"
+              :disabled="
+                !canFillShortOpen ||
+                hasSpotHolding ||
+                activePair?.status !== 'trading' ||
+                activePair?.reduce_only === true
+              "
+              @update:model-value="updateShortGoldAmount"
+            />
+            <input
+              v-if="tradeMode === 'short' && shortAction === 'open' && shortSizeUnit === 'foreign'"
+              id="fx-short-foreign"
+              aria-label="借入并卖出数量"
+              v-model="shortAmount"
+              class="fx-input fx-size-input"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="0"
+              :disabled="submitting || pendingRisk || shortStorageBlocked"
+            />
             <div v-show="tradeMode === 'spot'" class="fx-trade-body">
               <template v-if="side === 'sell'">
                 <label class="fx-field"
@@ -2107,32 +2144,6 @@ onUnmounted(() => {
                 }}
               </p>
               <div v-if="shortAction === 'open'" class="fx-short-size">
-                <FxOrderSize
-                  v-if="shortSizeUnit === 'gold'"
-                  :model-value="shortGoldAmount"
-                  :principal="orderPrincipal"
-                  :limit="orderMultiplierLimit"
-                  tone="short"
-                  label="做空参考规模"
-                  :disabled="
-                    !canFillShortOpen ||
-                    hasSpotHolding ||
-                    activePair?.status !== 'trading' ||
-                    activePair?.reduce_only === true
-                  "
-                  @update:model-value="updateShortGoldAmount"
-                />
-                <input
-                  v-else
-                  id="fx-short-foreign"
-                  aria-label="借入并卖出数量"
-                  v-model="shortAmount"
-                  class="fx-input fx-size-input"
-                  inputmode="decimal"
-                  autocomplete="off"
-                  placeholder="0"
-                  :disabled="submitting || pendingRisk || shortStorageBlocked"
-                />
                 <div class="fx-preview-row fx-short-quantity">
                   <span>借入并卖出</span
                   ><strong
@@ -2524,6 +2535,11 @@ onUnmounted(() => {
         <router-link to="/loan">查看借款与还款</router-link>
       </details>
     </template>
+    <FxBorrowConfirmation
+      :details="borrowConfirmationPending?.details ?? null"
+      @cancel="borrowConfirmation.cancel"
+      @confirm="borrowConfirmation.confirm"
+    />
     <MobileTradeDock
       :visible="!loading && !error && !!activePair && !tradePanelVisible"
       :label="currencyName"

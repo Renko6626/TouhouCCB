@@ -2,6 +2,7 @@ import { resolveCreditRiskStatus, resolveMarginBannerState } from '../creditRisk
 import { describe, expect, it } from 'vitest'
 import {
   fxAvailableCash,
+  fxNetBorrowAction,
   fxHoldingValue,
   fxBuyBlockReason,
   fxPairAllowsSide,
@@ -466,4 +467,18 @@ it('selects authoritative home banners and fails closed only for active trading 
   expect(resolveMarginBannerState({ ...home, trading: true, ready: true,
     preview: { risk_status: 'warning', initial_condition: 'rejected', maintenance_condition: 'rejected' },
     summary: { risk_status: 'healthy' } })).toMatchObject({ status: 'danger', visible: true })
+})
+
+it('requires borrowing confirmation for the new short leg when selling through an existing long', () => {
+  expect(fxNetBorrowAction({ borrow_amount: '0', legs: [
+    { purpose: 'spot', side: 'sell', input_amount: '10', output_amount: '20' },
+    { purpose: 'short_open', side: 'sell', input_amount: '5', output_amount: '9.9' },
+  ] })).toEqual({ kind: 'short', borrowAmount: '5.000000', quantity: '5.000000', lockedGold: '9.900000' })
+  expect(fxNetBorrowAction({ borrow_amount: '0', legs: [
+    { purpose: 'spot', side: 'sell', input_amount: '10', output_amount: '20' },
+  ] })).toBeNull()
+  expect(fxNetBorrowAction({ borrow_amount: '4', legs: [
+    { purpose: 'short_cover', side: 'buy', input_amount: '2', output_amount: '1' },
+    { purpose: 'borrow_buy', side: 'buy', input_amount: '8', output_amount: '3.9' },
+  ] })).toEqual({ kind: 'long', borrowAmount: '4', quantity: '3.900000', lockedGold: null })
 })

@@ -359,3 +359,23 @@ export function fxNetNewExposure(
     ? { direction: 'short' as const, quantity: opening.input_amount }
     : { direction: 'long' as const, quantity: opening.output_amount }
 }
+
+/** Identify newly borrowed assets across net-order legs, including a sell crossing into short. */
+export function fxNetBorrowAction(quote: {
+  borrow_amount: string
+  legs: readonly Pick<import('@/types/fx').FxNetLeg, 'purpose' | 'side' | 'input_amount' | 'output_amount'>[]
+}) {
+  const shorts = quote.legs.filter(leg => leg.purpose === 'short_open')
+  const total = (legs: typeof shorts, field: 'input_amount' | 'output_amount') =>
+    legs.reduce((sum, leg) => addFxAmounts(sum, leg[field]) ?? sum, '0')
+  if (shorts.length) {
+    const quantity = total(shorts, 'input_amount')
+    return { kind: 'short' as const, borrowAmount: quantity, quantity, lockedGold: total(shorts, 'output_amount') }
+  }
+  if (compareFxAmounts(quote.borrow_amount, '0') === 1) {
+    return { kind: 'long' as const, borrowAmount: quote.borrow_amount,
+      quantity: total(quote.legs.filter(leg => leg.side === 'buy' && ['spot', 'borrow_buy'].includes(leg.purpose)), 'output_amount'),
+      lockedGold: null }
+  }
+  return null
+}
