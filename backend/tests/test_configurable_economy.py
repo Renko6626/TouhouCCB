@@ -84,9 +84,9 @@ def test_new_keys_in_whitelist():
 
 @pytest.mark.asyncio
 async def test_defaults_seeded(client):
-    from app.services.loan_migrate import auto_migrate
+    from app.services.config_seed import seed_current_config
     from app.services.site_config import get_decimal
-    await auto_migrate()
+    await seed_current_config()
     async with async_session_maker() as s:
         assert await get_decimal(s, "sell_fee_rate") == Decimal("0")
         assert await get_decimal(s, "initial_balance") == Decimal("500")

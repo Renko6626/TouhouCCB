@@ -2,7 +2,6 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator, AsyncIterator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlmodel import SQLModel
 
 from app.core.config import settings
 
@@ -34,11 +33,6 @@ async_session_maker = async_sessionmaker(
     expire_on_commit=False,
     class_=AsyncSession,
 )
-
-# 初始化数据库（创建表）
-async def init_db() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)
 
 # FastAPI 依赖：获取异步数据库会话
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:

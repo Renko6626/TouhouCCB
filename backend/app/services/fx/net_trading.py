@@ -9,7 +9,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import and_, literal, select
+from sqlalchemy import and_, bindparam, literal, select
 from sqlalchemy.exc import NoResultFound
 
 from app.models.base import User
@@ -234,14 +234,21 @@ async def reject_net_key(db, user_id, key):
         raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
 
 
+# Keep only SQL structure here; request values are bound on every execution.
+_NET_IDENTITY_ANCHOR = select(literal(1).label('anchor')).subquery()
+_NET_LEGACY_EXISTS = select(FxTrade.id).where(
+    FxTrade.user_id == bindparam('net_user_id'),
+    FxTrade.idempotency_key == bindparam('net_key')).exists()
+_NET_IDENTITY = select(FxExecution, _NET_LEGACY_EXISTS).select_from(
+    _NET_IDENTITY_ANCHOR).outerjoin(FxExecution, and_(
+        FxExecution.user_id == bindparam('net_user_id'),
+        FxExecution.idempotency_key == bindparam('net_key')))
+
+
 async def _read_net_request_identity(db, user_id: int, key: str) -> tuple[FxExecution | None, bool]:
     """Read receipt and legacy key even when neither has a receipt row."""
-    single_row = select(literal(1).label('anchor')).subquery()
-    legacy_exists = select(FxTrade.id).where(
-        FxTrade.user_id == user_id, FxTrade.idempotency_key == key).exists()
-    statement = select(FxExecution, legacy_exists).select_from(single_row).outerjoin(
-        FxExecution, and_(FxExecution.user_id == user_id, FxExecution.idempotency_key == key))
-    receipt, legacy = (await db.execute(statement)).one()
+    receipt, legacy = (await db.execute(
+        _NET_IDENTITY, {'net_user_id': user_id, 'net_key': key})).one()
     return receipt, bool(legacy)
 
 

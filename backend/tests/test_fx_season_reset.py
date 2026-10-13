@@ -21,7 +21,7 @@ class AsyncCompatSession:
     def __init__(self, raw): self.raw = raw
     def add(self, value): self.raw.add(value)
     def add_all(self, values): self.raw.add_all(values)
-    async def execute(self, statement): return self.raw.execute(statement)
+    async def execute(self, statement, params=None): return self.raw.execute(statement, params)
     async def flush(self): self.raw.flush()
     async def get(self, model, key): return self.raw.get(model, key)
     def in_transaction(self): return self.raw.in_transaction()
@@ -75,7 +75,7 @@ async def seed_fx_state(monkeypatch):
                          first_trade_id=1,
                          last_trade_at=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
                          last_trade_id=1),
-                FxMarketDataState(pair_id=pair.id, last_trade_id=1, history_ready=True),
+                FxMarketDataState(pair_id=pair.id, history_ready=True),
                 RedemptionTransaction(user_id=user.id, amount=Decimal("5"), batch_name_snapshot="kept"),
                 DanmukuExchange(user_id=user.id, qq_user_id="1", room_id="r", yuan=Decimal("1"),
                                 huo=Decimal("1"), amount=Decimal("2"), code_string="kept-code"),

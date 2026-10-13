@@ -1,0 +1,26 @@
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_cursor", [None, 0, 7])
+async def test_legacy_sources_without_events_never_become_ready(legacy_cursor):
+    async with async_session_maker() as db:
+        pair = FxPair(currency_code="OLD", currency_name="Legacy")
+        db.add(pair)
+        await db.flush()
+        db.add(FxTrade(pair_id=pair.id, side="buy", input_amount=Decimal("2"),
+                       output_amount=Decimal("1"), pre_gold_reserve=Decimal("1"),
+                       pre_foreign_reserve=Decimal("1"), post_gold_reserve=Decimal("2"),
+                       post_foreign_reserve=Decimal("1"), post_price=Decimal("2"), created_at=NOW))
+        if legacy_cursor is not None:
+            db.add(FxMarketDataState(pair_id=pair.id, last_trade_id=legacy_cursor,
+                                    history_version="legacy", history_ready=False))
+        await db.commit()
+        pid = pair.id
+    service = FxMarketDataService(async_session_maker)
+    await service.start(write_owner=True)
+    try:
+        assert service.state(pid)["history_ready"] is False
+        assert service.get_candles(pid, "1m", NOW, NOW + timedelta(minutes=1)) is None
+        assert await _count(FxCandle) == 0
+        state = await _read_state(pid)
+        assert state is None or (not state["history_ready"] and state["last_event_id"] == 0)
+    finally:
+        await service.stop()

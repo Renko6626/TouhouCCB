@@ -1,19 +1,7 @@
-"""FX candle aggregation and durable batch application.
+"""Event OHLCV aggregation and atomic, idempotent candle checkpoint writes.
 
-Two responsibilities live here:
-
-* :func:`compute_fx_candle_rows` is pure: it turns any iterable of trade-like
-  objects (real ``FxTrade`` rows or projected rows exposing ``id``, ``pair_id``,
-  ``created_at``, ``pre_gold_reserve``, ``pre_foreign_reserve``, ``post_price``,
-  ``side``, ``input_amount``, ``output_amount``)
-  into 4-interval candle rows.  It never touches the ORM.
-* :func:`apply_candle_batch` / :func:`load_market_data_state` own persistence:
-  candle upsert, durable cursor and history version move in the caller's
-  transaction, and a duplicate batch is detected by the persisted cursor so an
-  uncertain commit is never re-added.
-
-The runtime (ring, notifications, retry loop) is a separate module; this layer
-only freezes the storage contract.
+Input projections expose id, pair_id, created_at, kind, pre/post reserves and
+ gold_volume. FxTrade IDs remain source references, never event cursors.
 """
 from __future__ import annotations
 
@@ -64,53 +52,51 @@ def _bucket_start(ts: datetime, step_seconds: int) -> datetime:
     return datetime.fromtimestamp(epoch - (epoch % step_seconds), tz=timezone.utc)
 
 
-def _order_key(at: datetime, trade_id: int) -> tuple[datetime, int]:
+def _order_key(at: datetime, event_id: int) -> tuple[datetime, int]:
     """``(created_at, id)`` ordering key, tolerant of naive SQLite datetimes."""
-    return (_utc(at), int(trade_id))
+    return (_utc(at), int(event_id))
 
 
-def _get(trade: Any, name: str) -> Any:
+def _get(event: Any, name: str) -> Any:
     """Read a projected trade field from a Row/namespace or a plain mapping."""
-    if isinstance(trade, dict):
-        return trade[name]
-    return getattr(trade, name)
+    if isinstance(event, dict):
+        return event[name]
+    return getattr(event, name)
 
 
-def _gold_volume(trade: Any) -> Decimal:
-    """buy → gold in (input), sell → gold out (output), matching the snapshot."""
-    amount = _get(trade, "input_amount") if _get(trade, "side") == "buy" else _get(trade, "output_amount")
-    return Decimal(amount)
-
-
-def trade_pre_price(trade: Any) -> Decimal:
-    """Pre-trade marginal price, at the same six-place precision as post_price."""
+def event_prices(event: Any) -> tuple[Decimal, Decimal]:
+    """Six-place marginal prices from the immutable event reserve snapshot."""
     from app.services.fx.amm import marginal_price
+    post = marginal_price(Decimal(_get(event, "post_gold_reserve")),
+                          Decimal(_get(event, "post_foreign_reserve"))).quantize(
+                              Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
+    if _get(event, "kind") == "initialize":
+        return post, post
+    pre = marginal_price(Decimal(_get(event, "pre_gold_reserve")),
+                         Decimal(_get(event, "pre_foreign_reserve"))).quantize(
+                             Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
+    return pre, post
 
-    return marginal_price(
-        Decimal(_get(trade, "pre_gold_reserve")),
-        Decimal(_get(trade, "pre_foreign_reserve")),
-    ).quantize(Decimal("0.000001"), rounding=ROUND_HALF_EVEN)
 
+def compute_fx_candle_rows(events: Iterable[Any]) -> list[dict]:
+    """Fold pool events into one row per ``(pair_id, interval, bucket_start)``.
 
-def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
-    """Fold trades into one row per ``(pair_id, interval, bucket_start)``.
-
-    Buckets are UTC; open is the first pre-trade price, close the last post-trade
+    Buckets are UTC; open is the first pre-event price, close the last post-event
     price, and high/low include both, ordered by ``(created_at, id)``;
-    ``gold_volume`` is buy ``input_amount`` / sell ``output_amount``.  Each row
+    ``gold_volume`` is stored on the event; only kind=trade increments n_trades.  Each row
     carries the first/last ordering keys so later batches can merge without
     re-reading history.
     """
     buckets: dict[tuple[int, str, datetime], dict] = {}
 
-    for trade in trades:
-        pair_id = int(_get(trade, "pair_id"))
-        pre_price = trade_pre_price(trade)
+    for event in events:
+        pair_id = int(_get(event, "pair_id"))
+        pre_price, price = event_prices(event)
         for interval, step in FX_CANDLE_INTERVALS:
-            ts = _utc(_get(trade, "created_at"))
-            trade_id = int(_get(trade, "id"))
-            price = Decimal(_get(trade, "post_price"))
-            volume = _gold_volume(trade)
+            ts = _utc(_get(event, "created_at"))
+            event_id = int(_get(event, "id"))
+            volume = Decimal(_get(event, "gold_volume"))
+            n_trades = int(_get(event, "kind") == "trade")
             bucket_start = _bucket_start(ts, step)
             key = (pair_id, interval, bucket_start)
             row = buckets.get(key)
@@ -124,26 +110,28 @@ def compute_fx_candle_rows(trades: Iterable[Any]) -> list[dict]:
                     "low_price": min(pre_price, price),
                     "close_price": price,
                     "gold_volume": volume,
-                    "n_trades": 1,
-                    "first_trade_at": ts,
-                    "first_trade_id": trade_id,
-                    "last_trade_at": ts,
-                    "last_trade_id": trade_id,
+                    "n_trades": n_trades,
+                    "n_events": 1,
+                    "first_event_at": ts,
+                    "first_event_id": event_id,
+                    "last_event_at": ts,
+                    "last_event_id": event_id,
                 }
                 continue
 
-            if _order_key(ts, trade_id) < _order_key(row["first_trade_at"], row["first_trade_id"]):
+            if _order_key(ts, event_id) < _order_key(row["first_event_at"], row["first_event_id"]):
                 row["open_price"] = pre_price
-                row["first_trade_at"] = ts
-                row["first_trade_id"] = trade_id
-            if _order_key(ts, trade_id) > _order_key(row["last_trade_at"], row["last_trade_id"]):
+                row["first_event_at"] = ts
+                row["first_event_id"] = event_id
+            if _order_key(ts, event_id) > _order_key(row["last_event_at"], row["last_event_id"]):
                 row["close_price"] = price
-                row["last_trade_at"] = ts
-                row["last_trade_id"] = trade_id
+                row["last_event_at"] = ts
+                row["last_event_id"] = event_id
             row["high_price"] = max(row["high_price"], pre_price, price)
             row["low_price"] = min(row["low_price"], pre_price, price)
             row["gold_volume"] += volume
-            row["n_trades"] += 1
+            row["n_trades"] += n_trades
+            row["n_events"] += 1
 
     interval_rank = {name: rank for rank, (name, _) in enumerate(FX_CANDLE_INTERVALS)}
     return sorted(
@@ -158,8 +146,8 @@ def merge_row(a: dict, b: dict) -> dict:
     The result keeps the earlier ``open``/``first`` and later ``close``/``last``
     keys, takes high/low extremes, and sums volume/trade count.
     """
-    first = a if _order_key(a["first_trade_at"], a["first_trade_id"]) <= _order_key(b["first_trade_at"], b["first_trade_id"]) else b
-    last = a if _order_key(a["last_trade_at"], a["last_trade_id"]) >= _order_key(b["last_trade_at"], b["last_trade_id"]) else b
+    first = a if _order_key(a["first_event_at"], a["first_event_id"]) <= _order_key(b["first_event_at"], b["first_event_id"]) else b
+    last = a if _order_key(a["last_event_at"], a["last_event_id"]) >= _order_key(b["last_event_at"], b["last_event_id"]) else b
     return {
         "pair_id": first["pair_id"],
         "interval": first["interval"],
@@ -170,10 +158,11 @@ def merge_row(a: dict, b: dict) -> dict:
         "low_price": min(a["low_price"], b["low_price"]),
         "gold_volume": a["gold_volume"] + b["gold_volume"],
         "n_trades": int(a["n_trades"]) + int(b["n_trades"]),
-        "first_trade_at": first["first_trade_at"],
-        "first_trade_id": first["first_trade_id"],
-        "last_trade_at": last["last_trade_at"],
-        "last_trade_id": last["last_trade_id"],
+        "n_events": int(a["n_events"]) + int(b["n_events"]),
+        "first_event_at": first["first_event_at"],
+        "first_event_id": first["first_event_id"],
+        "last_event_at": last["last_event_at"],
+        "last_event_id": last["last_event_id"],
     }
 
 
@@ -186,7 +175,7 @@ def _earlier_sql(earlier_at, earlier_id, later_at, later_id):
 
 
 async def _upsert_candles(db: AsyncSession, rows: Sequence[dict]) -> None:
-    """Order-aware multi-row UPSERT; each trade's volume is added exactly once.
+    """Order-aware multi-row UPSERT; each event's volume is added exactly once.
 
     ``open``/``close`` and the first/last ordering keys only move when the
     incoming row is genuinely earlier/later, so an out-of-order batch still
@@ -209,8 +198,8 @@ async def _upsert_candles(db: AsyncSession, rows: Sequence[dict]) -> None:
 
     stmt = insert_fn(FxCandle).values(rows_list)
     ins = stmt.excluded
-    incoming_earlier = _earlier_sql(ins.first_trade_at, ins.first_trade_id, FxCandle.first_trade_at, FxCandle.first_trade_id)
-    incoming_later = _earlier_sql(FxCandle.last_trade_at, FxCandle.last_trade_id, ins.last_trade_at, ins.last_trade_id)
+    incoming_earlier = _earlier_sql(ins.first_event_at, ins.first_event_id, FxCandle.first_event_at, FxCandle.first_event_id)
+    incoming_later = _earlier_sql(FxCandle.last_event_at, FxCandle.last_event_id, ins.last_event_at, ins.last_event_id)
 
     stmt = stmt.on_conflict_do_update(
         index_elements=["pair_id", "interval", "bucket_start"],
@@ -221,10 +210,11 @@ async def _upsert_candles(db: AsyncSession, rows: Sequence[dict]) -> None:
             "close_price": case((incoming_later, ins.close_price), else_=FxCandle.close_price),
             "gold_volume": FxCandle.gold_volume + ins.gold_volume,
             "n_trades": FxCandle.n_trades + ins.n_trades,
-            "first_trade_at": case((incoming_earlier, ins.first_trade_at), else_=FxCandle.first_trade_at),
-            "first_trade_id": case((incoming_earlier, ins.first_trade_id), else_=FxCandle.first_trade_id),
-            "last_trade_at": case((incoming_later, ins.last_trade_at), else_=FxCandle.last_trade_at),
-            "last_trade_id": case((incoming_later, ins.last_trade_id), else_=FxCandle.last_trade_id),
+            "n_events": FxCandle.n_events + ins.n_events,
+            "first_event_at": case((incoming_earlier, ins.first_event_at), else_=FxCandle.first_event_at),
+            "first_event_id": case((incoming_earlier, ins.first_event_id), else_=FxCandle.first_event_id),
+            "last_event_at": case((incoming_later, ins.last_event_at), else_=FxCandle.last_event_at),
+            "last_event_id": case((incoming_later, ins.last_event_id), else_=FxCandle.last_event_id),
             "updated_at": func.now(),
         },
     )
@@ -248,7 +238,7 @@ async def _insert_state_if_absent(
     """
     values = {
         "pair_id": pair_id,
-        "last_trade_id": 0,
+        "last_event_id": 0,
         "history_version": history_version,
         "history_ready": history_ready,
         "updated_at": datetime.now(timezone.utc),
@@ -288,23 +278,23 @@ async def apply_candle_batch(
     db: AsyncSession,
     *,
     pair_id: int,
-    expected_trade_id: int,
-    through_trade_id: int,
+    expected_event_id: int,
+    through_event_id: int,
     rows: Sequence[dict],
     history_version: str,
     history_ready: bool | None = None,
 ) -> bool:
-    """Atomically persist ``(expected_trade_id, through_trade_id]`` candles.
+    """Atomically persist ``(expected_event_id, through_event_id]`` candles.
 
     The caller owns the transaction; this function never commits.  It locks the
     per-pair state row, then:
 
     * rejects a stale generation: an existing state whose ``history_version``
       differs from the requested one raises :class:`FxCandleCursorConflict`,
-      **including when the cursor already equals** ``through_trade_id``.  Only
+      **including when the cursor already equals** ``through_event_id``.  Only
       first creation adopts the requested generation; a regular apply can never
       silently change an existing generation.
-    * if the persisted cursor is already at ``through_trade_id``:
+    * if the persisted cursor is already at ``through_event_id``:
       - volume-bearing duplicates are never re-added; only an explicit
         ``history_ready`` transition is applied (returning whether it changed);
       - an empty metadata-only call (``expected == through``, no rows) is the
@@ -316,15 +306,15 @@ async def apply_candle_batch(
     a bool sets it.  ``rows`` are the output of :func:`compute_fx_candle_rows`
     and must all belong to ``pair_id``.
     """
-    if through_trade_id < expected_trade_id:
+    if through_event_id < expected_event_id:
         raise ValueError(
-            f"through_trade_id {through_trade_id} < expected_trade_id {expected_trade_id}"
+            f"through_event_id {through_event_id} < expected_event_id {expected_event_id}"
         )
     rows_list = list(rows)
-    if through_trade_id == expected_trade_id and rows_list:
+    if through_event_id == expected_event_id and rows_list:
         raise ValueError(
-            f"pair {pair_id} batch ({expected_trade_id}, {through_trade_id}] "
-            "consumes no trade but carries candle rows"
+            f"pair {pair_id} batch ({expected_event_id}, {through_event_id}] "
+            "consumes no event but carries candle rows"
         )
     mismatched = [row for row in rows_list if int(row["pair_id"]) != pair_id]
     if mismatched:
@@ -333,10 +323,10 @@ async def apply_candle_batch(
     state = await _select_state(db, pair_id, for_update=True)
     created = False
     if state is None:
-        if expected_trade_id != 0:
+        if expected_event_id != 0:
             raise FxCandleCursorConflict(
                 f"pair {pair_id} has no durable cursor but caller expected "
-                f"{expected_trade_id} (through {through_trade_id})"
+                f"{expected_event_id} (through {through_event_id})"
             )
         created = await _insert_state_if_absent(
             db, pair_id, history_version=history_version,
@@ -352,10 +342,10 @@ async def apply_candle_batch(
         raise FxCandleCursorConflict(
             f"pair {pair_id} history generation is {state.history_version!r}, "
             f"caller requested {history_version!r} (missing {len(rows_list)} rows "
-            f"through {through_trade_id})"
+            f"through {through_event_id})"
         )
 
-    if not created and state.last_trade_id == through_trade_id:
+    if not created and state.last_event_id == through_event_id:
         # Volume (if any) is already durable: never re-add it.  Only an explicit
         # readiness transition may still be applied.
         if history_ready is None or history_ready == state.history_ready:
@@ -363,16 +353,16 @@ async def apply_candle_batch(
         state.history_ready = history_ready
         state.updated_at = datetime.now(timezone.utc)
         return True
-    if state.last_trade_id != expected_trade_id:
+    if state.last_event_id != expected_event_id:
         raise FxCandleCursorConflict(
-            f"pair {pair_id} durable cursor is {state.last_trade_id}, caller "
-            f"expected {expected_trade_id} (through {through_trade_id})"
+            f"pair {pair_id} durable cursor is {state.last_event_id}, caller "
+            f"expected {expected_event_id} (through {through_event_id})"
         )
 
     if rows_list:
         await _upsert_candles(db, rows_list)
 
-    state.last_trade_id = through_trade_id
+    state.last_event_id = through_event_id
     if history_ready is not None:
         state.history_ready = history_ready
     state.updated_at = datetime.now(timezone.utc)

@@ -9,19 +9,21 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import async_session_maker, get_async_session
 from app.models.fx import FxPair
 from app.services.credit.keys import symbol_namespace
 from app.services.fx import market_data, trading
-from app.services.fx.market_reads import read_fx_chart_with_meta
+from app.services.fx.market_reads import read_fx_chart_with_meta, read_fx_stream_history
 from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.realtime import BROKER, IP_LIMITER, MarketEvent, Subscriber, sse_pack
 
 router = APIRouter()
 MAX_SSE_DURATION = 3600
-FX_THROUGH_HEADER = "X-FX-Through-Trade-ID"
+FX_THROUGH_HEADER = "X-FX-Through-Event-ID"
 FX_VERSION_HEADER = "X-FX-History-Version"
 
 logger = logging.getLogger(__name__)
@@ -38,9 +40,9 @@ async def chart(pair_id: int, response: Response, interval: str = Query("1m"),
     # metadata travels in headers so a cached-history fallback cannot stamp an
     # old SSE cursor onto newer rows.  An unfinished history is an explicit
     # retryable 503, never a raw full-day trade rebuild.
-    body, through_trade_id, history_version = await read_fx_chart_with_meta(
+    body, through_event_id, history_version = await read_fx_chart_with_meta(
         db, pair_id, interval, from_, to)
-    response.headers[FX_THROUGH_HEADER] = str(through_trade_id)
+    response.headers[FX_THROUGH_HEADER] = str(through_event_id)
     response.headers[FX_VERSION_HEADER] = str(history_version)
     return body
 
@@ -70,29 +72,35 @@ async def stream(pair_id: int, request: Request):
             # Anchor first, then read state. Any commit after the anchor is
             # either reflected in this snapshot or remains queued for replay.
             #
-            # Pull the latest committed prefix into an already-initialised ready
-            # runtime before capturing the tail, so a just-committed but
-            # not-yet-reconciled trade cannot be omitted when no later
-            # publication arrives.  Unknown / not-ready pairs are NOT
-            # backfilled from a GET: the tail is emitted unready and the normal
-            # producer reconciliation owns startup.  Readers only warm the ring
-            # (no writes); an owner queues incremental ready batches only.
-            runtime_state = FX_MARKET_DATA.state(pair_id)
-            if runtime_state is not None and runtime_state.get("history_ready"):
-                try:
-                    await FX_MARKET_DATA.catch_up(pair_id)
-                except Exception:  # noqa: BLE001 - the tail must still be sent
-                    logger.exception("fx SSE snapshot catch-up failed for pair %s", pair_id)
             async with async_session_maker() as db:
+                # Writers hold the same pair lock through commit: the quote,
+                # tail and cursor name one committed prefix and generation.
+                locked = True
+                try:
+                    await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
+                                     .with_for_update(read=True))
+                except SQLAlchemyError:
+                    # A true read-only connection cannot prove the locked
+                    # event prefix. Keep quotes available without claiming it.
+                    await db.rollback()
+                    locked = False
+                # The lock may have waited across a bucket boundary. Capture
+                # tail time only after its committed prefix is established.
+                now = datetime.now(timezone.utc)
                 snapshot = await trading.get_public_snapshot(db, pair_id)
-            now = datetime.now(timezone.utc)
-            # The first packet carries the current ring tail (version, readiness
-            # and per-interval segments) plus the coverage cursor.  Trades that
-            # overlap the tail arrive as later ``fx`` deltas and are de-duplicated
-            # by the client against ``history_tail_through_trade_id``.
-            history = FX_MARKET_DATA.tail(pair_id, now)
+                try:
+                    if not locked:
+                        raise HTTPException(status_code=503, detail="FX history consistency lock is unavailable")
+                    history = await read_fx_stream_history(db, pair_id, now)
+                except HTTPException as exc:
+                    if exc.status_code != 503:
+                        raise
+                    history = {"history_version": getattr(snapshot, "history_version", None),
+                               "history_ready": False}
+                await db.commit()
             wire = market_data.public_frame_to_wire(
-                market_data.build_public_envelope(snapshot, history=history))
+                market_data.build_public_envelope(snapshot, history=history,
+                                                  history_invalidated=not history.get("history_ready", False)))
             initial = MarketEvent("snapshot", pair_id, now.isoformat(), wire, anchor)
             yield sse_pack(initial).encode()
             started = time.monotonic()

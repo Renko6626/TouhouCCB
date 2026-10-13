@@ -1,13 +1,11 @@
-# init_db.py — 初始化数据库（建表 + 示例数据）
+# init_db.py — 空库 Alembic 初始化及既有开发示例数据
 # 用法：python init_db.py 或 docker compose exec backend python init_db.py
 
 import asyncio
 from pathlib import Path
-from sqlmodel import SQLModel
-from sqlalchemy import text
-from sqlalchemy.schema import DropTable
 from alembic.config import Config
-from alembic.script import ScriptDirectory
+from alembic import command
+from app.core.schema import classify_schema
 
 from app.core.database import engine, async_session_maker
 from app.core.config import settings
@@ -16,64 +14,24 @@ from app.models import redemption as _redemption_models  # noqa: F401  注册兑
 from app.models import title as _title_models  # noqa: F401  注册称号系统表到 SQLModel.metadata
 from app.models import ledger as _ledger_models  # noqa: F401  注册资金流水账本表到 SQLModel.metadata
 from app.models import audit as _audit_models  # noqa: F401  注册审计事件流表到 SQLModel.metadata
-# F10（计划 §3 / WP1）：补 metadata 注册，修复"空库缺 FX / bot / 统一信贷表"缺陷。
-# 只加 import，不改本脚本其余清库 / 示例数据逻辑。
+# 保持开发入口的模型注册；实际 schema 完全由 Alembic 建立。
 from app.models import fx as _fx_models  # noqa: F401  注册 FX 表到 SQLModel.metadata
 from app.models import bot as _bot_models  # noqa: F401  注册 bot_profile 到 SQLModel.metadata
 from app.models import credit as _credit_models  # noqa: F401  注册 liquidation_run/action 到 SQLModel.metadata
 
 
-def get_alembic_head() -> str:
-    """Return the Alembic head revision for the freshly-created schema."""
-    alembic_ini = Path(__file__).resolve().parent / "alembic.ini"
-    return ScriptDirectory.from_config(Config(str(alembic_ini))).get_current_head()
-
-
 async def init_db():
-    db_url = settings.build_db_url()
-    is_sqlite = db_url.startswith("sqlite+aiosqlite://")
-
-    print("====================================")
-    print("  初始化数据库（会清空所有数据）")
-    print("  DATABASE:", db_url.split("@")[-1] if "@" in db_url else db_url)
-    print("====================================")
-
-    confirm = input("确认清空数据库？输入 YES: ")
-    if confirm != "YES":
-        print("取消操作")
-        return
-
-    # 1. Drop & Create
+    print("初始化空数据库；已有数据库将拒绝初始化")
     async with engine.begin() as conn:
-        print("-> DROP ALL TABLES")
-        if is_sqlite:
-            await conn.execute(text("PRAGMA foreign_keys=OFF"))
-            for table in reversed(SQLModel.metadata.sorted_tables):
-                await conn.execute(DropTable(table, if_exists=True))
-            await conn.execute(text("PRAGMA foreign_keys=ON"))
-        else:
-            # PostgreSQL / MySQL: CASCADE 处理外键依赖
-            for table in reversed(SQLModel.metadata.sorted_tables):
-                await conn.execute(text(f'DROP TABLE IF EXISTS "{table.name}" CASCADE'))
+        def bootstrap(connection):
+            if classify_schema(connection) != "empty":
+                raise RuntimeError("init_db requires an empty database")
+            cfg = Config(str(Path(__file__).resolve().parent / "alembic.ini"))
+            cfg.attributes["connection"] = connection
+            command.upgrade(cfg, "head")
+        await conn.run_sync(bootstrap)
 
-        print("-> CREATE ALL TABLES")
-        await conn.run_sync(SQLModel.metadata.create_all)
-
-        # create_all 已经创建了当前模型定义下的完整 schema；
-        # 标记 Alembic 到 head，避免后续 deploy.sh 再重复执行历史 add_column/create_table。
-        print("-> STAMP ALEMBIC HEAD")
-        head_revision = get_alembic_head()
-        await conn.execute(text(
-            "CREATE TABLE IF NOT EXISTS alembic_version "
-            "(version_num VARCHAR(32) NOT NULL)"
-        ))
-        await conn.execute(text("DELETE FROM alembic_version"))
-        await conn.execute(
-            text("INSERT INTO alembic_version (version_num) VALUES (:version_num)"),
-            {"version_num": head_revision},
-        )
-
-    # 2. 开发环境插入示例数据；生产清库重开时保持真正空库。
+    # 开发环境沿用示例市场；生产环境只建立 schema。
     if settings.is_production:
         print("  生产环境：跳过示例市场创建")
     else:

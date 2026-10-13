@@ -12,7 +12,7 @@ from app.core.database import get_async_session
 from app.core.users import current_active_user, current_superuser
 from app.models.audit import AuditEvent
 from app.models.base import User
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPoolEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.services.credit.ownership import EconomicWritesDisabled, WriteOwnership
 from tests.fx_test_helpers import fx_db
 
@@ -90,6 +90,15 @@ async def test_initial_issuance_fund_withdraw_and_audit(ctx):
     assert {a.event_type for a in audits} >= {"fx_fund", "fx_withdraw"}
     assert all(a.operator_user_id == admin.id for a in audits)
     assert any(a.payload.get("action") == "initial_issuance" for a in audits)
+    events = (await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id).order_by(FxPoolEvent.id))).scalars().all()
+    assert [e.kind for e in events] == ["initialize", "fund", "withdraw"]
+    assert all(e.gold_volume == 0 and e.trade_id is None for e in events)
+    assert {e.audit_id for e in events} == {a.id for a in audits if a.event_type in {"fx_fund", "fx_withdraw"}}
+    assert events[0].pre_gold_reserve is None and events[0].post_gold_reserve == 100
+    assert events[1].pre_gold_reserve == 100 and events[1].post_gold_reserve == 103
+    assert events[2].pre_gold_reserve == 103 and events[2].post_gold_reserve == 102
+    assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"status": "paused"})).status_code == 200
+    assert len((await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id))).scalars().all()) == 3
     for event_type in ("fx_fund", "fx_withdraw"):
         row = next(a for a in audits if a.event_type == event_type and "pool_before" in a.payload)
         for section in ("pool_before", "pool_after", "treasury_before", "treasury_after"):
@@ -167,15 +176,18 @@ async def test_fee_rate_must_be_strictly_below_one(ctx):
 async def test_delete_unused_pair_cleans_dependents_and_keeps_audit(ctx):
     client, db, app, admin, normal = ctx
     pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    assert (await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/fund", json={"gold_amount": "1", "foreign_amount": "0"})).status_code == 200
     db.add(FxWallet(user_id=admin.id, pair_id=pair_id))
     await db.commit()
     response = await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')
     assert response.status_code == 204, response.text
     assert await db.get(FxPair, pair_id) is None
-    for model in (FxWallet, FxTreasury):
+    for model in (FxWallet, FxTreasury, FxPoolEvent):
         assert not (await db.execute(select(model).where(model.pair_id == pair_id))).scalars().all()
     assert (await client.get('/api/v1/fx/pairs')).json() == []
     audits = (await db.execute(select(AuditEvent).where(AuditEvent.event_type == 'fx_pair_delete'))).scalars().all()
+    funding_audits = (await db.execute(select(AuditEvent).where(AuditEvent.event_type == "fx_fund", AuditEvent.ref_id == pair_id))).scalars().all()
+    assert len(funding_audits) == 2
     assert len(audits) == 1 and audits[0].operator_user_id == admin.id
     assert audits[0].payload['before']['currency_code'] == 'USD'
     assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 404
@@ -396,3 +408,67 @@ async def test_zero_short_row_allows_unused_pair_deletion(ctx):
     assert response.status_code == 204, response.text
     assert not (await db.execute(select(FxShortPosition))).scalars().all()
     assert await db.get(FxPair, pair_id) is None
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_preview_and_keyset_history(ctx):
+    from datetime import datetime, timezone
+    from app.models.fx import FxShortPosition
+    client, db, app, admin, normal = ctx
+    pair_id = (await client.post("/api/v1/admin/fx/pairs", json=PAIR)).json()["id"]
+    other_id = (await client.post("/api/v1/admin/fx/pairs", json={**PAIR, "currency_code": "EUR"})).json()["id"]
+    for user, amount in ((admin, 3), (normal, 7)):
+        db.add(FxWallet(user_id=user.id, pair_id=pair_id, foreign_amount=amount, cost_basis=amount * 2))
+        db.add(FxShortPosition(user_id=user.id, pair_id=pair_id, principal_foreign=amount,
+            interest_foreign=1, restricted_gold=amount * 4, interest_last_accrued_at=datetime.now(timezone.utc)))
+    await db.commit()
+    base = f"/api/v1/admin/fx/pairs/{pair_id}"
+    overview = (await client.get(base + "/overview")).json()
+    assert overview["holdings"] == {"long_users": 2, "long_foreign": "10.000000", "long_cost_gold": "20.000000",
+        "short_users": 2, "short_principal_foreign": "10.000000", "short_recorded_interest_foreign": "2.000000",
+        "short_restricted_gold": "40.000000", "interest_is_realtime": False}
+    assert Decimal(overview["reference_price"]) == 1 and overview["as_of"]
+    audits_before = list((await db.execute(select(AuditEvent.id))).scalars())
+    for amount, expected in (({"gold_amount": "10"}, Decimal("1.1")), ({"foreign_amount": "25"}, Decimal("0.8"))):
+        response = await client.post(base + "/liquidity-preview", json={"action": "fund", **amount})
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["executable"] and Decimal(data["price_after"]) == expected
+        assert Decimal(data["price_change_pct"]) == (expected - 1) * 100
+        assert data["pool_after"] == data["treasury_after"]
+    exhausted = (await client.post(base + "/liquidity-preview", json={"action": "withdraw", "gold_amount": "100"})).json()
+    assert not exhausted["executable"] and exhausted["price_after"] is None
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
+    treasury.gold_balance = Decimal("2")
+    await db.commit()
+    blocked = (await client.post(base + "/liquidity-preview", json={"action": "withdraw", "gold_amount": "3"})).json()
+    assert not blocked["executable"] and "treasury" in blocked["blocked_reason"]
+    for invalid in ("0.0000001", "10000000000", "NaN", "-1"):
+        assert (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": invalid})).status_code == 422
+    assert list((await db.execute(select(AuditEvent.id))).scalars()) == audits_before
+    pair = await db.get(FxPair, pair_id)
+    assert pair.gold_reserve == pair.foreign_reserve == 100 and pair.pool_version == 1
+    assert (await client.post(base + "/fund", json={"gold_amount": "10"})).status_code == 200
+    assert (await client.post(f"/api/v1/admin/fx/pairs/{other_id}/fund", json={"gold_amount": "5"})).status_code == 200
+    history = (await client.get(base + "/liquidity-history?limit=1")).json()
+    assert len(history["items"]) == 1 and history["items"][0]["action"] == "fund"
+    assert Decimal(history["items"][0]["price_change_pct"]) == 10
+    initial = (await client.get(base + f'/liquidity-history?limit=1&before_id={history["next_before_id"]}')).json()
+    assert initial["next_before_id"] is None
+    assert initial["items"][0]["action"] == "initial_issuance"
+    assert initial["items"][0]["pool_before"] is initial["items"][0]["price_change_pct"] is None
+    assert (await client.get(base + "/liquidity-history?limit=101")).status_code == 422
+    overflow = (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": "9999999999.999999"})).json()
+    assert not overflow["executable"] and "storage" in overflow["blocked_reason"]
+    db.add(AuditEvent(event_type="fx_fund", ref_table="fx_pair", ref_id=pair_id, payload={"pool_after": {"gold": "unknown"}}))
+    await db.commit()
+    unknown = (await client.get(base + "/liquidity-history?limit=1")).json()["items"][0]
+    assert unknown["gold_amount"] is unknown["pool_before"] is unknown["price_change_pct"] is None
+    assert unknown["pool_after"] == {"gold": None, "foreign": None}
+    pair.archived = True
+    await db.commit()
+    assert not (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": "1"})).json()["executable"]
+    app.state.current_user = normal
+    for path in ("/overview", "/liquidity-history"):
+        assert (await client.get(base + path)).status_code == 403
+    assert (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": "1"})).status_code == 403

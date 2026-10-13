@@ -34,11 +34,12 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import bindparam, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import User
+from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
@@ -54,6 +55,14 @@ from app.services.market_locks import lock_user
 
 if TYPE_CHECKING:  # risk imports this module, so only type-check the cycle.
     from app.services.credit.risk import DependencySet
+
+# Reuse immutable SQL structure, while reading fresh locked rows each time.
+_SHORT_ROWS_LOCK = select(FxShortPosition).where(
+    FxShortPosition.user_id == bindparam('fx_user_id')
+).order_by(FxShortPosition.pair_id.asc()).with_for_update().execution_options(populate_existing=True)
+_TREASURY_LOCK = select(FxTreasury).where(
+    FxTreasury.pair_id == bindparam('fx_pair_id')
+).with_for_update().execution_options(populate_existing=True)
 
 _logger = logging.getLogger(__name__)
 
@@ -253,16 +262,13 @@ async def _lock_wallet(db: AsyncSession, user_id: int, pair_id: int) -> Optional
 
 async def _lock_short_rows(db: AsyncSession, user_id: int) -> list[FxShortPosition]:
     return list((await db.execute(
-        select(FxShortPosition).where(FxShortPosition.user_id == user_id)
-        .order_by(FxShortPosition.pair_id.asc())
-        .with_for_update().execution_options(populate_existing=True)
+        _SHORT_ROWS_LOCK, {'fx_user_id': user_id}
     )).scalars().all())
 
 
 async def _lock_treasury(db: AsyncSession, pair_id: int) -> Optional[FxTreasury]:
     return (await db.execute(
-        select(FxTreasury).where(FxTreasury.pair_id == pair_id)
-        .with_for_update().execution_options(populate_existing=True)
+        _TREASURY_LOCK, {'fx_pair_id': pair_id}
     )).scalars().first()
 
 
@@ -512,6 +518,11 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_short_open(
         db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
         treasury_before=treasury_before,
@@ -707,6 +718,11 @@ async def _write_cover_ledger(
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_short_cover(
         db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
         treasury_before=treasury_before, user_before=user_before,

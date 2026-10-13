@@ -344,7 +344,7 @@ async def test_public_api_allowlist_hides_private_market_and_wallet_fields(ctx):
     assert chart.status_code == 200, chart.text
     candles = chart.json()
     assert len(candles) >= 1
-    assert set(candles[0]) == {"bucket_start", "interval", "open", "high", "low", "close", "volume"}
+    assert set(candles[0]) == {"bucket_start", "interval", "open", "high", "low", "close", "volume", "n_trades", "n_events"}
     assert hidden.isdisjoint(candles[0])
 
 @pytest.mark.asyncio
@@ -489,7 +489,9 @@ async def test_sse_frames_only_expose_allowlisted_market_fields(ctx, monkeypatch
     await response.body_iterator.aclose()
     initial = json.loads(raw.decode().split("data: ", 1)[1])
     assert initial["type"] == "snapshot"
-    assert set(initial["data"]) == allowed
+    assert set(initial["data"]) == allowed | {"history_ready", "history_invalidated"}
+    assert initial["data"]["history_ready"] is False
+    assert initial["data"]["history_invalidated"] is True
     serialized = json.dumps(initial["data"])
     for secret in ("target_price", "shock_ratio", "future", "random", "parameter_snapshot"):
         assert secret not in serialized
@@ -547,7 +549,7 @@ class _ResetSession:
 
     def add(self, value): self._session.add(value)
     def add_all(self, values): self._session.add_all(values)
-    async def execute(self, statement): return self._session.execute(statement)
+    async def execute(self, statement, params=None): return self._session.execute(statement, params)
     async def flush(self): self._session.flush()
     async def commit(self): self._session.commit()
     async def rollback(self): self._session.rollback()

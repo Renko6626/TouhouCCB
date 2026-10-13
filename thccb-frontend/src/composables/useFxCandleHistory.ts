@@ -7,7 +7,7 @@
 //   - 后端历史未就绪 / 段缺失 / 段结构非法时回退 `/chart`，且**结果必须带明确的
 //     覆盖游标**：元数据缺失时显式报错（safe retry），绝不拿旧 SSE 游标假装保护了新数据。
 //
-// `loadFxHistoryResult` 返回 `{points, throughTradeId, historyVersion}`。
+// `loadFxHistoryResult` 返回 `{points, throughEventId, historyVersion}`。
 // 本文件不建立任何 SSE 连接——实时增量由组件持有的 FxStream + FxCandleEngine 负责。
 
 import { fetchFxHistorySegment, getChartWithMeta } from '@/api/fx'
@@ -39,7 +39,7 @@ export const FX_HISTORY_FETCH_CONCURRENCY = 6
 export interface FxHistoryLoadResult {
   points: FxChartPoint[]
   /** 实时成交 id <= 此值必须跳过（来自尾段覆盖或 `/chart` 响应头） */
-  throughTradeId: number
+  throughEventId: number
   historyVersion: string
 }
 
@@ -47,7 +47,7 @@ function isoAt(seconds: number): string {
   return new Date(seconds * 1000).toISOString()
 }
 
-function validThroughTradeId(value: unknown): number | null {
+function validThroughEventId(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
@@ -76,8 +76,8 @@ function snapshotTailStatus(
   const tailAt = snapshotTail?.history_tail_at
     ? fxTimestampToSeconds(snapshotTail.history_tail_at) : null
   const segment = snapshotTail?.history_tail?.[interval] ?? null
-  const fresh = tailAt !== null && nowSec - tailAt < step && segment !== null && segment.t0 === boundary
-  return { segment, coverage: snapshotTail?.history_tail_through_trade_id ?? null, fresh }
+  const fresh = snapshotTail?.history_ready !== false && !snapshotTail?.history_invalidated && tailAt !== null && nowSec - tailAt < step && segment !== null && segment.t0 === boundary
+  return { segment, coverage: snapshotTail?.history_tail_through_event_id ?? null, fresh }
 }
 
 /**
@@ -97,18 +97,18 @@ export async function loadFxHistoryTailResult(
   const version = snapshotTail?.history_version ?? null
   const { segment, coverage, fresh } = snapshotTailStatus(interval, snapshotTail, nowSec, boundary)
   if (version && fresh && segment) {
-    const throughTradeId = validThroughTradeId(coverage)
-    if (throughTradeId === null) throw new Error('FX history tail is missing through-trade-id')
+    const throughEventId = validThroughEventId(coverage)
+    if (throughEventId === null) throw new Error('FX history tail is missing through-event-id')
     return {
       points: mergeFxHistoryCandles([], decodeFxHistorySegment(segment), step, boundary, endExclusive),
-      throughTradeId,
+      throughEventId,
       historyVersion: version,
     }
   }
   const meta = await getChartWithMeta(pairId, interval, isoAt(boundary), isoAt(nowSec))
   return {
     points: mergeFxHistoryCandles([], meta.points, step, boundary, endExclusive),
-    throughTradeId: meta.throughTradeId,
+    throughEventId: meta.throughEventId,
     historyVersion: meta.historyVersion,
   }
 }
@@ -120,12 +120,12 @@ export async function loadFxHistoryTailResult(
  * @param interval       10s/1m/15m/1h（与后端 RING_SPEC 一致）
  * @param lookbackMinutes 请求窗口（用当前时间倒推，自动裁剪到 20,000 桶内）
  * @param snapshotTail   SSE snapshot 的版本/尾段上下文
- * @returns `{points, throughTradeId, historyVersion}`
+ * @returns `{points, throughEventId, historyVersion}`
  *
  * 游标规则：
- * - 使用 snapshot 新鲜尾段（封存段路径）→ 游标 = `history_tail_through_trade_id`；
+ * - 使用 snapshot 新鲜尾段（封存段路径）→ 游标 = `history_tail_through_event_id`；
  * - 任何 `/chart` 回退（尾段过期 / 段缺失 / 历史未就绪）→ 游标 = 该 HTTP 响应的
- *   `X-FX-Through-Trade-ID`，绝不复用更旧的 SSE 游标；
+ *   `X-FX-Through-Event-ID`，绝不复用更旧的 SSE 游标；
  * - `/chart` 响应缺元数据 → 显式抛错（safe retry），不假装旧游标仍有效。
  */
 export async function loadFxHistoryResult(
@@ -165,11 +165,11 @@ export async function loadFxHistoryResult(
       const sealed = segments.flatMap((segment) => decodeFxHistorySegment(segment!))
       const { segment: tailSegment, coverage, fresh } = snapshotTailStatus(interval, snapshotTail, nowSec, boundary)
       if (fresh && tailSegment) {
-        const throughTradeId = validThroughTradeId(coverage)
-        if (throughTradeId === null) throw new Error('FX history tail is missing through-trade-id')
+        const throughEventId = validThroughEventId(coverage)
+        if (throughEventId === null) throw new Error('FX history tail is missing through-event-id')
         return {
           points: mergeFxHistoryCandles(sealed, decodeFxHistorySegment(tailSegment), step, fromSec, endExclusive),
-          throughTradeId,
+          throughEventId,
           historyVersion: version,
         }
       }
@@ -180,13 +180,13 @@ export async function loadFxHistoryResult(
         const rebuilt = await getChartWithMeta(pairId, interval, isoAt(fromSec), isoAt(nowSec))
         return {
           points: mergeFxHistoryCandles([], rebuilt.points, step, fromSec, endExclusive),
-          throughTradeId: rebuilt.throughTradeId,
+          throughEventId: rebuilt.throughEventId,
           historyVersion: rebuilt.historyVersion,
         }
       }
       return {
         points: mergeFxHistoryCandles(sealed, meta.points, step, fromSec, endExclusive),
-        throughTradeId: meta.throughTradeId,
+        throughEventId: meta.throughEventId,
         historyVersion: meta.historyVersion,
       }
     } catch (err) {
@@ -196,7 +196,7 @@ export async function loadFxHistoryResult(
   const meta = await getChartWithMeta(pairId, interval, isoAt(fromSec), isoAt(nowSec))
   return {
     points: mergeFxHistoryCandles([], meta.points, step, fromSec, endExclusive),
-    throughTradeId: meta.throughTradeId,
+    throughEventId: meta.throughEventId,
     historyVersion: meta.historyVersion,
   }
 }

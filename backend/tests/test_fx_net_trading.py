@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
-from app.models.fx import FxTrade
+from app.models.fx import FxPoolEvent, FxTrade
 from app.schemas.fx import FxNetQuoteRequest
 from app.services.fx.net_trading import quote_net_trade
 from tests.test_fx_short_trading import _credit_flags, _seed
@@ -32,6 +32,7 @@ async def test_sell_classifies_without_writing(amount, direction, purposes, rema
         assert quote.output_amount == sum(leg.output_amount for leg in quote.legs)
         if len(quote.legs) == 2:
             assert quote.legs[1].pre_gold_reserve == quote.legs[0].post_gold_reserve
+        assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one() == 0
         assert not db.new and not db.dirty
@@ -96,11 +97,19 @@ async def test_cross_zero_sell_receipt_replay_and_money():
         assert treasury.foreign_balance == D('100000') - 40 + result.fee_amount
         assert pair.gold_reserve == result.legs[-1].post_gold_reserve
         trades = list((await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars())
+        events = list((await db.execute(select(FxPoolEvent).order_by(FxPoolEvent.id))).scalars())
+        assert [e.trade_id for e in events] == result.trade_ids
+        assert len(events) == 2 and all(e.kind == "trade" for e in events)
+        assert events[0].post_gold_reserve == events[1].pre_gold_reserve
+        assert events[0].post_foreign_reserve == events[1].pre_foreign_reserve
+        assert [e.gold_volume for e in events] == [t.output_amount for t in trades]
         assert [t.execution_leg for t in trades] == [1, 2]
         assert all(t.execution_id == result.execution_id and t.idempotency_key is None for t in trades)
         assert (await db.execute(select(func.count()).select_from(FxExecution))).scalar_one() == 1
     replay = await _net(uid, pid, 'sell', '140', version=0)
     assert replay.replay and replay.trade_ids == result.trade_ids
+    async with async_session_maker() as db:
+        assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 2
 
 
 async def test_cross_zero_buy_repay_interest_and_finance_only_long():
@@ -141,6 +150,7 @@ async def test_second_leg_failures_leave_no_money_or_receipt(options, side, amou
         assert (await db.get(User, uid)).model_dump() == before_user
         assert (await db.get(FxPair, pid)).model_dump() == before_pair
         assert (await db.execute(select(func.count()).select_from(FxExecution))).scalar_one() == 0
+        assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(AuditEvent))).scalar_one() == 0
 
@@ -215,7 +225,9 @@ async def test_net_two_leg_http_auth_strings_private_history_and_market_volume()
             'expected_economic_version':q['economic_version'], 'allow_growth':True})
         assert replay.json()['replay']
     async with async_session_maker() as db:
-        rows = list((await db.execute(select(FxTrade).where(FxTrade.pair_id == pid))).scalars())
+        from app.models.fx import FxPoolEvent
+        rows = list((await db.execute(select(FxPoolEvent).where(
+            FxPoolEvent.pair_id == pid).order_by(FxPoolEvent.id))).scalars())
         candles = compute_fx_candle_rows(rows)
         one_min = [c for c in candles if c['interval'] == '1m']
         assert sum(c['n_trades'] for c in one_min) == 2
@@ -296,7 +308,7 @@ async def test_later_ledger_error_rolls_back_already_written_first_leg(monkeypat
         assert (await db.get(FxPair, pid)).model_dump() == before_pair
         assert (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one().model_dump() == before_treasury
         assert (await db.execute(select(FxWallet.foreign_amount).where(FxWallet.user_id == uid))).scalar_one() == 100
-        for model in (FxTrade, FxExecution, AuditEvent):
+        for model in (FxPoolEvent, FxTrade, FxExecution, AuditEvent):
             assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
 
 
@@ -343,6 +355,7 @@ async def test_net_cover_cannot_spend_sibling_locks_or_new_loan():
     async with async_session_maker() as db:
         assert (await db.execute(select(FxShortPosition.restricted_gold).where(
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == other.id))).scalar_one() == 900
+        assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 0
 
 

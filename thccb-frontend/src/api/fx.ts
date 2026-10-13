@@ -12,6 +12,10 @@ import type {
   FxShortQuoteRequest,
   FxShortTrade,
   FxFundRequest,
+  FxAdminOverview,
+  FxLiquidityPreviewRequest,
+  FxLiquidityPreview,
+  FxLiquidityHistory,
   FxPersonalTrade,
   FxPairAdmin,
   FxPairAdminDetail,
@@ -36,6 +40,7 @@ import {
   sanitizeFxHistorySegment,
   sanitizeFxHistoryTail,
   sanitizeFxTradeTicks,
+  sanitizeFxEventTicks,
 } from '@/utils/fxHistory'
 
 export const FX_EMPTY = '—'
@@ -465,10 +470,12 @@ export function sanitizeFxEnvelope(raw: unknown): FxPublicEnvelope | null {
   if (typeof tailAt === 'string' && !Number.isNaN(new Date(tailAt).getTime())) {
     envelope.history_tail_at = tailAt
   }
-  const through = source.history_tail_through_trade_id
+  const through = source.history_tail_through_event_id
   if (typeof through === 'number' && Number.isSafeInteger(through) && through >= 0) {
-    envelope.history_tail_through_trade_id = through
+    envelope.history_tail_through_event_id = through
   }
+  const events = sanitizeFxEventTicks(source.events)
+  if (events.length > 0) envelope.events = events
   const trades = sanitizeFxTradeTicks(source.trades)
   if (trades.length > 0) envelope.trades = trades
   if (typeof source.history_invalidated === 'boolean') {
@@ -497,9 +504,11 @@ export function parseFxSseEnvelope(raw: string | null | undefined): FxPublicEnve
 
 // ── 图表归一化（/chart 无 response_model，FastAPI 会把 Decimal 转 float） ──
 
-function numberOrZero(value: unknown): number {
+function chartNumber(value: unknown): number {
+  if (typeof value !== 'string' && typeof value !== 'number') throw new Error('FX chart contains an unknown value')
   const n = Number(value)
-  return Number.isFinite(n) ? n : 0
+  if (!Number.isFinite(n) || n < 0 || value === '') throw new Error('FX chart contains an invalid value')
+  return n
 }
 
 export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
@@ -511,13 +520,19 @@ export function normalizeFxCandles(raw: unknown): FxChartPoint[] {
     const t =
       typeof r.bucket_start === 'string' ? r.bucket_start : typeof r.t === 'string' ? r.t : null
     if (!t) continue
+    if (!Number.isSafeInteger(r.n_events) || (r.n_events as number) < 0
+      || !Number.isSafeInteger(r.n_trades) || (r.n_trades as number) < 0 || (r.n_trades as number) > (r.n_events as number)) {
+      throw new Error("FX chart response is missing event counts; refresh to the matching version")
+    }
     points.push({
       t,
-      o: numberOrZero(r.open),
-      h: numberOrZero(r.high),
-      l: numberOrZero(r.low),
-      c: numberOrZero(r.close),
-      v: numberOrZero(r.volume),
+      o: chartNumber(r.open),
+      h: chartNumber(r.high),
+      l: chartNumber(r.low),
+      c: chartNumber(r.close),
+      v: chartNumber(r.volume),
+      n_events: r.n_events as number,
+      n_trades: r.n_trades as number,
     })
   }
   return points.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime())
@@ -536,8 +551,8 @@ function fxPublicBaseUrl(): string {
 /** `/chart` 公开响应：body 归一化点 + 该响应覆盖到的游标（来自 additive 响应头）。 */
 export interface FxChartMeta {
   points: FxChartPoint[]
-  /** X-FX-Through-Trade-ID：响应已覆盖到的最后成交 id */
-  throughTradeId: number
+  /** X-FX-Through-Event-ID：响应已覆盖到的最后价格事件 id */
+  throughEventId: number
   /** X-FX-History-Version：响应所属历史版本 */
   historyVersion: string
 }
@@ -567,12 +582,12 @@ export async function getChartWithMeta(
     { signal },
   )
   if (!resp.ok) throw new Error(`FX chart failed: ${resp.status}`)
-  const throughTradeId = requiredSafeIntHeader(resp.headers, 'X-FX-Through-Trade-ID')
+  const throughEventId = requiredSafeIntHeader(resp.headers, 'X-FX-Through-Event-ID')
   const historyVersion = resp.headers.get('X-FX-History-Version')
-  if (throughTradeId === null || !historyVersion) {
+  if (throughEventId === null || !historyVersion) {
     throw new Error('FX chart response is missing history metadata')
   }
-  return { points: normalizeFxCandles(await resp.json()), throughTradeId, historyVersion }
+  return { points: normalizeFxCandles(await resp.json()), throughEventId, historyVersion }
 }
 
 /**
@@ -772,6 +787,15 @@ export const fxApi = {
 // ── 管理员 API（/api/v1/admin/fx，仅超管） ──
 
 export const fxAdminApi = {
+  getOverview(pairId: number): Promise<FxAdminOverview> {
+    return api.get<FxAdminOverview>(`/api/v1/admin/fx/pairs/${pairId}/overview`)
+  },
+  previewLiquidity(pairId: number, body: FxLiquidityPreviewRequest): Promise<FxLiquidityPreview> {
+    return api.post<FxLiquidityPreview>(`/api/v1/admin/fx/pairs/${pairId}/liquidity-preview`, body)
+  },
+  getLiquidityHistory(pairId: number, beforeId?: number): Promise<FxLiquidityHistory> {
+    return api.get<FxLiquidityHistory>(`/api/v1/admin/fx/pairs/${pairId}/liquidity-history`, { params: { limit: 20, before_id: beforeId } })
+  },
   /** 管理端只读列表：含草稿与 treasury 余额（超管）。 */
   listPairs(): Promise<FxPairAdminDetail[]> {
     return api.get<FxPairAdminDetail[]>('/api/v1/admin/fx/pairs')

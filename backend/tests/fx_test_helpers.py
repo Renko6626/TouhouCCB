@@ -9,7 +9,7 @@ from app.models import credit  # noqa: F401 - register LiquidationEvent.run_id t
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import (
-    FxCandle, FxShortPosition, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet,
+    FxPoolEvent, FxCandle, FxShortPosition, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet,
 )
 from app.models.title import Title
 from app.services import site_config
@@ -21,12 +21,14 @@ class AsyncCompatSession:
     def __init__(self, session): self._session = session
     def add(self, value): self._session.add(value)
     def add_all(self, values): self._session.add_all(values)
-    async def execute(self, statement): return self._session.execute(statement)
+    async def execute(self, statement, params=None): return self._session.execute(statement, params)
     async def flush(self): self._session.flush()
     async def commit(self): self._session.commit()
     async def rollback(self): self._session.rollback()
     async def refresh(self, value): self._session.refresh(value)
     async def get(self, model, key): return self._session.get(model, key)
+    @property
+    def sync_session(self): return self._session
     def get_bind(self): return self._session.get_bind()
     async def close(self): self._session.close()
     @property
@@ -96,21 +98,18 @@ async def add_pair(db, *, code="TST", gold="100", foreign="100", initial="1"):
 
 
 async def backfill_fx_history(db, pair_id: int) -> str:
-    """Materialise a ready FX history generation from committed trades.
+    """Materialise a ready FX history generation from committed pool events.
 
-    Isolated test databases have no lifespan runtime, so a test that expects a
-    ready ``/chart`` must build the same source->derived state the production
-    backfill produces: aggregate the committed trades with the production candle
-    layer, replace the pair's candles, then persist an ``FxMarketDataState``
-    whose cursor is the committed max id and whose ``history_ready`` is true.
+    Isolated test databases have no lifespan runtime. Aggregate committed pool
+    events with the production candle layer and persist their coverage cursor.
     Returns the new history version.
     """
     from app.services.fx.candles import compute_fx_candle_rows, new_history_version
 
-    trades = (await db.execute(
-        select(FxTrade).where(FxTrade.pair_id == int(pair_id)).order_by(FxTrade.id)
+    events = (await db.execute(
+        select(FxPoolEvent).where(FxPoolEvent.pair_id == int(pair_id)).order_by(FxPoolEvent.id)
     )).scalars().all()
-    rows = compute_fx_candle_rows(trades)
+    rows = compute_fx_candle_rows(events)
     await db.execute(delete(FxCandle).where(FxCandle.pair_id == int(pair_id)))
     version = new_history_version()
     for row in rows:
@@ -122,7 +121,7 @@ async def backfill_fx_history(db, pair_id: int) -> str:
         state = FxMarketDataState(pair_id=int(pair_id), history_version=version)
         db.add(state)
     state.history_version = version
-    state.last_trade_id = int(trades[-1].id) if trades else 0
+    state.last_event_id = int(events[-1].id) if events else 0
     state.history_ready = True
     await db.commit()
     return version

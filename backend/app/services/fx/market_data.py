@@ -10,7 +10,7 @@ from typing import Any, Iterable
 
 from app.services.credit.keys import symbol_namespace
 from app.services.realtime import MarketEventBroker
-from app.services.fx.candles import trade_pre_price
+from app.services.fx.candles import event_prices
 
 logger = logging.getLogger(__name__)
 
@@ -52,32 +52,21 @@ def _bucket(ts: datetime, seconds: int) -> datetime:
     return datetime.fromtimestamp(epoch - epoch % seconds, tz=timezone.utc)
 
 
-def _volume(trade: Any) -> Decimal:
-    # Gold-side volume matches the public 24h snapshot convention.
-    return Decimal(trade.input_amount if trade.side == "buy" else trade.output_amount)
-
-
-def build_price_buckets(trades: Iterable[Any], interval: str,
+def build_price_buckets(events: Iterable[Any], interval: str,
                         start: datetime, end: datetime) -> list[FxCandle]:
+    from app.services.fx.candles import compute_fx_candle_rows, merge_row
     seconds = _interval_seconds(interval)
-    start, end = _utc(start), _utc(end)
-    buckets: dict[datetime, list[Any]] = {}
-    for trade in sorted(trades, key=lambda row: (_utc(row.created_at), row.id or 0)):
-        ts = _utc(trade.created_at)
-        if not (start <= ts < end):
+    merged: dict[datetime, dict] = {}
+    for row in compute_fx_candle_rows(event for event in events
+                                      if _utc(start) <= _utc(event.created_at) < _utc(end)):
+        if row["interval"] != "1m":
             continue
-        buckets.setdefault(_bucket(ts, seconds), []).append(trade)
-    result: list[FxCandle] = []
-    for bucket_start, rows in sorted(buckets.items()):
-        prices = [Decimal(row.post_price) for row in rows]
-        pre_prices = [trade_pre_price(row) for row in rows]
-        result.append(FxCandle(
-            bucket_start=bucket_start, interval=interval,
-            open=pre_prices[0], high=max(prices + pre_prices),
-            low=min(prices + pre_prices), close=prices[-1],
-            volume=sum((_volume(row) for row in rows), Decimal("0")),
-        ))
-    return result
+        at = _bucket(row["bucket_start"], seconds)
+        row = {**row, "bucket_start": at}
+        merged[at] = merge_row(merged[at], row) if at in merged else row
+    return [FxCandle(at, interval, row["open_price"], row["high_price"],
+                     row["low_price"], row["close_price"], row["gold_volume"])
+            for at, row in sorted(merged.items())]
 
 
 _FRAME_KEYS = ("price", "buy_price", "sell_price", "spread", "volume")
@@ -85,10 +74,11 @@ _FRAME_KEYS = ("price", "buy_price", "sell_price", "spread", "volume")
 #: quote frame stays byte-identical when the runtime has no tail/deltas.
 _HISTORY_SCALAR_KEYS = (
     "history_version", "history_ready", "history_tail_at",
-    "history_tail_through_trade_id",
+    "history_tail_through_event_id",
 )
-_SEGMENT_KEYS = ("t0", "step", "n_buckets", "t", "o", "h", "l", "c", "v", "trades")
+_SEGMENT_KEYS = ("t0", "step", "n_buckets", "t", "o", "h", "l", "c", "v", "trades", "events")
 _TRADE_KEYS = ("id", "ts", "pre_price", "post_price", "gold_volume")
+_EVENT_KEYS = _TRADE_KEYS + ("n_trades",)
 
 
 def build_public_frame(snapshot: Any) -> dict[str, Any]:
@@ -110,6 +100,7 @@ def build_public_frame(snapshot: Any) -> dict[str, Any]:
 
 def build_public_envelope(snapshot: Any, *, history: dict[str, Any] | None = None,
                           trades: Iterable[dict[str, Any]] | None = None,
+                          events: Iterable[dict[str, Any]] | None = None,
                           history_invalidated: bool = False) -> dict[str, Any]:
     """Old quote frame plus the additive history/delta envelope fields.
 
@@ -119,11 +110,13 @@ def build_public_envelope(snapshot: Any, *, history: dict[str, Any] | None = Non
     frame = build_public_frame(snapshot)
     if history:
         for key in ("history_version", "history_ready", "history_tail",
-                    "history_tail_at", "history_tail_through_trade_id"):
+                    "history_tail_at", "history_tail_through_event_id"):
             if history.get(key) is not None:
                 frame[key] = history[key]
     if trades:
         frame["trades"] = list(trades)
+    if events:
+        frame["events"] = list(events)
     if history_invalidated:
         frame["history_invalidated"] = True
     return frame
@@ -185,6 +178,12 @@ def public_frame_to_wire(frame: dict[str, Any]) -> dict[str, Any]:
                   if (wired := _wire_trade(trade)) is not None]
         if trades:
             public["trades"] = trades
+    if frame.get("events"):
+        events = [{key: _wire_value(event[key]) for key in _EVENT_KEYS if key in event}
+                  for event in frame["events"] if isinstance(event, dict)
+                  and "id" in event and "ts" in event]
+        if events:
+            public["events"] = events
     if frame.get("history_invalidated"):
         public["history_invalidated"] = True
     return public
@@ -222,11 +221,8 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
     from app.services.fx import trading
     from app.services.fx.market_state import FX_MARKET_DATA
 
-    async with async_session_maker() as db:
-        snapshot = await trading.get_public_snapshot(db, pair_id)
-
     history: dict[str, Any] | None = None
-    trades: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
     invalidated = False
     runtime = FX_MARKET_DATA
     if runtime is not None:
@@ -236,21 +232,38 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
             except Exception:  # noqa: BLE001 - publication must never fail a trade
                 logger.exception("fx runtime catch-up before publication failed for pair %s",
                                  pair_id)
-        trades, invalidated = runtime.drain_public_trades(int(pair_id))
+        events, invalidated = runtime.drain_public_events(int(pair_id))
         state = runtime.state(int(pair_id))
         if state is not None:
             history = {
                 "history_version": state["history_version"],
                 "history_ready": state["history_ready"],
                 "history_tail_at": datetime.now(timezone.utc).isoformat(),
-                "history_tail_through_trade_id": state["applied_trade_id"],
+                "history_tail_through_event_id": state["applied_event_id"],
             }
 
-    frame = build_public_envelope(snapshot, history=history, trades=trades,
+    async with async_session_maker() as db:
+        from sqlalchemy import select
+        from app.models.fx import FxPair
+        await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
+                         .with_for_update(read=True))
+        snapshot = await trading.get_public_snapshot(db, pair_id)
+        snapshot_version = (snapshot.get("history_version") if isinstance(snapshot, dict)
+                            else getattr(snapshot, "history_version", None))
+        if history is not None and snapshot_version is not None and snapshot_version != history["history_version"]:
+            events = []
+            invalidated = True
+            history = {"history_version": snapshot_version, "history_ready": False}
+        # Runtime metadata was copied before this await. A newer committed
+        # quote cannot advance the event coverage cursor beyond those deltas.
+        await db.commit()
+
+    frame = build_public_envelope(snapshot, history=history, events=events,
                                   history_invalidated=invalidated)
-    # The trade's post marginal price is the event price; snapshot quotes and
-    # cumulative volume describe the committed state around that trade.
-    frame["price"] = Decimal(post_price)
+    # Envelope mode uses the captured quote; legacy tick-only callers retain
+    # the committed notification price.
+    if history is None:
+        frame["price"] = Decimal(post_price)
     await publish_public_frame(broker, pair_id, frame)
 
 

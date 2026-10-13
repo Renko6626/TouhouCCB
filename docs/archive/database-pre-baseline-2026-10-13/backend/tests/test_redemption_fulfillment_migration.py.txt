@@ -54,6 +54,12 @@ def test_fulfillment_migration_preserves_inventory_and_roundtrips(tmp_path, monk
     _strip_column(before.tables["liquidation_events"], "product")
     for name in credit_table_names:
         before.remove(before.tables[name])
+    # The event-history revision adds this audit lookup index; the stamped
+    # pre-FX schema must not inherit it from current model metadata.
+    audit = before.tables["audit_event"]
+    for index in list(audit.indexes):
+        if index.name == "ix_audit_event_ref_type_id":
+            audit.indexes.discard(index)
     codes = before.tables["redemption_code"]
     for name in ("redeemed_at", "redeemed_by_admin_id", "redemption_note"):
         column = codes.c[name]

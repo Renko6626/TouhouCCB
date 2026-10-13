@@ -13,7 +13,7 @@ from app.core.database import async_session_maker
 from app.core.users import create_access_token
 from app.models.base import Market, MarketStatus, Outcome, SiteConfig, User
 from app.services.anti_bot import generate_client_token_for_test
-from app.services.loan_migrate import auto_migrate
+from app.services.config_seed import seed_current_config
 
 
 async def _set_site_config(key: str, value: str) -> None:
@@ -29,8 +29,8 @@ TEST_SECRET = "test_secret_32_bytes_hex_abcdef"
 
 
 async def _seed_user_and_market():
-    # setup_db fixture drops+creates tables; re-run auto_migrate to seed SiteConfig defaults
-    await auto_migrate()
+    # setup_db fixture drops+creates tables; re-run seed_current_config to seed SiteConfig defaults
+    await seed_current_config()
     suffix = uuid.uuid4().hex[:8]
     async with async_session_maker() as s:
         async with s.begin():

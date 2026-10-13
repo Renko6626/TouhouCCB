@@ -492,3 +492,87 @@ class FxNetTradeResponse(FxNetQuote):
     trade_ids: list[int]
     created_at: datetime
     replay: bool = False
+
+
+class FxLiquidityAmounts(BaseModel):
+    gold: Optional[Decimal] = None
+    foreign: Optional[Decimal] = None
+
+
+class FxHoldingsSummary(BaseModel):
+    long_users: int
+    long_foreign: Decimal
+    long_cost_gold: Decimal
+    short_users: int
+    short_principal_foreign: Decimal
+    short_recorded_interest_foreign: Decimal
+    short_restricted_gold: Decimal
+    interest_is_realtime: bool = False
+
+
+class FxAdminOverview(BaseModel):
+    pair: FxPairAdminDetail
+    reference_price: Decimal
+    as_of: datetime
+    holdings: FxHoldingsSummary
+
+
+class FxLiquidityPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = Field(pattern="^(fund|withdraw)$")
+    gold_amount: Decimal = Decimal("0")
+    foreign_amount: Decimal = Decimal("0")
+
+    @field_validator("gold_amount", "foreign_amount")
+    @classmethod
+    def amount(cls, value: Decimal) -> Decimal:
+        value = _finite_six(value)
+        # Both pool and treasury currencies use Numeric(16, 6).
+        if value > _MAX_GOLD:
+            raise ValueError("amount exceeds storage range")
+        return value
+
+    @model_validator(mode="after")
+    def nonzero(self):
+        if not self.gold_amount and not self.foreign_amount:
+            raise ValueError("one currency amount must be positive")
+        return self
+
+
+class FxLiquidityPreview(BaseModel):
+    pair_id: int
+    action: str
+    gold_amount: Decimal
+    foreign_amount: Decimal
+    pool_version: int
+    as_of: datetime
+    pool_before: FxLiquidityAmounts
+    pool_after: FxLiquidityAmounts
+    treasury_before: FxLiquidityAmounts
+    treasury_after: FxLiquidityAmounts
+    price_before: Optional[Decimal]
+    price_after: Optional[Decimal]
+    price_change_pct: Optional[Decimal]
+    executable: bool
+    blocked_reason: Optional[str] = None
+
+
+class FxLiquidityHistoryItem(BaseModel):
+    id: int
+    ts: datetime
+    operator_user_id: Optional[int]
+    action: str
+    gold_amount: Optional[Decimal]
+    foreign_amount: Optional[Decimal]
+    pool_before: Optional[FxLiquidityAmounts]
+    pool_after: Optional[FxLiquidityAmounts]
+    treasury_before: Optional[FxLiquidityAmounts]
+    treasury_after: Optional[FxLiquidityAmounts]
+    price_before: Optional[Decimal]
+    price_after: Optional[Decimal]
+    price_change_pct: Optional[Decimal]
+
+
+class FxLiquidityHistory(BaseModel):
+    items: list[FxLiquidityHistoryItem]
+    next_before_id: Optional[int] = None

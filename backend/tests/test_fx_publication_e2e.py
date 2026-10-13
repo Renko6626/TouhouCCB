@@ -19,15 +19,17 @@ from sqlmodel import SQLModel
 from app.core.database import async_session_maker, engine
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxPoolEvent, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services import site_config
-from app.services.fx import market_data, publisher, trading
+from app.services.fx import market_data, publisher, trading, liquidity
+from app.services.fx.pool_events import append_pool_event
+from app.services.fx.market_state import FxMarketDataService
 from app.services.realtime import BROKER
 
 _TABLES = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
            FxTreasury.__table__, FxWallet.__table__, FxTrade.__table__,
-           FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
+           FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__, FxPoolEvent.__table__]
 
 _ENGINE_URL = str(engine.url)
 
@@ -76,6 +78,13 @@ async def _seed():
         await db.flush()
         db.add(FxTreasury(pair_id=pair.id))
         db.add(SiteConfig(key="fx_enabled", value="true", value_type="bool"))
+        audit = AuditEvent(event_type="fx_fund", ref_table="fx_pair", ref_id=pair.id,
+                           ts=datetime.now(timezone.utc), payload={"action": "initial_issuance"})
+        db.add(audit)
+        await db.flush()
+        append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=audit.ts,
+                          pre_reserves=None, post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                          gold_volume=Decimal("0"), audit_id=audit.id)
         await db.commit()
         return user.id, pair.id
 
@@ -143,3 +152,44 @@ async def test_dropped_frame_still_leaves_reconnect_snapshot_consistent(monkeypa
         snapshot = await trading.get_public_snapshot(db, pid)
     assert snapshot.volume_24h == public.input_amount
     assert snapshot.pair.pool_version == 2
+
+
+@pytest.mark.asyncio
+async def test_liquidity_commit_publishes_price_events_and_reconnect_keeps_zero_volume(monkeypatch):
+    """Real funding/withdrawal -> existing runtime/publisher -> public SSE + history."""
+    from app.services.fx import market_state
+    from app.services.fx.market_reads import read_fx_stream_history
+    uid, pid = await _seed()
+    runtime = FxMarketDataService(async_session_maker)
+    monkeypatch.setattr(market_state, "FX_MARKET_DATA", runtime)
+    instance = publisher.FxPublisher()
+    monkeypatch.setattr(publisher, "PUBLISHER", instance)
+    await runtime.start(write_owner=True)
+    sub, _ = await BROKER.subscribe(f"fx:{pid}")
+    await instance.start()
+    try:
+        for operation, gold in ((liquidity.fund_pair, "100"), (liquidity.withdraw_pair, "50")):
+            async with async_session_maker() as db:
+                await operation(db, pid, Decimal(gold), Decimal("0"), uid)
+            await instance.drain()
+            payload = json.loads((await asyncio.wait_for(sub.q.get(), 3)).decode().split("data: ", 1)[1])["data"]
+            assert payload["history_ready"] is True
+            assert len(payload["events"]) == 1
+            event = payload["events"][0]
+            assert set(event) == {"id", "ts", "pre_price", "post_price", "gold_volume", "n_trades"}
+            assert Decimal(event["gold_volume"]) == 0 and event["n_trades"] == 0
+            assert "trades" not in payload and "history_tail_through_trade_id" not in payload
+            assert payload["history_tail_through_event_id"] == event["id"]
+        assert Decimal(payload["price"]) == Decimal("1.5")
+        async with async_session_maker() as db:
+            assert (await db.execute(select(FxTrade).where(FxTrade.pair_id == pid))).scalars().all() == []
+            history = await read_fx_stream_history(db, pid, datetime.now(timezone.utc))
+        segment = history["history_tail"]["1m"]
+        assert max(map(Decimal, segment["h"])) == Decimal("2")
+        assert all(Decimal(v) == 0 for v in segment["v"])
+        assert sum(segment["events"]) == 3 and sum(segment["trades"]) == 0
+        assert history["history_tail_through_event_id"] == event["id"]
+    finally:
+        await instance.stop()
+        await BROKER.unsubscribe(f"fx:{pid}", sub)
+        await runtime.stop()

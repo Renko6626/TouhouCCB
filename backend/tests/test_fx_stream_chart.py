@@ -9,7 +9,7 @@ from app.api.v1.fx_stream import FX_THROUGH_HEADER, FX_VERSION_HEADER, chart
 
 
 def _state(ready=True, version="v1", cursor=0):
-    return SimpleNamespace(pair_id=3, last_trade_id=cursor, history_version=version,
+    return SimpleNamespace(pair_id=3, window_max=0, anchor_id=None, last_event_id=cursor, history_version=version,
                            history_ready=ready)
 
 
@@ -62,7 +62,7 @@ class FakeDB:
     async def get(self, model, pair_id):
         return object()
 
-    async def execute(self, stmt):
+    async def execute(self, stmt, params=None):
         text = str(stmt)
         if "fx_market_data_state" in text and "fx_candle" in text:
             return _JoinResult(self._state, self._candles)
@@ -168,27 +168,30 @@ async def test_chart_rolls_legacy_interval_up_and_reports_coverage():
         SimpleNamespace(pair_id=3, interval="1m", bucket_start=start,
                         open_price=Decimal("1.10"), high_price=Decimal("1.20"),
                         low_price=Decimal("1.05"), close_price=Decimal("1.15"),
-                        gold_volume=Decimal("2"), n_trades=1,
-                        first_trade_at=start, first_trade_id=1,
-                        last_trade_at=start, last_trade_id=1),
+                        gold_volume=Decimal("2"), n_trades=1, n_events=1,
+                        first_event_at=start, first_event_id=1,
+                        last_event_at=start, last_event_id=1),
         SimpleNamespace(pair_id=3, interval="1m", bucket_start=start + timedelta(minutes=1),
                         open_price=Decimal("1.15"), high_price=Decimal("1.30"),
                         low_price=Decimal("1.12"), close_price=Decimal("1.25"),
-                        gold_volume=Decimal("3"), n_trades=2,
-                        first_trade_at=start + timedelta(minutes=1), first_trade_id=2,
-                        last_trade_at=start + timedelta(minutes=1), last_trade_id=3),
+                        gold_volume=Decimal("3"), n_trades=2, n_events=2,
+                        first_event_at=start + timedelta(minutes=1), first_event_id=2,
+                        last_event_at=start + timedelta(minutes=1), last_event_id=3),
     ]
     response = Response()
     db = FakeDB(state=_state(version="gen-2", cursor=3), candles=rows)
     result = await chart(3, response, interval="2m", from_=start,
                          to=start + timedelta(minutes=4), db=db)
-    assert len(result) == 1
+    assert len(result) == 2
     assert result[0]["interval"] == "2m"
     assert result[0]["open"] == Decimal("1.10")
     assert result[0]["close"] == Decimal("1.25")
     assert result[0]["high"] == Decimal("1.30")
     assert result[0]["low"] == Decimal("1.05")
     assert result[0]["volume"] == Decimal("5")
+    assert result[0]["n_events"] == 3 and result[0]["n_trades"] == 3
+    assert result[1]["open"] == result[1]["close"] == Decimal("1.25")
+    assert result[1]["volume"] == 0 and result[1]["n_events"] == 0
     assert response.headers[FX_VERSION_HEADER] == "gen-2"
     # Coverage is the committed max id inside the served aligned window; the
     # fake DB has no raw trades, so an empty window is a safe 0.

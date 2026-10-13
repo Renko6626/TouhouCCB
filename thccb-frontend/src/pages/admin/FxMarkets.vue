@@ -1,0 +1,720 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { useDialog, useMessage } from 'naive-ui'
+import { divideFxAmount, formatFxAmount, fxAdminApi, fxApi, mapFxError, mergeFxPairs } from '@/api/fx'
+import { buildFxPairSetup } from '@/utils/fxPairSetup'
+import type {
+  FxPairAdmin,
+  FxPairAdminDetail,
+  FxPairPublic,
+  FxPairPatch,
+  FxPairStatus,
+  FxSnapshot,
+} from '@/types/fx'
+
+const msg = useMessage()
+const dialog = useDialog()
+
+const loading = ref(true)
+const error = ref<string | null>(null)
+const pairs = ref<FxPairPublic[]>([])
+// 管理端只读接口 GET /api/v1/admin/fx/pairs 是权威来源：包含草稿与 treasury
+// 余额，刷新后不再丢失运营状态。写操作后统一重拉该接口。
+const adminPairs = ref<Record<number, FxPairAdmin>>({})
+const treasuryByPair = ref<Record<number, FxPairAdminDetail>>({})
+const snapshots = ref<Record<number, FxSnapshot>>({})
+// 公开列表过滤 draft；合并本地写操作返回的管理员记录，保证本会话内
+// 「创建草稿 → 注资 → 开市」全程可见、可选。公开条目存在时优先（字段更新鲜）。
+const allPairs = computed<FxPairPublic[]>(() => mergeFxPairs(adminPairs.value, pairs.value))
+const visiblePairs = computed(() => allPairs.value.filter(p => !adminPairs.value[p.id]?.archived))
+const showArchived = ref(false)
+const tablePairs = computed(() => showArchived.value ? allPairs.value : visiblePairs.value)
+const pairBusy = ref(false)
+const editingPairId = ref<number | null>(null)
+const editPanel = ref<HTMLElement | null>(null)
+const editError = ref<string | null>(null)
+const editForm = ref({ currency_code: '', currency_name: '', buy_fee_rate: '', sell_fee_rate: '' })
+
+const PAIR_STATUS_LABELS: Record<string, string> = {
+  draft: '草稿',
+  trading: '交易中',
+  paused: '暂停',
+  closed: '关闭',
+}
+
+const pairForm = ref({
+  currency_code: 'CCB',
+  currency_name: '幻想币',
+  gold_reserve: '1000',
+  foreign_reserve: '1000',
+  initial_price: '1',
+  buy_fee_rate: '0.002',
+  sell_fee_rate: '0.002',
+  status: 'draft' as FxPairStatus,
+})
+
+const pairMode = ref<'quick' | 'manual'>('quick')
+const quickPair = ref({ price: '1', gold: '1000', buyPct: '0.2', sellPct: '0.2' })
+const quickResult = computed(() => {
+  try {
+    return { values: buildFxPairSetup(quickPair.value), error: '' }
+  } catch (e) {
+    return { values: null, error: e instanceof Error ? e.message : '请检查快捷参数' }
+  }
+})
+const pairToCreate = computed(() => pairMode.value === 'quick'
+  ? { ...pairForm.value, ...quickResult.value.values }
+  : pairForm.value)
+const poolPricePreview = computed(() => {
+  const f = pairToCreate.value
+  const price = divideFxAmount(f.gold_reserve, f.foreign_reserve, 12)
+  return price === null ? '—' : formatFxAmount(price, 6)
+})
+const sampleBuyAmount = ref('1000')
+const sampleBuyPreview = computed(() => {
+  // 仅为规模感知预览；提交参数始终使用十进制字符串，成交由服务端计算。
+  const f = pairToCreate.value
+  const gold = Number(f.gold_reserve)
+  const foreign = Number(f.foreign_reserve)
+  const fee = Number(f.buy_fee_rate)
+  const amount = Number(sampleBuyAmount.value)
+  if (![gold, foreign, amount].every(v => Number.isFinite(v) && v > 0) || !Number.isFinite(fee) || fee < 0 || fee >= 1) return null
+  const net = amount * (1 - fee)
+  const output = foreign * net / (gold + net)
+  const move = ((1 + net / gold) ** 2 - 1) * 100
+  if (!Number.isFinite(output) || !Number.isFinite(move)) return null
+  return { output: formatFxAmount(String(output), 6), move: move.toFixed(2) }
+})
+
+function editPairManually() {
+  if (!quickResult.value.values) return
+  Object.assign(pairForm.value, quickResult.value.values)
+  pairMode.value = 'manual'
+}
+
+const createPairError = ref<string | null>(null)
+
+function toNumber(value: string | number | null | undefined): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : NaN
+}
+
+function detailOf(pairId: number | null): FxPairAdmin | null {
+  if (pairId === null) return null
+  return adminPairs.value[pairId] ?? null
+}
+
+function snapshotOf(pairId: number | null): FxSnapshot | null {
+  if (pairId === null) return null
+  return snapshots.value[pairId] ?? null
+}
+
+function treasuryOf(pairId: number | null): FxPairAdminDetail | null {
+  if (pairId === null) return null
+  return treasuryByPair.value[pairId] ?? null
+}
+
+function combinePairStatus(status: FxPairStatus): string {
+  return PAIR_STATUS_LABELS[status] ?? status
+}
+
+// ── 加载 ──
+async function loadAdminPairs() {
+  const list = await fxAdminApi.listPairs()
+  const controls: Record<number, FxPairAdmin> = {}
+  const treasury: Record<number, FxPairAdminDetail> = {}
+  for (const p of list) {
+    controls[p.id] = p
+    treasury[p.id] = p
+  }
+  adminPairs.value = controls
+  treasuryByPair.value = treasury
+}
+
+async function loadPairs() {
+  const [, publicList] = await Promise.all([loadAdminPairs(), fxApi.listPairs()])
+  pairs.value = publicList
+}
+
+async function loadPublicSnapshots() {
+  const entries = await Promise.allSettled(
+    visiblePairs.value.map(async (p) => [p.id, await fxApi.getSnapshot(p.id)] as const),
+  )
+  const next: Record<number, FxSnapshot> = {}
+  for (const entry of entries) {
+    if (entry.status === 'fulfilled') next[entry.value[0]] = entry.value[1]
+  }
+  snapshots.value = next
+}
+
+
+async function loadAll() {
+  loading.value = true
+  error.value = null
+  try {
+    await loadPairs()
+    await loadPublicSnapshots()
+  } catch (e) {
+    error.value = mapFxError(e, 'FX 管理数据加载失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+// ── 货币对 ──
+async function createPair() {
+  createPairError.value = null
+  if (pairMode.value === 'quick' && quickResult.value.error) {
+    createPairError.value = quickResult.value.error
+    return
+  }
+  const f = pairToCreate.value
+  if (!/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
+    createPairError.value = '币种代码只能包含大写字母、数字与下划线'
+    return
+  }
+  if (!f.currency_name.trim()) {
+    createPairError.value = '请填写币种名称'
+    return
+  }
+  const numeric: Array<[string, number]> = [
+    ['金圆券初始储备', toNumber(f.gold_reserve)],
+    ['外币初始储备', toNumber(f.foreign_reserve)],
+    ['初始价', toNumber(f.initial_price)],
+  ]
+  for (const [label, value] of numeric) {
+    if (!Number.isFinite(value) || value <= 0) {
+      createPairError.value = `${label}必须是有限正数`
+      return
+    }
+  }
+  try {
+    const created = await fxAdminApi.createPair({
+      currency_code: f.currency_code,
+      currency_name: f.currency_name,
+      status: f.status,
+      gold_reserve: f.gold_reserve,
+      foreign_reserve: f.foreign_reserve,
+      initial_price: f.initial_price,
+      buy_fee_rate: f.buy_fee_rate,
+      sell_fee_rate: f.sell_fee_rate,
+    })
+    await loadPairs()
+    await loadPublicSnapshots()
+    msg.success(`已创建货币对 ${created.currency_code}（草稿，可注资后开市）`)
+  } catch (e) {
+    createPairError.value = mapFxError(e, '创建货币对失败')
+  }
+}
+
+async function startEditingPair(pair: FxPairPublic) {
+  const detail = detailOf(pair.id)
+  if (!detail || detail.archived) return
+  editingPairId.value = pair.id
+  editError.value = null
+  editForm.value = {
+    currency_code: detail.currency_code, currency_name: detail.currency_name,
+    buy_fee_rate: detail.buy_fee_rate, sell_fee_rate: detail.sell_fee_rate,
+  }
+  await nextTick()
+  editPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function savePairEdit() {
+  const id = editingPairId.value
+  const original = detailOf(id)
+  if (id === null || !original || pairBusy.value) return
+  editError.value = null
+  const f = editForm.value
+  if (!f.currency_name.trim() || !/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
+    editError.value = '请填写币种名称，代码仅支持大写字母、数字与下划线'
+    return
+  }
+  if (![f.buy_fee_rate, f.sell_fee_rate].every(v => v.trim() !== '' && Number.isFinite(toNumber(v)) && toNumber(v) >= 0 && toNumber(v) < 1)) {
+    editError.value = '买卖费率必须在 0（含）与 1（不含）之间'
+    return
+  }
+  const body: FxPairPatch = { ...f }
+  if (f.currency_code === original.currency_code) delete body.currency_code
+  pairBusy.value = true
+  try {
+    await fxAdminApi.updatePair(id, body)
+    editingPairId.value = null
+    await loadPairs()
+    await loadPublicSnapshots()
+    msg.success('市场参数已更新')
+  } catch (e) {
+    editError.value = mapFxError(e, '市场参数更新失败')
+  } finally {
+    pairBusy.value = false
+  }
+}
+
+function confirmPairCleanup(pair: FxPairPublic, archive: boolean) {
+  if (pairBusy.value) return
+  dialog.warning({
+    title: `${archive ? '归档' : '删除'} ${pair.currency_name}（${pair.currency_code}）`,
+    content: archive
+      ? '归档会关闭市场，并从玩家列表和管理员默认列表隐藏。成交和持仓账目保留。所有玩家持仓须已清空。'
+      : '仅无成交历史的市场可删除。删除会清理空钱包及系统储备，保留操作审计；不能撤销。有历史记录时请使用归档。',
+    positiveText: archive ? '确认归档' : '确认删除',
+    negativeText: '取消',
+    onPositiveClick: async () => {
+      if (pairBusy.value) return false
+      pairBusy.value = true
+      try {
+        if (archive) await fxAdminApi.archivePair(pair.id)
+        else await fxAdminApi.deletePair(pair.id)
+        if (editingPairId.value === pair.id) editingPairId.value = null
+        await loadPairs()
+        await Promise.all([loadPublicSnapshots()])
+        msg.success(archive ? '市场已归档，历史记录保留' : '测试市场已删除')
+      } catch (e) {
+        msg.error(mapFxError(e, archive ? '归档失败' : '删除失败'))
+        return false
+      } finally {
+        pairBusy.value = false
+      }
+    },
+  })
+}
+
+async function changePairStatus(pair: FxPairPublic, status: FxPairStatus) {
+  if (pairBusy.value) return
+  pairBusy.value = true
+  try {
+    await fxAdminApi.updatePair(pair.id, { status })
+    await loadPairs()
+    msg.success(`${pair.currency_code} 状态已改为 ${combinePairStatus(status)}`)
+  } catch (e) {
+    msg.error(mapFxError(e, '状态更新失败'))
+  } finally {
+    pairBusy.value = false
+  }
+}
+
+async function changeReduceOnly(pair: FxPairPublic) {
+  if (pairBusy.value) return
+  pairBusy.value = true
+  try {
+    await fxAdminApi.updatePair(pair.id, { reduce_only: !pair.reduce_only })
+    await loadPairs()
+    msg.success('只减仓设置已更新；暂停与关闭状态保持独立')
+  } catch (e) { msg.error(mapFxError(e, '只减仓设置更新失败')) }
+  finally { pairBusy.value = false }
+}
+
+onMounted(async () => {
+  await loadAll()
+})
+</script>
+
+<template>
+  <div class="fx-admin">
+    <h2 class="page-title">市场登记</h2>
+
+    <div v-if="loading" class="fx-state">管理数据加载中…</div>
+    <div v-else-if="error" class="fx-state fx-state-error">
+      {{ error }}
+      <button class="btn-secondary" @click="loadAll">重试</button>
+    </div>
+
+    <template v-else>
+      <!-- 货币对 -->
+      <section class="fx-panel">
+        <div class="fx-panel-head">
+          <h2>货币对 / 池子 / 系统储备</h2>
+          <label class="fx-hint"><input v-model="showArchived" type="checkbox" /> 显示已归档</label>
+          <button class="btn-secondary" @click="loadPairs().then(loadPublicSnapshots)">刷新</button>
+        </div>
+        <p class="fx-hint">
+          可编辑名称与费率；币种代码仅在草稿阶段可修改。空测试市场可删除，有历史记录且已清空持仓的市场可归档。
+          池子买卖价/价差来自公开 snapshot，单位统一为「金 / 1 外币」：买入价为 ask、卖出价为 bid，
+          价差 = 买入价 − 卖出价 ≥ 0。
+        </p>
+        <div class="table-wrap">
+          <table class="fx-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>币种</th>
+                <th>状态</th>
+                <th>池子（金 / 外币）</th>
+                <th>系统金库（金圆券 / 外币）</th>
+                <th>公开买卖价 / 价差</th>
+                <th>费率（买 / 卖）</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in tablePairs" :key="p.id">
+                <td>{{ p.id }}</td>
+                <td>{{ p.currency_name }}（{{ p.currency_code }}）</td>
+                <td>{{ adminPairs[p.id]?.archived ? '已归档' : combinePairStatus(p.status) }}<br /><span v-if="p.reduce_only" class="fx-hint">只允许减仓</span></td>
+                <td>
+                  <template v-if="detailOf(p.id)">
+                    {{ formatFxAmount(detailOf(p.id)!.gold_reserve) }} /
+                    {{ formatFxAmount(detailOf(p.id)!.foreign_reserve) }}
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td>
+                  <template v-if="treasuryOf(p.id)">
+                    {{ formatFxAmount(treasuryOf(p.id)!.gold_balance) }} /
+                    {{ formatFxAmount(treasuryOf(p.id)!.foreign_balance) }}
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td>
+                  <template v-if="snapshotOf(p.id)">
+                    {{ formatFxAmount(snapshotOf(p.id)!.buy_price) }} /
+                    {{ formatFxAmount(snapshotOf(p.id)!.sell_price) }}
+                    （差 {{ formatFxAmount(snapshotOf(p.id)!.spread) }}）
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td>
+                  <template v-if="detailOf(p.id)">
+                    {{ formatFxAmount(detailOf(p.id)!.buy_fee_rate, 4) }} /
+                    {{ formatFxAmount(detailOf(p.id)!.sell_fee_rate, 4) }}
+                  </template>
+                  <template v-else>—</template>
+                </td>
+                <td class="fx-actions-cell">
+                  <template v-if="!adminPairs[p.id]?.archived">
+                    <button class="btn-sm" :disabled="pairBusy" @click="startEditingPair(p)">编辑</button>
+                    <button class="btn-sm" :disabled="pairBusy" @click="changeReduceOnly(p)">{{ p.reduce_only ? '解除只减仓' : '设为只减仓' }}</button>
+                    <button v-if="p.status !== 'trading'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'trading')">开市</button>
+                    <button v-else class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'paused')">暂停</button>
+                    <button v-if="p.status !== 'closed'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'closed')">关闭</button>
+                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, true)">归档</button>
+                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, false)">删除</button>
+                  </template>
+                  <span v-else class="fx-hint">历史保留</span>
+                </td>
+              </tr>
+              <tr v-if="tablePairs.length === 0">
+                <td colspan="8" class="fx-empty-cell">暂无市场；可创建草稿或勾选“显示已归档”查看历史市场</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="editingPairId !== null" ref="editPanel" class="fx-form-card fx-edit-panel">
+          <h3>编辑 {{ detailOf(editingPairId)?.currency_code }} #{{ editingPairId }}</h3>
+          <p class="fx-hint">调整费率不会重置池子储备或成交历史。费率填写小数，例如 0.002 表示 0.2%。</p>
+          <div class="fx-setup-fields">
+            <label>币种代码<input v-model="editForm.currency_code" class="fx-input" maxlength="16" :disabled="detailOf(editingPairId)?.status !== 'draft' || pairBusy" /></label>
+            <label>币种名称<input v-model="editForm.currency_name" class="fx-input" maxlength="64" :disabled="pairBusy" /></label>
+            <label>买入费率（小数）<input v-model="editForm.buy_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+            <label>卖出费率（小数）<input v-model="editForm.sell_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
+          </div>
+          <p v-if="editError" class="fx-error" role="alert">{{ editError }}</p>
+          <div class="fx-form-actions">
+            <button class="btn-primary" :disabled="pairBusy" @click="savePairEdit">{{ pairBusy ? '保存中…' : '保存修改' }}</button>
+            <button class="btn-secondary" :disabled="pairBusy" @click="editingPairId = null">取消</button>
+          </div>
+        </div>
+
+        <div class="fx-form-grid">
+          <div class="fx-form-card fx-pair-setup">
+            <div class="fx-setup-head">
+              <h3>创建新币种</h3>
+              <span class="fx-setup-badge">{{ pairMode === 'quick' ? '快捷配置' : '手动配置' }}</span>
+            </div>
+            <p class="fx-hint">先定汇率与池子规模，确认参数后创建草稿，再单独开市。</p>
+            <div class="fx-setup-fields">
+              <label>币种代码<input v-model="pairForm.currency_code" class="fx-input" placeholder="例如 MORA" maxlength="16" /></label>
+              <label>币种名称<input v-model="pairForm.currency_name" class="fx-input" placeholder="例如 摩拉" maxlength="64" /></label>
+            </div>
+            <template v-if="pairMode === 'quick'">
+              <div class="fx-setup-fields">
+                <label>开盘汇率<input v-model="quickPair.price" class="fx-input" inputmode="decimal" /><small>1 外币值多少金圆券</small></label>
+                <label>池子金圆券规模<input v-model="quickPair.gold" class="fx-input" inputmode="decimal" /><small>池子越大，同额买卖推动价格越小</small></label>
+                <label>买入手续费（%）<input v-model="quickPair.buyPct" class="fx-input" inputmode="decimal" /><small>填写 0.2 即 0.2%</small></label>
+                <label>卖出手续费（%）<input v-model="quickPair.sellPct" class="fx-input" inputmode="decimal" /></label>
+              </div>
+              <p class="fx-hint">开盘汇率用于计算初始储备；后续价格随池子储备变化。</p>
+              <p v-if="quickResult.error" class="fx-error" role="alert">{{ quickResult.error }}</p>
+            </template>
+            <template v-else>
+              <p class="fx-hint">已带入快捷结果，以下数值可独立修改。实际开盘汇率由两侧储备之比决定。</p>
+              <div class="fx-setup-fields">
+                <label>金圆券储备<input v-model="pairForm.gold_reserve" class="fx-input" inputmode="decimal" /></label>
+                <label>外币储备<input v-model="pairForm.foreign_reserve" class="fx-input" inputmode="decimal" /></label>
+                <label>初始参考价<input v-model="pairForm.initial_price" class="fx-input" inputmode="decimal" /></label>
+                <label>买入费率（小数）<input v-model="pairForm.buy_fee_rate" class="fx-input" inputmode="decimal" /><small>0.002 即 0.2%</small></label>
+                <label>卖出费率（小数）<input v-model="pairForm.sell_fee_rate" class="fx-input" inputmode="decimal" /></label>
+              </div>
+            </template>
+            <div v-if="pairMode === 'manual' || !quickResult.error" class="fx-setup-preview" aria-live="polite">
+              <h4>创建预览</h4>
+              <dl>
+                <div><dt>实际开盘汇率（约）</dt><dd>1 外币 = {{ poolPricePreview }} 金圆券</dd></div>
+                <div><dt>交易池储备</dt><dd>{{ pairToCreate.gold_reserve }} 金圆券 / {{ pairToCreate.foreign_reserve }} 外币</dd></div>
+              </dl>
+              <p class="fx-hint">创建时还会配发同额的借币库存与手续费账户资金：{{ pairToCreate.gold_reserve }} 金圆券与 {{ pairToCreate.foreign_reserve }} 外币，和交易池分开记账。</p>
+              <label>试算买入金额（金圆券）<input v-model="sampleBuyAmount" class="fx-input" inputmode="decimal" /></label>
+              <p v-if="sampleBuyPreview" class="fx-hint">预计收到约 {{ sampleBuyPreview.output }} 外币，池子价格上升约 {{ sampleBuyPreview.move }}%。仅为规模预览，实际成交按服务端手续费与精度计算。</p>
+              <p class="fx-hint">自动计算的储备向下保留最多 6 位小数，实际汇率可能有微小偏差。</p>
+            </div>
+            <div class="fx-form-actions">
+              <button v-if="pairMode === 'quick'" class="btn-secondary" :disabled="!!quickResult.error" @click="editPairManually">手动调整全部参数</button>
+              <button v-else class="btn-secondary" @click="pairMode = 'quick'">使用快捷参数</button>
+              <button class="btn-primary" :disabled="pairMode === 'quick' && !!quickResult.error" @click="createPair">创建草稿</button>
+            </div>
+            <p v-if="createPairError" class="fx-error" role="alert">{{ createPairError }}</p>
+          </div>
+
+
+        </div>
+      </section>
+
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.fx-admin {
+  padding: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 16px;
+}
+.fx-state {
+  border: 2px solid #000;
+  padding: 24px;
+  background: #fff;
+  font-weight: 600;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.fx-state-error {
+  color: var(--color-down, #dc2626);
+}
+.fx-gate {
+  border: 2px solid #000;
+  background: #fff;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.fx-gate.on {
+  background: #fffbeb;
+  border-color: #b45309;
+}
+.fx-gate p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #555;
+}
+.fx-panel {
+  border: 2px solid #000;
+  background: #fff;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.fx-panel h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 800;
+}
+.fx-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.fx-gap-note {
+  border-left: 3px solid #b45309;
+  background: #fffbeb;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #92400e;
+  margin: 8px 0;
+}
+.fx-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+}
+.fx-config-item > span {
+  display: block;
+  font-size: 12px;
+  color: #444;
+  margin-bottom: 3px;
+}
+.fx-config-description {
+  display: block;
+  color: #555;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.fx-config-item code {
+  color: #999;
+  margin-left: 6px;
+  font-size: 11px;
+}
+.fx-config-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.fx-input {
+  border: 2px solid #000;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  background: #fff;
+  width: 100%;
+}
+.fx-input:disabled {
+  background: #f0f0f0;
+  color: #777;
+}
+.fx-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.fx-form-card {
+  border: 1.5px solid #000;
+  padding: 12px;
+  background: #fafafa;
+}
+.fx-edit-panel {
+  margin-top: 16px;
+}
+.fx-form-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.fx-pair-setup {
+  grid-column: 1 / -1;
+}
+.fx-setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 2px solid #000;
+  margin-bottom: 12px;
+}
+.fx-setup-badge {
+  font-size: 12px;
+  font-weight: 700;
+}
+.fx-setup-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+}
+.fx-setup-fields small {
+  color: #555;
+  font-weight: 400;
+}
+.fx-setup-preview {
+  background: #f5f5f5;
+  border: 1px solid #bbb;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.fx-setup-preview h4 {
+  margin: 0 0 12px;
+}
+.fx-setup-preview dl {
+  margin: 0;
+  font-size: 13px;
+}
+.fx-setup-preview dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ddd;
+}
+.fx-setup-preview dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fx-form-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: #444;
+  margin-bottom: 8px;
+}
+.fx-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.fx-actions-cell {
+  min-width: 160px;
+}
+.fx-error {
+  color: var(--color-down, #dc2626);
+  font-size: 12px;
+  font-weight: 600;
+  margin: 4px 0;
+}
+.fx-hint {
+  font-size: 12px;
+  color: #777;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.table-wrap {
+  margin-top: 8px;
+  overflow-x: auto;
+  border: 2px solid #000;
+}
+.fx-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+.fx-table th,
+.fx-table td {
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.fx-table th {
+  background: #000;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 11px;
+}
+.fx-empty-cell {
+  text-align: center;
+  color: #888;
+}
+@media (max-width: 900px) {
+  .fx-setup-fields {
+    grid-template-columns: 1fr;
+  }
+  .fx-config-grid,
+  .fx-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

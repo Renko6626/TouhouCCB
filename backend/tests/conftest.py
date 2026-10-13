@@ -3,7 +3,7 @@
 设计理由（见 pytest.ini + memory project_pending_perf_work）：
 - APScheduler（loan sweep）在 lifespan startup 启动，跟测试 drop_all 互锁导致偶发卡死。
   → session-scope mock 掉 start/stop，全程测试内不真启 scheduler。
-- LifespanManager 原本每个测试重跑一次（init_db + auto_migrate + setup_admin + start_scheduler），
+- LifespanManager 原本每个测试重跑一次（init_db + seed_current_config + setup_admin + start_scheduler），
   占测试时间显著。→ module-scope 共享 client/lifespan。
 - 每个测试仍 drop_all + create_all 保隔离，但 LifespanManager 只跑一次/module。
 - site_config 进程内缓存每测试 reset，避免上一测试写 DB 后这一测试拿到 stale。
@@ -110,7 +110,17 @@ async def client():
     # unified_credit_enabled=false while that obligation exists.
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
+        # Startup uses the actual revision boundary, even in disposable tests.
+        from alembic import command
+        from alembic.config import Config
+        from pathlib import Path
+        from sqlalchemy import text
+        def bootstrap(connection):
+            connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            cfg = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+            cfg.attributes["connection"] = connection
+            command.upgrade(cfg, "head")
+        await conn.run_sync(bootstrap)
     clear_cache()
     async with LifespanManager(app):
         async with AsyncClient(
