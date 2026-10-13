@@ -42,6 +42,7 @@ class AuditEvent(SQLModel, table=True):
         Index("ix_audit_event_user_id_id", "user_id", "id"),
         Index("ix_audit_event_market_id_id", "market_id", "id"),
         Index("ix_audit_event_type_id", "event_type", "id"),
+        Index("ix_audit_event_ref_type_id", "ref_table", "ref_id", "event_type", "id"),
     )
 
     # BigInteger + autoincrement；SQLite 下 BigInteger 主键不自增，用 variant 退回 Integer

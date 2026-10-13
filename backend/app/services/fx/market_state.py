@@ -1,7 +1,7 @@
 """FX incremental market-data runtime: ring, per-pair cursors, tail and deltas.
 
-This module is the runtime half of the plan's Task 2/3 for FX.  ``FxTrade``
-stays the source of truth; this service incrementally folds committed trades
+This module is the runtime half of the plan's Task 2/3 for FX.  ``FxPoolEvent``
+stays the price source of truth; this service incrementally folds committed events
 into a bounded in-memory ring, queues reliable candle batches for the durable
 storage layer (``candles`` / ``candle_flusher``) and exposes read-only snapshots
 for the history/SSE read paths.
@@ -55,7 +55,8 @@ from typing import Any, Callable, Iterable, Sequence
 from sqlalchemy import func, select
 
 from app.core.database import async_session_maker
-from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
+from app.models.audit import AuditEvent
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxPoolEvent, FxTrade
 from app.services.fx.candle_flusher import FxCandleFlusher
 from app.services.fx.candles import (
     FxCandleCursorConflict,
@@ -63,7 +64,7 @@ from app.services.fx.candles import (
     compute_fx_candle_rows,
     merge_row,
     new_history_version,
-    trade_pre_price,
+    event_prices,
 )
 from app.services.history_ring import RING_SPEC, seal_boundary
 
@@ -117,27 +118,22 @@ def _candle_to_row(candle: FxCandle, bucket_start: datetime | None = None) -> di
         "close_price": _dec(candle.close_price),
         "gold_volume": _dec(candle.gold_volume),
         "n_trades": int(candle.n_trades),
-        "first_trade_at": _utc(candle.first_trade_at),
-        "first_trade_id": int(candle.first_trade_id),
-        "last_trade_at": _utc(candle.last_trade_at),
-        "last_trade_id": int(candle.last_trade_id),
+        "n_events": int(candle.n_events),
+        "first_event_at": _utc(candle.first_event_at),
+        "first_event_id": int(candle.first_event_id),
+        "last_event_at": _utc(candle.last_event_at),
+        "last_event_id": int(candle.last_event_id),
     }
 
 
-def _public_delta(trade: Any) -> dict:
-    """One public wire delta; no account/debt/intervention fields leak."""
-    side = getattr(trade, "side")
-    amount = (
-        getattr(trade, "input_amount")
-        if side == "buy"
-        else getattr(trade, "output_amount")
-    )
+def _public_delta(event: Any) -> dict:
+    """Public price delta; event source and private reserves stay internal."""
+    pre, post = event_prices(event)
     return {
-        "id": int(getattr(trade, "id")),
-        "ts": _utc(getattr(trade, "created_at")).isoformat(),
-        "pre_price": str(trade_pre_price(trade)),
-        "post_price": str(_dec(getattr(trade, "post_price"))),
-        "gold_volume": str(_dec(amount)),
+        "id": int(event.id), "ts": _utc(event.created_at).isoformat(),
+        "pre_price": str(pre), "post_price": str(post),
+        "gold_volume": str(_dec(event.gold_volume)),
+        "n_trades": int(event.kind == "trade"),
     }
 
 
@@ -203,6 +199,7 @@ def _encode_segment(buckets: dict[int, dict], interval: str, t0: int, until_excl
         "c": [],
         "v": [],
         "trades": [],
+        "events": [],
     }
     for epoch in sorted(e for e in buckets if t0 <= e < until_exclusive):
         row = buckets[epoch]
@@ -213,13 +210,15 @@ def _encode_segment(buckets: dict[int, dict], interval: str, t0: int, until_excl
         out["c"].append(str(_dec(row["close_price"])))
         out["v"].append(str(_dec(row["gold_volume"])))
         out["trades"].append(int(row["n_trades"]))
+        out["events"].append(int(row["n_events"]))
     return out
 
 
 @dataclass(frozen=True)
 class _StateValues:
+    legacy_trade_id: int
     pair_id: int
-    last_trade_id: int
+    last_event_id: int
     history_version: str
     history_ready: bool
 
@@ -229,14 +228,16 @@ class _PairRuntime:
     pair_id: int
     history_version: str
     history_ready: bool
-    applied_trade_id: int
-    durable_trade_id: int
-    queued_trade_id: int
+    applied_event_id: int
+    durable_event_id: int
+    queued_event_id: int
     has_state: bool
+    requires_rebuild: bool = False
+    sources_verified: bool = False
     covered_through_at: datetime | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     ring: FxHistoryRing = field(default_factory=FxHistoryRing)
-    public_trades: deque = field(default_factory=deque)
+    public_events: deque = field(default_factory=deque)
     public_invalidated: bool = False
 
 
@@ -253,7 +254,7 @@ class FxMarketDataService:
         if int(batch_size) < 1:
             raise ValueError("batch_size must be positive")
         self._factory = factory
-        self._batch_size = int(batch_size)
+        self._batch_size = min(int(batch_size), 1000)
         self._states: dict[int, _PairRuntime] = {}
         self._flusher = FxCandleFlusher(factory)
         self._dirty: set[int] = set()
@@ -287,8 +288,8 @@ class FxMarketDataService:
         return {
             "history_version": rt.history_version,
             "history_ready": rt.history_ready,
-            "applied_trade_id": rt.applied_trade_id,
-            "durable_trade_id": rt.durable_trade_id,
+            "applied_event_id": rt.applied_event_id,
+            "durable_event_id": rt.durable_event_id,
         }
 
     # ── post-commit hint ──────────────────────────────────────────────────
@@ -360,10 +361,10 @@ class FxMarketDataService:
             "history_ready": rt.history_ready,
             "history_tail": history_tail,
             "history_tail_at": now.isoformat(),
-            "history_tail_through_trade_id": rt.applied_trade_id,
+            "history_tail_through_event_id": rt.applied_event_id,
         }
 
-    def drain_public_trades(self, pair_id: int) -> tuple[list[dict], bool]:
+    def drain_public_events(self, pair_id: int) -> tuple[list[dict], bool]:
         """Return pending public deltas and whether the buffer overflowed.
 
         Discardable publication data only: a ``True`` flag tells the consumer to
@@ -373,8 +374,8 @@ class FxMarketDataService:
         rt = self._states.get(int(pair_id))
         if rt is None:
             return [], False
-        trades = list(rt.public_trades)
-        rt.public_trades.clear()
+        trades = list(rt.public_events)
+        rt.public_events.clear()
         invalidated = rt.public_invalidated
         rt.public_invalidated = False
         return trades, invalidated
@@ -402,9 +403,16 @@ class FxMarketDataService:
                 self._states[pair_id] = await self._load_runtime(
                     pair_id, await self._read_state_values(pair_id)
                 )
-            for pair_id in sorted(self._states):
-                await self.catch_up(pair_id)
-            await self.flush_once()
+            pending = set(self._states)
+            while pending:
+                targets, pending = pending, set()
+                for pair_id in sorted(targets):
+                    await self.catch_up(pair_id)
+                    if pair_id in self._dirty:
+                        self._dirty.discard(pair_id)
+                        pending.add(pair_id)
+                await self.flush_once()
+                await asyncio.sleep(0)
             self._task = asyncio.create_task(self._run(), name="fx-market-state")
         else:
             for values in await self._load_all_state_values():
@@ -461,19 +469,29 @@ class FxMarketDataService:
             self._states[pair_id] = rt
 
         async with rt.lock:
-            cutoff = await self._pair_max_trade_id(pair_id)
-            if cutoff < rt.applied_trade_id:
-                cutoff = rt.applied_trade_id
+            if rt.requires_rebuild:
+                return rt.applied_event_id
+            cutoff = await self._pair_max_event_id(pair_id)
+            if cutoff < rt.applied_event_id:
+                cutoff = rt.applied_event_id
             initial = not rt.history_ready
+            if initial and not rt.sources_verified:
+                if not await self._sources_complete(pair_id):
+                    rt.requires_rebuild = True
+                    return rt.applied_event_id
+                rt.sources_verified = True
+            sources_complete = True
+            pages = 0
             last_at: datetime | None = None
             try:
-                while rt.applied_trade_id < cutoff:
-                    trades = await self._fetch_page(pair_id, rt.applied_trade_id, cutoff)
+                while rt.applied_event_id < cutoff and pages < 10:
+                    trades = await self._fetch_page(pair_id, rt.applied_event_id, cutoff)
                     if not trades:
                         break
+                    pages += 1
                     page_through = int(trades[-1].id)
                     rows = compute_fx_candle_rows(trades)
-                    ready_after = initial and page_through >= cutoff
+                    ready_after = initial and sources_complete and page_through >= cutoff
                     if self._write_owner:
                         if initial:
                             await self._apply_page(rt, rows, page_through, history_ready=ready_after)
@@ -483,8 +501,9 @@ class FxMarketDataService:
                     # a rejected/failed page must not be double-merged on retry.
                     for row in rows:
                         rt.ring.merge(row)
-                    self._append_public(rt, trades)
-                    rt.applied_trade_id = page_through
+                    if not initial:
+                        self._append_public(rt, trades)
+                    rt.applied_event_id = page_through
                     last_at = _utc(trades[-1].created_at)
                     rt.ring.prune()
             except FxCandleCursorConflict:
@@ -497,7 +516,9 @@ class FxMarketDataService:
 
             if last_at is not None:
                 rt.covered_through_at = last_at
-            if self._write_owner and not rt.history_ready and rt.applied_trade_id >= cutoff:
+            if rt.applied_event_id < cutoff:
+                self.notify_committed(pair_id)
+            if self._write_owner and not rt.history_ready and sources_complete and rt.applied_event_id >= cutoff:
                 # Covers both "backfill interrupted right before readiness" and
                 # "empty pair first seen with no trades".
                 try:
@@ -510,16 +531,16 @@ class FxMarketDataService:
                     )
                     await self._resync_from_durable(rt)
                     raise
-            return rt.applied_trade_id
+            return rt.applied_event_id
 
     async def flush_once(self) -> int:
         """Flush owned pending ranges, then sync durable metadata from the DB.
 
         Absence of a pending range means only "nothing queued" — never "every
-        trade through ``queued_trade_id`` is durable".  A range can have been
+        trade through ``queued_event_id`` is durable".  A range can have been
         discarded (rebuild/resync), may still be flipping into uncertainty, or
         may belong to a superseded generation, so the persisted checkpoint is
-        the only truthful source for ``durable_trade_id``.
+        the only truthful source for ``durable_event_id``.
         """
         written = await self._flusher.flush_once()
         await self._sync_durable_from_checkpoint()
@@ -528,7 +549,7 @@ class FxMarketDataService:
     async def _sync_durable_from_checkpoint(self) -> None:
         """Reconcile every loaded pair's cursor/generation with persisted state.
 
-        One small batched projection (``pair_id, last_trade_id,
+        One small batched projection (``pair_id, last_event_id,
         history_version``) keeps this cheap regardless of pair count.  A changed
         generation or a vanished row triggers a per-pair resync, which discards
         only that pair's queued ranges.
@@ -540,28 +561,29 @@ class FxMarketDataService:
             rows = (await db.execute(
                 select(
                     FxMarketDataState.pair_id,
-                    FxMarketDataState.last_trade_id,
+                    FxMarketDataState.last_event_id,
                     FxMarketDataState.history_version,
                 ).where(FxMarketDataState.pair_id.in_(pair_ids))
             )).all()
         persisted = {
-            int(pair_id): (int(last_trade_id), str(version))
-            for pair_id, last_trade_id, version in rows
+            int(pair_id): (int(last_event_id), str(version))
+            for pair_id, last_event_id, version in rows
         }
         for pair_id, rt in self._states.items():
             value = persisted.get(pair_id)
             if value is None:
                 # No durable row for a pair we believe we are writing: the
                 # checkpoint says cursor 0, nothing more.
-                await self._resync_from_durable(rt)
+                if rt.has_state:
+                    await self._resync_from_durable(rt)
                 continue
-            last_trade_id, version = value
+            last_event_id, version = value
             if version != rt.history_version:
                 # A rebuild changed the generation under us: rebuild from the
                 # checkpoint rather than let a stale range be written again.
                 await self._resync_from_durable(rt)
                 continue
-            rt.durable_trade_id = last_trade_id
+            rt.durable_event_id = last_event_id
 
     # ── background reconciliation ─────────────────────────────────────────
     async def _run(self) -> None:
@@ -614,22 +636,24 @@ class FxMarketDataService:
                 pair_id=pair_id,
                 history_version=new_history_version(),
                 history_ready=False,
-                applied_trade_id=0,
-                durable_trade_id=0,
-                queued_trade_id=0,
+                applied_event_id=0,
+                durable_event_id=0,
+                queued_event_id=0,
                 has_state=False,
             )
         else:
             rt = _PairRuntime(
                 pair_id=pair_id,
                 history_version=values.history_version,
-                history_ready=values.history_ready,
-                applied_trade_id=values.last_trade_id,
-                durable_trade_id=values.last_trade_id,
-                queued_trade_id=values.last_trade_id,
+                history_ready=values.history_ready and values.last_event_id > 0,
+                applied_event_id=values.last_event_id,
+                durable_event_id=values.last_event_id,
+                queued_event_id=values.last_event_id,
                 has_state=True,
+                requires_rebuild=values.legacy_trade_id > 0 and values.last_event_id == 0,
             )
-        await self._warm_ring(rt)
+        if not rt.requires_rebuild and (rt.history_ready or rt.applied_event_id > 0):
+            await self._warm_ring(rt)
         return rt
 
     async def _warm_ring(self, rt: _PairRuntime) -> None:
@@ -648,6 +672,7 @@ class FxMarketDataService:
                 .where(
                     FxCandle.pair_id == rt.pair_id,
                     FxCandle.interval.in_(list(RING_SPEC.keys())),
+                    FxCandle.n_events > 0,
                 )
                 .group_by(FxCandle.interval)
             )).all()
@@ -664,6 +689,7 @@ class FxMarketDataService:
                         FxCandle.pair_id == rt.pair_id,
                         FxCandle.interval == interval,
                         FxCandle.bucket_start >= floor,
+                        FxCandle.n_events > 0,
                     )
                     .order_by(FxCandle.bucket_start)
                 )).scalars().all()
@@ -696,26 +722,29 @@ class FxMarketDataService:
         values = await self._read_state_values(rt.pair_id)
         self._discard_pair_pending(rt.pair_id)
         rt.ring = FxHistoryRing()
-        rt.public_trades.clear()
+        rt.public_events.clear()
         rt.public_invalidated = False
         rt.covered_through_at = None
         if values is None:
             # The durable row vanished while we were running: never reuse the
             # old generation, cached history under it must not be trusted.
             rt.history_version = new_history_version()
-            rt.applied_trade_id = 0
-            rt.durable_trade_id = 0
-            rt.queued_trade_id = 0
+            rt.applied_event_id = 0
+            rt.durable_event_id = 0
+            rt.queued_event_id = 0
             rt.history_ready = False
             rt.has_state = False
             return
-        rt.applied_trade_id = values.last_trade_id
-        rt.durable_trade_id = values.last_trade_id
-        rt.queued_trade_id = values.last_trade_id
+        rt.sources_verified = False
+        rt.requires_rebuild = values.legacy_trade_id > 0 and values.last_event_id == 0
+        rt.applied_event_id = values.last_event_id
+        rt.durable_event_id = values.last_event_id
+        rt.queued_event_id = values.last_event_id
         rt.history_version = values.history_version
-        rt.history_ready = values.history_ready
+        rt.history_ready = values.history_ready and not rt.requires_rebuild
         rt.has_state = True
-        await self._warm_ring(rt)
+        if not rt.requires_rebuild:
+            await self._warm_ring(rt)
 
     # ── durable write helpers ─────────────────────────────────────────────
     async def _apply_page(
@@ -727,24 +756,24 @@ class FxMarketDataService:
                 applied = await apply_candle_batch(
                     db,
                     pair_id=rt.pair_id,
-                    expected_trade_id=rt.applied_trade_id,
-                    through_trade_id=through,
+                    expected_event_id=rt.applied_event_id,
+                    through_event_id=through,
                     rows=rows,
                     history_version=rt.history_version,
                     history_ready=history_ready,
                 )
         rt.has_state = True
-        rt.durable_trade_id = max(rt.durable_trade_id, through)
-        rt.queued_trade_id = max(rt.queued_trade_id, through)
+        rt.durable_event_id = max(rt.durable_event_id, through)
+        rt.queued_event_id = max(rt.queued_event_id, through)
         if applied and history_ready:
             rt.history_ready = True
 
     def _queue_page(self, rt: _PairRuntime, rows: Sequence[dict], through: int) -> None:
         """Incremental page for a ready pair: hand to the durable flusher."""
         self._flusher.add_batch(
-            rt.pair_id, rt.applied_trade_id, through, rows, rt.history_version
+            rt.pair_id, rt.applied_event_id, through, rows, rt.history_version
         )
-        rt.queued_trade_id = through
+        rt.queued_event_id = through
         rt.has_state = True
 
     async def _ensure_ready(self, rt: _PairRuntime) -> None:
@@ -761,27 +790,55 @@ class FxMarketDataService:
                 await apply_candle_batch(
                     db,
                     pair_id=rt.pair_id,
-                    expected_trade_id=rt.applied_trade_id,
-                    through_trade_id=rt.applied_trade_id,
+                    expected_event_id=rt.applied_event_id,
+                    through_event_id=rt.applied_event_id,
                     rows=[],
                     history_version=rt.history_version,
                     history_ready=True,
                 )
         rt.history_ready = True
         rt.has_state = True
-        rt.durable_trade_id = max(rt.durable_trade_id, rt.applied_trade_id)
+        rt.durable_event_id = max(rt.durable_event_id, rt.applied_event_id)
 
     def _append_public(self, rt: _PairRuntime, trades: Iterable[Any]) -> None:
         """Buffer bounded, discardable public trade deltas (never candle input)."""
         for trade in trades:
-            if len(rt.public_trades) >= self.PUBLIC_TRADE_BUFFER:
-                rt.public_trades.clear()
+            if len(rt.public_events) >= self.PUBLIC_TRADE_BUFFER:
+                rt.public_events.clear()
                 rt.public_invalidated = True
             if rt.public_invalidated:
                 continue
-            rt.public_trades.append(_public_delta(trade))
+            rt.public_events.append(_public_delta(trade))
 
     # ── DB access ─────────────────────────────────────────────────────────
+    async def _sources_complete(self, pair_id: int) -> bool:
+        """Only native, anchored event histories can become ready automatically.
+
+        Legacy gaps need the offline source reconciliation; GETs never import
+        them. Existing ready histories were verified by that tool or this gate.
+        """
+        async with self._factory() as db:
+            first = (await db.execute(select(FxPoolEvent.kind)
+                     .where(FxPoolEvent.pair_id == pair_id)
+                     .order_by(FxPoolEvent.id).limit(1))).scalar()
+            if first != "initialize":
+                return False
+            legacy_candle = (await db.execute(select(FxCandle.pair_id).where(
+                FxCandle.pair_id == pair_id, FxCandle.n_events == 0,
+            ).limit(1))).first()
+            if legacy_candle is not None:
+                return False
+            missing_trade = (await db.execute(select(FxTrade.id).where(
+                FxTrade.pair_id == pair_id,
+                ~select(FxPoolEvent.id).where(FxPoolEvent.trade_id == FxTrade.id).exists(),
+            ).limit(1))).first()
+            missing_audit = (await db.execute(select(AuditEvent.id).where(
+                AuditEvent.ref_table == "fx_pair", AuditEvent.ref_id == pair_id,
+                AuditEvent.event_type.in_(("fx_fund", "fx_withdraw")),
+                ~select(FxPoolEvent.id).where(FxPoolEvent.audit_id == AuditEvent.id).exists(),
+            ).limit(1))).first()
+            return missing_trade is None and missing_audit is None
+
     async def _all_pair_ids(self) -> list[int]:
         async with self._factory() as db:
             return [int(value) for value in (await db.execute(select(FxPair.id))).scalars().all()]
@@ -791,8 +848,9 @@ class FxMarketDataService:
             rows = (await db.execute(select(FxMarketDataState))).scalars().all()
             return [
                 _StateValues(
+                    legacy_trade_id=int(row.last_trade_id),
                     pair_id=int(row.pair_id),
-                    last_trade_id=int(row.last_trade_id),
+                    last_event_id=int(row.last_event_id),
                     history_version=str(row.history_version),
                     history_ready=bool(row.history_ready),
                 )
@@ -807,16 +865,17 @@ class FxMarketDataService:
             if row is None:
                 return None
             return _StateValues(
+                legacy_trade_id=int(row.last_trade_id),
                 pair_id=int(row.pair_id),
-                last_trade_id=int(row.last_trade_id),
+                last_event_id=int(row.last_event_id),
                 history_version=str(row.history_version),
                 history_ready=bool(row.history_ready),
             )
 
-    async def _pair_max_trade_id(self, pair_id: int) -> int:
+    async def _pair_max_event_id(self, pair_id: int) -> int:
         async with self._factory() as db:
             value = (await db.execute(
-                select(func.max(FxTrade.id)).where(FxTrade.pair_id == pair_id)
+                select(func.max(FxPoolEvent.id)).where(FxPoolEvent.pair_id == pair_id)
             )).scalar()
         return int(value or 0)
 
@@ -824,18 +883,13 @@ class FxMarketDataService:
         """Project only the aggregation columns; never load full-day ORM rows."""
         stmt = (
             select(
-                FxTrade.id,
-                FxTrade.pair_id,
-                FxTrade.created_at,
-                FxTrade.post_price,
-                FxTrade.pre_gold_reserve,
-                FxTrade.pre_foreign_reserve,
-                FxTrade.side,
-                FxTrade.input_amount,
-                FxTrade.output_amount,
+                FxPoolEvent.id, FxPoolEvent.pair_id, FxPoolEvent.created_at,
+                FxPoolEvent.kind, FxPoolEvent.pre_gold_reserve,
+                FxPoolEvent.pre_foreign_reserve, FxPoolEvent.post_gold_reserve,
+                FxPoolEvent.post_foreign_reserve, FxPoolEvent.gold_volume,
             )
-            .where(FxTrade.pair_id == pair_id, FxTrade.id > after, FxTrade.id <= through)
-            .order_by(FxTrade.id)
+            .where(FxPoolEvent.pair_id == pair_id, FxPoolEvent.id > after, FxPoolEvent.id <= through)
+            .order_by(FxPoolEvent.id)
             .limit(self._batch_size)
         )
         async with self._factory() as db:

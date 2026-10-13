@@ -239,7 +239,7 @@ class FxPublisher:
             self._skipped += 1
             return
         # With a witness the frame builder performs the incremental owner
-        # catch-up and drains the bounded public-trade buffer exactly once
+        # catch-up and drains the bounded public-event buffer exactly once
         # (quote + tail metadata + deltas + explicit invalidation).  The call
         # signature stays frozen so direct broker tests need no pipeline start.
         await market_data.publish_pair_frame(

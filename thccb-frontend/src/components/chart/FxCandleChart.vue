@@ -3,13 +3,13 @@
 // 增量 MA、drag 暂停 ticker、resize、gap reload），数据源换成封存段/SSE 尾段适配层
 // （`useFxCandleHistory`）与页面转发的公开信封。
 //
-// 实时增量只走「真实成交」：页面唯一 `FxStream.onEnvelope` 转发 `FxPublicEnvelope`，
-// 组件用 `decodeFxTradeTick` + `engine.applyTrades` 按真实成交时间与金侧成交量更新
+// 实时增量只走公开价格事件：页面唯一 `FxStream.onEnvelope` 转发 `FxPublicEnvelope`，
+// 组件用 `decodeFxEventTick` + `engine.applyEvents` 按事件时间与金侧成交量更新
 // OHLCV；quote-only 帧只更新页面报价条，不伪造成交。`tick`/`applyPrice` 仅保留给
-// 没有 envelope 的旧调用方，不与真实成交路径并行使用。
+// 没有 envelope 的旧调用方，不与事件路径并行使用。
 //
 // 覆盖游标纪律：加载期间到达的实时成交先进入有界缓冲，`engine.load(points,
-// throughTradeId)` 先写入覆盖游标，再按游标补放缓冲（重复 id 自动跳过），保证
+// throughEventId)` 先写入覆盖游标，再按游标补放缓冲（重复 id 自动跳过），保证
 // 成交量不重复、不漏记。快照尾段只在「同一帧携带的覆盖游标 + 尚未应用更新成交」
 // 时用于加载；一旦有实时成交超过尾段游标，就改用 `/chart` 的 body+游标同源回退。
 //
@@ -42,7 +42,7 @@ import type {
   FxHistorySnapshotTail,
   FxPriceTick,
   FxPublicEnvelope,
-  FxTradeTick,
+  FxEventTick,
   FxHoldingPriceLine,
 } from '@/types/fx'
 import {
@@ -52,11 +52,11 @@ import {
   fxCandleVisibleRange,
   fxCandleScrolledBack,
   type FxCandle,
-  type FxCandleTrade,
+  type FxCandleEvent,
 } from '@/utils/fxCandle'
 import {
   FX_HISTORY_SEGMENT_SECONDS,
-  decodeFxTradeTick,
+  decodeFxEventTick,
   mergeFxHistoryCandles,
 } from '@/utils/fxHistory'
 import { loadFxHistoryResult, loadFxHistoryTailResult } from '@/composables/useFxCandleHistory'
@@ -93,7 +93,7 @@ const LOOKBACK_MINUTES: Record<FxChartInterval, number> = { '1m': 480, '15m': 12
 const INTERVAL_SECONDS: Record<FxChartInterval, number> = { '1m': 60, '15m': 900, '1h': 3600 }
 const MA_COLORS: Record<number, string> = { 10: '#f59e0b', 20: '#2563eb' }
 /** 加载/补尾期间允许缓冲的实时成交上限；超过则放弃缓冲并请求补尾段，绝不伪造零成交。 */
-const FX_MAX_PENDING_TRADES = 5000
+const FX_MAX_PENDING_EVENTS = 5000
 
 interface FxLegend {
   t: number | null
@@ -172,7 +172,7 @@ let loadedVersion: string | null = null
 let fullLoading = false
 let refreshing = false
 let queuedTailRefresh = false
-let pendingTrades: FxCandleTrade[] = []
+let pendingEvents: FxCandleEvent[] = []
 let pendingOverflow = false
 
 // 周期切换时整体重建（步长变化会改变 bucket 归类）
@@ -267,7 +267,7 @@ const renderAll = (resetRange = true) => {
 
 /**
  * 增量推送给 lightweight-charts。
- * `applyTrades` 的 `changed` 可能是「尾部连续区间」，也可能只是更早的若干桶
+ * `applyEvents` 的 `changed` 可能是「尾部连续区间」，也可能只是更早的若干桶
  * （乱序/补尾）。`update()` 只能改最后一根或追加，因此尾部连续时用 update，
  * 否则整段 `setData`，绝不把错位的 candle 推给图表。
  */
@@ -368,8 +368,8 @@ const tailUsableForLoad = (): boolean => {
     snapshotTail.history_version !== loadedVersion
   )
     return false
-  const coverage = snapshotTail.history_tail_through_trade_id
-  const applied = engine.throughTradeId
+  const coverage = snapshotTail.history_tail_through_event_id
+  const applied = engine.throughEventId
   if (applied === null) return true
   return typeof coverage === 'number' && applied <= coverage
 }
@@ -382,13 +382,14 @@ const tailForLoad = (forceHttp: boolean): FxHistorySnapshotTail | null => {
       ...snapshotTail,
       history_tail: null,
       history_tail_at: null,
-      history_tail_through_trade_id: null,
+      history_tail_through_event_id: null,
     }
   }
   return snapshotTail
 }
 
 function syncTailFromEnvelope(env: FxPublicEnvelope): void {
+  if (env.history_ready === false || env.history_invalidated) markTailInvalidated()
   const previous = snapshotTail
   const previousVersion = previous?.history_version ?? null
   const versionChanged = !!env.history_version && env.history_version !== previousVersion
@@ -397,9 +398,9 @@ function syncTailFromEnvelope(env: FxPublicEnvelope): void {
       history_version: env.history_version ?? null,
       history_tail: env.history_tail ?? null,
       history_tail_at: env.history_tail_at ?? null,
-      history_tail_through_trade_id:
-        typeof env.history_tail_through_trade_id === 'number'
-          ? env.history_tail_through_trade_id
+      history_tail_through_event_id:
+        typeof env.history_tail_through_event_id === 'number'
+          ? env.history_tail_through_event_id
           : null,
       history_ready: env.history_ready,
     }
@@ -412,9 +413,9 @@ function syncTailFromEnvelope(env: FxPublicEnvelope): void {
       history_version: env.history_version ?? previous.history_version,
       history_tail: env.history_tail,
       history_tail_at: env.history_tail_at ?? null,
-      history_tail_through_trade_id:
-        typeof env.history_tail_through_trade_id === 'number'
-          ? env.history_tail_through_trade_id
+      history_tail_through_event_id:
+        typeof env.history_tail_through_event_id === 'number'
+          ? env.history_tail_through_event_id
           : null,
       history_ready: env.history_ready ?? previous.history_ready,
     }
@@ -435,15 +436,15 @@ function markTailInvalidated(): void {
     ...snapshotTail,
     history_tail: null,
     history_tail_at: null,
-    history_tail_through_trade_id: null,
+    history_tail_through_event_id: null,
   }
 }
 
 // ── 实时成交缓冲与应用 ──
 
-function applyTradeBatch(trades: FxCandleTrade[]): void {
-  if (trades.length === 0) return
-  const result = engine.applyTrades(trades)
+function applyEventBatch(events: FxCandleEvent[]): void {
+  if (events.length === 0) return
+  const result = engine.applyEvents(events)
   if (result.reload) {
     // 缺口/乱序无法本地判定：补尾段（必要时 upgrade 为完整重读），绝不猜时序。
     void refreshTail(false)
@@ -452,37 +453,37 @@ function applyTradeBatch(trades: FxCandleTrade[]): void {
   applyChanged(result.changed)
 }
 
-function drainPendingTrades(): void {
+function drainPendingEvents(): void {
   if (pendingOverflow) {
     pendingOverflow = false
-    pendingTrades = []
+    pendingEvents = []
     void refreshTail(true)
     return
   }
-  if (pendingTrades.length === 0) return
-  const batch = pendingTrades
-  pendingTrades = []
-  applyTradeBatch(batch)
+  if (pendingEvents.length === 0) return
+  const batch = pendingEvents
+  pendingEvents = []
+  applyEventBatch(batch)
 }
 
-function enqueueTrades(ticks: readonly FxTradeTick[]): void {
+function enqueueEvents(ticks: readonly FxEventTick[]): void {
   if (pendingOverflow) return
-  const decoded: FxCandleTrade[] = []
+  const decoded: FxCandleEvent[] = []
   for (const tick of ticks) {
-    const trade = decodeFxTradeTick(tick)
-    if (trade) decoded.push(trade)
+    const event = decodeFxEventTick(tick)
+    if (event) decoded.push(event)
   }
   if (decoded.length === 0) return
   if (refreshing) {
-    if (pendingTrades.length + decoded.length > FX_MAX_PENDING_TRADES) {
+    if (pendingEvents.length + decoded.length > FX_MAX_PENDING_EVENTS) {
       pendingOverflow = true
-      pendingTrades = []
+      pendingEvents = []
       return
     }
-    pendingTrades.push(...decoded)
+    pendingEvents.push(...decoded)
     return
   }
-  applyTradeBatch(decoded)
+  applyEventBatch(decoded)
 }
 
 // ── 加载 ──
@@ -517,7 +518,7 @@ async function loadFull(): Promise<void> {
     loadedVersion = result.historyVersion
     engine = new FxCandleEngine(stepSec, FX_MA_PERIODS)
     // 覆盖游标必须先于缓冲的实时成交写入，重复 id 随游标被跳过。
-    engine.load(result.points, result.throughTradeId)
+    engine.load(result.points, result.throughEventId)
     await nextTick()
     if (!chartInstance) initChart()
     renderAll()
@@ -530,7 +531,7 @@ async function loadFull(): Promise<void> {
       fullLoading = false
       refreshing = false
       loading.value = false
-      if (!error.value) drainPendingTrades()
+      if (!error.value) drainPendingEvents()
       if (queuedTailRefresh) {
         queuedTailRefresh = false
         if (!error.value) void refreshTail(false)
@@ -565,7 +566,7 @@ async function refreshTail(forceHttp: boolean): Promise<void> {
           ...snapshotTail,
           history_tail: null,
           history_tail_at: null,
-          history_tail_through_trade_id: null,
+          history_tail_through_event_id: null,
         }
       }
       resetChartState()
@@ -584,7 +585,7 @@ async function refreshTail(forceHttp: boolean): Promise<void> {
       loadedFromSec,
       endExclusive,
     )
-    engine.load(points, result.throughTradeId)
+    engine.load(points, result.throughEventId)
     loadedVersion = result.historyVersion
     error.value = null
     renderAll()
@@ -596,7 +597,7 @@ async function refreshTail(forceHttp: boolean): Promise<void> {
   } finally {
     if (gen === loadGen) {
       refreshing = false
-      if (!error.value) drainPendingTrades()
+      if (!error.value) drainPendingEvents()
       if (queuedTailRefresh) {
         queuedTailRefresh = false
         if (!error.value) void refreshTail(false)
@@ -708,6 +709,11 @@ const setupResizeObserver = () => {
 const startTicker = () => {
   if (tickerId !== null) return
   tickerId = setInterval(() => {
+    if (props.envelope && !loading.value && !error.value && snapshotTail?.history_ready !== false) {
+      const result = engine.carryTo(Math.floor(Date.now() / 1000))
+      if (result.reload) void refreshTail(true)
+      else applyChanged(result.changed)
+    }
     if (userScrolledBack) return
     applyVisibleRangeToNow()
   }, 1000)
@@ -721,7 +727,7 @@ const stopTicker = () => {
 }
 
 const onTick = (tick: FxPriceTick | null | undefined) => {
-  // 有 envelope 时只走真实成交路径，绝不并行混用 applyPrice（会改写同一桶 OHLC）。
+  // 有 envelope 时只走事件路径，绝不并行混用 applyPrice（会改写同一桶 OHLC）。
   if (props.envelope || !tick) return
   const price = Number(tick.price)
   const result = engine.applyPrice(price, tick.ts)
@@ -746,7 +752,7 @@ watch(
       markTailInvalidated()
       void refreshTail(true)
     }
-    if (env.trades && env.trades.length > 0) enqueueTrades(env.trades)
+    if (env.history_ready !== false && env.events && env.events.length > 0) enqueueEvents(env.events)
   },
   { flush: 'sync' },
 )
@@ -763,7 +769,7 @@ watch(
     // 新 pair/周期：旧图与旧覆盖同步作废，避免切换失败时仍显示上一个 pair 的 K 线。
     snapshotTail = null
     attemptedKey = null
-    pendingTrades = []
+    pendingEvents = []
     pendingOverflow = false
     queuedTailRefresh = false
     resetChartState()
@@ -787,7 +793,7 @@ onMounted(async () => {
   // 先启动加载（同步置 refreshing），再把挂载前信封里的真实成交放入缓冲；
   // 这样它们会在覆盖游标写入后按 id 过滤补放，绝不漏量。
   const initial = loadFull()
-  if (props.envelope?.trades?.length) enqueueTrades(props.envelope.trades)
+  if (props.envelope?.history_ready !== false && props.envelope?.events?.length) enqueueEvents(props.envelope.events)
   await initial
 })
 

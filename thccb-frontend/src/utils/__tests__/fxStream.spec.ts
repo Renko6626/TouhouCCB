@@ -74,12 +74,12 @@ describe('FX envelope 解析', () => {
         '1m': {
           t0: 1755734400, step: 60, n_buckets: 3600,
           t: [0], o: ['1.25000000'], h: ['1.30000000'], l: ['1.20000000'],
-          c: ['1.28000000'], v: ['12.500000'], trades: [3],
+          c: ['1.28000000'], v: ['12.500000'], trades: [3], events: [4],
         },
       },
       history_tail_at: '2026-01-01T00:00:00.000Z',
-      history_tail_through_trade_id: 42,
-      trades: [{ id: 43, ts: '2026-01-01T00:01:00.000Z', pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' }],
+      history_tail_through_event_id: 42,
+      events: [{ n_trades: 1, id: 43, ts: '2026-01-01T00:01:00.000Z', pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' }],
       history_invalidated: true,
     })
 
@@ -89,8 +89,8 @@ describe('FX envelope 解析', () => {
     expect(env.history_ready).toBe(true)
     expect(env.history_version).toBe('11111111-1111-1111-1111-111111111111')
     expect(env.history_tail?.['1m']?.o).toEqual(['1.25000000'])
-    expect(env.history_tail_through_trade_id).toBe(42)
-    expect(env.trades?.[0]).toMatchObject({ id: 43, pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' })
+    expect(env.history_tail_through_event_id).toBe(42)
+    expect(env.events?.[0]).toMatchObject({ id: 43, pre_price: '1.250000', post_price: '1.29000000', gold_volume: '5.000000' })
     expect(env.history_invalidated).toBe(true)
     expect('gold_reserve' in env).toBe(false)
     expect('shock_ratio' in env).toBe(false)
@@ -115,4 +115,27 @@ describe('FX envelope 解析', () => {
     expect(env?.history_tail).toBeUndefined()
     expect(env?.trades).toBeUndefined()
   })
+})
+
+
+it('public events retain zero volume and strip liquidity/admin details without using trade coverage', () => {
+  const env = parseFxSseEnvelope(JSON.stringify({ data: {
+    history_tail_through_trade_id: 99,
+    history_tail_through_event_id: 7,
+    events: [{ id: 8, ts: '2026-01-01T00:01:00Z', pre_price: '1', post_price: '2', gold_volume: '0', n_trades: 0,
+      gold_reserve: '100', audit_id: 9, operator_user_id: 1, kind: 'fund' }],
+    trades: [{ id: 99, ts: '2026-01-01T00:01:00Z', pre_price: '1', post_price: '2', gold_volume: '10' }],
+  } }))!
+  expect(env.history_tail_through_event_id).toBe(7)
+  expect(env.events).toEqual([{ id: 8, ts: '2026-01-01T00:01:00Z', pre_price: '1', post_price: '2', gold_volume: '0', n_trades: 0 }])
+  expect(env).not.toHaveProperty('history_tail_through_trade_id')
+})
+
+
+it('not-ready history keeps status explicit and never invents an event coverage cursor', () => {
+  const env = parseFxSseEnvelope(JSON.stringify({ data: { price: '2', history_ready: false, history_invalidated: true,
+    history_tail_through_trade_id: 100 } }))!
+  expect(env).toMatchObject({ price: '2', history_ready: false, history_invalidated: true })
+  expect(env.history_tail_through_event_id).toBeUndefined()
+  expect(env.history_tail).toBeUndefined()
 })

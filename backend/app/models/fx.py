@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import CheckConstraint, Column, DateTime, Index, JSON, Numeric, UniqueConstraint, text
+from sqlalchemy import BigInteger, Integer, CheckConstraint, Column, DateTime, Index, JSON, Numeric, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -169,15 +169,16 @@ class FxShortPosition(SQLModel, table=True):
 class FxCandle(SQLModel, table=True):
     """Materialised FX OHLCV candles; derived data only.
 
-    The natural key is ``(pair_id, interval, bucket_start)``.  ``FxTrade`` stays
-    the source of truth; these rows are rebuilt from it.  ``first_trade_*`` /
-    ``last_trade_*`` carry the ``(created_at, id)`` ordering keys so a batch
+    The natural key is ``(pair_id, interval, bucket_start)``. ``FxPoolEvent`` is
+    the price source; these rows are rebuilt from it. ``first_event_*`` /
+    ``last_event_*`` carry the ``(created_at, id)`` ordering keys so a batch
     applied out of order still yields the true bucket open/close.
     """
     __tablename__ = "fx_candle"
     __table_args__ = (
         CheckConstraint("gold_volume >= 0", name="ck_fx_candle_volume_non_negative"),
         CheckConstraint("n_trades >= 0", name="ck_fx_candle_n_non_negative"),
+        CheckConstraint("n_events >= 0", name="ck_fx_candle_events_non_negative"),
         CheckConstraint("high_price >= low_price", name="ck_fx_candle_h_ge_l"),
         CheckConstraint(
             "interval IN ('10s','1m','15m','1h')",
@@ -197,10 +198,16 @@ class FxCandle(SQLModel, table=True):
     gold_volume: Decimal = Field(default=Decimal("0"), sa_type=Numeric(30, 6), nullable=False)
     n_trades: int = Field(default=0, nullable=False)
 
-    first_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
-    first_trade_id: int = Field(nullable=False)
-    last_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
-    last_trade_id: int = Field(nullable=False)
+    first_event_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    first_event_id: Optional[int] = Field(default=None, sa_type=BigInteger())
+    last_event_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    last_event_id: Optional[int] = Field(default=None, sa_type=BigInteger())
+    n_events: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": text("0")})
+
+    first_trade_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    first_trade_id: Optional[int] = Field(default=None)
+    last_trade_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    last_trade_id: Optional[int] = Field(default=None)
 
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 
@@ -208,7 +215,7 @@ class FxCandle(SQLModel, table=True):
 class FxMarketDataState(SQLModel, table=True):
     """Per-pair durable consumption cursor for derived FX market data.
 
-    ``last_trade_id`` is the highest trade id whose candles are durably
+    ``last_event_id`` is the highest pool event id whose candles are durably
     persisted.  ``history_version`` isolates published history caches from a
     rebuild; it is generated on first creation.  ``history_ready`` distinguishes
     a freshly created state (initial backfill pending) from a completed one.
@@ -216,12 +223,14 @@ class FxMarketDataState(SQLModel, table=True):
     __tablename__ = "fx_market_data_state"
     __table_args__ = (
         CheckConstraint("last_trade_id >= 0", name="ck_fx_market_data_state_cursor_non_negative"),
+        CheckConstraint("last_event_id >= 0", name="ck_fx_market_data_state_event_cursor_non_negative"),
     )
 
     pair_id: int = Field(foreign_key="fx_pair.id", primary_key=True)
     last_trade_id: int = Field(
         default=0, nullable=False, sa_column_kwargs={"server_default": text("0")},
     )
+    last_event_id: int = Field(default=0, sa_type=BigInteger(), nullable=False, sa_column_kwargs={"server_default": text("0")})
     history_version: str = Field(
         default_factory=lambda: str(uuid4()), max_length=36, nullable=False,
     )
@@ -229,3 +238,30 @@ class FxMarketDataState(SQLModel, table=True):
         default=False, nullable=False, sa_column_kwargs={"server_default": text("false")},
     )
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+
+
+class FxPoolEvent(SQLModel, table=True):
+    """Atomic price-source record; accounting remains in trades and audits."""
+    __tablename__ = "fx_pool_event"
+    __table_args__ = (
+        CheckConstraint("kind IN ('initialize','trade','fund','withdraw')", name="ck_fx_pool_event_kind"),
+        CheckConstraint("post_gold_reserve > 0 AND post_foreign_reserve > 0", name="ck_fx_pool_event_post_positive"),
+        CheckConstraint("(kind = 'initialize' AND pre_gold_reserve IS NULL AND pre_foreign_reserve IS NULL) OR (kind <> 'initialize' AND pre_gold_reserve IS NOT NULL AND pre_foreign_reserve IS NOT NULL AND pre_gold_reserve > 0 AND pre_foreign_reserve > 0)", name="ck_fx_pool_event_pre_positive"),
+        CheckConstraint("gold_volume >= 0 AND (kind = 'trade' OR gold_volume = 0)", name="ck_fx_pool_event_volume"),
+        CheckConstraint("(kind = 'trade' AND trade_id IS NOT NULL AND audit_id IS NULL) OR (kind <> 'trade' AND trade_id IS NULL AND audit_id IS NOT NULL)", name="ck_fx_pool_event_source"),
+        UniqueConstraint("trade_id", name="uq_fx_pool_event_trade"),
+        UniqueConstraint("audit_id", name="uq_fx_pool_event_audit"),
+        Index("ix_fx_pool_event_pair_id", "pair_id", "id"),
+        Index("ix_fx_pool_event_pair_created_id", "pair_id", "created_at", "id"),
+    )
+    id: Optional[int] = Field(default=None, sa_column=Column(BigInteger().with_variant(Integer(), "sqlite"), primary_key=True, autoincrement=True))
+    pair_id: int = Field(foreign_key="fx_pair.id", nullable=False)
+    created_at: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)
+    kind: str = Field(max_length=16, nullable=False)
+    pre_gold_reserve: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    pre_foreign_reserve: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    post_gold_reserve: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    post_foreign_reserve: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    gold_volume: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
+    trade_id: Optional[int] = Field(default=None, foreign_key="fx_trade.id")
+    audit_id: Optional[int] = Field(default=None, sa_type=BigInteger().with_variant(Integer(), "sqlite"), foreign_key="audit_event.id")

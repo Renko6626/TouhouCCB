@@ -36,11 +36,11 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, bindparam, case, func, select, true
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxPoolEvent, FxTrade
 from app.services.fx.candles import compute_fx_candle_rows, merge_row
 from app.services.fx.market_state import FX_MARKET_DATA
 from app.services.history_ring import RING_SPEC
@@ -49,6 +49,7 @@ UTC = timezone.utc
 
 #: Hard ceiling on a chart response (spec: at most 20,000 buckets).
 MAX_CHART_BUCKETS = 20000
+MAX_TAIL_EVENTS = 10000
 
 #: Native storage periods, largest first, for legacy rollup base selection.
 _NATIVE_STEPS: tuple[tuple[str, int], ...] = tuple(
@@ -171,10 +172,11 @@ def _row_to_agg(row: Any) -> dict:
         "close_price": _dec(row.close_price),
         "gold_volume": _dec(row.gold_volume),
         "n_trades": int(row.n_trades),
-        "first_trade_at": _utc(row.first_trade_at),
-        "first_trade_id": int(row.first_trade_id),
-        "last_trade_at": _utc(row.last_trade_at),
-        "last_trade_id": int(row.last_trade_id),
+        "n_events": int(row.n_events),
+        "first_event_at": _utc(row.first_event_at),
+        "first_event_id": int(row.first_event_id),
+        "last_event_at": _utc(row.last_event_at),
+        "last_event_id": int(row.last_event_id),
     }
 
 
@@ -188,6 +190,8 @@ def _chart_row(interval: str, agg: dict) -> dict:
         "low": _dec(agg["low_price"]),
         "close": _dec(agg["close_price"]),
         "volume": _dec(agg["gold_volume"]),
+        "n_trades": int(agg["n_trades"]),
+        "n_events": int(agg["n_events"]),
     }
 
 
@@ -212,7 +216,7 @@ async def _load_candles(db: AsyncSession, pair_id: int, interval: str,
     )).scalars().all())
 
 
-async def _load_tail_trades(db: AsyncSession, pair_id: int, after_id: int,
+async def _load_tail_events(db: AsyncSession, pair_id: int, after_id: int,
                             start: datetime, end: datetime, *,
                             max_id: int | None = None) -> list[Any]:
     """Projected committed trades after ``after_id`` inside ``[start, end)``.
@@ -225,20 +229,22 @@ async def _load_tail_trades(db: AsyncSession, pair_id: int, after_id: int,
     if start >= end:
         return []
     stmt = select(
-        FxTrade.id, FxTrade.pair_id, FxTrade.created_at, FxTrade.post_price,
-        FxTrade.pre_gold_reserve, FxTrade.pre_foreign_reserve,
-        FxTrade.side, FxTrade.input_amount, FxTrade.output_amount,
+        FxPoolEvent.id, FxPoolEvent.pair_id, FxPoolEvent.created_at, FxPoolEvent.kind,
+        FxPoolEvent.pre_gold_reserve, FxPoolEvent.pre_foreign_reserve,
+        FxPoolEvent.post_gold_reserve, FxPoolEvent.post_foreign_reserve, FxPoolEvent.gold_volume,
     ).where(
-        FxTrade.pair_id == int(pair_id),
-        FxTrade.id > int(after_id),
-        FxTrade.created_at >= start,
-        FxTrade.created_at < end,
+        FxPoolEvent.pair_id == int(pair_id), FxPoolEvent.id > int(after_id),
+        FxPoolEvent.created_at >= start, FxPoolEvent.created_at < end,
     )
     if max_id is not None:
-        stmt = stmt.where(FxTrade.id <= int(max_id))
-    return list((await db.execute(
-        stmt.order_by(FxTrade.created_at.asc(), FxTrade.id.asc())
+        stmt = stmt.where(FxPoolEvent.id <= int(max_id))
+    rows = list((await db.execute(
+        stmt.order_by(FxPoolEvent.id).limit(MAX_TAIL_EVENTS + 1)
     )).all())
+    if len(rows) > MAX_TAIL_EVENTS:
+        raise HTTPException(status_code=503, detail="FX history is catching up; retry shortly",
+                            headers={"Retry-After": "5"})
+    return rows
 
 
 async def _load_candles_with_state(db: AsyncSession, pair_id: int, interval: str,
@@ -265,6 +271,9 @@ async def _load_candles_with_state(db: AsyncSession, pair_id: int, interval: str
         .outerjoin(FxCandle, condition)
         .where(FxMarketDataState.pair_id == int(pair_id))
         .order_by(FxCandle.bucket_start.asc())
+        # Initial readiness reads may already have cached this ORM state. Both
+        # entities must refresh from this statement's snapshot after a flush.
+        .execution_options(populate_existing=True)
     )
     state = None
     rows: list[Any] = []
@@ -275,28 +284,28 @@ async def _load_candles_with_state(db: AsyncSession, pair_id: int, interval: str
     return rows, state
 
 
-async def _window_max_trade_id(db: AsyncSession, pair_id: int,
+async def _window_max_event_id(db: AsyncSession, pair_id: int,
                                start: datetime, end: datetime) -> int:
     """Max committed pair trade id contributing to ``[start, end)``, or ``0``.
 
     This is the *coverage* highwater: it is computed over exactly the aligned
     window the chart serves, so an id is never claimed from a trade that is
     outside the window or not committed.  It is deliberately not the
-    chronological ``last_trade_id`` (ids may skip / be backdated) nor a global
+    chronological ``last_event_id`` (ids may skip / be backdated) nor a global
     ``MAX(id)`` (which would over-claim).  Uses the ``(pair_id, created_at)``
     index.
     """
     value = (await db.execute(
-        select(func.max(FxTrade.id)).where(
-            FxTrade.pair_id == int(pair_id),
-            FxTrade.created_at >= start,
-            FxTrade.created_at < end,
+        select(func.max(FxPoolEvent.id)).where(
+            FxPoolEvent.pair_id == int(pair_id),
+            FxPoolEvent.created_at >= start,
+            FxPoolEvent.created_at < end,
         )
     )).scalar()
     return int(value or 0)
 
 
-async def _has_trade_in_segment_after(db: AsyncSession, pair_id: int, after_id: int,
+async def _has_event_in_segment_after(db: AsyncSession, pair_id: int, after_id: int,
                                       start: datetime, end: datetime) -> bool:
     """Indexed EXISTS: any committed trade with ``id > after_id`` in the segment.
 
@@ -305,12 +314,12 @@ async def _has_trade_in_segment_after(db: AsyncSession, pair_id: int, after_id: 
     applied cursor) could still change the segment, so it must not be cached.
     """
     stmt = (
-        select(FxTrade.id)
+        select(FxPoolEvent.id)
         .where(
-            FxTrade.pair_id == int(pair_id),
-            FxTrade.id > int(after_id),
-            FxTrade.created_at >= start,
-            FxTrade.created_at < end,
+            FxPoolEvent.pair_id == int(pair_id),
+            FxPoolEvent.id > int(after_id),
+            FxPoolEvent.created_at >= start,
+            FxPoolEvent.created_at < end,
         )
         .limit(1)
     )
@@ -323,21 +332,112 @@ def _require_pair(db_pair: FxPair | None, pair_id: int) -> FxPair:
     return db_pair
 
 
+async def _anchor_event_id(db: AsyncSession, pair_id: int, before: datetime) -> int:
+    """Capture the indexed last effective event supplying a window's prior close."""
+    value = (await db.execute(select(FxPoolEvent.id).where(
+        FxPoolEvent.pair_id == pair_id, FxPoolEvent.created_at < before,
+    ).order_by(FxPoolEvent.created_at.desc(), FxPoolEvent.id.desc()).limit(1))).scalar()
+    return int(value or 0)
+
+
+def _chart_window_statement():
+    """Reusable SQL structure; request values remain bound parameters."""
+    pair_id, start, end = bindparam("chart_pair_id"), bindparam("chart_start"), bindparam("chart_end")
+    window = select(func.max(FxPoolEvent.id).label("window_max")).where(
+        FxPoolEvent.pair_id == pair_id,
+        FxPoolEvent.created_at >= start, FxPoolEvent.created_at < end,
+    ).subquery()
+    anchor = select(FxPoolEvent.id.label("anchor_id"), FxPoolEvent.kind,
+                    FxPoolEvent.pre_gold_reserve, FxPoolEvent.pre_foreign_reserve,
+                    FxPoolEvent.post_gold_reserve, FxPoolEvent.post_foreign_reserve).where(
+        FxPoolEvent.pair_id == pair_id, FxPoolEvent.created_at < start,
+    ).order_by(FxPoolEvent.created_at.desc(), FxPoolEvent.id.desc()).limit(1).subquery()
+    return select(
+        FxPair.id, FxMarketDataState.history_ready, FxMarketDataState.history_version,
+        FxMarketDataState.last_trade_id, FxMarketDataState.last_event_id,
+        window.c.window_max, anchor.c.anchor_id, anchor.c.kind,
+        anchor.c.pre_gold_reserve, anchor.c.pre_foreign_reserve,
+        anchor.c.post_gold_reserve, anchor.c.post_foreign_reserve,
+    ).select_from(FxPair).outerjoin(FxMarketDataState, FxMarketDataState.pair_id == FxPair.id).join(
+        window, true()).outerjoin(anchor, true()).where(FxPair.id == pair_id)
+
+
+_CHART_WINDOW_METADATA = _chart_window_statement()
+
+
+async def _chart_window_bounds(db: AsyncSession, pair_id: int,
+                               start: datetime, end: datetime) -> tuple[Any, int, int, Decimal | None]:
+    """Pair/state validation, exact coverage and prior close in one statement.
+
+    Call after copying the ring: a newly committed event beyond that copy's
+    applied cursor must send the caller to the persisted/tail path. The anchor
+    is unbounded here; only use its price when its ID is covered by the ring.
+    """
+    from app.services.fx.candles import event_prices
+    row = (await db.execute(_CHART_WINDOW_METADATA, {
+        "chart_pair_id": pair_id, "chart_start": start, "chart_end": end,
+    })).first()
+    if row is None:
+        return None, 0, 0, None
+    price = None if row.anchor_id is None else event_prices(row)[1]
+    return row, int(row.window_max or 0), int(row.anchor_id or 0), price
+
+
+async def _history_anchor(db: AsyncSession, pair_id: int, before: datetime,
+                          through: int) -> Decimal | None:
+    from app.services.fx.candles import event_prices
+    row = (await db.execute(select(
+        FxPoolEvent.kind, FxPoolEvent.pre_gold_reserve, FxPoolEvent.pre_foreign_reserve,
+        FxPoolEvent.post_gold_reserve, FxPoolEvent.post_foreign_reserve,
+    ).where(FxPoolEvent.pair_id == pair_id, FxPoolEvent.created_at < before,
+            FxPoolEvent.id <= through)
+      .order_by(FxPoolEvent.created_at.desc(), FxPoolEvent.id.desc()).limit(1))).first()
+    return None if row is None else event_prices(row)[1]
+
+
+def _fill_buckets(rows: Iterable[dict], start: datetime, end: datetime,
+                  seconds: int, anchor: Decimal | None) -> list[dict]:
+    """Carry proven historical closes; synthetic rows always have zero events."""
+    actual = {row["bucket_start"]: row for row in rows}
+    result = []
+    at = start
+    close = anchor
+    while at < end:
+        row = actual.get(at)
+        if row is not None:
+            result.append(row)
+            close = row["close_price"]
+        elif close is not None:
+            result.append({"bucket_start": at, "open_price": close,
+                           "high_price": close, "low_price": close, "close_price": close,
+                           "gold_volume": Decimal("0"), "n_trades": 0, "n_events": 0})
+        at += timedelta(seconds=seconds)
+    return result
+
+
+async def _check_generation(db: AsyncSession, pair_id: int, version: str) -> None:
+    current = (await db.execute(select(FxMarketDataState.history_version,
+                                      FxMarketDataState.history_ready)
+                .where(FxMarketDataState.pair_id == pair_id))).first()
+    if current is None or not current.history_ready or str(current.history_version) != version:
+        raise HTTPException(status_code=503, detail="FX history generation changed; retry shortly",
+                            headers={"Retry-After": "5"})
+
+
 # ── /chart ──────────────────────────────────────────────────────────────────
 async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
                                   start: datetime, end: datetime) -> tuple[list[dict], int, str]:
-    """Old ``/chart`` body **plus** the exact coverage cursor and generation.
+    """Chart body with event counts **plus** the exact coverage cursor and generation.
 
-    Returns ``(body, coverage_trade_id, history_version)``.  ``coverage`` is the
-    max committed trade id whose data is actually inside the served aligned
-    window, so every id it claims is present in ``body`` and no later live delta
+    Returns ``(body, coverage_event_id, history_version)``.  ``coverage`` is the
+    max event id contributing to the aligned window or its prior-close anchor,
+    so the claimed price changes are represented and no later live delta
     is silently swallowed.  The route exposes it as
-    ``X-FX-Through-Trade-ID`` / ``X-FX-History-Version``; the body stays the
-    legacy JSON list.
+    ``X-FX-Through-Event-ID`` / ``X-FX-History-Version``; the body stays a JSON list.
 
     Bounds are full-bucket provisional semantics: the stored bars and the raw
     tail share the same aligned ``[first_bucket, query_end)`` window, so a
-    near-``to`` trade is either inside the body (and covered) or outside it (and
+    near-``to`` event is either inside the body (and covered) or outside it (and
     left to the live delta).  Validation (range, interval, output and fine
     source bucket ceiling) happens before any query.  Missing metadata is an
     explicit 503, never a fabricated coverage value.
@@ -369,28 +469,32 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         )
 
     pair_id = int(pair_id)
-    _require_pair(await db.get(FxPair, pair_id), pair_id)
-    state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready:
+    # Copy rows and cursor synchronously before the SQL coverage snapshot.
+    # This preserves the post-copy commit detection while combining metadata
+    # roundtrips; projected fields also bypass stale identity-map state.
+    ring_rows = rt = None
+    if plan.native is not None:
+        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, first_bucket, query_end)
+        rt = FX_MARKET_DATA.state(pair_id)
+    state, window_max, anchor_id, anchor = await _chart_window_bounds(
+        db, pair_id, first_bucket, query_end)
+    if state is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    if not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
         # No complete history yet: retryable, never a full raw-trade rebuild.
         raise HTTPException(status_code=503, detail="FX history is not ready")
     version = str(state.history_version)
 
     if plan.native is not None:
-        # ``get_candles`` and ``state`` are synchronous and back-to-back with no
-        # await between them, so the copied ring rows and the applied cursor are
-        # captured atomically under the same event-loop step.
-        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, first_bucket, query_end)
-        rt = FX_MARKET_DATA.state(pair_id)
         if (ring_rows is not None and rt is not None and rt.get("history_ready")
                 and str(rt.get("history_version")) == version):
-            # Coverage is the committed max inside the aligned window, further
-            # capped by the ring's applied cursor so a trade that committed just
-            # after the copy is left to the live delta instead of being claimed.
-            window_max = await _window_max_trade_id(db, pair_id, first_bucket, query_end)
-            coverage = min(window_max, int(rt.get("applied_trade_id") or 0))
-            return ([_chart_row(plan.interval, row) for row in ring_rows],
-                    coverage, version)
+            # Exact committed bounds must fit the copied ring's applied cursor.
+            if max(window_max, anchor_id) <= int(rt.get("applied_event_id") or 0):
+                coverage = max(window_max, anchor_id)
+                await _check_generation(db, pair_id, version)
+                filled = _fill_buckets(ring_rows, first_bucket, query_end, plan.seconds, anchor)
+                return ([_chart_row(plan.interval, row) for row in filled], coverage, version)
+
 
     # Persisted base candles + the persisted state in ONE statement, then only
     # the projected unflushed tail above the durable cursor capped at the
@@ -400,13 +504,14 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
     base_rows, db_state = await _load_candles_with_state(
         db, pair_id, base_interval, first_bucket, query_end,
     )
-    if db_state is None or not db_state.history_ready:
+    if db_state is None or not db_state.history_ready or (db_state.last_trade_id > 0 and db_state.last_event_id == 0):
         raise HTTPException(status_code=503, detail="FX history is not ready")
     # The generation travels with the candle rows from the same statement, so a
     # rebuild in flight can never mix two generations in one body.
     db_version = str(db_state.history_version)
-    durable = int(db_state.last_trade_id)
-    coverage = await _window_max_trade_id(db, pair_id, first_bucket, query_end)
+    durable = int(db_state.last_event_id)
+    coverage = max(await _anchor_event_id(db, pair_id, first_bucket),
+                   await _window_max_event_id(db, pair_id, first_bucket, query_end))
 
     merged: dict[datetime, dict] = {}
     for row in base_rows:
@@ -414,17 +519,19 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         existing = merged.get(agg["bucket_start"])
         merged[agg["bucket_start"]] = agg if existing is None else merge_row(existing, agg)
 
-    tail_trades = await _load_tail_trades(
+    tail_events = await _load_tail_events(
         db, pair_id, durable, first_bucket, query_end, max_id=coverage)
-    for row in compute_fx_candle_rows(tail_trades):
+    for row in compute_fx_candle_rows(tail_events):
         if row["interval"] != base_interval:
             continue
         agg = _aggregate_bucket(row, plan.seconds)
         existing = merged.get(agg["bucket_start"])
         merged[agg["bucket_start"]] = agg if existing is None else merge_row(existing, agg)
 
-    return ([_chart_row(plan.interval, merged[bucket]) for bucket in sorted(merged)],
-            coverage, db_version)
+    anchor = await _history_anchor(db, pair_id, first_bucket, max(durable, coverage))
+    await _check_generation(db, pair_id, db_version)
+    filled = _fill_buckets(merged.values(), first_bucket, query_end, plan.seconds, anchor)
+    return ([_chart_row(plan.interval, row) for row in filled], coverage, db_version)
 
 
 def _aggregate_bucket(row: dict, seconds: int) -> dict:
@@ -463,6 +570,7 @@ def _encode_segment(rows: Iterable[dict], interval: str, t0: int, until: int) ->
         "c": [],
         "v": [],
         "trades": [],
+        "events": [],
     }
     ordered = sorted(rows, key=lambda row: _utc(row["bucket_start"]))
     for row in ordered:
@@ -476,6 +584,7 @@ def _encode_segment(rows: Iterable[dict], interval: str, t0: int, until: int) ->
         out["c"].append(str(_dec(row["close_price"])))
         out["v"].append(str(_dec(row["gold_volume"])))
         out["trades"].append(int(row["n_trades"]))
+        out["events"].append(int(row["n_events"]))
     return out
 
 
@@ -496,7 +605,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
 
     pair_id = int(pair_id)
     state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready:
+    if state is None or not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
         raise HTTPException(status_code=503, detail="FX 历史未就绪，请稍后重试")
     if str(state.history_version) != str(history_version):
         # The URL names a generation that is no longer current: the segment can
@@ -507,7 +616,12 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
     key = ("fx", pair_id, str(history_version), interval, int(segment_epoch))
     cached = _lru_get(key)
     if cached is not None:
-        return cached
+        start_dt = datetime.fromtimestamp(segment_epoch, tz=UTC)
+        end_dt = datetime.fromtimestamp(seg_end, tz=UTC)
+        if await _has_event_in_segment_after(db, pair_id, int(state.last_event_id), start_dt, end_dt):
+            _lru().pop(key, None)
+        else:
+            return cached
 
     # Cache miss: take a short shared lock on the pair row for the proof + body.
     # Every producer takes ``FOR UPDATE`` on this row *before* constructing its
@@ -530,7 +644,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
 
     # Re-read under the lock: the generation may have rotated while waiting.
     state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready:
+    if state is None or not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
         raise HTTPException(status_code=503, detail="FX 历史未就绪，请稍后重试")
     if str(state.history_version) != str(history_version):
         raise HTTPException(status_code=404, detail="历史版本已失效")
@@ -546,10 +660,12 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
             and str(rt.get("history_version")) == str(history_version)):
         ring_rows = FX_MARKET_DATA.get_candles(pair_id, interval, seg_start_dt, seg_end_dt)
         if ring_rows is not None:
-            applied = int(rt.get("applied_trade_id") or 0)
-            if not await _has_trade_in_segment_after(db, pair_id, applied,
+            applied = int(rt.get("applied_event_id") or 0)
+            if not await _has_event_in_segment_after(db, pair_id, applied,
                                                      seg_start_dt, seg_end_dt):
-                enc = _encode_segment(ring_rows, interval, segment_epoch, seg_end)
+                anchor = await _history_anchor(db, pair_id, seg_start_dt, applied)
+                filled = _fill_buckets(ring_rows, seg_start_dt, seg_end_dt, tier.step, anchor)
+                enc = _encode_segment(filled, interval, segment_epoch, seg_end)
                 await db.commit()
                 _lru_put(key, enc)
                 return enc
@@ -559,13 +675,15 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
     pending = FX_MARKET_DATA.flusher.oldest_pending_bucket(pair_id)
     if pending is not None and _utc(pending) < seg_end_dt:
         raise HTTPException(status_code=503, detail="段落库未完成，请稍后重试")
-    durable = int(state.last_trade_id)
-    if await _has_trade_in_segment_after(db, pair_id, durable, seg_start_dt, seg_end_dt):
+    durable = int(state.last_event_id)
+    if await _has_event_in_segment_after(db, pair_id, durable, seg_start_dt, seg_end_dt):
         raise HTTPException(status_code=503, detail="段落库未完成，请稍后重试")
 
     rows = await _load_candles(db, pair_id, interval, seg_start_dt, seg_end_dt)
-    enc = _encode_segment((_row_to_agg(row) for row in rows), interval,
-                          segment_epoch, seg_end)
+    anchor = await _history_anchor(db, pair_id, seg_start_dt, durable)
+    filled = _fill_buckets((_row_to_agg(row) for row in rows), seg_start_dt, seg_end_dt,
+                           tier.step, anchor)
+    enc = _encode_segment(filled, interval, segment_epoch, seg_end)
     await db.commit()
     _lru_put(key, enc)
     return enc
@@ -588,7 +706,7 @@ async def read_fx_snapshot_metadata(db: AsyncSession, pair_id: int,
         return {"history_version": None, "history_ready": False}
     return {
         "history_version": str(state.history_version),
-        "history_ready": bool(state.history_ready),
+        "history_ready": bool(state.history_ready) and not (state.last_trade_id > 0 and state.last_event_id == 0),
     }
 
 
@@ -622,7 +740,7 @@ async def fx_volume_24h(db: AsyncSession, pair_id: int, now: datetime) -> Decima
 
     pid = int(pair_id)
     durable_sq = (
-        select(FxMarketDataState.last_trade_id)
+        select(FxMarketDataState.last_event_id)
         .where(FxMarketDataState.pair_id == pid)
         .scalar_subquery()
     )
@@ -656,12 +774,12 @@ async def fx_volume_24h(db: AsyncSession, pair_id: int, now: datetime) -> Decima
         .scalar_subquery()
     )
     tail_sq = (
-        select(_gold_sum_expr())
+        select(func.coalesce(func.sum(FxPoolEvent.gold_volume), Decimal("0")))
         .where(
-            FxTrade.pair_id == pid,
-            FxTrade.created_at >= b_start,
-            FxTrade.created_at < b_end,
-            FxTrade.id > durable_sq,
+            FxPoolEvent.pair_id == pid,
+            FxPoolEvent.created_at >= b_start,
+            FxPoolEvent.created_at < b_end,
+            FxPoolEvent.id > durable_sq,
         )
         .scalar_subquery()
     )
@@ -674,3 +792,37 @@ async def fx_volume_24h(db: AsyncSession, pair_id: int, now: datetime) -> Decima
     for value in row[1:]:
         total += Decimal(value) if value is not None else Decimal("0")
     return total
+
+
+async def read_fx_stream_history(db: AsyncSession, pair_id: int, now: datetime) -> dict:
+    """Bounded persisted/ring tail at the caller's locked snapshot boundary.
+
+    The caller holds the pair shared lock while reading quote + history. No
+    catch-up, creation, or flushing is done from the streaming GET.
+    """
+    from app.services.history_ring import seal_boundary
+    now = _utc(now)
+    epoch = int(now.timestamp())
+    segments = {}
+    version = None
+    for interval, tier in RING_SPEC.items():
+        t0 = seal_boundary(interval, epoch)
+        end = epoch - epoch % tier.step + tier.step
+        chart, _through, current_version = await read_fx_chart_with_meta(
+            db, pair_id, interval, datetime.fromtimestamp(t0, tz=UTC),
+            datetime.fromtimestamp(end, tz=UTC))
+        if version is not None and version != current_version:
+            raise HTTPException(status_code=503, detail="FX history generation changed; retry shortly")
+        version = current_version
+        rows = [{"bucket_start": point["bucket_start"],
+                 "open_price": point["open"], "high_price": point["high"],
+                 "low_price": point["low"], "close_price": point["close"],
+                 "gold_volume": point["volume"], "n_trades": point["n_trades"],
+                 "n_events": point["n_events"]} for point in chart]
+        segments[interval] = _encode_segment(rows, interval, t0, end)
+    cursor = (await db.execute(select(func.max(FxPoolEvent.id))
+              .where(FxPoolEvent.pair_id == pair_id))).scalar() or 0
+    await _check_generation(db, pair_id, str(version))
+    return {"history_version": version, "history_ready": True,
+            "history_tail": segments, "history_tail_at": now.isoformat(),
+            "history_tail_through_event_id": int(cursor)}

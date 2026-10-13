@@ -16,7 +16,9 @@ import pytest_asyncio
 from fastapi import HTTPException
 
 from app.core.database import async_session_maker
-from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade
+from app.models.audit import AuditEvent
+from app.services.fx.pool_events import append_pool_event
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxPoolEvent, FxTrade
 from app.services.fx.market_reads import (
     clear_fx_history_cache,
     fx_volume_24h,
@@ -53,7 +55,7 @@ async def _seed_pair() -> int:
 
 async def _seed_state(pid: int, *, ready: bool, cursor: int, version: str = "gen-1") -> str:
     async with async_session_maker() as s:
-        s.add(FxMarketDataState(pair_id=pid, last_trade_id=cursor,
+        s.add(FxMarketDataState(pair_id=pid, last_event_id=cursor,
                                 history_version=version, history_ready=ready))
         await s.commit()
     return version
@@ -65,9 +67,9 @@ async def _seed_candle(pid: int, interval: str, bucket: datetime, *,
         s.add(FxCandle(
             pair_id=pid, interval=interval, bucket_start=bucket,
             open_price=Decimal(o), high_price=Decimal(h), low_price=Decimal(low),
-            close_price=Decimal(c), gold_volume=Decimal(v), n_trades=n,
-            first_trade_at=bucket, first_trade_id=1,
-            last_trade_at=bucket, last_trade_id=1,
+            close_price=Decimal(c), gold_volume=Decimal(v), n_trades=n, n_events=n,
+            first_event_at=bucket, first_event_id=1,
+            last_event_at=bucket, last_event_id=1,
         ))
         await s.commit()
 
@@ -83,6 +85,14 @@ async def _seed_trade(pid: int, trade_id: int, created_at: datetime, *,
             post_gold_reserve=Decimal("100"), post_foreign_reserve=Decimal("100"),
             post_price=Decimal(post_price), created_at=created_at,
         ))
+        await s.flush()
+        append_pool_event(s, pair_id=pid, kind="trade", created_at=created_at,
+                          pre_reserves=(Decimal("100"), Decimal("100")),
+                          post_reserves=(Decimal(post_price) * Decimal("100"), Decimal("100")),
+                          gold_volume=amount, trade_id=trade_id)
+        # Explicit ids model a captured coverage prefix independently of trade ids.
+        event = next(row for row in s.new if isinstance(row, FxPoolEvent))
+        event.id = trade_id
         await s.commit()
 
 
@@ -184,8 +194,8 @@ async def test_pending_fx_flush_blocks_immutable_200(client):
           "open_price": Decimal("1.1"), "high_price": Decimal("1.1"),
           "low_price": Decimal("1.1"), "close_price": Decimal("1.1"),
           "gold_volume": Decimal("1"), "n_trades": 1,
-          "first_trade_at": pending_bucket, "first_trade_id": 3,
-          "last_trade_at": pending_bucket, "last_trade_id": 3}],
+          "first_event_at": pending_bucket, "first_event_id": 3,
+          "last_event_at": pending_bucket, "last_event_id": 3}],
         version,
     )
     resp = await client.get(f"/history/fx/{pid}/{version}/1m/{seg}.json")
@@ -207,10 +217,12 @@ async def test_chart_returns_materialised_candles_and_503s_when_not_ready(client
     )
     assert resp.status_code == 200, resp.text
     assert resp.headers["x-fx-history-version"] == version
-    assert resp.headers["x-fx-through-trade-id"] == "0"
+    assert resp.headers["x-fx-through-event-id"] == "0"
     candles = resp.json()
-    assert len(candles) == 1
-    assert set(candles[0]) == {"bucket_start", "interval", "open", "high", "low", "close", "volume"}
+    assert len(candles) == 59
+    assert set(candles[0]) == {"bucket_start", "interval", "open", "high", "low", "close", "volume", "n_trades", "n_events"}
+    assert candles[0]["n_events"] == 1
+    assert all(row["n_events"] == 0 for row in candles[1:])
     assert candles[0]["close"] == 1.99
 
     pid2 = await _seed_pair()
@@ -222,7 +234,7 @@ async def test_chart_returns_materialised_candles_and_503s_when_not_ready(client
     )
     assert resp2.status_code == 503
     # A refusal must never carry coverage metadata.
-    assert "x-fx-through-trade-id" not in resp2.headers
+    assert "x-fx-through-event-id" not in resp2.headers
 
 
 @pytest.mark.asyncio
@@ -250,18 +262,18 @@ async def test_chart_coverage_headers_describe_body_after_midread_flush(client, 
             bucket_start=row.bucket_start, open_price=row.open_price,
             high_price=row.high_price, low_price=row.low_price,
             close_price=row.close_price, gold_volume=row.gold_volume,
-            n_trades=int(row.n_trades), first_trade_at=row.first_trade_at,
-            first_trade_id=int(row.first_trade_id), last_trade_at=row.last_trade_at,
-            last_trade_id=int(row.last_trade_id),
+            n_trades=int(row.n_trades), n_events=int(row.n_events), first_event_at=row.first_event_at,
+            first_event_id=int(row.first_event_id), last_event_at=row.last_event_at,
+            last_event_id=int(row.last_event_id),
         )
 
     async def interleaved(db, pair_id, interval, start_, end_):
         rows, st = await original(db, pair_id, interval, start_, end_)
-        if not fired["done"] and st is not None and int(st.last_trade_id) == 2:
+        if not fired["done"] and st is not None and int(st.last_event_id) == 2:
             fired["done"] = True
             snap_rows = [_snapshot(row) for row in rows]
             snap_state = SimpleNamespace(
-                pair_id=int(st.pair_id), last_trade_id=int(st.last_trade_id),
+                pair_id=int(st.pair_id), last_event_id=int(st.last_event_id), last_trade_id=0,
                 history_version=str(st.history_version),
                 history_ready=bool(st.history_ready),
             )
@@ -271,7 +283,7 @@ async def test_chart_coverage_headers_describe_body_after_midread_flush(client, 
             candle.gold_volume = candle.gold_volume + Decimal("3")
             candle.n_trades = candle.n_trades + 1
             state_row = await db.get(FxMarketDataState, pid)
-            state_row.last_trade_id = 3
+            state_row.last_event_id = 3
             await db.commit()
             return snap_rows, snap_state
         return rows, st
@@ -285,7 +297,7 @@ async def test_chart_coverage_headers_describe_body_after_midread_flush(client, 
     )
     assert resp.status_code == 200, resp.text
     assert resp.headers["x-fx-history-version"] == version
-    assert resp.headers["x-fx-through-trade-id"] == "3"
+    assert resp.headers["x-fx-through-event-id"] == "3"
     body = resp.json()
     assert len(body) == 1
     assert Decimal(str(body[0]["volume"])) == Decimal("5")
@@ -325,7 +337,7 @@ async def test_chart_offboundary_rollup_reports_aligned_bucket_start(client):
     reported = datetime.fromisoformat(body[0]["bucket_start"].replace("Z", "+00:00"))
     assert reported == base
     assert Decimal(str(body[0]["volume"])) == Decimal("5")
-    assert resp.headers["x-fx-through-trade-id"] == "1"
+    assert resp.headers["x-fx-through-event-id"] == "1"
 
 
 @pytest.mark.asyncio
@@ -342,7 +354,7 @@ async def test_chart_coverage_never_claims_a_trade_outside_the_served_window(cli
                 "to": (base + timedelta(minutes=1)).isoformat()},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.headers["x-fx-through-trade-id"] == "0"
+    assert resp.headers["x-fx-through-event-id"] == "0"
     assert resp.json() == []
 
 
@@ -360,7 +372,7 @@ async def test_chart_aligned_window_covers_a_midbucket_end_trade(client):
                 "to": (base + timedelta(seconds=30)).isoformat()},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.headers["x-fx-through-trade-id"] == "6"
+    assert resp.headers["x-fx-through-event-id"] == "6"
     body = resp.json()
     assert len(body) == 1
     assert Decimal(str(body[0]["volume"])) == Decimal("4")
@@ -405,11 +417,11 @@ async def test_fx_volume_24h_single_snapshot_survives_midread_flush():
                     open_price=Decimal("1"), high_price=Decimal("1"),
                     low_price=Decimal("1"), close_price=Decimal("1"),
                     gold_volume=Decimal("7"), n_trades=1,
-                    first_trade_at=trade_at, first_trade_id=3,
-                    last_trade_at=trade_at, last_trade_id=3,
+                    first_event_at=trade_at, first_event_id=3,
+                    last_event_at=trade_at, last_event_id=3,
                 ))
                 state_row = await self._real.get(FxMarketDataState, pid)
-                state_row.last_trade_id = 3
+                state_row.last_event_id = 3
                 await self._real.commit()
                 return _One(row)
             return result
@@ -424,7 +436,7 @@ async def test_fx_volume_24h_single_snapshot_survives_midread_flush():
     assert total == Decimal("7")
     assert proxy.calls == 1
     async with async_session_maker() as db:
-        cursor = (await db.get(FxMarketDataState, pid)).last_trade_id
+        cursor = (await db.get(FxMarketDataState, pid)).last_event_id
     assert int(cursor) == 3   # the mid-read flush really happened
 
 
@@ -552,3 +564,259 @@ async def test_read_fx_snapshot_metadata_public_bootstrap_fields():
     async with async_session_maker() as db:
         meta2 = await read_fx_snapshot_metadata(db, pid2, when)
     assert meta2 == {"history_version": version2, "history_ready": False}
+
+
+async def _seed_fund_event(pid: int, at: datetime, *, pre="1", post="1.5", initialize=False) -> int:
+    async with async_session_maker() as db:
+        audit = AuditEvent(event_type="fx_fund", ref_table="fx_pair", ref_id=pid, ts=at)
+        db.add(audit)
+        await db.flush()
+        event = append_pool_event(db, pair_id=pid, kind="initialize" if initialize else "fund",
+                                  created_at=at, pre_reserves=None if initialize else (Decimal(pre), Decimal("1")),
+                                  post_reserves=(Decimal(post), Decimal("1")), gold_volume=Decimal("0"),
+                                  audit_id=audit.id)
+        await db.flush()
+        result = event.id
+        await db.commit()
+        return result
+
+
+@pytest.mark.asyncio
+async def test_chart_uses_prior_event_anchor_and_keeps_real_zero_volume_ohlc():
+    pid = await _seed_pair()
+    start = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    anchor = await _seed_fund_event(pid, start - timedelta(minutes=1), post="1", initialize=True)
+    fund = await _seed_fund_event(pid, start + timedelta(minutes=2, seconds=5), post="1.5")
+    await _seed_state(pid, ready=True, cursor=anchor)
+    async with async_session_maker() as db:
+        rows = await read_fx_chart(db, pid, "1m", start, start + timedelta(minutes=4))
+        volume = await fx_volume_24h(db, pid, start + timedelta(minutes=4))
+    assert len(rows) == 4
+    assert [row["n_events"] for row in rows] == [0, 0, 1, 0]
+    assert [row["close"] for row in rows] == [Decimal("1"), Decimal("1"), Decimal("1.5"), Decimal("1.5")]
+    assert rows[2]["open"] == Decimal("1") and rows[2]["high"] == Decimal("1.5")
+    assert all(row["volume"] == 0 and row["n_trades"] == 0 for row in rows)
+    assert volume == 0 and fund > anchor
+
+
+@pytest.mark.asyncio
+async def test_chart_without_historical_anchor_never_fills_current_pair_price():
+    pid = await _seed_pair()
+    await _seed_state(pid, ready=True, cursor=0)
+    start = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    async with async_session_maker() as db:
+        assert await read_fx_chart(db, pid, "1m", start, start + timedelta(minutes=3)) == []
+
+
+@pytest.mark.asyncio
+async def test_excess_event_tail_returns_retryable_503_in_chart_and_stream_snapshot(client, monkeypatch):
+    from app.services.fx import market_reads
+    monkeypatch.setattr(market_reads, "MAX_TAIL_EVENTS", 2)
+    pid = await _seed_pair()
+    now = datetime.now(UTC).replace(second=30, microsecond=0)
+    anchor = await _seed_fund_event(pid, now - timedelta(minutes=1), post="1", initialize=True)
+    await _seed_state(pid, ready=True, cursor=anchor)
+    for seconds in (1, 2, 3):
+        await _seed_fund_event(pid, now.replace(second=seconds), pre="1", post="1")
+    response = await client.get(f"/api/v1/fx/pairs/{pid}/chart", params={
+        "interval": "1m", "from": now.replace(second=0).isoformat(), "to": now.isoformat()})
+    assert response.status_code == 503 and response.headers["retry-after"] == "5"
+    async with async_session_maker() as db:
+        with pytest.raises(HTTPException) as exc:
+            await market_reads.read_fx_stream_history(db, pid, now)
+        assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_unflushed_funding_before_window_supplies_carried_close_and_event_coverage(client):
+    pid = await _seed_pair()
+    start = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    initialize = await _seed_fund_event(pid, start - timedelta(hours=1), post="1", initialize=True)
+    await _seed_state(pid, ready=True, cursor=initialize)
+    fund = await _seed_fund_event(pid, start - timedelta(seconds=1), post="1.5")
+    response = await client.get(f"/api/v1/fx/pairs/{pid}/chart", params={
+        "interval": "1m", "from": start.isoformat(), "to": (start + timedelta(minutes=2)).isoformat()})
+    assert response.status_code == 200
+    assert response.headers["x-fx-through-event-id"] == str(fund)
+    assert len(response.json()) == 2
+    assert all(row["close"] == 1.5 and row["n_events"] == 0 for row in response.json())
+
+
+@pytest.mark.asyncio
+async def test_chart_flush_before_joined_read_refreshes_cached_checkpoint(client, monkeypatch):
+    """A separate-session flush must not pair new candles with the cached old cursor."""
+    from sqlalchemy import select
+    from app.services.fx import market_reads
+    from app.services.fx.candles import apply_candle_batch, compute_fx_candle_rows
+    pid = await _seed_pair()
+    version = await _seed_state(pid, ready=True, cursor=2)
+    start = datetime(2026, 10, 1, 0, 0, tzinfo=UTC)
+    await _seed_candle(pid, "1m", start, v="2", n=2)
+    await _seed_trade(pid, 3, start + timedelta(seconds=20), volume="3")
+    original = market_reads._load_candles_with_state
+    fired = False
+
+    async def flush_then_join(db, pair_id, interval, start_, end_):
+        nonlocal fired
+        if not fired:
+            fired = True
+            # Keep an old checkpoint in the identity map while another
+            # transaction flushes. The joined read must refresh this instance.
+            cached_checkpoint = await db.get(FxMarketDataState, pair_id)
+            async with async_session_maker() as writer:
+                async with writer.begin():
+                    event = (await writer.execute(select(FxPoolEvent).where(FxPoolEvent.id == 3))).scalar_one()
+                    await apply_candle_batch(writer, pair_id=pid, expected_event_id=2,
+                                             through_event_id=3, rows=compute_fx_candle_rows([event]),
+                                             history_version=version)
+        return await original(db, pair_id, interval, start_, end_)
+
+    monkeypatch.setattr(market_reads, "_load_candles_with_state", flush_then_join)
+    response = await client.get(f"/api/v1/fx/pairs/{pid}/chart", params={
+        "interval": "1m", "from": start.isoformat(), "to": (start + timedelta(minutes=1)).isoformat()})
+    assert response.status_code == 200, response.text
+    assert response.headers["x-fx-through-event-id"] == "3"
+    point, = response.json()
+    assert Decimal(str(point["volume"])) == Decimal("5")
+    assert point["n_trades"] == point["n_events"] == 3
+
+
+@pytest.mark.asyncio
+async def test_stream_lock_wait_crossing_bucket_boundary_never_claims_absent_event(monkeypatch):
+    """Committed boundary funding is represented at the post-lock snapshot time."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.core.database import engine
+    from app.api.v1 import fx_stream
+    from app.services.realtime import MarketEventBroker
+
+    pid = await _seed_pair()
+    boundary = datetime(2026, 10, 1, 12, 1, tzinfo=UTC)
+    before = boundary - timedelta(seconds=1)
+    after = boundary + timedelta(seconds=2)
+    initialize = await _seed_fund_event(pid, boundary - timedelta(minutes=1), post="1", initialize=True)
+    await _seed_state(pid, ready=True, cursor=initialize)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return after if release.is_set() else before
+
+    class WaitingSession(AsyncSession):
+        waited = False
+
+        async def execute(self, statement, *args, **kwargs):
+            if not self.waited:
+                self.waited = True
+                entered.set()
+                await release.wait()
+            return await super().execute(statement, *args, **kwargs)
+
+    waiting_factory = async_sessionmaker(engine, class_=WaitingSession, expire_on_commit=False)
+    calls = 0
+
+    def reader_factory():
+        nonlocal calls
+        calls += 1
+        return waiting_factory() if calls == 2 else async_session_maker()
+
+    monkeypatch.setattr(fx_stream, "datetime", Clock)
+    monkeypatch.setattr(fx_stream, "async_session_maker", reader_factory)
+    monkeypatch.setattr(fx_stream, "BROKER", MarketEventBroker())
+    request = SimpleNamespace(headers={}, client=SimpleNamespace(host="boundary-test"))
+    response = await fx_stream.stream(pid, request)
+    packet = asyncio.create_task(response.body_iterator.__anext__())
+    await entered.wait()
+    fund = await _seed_fund_event(pid, boundary, pre="1", post="1.5")
+    release.set()
+    try:
+        wire = json.loads((await packet).decode().split("data: ", 1)[1])["data"]
+        assert wire["history_tail_through_event_id"] == fund
+        minute = wire["history_tail"]["1m"]
+        at = (int(boundary.timestamp()) - minute["t0"]) // minute["step"]
+        index = minute["t"].index(at)
+        assert Decimal(minute["c"][index]) == Decimal("1.5")
+        assert minute["events"][index] == 1 and minute["trades"][index] == 0
+        assert wire["history_tail_at"] == after.isoformat()
+    finally:
+        await response.body_iterator.aclose()
+
+
+async def _warm_chart_ring(pid: int, start: datetime) -> int:
+    from sqlalchemy import select
+    from app.services.fx.candles import apply_candle_batch, compute_fx_candle_rows
+    await _seed_fund_event(pid, start - timedelta(minutes=1), post="1", initialize=True)
+    last = await _seed_fund_event(pid, start + timedelta(seconds=5), post="1.5")
+    await _seed_state(pid, ready=True, cursor=0)
+    async with async_session_maker() as writer:
+        events = (await writer.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pid))).scalars().all()
+        await apply_candle_batch(writer, pair_id=pid, expected_event_id=0,
+                                 through_event_id=last, rows=compute_fx_candle_rows(events),
+                                 history_version="gen-1")
+        await writer.commit()
+    await FX_MARKET_DATA.start(write_owner=False)
+    assert FX_MARKET_DATA.get_candles(pid, "1m", start, start + timedelta(minutes=1)) is not None
+    return last
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("before_window", [False, True])
+async def test_warm_chart_committed_event_after_ring_copy_falls_back(monkeypatch, before_window):
+    """A post-copy event in the window or its anchor cannot be claimed by stale ring rows."""
+    from app.services.fx import market_reads
+    pid = await _seed_pair()
+    start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=2)
+    await _warm_chart_ring(pid, start)
+    original = market_reads._chart_window_bounds
+    committed = None
+
+    async def commit_then_bounds(db, pair_id, start_, end_):
+        nonlocal committed
+        at = start_ - timedelta(seconds=1) if before_window else start_ + timedelta(seconds=20)
+        committed = await _seed_fund_event(pid, at, pre="1.5", post="2")
+        return await original(db, pair_id, start_, end_)
+
+    monkeypatch.setattr(market_reads, "_chart_window_bounds", commit_then_bounds)
+    try:
+        async with async_session_maker() as db:
+            body, coverage, version = await market_reads.read_fx_chart_with_meta(
+                db, pid, "1m", start, start + timedelta(minutes=1))
+        assert coverage == committed and version == "gen-1"
+        point, = body
+        assert point["volume"] == 0 and point["n_trades"] == 0
+        assert point["n_events"] == (1 if before_window else 2)
+        assert point["close"] == Decimal("1.5" if before_window else "2")
+        if not before_window:
+            assert point["high"] == Decimal("2")
+    finally:
+        await FX_MARKET_DATA.stop()
+
+
+@pytest.mark.asyncio
+async def test_warm_chart_rebuild_after_bounds_rejects_old_generation(monkeypatch):
+    from app.services.fx import market_reads
+    pid = await _seed_pair()
+    start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=2)
+    await _warm_chart_ring(pid, start)
+    original = market_reads._chart_window_bounds
+
+    async def rotate_after_bounds(db, pair_id, start_, end_):
+        result = await original(db, pair_id, start_, end_)
+        async with async_session_maker() as writer:
+            state = await writer.get(FxMarketDataState, pid)
+            state.history_version = "gen-2"
+            await writer.commit()
+        return result
+
+    monkeypatch.setattr(market_reads, "_chart_window_bounds", rotate_after_bounds)
+    try:
+        async with async_session_maker() as db:
+            with pytest.raises(HTTPException) as exc:
+                await read_fx_chart(db, pid, "1m", start, start + timedelta(minutes=1))
+        assert exc.value.status_code == 503
+        assert exc.value.headers["Retry-After"] == "5"
+    finally:
+        await FX_MARKET_DATA.stop()

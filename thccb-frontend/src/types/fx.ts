@@ -121,7 +121,7 @@ export interface FxHistorySegment {
   step: number
   /** 本段桶总数（含空桶） */
   n_buckets: number
-  /** 有成交桶的偏移（相对 t0，单位 step），0 <= t[i] < n_buckets */
+  /** 有价格事件桶的偏移（相对 t0，单位 step），0 <= t[i] < n_buckets */
   t: number[]
   o: string[]
   h: string[]
@@ -131,6 +131,8 @@ export interface FxHistorySegment {
   v: string[]
   /** 每桶成交笔数，非负整数 */
   trades: number[]
+  /** 每桶真实价格事件数，零表示合成空桶 */
+  events: number[]
 }
 
 /** SSE 首包 `history_tail`：interval → 该档封存边界到当前桶的尾巴。 */
@@ -150,6 +152,11 @@ export interface FxTradeTick {
   gold_volume: string
 }
 
+/** 公开价格事件；id 是 FxPoolEvent.id，与成交编号独立。 */
+export interface FxEventTick extends FxTradeTick {
+  n_trades: number
+}
+
 /**
  * SSE `event: fx` / `snapshot` 的完整公开信封：报价字段 + 历史与逐笔成交扩展。
  * 私有字段（gold_reserve / foreign_reserve /
@@ -163,10 +170,12 @@ export interface FxPublicEnvelope extends FxPublicFrame {
   history_tail?: FxHistoryTail
   /** 尾巴生成时刻 ISO UTC，用于 freshness 判定 */
   history_tail_at?: string
-  /** 尾巴已覆盖到的最后成交 id；<= 此值的实时成交必须跳过（避免重复累计） */
-  history_tail_through_trade_id?: number
+  /** 尾巴已覆盖到的最后 FxPoolEvent.id；<= 此值的实时事件必须跳过（避免重复累计） */
+  history_tail_through_event_id?: number
   /** 增量帧内的公开成交（带真实时间与金侧量） */
   trades?: FxTradeTick[]
+  /** 图表唯一实时输入，事件编号与成交编号独立 */
+  events?: FxEventTick[]
   /** gap/溢出导致尾段失效：只需补尾段，不要重读封存段 */
   history_invalidated?: boolean
 }
@@ -179,13 +188,15 @@ export interface FxHistorySnapshotTail {
   history_version: string | null
   history_tail: FxHistoryTail | null
   history_tail_at: string | null
-  history_tail_through_trade_id: number | null
+  history_tail_through_event_id: number | null
   history_ready?: boolean
   history_invalidated?: boolean
 }
 
 /** `/chart` 返回的 candle 经归一化后的前端点（数值已转 number）。 */
 export interface FxChartPoint {
+  n_events?: number
+  n_trades?: number
   t: string
   o: number
   h: number
@@ -222,6 +233,9 @@ export interface FxPairAdmin extends FxPairPublic {
 
 /** GET /api/v1/admin/fx/pairs 的只读管理视图：含草稿与系统 treasury。 */
 export interface FxPairAdminDetail extends FxPairAdmin {
+  archived: boolean
+  reduce_only: boolean
+  short_lending_limit_foreign: string
   gold_balance: string
   foreign_balance: string
 }
@@ -239,6 +253,7 @@ export interface FxPairCreate {
 }
 
 export interface FxPairPatch {
+  reduce_only?: boolean
   short_lending_limit_foreign?: string
   currency_code?: string
   currency_name?: string
@@ -390,3 +405,54 @@ export interface FxNetTrade extends FxNetQuote {
   created_at: string
   replay: boolean
 }
+
+
+export type FxLiquidityAction = 'fund' | 'withdraw'
+export interface FxHoldingsSummary {
+  long_users: number
+  long_foreign: string
+  long_cost_gold: string
+  short_users: number
+  short_principal_foreign: string
+  short_recorded_interest_foreign: string
+  short_restricted_gold: string
+  interest_is_realtime: boolean
+}
+export interface FxAdminOverview {
+  pair: FxPairAdminDetail
+  reference_price: string
+  as_of: string
+  holdings: FxHoldingsSummary
+}
+export interface FxLiquidityAmounts { gold: string | null; foreign: string | null }
+export interface FxLiquidityPreviewRequest { action: FxLiquidityAction; gold_amount: string; foreign_amount: string }
+export interface FxLiquidityPreview extends FxLiquidityPreviewRequest {
+  pair_id: number
+  pool_version: number
+  as_of: string
+  pool_before: FxLiquidityAmounts
+  pool_after: FxLiquidityAmounts
+  treasury_before: FxLiquidityAmounts
+  treasury_after: FxLiquidityAmounts
+  price_before: string | null
+  price_after: string | null
+  price_change_pct: string | null
+  executable: boolean
+  blocked_reason: string | null
+}
+export interface FxLiquidityHistoryItem {
+  id: number
+  ts: string
+  operator_user_id: number | null
+  action: FxLiquidityAction | 'initial_issuance'
+  gold_amount: string | null
+  foreign_amount: string | null
+  pool_before: FxLiquidityAmounts | null
+  pool_after: FxLiquidityAmounts | null
+  treasury_before: FxLiquidityAmounts | null
+  treasury_after: FxLiquidityAmounts | null
+  price_before: string | null
+  price_after: string | null
+  price_change_pct: string | null
+}
+export interface FxLiquidityHistory { items: FxLiquidityHistoryItem[]; next_before_id: number | null }

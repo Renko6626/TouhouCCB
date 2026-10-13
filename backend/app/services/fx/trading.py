@@ -32,11 +32,12 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, bindparam, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.credit.cash import available_cash
 from app.models.base import User
+from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
@@ -51,6 +52,14 @@ from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import DependencySet, PostTradeState, discover_dependencies, check_new_risk
 from app.services.credit.version import bump_economic_version, economic_version_of
+
+# SQL templates contain no balances or request-specific state.
+_PAIR_READ = select(FxPair).where(FxPair.id == bindparam('fx_pair_id'))
+_PAIR_LOCK = _PAIR_READ.with_for_update().execution_options(populate_existing=True)
+_WALLET_LOCK = select(FxWallet).where(
+    FxWallet.user_id == bindparam('fx_user_id'),
+    FxWallet.pair_id == bindparam('fx_pair_id')
+).with_for_update().execution_options(populate_existing=True)
 
 _logger = logging.getLogger(__name__)
 
@@ -172,10 +181,9 @@ def _player_side_allowed(status: str, reduce_only: bool, side: str) -> bool:
 
 
 async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False) -> FxPair:
-    stmt = select(FxPair).where(FxPair.id == pair_id)
-    if lock:
-        stmt = stmt.with_for_update().execution_options(populate_existing=True)
-    pair = (await db.execute(stmt)).scalars().first()
+    pair = (await db.execute(
+        _PAIR_LOCK if lock else _PAIR_READ, {'fx_pair_id': pair_id}
+    )).scalars().first()
     if pair is None:
         raise HTTPException(status_code=404, detail="FX pair not found")
     return pair
@@ -224,8 +232,7 @@ async def quote(db: AsyncSession, pair_id: int, side: str, amount: Decimal,
 async def _wallet_lock(db: AsyncSession, user_id: int, pair_id: int,
                        *, create: bool = True) -> Optional[FxWallet]:
     row = (await db.execute(
-        select(FxWallet).where(FxWallet.user_id == user_id, FxWallet.pair_id == pair_id)
-        .with_for_update().execution_options(populate_existing=True)
+        _WALLET_LOCK, {'fx_user_id': user_id, 'fx_pair_id': pair_id}
     )).scalars().first()
     if row is None and create:
         row = FxWallet(user_id=user_id, pair_id=pair_id)
@@ -482,6 +489,11 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
                     source="player", idempotency_key=idempotency_key)
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
     if normalized == "sell" and user.debt > 0:
@@ -701,6 +713,11 @@ async def execute_liquidation_sell_in_session(
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
     return FxLiquidationExecution(

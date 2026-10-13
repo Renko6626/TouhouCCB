@@ -9,7 +9,8 @@ def _trade(ts, price, amount="2", *, source="player", user_id=7, pre_price=None)
     return SimpleNamespace(
         id=1, pair_id=3, created_at=ts, post_price=Decimal(price),
         input_amount=Decimal(amount), output_amount=Decimal("1"),
-        side="buy", source=source, user_id=user_id,
+        side="buy", source=source, user_id=user_id, kind="trade", gold_volume=Decimal(amount),
+        post_gold_reserve=Decimal(price), post_foreign_reserve=Decimal("1"),
         pre_gold_reserve=Decimal(pre_price or price), pre_foreign_reserve=Decimal("1"),
     )
 
@@ -58,6 +59,7 @@ def test_price_buckets_use_sell_output_for_volume():
     trade = _trade(start.replace(second=5), "1.10", "8")
     trade.side = "sell"
     trade.output_amount = Decimal("3.25")
+    trade.gold_volume = Decimal("3.25")
 
     candles = build_price_buckets([trade], "1m", start, start + timedelta(minutes=1))
 
@@ -81,6 +83,7 @@ def test_incremental_candle_rows_match_legacy_1m_ohlcv():
     ]
     trades[0].side = "sell"
     trades[0].output_amount = Decimal("0.75")
+    trades[0].gold_volume = Decimal("0.75")
 
     legacy = build_price_buckets(
         trades, "1m", start, start + timedelta(minutes=2),

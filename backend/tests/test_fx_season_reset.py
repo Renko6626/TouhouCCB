@@ -21,7 +21,7 @@ class AsyncCompatSession:
     def __init__(self, raw): self.raw = raw
     def add(self, value): self.raw.add(value)
     def add_all(self, values): self.raw.add_all(values)
-    async def execute(self, statement): return self.raw.execute(statement)
+    async def execute(self, statement, params=None): return self.raw.execute(statement, params)
     async def flush(self): self.raw.flush()
     async def get(self, model, key): return self.raw.get(model, key)
     def in_transaction(self): return self.raw.in_transaction()

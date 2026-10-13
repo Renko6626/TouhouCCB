@@ -1,6 +1,6 @@
 // FX Task 8 行为测试：金额格式化、min-out/滑点、SSE 公开帧白名单、错误映射。
 // 断言的是可执行行为，不是源码字符串或恒真 identity。
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   FxPendingShortOrder,
   computeMaxGoldIn,
@@ -18,6 +18,7 @@ import {
   mergeFxPairs,
   newFxIdempotencyKey,
   normalizeFxCandles,
+  getChartWithMeta,
   parseFxFrame,
   parseFxSsePayload,
   sanitizeFxFrame,
@@ -121,7 +122,7 @@ describe('normalizeFxCandles', () => {
         high: 1.2,
         low: 1,
         close: 1.15,
-        volume: '5',
+        volume: '5', n_events: 1, n_trades: 1,
       },
       {
         bucket_start: '2026-01-01T00:00:00Z',
@@ -130,12 +131,12 @@ describe('normalizeFxCandles', () => {
         high: 1.1,
         low: 0.9,
         close: 1.05,
-        volume: 3,
+        volume: 3, n_events: 1, n_trades: 1,
       },
     ])
     expect(points).toEqual([
-      { t: '2026-01-01T00:00:00Z', o: 1, h: 1.1, l: 0.9, c: 1.05, v: 3 },
-      { t: '2026-01-01T00:01:00Z', o: 1.1, h: 1.2, l: 1, c: 1.15, v: 5 },
+      { t: '2026-01-01T00:00:00Z', o: 1, h: 1.1, l: 0.9, c: 1.05, v: 3, n_events: 1, n_trades: 1 },
+      { t: '2026-01-01T00:01:00Z', o: 1.1, h: 1.2, l: 1, c: 1.15, v: 5, n_events: 1, n_trades: 1 },
     ])
     expect(normalizeFxCandles(null)).toEqual([])
   })
@@ -598,4 +599,26 @@ it('corrupt saved short identity blocks a new write', async () => {
     }),
   ).rejects.toThrow()
   expect(sent).toBe(false)
+})
+
+
+it('chart rows without event metadata or known prices require a matching response', () => {
+  const row = { t: '2026-01-01T00:00:00Z', open: 1, high: 2, low: 1, close: 2, volume: 0, n_events: 1, n_trades: 0 }
+  expect(normalizeFxCandles([row])[0]).toMatchObject({ o: 1, h: 2, c: 2, v: 0, n_events: 1, n_trades: 0 })
+  expect(() => normalizeFxCandles([{ ...row, n_events: undefined }])).toThrow(/event counts/)
+  expect(() => normalizeFxCandles([{ ...row, close: null }])).toThrow(/unknown value/)
+})
+
+
+it('HTTP chart uses its explicit event cursor and rejects legacy trade coverage', async () => {
+  const fetchMock = vi.fn()
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    fetchMock.mockResolvedValue(new Response('[]', { headers: { 'X-FX-Through-Event-ID': '7', 'X-FX-History-Version': 'v2' } }))
+    expect(await getChartWithMeta(1, '1m', '2026-01-01', '2026-01-02')).toEqual({ points: [], throughEventId: 7, historyVersion: 'v2' })
+    fetchMock.mockResolvedValue(new Response('[]', { headers: { 'X-FX-Through-Trade-ID': '99', 'X-FX-History-Version': 'v1' } }))
+    await expect(getChartWithMeta(1, '1m', '2026-01-01', '2026-01-02')).rejects.toThrow(/history metadata/)
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

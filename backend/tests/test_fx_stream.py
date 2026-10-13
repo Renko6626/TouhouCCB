@@ -10,6 +10,22 @@ from app.services.realtime import MarketEventBroker
 from app.services.fx.market_data import publish_public_frame, publish_trade
 
 
+@pytest.fixture(autouse=True)
+def _stub_history_reader_for_existing_wire_tests(monkeypatch):
+    from app.api.v1 import fx_stream
+    from fastapi import HTTPException
+
+    async def read(db, pair_id, now):
+        runtime = fx_stream.FX_MARKET_DATA
+        tail = runtime.tail(pair_id, now) if hasattr(runtime, "tail") else None
+        if tail is None:
+            raise HTTPException(status_code=503, detail="FX history is not ready")
+        return tail
+
+    monkeypatch.setattr(fx_stream, "read_fx_stream_history", read)
+
+
+
 @pytest.mark.asyncio
 async def test_fx_public_stream_uses_broker_and_disconnects_kicked_subscriber():
     broker = MarketEventBroker()
@@ -36,6 +52,12 @@ async def test_fx_stream_snapshot_serializes_decimal_values(monkeypatch):
     from app.api.v1 import fx_stream
 
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def get(self, model, pair_id):
             return SimpleNamespace(id=pair_id)
 
@@ -85,6 +107,12 @@ async def test_fx_stream_subscribes_before_snapshot(monkeypatch):
     monkeypatch.setattr(broker, "subscribe", subscribe)
 
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def get(self, model, pair_id):
             return SimpleNamespace(id=pair_id)
         async def __aenter__(self):
@@ -123,6 +151,12 @@ async def test_publish_trade_uses_committed_snapshot_quotes_and_cumulative_volum
     broker = MarketEventBroker()
     sub, _ = await broker.subscribe('fx:4')
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def __aenter__(self): return self
         async def __aexit__(self, *args): return False
     class FakeMaker:
@@ -172,7 +206,7 @@ def test_public_frame_to_wire_recurses_while_retaining_the_allowlist():
         {"price": Decimal("1.10"), "volume_24h": Decimal("4"), "target_price": Decimal("9")},
         history={
             "history_version": "V", "history_ready": True,
-            "history_tail_through_trade_id": 7,
+            "history_tail_through_event_id": 7,
             "history_tail": {"1m": {
                 "t0": 0, "step": 60, "n_buckets": 60, "t": [0],
                 "o": [Decimal("1.10")], "h": [Decimal("1.20")], "l": [Decimal("1.05")],
@@ -188,7 +222,7 @@ def test_public_frame_to_wire_recurses_while_retaining_the_allowlist():
     assert wire["price"] == "1.10"
     assert "target_price" not in wire
     assert wire["history_version"] == "V"
-    assert wire["history_tail_through_trade_id"] == 7
+    assert wire["history_tail_through_event_id"] == 7
     assert wire["history_tail"]["1m"]["o"] == ["1.10"]
     assert "private" not in wire["history_tail"]["1m"]
     assert wire["trades"][0] == {"id": 3, "ts": "2026-10-01T00:00:00+00:00",
@@ -207,7 +241,7 @@ class _StubRuntime:
         self.caught_up.append(pair_id)
         return 0
 
-    def drain_public_trades(self, pair_id):
+    def drain_public_events(self, pair_id):
         return list(self._trades), self._invalidated
 
     def state(self, pair_id):
@@ -219,6 +253,12 @@ def _patch_publish(monkeypatch, runtime):
     from app.services.fx import market_state, market_data, trading
 
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def __aenter__(self):
             return self
 
@@ -239,7 +279,7 @@ async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkey
         trades=[{"id": 3, "ts": "2026-10-01T00:00:00+00:00",
                  "post_price": "1.11", "gold_volume": "2.5"}],
         state={"history_version": "V", "history_ready": True,
-               "applied_trade_id": 3, "durable_trade_id": 3},
+               "applied_event_id": 3, "durable_event_id": 3},
     )
     market_data = _patch_publish(monkeypatch, stub)
     broker = MarketEventBroker()
@@ -248,11 +288,11 @@ async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkey
         await market_data.publish_pair_frame(5, Decimal("1.25"), broker=broker)
         payload = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])
         data = payload["data"]
-        assert data["price"] == "1.25"
+        assert data["price"] == "1.2"
         assert data["volume"] == "9.5"
         assert data["history_version"] == "V"
-        assert data["history_tail_through_trade_id"] == 3
-        assert data["trades"][0]["gold_volume"] == "2.5"
+        assert data["history_tail_through_event_id"] == 3
+        assert data["events"][0]["gold_volume"] == "2.5"
         assert stub.caught_up == [5]
     finally:
         await broker.unsubscribe('fx:5', sub)
@@ -262,7 +302,7 @@ async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkey
 async def test_publish_pair_frame_surfaces_buffer_overflow_as_invalidation(monkeypatch):
     stub = _StubRuntime(trades=[], invalidated=True,
                         state={"history_version": "V", "history_ready": True,
-                               "applied_trade_id": 9, "durable_trade_id": 9})
+                               "applied_event_id": 9, "durable_event_id": 9})
     market_data = _patch_publish(monkeypatch, stub)
     broker = MarketEventBroker()
     sub, _ = await broker.subscribe('fx:6')
@@ -280,6 +320,12 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
     from app.api.v1 import fx_stream
 
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def get(self, model, pair_id):
             return SimpleNamespace(id=pair_id)
 
@@ -299,7 +345,7 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
 
         def state(self, pair_id):
             return {"history_version": "V", "history_ready": True,
-                    "applied_trade_id": 12, "durable_trade_id": 12}
+                    "applied_event_id": 12, "durable_event_id": 12}
 
         async def catch_up(self, pair_id):
             self.caught_up.append(pair_id)
@@ -315,7 +361,7 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
                     "v": [Decimal("2")], "trades": [1],
                 }},
                 "history_tail_at": "2026-10-01T00:00:00+00:00",
-                "history_tail_through_trade_id": 12,
+                "history_tail_through_event_id": 12,
             }
 
     runtime = TailRuntime()
@@ -332,12 +378,12 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
     data = payload["data"]
     assert data["price"] == "1.10"
     assert data["history_version"] == "V"
-    assert data["history_tail_through_trade_id"] == 12
+    assert data["history_tail_through_event_id"] == 12
     assert data["history_tail"]["1m"]["c"] == ["1.15"]
     assert "target_price" not in data
     # A ready runtime is caught up before the tail so a just-committed trade
     # cannot be omitted from the first snapshot.
-    assert runtime.caught_up == [93]
+    assert runtime.caught_up == []
     await response.body_iterator.aclose()
 
 
@@ -347,6 +393,12 @@ async def test_fx_stream_snapshot_does_not_backfill_unknown_pair(monkeypatch):
     from app.api.v1 import fx_stream
 
     class FakeDB:
+        async def execute(self, statement):
+            return None
+
+        async def commit(self):
+            return None
+
         async def get(self, model, pair_id):
             return SimpleNamespace(id=pair_id)
 

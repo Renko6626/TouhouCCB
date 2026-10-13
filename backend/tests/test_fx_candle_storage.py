@@ -58,7 +58,8 @@ class _LoseCommitAfterSuccessSession(AsyncSession):
 def _trade(tid, ts, price, *, side="buy", input_amount="2", output_amount="1", pair_id=1, pre_price=None):
     return SimpleNamespace(
         id=tid, pair_id=pair_id, created_at=ts, post_price=Decimal(price),
-        side=side, input_amount=Decimal(input_amount), output_amount=Decimal(output_amount),
+        kind="trade", gold_volume=Decimal(input_amount if side == "buy" else output_amount),
+        post_gold_reserve=Decimal(price), post_foreign_reserve=Decimal("1"),
         pre_gold_reserve=Decimal(pre_price or price), pre_foreign_reserve=Decimal("1"),
     )
 
@@ -128,7 +129,7 @@ def test_compute_rows_orders_open_close_by_created_at_then_id_for_all_intervals(
     assert minute["low_price"] == Decimal("1.00")
     assert minute["gold_volume"] == Decimal("6")     # three buys × input 2
     assert minute["n_trades"] == 3
-    assert (minute["first_trade_id"], minute["last_trade_id"]) == (1, 3)
+    assert (minute["first_event_id"], minute["last_event_id"]) == (1, 3)
 
 
 def test_single_trade_buckets_connect_pre_price_to_previous_close():
@@ -154,7 +155,8 @@ def test_compute_rows_sell_uses_output_for_gold_volume():
 def test_compute_rows_accepts_projected_mapping_fields():
     row = compute_fx_candle_rows([{
         "id": 7, "pair_id": 1, "created_at": _at(3), "post_price": Decimal("1.42"),
-        "side": "sell", "input_amount": Decimal("9"), "output_amount": Decimal("2.5"),
+        "kind": "trade", "gold_volume": Decimal("2.5"),
+        "post_gold_reserve": Decimal("1.42"), "post_foreign_reserve": Decimal("1"),
         "pre_gold_reserve": Decimal("4.50"), "pre_foreign_reserve": Decimal("3"),
     }])[0]
     assert row["open_price"] == row["high_price"] == Decimal("1.50")
@@ -183,7 +185,7 @@ async def test_apply_batch_persists_candles_cursor_and_version_atomically():
     async with async_session_maker() as db:
         async with db.begin():
             applied = await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=2,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=2,
                 rows=rows, history_version="gen-1", history_ready=True,
             )
 
@@ -194,7 +196,7 @@ async def test_apply_batch_persists_candles_cursor_and_version_atomically():
     assert candle.close_price == Decimal("1.30")
     assert candle.gold_volume == Decimal("4")
     state = await _read_state(pair_id)
-    assert state.last_trade_id == 2
+    assert state.last_event_id == 2
     assert state.history_version == "gen-1"
     assert state.history_ready is True
 
@@ -207,13 +209,13 @@ async def test_apply_batch_duplicate_through_is_noop_without_double_count():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=2,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=2,
                 rows=rows, history_version="gen-1",
             )
     async with async_session_maker() as db:
         async with db.begin():
             applied = await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=2,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=2,
                 rows=rows, history_version="gen-1",
             )
 
@@ -231,7 +233,7 @@ async def test_apply_batch_metadata_only_transitions_readiness():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=1,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=1,
                 rows=rows, history_version="gen-1",
             )
     assert (await _read_state(pair_id)).history_ready is False
@@ -240,7 +242,7 @@ async def test_apply_batch_metadata_only_transitions_readiness():
     async with async_session_maker() as db:
         async with db.begin():
             changed = await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=1, through_trade_id=1,
+                db, pair_id=pair_id, expected_event_id=1, through_event_id=1,
                 rows=[], history_version="gen-1", history_ready=True,
             )
     assert changed is True
@@ -249,7 +251,7 @@ async def test_apply_batch_metadata_only_transitions_readiness():
     async with async_session_maker() as db:
         async with db.begin():
             changed = await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=1, through_trade_id=1,
+                db, pair_id=pair_id, expected_event_id=1, through_event_id=1,
                 rows=[], history_version="gen-1", history_ready=True,
             )
     assert changed is False
@@ -261,7 +263,7 @@ async def test_first_creation_receives_requested_generation_and_readiness():
     async with async_session_maker() as db:
         async with db.begin():
             applied = await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=0,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=0,
                 rows=[], history_version="gen-first", history_ready=True,
             )
     assert applied is True
@@ -277,7 +279,7 @@ async def test_apply_batch_rejects_stale_generation_even_at_same_cursor():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=1,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=1,
                 rows=rows, history_version="gen-1", history_ready=True,
             )
 
@@ -290,14 +292,14 @@ async def test_apply_batch_rejects_stale_generation_even_at_same_cursor():
             with pytest.raises(FxCandleCursorConflict):
                 async with db.begin():
                     await apply_candle_batch(
-                        db, pair_id=pair_id, expected_trade_id=expected,
-                        through_trade_id=through, rows=batch_rows,
+                        db, pair_id=pair_id, expected_event_id=expected,
+                        through_event_id=through, rows=batch_rows,
                         history_version="gen-2", history_ready=ready,
                     )
 
     state = await _read_state(pair_id)
     assert state.history_version == "gen-1"     # generation never silently changed
-    assert state.last_trade_id == 1
+    assert state.last_event_id == 1
     assert (await _read_candle(pair_id, "1m", BASE)).gold_volume == Decimal("2")
 
 
@@ -308,7 +310,7 @@ async def test_apply_batch_cursor_mismatch_raises_and_keeps_state():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=2,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=2,
                 rows=rows, history_version="gen-1",
             )
 
@@ -316,12 +318,12 @@ async def test_apply_batch_cursor_mismatch_raises_and_keeps_state():
         with pytest.raises(FxCandleCursorConflict):
             async with db.begin():
                 await apply_candle_batch(
-                    db, pair_id=pair_id, expected_trade_id=0, through_trade_id=3,
+                    db, pair_id=pair_id, expected_event_id=0, through_event_id=3,
                     rows=rows, history_version="gen-1",
                 )
 
     state = await _read_state(pair_id)
-    assert state.last_trade_id == 2
+    assert state.last_event_id == 2
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("4")
 
@@ -333,7 +335,7 @@ async def test_apply_batch_out_of_order_batches_fix_open_and_close():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=3,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=3,
                 rows=later, history_version="gen-1",
             )
 
@@ -341,7 +343,7 @@ async def test_apply_batch_out_of_order_batches_fix_open_and_close():
     async with async_session_maker() as db:
         async with db.begin():
             await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=3, through_trade_id=4,
+                db, pair_id=pair_id, expected_event_id=3, through_event_id=4,
                 rows=earlier_and_more, history_version="gen-1",
             )
 
@@ -352,7 +354,7 @@ async def test_apply_batch_out_of_order_batches_fix_open_and_close():
     assert candle.low_price == Decimal("1.10")
     assert candle.gold_volume == Decimal("8")
     assert candle.n_trades == 4
-    assert (candle.first_trade_id, candle.last_trade_id) == (1, 4)
+    assert (candle.first_event_id, candle.last_event_id) == (1, 4)
 
 
 @pytest.mark.asyncio
@@ -360,7 +362,7 @@ async def test_load_market_data_state_is_not_committed_by_itself():
     pair_id = await _seed_pair()
     async with async_session_maker() as db:
         state = await load_market_data_state(db, pair_id)
-        assert state.last_trade_id == 0
+        assert state.last_event_id == 0
         assert state.history_ready is False
         assert state.history_version
         await db.rollback()
@@ -384,7 +386,7 @@ async def test_flusher_flushes_pending_batch_and_reports_watermark():
     assert await flusher.flush_once() == len(rows)
     assert flusher.pending_count() == 0
     assert flusher.pending_watermark(pair_id) is None
-    assert (await _read_state(pair_id)).last_trade_id == 1
+    assert (await _read_state(pair_id)).last_event_id == 1
     assert (await _read_candle(pair_id, "1m", BASE)).gold_volume == Decimal("2")
 
 
@@ -443,7 +445,7 @@ async def test_flusher_unknown_commit_then_new_range_retains_and_avoids_double_c
 
     _LoseCommitAfterSuccessSession.lose_next = True
     assert await flusher.flush_once() == 0                 # committed, outcome unknown
-    assert (await _read_state(pair_id)).last_trade_id == 1  # prefix is really durable
+    assert (await _read_state(pair_id)).last_event_id == 1  # prefix is really durable
     assert flusher.pending_ranges(pair_id) == 1
 
     # The naive widening the old flusher produced is exactly what must not work.
@@ -455,7 +457,7 @@ async def test_flusher_unknown_commit_then_new_range_retains_and_avoids_double_c
         with pytest.raises(FxCandleCursorConflict):
             async with db.begin():
                 await apply_candle_batch(
-                    db, pair_id=pair_id, expected_trade_id=0, through_trade_id=2,
+                    db, pair_id=pair_id, expected_event_id=0, through_event_id=2,
                     rows=combined, history_version="gen-1",
                 )
 
@@ -466,7 +468,7 @@ async def test_flusher_unknown_commit_then_new_range_retains_and_avoids_double_c
 
     assert await flusher.flush_once() == len(rows_b)        # (0,1] was a no-op retry
     assert flusher.pending_count() == 0
-    assert (await _read_state(pair_id)).last_trade_id == 2
+    assert (await _read_state(pair_id)).last_event_id == 2
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("5")               # 2 + 3 exactly once
     assert candle.n_trades == 2
@@ -594,7 +596,7 @@ async def test_flusher_same_expected_narrower_is_ignored():
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("5")   # wide rows kept, not replaced
     assert candle.n_trades == 2
-    assert (await _read_state(pair_id)).last_trade_id == 2
+    assert (await _read_state(pair_id)).last_event_id == 2
 
 
 @pytest.mark.asyncio
@@ -649,7 +651,7 @@ async def test_flusher_add_during_flush_preserves_new_tail(monkeypatch):
     assert flusher.pending_ranges(pair_id) == 1             # tail preserved
     assert await flusher.flush_once() == len(rows_b)
     assert flusher.pending_count() == 0
-    assert (await _read_state(pair_id)).last_trade_id == 2
+    assert (await _read_state(pair_id)).last_event_id == 2
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("5")               # 2 + 3 exactly once
     assert candle.n_trades == 2
@@ -695,7 +697,7 @@ async def test_flusher_concurrent_flush_once_calls_serialize(monkeypatch):
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("2")
     assert candle.n_trades == 1
-    assert (await _read_state(pair_id)).last_trade_id == 1
+    assert (await _read_state(pair_id)).last_event_id == 1
 
 
 @pytest.mark.asyncio
@@ -714,7 +716,7 @@ async def test_discard_pair_drops_only_the_target_pair():
 
     assert await flusher.flush_once() == len(rows_b)
     assert await _read_state(pair_a) is None
-    assert (await _read_state(pair_b)).last_trade_id == 1
+    assert (await _read_state(pair_b)).last_event_id == 1
 
 
 @pytest.mark.asyncio
@@ -809,7 +811,7 @@ async def test_flusher_same_in_flight_recompute_ignored_with_queued_tail(monkeyp
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("5")
     assert candle.n_trades == 2
-    assert (await _read_state(pair_id)).last_trade_id == 2
+    assert (await _read_state(pair_id)).last_event_id == 2
 
 
 @pytest.mark.asyncio
@@ -833,7 +835,7 @@ async def test_flusher_metadata_transition_at_in_flight_through_without_tail(mon
     monkeypatch.undo()
     assert await flusher.flush_once() == 0
     state = await _read_state(pair_id)
-    assert state.last_trade_id == 1
+    assert state.last_event_id == 1
     assert state.history_ready is True
 
 
@@ -861,7 +863,7 @@ async def test_flusher_metadata_transition_orders_before_queued_tail(monkeypatch
     monkeypatch.undo()
     assert await flusher.flush_once() == len(rows_b)
     state = await _read_state(pair_id)
-    assert state.last_trade_id == 2
+    assert state.last_event_id == 2
     assert state.history_ready is True
     candle = await _read_candle(pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("5")

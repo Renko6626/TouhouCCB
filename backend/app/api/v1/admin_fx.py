@@ -18,10 +18,12 @@ from app.core.database import get_async_session
 from app.core.users import current_superuser
 from app.models.base import User
 from app.models.audit import AuditEvent
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
+from app.services.fx.pool_events import append_pool_event
+from app.models.fx import FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
 from app.schemas.fx import FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
-from app.services.fx import liquidity
+from app.services.fx import liquidity, admin_reads
+from app.schemas.fx import FxAdminOverview, FxLiquidityPreviewRequest, FxLiquidityPreview, FxLiquidityHistory
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
@@ -231,6 +233,21 @@ async def list_pairs(_: User = Depends(current_superuser), db: AsyncSession = De
     return result
 
 
+@router.get("/pairs/{pair_id}/overview", response_model=FxAdminOverview)
+async def pair_overview(pair_id: int, _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.overview(db, pair_id)
+
+
+@router.post("/pairs/{pair_id}/liquidity-preview", response_model=FxLiquidityPreview)
+async def preview_liquidity(pair_id: int, req: FxLiquidityPreviewRequest, _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.liquidity_preview(db, pair_id, req)
+
+
+@router.get("/pairs/{pair_id}/liquidity-history", response_model=FxLiquidityHistory)
+async def pair_liquidity_history(pair_id: int, before_id: Optional[int] = Query(None, ge=1), limit: int = Query(20, ge=1, le=100), _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.liquidity_history(db, pair_id, before_id, limit)
+
+
 @router.post("/pairs", response_model=FxPairAdmin)
 async def create_pair(req: PairCreate, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
     _require_writes()
@@ -252,10 +269,14 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
                      {"currency_code": pair.currency_code, "currency_name": pair.currency_name,
                       "status": pair.status, "reduce_only": str(pair.reduce_only),
                       "short_lending_limit_foreign": str(pair.short_lending_limit_foreign)})
-        audit_service.record(db, "fx_fund", operator_user_id=admin.id, ref_table="fx_pair", ref_id=pair.id,
+        audit = audit_service.record(db, "fx_fund", operator_user_id=admin.id, ref_table="fx_pair", ref_id=pair.id,
                              payload={"action": "initial_issuance", "gold_amount": str(req.gold_reserve), "foreign_amount": str(req.foreign_reserve),
                                       "pool_after": {"gold": str(req.gold_reserve), "foreign": str(req.foreign_reserve)},
                                       "treasury_after": {"gold": str(req.gold_reserve), "foreign": str(req.foreign_reserve)}})
+        await db.flush()
+        append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=pair.created_at,
+                          pre_reserves=None, post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                          gold_volume=Decimal("0"), audit_id=audit.id)
         await db.commit()
         notify_pricing_changed(())
     await db.refresh(pair)
@@ -378,7 +399,7 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
         _require_writes()
         before = FxPairAdmin.model_validate(pair).model_dump(mode="json")
         _admin_audit(db, "fx_pair_delete", admin.id, "fx_pair", pair_id, before, {})
-        for model in (FxWallet, FxShortPosition, FxTreasury):
+        for model in (FxPoolEvent, FxCandle, FxMarketDataState, FxWallet, FxShortPosition, FxTreasury):
             await db.execute(delete(model).where(model.pair_id == pair_id))
         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
         await db.commit()

@@ -174,6 +174,11 @@ export const routes: RouteRecordRaw[] = [
         path: 'admin/fx',
         name: 'admin-fx',
         component: () => import('@/pages/admin/FxManage.vue'),
+        children: [
+          { path: '', redirect: '/admin/fx/markets' },
+          { path: 'markets', name: 'admin-fx-markets', component: () => import('@/pages/admin/FxMarkets.vue'), meta: { title: '市场登记' } },
+          { path: 'operations', name: 'admin-fx-operations', component: () => import('@/pages/admin/FxOperations.vue'), meta: { title: '央行操作' } },
+        ],
         meta: { title: 'FX 管理', requiresAuth: true, requiresAdmin: true },
       },
       {
