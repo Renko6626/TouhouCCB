@@ -20,6 +20,7 @@ public_router = APIRouter()
 logger = logging.getLogger("thccb.site_config")
 
 _WHITELIST = {
+    "fx_order_scan_interval_sec": "int",
     "homepage_fx_enabled": "bool",
     "loan_enabled": "bool",
     "loan_daily_rate": "decimal",
@@ -73,6 +74,8 @@ def _validate(key: str, value: str) -> None:
             v = int(value)
         except ValueError:
             raise HTTPException(status_code=400, detail="int 解析失败")
+        if key == "fx_order_scan_interval_sec" and not (5 <= v <= 3600):
+            raise HTTPException(status_code=400, detail="挂单扫描间隔必须在 [5, 3600] 秒")
         if key == "loan_sweep_interval_sec" and not (10 <= v <= 3600):
             raise HTTPException(status_code=400, detail="sweep 间隔必须在 [10, 3600] 秒")
         if key == "liquidation_sweep_interval_sec" and not (5 <= v <= 7200):
@@ -148,6 +151,8 @@ async def update_config(
     _validate(key, req.value)
     if key in _CREDIT_CROSS_CHECK_KEYS:
         await _validate_credit_update(db, key, req.value)
+    if key == "fx_order_scan_interval_sec":
+        await _ensure_config_row(db, key, "10")
     if key == "fx_short_enabled":
         await _ensure_config_row(db, key)
 
@@ -161,6 +166,12 @@ async def update_config(
             await loan_sweep.reschedule(int(req.value))
         except Exception:
             logger.exception("reschedule failed")
+    elif key == "fx_order_scan_interval_sec":
+        from app.services.fx import order_scheduler
+        try:
+            await order_scheduler.reschedule(int(req.value))
+        except Exception:
+            logger.exception("FX order scan reschedule failed")
     elif key == "liquidation_sweep_interval_sec":
         try:
             await liquidation_sweep.reschedule(int(req.value))

@@ -11,7 +11,7 @@ from sqlmodel import SQLModel
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.models.fx import (
-    FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+    FxTriggerOrder, FxPoolEvent, FxExecution, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
 )
 from app.models.redemption import DanmukuExchange, RedemptionTransaction
 from app.services import audit_service
@@ -59,10 +59,16 @@ async def seed_fx_state(monkeypatch):
                           gold_reserve=Decimal("100"), foreign_reserve=Decimal("100"))
             db.add(pair)
             await db.flush()
+            db.add(FxExecution(id=7, user_id=user.id, pair_id=pair.id,
+                idempotency_key="reset-receipt", request_payload={}, response_payload={}))
+            await db.flush()
             db.add_all([
+                FxTriggerOrder(user_id=user.id, pair_id=pair.id, comparison="lte",
+                    trigger_price=Decimal("1"), action="buy", amount=Decimal("1"),
+                    status="succeeded", execution_id=7),
                 FxWallet(user_id=user.id, pair_id=pair.id, foreign_amount=Decimal("2"), cost_basis=Decimal("2")),
                 FxTreasury(pair_id=pair.id, gold_balance=Decimal("3"), foreign_balance=Decimal("4")),
-                FxTrade(pair_id=pair.id, user_id=user.id, side="buy", input_amount=Decimal("1"),
+                FxTrade(id=8, execution_id=7, execution_leg=1, pair_id=pair.id, user_id=user.id, side="buy", input_amount=Decimal("1"),
                         output_amount=Decimal("1"), pre_gold_reserve=Decimal("100"),
                         pre_foreign_reserve=Decimal("100"), post_gold_reserve=Decimal("101"),
                         post_foreign_reserve=Decimal("99"), post_price=Decimal("1.02")),
@@ -80,6 +86,10 @@ async def seed_fx_state(monkeypatch):
                 DanmukuExchange(user_id=user.id, qq_user_id="1", room_id="r", yuan=Decimal("1"),
                                 huo=Decimal("1"), amount=Decimal("2"), code_string="kept-code"),
             ])
+            await db.flush()
+            db.add(FxPoolEvent(pair_id=pair.id, created_at=datetime.now(timezone.utc),
+                kind="trade", trade_id=8, pre_gold_reserve=100, pre_foreign_reserve=100,
+                post_gold_reserve=101, post_foreign_reserve=99, gold_volume=1))
             audit_service.record(db, "fx_trade", user_id=user.id, ref_table="fx_pair", ref_id=pair.id,
                                  payload={"pair_id": pair.id})
             audit_service.record(db, "redeem_purchase", user_id=user.id,
@@ -116,7 +126,7 @@ async def test_execute_clears_fx_closes_gate_and_preserves_redemptions(monkeypat
 
     monkeypatch.setattr("builtins.input", lambda *_: "RESET")
     assert await season_reset.run(dry_run=False) == 0
-    for model in (FxCandle, FxMarketDataState, FxWallet, FxTrade, FxTreasury, FxPair):
+    for model in (FxTriggerOrder, FxPoolEvent, FxExecution, FxCandle, FxMarketDataState, FxWallet, FxTrade, FxTreasury, FxPair):
         assert await count(model, seed_fx_state) == 0
     assert await count(RedemptionTransaction, seed_fx_state) == 1
     assert await count(DanmukuExchange, seed_fx_state) == 1

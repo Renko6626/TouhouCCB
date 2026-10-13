@@ -492,6 +492,27 @@ growth_amount、borrow_amount、repaid_gold、executable/blocked_reason、econom
 私人历史增加可空 execution_id/execution_leg；按limit先读真实腿，若最旧边界落在net请求中间，补齐同用户同pair的兄弟腿（正常最多额外一条），按created_at/id降序稳定返回。旧单腿limit行为不变；公开逐笔、行情和K线仍只消费每条真实腿一次。
 旧现货、融资、开空和回补入口保留原动作，旧pending请求继续用原入口恢复。
 
+### FX 到价挂单（需登录）
+
+仅 FX 支持，LMSR 仍即时成交。十进制金额与价格用字符串；最多 6 位小数，必须有限且符合存储范围。每用户所有币种共 3 张 `waiting` 单，不预留资金，无到期时间；没有修改接口，撤销后重建。
+
+- `POST /fx/orders`：创建，返回完整挂单。买入示例：
+
+```json
+{"pair_id":1,"comparison":"lte","trigger_price":"0.95","action":"buy","amount":"50","auto_borrow":false,"borrow_limit":"0"}
+```
+
+`comparison` 为 `lte` 或 `gte`。`action` 为 `buy`、`sell`、`close_long`、`close_short`。买卖只填正数 `amount`（买入金圆券、卖出外币），平仓只填 `close_percent`（大于 0 且不超过 100）。自动金圆券借款只支持买入，默认关闭；关闭时 `borrow_limit` 必须为零，开启时按上限及现有风控决定实际新增本金。未知字段拒绝 422。
+
+- `GET /fx/orders`：只返回本人列表，ID 降序。可选 `status=waiting|succeeded|failed|cancelled`、正整数 `before_id`、`limit`（1–100，默认 50）；响应是数组，没有额外分页元数据。
+- `POST /fx/orders/{order_id}/cancel`：撤销本人等待单，返回挂单；已撤销可重复读取相同结果，成功/失败后撤销拒绝 409。他人或不存在的单返回 404。
+
+响应包含 `id/user_id/pair_id/comparison/trigger_price/action/amount/close_percent/auto_borrow/borrow_limit/status/created_at`，以及可空 `finished_at/observed_trigger_price/failure_reason/execution_id/trade_id`。时间为 UTC，金额为字符串。槽位满返回 409；不可见/归档/草稿市场返回 404，永久关闭返回 409。
+
+服务器定时检查，默认 10 秒，管理员可设 5–3600 秒（现有 `PUT /admin/site-config/fx_order_scan_interval_sec`）；玩家没有公开扫描间隔读取 API。短暂触价可能错过。观察到条件即尝试一次，锁内按最新储备成交，不保证均价。到价时暂停或 FX 关闭、资金不足或风控拒绝会记录失败并释放槽位；永久不可用市场终止等待单。
+
+结果提交后在本人现有 `GET /stream/trading` 发 `fx_order_result`，不进入公开行情流。字段为 `order_id/pair_id/currency_code/action/status/occurred_at`，可空实际 `input_amount/output_amount/borrow_amount/execution_id/trade_id/failure_reason`；状态仅成功或失败。成功的账户事件 `reason=fx_orders` 保留同步，由结果事件显示一次提示。只有交易页面接收，离线查看记录，无通知补发保证。
+
 ### POST `/fx/pairs/{pair_id}/borrow-buy/quote` — 融资买入报价（需登录）
 
 请求：`{ "amount": "50", "borrow_amount": "20" }`。`amount` 是含手续费的买入总投入，

@@ -87,3 +87,19 @@ async def test_update_rejects_rate_out_of_range(client):
     _, h = await _make_user(superuser=True)
     r = await client.put("/api/v1/admin/site-config/loan_daily_rate", json={"value": "2.0"}, headers=h)
     assert r.status_code == 400  # 要求 rate ∈ (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_fx_order_scan_config_reschedules(client, monkeypatch):
+    from app.services.fx import order_scheduler
+    intervals = []
+    async def reschedule(interval):
+        intervals.append(interval)
+    monkeypatch.setattr(order_scheduler, 'reschedule', reschedule)
+    _, headers = await _make_user(superuser=True)
+    for value in ('4', '3601', 'bad'):
+        response = await client.put('/api/v1/admin/site-config/fx_order_scan_interval_sec', json={'value':value}, headers=headers)
+        assert response.status_code == 400
+    response = await client.put('/api/v1/admin/site-config/fx_order_scan_interval_sec', json={'value':'15'}, headers=headers)
+    assert response.status_code == 200 and response.json()['value'] == '15'
+    assert intervals == [15]

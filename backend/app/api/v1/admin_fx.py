@@ -19,7 +19,7 @@ from app.core.users import current_superuser
 from app.models.base import User
 from app.models.audit import AuditEvent
 from app.services.fx.pool_events import append_pool_event
-from app.models.fx import FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
+from app.models.fx import FxTriggerOrder, FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
 from app.schemas.fx import FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
 from app.services.fx import liquidity, admin_reads
@@ -394,7 +394,9 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
     async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
         await _lock_trading_capacity(db)
         pair = await _cleanup_pair(db, pair_id)
-        if await _has_trade_history(db, pair_id):
+        if await _has_trade_history(db, pair_id) or (await db.execute(
+            select(FxTriggerOrder.id).where(FxTriggerOrder.pair_id == pair_id).limit(1)
+        )).first() is not None:
             raise HTTPException(409, "FX pair has history; archive it instead")
         _require_writes()
         before = FxPairAdmin.model_validate(pair).model_dump(mode="json")

@@ -45,7 +45,7 @@ from app.models.bot import BotProfile  # noqa: E402
 from app.models.credit import LiquidationAction, LiquidationRun  # noqa: E402
 from app.models.ledger import LedgerEntry  # noqa: E402
 from app.models.fx import (
-    FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
+    FxTriggerOrder, FxPoolEvent, FxExecution, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
 )  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
@@ -70,7 +70,8 @@ FX_AUDIT_TYPES = (
 # carries the per-pair history generation and must be removed with the candles so
 # a reused pair id can never serve the previous season's cached history.
 FX_CLEAR_ORDER = (
-    FxCandle, FxMarketDataState, FxShortPosition, FxWallet, FxTrade, FxTreasury, FxPair,
+    FxTriggerOrder, FxPoolEvent, FxCandle, FxMarketDataState, FxShortPosition, FxWallet,
+    FxTrade, FxExecution, FxTreasury, FxPair,
 )
 RESET_RULESET = "2026-09-27"
 
@@ -134,13 +135,14 @@ async def _stop_and_reset_fx_market_data() -> None:
 
 async def reset_fx_state(session) -> None:
     """Remove all FX state and its audit trail within the caller's transaction."""
+    # Pool events reference both trades and audits. Remove children first.
+    for model in FX_CLEAR_ORDER:
+        await session.execute(delete(model))
     await session.execute(delete(AuditEvent).where(or_(
         AuditEvent.event_type.in_(FX_AUDIT_TYPES),
         (AuditEvent.event_type == "interest_accrual")
         & (AuditEvent.ref_table == "fx_short_position"),
     )))
-    for model in FX_CLEAR_ORDER:
-        await session.execute(delete(model))
     for key in ("fx_enabled", "fx_short_enabled"):
         flag = (await session.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
         if flag is None:

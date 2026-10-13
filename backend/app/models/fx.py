@@ -261,3 +261,34 @@ class FxPoolEvent(SQLModel, table=True):
     gold_volume: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     trade_id: Optional[int] = Field(default=None, foreign_key="fx_trade.id")
     audit_id: Optional[int] = Field(default=None, sa_type=BigInteger().with_variant(Integer(), "sqlite"), foreign_key="audit_event.id")
+
+
+class FxTriggerOrder(SQLModel, table=True):
+    __tablename__ = "fx_trigger_order"
+    __table_args__ = (
+        CheckConstraint("comparison IN ('lte','gte')", name="ck_fx_order_comparison"),
+        CheckConstraint("status IN ('waiting','succeeded','failed','cancelled')", name="ck_fx_order_status"),
+        CheckConstraint("trigger_price > 0 AND borrow_limit >= 0", name="ck_fx_order_numbers"),
+        CheckConstraint("(action IN ('buy','sell') AND amount IS NOT NULL AND amount > 0 AND close_percent IS NULL) OR (action IN ('close_long','close_short') AND amount IS NULL AND close_percent IS NOT NULL AND close_percent > 0 AND close_percent <= 100)", name="ck_fx_order_instruction"),
+        CheckConstraint("(auto_borrow OR borrow_limit = 0) AND (action = 'buy' OR (NOT auto_borrow AND borrow_limit = 0))", name="ck_fx_order_funding"),
+        CheckConstraint("execution_id IS NULL OR trade_id IS NULL", name="ck_fx_order_result"),
+        Index("ix_fx_order_user_status_id", "user_id", "status", "id"),
+        Index("ix_fx_order_status_id", "status", "id"),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", nullable=False)
+    pair_id: int = Field(foreign_key="fx_pair.id", nullable=False, index=True)
+    comparison: str = Field(max_length=3, nullable=False)
+    trigger_price: Decimal = Field(sa_type=Numeric(16, 6), nullable=False)
+    action: str = Field(max_length=16, nullable=False)
+    amount: Optional[Decimal] = Field(default=None, sa_type=Numeric(16, 6))
+    close_percent: Optional[Decimal] = Field(default=None, sa_type=Numeric(9, 6))
+    auto_borrow: bool = Field(default=False, nullable=False)
+    borrow_limit: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
+    status: str = Field(default="waiting", max_length=16, nullable=False)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+    finished_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    observed_trigger_price: Optional[Decimal] = Field(default=None, sa_type=Numeric(24, 8))
+    failure_reason: Optional[str] = Field(default=None, max_length=512)
+    execution_id: Optional[int] = Field(default=None, foreign_key="fx_execution.id")
+    trade_id: Optional[int] = Field(default=None, foreign_key="fx_trade.id")

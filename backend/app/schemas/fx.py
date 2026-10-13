@@ -1,6 +1,6 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -576,3 +576,95 @@ class FxLiquidityHistoryItem(BaseModel):
 class FxLiquidityHistory(BaseModel):
     items: list[FxLiquidityHistoryItem]
     next_before_id: Optional[int] = None
+
+
+class FxTradeInstruction(BaseModel):
+    """Authorized internal instruction, resolved from locked financial state."""
+    action: Literal['buy', 'sell', 'close_long', 'close_short']
+    amount: Decimal | None = None
+    close_percent: Decimal | None = None
+    auto_borrow: bool = False
+    borrow_limit: Decimal = Decimal('0')
+
+    @model_validator(mode='after')
+    def valid_instruction(self):
+        _finite_six(self.borrow_limit)
+        if self.borrow_limit > _MAX_GOLD:
+            raise ValueError('borrow_limit exceeds storage limit')
+        if self.action in ('buy', 'sell'):
+            if self.amount is None or self.close_percent is not None:
+                raise ValueError('buy/sell requires amount only')
+            _finite_six(self.amount, positive=True)
+            if self.amount > _MAX_GOLD:
+                raise ValueError('amount exceeds storage limit')
+        else:
+            if self.amount is not None or self.close_percent is None:
+                raise ValueError('close requires close_percent only')
+            if not self.close_percent.is_finite() or not 0 < self.close_percent <= 100:
+                raise ValueError('close_percent must be within (0, 100]')
+        if self.action != 'buy' and (self.auto_borrow or self.borrow_limit):
+            raise ValueError('financing is only available for buy')
+        return self
+
+
+class FxTriggerOrderCreate(FxTradeInstruction):
+    model_config = ConfigDict(extra="forbid")
+    pair_id: int = Field(gt=0)
+    comparison: Literal['lte', 'gte']
+    trigger_price: Decimal
+
+    @field_validator('trigger_price')
+    @classmethod
+    def valid_trigger_price(cls, value):
+        _finite_six(value, positive=True)
+        if value > _MAX_GOLD:
+            raise ValueError('trigger_price exceeds storage limit')
+        return value
+
+    @model_validator(mode='after')
+    def order_bounds(self):
+        if not self.auto_borrow and self.borrow_limit:
+            raise ValueError('borrow_limit must be zero when auto_borrow is disabled')
+        if self.close_percent is not None:
+            _finite_six(self.close_percent, positive=True)
+        return self
+
+
+class FxTriggerOrderRead(FxTradeInstruction):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    user_id: int
+    pair_id: int
+    comparison: Literal['lte', 'gte']
+    trigger_price: Decimal
+    status: Literal['waiting', 'succeeded', 'failed', 'cancelled']
+    created_at: datetime
+    finished_at: datetime | None = None
+    observed_trigger_price: Decimal | None = None
+    failure_reason: str | None = None
+    execution_id: int | None = None
+    trade_id: int | None = None
+
+
+    @field_validator('created_at', 'finished_at')
+    @classmethod
+    def utc_dates(cls, value):
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+class FxOrderResult(BaseModel):
+    """Committed private outcome; excludes account and pool details."""
+    order_id: int
+    pair_id: int
+    currency_code: str
+    action: Literal['buy', 'sell', 'close_long', 'close_short']
+    status: Literal['succeeded', 'failed']
+    occurred_at: datetime
+    input_amount: Decimal | None = None
+    output_amount: Decimal | None = None
+    borrow_amount: Decimal | None = None
+    execution_id: int | None = None
+    trade_id: int | None = None
+    failure_reason: str | None = None

@@ -1,4 +1,4 @@
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, readonly, ref, shallowRef, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { useAuthStore } from './auth'
 import { useNotificationStore } from './notification'
@@ -8,6 +8,8 @@ import { TradingStream, type StreamFrame } from '@/api/tradingStream'
 import type { AccountBasis, AccountChanged, GroupCoverage, GroupKey, PricingGroup, TradingContext, TradingRules, TradingSessionStatus } from '@/types/tradingContext'
 import { simulateFxOrder, valueFxPostTrade, type FxOrder } from '@/utils/fxSimulation'
 import { accrueTradingDebt, valueTradingAccount, type AccountPreview, type TradingValuationCache } from '@/utils/tradingRisk'
+import type { FxOrderResult } from '@/types/fx'
+import { describeFxOrderFailure, formatFxAmount } from '@/api/fx'
 import { formatUnits, units } from '@/utils/fxDecimal'
 export function compareVersion(a: string, b: string) { const x = BigInt(a), y = BigInt(b); return x < y ? -1 : x > y ? 1 : 0 }
 function covers(group: PricingGroup | undefined, minimum: GroupCoverage) {
@@ -20,6 +22,7 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
   const groups = shallowRef(new Map<string, PricingGroup>()), currentGroup = shallowRef<GroupKey | null>(null)
   const status = ref<TradingSessionStatus>('syncing'), error = shallowRef<unknown>(null)
   const accountPreview = shallowRef<AccountPreview | null>(null), now = ref(new Date().toISOString())
+  const lastOrderResult = shallowRef<FxOrderResult | null>(null)
   const ready = computed(() => status.value === 'ready')
   let routeOwner = 0, nextOwner = 0
   let foregroundRequired = false, foregroundSequence = 0
@@ -134,12 +137,27 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
   function notify(event: AccountChanged) {
     if (eventIds.has(event.event_id)) return
     eventIds.add(event.event_id); if (eventIds.size > 512) eventIds.delete(eventIds.values().next().value!)
-    if (/interest|accrual|rate_maintenance/.test(event.reason)) return
+    if (event.reason === 'fx_orders' || /interest|accrual|rate_maintenance/.test(event.reason)) return
     if (/liquidat|credit_execution/.test(event.reason)) {
       forcedCount++
       if (!notifyTimer) notifyTimer = setTimeout(() => { notifyTimer = null; rememberNotification(notifications.warning('账户发生强制处置', forcedCount > 1 ? `账户已完成 ${forcedCount} 次处置，请核对仓位和债务。` : '账户已完成一阶段处置，请核对仓位和债务。')); forcedCount = 0 }, 200)
     } else if (/admin/.test(event.reason)) rememberNotification(notifications.info('账户已由管理员调整', '余额、债务或账户权限发生变化，请核对最新状态。'))
     else if (!event.operation_ref || !operationRefs.has(event.operation_ref)) rememberNotification(notifications.info('账户状态已更新', '余额、仓位或债务发生变化，正在同步最新状态。'))
+  }
+  function orderResult(result: FxOrderResult) {
+    const identity = `fx_order:${result.order_id}`
+    if (eventIds.has(identity)) return
+    eventIds.add(identity); if (eventIds.size > 512) eventIds.delete(eventIds.values().next().value!)
+    lastOrderResult.value = result
+    if (result.status === 'succeeded') {
+      const buy = result.action === 'buy' || result.action === 'close_short'
+      const amounts = result.input_amount != null && result.output_amount != null
+        ? `投入 ${formatFxAmount(result.input_amount)} ${buy ? '金圆券' : result.currency_code}，获得 ${formatFxAmount(result.output_amount)} ${buy ? result.currency_code : '金圆券'}。`
+        : '请查看挂单记录中的成交结果。'
+      const financing = result.borrow_amount != null && units(result.borrow_amount) > 0n ? `自动借入 ${formatFxAmount(result.borrow_amount)} 金圆券。` : ''
+      rememberNotification(notifications.success(`${result.currency_code} 挂单 #${result.order_id} 已成交`, amounts + financing))
+      requestRefresh(undefined, 'fx_orders')
+    } else rememberNotification(notifications.error(`${result.currency_code} 挂单 #${result.order_id} 未成交`, describeFxOrderFailure(result.failure_reason)))
   }
   function frame(frame: StreamFrame) {
     const payload = JSON.parse(frame.data)
@@ -156,6 +174,7 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
       if (dirty && account.value && !candidate) requestRefresh(account.value.economic_version, 'epoch')
     } else if (frame.event === 'rules') { rules.value = payload; ruleReceipt++; derive() }
     else if (frame.event === 'heartbeat') calibrate(payload.server_time)
+    else if (frame.event === 'fx_order_result') orderResult(payload)
     else if (frame.event === 'account_changed') { notify(payload); requestRefresh(payload.economic_version, payload.reason, payload.operation_ref) }
   }
   function connect() {
@@ -204,6 +223,7 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
     if (notifyTimer) clearTimeout(notifyTimer)
     refreshTimer = clockTimer = checkTimer = notifyTimer = null
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibility)
+    lastOrderResult.value = null
     account.value = null; rules.value = null; groups.value = new Map(); accountPreview.value = null
     currentGroup.value = null; cache = undefined; candidate = null; minimum = []; missing = []; latestCoverage = []
     notificationIds.forEach(id => notifications.removeNotification(id)); notificationIds.clear()
@@ -268,5 +288,5 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
     preview.condition = trueRejections.length ? 'rejected' : !ready.value || approximateCover || growth && whole.has_debt !== false && whole.initial_condition === 'unknown' ? 'unknown' : 'satisfied'
     return preview
   }
-  return { account, rules, groups, currentGroup, status, error, ready, now, accountPreview, start, stop, requestRefresh, checkVersions, previewFx }
+  return { lastOrderResult: readonly(lastOrderResult), account, rules, groups, currentGroup, status, error, ready, now, accountPreview, start, stop, requestRefresh, checkVersions, previewFx }
 })

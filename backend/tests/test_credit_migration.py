@@ -86,14 +86,18 @@ def exercise_model_constraints(engine):
 
 
 def test_models_constraints_and_populated_downgrade_retains_all_tables(baseline):
+    # This case tests the frozen baseline guard; the incremental guard is below.
+    with baseline.begin() as connection:
+        migrate(connection, BASELINE_REVISION, downgrade=True)
     exercise_model_constraints(baseline)
     with baseline.begin() as connection:
         tables = set(inspect(connection).get_table_names())
+        installed = connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one()
         with pytest.raises(RuntimeError, match="populated"):
             migrate(connection, "base", downgrade=True)
         assert set(inspect(connection).get_table_names()) == tables
         assert connection.execute(text('SELECT cash, debt FROM "user"')).one() == (12, 3)
-        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == BASELINE_REVISION
+        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == installed
 
 
 def test_sqlite_reset_watermark_prevents_empty_business_id_reuse(baseline):
@@ -145,10 +149,11 @@ async def test_future_incremental_upgrade_preserves_data_and_startup_boundary(tm
 
     scripts_path = tmp_path / 'alembic'
     shutil.copytree(Path(__file__).parents[1] / 'alembic', scripts_path)
+    current_head = ScriptDirectory.from_config(Config(str(Path(__file__).parents[1] / 'alembic.ini'))).get_current_head()
     (scripts_path / 'versions' / 'future.py').write_text(
         "from alembic import op\nimport sqlalchemy as sa\n"
         "revision = 'test_future_increment'\n"
-        f"down_revision = '{BASELINE_REVISION}'\n"
+        f"down_revision = '{current_head}'\n"
         "def upgrade():\n    op.create_table('future_feature', sa.Column('id', sa.Integer(), primary_key=True))\n"
         "def downgrade():\n    op.drop_table('future_feature')\n"
     )
@@ -195,3 +200,46 @@ async def test_init_db_refuses_existing_schema_before_demo_or_data_changes(tmp_p
             assert (await connection.execute(text('SELECT count(*) FROM market'))).scalar_one() == 0
     finally:
         await engine.dispose()
+
+
+def test_trigger_order_upgrade_constraints_and_history_downgrade(tmp_path):
+    from datetime import datetime, timezone
+    from app.models.fx import FxPair, FxTriggerOrder, FxWallet, FxExecution, FxTrade
+    engine = create_engine(f"sqlite:///{tmp_path}/orders.db")
+    @event.listens_for(engine, 'connect')
+    def fks(conn, _): conn.execute('PRAGMA foreign_keys=ON')
+    with engine.begin() as c:
+        migrate(c, BASELINE_REVISION)
+        c.execute(User.__table__.insert().values(id=1, username='kept', cash=42))
+        c.execute(FxPair.__table__.insert().values(id=1, currency_code='T', currency_name='T'))
+        c.execute(FxWallet.__table__.insert().values(user_id=1, pair_id=1, foreign_amount=5, cost_basis=4))
+        c.execute(FxExecution.__table__.insert().values(id=1, user_id=1, pair_id=1,
+            idempotency_key='kept', request_payload={'amount': '2'}, response_payload={'result': 'kept'}))
+        c.execute(FxTrade.__table__.insert().values(user_id=1, pair_id=1, execution_id=1,
+            execution_leg=1, side='buy', input_amount=2, output_amount=1,
+            pre_gold_reserve=10, pre_foreign_reserve=10, post_gold_reserve=12,
+            post_foreign_reserve=9, post_price=1))
+        retained = {table.name: c.execute(select(table)).all()
+                    for table in (User.__table__, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__)}
+        migrate(c, 'fx_trigger_orders_20261014')
+        for table in (User.__table__, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__):
+            assert c.execute(select(table)).all() == retained[table.name]
+        assert c.execute(select(User.cash)).scalar_one() == 42
+        values = dict(user_id=1, pair_id=1, comparison='lte', trigger_price=1,
+                      action='buy', amount=2, auto_borrow=False, borrow_limit=0,
+                      status='waiting', created_at=datetime.now(timezone.utc))
+        for changes in ({'status': 'bad'}, {'trigger_price': 0}, {'amount': None},
+                        {'borrow_limit': 1}, {'user_id': 999}, {'comparison': 'bad'},
+                        {'action': 'close_long', 'amount': None, 'close_percent': 101}):
+            with pytest.raises(IntegrityError):
+                with c.begin_nested():
+                    c.execute(FxTriggerOrder.__table__.insert().values(**(values | changes)))
+        c.execute(FxTriggerOrder.__table__.insert().values(**values))
+        with pytest.raises(RuntimeError, match='populated'):
+            migrate(c, BASELINE_REVISION, downgrade=True)
+        assert c.execute(select(FxTriggerOrder.amount)).scalar_one() == 2
+        c.execute(FxTriggerOrder.__table__.delete())
+        migrate(c, BASELINE_REVISION, downgrade=True)
+        assert 'fx_trigger_order' not in inspect(c).get_table_names()
+        assert c.execute(select(User.cash)).scalar_one() == 42
+    engine.dispose()

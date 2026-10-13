@@ -28,6 +28,7 @@ import { useFxResource } from '@/composables/useFxResource'
 import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
 import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
+import FxTriggerOrders from '@/components/market/FxTriggerOrders.vue'
 import FxOrderSize from '@/components/market/FxOrderSize.vue'
 import FxBorrowConfirmation from '@/components/market/FxBorrowConfirmation.vue'
 import { useTradingPreferencesStore } from '@/stores/tradingPreferences'
@@ -56,6 +57,7 @@ import {
 } from '@/utils/fxPresentation'
 import { resolveCreditRiskStatus } from '@/utils/creditRiskStatus'
 import type {
+  FxTriggerOrder,
   FxPersonalTrade,
   FxShortPosition,
   FxShortTrade,
@@ -309,6 +311,8 @@ const tradeBlockReason = computed(() => {
 const holdingAuthGeneration = ref(0)
 const walletHoldingGeneration = ref(-1)
 const shortHoldingGeneration = ref(-1)
+const waitingOrders = ref<readonly FxTriggerOrder[]>([])
+const triggerOrders = computed(() => waitingOrders.value.filter(order => order.status === 'waiting' && order.pair_id === pairId.value))
 const holdingPriceLines = computed<FxHoldingPriceLine[]>(() => {
   const lines: FxHoldingPriceLine[] = []
   if (!authStore.user?.id) return lines
@@ -1550,6 +1554,7 @@ onUnmounted(() => {
                 :envelope="chartEnvelope"
                 :reload-token="chartReloadToken"
                 :holding-price-lines="holdingPriceLines"
+                :trigger-orders="triggerOrders"
                 height="100%"
               />
             </div>
@@ -2060,6 +2065,7 @@ onUnmounted(() => {
       </section>
 
       <div class="fx-lower">
+        <FxTriggerOrders :pair-id="activePair.id" @waiting-change="waitingOrders = $event" />
         <section class="fx-block fx-trades-block">
           <div class="fx-panel-head">
             <h2>我的成交记录</h2>
