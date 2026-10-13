@@ -37,7 +37,9 @@ db_url = db_url.replace("sqlite+aiosqlite", "sqlite")
 db_url = db_url.replace("mysql+asyncmy", "mysql+pymysql")
 config.set_main_option("sqlalchemy.url", db_url)
 
-if config.config_file_name is not None:
+# Embedded migrations belong to the caller's logging lifecycle.
+# Only the standalone Alembic CLI initializes logging from its ini file.
+if config.config_file_name is not None and config.attributes.get("connection") is None:
     fileConfig(config.config_file_name)
 
 target_metadata = SQLModel.metadata
