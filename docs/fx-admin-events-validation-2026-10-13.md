@@ -89,3 +89,48 @@ DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_perf_t
 尚未验证线上网络、实际管理员交互、生产迁移、停机恢复、事件长期增长／归档、混合负载与全站容量。离线导入归一化及排序保留O(N)内存；磁盘staging仅为后续待办，本轮没有新增临时文件功能。
 
 前端检查由Task5在 `thccb-frontend` 完成，当前前端未变化：`npm run type-check` exit0；`npm run test:unit -- src/utils/__tests__/fxPairSetup.spec.ts src/utils/__tests__/fx.spec.ts` 47 passed；`npm run build` exit0（20.71s），保留既有empty charts、auth混合导入和>500kB bundle警告。Task6 `git diff --check` exit0。
+
+## 热点图表局部优化复测
+
+本附录对应 `cec92e2` 基础上的 `market_reads.py` 查询合并改动；原Task6金融与图表结果保留，未重复金融压测。暖路径先同步复制ring与applied cursor，再用一条参数化投影SQL读取pair存在性、持久state、精确对齐窗口MAX(event ID)及窗口前最后事件的ID和价格，返回前仍单独检查generation。SQL结构在模块加载时构造一次，请求仅绑定参数；没有新增行情数据缓存。窗口／锚点任一已提交ID超过复制的cursor时仍走持久化补尾，持久state与candles同语句且 `populate_existing`、tail10,000条和bucket20,000上限不变。价格仍使用原 `event_prices` 的六位小数规则。
+
+复用Task6真实runner，仅抽取chart seed、reader-only暖启动、8次预热和120请求／并发4阶段。baseline仍为 `19ed988` archive，current为上述改动；新隔离库为 `thccb_admin_fx_chart_baseline_test` 和 `thccb_admin_fx_chart_current_test`，每轮重建schema并取得真实OWNERSHIP。三轮顺序仍baseline1/current1、current2/baseline2、baseline3/current3。原Task6输出未覆盖；中间方案分别保存 `chart-perf-results.jsonl`、`chart-perf-2select-results.jsonl`，最终为 `chart-perf-final-results.jsonl`。
+
+| 方案 | baseline/current rps中位数 | 变化 | baseline/current p95 ms中位数 | 变化 | current SELECT/请求 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 每次构造SQL，3次读取 | 448.627 / 328.256 | -26.83% | 9.566 / 16.516 | +72.65% | 3 |
+| 每次构造SQL，2次读取 | 406.033 / 307.126 | -24.36% | 10.579 / 18.477 | +74.65% | 2 |
+| 复用参数化SQL结构，最终方案 | 440.189 / 580.686 | +31.92% | 9.385 / 9.286 | -1.05% | 2 |
+
+| 最终轮次 | rps | p95 ms |
+| --- | ---: | ---: |
+| baseline-1 | 441.600 | 9.319 |
+| current-1 | 623.401 | 6.873 |
+| current-2 | 580.686 | 9.286 |
+| baseline-2 | 440.189 | 9.385 |
+| baseline-3 | 347.508 | 15.522 |
+| current-3 | 352.547 | 14.372 |
+
+最终baseline/current均无flush，SELECT为3→2；SQL cursor时间中位数3.775→2.594ms/请求。临时1,000次纯构造计时得到每次构造合并statement约403.876μs，引用已构造statement约0.033μs，说明单纯减少往返不足以消除Python构造成本；该计时不含编译、驱动或数据库，不是完整请求成本分解。各轮仍有噪声，尤其第三配对；最终结果只说明该隔离暖图表场景未继续呈现原退化，不构成线上混合负载或容量保证。
+
+在Task6已有100,120条pair3历史库检查最终合并SQL，窗口部分使用 `ix_fx_pool_event_pair_created_id` index-only scan（120行、5 shared hit、0 heap fetch），prior anchor使用同索引反向扫描（1行、4 shared hit），整条statement执行0.245ms。没有全量事件扫描。原skew cursor限制保留：仅加 `ORDER BY pair_id,id` 仍选择PK并过滤20,000条其他市场记录；等价tuple谓词虽选pair索引，buffers从317增至395、执行4.909→5.356ms，未观察到可靠改善，未改变cursor查询或索引。单次EXPLAIN时间不能推广为吞吐结论。
+
+实际检查与复现命令（工作根同上）：
+
+```bash
+backend/venv/bin/python .superpowers/sdd/2026-10-13-admin-fx/chart-perf-final-paired.py
+# 6个chart-only进程，结果见最终表；未运行金融场景
+backend/venv/bin/python -m pytest backend/tests/test_fx_history.py backend/tests/test_fx_stream_chart.py backend/tests/test_fx_candle_pipeline.py backend/tests/test_fx_market_data_integration.py -q
+# 61 passed in 9.30s
+DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_chart_checks_test backend/venv/bin/python -m pytest backend/tests/test_fx_history.py backend/tests/test_fx_stream_chart.py backend/tests/test_fx_market_data_integration.py -q
+# 43 passed in 23.29s
+# 强化原cached-checkpoint夹具后单独复核同一回归：
+backend/venv/bin/python -m pytest backend/tests/test_fx_history.py::test_chart_flush_before_joined_read_refreshes_cached_checkpoint -q
+# 1 passed in 0.43s
+DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_chart_checks_test backend/venv/bin/python -m pytest backend/tests/test_fx_history.py::test_chart_flush_before_joined_read_refreshes_cached_checkpoint -q
+# 1 passed in 1.22s
+git diff --check
+# exit0
+```
+
+新增永久回归仅覆盖暖ring复制后提交的window／prior-anchor事件强制fallback、bounds读取后generation轮换拒绝旧结果；复用原history夹具及真实生产聚合。原checkpoint回归显式保留旧ORM实例，继续捕获同语句读取未刷新checkpoint导致的重复成交量。既有route fake仅补合并投影字段及execute参数签名，没有放宽断言。日志、两次EXPLAIN和临时脚本保存在本任务scratch；未运行浏览器交互、生产迁移或生产环境，其他未验证范围仍见上文。

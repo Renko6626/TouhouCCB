@@ -36,7 +36,7 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, bindparam, case, func, select, true
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -340,6 +340,49 @@ async def _anchor_event_id(db: AsyncSession, pair_id: int, before: datetime) -> 
     return int(value or 0)
 
 
+def _chart_window_statement():
+    """Reusable SQL structure; request values remain bound parameters."""
+    pair_id, start, end = bindparam("chart_pair_id"), bindparam("chart_start"), bindparam("chart_end")
+    window = select(func.max(FxPoolEvent.id).label("window_max")).where(
+        FxPoolEvent.pair_id == pair_id,
+        FxPoolEvent.created_at >= start, FxPoolEvent.created_at < end,
+    ).subquery()
+    anchor = select(FxPoolEvent.id.label("anchor_id"), FxPoolEvent.kind,
+                    FxPoolEvent.pre_gold_reserve, FxPoolEvent.pre_foreign_reserve,
+                    FxPoolEvent.post_gold_reserve, FxPoolEvent.post_foreign_reserve).where(
+        FxPoolEvent.pair_id == pair_id, FxPoolEvent.created_at < start,
+    ).order_by(FxPoolEvent.created_at.desc(), FxPoolEvent.id.desc()).limit(1).subquery()
+    return select(
+        FxPair.id, FxMarketDataState.history_ready, FxMarketDataState.history_version,
+        FxMarketDataState.last_trade_id, FxMarketDataState.last_event_id,
+        window.c.window_max, anchor.c.anchor_id, anchor.c.kind,
+        anchor.c.pre_gold_reserve, anchor.c.pre_foreign_reserve,
+        anchor.c.post_gold_reserve, anchor.c.post_foreign_reserve,
+    ).select_from(FxPair).outerjoin(FxMarketDataState, FxMarketDataState.pair_id == FxPair.id).join(
+        window, true()).outerjoin(anchor, true()).where(FxPair.id == pair_id)
+
+
+_CHART_WINDOW_METADATA = _chart_window_statement()
+
+
+async def _chart_window_bounds(db: AsyncSession, pair_id: int,
+                               start: datetime, end: datetime) -> tuple[Any, int, int, Decimal | None]:
+    """Pair/state validation, exact coverage and prior close in one statement.
+
+    Call after copying the ring: a newly committed event beyond that copy's
+    applied cursor must send the caller to the persisted/tail path. The anchor
+    is unbounded here; only use its price when its ID is covered by the ring.
+    """
+    from app.services.fx.candles import event_prices
+    row = (await db.execute(_CHART_WINDOW_METADATA, {
+        "chart_pair_id": pair_id, "chart_start": start, "chart_end": end,
+    })).first()
+    if row is None:
+        return None, 0, 0, None
+    price = None if row.anchor_id is None else event_prices(row)[1]
+    return row, int(row.window_max or 0), int(row.anchor_id or 0), price
+
+
 async def _history_anchor(db: AsyncSession, pair_id: int, before: datetime,
                           through: int) -> Decimal | None:
     from app.services.fx.candles import event_prices
@@ -426,30 +469,28 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         )
 
     pair_id = int(pair_id)
-    _require_pair(await db.get(FxPair, pair_id), pair_id)
-    state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
+    # Copy rows and cursor synchronously before the SQL coverage snapshot.
+    # This preserves the post-copy commit detection while combining metadata
+    # roundtrips; projected fields also bypass stale identity-map state.
+    ring_rows = rt = None
+    if plan.native is not None:
+        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, first_bucket, query_end)
+        rt = FX_MARKET_DATA.state(pair_id)
+    state, window_max, anchor_id, anchor = await _chart_window_bounds(
+        db, pair_id, first_bucket, query_end)
+    if state is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    if not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
         # No complete history yet: retryable, never a full raw-trade rebuild.
         raise HTTPException(status_code=503, detail="FX history is not ready")
     version = str(state.history_version)
-    anchor_id = await _anchor_event_id(db, pair_id, first_bucket)
 
     if plan.native is not None:
-        # ``get_candles`` and ``state`` are synchronous and back-to-back with no
-        # await between them, so the copied ring rows and the applied cursor are
-        # captured atomically under the same event-loop step.
-        ring_rows = FX_MARKET_DATA.get_candles(pair_id, plan.native, first_bucket, query_end)
-        rt = FX_MARKET_DATA.state(pair_id)
         if (ring_rows is not None and rt is not None and rt.get("history_ready")
                 and str(rt.get("history_version")) == version):
-            # Coverage is the committed max inside the aligned window, further
-            # capped by the ring's applied cursor so a trade that committed just
-            # after the copy is left to the live delta instead of being claimed.
-            window_max = await _window_max_event_id(db, pair_id, first_bucket, query_end)
+            # Exact committed bounds must fit the copied ring's applied cursor.
             if max(window_max, anchor_id) <= int(rt.get("applied_event_id") or 0):
                 coverage = max(window_max, anchor_id)
-                anchor = await _history_anchor(db, pair_id, first_bucket,
-                                               int(rt["applied_event_id"]))
                 await _check_generation(db, pair_id, version)
                 filled = _fill_buckets(ring_rows, first_bucket, query_end, plan.seconds, anchor)
                 return ([_chart_row(plan.interval, row) for row in filled], coverage, version)
@@ -469,7 +510,8 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
     # rebuild in flight can never mix two generations in one body.
     db_version = str(db_state.history_version)
     durable = int(db_state.last_event_id)
-    coverage = max(anchor_id, await _window_max_event_id(db, pair_id, first_bucket, query_end))
+    coverage = max(await _anchor_event_id(db, pair_id, first_bucket),
+                   await _window_max_event_id(db, pair_id, first_bucket, query_end))
 
     merged: dict[datetime, dict] = {}
     for row in base_rows:

@@ -660,8 +660,9 @@ async def test_chart_flush_before_joined_read_refreshes_cached_checkpoint(client
         nonlocal fired
         if not fired:
             fired = True
-            # Initial request state read has already cached cursor2. Advance
-            # its real production checkpoint in an independent transaction.
+            # Keep an old checkpoint in the identity map while another
+            # transaction flushes. The joined read must refresh this instance.
+            cached_checkpoint = await db.get(FxMarketDataState, pair_id)
             async with async_session_maker() as writer:
                 async with writer.begin():
                     event = (await writer.execute(select(FxPoolEvent).where(FxPoolEvent.id == 3))).scalar_one()
@@ -742,3 +743,80 @@ async def test_stream_lock_wait_crossing_bucket_boundary_never_claims_absent_eve
         assert wire["history_tail_at"] == after.isoformat()
     finally:
         await response.body_iterator.aclose()
+
+
+async def _warm_chart_ring(pid: int, start: datetime) -> int:
+    from sqlalchemy import select
+    from app.services.fx.candles import apply_candle_batch, compute_fx_candle_rows
+    await _seed_fund_event(pid, start - timedelta(minutes=1), post="1", initialize=True)
+    last = await _seed_fund_event(pid, start + timedelta(seconds=5), post="1.5")
+    await _seed_state(pid, ready=True, cursor=0)
+    async with async_session_maker() as writer:
+        events = (await writer.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pid))).scalars().all()
+        await apply_candle_batch(writer, pair_id=pid, expected_event_id=0,
+                                 through_event_id=last, rows=compute_fx_candle_rows(events),
+                                 history_version="gen-1")
+        await writer.commit()
+    await FX_MARKET_DATA.start(write_owner=False)
+    assert FX_MARKET_DATA.get_candles(pid, "1m", start, start + timedelta(minutes=1)) is not None
+    return last
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("before_window", [False, True])
+async def test_warm_chart_committed_event_after_ring_copy_falls_back(monkeypatch, before_window):
+    """A post-copy event in the window or its anchor cannot be claimed by stale ring rows."""
+    from app.services.fx import market_reads
+    pid = await _seed_pair()
+    start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=2)
+    await _warm_chart_ring(pid, start)
+    original = market_reads._chart_window_bounds
+    committed = None
+
+    async def commit_then_bounds(db, pair_id, start_, end_):
+        nonlocal committed
+        at = start_ - timedelta(seconds=1) if before_window else start_ + timedelta(seconds=20)
+        committed = await _seed_fund_event(pid, at, pre="1.5", post="2")
+        return await original(db, pair_id, start_, end_)
+
+    monkeypatch.setattr(market_reads, "_chart_window_bounds", commit_then_bounds)
+    try:
+        async with async_session_maker() as db:
+            body, coverage, version = await market_reads.read_fx_chart_with_meta(
+                db, pid, "1m", start, start + timedelta(minutes=1))
+        assert coverage == committed and version == "gen-1"
+        point, = body
+        assert point["volume"] == 0 and point["n_trades"] == 0
+        assert point["n_events"] == (1 if before_window else 2)
+        assert point["close"] == Decimal("1.5" if before_window else "2")
+        if not before_window:
+            assert point["high"] == Decimal("2")
+    finally:
+        await FX_MARKET_DATA.stop()
+
+
+@pytest.mark.asyncio
+async def test_warm_chart_rebuild_after_bounds_rejects_old_generation(monkeypatch):
+    from app.services.fx import market_reads
+    pid = await _seed_pair()
+    start = datetime.now(UTC).replace(second=0, microsecond=0) - timedelta(minutes=2)
+    await _warm_chart_ring(pid, start)
+    original = market_reads._chart_window_bounds
+
+    async def rotate_after_bounds(db, pair_id, start_, end_):
+        result = await original(db, pair_id, start_, end_)
+        async with async_session_maker() as writer:
+            state = await writer.get(FxMarketDataState, pid)
+            state.history_version = "gen-2"
+            await writer.commit()
+        return result
+
+    monkeypatch.setattr(market_reads, "_chart_window_bounds", rotate_after_bounds)
+    try:
+        async with async_session_maker() as db:
+            with pytest.raises(HTTPException) as exc:
+                await read_fx_chart(db, pid, "1m", start, start + timedelta(minutes=1))
+        assert exc.value.status_code == 503
+        assert exc.value.headers["Retry-After"] == "5"
+    finally:
+        await FX_MARKET_DATA.stop()
