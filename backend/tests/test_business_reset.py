@@ -175,3 +175,33 @@ async def test_postgres_reset_flow():
     from sqlalchemy.engine import make_url
     assert all(make_url(u).database.endswith('_test') for u in (source,target))
     await flow(source,target)
+
+
+def test_production_urls_use_application_settings_resolver(monkeypatch):
+    from app.core import config
+    from sqlalchemy.engine import make_url
+
+    settings = config.Settings(
+        _env_file=None, DB_BACKEND='postgres', PG_HOST='postgres', PG_PORT=5432,
+        PG_USER='thccb', PG_DB='thccb', DATABASE_URL=None,
+        PG_PASSWORD='synthetic-reset-test-password',
+        SECRET_KEY='synthetic-reset-test-secret-key-32-chars',
+        ADMIN_SECRET_KEY='synthetic-admin-test-secret-key-32-chars',
+        CASDOOR_ENDPOINT='', CASDOOR_CLIENT_ID='', CASDOOR_CLIENT_SECRET='',
+        APP_ENV='development',
+    )
+    monkeypatch.setattr(config, 'settings', settings)
+    source, target, before = reset.production_urls('20261013')
+    assert source == make_url(settings.build_db_url())
+    assert target.database == 'thccb_reset_20261013'
+    assert before.database == 'thccb_before_20261013'
+
+    # Explicit DATABASE_URL keeps the application's highest-priority override.
+    settings.PG_HOST = 'different-host'
+    settings.PG_DB = 'different-db'
+    settings.DATABASE_URL = 'postgresql+asyncpg://override:synthetic@postgres:5432/thccb'
+    source, _, _ = reset.production_urls('20261013')
+    assert source == make_url(settings.DATABASE_URL)
+    settings.DATABASE_URL = 'postgresql+asyncpg://override:synthetic@different-host:5432/thccb'
+    with pytest.raises(ValueError, match='fixed Compose PostgreSQL'):
+        reset.production_urls('20261013')

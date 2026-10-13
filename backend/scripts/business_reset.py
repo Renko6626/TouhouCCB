@@ -429,7 +429,7 @@ def production_urls(run_id):
     if not re.fullmatch(r"[0-9]{1,20}", run_id):
         raise ValueError("Invalid run ID")
     from app.core.config import settings
-    url = make_url(settings.DATABASE_URL)
+    url = make_url(settings.build_db_url())
     if url.get_backend_name() != "postgresql" or url.host != "postgres" or (url.port or 5432) != 5432 or url.database != "thccb":
         raise ValueError("Business reset requires fixed Compose PostgreSQL")
     url = url.set(drivername="postgresql+asyncpg")
