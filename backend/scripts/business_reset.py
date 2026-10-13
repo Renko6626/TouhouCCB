@@ -164,14 +164,18 @@ def _highwaters(conn, md):
     return values
 
 
-def _export(conn, expected):
-    md = _metadata(conn)
+def _check_retained_schema(md):
     for name, fields in FIELDS.items():
         if name not in md.tables or set(md.tables[name].columns.keys()) != set(fields):
             raise ValueError("Unknown or missing retained fields")
         actual_fks = {(fk.parent.name, fk.column.table.name, fk.column.name) for fk in md.tables[name].foreign_keys}
         if actual_fks != FK_FIELDS[name]:
             raise ValueError("Unknown or missing retained foreign key")
+
+
+def _export(conn, expected):
+    md = _metadata(conn)
+    _check_retained_schema(md)
     rows = {n: _rows(conn, md.tables[n]) for n in FIELDS}
     balance, configs = _configs(rows.pop("siteconfig"))
     if expected is not None and balance != _amount(expected):
@@ -273,6 +277,7 @@ def _verify(conn, manifest):
         raise ValueError("Target schema is not current")
     m = _unpack(manifest)
     md = _metadata(conn)
+    _check_retained_schema(md)
     for name, expected in m["rows"].items():
         actual = _rows(conn, md.tables[name])
         sort = lambda records: sorted((_pack(r) for r in records), key=lambda r: r["id"])
@@ -300,8 +305,30 @@ def _verify(conn, manifest):
     return summary(manifest)
 
 
+def _target_has_objects(conn):
+    if conn.dialect.name == "sqlite":
+        # Internal sequence/autoindex machinery is not prior business schema.
+        return conn.execute(text(
+            "SELECT 1 FROM sqlite_master WHERE substr(name,1,7) <> 'sqlite_' LIMIT 1"
+        )).first() is not None
+    if conn.dialect.name == "postgresql":
+        # Namespace dependencies cover views, sequences, routines, types and
+        # other user-defined objects, including objects outside search_path.
+        return conn.execute(text("""
+            SELECT 1 FROM pg_depend d JOIN pg_namespace n ON n.oid=d.refobjid
+            WHERE d.refclassid='pg_namespace'::regclass
+              AND left(n.nspname,3) <> 'pg_' AND n.nspname <> 'information_schema'
+            UNION ALL
+            SELECT 1 FROM pg_namespace
+            WHERE left(nspname,3) <> 'pg_'
+              AND nspname NOT IN ('public', 'information_schema')
+            LIMIT 1
+        """)).first() is not None
+    raise ValueError("Unsupported reset database")
+
+
 def _import(conn, manifest):
-    if inspect(conn).get_table_names():
+    if _target_has_objects(conn):
         raise ValueError("Target database is not empty")
     cfg = _migration_config()
     cfg.attributes["connection"] = conn

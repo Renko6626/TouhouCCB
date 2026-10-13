@@ -85,6 +85,34 @@ async def test_sqlite_reset_flow_and_refusals(tmp_path):
         await reset.import_database(source,source,manifest)
     with pytest.raises(ValueError,match='not empty'):
         await reset.import_database(source,target,manifest)
+    view_target = f'sqlite+aiosqlite:///{tmp_path}/view.db'
+    view_engine = create_async_engine(view_target)
+    async with view_engine.begin() as c:
+        await c.execute(text('CREATE VIEW old_business_view AS SELECT 1 AS old_data'))
+    with pytest.raises(ValueError,match='not empty'):
+        await reset.import_database(source,view_target,manifest)
+    async with view_engine.connect() as c:
+        assert await c.run_sync(lambda conn: inspect(conn).get_view_names()) == ['old_business_view']
+        assert await c.run_sync(lambda conn: inspect(conn).get_table_names()) == []
+    await view_engine.dispose()
+    # Empty retained tables still require the exact fields and foreign keys.
+    target_engine = create_async_engine(target)
+    async with target_engine.begin() as c:
+        await c.execute(text('DELETE FROM title_code'))
+        await c.execute(text('DELETE FROM user_title'))
+        await c.execute(text('DELETE FROM title_code_batch'))
+        await c.execute(text('UPDATE "user" SET equipped_title_id=NULL'))
+        await c.execute(text('DELETE FROM title'))
+        await c.execute(text('ALTER TABLE title ADD COLUMN unknown_retained_field INTEGER'))
+    with pytest.raises(ValueError,match='retained fields'):
+        await reset.verify_database(target,manifest)
+    async with target_engine.begin() as c:
+        await c.execute(text('ALTER TABLE title DROP COLUMN unknown_retained_field'))
+        await c.execute(text('DROP TABLE title_code'))
+        await c.execute(text('CREATE TABLE title_code (id INTEGER PRIMARY KEY AUTOINCREMENT, batch_id INTEGER NOT NULL, code_string VARCHAR NOT NULL UNIQUE, status VARCHAR NOT NULL, used_by_user_id INTEGER, used_at DATETIME)'))
+    with pytest.raises(ValueError,match='retained foreign key'):
+        await reset.verify_database(target,manifest)
+    await target_engine.dispose()
     with pytest.raises(ValueError,match='balance changed'):
         await reset.export_database(source,'100')
     private = tmp_path / 'private'
