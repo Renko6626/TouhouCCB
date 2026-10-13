@@ -1397,11 +1397,6 @@ onUnmounted(() => {
               ? '仅可减仓'
               : statusLabel
           }}</span>
-          <FxTriggerOrders
-            v-if="activePair && !loading && !error"
-            :pair-id="activePair.id"
-            @waiting-change="waitingOrders = $event"
-          />
         </div>
       </div>
       <div class="fx-topbar-price">
@@ -1562,6 +1557,13 @@ onUnmounted(() => {
                 :trigger-orders="triggerOrders"
                 height="100%"
               />
+              <div class="fx-chart-order-entry">
+                <FxTriggerOrders
+                  v-if="activePair && !loading && !error"
+                  :pair-id="activePair.id"
+                  @waiting-change="waitingOrders = $event"
+                />
+              </div>
             </div>
             <div class="fx-chart-footer">
               <span>上涨有利于多头，下跌有利于空头</span><span>金圆券 / {{ currencyName }}</span>
@@ -2294,8 +2296,6 @@ onUnmounted(() => {
   color: var(--color-down-strong);
 }
 .fx-topbar-id {
-  min-width: 0;
-  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2312,18 +2312,10 @@ onUnmounted(() => {
   margin-left: 8px;
 }
 .fx-pair-row {
-  min-width: 0;
-  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-.fx-pair-row :deep(.manage-orders) {
-  color: #000;
-  background: #fff;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 .fx-pair-select {
   border: 1px solid #bbb;
@@ -2553,9 +2545,24 @@ onUnmounted(() => {
   color: #fff;
 }
 .fx-chart-body {
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+.fx-chart-order-entry {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+}
+.fx-chart-order-entry :deep(.manage-orders) {
+  color: #000;
+  background: #fff;
+  white-space: nowrap;
+  font-size: 11px;
+  min-height: 32px;
+  padding: 4px 8px;
 }
 .fx-chart-footer {
   display: flex;
@@ -3128,9 +3135,6 @@ onUnmounted(() => {
   }
 }
 @media (max-width: 640px) {
-  .fx-topbar-id {
-    flex-wrap: wrap;
-  }
   .fx-page {
     padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0px));
   }
