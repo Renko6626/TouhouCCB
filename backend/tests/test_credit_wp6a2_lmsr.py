@@ -57,16 +57,21 @@ async def test_debt_free_buy_no_dependency_discovery(monkeypatch):
     assert not GATES.held_keys()
 
 @pytest.mark.asyncio
-async def test_selling_frozen_debtor_reduces_debt():
+@pytest.mark.parametrize("auto_repay", [True, False])
+async def test_selling_frozen_debtor_reduces_debt(auto_repay):
     uid,mid,oid=await seed(cash='0',debt='100',held='20')
     async with async_session_maker() as s:
-        u=await s.get(User,uid); u.credit_frozen=True; await s.commit()
+        u=await s.get(User,uid); u.credit_frozen=True; u.auto_repay=auto_repay; await s.commit()
     await WRITER.start()
     await WRITER.submit(SellCmd(mid,oid,uid,'riskbuyer',D('10'),None,None,True))
     async with async_session_maker() as s:
         u=await s.get(User,uid)
-        assert u.debt < D('100')
-        assert u.cash == 0
+        if auto_repay:
+            assert u.debt < D('100')
+            assert u.cash == 0
+        else:
+            assert u.debt == D('100')
+            assert u.cash > 0
         assert u.economic_version > 0
 
 

@@ -51,6 +51,7 @@ class UserSummary(BaseModel):
     """
     cash: Money
     debt: Money
+    auto_repay: bool = True
     available_cash: Optional[Decimal] = None
     restricted_cash: Decimal = Decimal("0")
     short_positions: List[FxShortPositionPublic] = []

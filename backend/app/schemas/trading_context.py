@@ -59,6 +59,7 @@ class FxShortBasis(BaseModel):
 class AccountBasis(BaseModel):
     user_id: int
     economic_version: str
+    auto_repay: bool = True
     cash: str
     debt: str
     debt_last_accrued_at: str | None

@@ -77,23 +77,32 @@ async def _net(uid, pid, side, amount, *, key='net-test', borrowed='0', min_out=
             expected_economic_version=version, idempotency_key=key, allow_growth=True))
 
 
-async def test_cross_zero_sell_receipt_replay_and_money():
+@pytest.mark.parametrize("auto_repay", [True, False])
+async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
     from app.models.base import User
     from app.models.fx import FxExecution, FxShortPosition, FxWallet, FxTreasury, FxPair
     uid, pid = await _seed(wallet_foreign='100', debt='50', sell_fee='0.01')
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.auto_repay is True
+        user.auto_repay = auto_repay
+        await db.commit()
+        quote = await quote_net_trade(db, uid, pid, FxNetQuoteRequest(side='sell', amount=D('140')))
     result = await _net(uid, pid, 'sell', '140')
+    assert result.cash_delta == quote.cash_delta
+    assert result.gold_debt_delta == quote.gold_debt_delta
     assert len(result.trade_ids) == 2
-    assert result.repaid_gold == 50
+    assert result.repaid_gold == (50 if auto_repay else 0)
     async with async_session_maker() as db:
         user = await db.get(User, uid)
         wallet = (await db.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one()
         short = (await db.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
         pair = await db.get(FxPair, pid)
-        assert wallet.foreign_amount == 0 and user.debt == 0
+        assert wallet.foreign_amount == 0 and user.debt == (0 if auto_repay else 50)
         assert short.principal_foreign == 40
         assert short.restricted_gold == result.legs[1].output_amount
-        assert user.cash == D('1000') + result.output_amount - 50
+        assert user.cash == D('1000') + result.output_amount - result.repaid_gold
         assert treasury.foreign_balance == D('100000') - 40 + result.fee_amount
         assert pair.gold_reserve == result.legs[-1].post_gold_reserve
         trades = list((await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars())
@@ -112,10 +121,15 @@ async def test_cross_zero_sell_receipt_replay_and_money():
         assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 2
 
 
-async def test_cross_zero_buy_repay_interest_and_finance_only_long():
+@pytest.mark.parametrize("auto_repay", [True, False])
+async def test_cross_zero_buy_repay_interest_and_finance_only_long(auto_repay):
     from app.models.base import User
     from app.models.fx import FxShortPosition, FxWallet
     uid, pid = await _seed(short={'principal': '9', 'interest': '1', 'restricted': '5'}, buy_fee='0.01')
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        user.auto_repay = auto_repay
+        await db.commit()
     result = await _net(uid, pid, 'buy', '30', borrowed='10')
     assert [l.purpose for l in result.legs] == ['short_cover', 'borrow_buy']
     assert result.foreign_debt_after == 0

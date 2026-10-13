@@ -496,7 +496,7 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
                       trade_id=trade.id)
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
-    if normalized == "sell" and user.debt > 0:
+    if normalized == "sell" and user.auto_repay and user.debt > 0:
         rate = await site_config.get_decimal_or(db, "loan_daily_rate", Decimal("0"))
         debt_before = user.debt
         repaid = await loan_service.decrease_debt_locked(

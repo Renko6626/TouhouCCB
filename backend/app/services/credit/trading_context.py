@@ -42,7 +42,7 @@ async def read_dependencies(db, user_id, current_group=None):
     return [GroupKey(product=p, id=i) for p, i in sorted(keys)]
 
 async def read_basis(db, user_id):
-    names = ('cash', 'debt', 'debt_last_accrued_at', 'credit_frozen', 'is_active', 'is_bot', 'tos_accepted_at', 'last_liquidated_at', 'economic_version')
+    names = ('auto_repay', 'cash', 'debt', 'debt_last_accrued_at', 'credit_frozen', 'is_active', 'is_bot', 'tos_accepted_at', 'last_liquidated_at', 'economic_version')
     row = (await db.execute(select(*(getattr(User, n) for n in names)).where(User.id == user_id))).one()
     values = dict(zip(names, row))
     for name in ('cash', 'debt', 'economic_version'):
