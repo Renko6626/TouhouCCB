@@ -4,7 +4,7 @@
 
 ## 最后一轮集中检查
 
-环境：Python 3.13.2、pytest 9.0.2、Node v24.21.0、npm 11.19.0、Vitest 4.1.11。没有复制 `.env`。后端以下每条命令均带 `DATABASE_URL=sqlite+aiosqlite:////tmp/sunyunbo/thccb-fx-orders-final-test.db`，由现有 conftest 使用 PID 隔离 SQLite 测试库；默认 pytest 配置 `-m "not pg"` 排除 PG 专项。
+环境：Python 3.13.2、pytest 9.0.2、Node v24.21.0、npm 11.19.0、Vitest 4.1.11。没有复制 `.env`。后端以下每条命令均带 `DATABASE_URL=sqlite+aiosqlite:////tmp/sunyunbo/thccb-fx-orders-final-test.db`，使用明确指定的独立临时 SQLite 库；现有 conftest 的 `setdefault` 不会替换已明确设置的 `DATABASE_URL`。默认 pytest 配置 `-m "not pg"` 排除 PG 专项。
 
 ```bash
 cd backend
