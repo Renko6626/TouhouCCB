@@ -1,4 +1,4 @@
-import api from './index'
+import api, { authIdentityGuard } from './index'
 import type {
   UserSummary,
   Holding,
@@ -7,6 +7,10 @@ import type {
 } from '@/types/api'
 
 export const userApi = {
+  async setAutoRepay(auto_repay: boolean): Promise<{ auto_repay: boolean }> {
+    const config = { headers: {}, authContextGuard: authIdentityGuard() }
+    return api.patch('/api/v1/user/me/auto-repay', { auto_repay }, config)
+  },
   async getSummary(): Promise<UserSummary> {
     return api.get<UserSummary>('/api/v1/user/summary')
   },

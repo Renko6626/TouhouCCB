@@ -28,6 +28,7 @@ import { useFxResource } from '@/composables/useFxResource'
 import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
 import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
+import AutoRepaySwitch from '@/components/user/AutoRepaySwitch.vue'
 import FxTriggerOrders from '@/components/market/FxTriggerOrders.vue'
 import FxOrderSize from '@/components/market/FxOrderSize.vue'
 import FxBorrowConfirmation from '@/components/market/FxBorrowConfirmation.vue'
@@ -1616,6 +1617,10 @@ onUnmounted(() => {
               <strong>回补空头</strong>
             </button>
           </div>
+          <div class="fx-account-actions">
+            <AutoRepaySwitch />
+            <router-link class="fx-loan-entry" to="/loan">借款与还款</router-link>
+          </div>
           <div class="fx-panel-scroll">
             <section class="fx-current-position" aria-label="当前币种持仓与快速平仓">
               <p v-if="walletLoading || shortLoading" class="fx-hint" role="status">
@@ -2605,6 +2610,8 @@ onUnmounted(() => {
 .fx-action-picker {
   flex-shrink: 0;
 }
+.fx-account-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; margin: 8px 0; font-size: 12px; }
+.fx-account-actions > .fx-loan-entry { white-space: nowrap; border: 1px solid #000; padding: 4px 8px; text-decoration: none; }
 .fx-panel-scroll {
   flex: 1;
   min-height: 0;

@@ -95,7 +95,7 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
       const own = holdings < budget ? holdings : budget
       if (own) {
         const q = quoteFx('sell', formatUnits(own), p); leg('spot', 'sell', q)
-        const out = units(q.output_amount), repaid = debt < out ? debt : out
+        const out = units(q.output_amount), repaid = a.auto_repay !== false ? (debt < out ? debt : out) : 0n
         if (cash + out > FX_MAX) block('trade exceeds storage limit')
         result.repaid_gold = formatUnits(repaid)
         cash += out - repaid; debt -= repaid; basis = holdings ? halfEven(basis * (holdings - own), holdings) : 0n; holdings -= own

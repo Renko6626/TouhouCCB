@@ -15,6 +15,7 @@ import type { Holding } from '@/types/api'
 import MarketStatus from '@/components/market/MarketStatus.vue'
 import MarginStatusCard from '@/components/user/MarginStatusCard.vue'
 import ShortPositionPnl from '@/components/user/ShortPositionPnl.vue'
+import AutoRepaySwitch from '@/components/user/AutoRepaySwitch.vue'
 import MyTitlesPanel from '@/components/title/MyTitlesPanel.vue'
 import { useTradingPreferencesStore } from '@/stores/tradingPreferences'
 
@@ -331,12 +332,13 @@ const holdingsByMarketArray = computed(() => {
 
       <section class="trading-preferences">
         <h2>交易偏好</h2>
+        <div class="preference-row"><AutoRepaySwitch class="account-repay-preference" /></div>
         <div class="preference-row">
           <span id="confirm-borrow-label">下单前确认借款交易</span>
           <NSwitch :value="tradingPreferences.confirmBorrow" aria-labelledby="confirm-borrow-label" @update:value="updateBorrowConfirmation" />
         </div>
         <p>借款买入或借币做空前显示确认弹窗。关闭后，点击下单按钮直接提交。</p>
-        <small>仅保存当前账号在此浏览器中的设置，不会同步到其他设备。</small>
+        <small>借款确认设置按账号保存在当前浏览器，不会同步到其他设备。</small>
       </section>
 
       <!-- 我的称号 -->
@@ -424,6 +426,8 @@ const holdingsByMarketArray = computed(() => {
 <style scoped>
 .trading-preferences { margin-top: 24px; padding: 18px; border: 1px solid #ddd; background: #fff; }
 .trading-preferences h2 { margin: 0 0 14px; font-size: 16px; }
+.account-repay-preference { width: 100%; margin-bottom: 12px; }
+.account-repay-preference :deep(.auto-repay-control) { justify-content: space-between; }
 .preference-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 13px; }
 .trading-preferences p { margin: 10px 0 4px; color: #666; font-size: 12px; line-height: 1.6; }
 .trading-preferences small { color: #777; font-size: 11px; }

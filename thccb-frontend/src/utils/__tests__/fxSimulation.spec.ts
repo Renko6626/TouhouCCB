@@ -112,3 +112,15 @@ it('simulates legacy partial cover exact foreign output and its own released loc
   expect(feeCover.account_after.fx_shorts[0]?.principal_foreign).toBe('1.099999')
   expect(feeCover.account_after.fx_shorts[0]?.interest_foreign).toBe('0.000000')
 })
+
+it('keeps spot sale proceeds as cash and gold debt outstanding when auto repay is disabled', () => {
+  const a = { ...account, debt: '3', debt_last_accrued_at: now, fx_wallets: [{ pair_id: 1, foreign_amount: '10', cost_basis: '4' }] }
+  const sale = simulateFxOrder({ ...a, auto_repay: false }, pricing, rules, { side: 'sell', amount: '10' }, now)
+  expect(sale.output_amount).toBe('4.914004')
+  expect(sale.repaid_gold).toBe('0.000000')
+  expect(sale.account_after.cash).toBe('104.914004')
+  expect(sale.account_after.debt).toBe('3.000000')
+  const defaultSale = simulateFxOrder(a, pricing, rules, { side: 'sell', amount: '10' }, now)
+  expect(defaultSale.account_after.cash).toBe('101.914004')
+  expect(defaultSale.account_after.debt).toBe('0.000000')
+})
