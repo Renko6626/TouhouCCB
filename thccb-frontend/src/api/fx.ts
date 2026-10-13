@@ -11,6 +11,10 @@ import type {
   FxShortQuoteRequest,
   FxShortTrade,
   FxFundRequest,
+  FxAdminOverview,
+  FxLiquidityPreviewRequest,
+  FxLiquidityPreview,
+  FxLiquidityHistory,
   FxPersonalTrade,
   FxPairAdmin,
   FxPairAdminDetail,
@@ -845,6 +849,15 @@ export const fxApi = {
 // ── 管理员 API（/api/v1/admin/fx，仅超管） ──
 
 export const fxAdminApi = {
+  getOverview(pairId: number): Promise<FxAdminOverview> {
+    return api.get<FxAdminOverview>(`/api/v1/admin/fx/pairs/${pairId}/overview`)
+  },
+  previewLiquidity(pairId: number, body: FxLiquidityPreviewRequest): Promise<FxLiquidityPreview> {
+    return api.post<FxLiquidityPreview>(`/api/v1/admin/fx/pairs/${pairId}/liquidity-preview`, body)
+  },
+  getLiquidityHistory(pairId: number, beforeId?: number): Promise<FxLiquidityHistory> {
+    return api.get<FxLiquidityHistory>(`/api/v1/admin/fx/pairs/${pairId}/liquidity-history`, { params: { limit: 20, before_id: beforeId } })
+  },
   /** 管理端只读列表：含草稿与 treasury 余额（超管）。 */
   listPairs(): Promise<FxPairAdminDetail[]> {
     return api.get<FxPairAdminDetail[]>('/api/v1/admin/fx/pairs')

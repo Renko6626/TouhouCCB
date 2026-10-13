@@ -1,579 +1,46 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { useDialog, useMessage } from 'naive-ui'
-import { divideFxAmount, formatFxAmount, fxAdminApi, fxApi, mapFxError, mergeFxPairs } from '@/api/fx'
-import { getConfigMeta } from '@/utils/configMeta'
-import { buildFxPairSetup } from '@/utils/fxPairSetup'
-import type {
-  FxPairAdmin,
-  FxPairAdminDetail,
-  FxPairPublic,
-  FxPairPatch,
-  FxPairStatus,
-  FxSnapshot,
-} from '@/types/fx'
-
+import { computed, onMounted, ref, provide } from 'vue'
+import { useMessage } from 'naive-ui'
+import { fxAdminApi, mapFxError } from '@/api/fx'
+const config = ref<Record<string, string> | null>(null)
+const loading = ref(true), busy = ref(false), error = ref('')
+const shortDraft = ref('')
 const msg = useMessage()
-const dialog = useDialog()
-
-const loading = ref(true)
-const error = ref<string | null>(null)
-const config = ref<Record<string, string>>({})
-const configDraft = ref<Record<string, string>>({})
-const pairs = ref<FxPairPublic[]>([])
-// 管理端只读接口 GET /api/v1/admin/fx/pairs 是权威来源：包含草稿与 treasury
-// 余额，刷新后不再丢失运营状态。写操作后统一重拉该接口。
-const adminPairs = ref<Record<number, FxPairAdmin>>({})
-const treasuryByPair = ref<Record<number, FxPairAdminDetail>>({})
-const snapshots = ref<Record<number, FxSnapshot>>({})
-// 公开列表过滤 draft；合并本地写操作返回的管理员记录，保证本会话内
-// 「创建草稿 → 注资 → 开市」全程可见、可选。公开条目存在时优先（字段更新鲜）。
-const allPairs = computed<FxPairPublic[]>(() => mergeFxPairs(adminPairs.value, pairs.value))
-const visiblePairs = computed(() => allPairs.value.filter(p => !adminPairs.value[p.id]?.archived))
-const showArchived = ref(false)
-const tablePairs = computed(() => showArchived.value ? allPairs.value : visiblePairs.value)
-const pairBusy = ref(false)
-const editingPairId = ref<number | null>(null)
-const editPanel = ref<HTMLElement | null>(null)
-const editError = ref<string | null>(null)
-const editForm = ref({ currency_code: '', currency_name: '', buy_fee_rate: '', sell_fee_rate: '' })
-
-const CONFIG_LABELS: Record<string, string> = {
-  fx_enabled: 'FX 交易总闸',
-  fx_short_enabled: '开空闸（默认关闭，不阻止回补）',
-}
-const CONFIG_ORDER = ['fx_short_enabled']
-
-const PAIR_STATUS_LABELS: Record<string, string> = {
-  draft: '草稿',
-  trading: '交易中',
-  paused: '暂停',
-  closed: '关闭',
-}
-const gateEnabled = computed(() => (config.value.fx_enabled ?? 'false').toLowerCase() === 'true')
-
-const pairForm = ref({
-  currency_code: 'CCB',
-  currency_name: '幻想币',
-  gold_reserve: '1000',
-  foreign_reserve: '1000',
-  initial_price: '1',
-  buy_fee_rate: '0.002',
-  sell_fee_rate: '0.002',
-  status: 'draft' as FxPairStatus,
-})
-
-const pairMode = ref<'quick' | 'manual'>('quick')
-const quickPair = ref({ price: '1', gold: '1000', buyPct: '0.2', sellPct: '0.2' })
-const quickResult = computed(() => {
-  try {
-    return { values: buildFxPairSetup(quickPair.value), error: '' }
-  } catch (e) {
-    return { values: null, error: e instanceof Error ? e.message : '请检查快捷参数' }
-  }
-})
-const pairToCreate = computed(() => pairMode.value === 'quick'
-  ? { ...pairForm.value, ...quickResult.value.values }
-  : pairForm.value)
-const poolPricePreview = computed(() => {
-  const f = pairToCreate.value
-  const price = divideFxAmount(f.gold_reserve, f.foreign_reserve, 12)
-  return price === null ? '—' : formatFxAmount(price, 6)
-})
-const sampleBuyAmount = ref('1000')
-const sampleBuyPreview = computed(() => {
-  // 仅为规模感知预览；提交参数始终使用十进制字符串，成交由服务端计算。
-  const f = pairToCreate.value
-  const gold = Number(f.gold_reserve)
-  const foreign = Number(f.foreign_reserve)
-  const fee = Number(f.buy_fee_rate)
-  const amount = Number(sampleBuyAmount.value)
-  if (![gold, foreign, amount].every(v => Number.isFinite(v) && v > 0) || !Number.isFinite(fee) || fee < 0 || fee >= 1) return null
-  const net = amount * (1 - fee)
-  const output = foreign * net / (gold + net)
-  const move = ((1 + net / gold) ** 2 - 1) * 100
-  if (!Number.isFinite(output) || !Number.isFinite(move)) return null
-  return { output: formatFxAmount(String(output), 6), move: move.toFixed(2) }
-})
-
-function editPairManually() {
-  if (!quickResult.value.values) return
-  Object.assign(pairForm.value, quickResult.value.values)
-  pairMode.value = 'manual'
-}
-
-const fundForm = ref({ pair_id: 0, gold_amount: '0', foreign_amount: '0' })
-
-const createPairError = ref<string | null>(null)
-
-function toNumber(value: string | number | null | undefined): number {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : NaN
-}
-
-function detailOf(pairId: number | null): FxPairAdmin | null {
-  if (pairId === null) return null
-  return adminPairs.value[pairId] ?? null
-}
-
-function snapshotOf(pairId: number | null): FxSnapshot | null {
-  if (pairId === null) return null
-  return snapshots.value[pairId] ?? null
-}
-
-function treasuryOf(pairId: number | null): FxPairAdminDetail | null {
-  if (pairId === null) return null
-  return treasuryByPair.value[pairId] ?? null
-}
-
-function combinePairStatus(status: FxPairStatus): string {
-  return PAIR_STATUS_LABELS[status] ?? status
-}
-
-// ── 加载 ──
+const gate = computed(() => config.value?.fx_enabled === undefined ? null : config.value.fx_enabled.toLowerCase() === 'true')
+provide('fxAdminGate', gate)
 async function loadConfig() {
-  config.value = await fxAdminApi.getConfig()
-  configDraft.value = { fx_short_enabled: 'false', ...config.value }
+  loading.value = true; error.value = ''; config.value = null
+  try { config.value = await fxAdminApi.getConfig(); shortDraft.value = config.value.fx_short_enabled ?? '' }
+  catch (e) { error.value = mapFxError(e, '交易开关读取失败') }
+  finally { loading.value = false }
 }
-
-async function loadAdminPairs() {
-  const list = await fxAdminApi.listPairs()
-  const controls: Record<number, FxPairAdmin> = {}
-  const treasury: Record<number, FxPairAdminDetail> = {}
-  for (const p of list) {
-    controls[p.id] = p
-    treasury[p.id] = p
-  }
-  adminPairs.value = controls
-  treasuryByPair.value = treasury
+async function save(key: string, value: string) {
+  if (busy.value || !config.value) return
+  busy.value = true
+  try { config.value = { ...config.value, ...await fxAdminApi.setConfig(key, value) }; msg.success('交易开关已更新') }
+  catch (e) { msg.error(mapFxError(e, '交易开关更新失败')) }
+  finally { busy.value = false }
 }
-
-async function loadPairs() {
-  const [, publicList] = await Promise.all([loadAdminPairs(), fxApi.listPairs()])
-  pairs.value = publicList
-  syncDefaultSelections()
-}
-
-/** 下拉默认选中第一个可见 pair（含本地草稿）。 */
-function syncDefaultSelections() {
-  const list = visiblePairs.value
-  const ids = new Set(list.map(p => p.id))
-  const firstId = list[0]?.id ?? 0
-  if (!ids.has(fundForm.value.pair_id)) fundForm.value.pair_id = firstId
-}
-
-async function loadPublicSnapshots() {
-  const entries = await Promise.allSettled(
-    visiblePairs.value.map(async (p) => [p.id, await fxApi.getSnapshot(p.id)] as const),
-  )
-  const next: Record<number, FxSnapshot> = {}
-  for (const entry of entries) {
-    if (entry.status === 'fulfilled') next[entry.value[0]] = entry.value[1]
-  }
-  snapshots.value = next
-}
-
-
-async function loadAll() {
-  loading.value = true
-  error.value = null
-  try {
-    await Promise.all([loadConfig(), loadPairs()])
-    await loadPublicSnapshots()
-  } catch (e) {
-    error.value = mapFxError(e, 'FX 管理数据加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-// ── 总闸 ──
-async function saveConfigValue(key: string, value: string) {
-  try {
-    const res = await fxAdminApi.setConfig(key, value)
-    config.value = { ...config.value, ...res }
-    configDraft.value = { ...configDraft.value, ...res }
-    msg.success(`${CONFIG_LABELS[key] ?? key} 已更新`)
-  } catch (e) {
-    msg.error(mapFxError(e, '配置更新失败'))
-  }
-}
-
-async function toggleGate() {
-  await saveConfigValue('fx_enabled', gateEnabled.value ? 'false' : 'true')
-}
-
-// ── 货币对 ──
-async function createPair() {
-  createPairError.value = null
-  if (pairMode.value === 'quick' && quickResult.value.error) {
-    createPairError.value = quickResult.value.error
-    return
-  }
-  const f = pairToCreate.value
-  if (!/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
-    createPairError.value = '币种代码只能包含大写字母、数字与下划线'
-    return
-  }
-  if (!f.currency_name.trim()) {
-    createPairError.value = '请填写币种名称'
-    return
-  }
-  const numeric: Array<[string, number]> = [
-    ['金圆券初始储备', toNumber(f.gold_reserve)],
-    ['外币初始储备', toNumber(f.foreign_reserve)],
-    ['初始价', toNumber(f.initial_price)],
-  ]
-  for (const [label, value] of numeric) {
-    if (!Number.isFinite(value) || value <= 0) {
-      createPairError.value = `${label}必须是有限正数`
-      return
-    }
-  }
-  try {
-    const created = await fxAdminApi.createPair({
-      currency_code: f.currency_code,
-      currency_name: f.currency_name,
-      status: f.status,
-      gold_reserve: f.gold_reserve,
-      foreign_reserve: f.foreign_reserve,
-      initial_price: f.initial_price,
-      buy_fee_rate: f.buy_fee_rate,
-      sell_fee_rate: f.sell_fee_rate,
-    })
-    await loadPairs()
-    await loadPublicSnapshots()
-    msg.success(`已创建货币对 ${created.currency_code}（草稿，可注资后开市）`)
-  } catch (e) {
-    createPairError.value = mapFxError(e, '创建货币对失败')
-  }
-}
-
-async function startEditingPair(pair: FxPairPublic) {
-  const detail = detailOf(pair.id)
-  if (!detail || detail.archived) return
-  editingPairId.value = pair.id
-  editError.value = null
-  editForm.value = {
-    currency_code: detail.currency_code, currency_name: detail.currency_name,
-    buy_fee_rate: detail.buy_fee_rate, sell_fee_rate: detail.sell_fee_rate,
-  }
-  await nextTick()
-  editPanel.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-}
-
-async function savePairEdit() {
-  const id = editingPairId.value
-  const original = detailOf(id)
-  if (id === null || !original || pairBusy.value) return
-  editError.value = null
-  const f = editForm.value
-  if (!f.currency_name.trim() || !/^[A-Z0-9_]{1,16}$/.test(f.currency_code)) {
-    editError.value = '请填写币种名称，代码仅支持大写字母、数字与下划线'
-    return
-  }
-  if (![f.buy_fee_rate, f.sell_fee_rate].every(v => v.trim() !== '' && Number.isFinite(toNumber(v)) && toNumber(v) >= 0 && toNumber(v) < 1)) {
-    editError.value = '买卖费率必须在 0（含）与 1（不含）之间'
-    return
-  }
-  const body: FxPairPatch = { ...f }
-  if (f.currency_code === original.currency_code) delete body.currency_code
-  pairBusy.value = true
-  try {
-    await fxAdminApi.updatePair(id, body)
-    editingPairId.value = null
-    await loadPairs()
-    await loadPublicSnapshots()
-    msg.success('市场参数已更新')
-  } catch (e) {
-    editError.value = mapFxError(e, '市场参数更新失败')
-  } finally {
-    pairBusy.value = false
-  }
-}
-
-function confirmPairCleanup(pair: FxPairPublic, archive: boolean) {
-  if (pairBusy.value) return
-  dialog.warning({
-    title: `${archive ? '归档' : '删除'} ${pair.currency_name}（${pair.currency_code}）`,
-    content: archive
-      ? '归档会关闭市场，并从玩家列表和管理员默认列表隐藏。成交和持仓账目保留。所有玩家持仓须已清空。'
-      : '仅无成交历史的市场可删除。删除会清理空钱包及系统储备，保留操作审计；不能撤销。有历史记录时请使用归档。',
-    positiveText: archive ? '确认归档' : '确认删除',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      if (pairBusy.value) return false
-      pairBusy.value = true
-      try {
-        if (archive) await fxAdminApi.archivePair(pair.id)
-        else await fxAdminApi.deletePair(pair.id)
-        if (editingPairId.value === pair.id) editingPairId.value = null
-        await loadPairs()
-        await Promise.all([loadPublicSnapshots()])
-        msg.success(archive ? '市场已归档，历史记录保留' : '测试市场已删除')
-      } catch (e) {
-        msg.error(mapFxError(e, archive ? '归档失败' : '删除失败'))
-        return false
-      } finally {
-        pairBusy.value = false
-      }
-    },
-  })
-}
-
-async function changePairStatus(pair: FxPairPublic, status: FxPairStatus) {
-  if (pairBusy.value) return
-  pairBusy.value = true
-  try {
-    await fxAdminApi.updatePair(pair.id, { status })
-    await loadPairs()
-    msg.success(`${pair.currency_code} 状态已改为 ${combinePairStatus(status)}`)
-  } catch (e) {
-    msg.error(mapFxError(e, '状态更新失败'))
-  } finally {
-    pairBusy.value = false
-  }
-}
-
-async function fundPair(withdraw: boolean) {
-  const id = fundForm.value.pair_id
-  if (!id) {
-    msg.error('请先选择货币对')
-    return
-  }
-  const gold = toNumber(fundForm.value.gold_amount)
-  const foreign = toNumber(fundForm.value.foreign_amount)
-  if (!Number.isFinite(gold) || !Number.isFinite(foreign) || gold < 0 || foreign < 0 || (gold === 0 && foreign === 0)) {
-    msg.error('注资/撤资金额必须为非负且至少一项为正')
-    return
-  }
-  try {
-    const body = { gold_amount: fundForm.value.gold_amount, foreign_amount: fundForm.value.foreign_amount }
-    if (withdraw) await fxAdminApi.withdrawPair(id, body)
-    else await fxAdminApi.fundPair(id, body)
-    await loadPairs()
-    await loadPublicSnapshots()
-    msg.success(withdraw ? '撤资完成，已写入审计' : '注资完成，已写入审计')
-  } catch (e) {
-    msg.error(mapFxError(e, withdraw ? '撤资失败' : '注资失败'))
-  }
-}
-
-onMounted(async () => {
-  await loadAll()
-})
+onMounted(loadConfig)
 </script>
-
 <template>
-  <div class="fx-admin">
+  <div class="fx-admin fx-framework">
     <h1 class="page-title">FX 管理</h1>
-
-    <div v-if="loading" class="fx-state">管理数据加载中…</div>
-    <div v-else-if="error" class="fx-state fx-state-error">
-      {{ error }}
-      <button class="btn-secondary" @click="loadAll">重试</button>
-    </div>
-
-    <template v-else>
-      <div class="fx-gate" :class="{ on: gateEnabled }">
-        <div>
-          <strong>FX 总闸：{{ gateEnabled ? '已开启' : '关闭（默认）' }}</strong>
-          <p>
-            总闸关闭时不允许买卖；只读行情仍可用。
-            生产部署前必须保持关闭。
-          </p>
-        </div>
-        <button class="btn-primary" @click="toggleGate">
-          {{ gateEnabled ? '关闭总闸' : '开启总闸' }}
-        </button>
-      </div>
-
-      <!-- 交易配置 -->
-      <section class="fx-panel">
-        <h2>交易配置</h2>
-        <div class="fx-config-grid">
-          <label v-for="key in CONFIG_ORDER" :key="key" class="fx-config-item">
-            <span>{{ CONFIG_LABELS[key] }}<code>{{ key }}</code></span>
-            <small class="fx-config-description">{{ getConfigMeta(key).description }}</small>
-            <div class="fx-config-row">
-              <select v-model="configDraft[key]" class="fx-input"><option value="false">关闭新增开空</option><option value="true">允许新增开空（仍需额度与风控）</option></select>
-              <button class="btn-sm" @click="saveConfigValue(key, configDraft[key] ?? '')">保存</button>
-            </div>
-          </label>
-        </div>
-      </section>
-
-      <!-- 货币对 -->
-      <section class="fx-panel">
-        <div class="fx-panel-head">
-          <h2>货币对 / 池子 / 系统储备</h2>
-          <label class="fx-hint"><input v-model="showArchived" type="checkbox" /> 显示已归档</label>
-          <button class="btn-secondary" @click="loadPairs().then(loadPublicSnapshots)">刷新</button>
-        </div>
-        <p class="fx-hint">
-          可编辑名称与费率；币种代码仅在草稿阶段可修改。空测试市场可删除，有历史记录且已清空持仓的市场可归档。
-          池子买卖价/价差来自公开 snapshot，单位统一为「金 / 1 外币」：买入价为 ask、卖出价为 bid，
-          价差 = 买入价 − 卖出价 ≥ 0。
-        </p>
-        <div class="table-wrap">
-          <table class="fx-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>币种</th>
-                <th>状态</th>
-                <th>池子（金 / 外币）</th>
-                <th>系统 treasury（金 / 外币）</th>
-                <th>公开买卖价 / 价差</th>
-                <th>费率（买 / 卖）</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in tablePairs" :key="p.id">
-                <td>{{ p.id }}</td>
-                <td>{{ p.currency_name }}（{{ p.currency_code }}）</td>
-                <td>{{ adminPairs[p.id]?.archived ? '已归档' : combinePairStatus(p.status) }}</td>
-                <td>
-                  <template v-if="detailOf(p.id)">
-                    {{ formatFxAmount(detailOf(p.id)!.gold_reserve) }} /
-                    {{ formatFxAmount(detailOf(p.id)!.foreign_reserve) }}
-                  </template>
-                  <template v-else>—</template>
-                </td>
-                <td>
-                  <template v-if="treasuryOf(p.id)">
-                    {{ formatFxAmount(treasuryOf(p.id)!.gold_balance) }} /
-                    {{ formatFxAmount(treasuryOf(p.id)!.foreign_balance) }}
-                  </template>
-                  <template v-else>—</template>
-                </td>
-                <td>
-                  <template v-if="snapshotOf(p.id)">
-                    {{ formatFxAmount(snapshotOf(p.id)!.buy_price) }} /
-                    {{ formatFxAmount(snapshotOf(p.id)!.sell_price) }}
-                    （差 {{ formatFxAmount(snapshotOf(p.id)!.spread) }}）
-                  </template>
-                  <template v-else>—</template>
-                </td>
-                <td>
-                  <template v-if="detailOf(p.id)">
-                    {{ formatFxAmount(detailOf(p.id)!.buy_fee_rate, 4) }} /
-                    {{ formatFxAmount(detailOf(p.id)!.sell_fee_rate, 4) }}
-                  </template>
-                  <template v-else>—</template>
-                </td>
-                <td class="fx-actions-cell">
-                  <template v-if="!adminPairs[p.id]?.archived">
-                    <button class="btn-sm" :disabled="pairBusy" @click="startEditingPair(p)">编辑</button>
-                    <button v-if="p.status !== 'trading'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'trading')">开市</button>
-                    <button v-else class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'paused')">暂停</button>
-                    <button v-if="p.status !== 'closed'" class="btn-sm" :disabled="pairBusy" @click="changePairStatus(p, 'closed')">关闭</button>
-                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, true)">归档</button>
-                    <button class="btn-sm" :disabled="pairBusy" @click="confirmPairCleanup(p, false)">删除</button>
-                  </template>
-                  <span v-else class="fx-hint">历史保留</span>
-                </td>
-              </tr>
-              <tr v-if="tablePairs.length === 0">
-                <td colspan="8" class="fx-empty-cell">暂无市场；可创建草稿或勾选“显示已归档”查看历史市场</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div v-if="editingPairId !== null" ref="editPanel" class="fx-form-card fx-edit-panel">
-          <h3>编辑 {{ detailOf(editingPairId)?.currency_code }} · #{{ editingPairId }}</h3>
-          <p class="fx-hint">调整费率不会重置池子储备或成交历史。费率填写小数，例如 0.002 表示 0.2%。</p>
-          <div class="fx-setup-fields">
-            <label>币种代码<input v-model="editForm.currency_code" class="fx-input" maxlength="16" :disabled="detailOf(editingPairId)?.status !== 'draft' || pairBusy" /></label>
-            <label>币种名称<input v-model="editForm.currency_name" class="fx-input" maxlength="64" :disabled="pairBusy" /></label>
-            <label>买入费率（小数）<input v-model="editForm.buy_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
-            <label>卖出费率（小数）<input v-model="editForm.sell_fee_rate" class="fx-input" inputmode="decimal" :disabled="pairBusy" /></label>
-          </div>
-          <p v-if="editError" class="fx-error" role="alert">{{ editError }}</p>
-          <div class="fx-form-actions">
-            <button class="btn-primary" :disabled="pairBusy" @click="savePairEdit">{{ pairBusy ? '保存中…' : '保存修改' }}</button>
-            <button class="btn-secondary" :disabled="pairBusy" @click="editingPairId = null">取消</button>
-          </div>
-        </div>
-
-        <div class="fx-form-grid">
-          <div class="fx-form-card fx-pair-setup">
-            <div class="fx-setup-head">
-              <h3>创建新币种</h3>
-              <span class="fx-setup-badge">{{ pairMode === 'quick' ? '快捷配置' : '手动配置' }}</span>
-            </div>
-            <p class="fx-hint">先定汇率与池子规模，确认参数后创建草稿，再单独开市。</p>
-            <div class="fx-setup-fields">
-              <label>币种代码<input v-model="pairForm.currency_code" class="fx-input" placeholder="例如 MORA" maxlength="16" /></label>
-              <label>币种名称<input v-model="pairForm.currency_name" class="fx-input" placeholder="例如 摩拉" maxlength="64" /></label>
-            </div>
-            <template v-if="pairMode === 'quick'">
-              <div class="fx-setup-fields">
-                <label>开盘汇率<input v-model="quickPair.price" class="fx-input" inputmode="decimal" /><small>1 外币值多少金圆券</small></label>
-                <label>池子金圆券规模<input v-model="quickPair.gold" class="fx-input" inputmode="decimal" /><small>池子越大，同额买卖推动价格越小</small></label>
-                <label>买入手续费（%）<input v-model="quickPair.buyPct" class="fx-input" inputmode="decimal" /><small>填写 0.2 即 0.2%</small></label>
-                <label>卖出手续费（%）<input v-model="quickPair.sellPct" class="fx-input" inputmode="decimal" /></label>
-              </div>
-              <p class="fx-hint">开盘汇率用于计算初始储备；后续价格随池子储备变化。</p>
-              <p v-if="quickResult.error" class="fx-error" role="alert">{{ quickResult.error }}</p>
-            </template>
-            <template v-else>
-              <p class="fx-hint">已带入快捷结果，以下数值可独立修改。实际开盘汇率由两侧储备之比决定。</p>
-              <div class="fx-setup-fields">
-                <label>金圆券储备<input v-model="pairForm.gold_reserve" class="fx-input" inputmode="decimal" /></label>
-                <label>外币储备<input v-model="pairForm.foreign_reserve" class="fx-input" inputmode="decimal" /></label>
-                <label>初始参考价<input v-model="pairForm.initial_price" class="fx-input" inputmode="decimal" /></label>
-                <label>买入费率（小数）<input v-model="pairForm.buy_fee_rate" class="fx-input" inputmode="decimal" /><small>0.002 即 0.2%</small></label>
-                <label>卖出费率（小数）<input v-model="pairForm.sell_fee_rate" class="fx-input" inputmode="decimal" /></label>
-              </div>
-            </template>
-            <div v-if="pairMode === 'manual' || !quickResult.error" class="fx-setup-preview" aria-live="polite">
-              <h4>创建预览</h4>
-              <dl>
-                <div><dt>实际开盘汇率（约）</dt><dd>1 外币 = {{ poolPricePreview }} 金圆券</dd></div>
-                <div><dt>交易池储备</dt><dd>{{ pairToCreate.gold_reserve }} 金圆券 / {{ pairToCreate.foreign_reserve }} 外币</dd></div>
-              </dl>
-              <p class="fx-hint">创建时还会配发同额的借币库存与手续费账户资金：{{ pairToCreate.gold_reserve }} 金圆券与 {{ pairToCreate.foreign_reserve }} 外币，和交易池分开记账。</p>
-              <label>试算买入金额（金圆券）<input v-model="sampleBuyAmount" class="fx-input" inputmode="decimal" /></label>
-              <p v-if="sampleBuyPreview" class="fx-hint">预计收到约 {{ sampleBuyPreview.output }} 外币，池子价格上升约 {{ sampleBuyPreview.move }}%。仅为规模预览，实际成交按服务端手续费与精度计算。</p>
-              <p class="fx-hint">自动计算的储备向下保留最多 6 位小数，实际汇率可能有微小偏差。</p>
-            </div>
-            <div class="fx-form-actions">
-              <button v-if="pairMode === 'quick'" class="btn-secondary" :disabled="!!quickResult.error" @click="editPairManually">手动调整全部参数</button>
-              <button v-else class="btn-secondary" @click="pairMode = 'quick'">使用快捷参数</button>
-              <button class="btn-primary" :disabled="pairMode === 'quick' && !!quickResult.error" @click="createPair">创建草稿</button>
-            </div>
-            <p v-if="createPairError" class="fx-error" role="alert">{{ createPairError }}</p>
-          </div>
-
-          <div class="fx-form-card">
-            <h3>注资 / 撤资</h3>
-            <label>
-              货币对
-              <select v-model.number="fundForm.pair_id" class="fx-input">
-                <option v-for="p in visiblePairs" :key="p.id" :value="p.id">
-                  {{ p.currency_name }}（{{ p.currency_code }}）
-                </option>
-              </select>
-            </label>
-            <label>金圆券数量<input v-model="fundForm.gold_amount" class="fx-input" /></label>
-            <label>外币数量<input v-model="fundForm.foreign_amount" class="fx-input" /></label>
-            <div class="fx-form-actions">
-              <button class="btn-primary" @click="fundPair(false)">注资</button>
-              <button class="btn-secondary" @click="fundPair(true)">撤资</button>
-            </div>
-            <p class="fx-hint">注资/撤资会写站内发行或回收审计，不能直接改池子储备字段。</p>
-          </div>
-        </div>
-      </section>
-
-    </template>
+    <section class="fx-gate">
+      <div v-if="loading">交易开关读取中…</div>
+      <div v-else-if="error" class="fx-error" role="alert">{{ error }} <button class="btn-secondary" @click="loadConfig">重新读取</button></div>
+      <template v-else>
+        <div><strong>交易总闸：{{ gate === null ? '状态未知' : gate ? '已开启' : '已关闭' }}</strong><p>关闭总闸会停止玩家买卖，仍可查看行情与管理市场资金。</p></div>
+        <button class="btn-primary" :disabled="busy || gate === null" @click="save('fx_enabled', gate ? 'false' : 'true')">{{ gate ? '关闭总闸' : '开启总闸' }}</button>
+        <label>新增开空 <select v-model="shortDraft" class="fx-input" :disabled="busy"><option disabled value="">状态未知</option><option value="false">关闭</option><option value="true">允许（仍受额度与风控限制）</option></select></label>
+        <button class="btn-secondary" :disabled="busy || shortDraft === ''" @click="save('fx_short_enabled', shortDraft)">保存开空设置</button>
+      </template>
+    </section>
+    <nav class="fx-admin-tabs" aria-label="FX 管理页面"><RouterLink to="/admin/fx/markets">市场登记</RouterLink><RouterLink to="/admin/fx/operations">央行操作</RouterLink></nav>
+    <RouterView />
   </div>
 </template>
-
-<style scoped>
+<style>
 .fx-admin {
   padding: 16px;
   max-width: 1200px;
@@ -673,7 +140,7 @@ onMounted(async () => {
 .fx-input {
   border: 2px solid #000;
   padding: 6px 8px;
-  font-family: ui-monospace, monospace;
+  font-family: inherit;
   font-size: 13px;
   background: #fff;
   width: 100%;
@@ -816,4 +283,13 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 }
+</style>
+
+<style>
+.fx-framework > .fx-admin { padding: 0; }
+.fx-admin-tabs { display:flex; gap:0; margin-bottom:16px; border-bottom:2px solid #000; }
+.fx-admin-tabs a { padding:10px 18px; color:#000; font-weight:700; }
+.fx-admin-tabs .router-link-active { background:#000; color:#fff; }
+.fx-admin button:disabled { opacity:.5; cursor:not-allowed; }
+.fx-admin input:focus-visible, .fx-admin select:focus-visible, .fx-admin button:focus-visible, .fx-admin a:focus-visible { outline:3px solid #777; outline-offset:3px; }
 </style>

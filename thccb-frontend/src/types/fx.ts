@@ -233,6 +233,9 @@ export interface FxPairAdmin extends FxPairPublic {
 
 /** GET /api/v1/admin/fx/pairs 的只读管理视图：含草稿与系统 treasury。 */
 export interface FxPairAdminDetail extends FxPairAdmin {
+  archived: boolean
+  reduce_only: boolean
+  short_lending_limit_foreign: string
   gold_balance: string
   foreign_balance: string
 }
@@ -250,6 +253,7 @@ export interface FxPairCreate {
 }
 
 export interface FxPairPatch {
+  reduce_only?: boolean
   short_lending_limit_foreign?: string
   currency_code?: string
   currency_name?: string
@@ -401,3 +405,54 @@ export interface FxNetTrade extends FxNetQuote {
   created_at: string
   replay: boolean
 }
+
+
+export type FxLiquidityAction = 'fund' | 'withdraw'
+export interface FxHoldingsSummary {
+  long_users: number
+  long_foreign: string
+  long_cost_gold: string
+  short_users: number
+  short_principal_foreign: string
+  short_recorded_interest_foreign: string
+  short_restricted_gold: string
+  interest_is_realtime: boolean
+}
+export interface FxAdminOverview {
+  pair: FxPairAdminDetail
+  reference_price: string
+  as_of: string
+  holdings: FxHoldingsSummary
+}
+export interface FxLiquidityAmounts { gold: string | null; foreign: string | null }
+export interface FxLiquidityPreviewRequest { action: FxLiquidityAction; gold_amount: string; foreign_amount: string }
+export interface FxLiquidityPreview extends FxLiquidityPreviewRequest {
+  pair_id: number
+  pool_version: number
+  as_of: string
+  pool_before: FxLiquidityAmounts
+  pool_after: FxLiquidityAmounts
+  treasury_before: FxLiquidityAmounts
+  treasury_after: FxLiquidityAmounts
+  price_before: string | null
+  price_after: string | null
+  price_change_pct: string | null
+  executable: boolean
+  blocked_reason: string | null
+}
+export interface FxLiquidityHistoryItem {
+  id: number
+  ts: string
+  operator_user_id: number | null
+  action: FxLiquidityAction | 'initial_issuance'
+  gold_amount: string | null
+  foreign_amount: string | null
+  pool_before: FxLiquidityAmounts | null
+  pool_after: FxLiquidityAmounts | null
+  treasury_before: FxLiquidityAmounts | null
+  treasury_after: FxLiquidityAmounts | null
+  price_before: string | null
+  price_after: string | null
+  price_change_pct: string | null
+}
+export interface FxLiquidityHistory { items: FxLiquidityHistoryItem[]; next_before_id: number | null }
