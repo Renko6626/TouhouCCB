@@ -30,10 +30,17 @@ function currency(pairId: number) {
 }
 const actionNames: Record<FxTriggerAction, string> = { buy: '买入', sell: '卖出', close_long: '平多头', close_short: '平空头' }
 const statusNames: Record<FxTriggerStatus, string> = { waiting: '等待触发', succeeded: '已成交', failed: '未成交', cancelled: '已撤销' }
+function compact(value: string) { return value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value }
+function amountText(value: string | null | undefined) { return compact(formatFxAmount(value)) }
+function priceText(value: string) { return compact(formatFxPrice(value, { base: 6, max: 6 })) }
+function currencyCode(pairId: number) { return pairs.value.find(row => row.id === pairId)?.currency_code ?? `币种 #${pairId}` }
 function instruction(order: FxTriggerOrder) {
-  return `${actionNames[order.action]} ${order.action.startsWith('close_') ? `${formatFxAmount(order.close_percent ?? '0')}%` : `${formatFxAmount(order.amount ?? '0')} ${order.action === 'buy' ? '金圆券' : currency(order.pair_id)}`}`
+  return `${actionNames[order.action]} ${order.action.startsWith('close_') ? `${amountText(order.close_percent)}%` : `${amountText(order.amount)} ${order.action === 'buy' ? '金圆券' : currencyCode(order.pair_id)}`}`
 }
-function date(value: string) { return new Date(value).toLocaleString('zh-CN', { hour12: false }) }
+function date(value: string) {
+  const time = new Date(value), pad = (part: number) => String(part).padStart(2, '0')
+  return `${pad(time.getMonth() + 1)}-${pad(time.getDate())} ${pad(time.getHours())}:${pad(time.getMinutes())}`
+}
 async function load() {
   const request = ++generation, valid = authIdentityGuard()
   if (!auth.user) return
@@ -108,10 +115,10 @@ onUnmounted(() => { mounted = false; generation++ })
     </header>
     <template v-if="auth.user">
       <form class="order-form" @submit.prevent="submit">
-        <p class="fill-sentence">当 {{ currentCurrency }} 的汇率
+        <div class="fill-sentence"><div class="condition-clause"><span>当 {{ currentCurrency }} 汇率</span><span class="condition-fields">
           <select v-model="comparison" aria-label="触价条件"><option value="lte">小于或等于</option><option value="gte">大于或等于</option></select>
           <input :value="triggerPrice" @input="triggerPrice = ($event.target as HTMLInputElement).value" aria-label="触发汇率" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写触发价" />
-          金圆券时，尝试
+          <span>金圆券</span></span></div><div class="action-clause"><span>时，尝试</span><span class="action-fields">
           <select v-model="action" aria-label="挂单动作"><option value="buy">买入</option><option value="sell">卖出</option><option value="close_long">平多头</option><option value="close_short">平空头</option></select>
           <template v-if="!isClose">
             <input :value="amount" @input="amount = ($event.target as HTMLInputElement).value" :aria-label="action === 'buy' ? '投入金圆券' : '卖出外币数量'" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写数量" />
@@ -121,16 +128,16 @@ onUnmounted(() => { mounted = false; generation++ })
             <select v-model="closePercent" aria-label="平仓比例"><option value="25">25%</option><option value="50">50%</option><option value="75">75%</option><option value="100">100%</option></select>
             的{{ action === 'close_long' ? '多头' : '空头' }}仓位。
           </template>
-        </p>
+        </span></div></div>
         <p v-if="action === 'sell'" class="order-note">卖出数量超过到价时的持仓，可能借币开空。</p>
-        <p v-if="isClose" class="order-note">按到价时仓位计算比例，只减仓，不反向开仓。当前多头 {{ formatFxAmount(currentPosition.long) }}，空头本金 {{ formatFxAmount(currentPosition.short) }}。</p>
+        <p v-if="isClose" class="order-note">按到价时仓位计算比例，只减仓，不反向开仓。当前多头 {{ amountText(currentPosition.long) }}，空头本金 {{ amountText(currentPosition.short) }}。</p>
         <div v-if="action === 'buy'" class="borrow-field">
           <label><input v-model="autoBorrow" type="checkbox" /> 允许自动借入金圆券</label>
           <label v-if="autoBorrow">借款上限 <input :value="borrowLimit" @input="borrowLimit = ($event.target as HTMLInputElement).value" aria-label="自动借款上限" type="number" inputmode="decimal" min="0" step="0.000001" required placeholder="填写金圆券上限" /></label>
-          <span v-if="autoBorrow" class="order-note">按资金缺口借入，仍需符合账户借款条件。</span>
+          <span v-if="autoBorrow" class="order-note">按资金缺口借入，须符合借款条件。</span>
         </div>
-        <p class="order-note">触发价不保证成交均价；不预留资金或借款额度。定时检查，短暂触价可能错过。到价后尝试一次，失败会结束挂单。</p>
-        <div class="submit-row"><button class="create-order" :disabled="submitting || !waitingLoaded || waiting.length >= 3" type="submit">{{ submitting ? '处理中…' : '创建挂单' }}</button><span class="order-note">修改挂单请先撤销，再重新创建。</span></div>
+        <p class="order-note">触发价不保证成交均价，不预留资金。定时检查，短暂触价可能错过；到价尝试一次，失败即结束。</p>
+        <div class="submit-row"><button class="create-order" :disabled="submitting || !waitingLoaded || waiting.length >= 3" type="submit">{{ submitting ? '处理中…' : '创建挂单' }}</button><span class="order-note">修改请撤销重建。</span></div>
       </form>
       <p v-if="formError" class="order-error" role="alert">{{ formError }}</p>
       <p v-if="confirmation" role="status">{{ confirmation }}</p>
@@ -139,7 +146,7 @@ onUnmounted(() => { mounted = false; generation++ })
       <p v-if="waitingLoaded && !waiting.length" class="order-note">暂无等待挂单。</p>
       <ul class="waiting-list">
         <li v-for="order in waiting" :key="order.id">
-          <div><strong>#{{ order.id }} {{ currency(order.pair_id) }}</strong><p>汇率 {{ order.comparison === 'lte' ? '≤' : '≥' }} {{ formatFxPrice(order.trigger_price) }} 时，{{ instruction(order) }}</p><small v-if="order.auto_borrow">可自动借款，上限 {{ formatFxAmount(order.borrow_limit) }} 金圆券</small></div>
+          <div class="waiting-content"><div class="row-main"><strong>{{ currencyCode(order.pair_id) }}</strong><span>{{ instruction(order) }}</span></div><p class="row-detail">触发 {{ order.comparison === 'lte' ? '≤' : '≥' }} {{ priceText(order.trigger_price) }}<span v-if="order.auto_borrow">，借款上限 {{ amountText(order.borrow_limit) }} 金圆券</span></p></div>
           <button type="button" :disabled="submitting" @click="cancel(order)">撤销</button>
         </li>
       </ul>
@@ -147,11 +154,9 @@ onUnmounted(() => { mounted = false; generation++ })
       <p v-if="!loading && !records.length && !loadError" class="order-note">暂无{{ statusNames[resultStatus] }}记录。</p>
       <ul class="result-list">
         <li v-for="order in records" :key="order.id">
-          <div><strong>#{{ order.id }} {{ currency(order.pair_id) }}</strong><span>{{ statusNames[order.status] }}</span></div>
-          <p>{{ instruction(order) }}，触发价 {{ order.comparison === 'lte' ? '≤' : '≥' }} {{ formatFxPrice(order.trigger_price) }}<template v-if="order.observed_trigger_price">，检查时汇率 {{ formatFxPrice(order.observed_trigger_price) }}</template></p>
-          <p v-if="order.status === 'failed'" class="order-error">{{ describeFxOrderFailure(order.failure_reason) }}</p>
-          <p v-if="order.status === 'succeeded'" class="order-note">{{ order.execution_id ? `成交编号 ${order.execution_id}` : `交易编号 ${order.trade_id}` }}，实际投入与所得可在成交记录查看。</p>
-          <small>{{ date(order.finished_at ?? order.created_at) }}</small>
+          <div class="row-main"><strong>{{ currencyCode(order.pair_id) }}</strong><span>{{ instruction(order) }}</span><span class="result-state" :class="{ 'order-error': order.status === 'failed' }">{{ statusNames[order.status] }}</span></div>
+          <div class="row-detail"><span>触发 {{ order.comparison === 'lte' ? '≤' : '≥' }} {{ priceText(order.trigger_price) }}<template v-if="order.observed_trigger_price">，检查 {{ priceText(order.observed_trigger_price) }}</template></span><time :datetime="order.finished_at ?? order.created_at">{{ date(order.finished_at ?? order.created_at) }}</time></div>
+          <p v-if="order.status === 'failed'" class="order-error failure-cause">{{ describeFxOrderFailure(order.failure_reason) }}</p>
         </li>
       </ul>
       <nav class="pagination" aria-label="挂单结果翻页"><button :disabled="loading || !pageCursors.length" @click="previousPage">上一页</button><button :disabled="loading || records.length < PAGE_SIZE" @click="nextPage">下一页</button></nav>
@@ -169,8 +174,9 @@ button { cursor: pointer; } button:disabled { opacity: .4; cursor: not-allowed; 
 :is(button, input, select):focus-visible { outline: 2px solid #000; outline-offset: 3px; }
 .order-heading, .record-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 .order-heading > span { color: #777; } .order-heading > button { margin-left: auto; }
-.order-form { padding-top: 16px; border-bottom: 1px solid #ddd; padding-bottom: 16px; }
-.fill-sentence { line-height: 2.9; } .fill-sentence :is(input, select) { margin: 0 4px; line-height: 1.4; } .fill-sentence input { width: 142px; }
+.order-form { padding-top: 12px; border-bottom: 1px solid #ddd; padding-bottom: 12px; }
+.fill-sentence, .condition-clause, .action-clause, .condition-fields, .action-fields { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fill-sentence { gap: 8px 12px; line-height: 1.5; } .fill-sentence :is(input, select) { line-height: 1.4; } .fill-sentence input { width: 142px; }
 .order-note { color: #777; line-height: 1.7; } .order-form > .order-note { margin-top: 8px; }
 .borrow-field { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
 .borrow-field label { display: flex; align-items: center; gap: 6px; } .borrow-field input[type=number] { width: 142px; }
@@ -178,11 +184,36 @@ button { cursor: pointer; } button:disabled { opacity: .4; cursor: not-allowed; 
 .create-order { background: #000; color: #fff; font-weight: 700; padding: 7px 16px; }
 .order-error { color: var(--color-down, #b52819); line-height: 1.7; }
 .trigger-orders > p { margin-top: 10px; } ul { margin: 0; padding: 0; list-style: none; }
-li { border-bottom: 1px solid #eee; padding: 10px 0; line-height: 1.7; overflow-wrap: anywhere; }
+li { border-bottom: 1px solid #eee; padding: 8px 0; line-height: 1.5; overflow-wrap: anywhere; }
 .waiting-list li { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
 .waiting-list button { flex-shrink: 0; } small { color: #777; font-size: 11px; }
 .record-heading { margin-top: 18px; } .record-heading h3 { margin: 0; } .record-heading select { margin-left: auto; }
-.result-list li > div { display: flex; justify-content: space-between; gap: 12px; } .result-list li > div > span { color: #777; }
+.waiting-content { min-width: 0; }
+.row-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font-variant-numeric: tabular-nums; }
+.row-detail { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; color: #777; font-size: 11px; font-variant-numeric: tabular-nums; }
+.result-state { margin-left: auto; color: #777; white-space: nowrap; } .result-state.order-error { color: var(--color-down, #b52819); }
+.row-detail time { margin-left: auto; white-space: nowrap; } .failure-cause { margin-top: 3px; font-size: 11px; }
 .pagination { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-@media (max-width: 640px) { .trigger-orders { padding: 12px; } .fill-sentence { line-height: 3.7; } button, select, input[type=number] { min-height: 40px; box-sizing: border-box; } input[type=number] { font-size: 16px; } .borrow-field > label:last-of-type { flex-wrap: wrap; } .order-heading { gap: 8px; } .order-heading > span { font-size: 11px; } }
+@media (max-width: 640px) {
+  .trigger-orders { padding: 10px; }
+  button, select, input[type=number] { min-height: 36px; box-sizing: border-box; }
+  input[type=number] { font-size: 16px; }
+  .fill-sentence { display: grid; gap: 8px; }
+  .condition-clause { display: grid; gap: 6px; }
+  .condition-fields { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 6px; }
+  .condition-fields input { width: 100%; min-width: 0; }
+  .action-clause { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+  .action-fields { display: flex; flex-wrap: nowrap; min-width: 0; gap: 6px; }
+  .action-fields input { width: 100%; min-width: 0; flex: 1; }
+  .action-fields select { max-width: 84px; flex-shrink: 0; }
+  .borrow-field { gap: 6px; margin-top: 8px; }
+  .borrow-field > label:last-of-type { flex-wrap: wrap; }
+  .order-heading { gap: 6px; } .order-heading > span { font-size: 11px; }
+  .order-heading > button { padding-inline: 6px; }
+  .submit-row { margin-top: 8px; }
+  .record-heading { margin-top: 14px; }
+  h3 { margin-top: 14px; }
+  .waiting-list li { gap: 8px; }
+  .waiting-list button { padding-inline: 9px; }
+}
 </style>
