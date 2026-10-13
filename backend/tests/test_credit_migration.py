@@ -6,7 +6,7 @@ from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.config import Config
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy import MetaData, Table, create_engine, event, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlmodel import SQLModel
@@ -87,9 +87,9 @@ def exercise_model_constraints(engine):
 
 def test_models_constraints_and_populated_downgrade_retains_all_tables(baseline):
     # This case tests the frozen baseline guard; the incremental guard is below.
+    exercise_model_constraints(baseline)
     with baseline.begin() as connection:
         migrate(connection, BASELINE_REVISION, downgrade=True)
-    exercise_model_constraints(baseline)
     with baseline.begin() as connection:
         tables = set(inspect(connection).get_table_names())
         installed = connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one()
@@ -166,7 +166,8 @@ async def test_future_incremental_upgrade_preserves_data_and_startup_boundary(tm
             def install(c):
                 cfg.attributes['connection'] = c
                 command.upgrade(cfg, BASELINE_REVISION)
-                c.execute(User.__table__.insert().values(username='retained', cash=42))
+                c.execute(text('INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt) '
+                               "VALUES ('retained', 1, 0, 0, 42, 0)"))
             await connection.run_sync(install)
             assert await connection.run_sync(classify_schema) == 'upgradeable'
         with pytest.raises(RuntimeError, match='upgrade required'):
@@ -210,7 +211,9 @@ def test_trigger_order_upgrade_constraints_and_history_downgrade(tmp_path):
     def fks(conn, _): conn.execute('PRAGMA foreign_keys=ON')
     with engine.begin() as c:
         migrate(c, BASELINE_REVISION)
-        c.execute(User.__table__.insert().values(id=1, username='kept', cash=42))
+        frozen_user = Table('user', MetaData(), autoload_with=c)
+        c.execute(frozen_user.insert().values(id=1, username='kept', cash=42,
+            debt=0, is_active=True, is_superuser=False, is_bot=False))
         c.execute(FxPair.__table__.insert().values(id=1, currency_code='T', currency_name='T'))
         c.execute(FxWallet.__table__.insert().values(user_id=1, pair_id=1, foreign_amount=5, cost_basis=4))
         c.execute(FxExecution.__table__.insert().values(id=1, user_id=1, pair_id=1,
@@ -220,9 +223,9 @@ def test_trigger_order_upgrade_constraints_and_history_downgrade(tmp_path):
             pre_gold_reserve=10, pre_foreign_reserve=10, post_gold_reserve=12,
             post_foreign_reserve=9, post_price=1))
         retained = {table.name: c.execute(select(table)).all()
-                    for table in (User.__table__, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__)}
+                    for table in (frozen_user, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__)}
         migrate(c, 'fx_trigger_orders_20261014')
-        for table in (User.__table__, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__):
+        for table in (frozen_user, FxWallet.__table__, FxExecution.__table__, FxTrade.__table__):
             assert c.execute(select(table)).all() == retained[table.name]
         assert c.execute(select(User.cash)).scalar_one() == 42
         values = dict(user_id=1, pair_id=1, comparison='lte', trigger_price=1,
@@ -243,3 +246,24 @@ def test_trigger_order_upgrade_constraints_and_history_downgrade(tmp_path):
         assert 'fx_trigger_order' not in inspect(c).get_table_names()
         assert c.execute(select(User.cash)).scalar_one() == 42
     engine.dispose()
+
+
+def test_auto_repay_upgrade_preserves_money_and_downgrade(baseline):
+    previous = 'fx_trigger_orders_20261014'
+    with baseline.begin() as c:
+        migrate(c, previous, downgrade=True)
+        c.execute(text('INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt) '
+                       "VALUES ('existing', 1, 0, 0, 42, 12)"))
+        migrate(c, 'account_auto_repay_20261014')
+        assert c.execute(text('SELECT cash, debt, auto_repay FROM "user"')).one() == (42, 12, 1)
+        assert next(col for col in inspect(c).get_columns('user') if col['name'] == 'auto_repay')['nullable'] is False
+        with pytest.raises(IntegrityError):
+            with c.begin_nested():
+                c.execute(text('UPDATE "user" SET auto_repay = NULL'))
+        c.execute(text('UPDATE "user" SET auto_repay = 0'))
+        c.execute(text('INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt) '
+                       "VALUES ('new', 1, 0, 0, 5, 0)"))
+        assert c.execute(text("SELECT auto_repay FROM \"user\" WHERE username = 'new'")).scalar_one() == 1
+        migrate(c, previous, downgrade=True)
+        assert 'auto_repay' not in {col['name'] for col in inspect(c).get_columns('user')}
+        assert c.execute(text('SELECT username, cash, debt FROM "user" ORDER BY id')).all() == [('existing', 42, 12), ('new', 5, 0)]

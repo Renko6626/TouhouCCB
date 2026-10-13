@@ -268,3 +268,26 @@ async def test_scheduler_stop_waits_for_current_scan(monkeypatch):
     await stopping
     await tick
     assert order_scheduler._scheduler is None
+
+
+@pytest.mark.parametrize("auto_repay", [True, False])
+async def test_close_long_reads_account_repayment_setting_at_execution(auto_repay):
+    from app.models.base import User
+    from app.models.fx import FxTrade
+    from sqlalchemy import select
+    from app.services.fx.orders import attempt_order
+    from app.api.v1.user import AutoRepaySetting, update_auto_repay
+
+    uid, pid = await _seed(wallet_foreign='100', debt='50')
+    order = await _order(uid, pid, action='close_long', amount=None, close_percent=D('100'))
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.auto_repay is True
+        await update_auto_repay(AutoRepaySetting(auto_repay=auto_repay), user=user, db=db)
+    result = await attempt_order(order.id, D('1'))
+    assert result.status == 'succeeded'
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        trade = (await db.execute(select(FxTrade))).scalar_one()
+        assert user.debt == (0 if auto_repay else 50)
+        assert user.cash == 1000 + trade.output_amount - (50 if auto_repay else 0)

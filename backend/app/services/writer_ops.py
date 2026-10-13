@@ -96,7 +96,7 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
 async def repay_sale_proceeds(session, user, net):
     """Record the sale first, then atomically repay its proceeds; no risk admission."""
     from app.services.credit.flags import get_flags
-    if user.debt <= ZERO or net <= ZERO:
+    if not user.auto_repay or user.debt <= ZERO or net <= ZERO:
         return
     from app.services import loan_service, ledger_service
     rate = await site_config.get_decimal_or(session, "loan_daily_rate", ZERO)

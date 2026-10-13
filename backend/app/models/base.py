@@ -51,6 +51,9 @@ class User(SQLModel, table=True):
     # site_config.initial_balance 显式赋值（见 api/v1/auth.py）。
     cash: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
     debt: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6))
+    auto_repay: bool = Field(
+        default=True, nullable=False, sa_column_kwargs={"server_default": text("true")},
+    )
 
     # LoanV1 — 上次利息结算时间；debt=0 时为 None
     debt_last_accrued_at: Optional[datetime] = Field(

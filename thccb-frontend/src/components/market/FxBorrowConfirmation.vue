@@ -16,6 +16,7 @@ watch(
 </script>
 <template>
   <NModal
+    v-if="details"
     :show="!!details"
     @update:show="
       (value) => {
@@ -23,8 +24,7 @@ watch(
       }
     "
   >
-    <section
-      v-if="details"
+    <div
       class="borrow-confirmation"
       role="dialog"
       aria-modal="true"
@@ -96,7 +96,7 @@ watch(
           {{ details.kind === 'long' ? '确认借款并买入' : '确认借币并做空' }}
         </button>
       </div>
-    </section>
+    </div>
   </NModal>
 </template>
 <style scoped>

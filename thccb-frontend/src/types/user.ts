@@ -3,6 +3,7 @@
 import type { TitleChip } from '@/api/title'
 
 export interface User {
+  auto_repay?: boolean
   id: number
   email: string
   username: string
@@ -45,6 +46,7 @@ export interface AccountShortPosition {
 }
 
 export interface UserSummary {
+  auto_repay?: boolean
   available_cash?: string | null
   restricted_cash?: string
   short_positions?: AccountShortPosition[]

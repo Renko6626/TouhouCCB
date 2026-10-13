@@ -103,7 +103,7 @@ export function previewLmsrOrder(account: AccountBasis, groups: PricingGroup[], 
   const accrued = accrueTradingDebt(account.debt, clock, rules.loan_daily_rate, now)
   if (side === 'buy') cash -= net
   else {
-    const repaid = units(accrued.amount) < net ? units(accrued.amount) : net
+    const repaid = account.auto_repay !== false ? (units(accrued.amount) < net ? units(accrued.amount) : net) : 0n
     cash += net - repaid; debt = formatUnits(units(accrued.amount) - repaid)
     if (repaid > 0n || units(accrued.amount) > units(account.debt)) clock = debt === '0.000000' ? null : new Date(now).toISOString()
   }

@@ -306,6 +306,7 @@ async def get_me(user: User = Depends(current_active_user)):
         "is_active": user.is_active,
         "cash": user.cash,
         "debt": user.debt,
+        "auto_repay": user.auto_repay,
         "tos_accepted_at": user.tos_accepted_at,
     }
 

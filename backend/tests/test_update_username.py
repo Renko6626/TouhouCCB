@@ -115,3 +115,39 @@ async def test_update_username_requires_auth(client):
         json={"username": "anon"},
     )
     assert resp.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_auto_repay_saves_own_account_and_publishes_refresh(client, monkeypatch):
+    from app.services import account_events
+    uid, headers = await _seed_user()
+    other_id, _ = await _seed_user()
+    hints = []
+    monkeypatch.setattr(account_events, "enqueue_account_change", lambda *args: hints.append(args))
+    response = await client.patch("/api/v1/user/me/auto-repay", headers=headers,
+                                  json={"auto_repay": False})
+    assert response.status_code == 200, response.text
+    assert response.json() == {"auto_repay": False}
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.auto_repay is False and user.economic_version == 1
+        assert (await db.get(User, other_id)).auto_repay is True
+    assert hints == [(uid, 1, "auto_repay")]
+    assert (await client.get("/api/v1/auth/me", headers=headers)).json()["auto_repay"] is False
+    assert (await client.get("/api/v1/user/summary", headers=headers)).json()["auto_repay"] is False
+    assert (await client.get("/api/v1/user/trading-context", headers=headers)).json()["account"]["auto_repay"] is False
+    hints.clear()
+    response = await client.patch("/api/v1/user/me/auto-repay", headers=headers,
+                                  json={"auto_repay": False})
+    assert response.status_code == 200 and hints == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["false", 0, None])
+async def test_auto_repay_rejects_non_boolean(client, value):
+    uid, headers = await _seed_user()
+    response = await client.patch("/api/v1/user/me/auto-repay", headers=headers,
+                                  json={"auto_repay": value})
+    assert response.status_code == 422
+    async with async_session_maker() as db:
+        assert (await db.get(User, uid)).auto_repay is True

@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -105,6 +105,7 @@ async def get_user_summary(
         **credit_fields,
         "cash": quantize_cost(user.cash),   # 6dp——客户端 cash 基线
         "debt": quantize_cost(user.debt),
+        "auto_repay": user.auto_repay,
         "fx_mtm": quantize_cost(fx_mtm),
         "fx_cost_basis": quantize_cost(fx_cost_basis),
         "fx_unrealized_pnl": quantize_cost(fx_mtm - fx_cost_basis),
@@ -242,3 +243,27 @@ async def update_my_username(
         user.id, old_name, new_name,
     )
     return {"username": new_name, "changed": True}
+
+
+class AutoRepaySetting(BaseModel):
+    auto_repay: StrictBool
+
+
+@router.patch("/me/auto-repay", response_model=AutoRepaySetting, summary="设置自动还债")
+async def update_auto_repay(
+    req: AutoRepaySetting,
+    user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.services.market_locks import lock_user
+    from app.services.credit.ownership import OWNERSHIP
+    from app.services.credit.version import bump_economic_version
+    from app.services.account_events import notifying_transaction
+
+    async with notifying_transaction(db, managed_transaction(db), "auto_repay"):
+        locked = await lock_user(db, user.id)
+        OWNERSHIP.require_writes()
+        if locked.auto_repay != req.auto_repay:
+            locked.auto_repay = req.auto_repay
+            bump_economic_version(locked)
+    return {"auto_repay": req.auto_repay}

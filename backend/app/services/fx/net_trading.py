@@ -89,7 +89,7 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
             holdings -= own
             if cash + q.output_amount > MAX:
                 block('trade exceeds storage limit')
-            repaid = min(debt, q.output_amount)
+            repaid = min(debt, q.output_amount) if user.auto_repay else ZERO
             cash += q.output_amount - repaid
             debt -= repaid
         residual = req.amount - own

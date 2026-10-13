@@ -2,14 +2,18 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import type { User } from '@/types/api'
 import { authApi } from '@/api/auth'
+import { userApi } from '@/api/user'
+import { authIdentityGuard } from '@/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const accessToken = ref<string | null>(localStorage.getItem('access_token'))
   const refreshToken = ref<string | null>(localStorage.getItem('refresh_token'))
 
+  const autoRepaySaving = ref(false)
+  const autoRepay = computed(() => user.value?.auto_repay !== false)
   const sessionGeneration = ref(0)
-  watch(() => [user.value?.id, refreshToken.value], () => { sessionGeneration.value++ }, { flush: 'sync' })
+  watch(() => [user.value?.id, refreshToken.value], () => { sessionGeneration.value++; autoRepaySaving.value = false }, { flush: 'sync' })
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const isAdmin = computed(() => user.value?.is_superuser ?? false)
@@ -25,6 +29,7 @@ export const useAuthStore = defineStore('auth', () => {
   if (stored) {
     try {
       user.value = JSON.parse(stored)
+      if (user.value && user.value.auto_repay === undefined) user.value.auto_repay = true
     } catch (e) {
       console.warn('[Auth] localStorage 中的用户数据解析失败，已清除:', e)
       localStorage.removeItem('user')
@@ -40,7 +45,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const current = await authApi.getCurrentUser()
       if (generation !== sessionGeneration.value) return null
-      user.value = current
+      user.value = { ...current, auto_repay: current.auto_repay ?? true }
       localStorage.setItem('user', JSON.stringify(user.value))
       return user.value
     } catch (err: any) {
@@ -107,8 +112,24 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  const setAutoRepay = async (enabled: boolean) => {
+    if (!user.value || autoRepaySaving.value) return false
+    const valid = authIdentityGuard()
+    autoRepaySaving.value = true
+    try {
+      const result = await userApi.setAutoRepay(enabled)
+      if (!valid() || !user.value) return false
+      user.value.auto_repay = result.auto_repay
+      try { localStorage.setItem('user', JSON.stringify(user.value)) } catch { /* Server setting remains authoritative. */ }
+      return true
+    } finally { if (valid()) autoRepaySaving.value = false }
+  }
+
   return {
     user,
+    autoRepay,
+    autoRepaySaving,
+    setAutoRepay,
     sessionGeneration,
     accessToken,
     refreshToken,

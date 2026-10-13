@@ -127,3 +127,14 @@ it('uses complete-q writer proceeds for saturated hypothetical sale cash and deb
   expect(buy.gross).toBe('0.693147')
   expect(buy.account_after.cash).toBe('1999.306853')
 })
+
+it('keeps LMSR sale proceeds in cash without repaying debt when the account setting is disabled', () => {
+  const group = lmsr(['1000', '0'], 1)
+  const a = { ...account, auto_repay: false, cash: '0', debt: '100', lmsr_positions: [{ market_id: 1, outcome_id: 1, amount: '1000', cost_basis: '10' }] }
+  const sale = previewLmsrOrder(a, [group], { ...rules, lmsr_sell_fee_rate: '0' }, 1, 1, 'sell', '1000', now)
+  expect(sale.gross).toBe('999.306853')
+  expect(sale.account_after.cash).toBe('999.306853')
+  expect(sale.account_after.debt).toBe('100.000000')
+  expect(sale.account_preview.display_equity).toBe('899.306853')
+  expect(sale.account_preview.liquidation_equity).toBe('899.306853')
+})

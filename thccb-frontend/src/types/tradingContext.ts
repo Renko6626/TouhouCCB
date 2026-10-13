@@ -19,6 +19,7 @@ export interface FxShortBasis {
   interest_last_accrued_at: string | null; restricted_gold: string; proceeds_basis_gold: string
 }
 export interface AccountBasis {
+  auto_repay?: boolean
   user_id: number; economic_version: string; cash: string; debt: string; debt_last_accrued_at: string | null
   credit_frozen: boolean; is_active: boolean; is_bot: boolean; tos_accepted_at: string | null
   last_liquidated_at: string | null; lmsr_positions: LmsrPosition[]; fx_wallets: FxWalletBasis[]; fx_shorts: FxShortBasis[]

@@ -31,7 +31,7 @@ from app.services.config_seed import DEFAULT_CONFIGS, resolve_credit_config
 FORMAT = "business-reset-v1"
 TITLES = ("title", "user_title", "title_code_batch", "title_code")
 FIELDS = {
-    "user": "id casdoor_id username email is_active is_superuser is_bot cash debt debt_last_accrued_at tos_accepted_at last_liquidated_at economic_version credit_frozen equipped_title_id".split(),
+    "user": "id casdoor_id username email is_active is_superuser is_bot cash debt auto_repay debt_last_accrued_at tos_accepted_at last_liquidated_at economic_version credit_frozen equipped_title_id".split(),
     "title": "id name description color icon sort_order is_active created_at".split(),
     "user_title": "id user_id title_id granted_at granted_by_admin_id source".split(),
     "title_code_batch": "id title_id name description created_at created_by_admin_id".split(),
@@ -193,7 +193,7 @@ def _export(conn, expected):
         raise ValueError("Missing title dependency identity")
     rows["user"] = [users[i].copy() for i in sorted(needed)]
     for u in rows["user"]:
-        if any(type(u[k]) is not bool for k in ("is_active", "is_superuser", "credit_frozen")):
+        if any(type(u[k]) is not bool for k in ("is_active", "is_superuser", "credit_frozen", "auto_repay")):
             raise ValueError("Invalid account status")
         _amount(u["cash"])
         _amount(u["debt"])
