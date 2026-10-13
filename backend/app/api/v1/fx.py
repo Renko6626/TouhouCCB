@@ -15,7 +15,7 @@ from app.models.fx import FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
     FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyResponse,
     FxNetQuote, FxNetQuoteRequest, FxNetTradeRequest, FxNetTradeResponse,
-    FxPairPublic,
+    FxPairPublic, FxTriggerOrderCreate, FxTriggerOrderRead,
     FxPersonalTrade,
     FxQuote,
     FxQuoteRequest,
@@ -30,7 +30,7 @@ from app.schemas.fx import (
     FxTradeRequest,
     FxWalletPublic,
 )
-from app.services.fx import borrow_buy, net_trading, shorts, trading
+from app.services.fx import borrow_buy, net_trading, orders, shorts, trading
 
 router = APIRouter()
 
@@ -269,3 +269,23 @@ async def trade_net(pair_id: int, req: FxNetTradeRequest,
     except trading.TradeRejected as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/orders", response_model=FxTriggerOrderRead)
+async def create_trigger_order(req: FxTriggerOrderCreate, user: User = Depends(current_active_user),
+                               db: AsyncSession = Depends(get_async_session)):
+    return await orders.create_order(db, user.id, req)
+
+
+@router.get("/orders", response_model=list[FxTriggerOrderRead])
+async def list_trigger_orders(status: str | None = None, before_id: int | None = Query(None, gt=0),
+                              limit: int = Query(50, ge=1, le=100),
+                              user: User = Depends(current_active_user),
+                              db: AsyncSession = Depends(get_async_session)):
+    return await orders.list_orders(db, user.id, status=status, before_id=before_id, limit=limit)
+
+
+@router.post("/orders/{order_id}/cancel", response_model=FxTriggerOrderRead)
+async def cancel_trigger_order(order_id: int, user: User = Depends(current_active_user),
+                               db: AsyncSession = Depends(get_async_session)):
+    return await orders.cancel_order(db, user.id, order_id)
