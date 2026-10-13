@@ -42,6 +42,7 @@ import type {
   FxPublicEnvelope,
   FxEventTick,
   FxHoldingPriceLine,
+  FxTriggerOrder,
 } from '@/types/fx'
 import {
   FxCandleEngine,
@@ -74,6 +75,8 @@ const props = withDefaults(
     height?: string
     /** 当前持仓平均成本参考，与实时成交和 MA 数据独立。 */
     holdingPriceLines?: FxHoldingPriceLine[]
+    /** Private waiting-order trigger references; do not affect autoscale. */
+    triggerOrders?: readonly FxTriggerOrder[]
   }>(),
   {
     interval: '1m',
@@ -81,6 +84,7 @@ const props = withDefaults(
     reloadToken: 0,
     height: '100%',
     holdingPriceLines: () => [],
+    triggerOrders: () => [],
   },
 )
 
@@ -143,6 +147,32 @@ const syncHoldingLines = () => {
   }
   // Recalculate automatic scale without changing the user's time range.
   candleSeries.applyOptions({})
+}
+const orderLineHandles = new Map<number, IPriceLine>()
+const orderLines = computed(() => props.triggerOrders
+  .map(order => ({ ...order, value: Number(order.trigger_price) }))
+  .filter(order => Number.isFinite(order.value) && order.value > 0))
+const syncOrderLines = () => {
+  if (!candleSeries) return
+  const desired = new Map(orderLines.value.map(order => [order.id, order]))
+  for (const [id, handle] of orderLineHandles) {
+    if (!desired.has(id)) { candleSeries.removePriceLine(handle); orderLineHandles.delete(id) }
+  }
+  const palette = getPalette()
+  const names = { buy: '买', sell: '卖', close_long: '平多', close_short: '平空' }
+  for (const order of desired.values()) {
+    const options = {
+      price: order.value,
+      color: order.action === 'buy' ? palette.up : order.action === 'sell' ? palette.down : '#777',
+      lineWidth: 1 as const,
+      lineStyle: LineStyle.Dotted,
+      axisLabelVisible: true,
+      title: `${names[order.action]}${order.comparison === 'lte' ? '≤' : '≥'}`,
+    }
+    const handle = orderLineHandles.get(order.id)
+    if (handle) handle.applyOptions(options)
+    else orderLineHandles.set(order.id, candleSeries.createPriceLine(options))
+  }
 }
 const maSeries: Record<number, ISeriesApi<'Line', Time> | null> = {}
 
@@ -649,6 +679,7 @@ const initChart = () => {
   })
   lastPricePrecision = fxPricePrecision(1).precision
   syncHoldingLines()
+  syncOrderLines()
 
   for (const period of FX_MA_PERIODS) {
     maSeries[period] = chartInstance.addSeries(LineSeries, {
@@ -741,6 +772,7 @@ watch(
 )
 
 watch(holdingLines, syncHoldingLines, { flush: 'sync' })
+watch(orderLines, syncOrderLines, { flush: 'sync' })
 
 watch(
   () => [props.pairId, props.interval],
@@ -793,6 +825,7 @@ onUnmounted(() => {
   }
   candleSeries = null
   holdingLineHandles.clear()
+  orderLineHandles.clear()
   volumeSeries = null
   for (const period of FX_MA_PERIODS) maSeries[period] = null
 })

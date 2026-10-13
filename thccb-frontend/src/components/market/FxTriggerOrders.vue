@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, readonly, ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
 import { authIdentityGuard } from '@/api'
 import { describeFxOrderFailure, formatFxAmount, formatFxPrice, fxApi, mapFxOrderError } from '@/api/fx'
@@ -8,6 +8,7 @@ import { useTradingSessionStore } from '@/stores/tradingSession'
 import type { FxPairPublic, FxTriggerAction, FxTriggerOrder, FxTriggerStatus } from '@/types/fx'
 
 const props = defineProps<{ pairId: number }>()
+const emit = defineEmits<{ 'waiting-change': [orders: readonly FxTriggerOrder[]] }>()
 const show = ref(false)
 function open() { show.value = true; void load() }
 const auth = useAuthStore(), session = useTradingSessionStore()
@@ -98,6 +99,7 @@ async function cancel(order: FxTriggerOrder) {
     if (mounted && valid()) formError.value = mapFxOrderError(error, '撤销失败，请刷新挂单记录后重试')
   } finally { if (mounted && valid()) submitting.value = false }
 }
+watch(waiting, orders => emit('waiting-change', readonly(orders)), { flush: 'sync', immediate: true })
 watch(() => auth.sessionGeneration, () => {
   show.value = false
   generation++; waiting.value = []; records.value = []; pairs.value = []; waitingLoaded.value = false
@@ -107,7 +109,7 @@ watch(() => auth.sessionGeneration, () => {
 watch(() => props.pairId, () => { triggerPrice.value = ''; amount.value = ''; confirmation.value = ''; formError.value = '' })
 watch(resultStatus, () => { resetPage(); void load() })
 watch(() => session.lastOrderResult, result => { if (result) { resetPage(); void load() } })
-onUnmounted(() => { mounted = false; generation++ })
+onUnmounted(() => { mounted = false; generation++; emit('waiting-change', []) })
 </script>
 
 <template>
