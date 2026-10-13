@@ -57,7 +57,10 @@ cleanup() {
     if [ "$VERIFY_CREATED" = 1 ]; then pg dropdb -U thccb --if-exists "$VERIFY" >/dev/null 2>&1 || true; fi
     if [ "$code" != 0 ]; then
         if [ "$OWNER_STARTED" = 1 ]; then
-            log "Owner was started: no automatic rollback. Preserve databases and $BACKUP; inspect stage before recovery."
+            if ! newcompose stop backend >/dev/null 2>&1; then
+                log 'Failed to stop the new owner; explicit operator stop required.' >&2
+            fi
+            log "Owner start was attempted: new backend stopped if possible; no automatic rollback. Preserve both databases, new data and $BACKUP; inspect stage before recovery."
         elif [ "$CUTOVER" = 1 ]; then
             newcompose stop backend >/dev/null 2>&1 || true
             log "Cutover attempted: backend stays stopped. Retain databases $OLD/$TARGET/thccb and $BACKUP; explicit recovery required."

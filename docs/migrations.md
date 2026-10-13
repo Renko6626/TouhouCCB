@@ -70,18 +70,12 @@ alembic 自身是同步驱动，但 app 跑的是 async 驱动。`alembic/env.py
 如果你换了 driver 前缀，记得同步改 env.py。
 sync 驱动需要单独装（生产 Postgres 环境需要 `psycopg2` / `psycopg2-binary`）。
 
-## 与 init_db.py 的关系
+## 空库初始化与普通部署
 
-`backend/init_db.py` 走 `SQLModel.metadata.create_all` 一次性建出当前全部表，并自动
-`alembic stamp head`（绕过逐个 migration）。用于**从零起一个空库**。
+当前 baseline 是冻结的完整 DDL。空数据库通过 `alembic upgrade head` 实际建立 schema；后续 schema 修改继续增加增量 revision。运行时模型不承担建表，不能使用 `create_all` 加 `stamp head` 跳过迁移。
 
-部署脚本 `deploy/deploy.sh` 据此自适应（以 `user` 表是否存在为判据）：
+`deploy/deploy.sh` 在停写前使用当前 schema 分类器检查数据库：真正空库和当前迁移链可升级的库继续部署，旧 revision、未知 schema 或缺失 revision 的非空库拒绝普通部署。获准后在停写与备份完成的阶段统一执行 `alembic upgrade head`，不以是否存在 `user` 表判断，也不向初始化脚本输入 `YES`。
 
-- **空库** → 跑 `init_db.py` 建表 + stamp head
-- **已有库** → 跑 `alembic upgrade head` 应用增量 migration
-
-所以无论 dev 还是 prod，空库首次都经 `init_db.py` 建 schema；此后的 schema 变更一律走
-alembic。手动起空库时 `init_db.py` 有 `YES` 交互确认（CI / deploy.sh 用
-`echo YES | ... -T` 绕过）。
+`backend/init_db.py` 是空库入口，同样先通过分类器确认完全空库，再执行真实 Alembic upgrade。已有库拒绝初始化；开发环境随后创建示例市场，生产环境只建立 schema。应用启动验证安装 revision 与当前代码相容，不自动建表或修补旧 schema。
 
 业务重置使用独立空目标实际升级新基线，旧 schema 不走普通升级；入口与恢复边界见[业务重置操作单](business-reset.md)。

@@ -143,7 +143,7 @@ def test_cutover_failure_preserves_both_databases_and_stops_backend(runner,failu
 
 def test_owner_health_failure_never_rolls_back_or_deletes_old(runner):
     result,state,_=runner(failure='owner-health')
-    assert result.returncode!=0 and state['owner'] and state['running']
+    assert result.returncode!=0 and state['owner'] and not state['running']
     assert set(state['databases'])=={'thccb','thccb_before_123'}
     assert 'restart-old' not in state['events']
 
