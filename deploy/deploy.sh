@@ -13,7 +13,7 @@ PROJECT_ROOT="$(pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backups"
 HEALTH_URL="http://127.0.0.1:8004/api/v1/market/list"
 HEALTH_TIMEOUT=10
-# 20×3s=60s 窗口：给冷启动期（init_db + seed_current_config + admin setup + APS）留余地
+# 20×3s=60s 窗口：给冷启动期（schema check + seed_current_config + admin setup + APS）留余地
 HEALTH_RETRIES=20
 BACKEND_STOPPED=0
 SCHEMA_ATTEMPTED=0
@@ -86,7 +86,7 @@ docker compose pull backend
 
 # 以应用实际连接串为准；DATABASE_URL 会覆盖 DB_BACKEND。部署脚本的备份和
 # schema 检查只支持本 compose 的固定 PG 库或默认挂载的 SQLite 文件。
-# 其它目标必须另备对应的安全部署流程，绝不能查错库后调用 init_db。
+# 其它目标必须另备对应的安全部署流程，绝不能查错库后执行迁移。
 DB_BACKEND=$(docker compose run --rm --no-deps -T backend python - <<'PY' | tail -n 1
 from pathlib import Path
 from sqlalchemy.engine import make_url
@@ -114,14 +114,6 @@ case "$DB_BACKEND" in
 esac
 
 # ── 2. 起 postgres、停 backend 写入口并制作可恢复备份 ──
-# 历史背景：alembic baseline migration `6ea6f84ae44e` 是 stamp-only ("baseline empty
-# stamp existing dbs")，假设 schema 已经存在 (历史上 init_db.create_all 先建过表)。
-# 直接在空 PG 上跑 `alembic upgrade head` 会在第二个 migration 翻车——它 ALTER TABLE
-# transaction 但 baseline 没建表。所以 deploy 必须自适应：
-#   - 空 PG → 用 init_db.py 建 schema (SQLModel.metadata.create_all) + 自动 stamp head
-#   - 已有 PG → 正常 alembic upgrade head 跑增量 migration
-# init_db.py 有 input("YES") 交互，echo + -T 绕过；它在生产模式跳过示例数据。
-# 迁移前失败会重启旧容器；迁移开始后失败保持 backend 停止，等待显式恢复。
 log "[2/5] Preparing database and stopping economic writers..."
 docker compose up -d postgres
 for i in $(seq 1 15); do
@@ -133,17 +125,12 @@ for i in $(seq 1 15); do
     [ "$i" = "15" ] && fail "Postgres did not become ready"
 done
 
-# Refuse cleanup migrations against the legacy source before stopping writers.
-log "  Checking FX database rebuild requirement..."
-docker compose run --rm --no-deps -T backend python scripts/check_fx_rebuild_deploy.py
-
-# Only the first rollout requires the opening gate to be closed. Perform the
-# read-only preflight before stopping the serving backend, and preserve an
-# already-enabled gate during routine updates (including later migrations).
-FX_SHORT_ROLLOUT=$(docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py | tail -n 1)
-case "$FX_SHORT_ROLLOUT" in
-    initial|existing) log "  FX short rollout: $FX_SHORT_ROLLOUT" ;;
-    *) fail "Could not determine FX short rollout state" ;;
+# Read-only classification happens before the serving writer is stopped.
+log "  Checking supported business schema..."
+SCHEMA_STATE=$(docker compose run --rm --no-deps -T backend python -m app.core.schema | tail -n 1)
+case "$SCHEMA_STATE" in
+    empty|upgradeable) log "  Schema: $SCHEMA_STATE" ;;
+    *) fail "Unsupported schema; use the approved business reset procedure" ;;
 esac
 
 if [ -n "$(docker compose ps --status running -q backend)" ]; then
@@ -183,33 +170,9 @@ fi
 
 # ── 3. 停写状态下迁移 schema ──
 log "[3/5] Migrating schema while backend writers are stopped..."
-if [ "$DB_BACKEND" = "postgres" ]; then
-    SCHEMA_EXISTS=$(docker compose exec -T postgres psql -U thccb -d thccb -tAc \
-        "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='user' LIMIT 1;")
-    TABLE_COUNT=$(docker compose exec -T postgres psql -U thccb -d thccb -tAc \
-        "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';")
-    if [ -z "$SCHEMA_EXISTS" ] && [ "$TABLE_COUNT" != 0 ]; then
-        fail "Partial database schema detected; refusing init_db bootstrap"
-    fi
-else
-    SCHEMA_EXISTS=''
-    [ -f "$DB_PATH" ] && SCHEMA_EXISTS=1
-fi
+SCHEMA_ATTEMPTED=1
+docker compose run --rm --no-deps -T backend alembic upgrade head
 
-if [ -z "$SCHEMA_EXISTS" ]; then
-    log "  Empty DB detected → bootstrapping schema via init_db.py (auto stamp head)"
-    SCHEMA_ATTEMPTED=1
-    echo "YES" | docker compose run --rm --no-deps -T backend python init_db.py
-else
-    log "  Existing schema detected → running alembic upgrade head"
-    SCHEMA_ATTEMPTED=1
-    docker compose run --rm --no-deps -T backend alembic upgrade head
-fi
-
-if [ "$FX_SHORT_ROLLOUT" = "initial" ]; then
-    # Stop any preflight-to-stop race from enabling opening during first rollout.
-    docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py --require-closed
-fi
 log "  Verifying audit replay against the stopped database..."
 docker compose run --rm --no-deps -T backend python scripts/audit_verify.py
 

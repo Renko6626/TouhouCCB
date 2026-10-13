@@ -3,17 +3,14 @@
 - 方言断言 + ``SELECT ... FOR UPDATE`` 冒烟（锁语义只有真 PG 才说明问题）
 - 新列 server_default（老行升级后不需要回填）
 - ``uq_liquidation_run_active_user`` 部分唯一索引在 PG 上真正生效
-- 历史 credit foundation revision 在 PG 上往返后恢复其 schema 与约束
 """
 from __future__ import annotations
 
-import importlib.util
 from datetime import datetime, timezone
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect, select, text
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.models.base import User
@@ -23,71 +20,8 @@ from app.models.fx import FxPair
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 
 
-def _load_revision():
-    path = next(Path(__file__).parents[2].glob("alembic/versions/*credit_foundation_*.py"))
-    spec = importlib.util.spec_from_file_location("credit_foundation_migration", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
-def _assert_credit_foundation_schema(conn):
-    """Verify the historical revision's contract independently of later model additions."""
-    inspector = inspect(conn)
-    for table, columns in {
-        "user": {"economic_version", "credit_frozen"},
-        "fx_pair": {"reduce_only"},
-        "liquidation_events": {"run_id", "product"},
-        "liquidation_run": {
-            "id", "user_id", "status", "trigger_source", "started_at", "updated_at",
-            "next_round", "rounds", "last_group_product", "last_group_id",
-            "last_blocked_reason", "closed_at", "pre_cash", "pre_debt",
-            "pre_liquidation_equity", "total_proceeds", "total_repaid", "total_fee",
-        },
-        "liquidation_action": {
-            "id", "run_id", "user_id", "round_no", "kind", "product", "group_id",
-            "mode", "requested", "executed", "proceeds", "fee", "fee_currency",
-            "repaid", "debt_after", "cash_after", "economic_version_after",
-            "blocked_reason", "created_at",
-        },
-    }.items():
-        actual = {c["name"] for c in inspector.get_columns(table)}
-        if table in {"liquidation_run", "liquidation_action"}:
-            assert columns == actual, table
-        else:
-            assert columns <= actual, table
-
-    for table, names in {
-        "user": {"economic_version", "credit_frozen"},
-        "fx_pair": {"reduce_only"},
-    }.items():
-        columns = {c["name"]: c for c in inspector.get_columns(table)}
-        for name in names:
-            assert columns[name]["nullable"] is False
-            assert columns[name]["default"] is not None
-
-    active = next(i for i in inspector.get_indexes("liquidation_run")
-                  if i["name"] == "uq_liquidation_run_active_user")
-    assert active["unique"]
-    assert active["column_names"] == ["user_id"]
-    predicate = active["dialect_options"][f"{conn.dialect.name}_where"]
-    assert "status" in str(predicate) and "'active'" in str(predicate)
-    unique = inspector.get_unique_constraints("liquidation_action")
-    assert any(c["column_names"] == ["run_id", "round_no"] for c in unique)
-    for table, names in {
-        "liquidation_run": {"ck_liquidation_run_status"},
-        "liquidation_action": {"ck_liquidation_action_kind", "ck_liquidation_action_fee_currency"},
-    }.items():
-        assert names <= {c["name"] for c in inspector.get_check_constraints(table)}
-    for table, column, target, ondelete in [
-        ("liquidation_events", "run_id", "liquidation_run", "SET NULL"),
-        ("liquidation_action", "run_id", "liquidation_run", "CASCADE"),
-    ]:
-        fk = next(f for f in inspector.get_foreign_keys(table)
-                  if f["constrained_columns"] == [column])
-        assert fk["referred_table"] == target
-        assert fk["referred_columns"] == ["id"]
-        assert fk["options"].get("ondelete") == ondelete
 
 
 async def test_dialect_and_select_user_for_update_smoke(pg_engine, pg_sessionmaker):
@@ -181,33 +115,30 @@ async def test_partial_unique_index_allows_one_active_run_per_user(pg_sessionmak
         assert sorted(r.status for r in runs) == ["active", "blocked", "recovered"]
 
 
-async def test_migration_roundtrip_on_pg_restores_credit_schema(pg_engine):
-    """历史 revision 只负责自己的 schema；后续模型扩展不改变此契约。"""
-    from alembic.migration import MigrationContext
-    from alembic.operations import Operations
 
-    revision = _load_revision()
+async def test_real_baseline_roundtrip_models_and_data_loss_guard(pg_engine):
+    """Freeze DDL works through standard shared connection on real PostgreSQL."""
+    from tests.test_credit_migration import migrate, assert_schema, exercise_model_constraints
+    from app.core.schema import classify_schema, require_schema_current
+    from sqlmodel import SQLModel
+    from sqlalchemy import inspect
 
-    def _run(sync_conn, direction: str) -> None:
-        context = MigrationContext.configure(sync_conn)
-        with Operations.context(context):
-            getattr(revision, direction)()
-
-    async with pg_engine.begin() as conn:
-        await conn.execute(text(
-            'INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt, '
-            "economic_version, credit_frozen) VALUES ('pg_roundtrip', true, false, false, 12, 3, 4, true)"
-        ))
-
-    # fixture 创建当前 schema；往返只运行历史 credit foundation revision。
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: _run(c, "downgrade"))
-    async with pg_engine.begin() as conn:
-        await conn.run_sync(lambda c: _run(c, "upgrade"))
-    async with pg_engine.connect() as conn:
-        await conn.run_sync(_assert_credit_foundation_schema)
-        row = (await conn.execute(text(
-            'SELECT cash, debt, economic_version, credit_frozen FROM "user" '
-            "WHERE username='pg_roundtrip'"
-        ))).one()
-        assert tuple(row) == (Decimal("12"), Decimal("3"), 0, False)
+    async with pg_engine.begin() as connection:
+        await connection.run_sync(SQLModel.metadata.drop_all)
+        await connection.execute(text('DROP TABLE IF EXISTS alembic_version'))
+        assert await connection.run_sync(classify_schema) == 'empty'
+        await connection.run_sync(migrate)
+        await connection.run_sync(assert_schema)
+        await connection.run_sync(lambda c: migrate(c, 'base', downgrade=True))
+        assert await connection.run_sync(lambda c: inspect(c).get_table_names()) == ['alembic_version']
+        await connection.run_sync(migrate)
+        await connection.run_sync(assert_schema)
+    await require_schema_current(pg_engine)
+    async with pg_engine.connect() as connection:
+        await connection.run_sync(exercise_model_constraints)
+    async with pg_engine.begin() as connection:
+        before = await connection.run_sync(lambda c: set(inspect(c).get_table_names()))
+        with pytest.raises(RuntimeError, match='populated'):
+            await connection.run_sync(lambda c: migrate(c, 'base', downgrade=True))
+        assert await connection.run_sync(lambda c: set(inspect(c).get_table_names())) == before
+        assert (await connection.execute(text('SELECT cash, debt FROM "user"'))).one() == (12, 3)

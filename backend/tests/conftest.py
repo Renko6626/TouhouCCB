@@ -110,7 +110,17 @@ async def client():
     # unified_credit_enabled=false while that obligation exists.
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
-        await conn.run_sync(SQLModel.metadata.create_all)
+        # Startup uses the actual revision boundary, even in disposable tests.
+        from alembic import command
+        from alembic.config import Config
+        from pathlib import Path
+        from sqlalchemy import text
+        def bootstrap(connection):
+            connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+            cfg = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+            cfg.attributes["connection"] = connection
+            command.upgrade(cfg, "head")
+        await conn.run_sync(bootstrap)
     clear_cache()
     async with LifespanManager(app):
         async with AsyncClient(

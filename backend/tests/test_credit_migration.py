@@ -1,286 +1,197 @@
-"""WP1：credit foundation revision 的 schema 往返 + init_db(create_all) 与 metadata 零差异。
-
-两层证据：
-1. `SQLModel.metadata.create_all`（init_db.py 路径）与 metadata 零差异；
-2. credit foundation revision 的 downgrade → upgrade 恢复其负责的 schema/约束，
-   且既有业务行不丢；后续 revision 的 schema 不属于这一历史迁移的契约。
-
-PG 侧同一往返由 tests/pg/test_credit_pg.py 覆盖（需要 TEST_PG_DATABASE_URL）。
-"""
-import importlib.util
-import os
-import sys
-from decimal import Decimal
+"""Actual baseline upgrade, model compatibility, revision boundary and safe rollback."""
 from pathlib import Path
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
-from alembic.operations import Operations
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, event, inspect, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from sqlmodel import SQLModel
 
-# 触发 metadata 注册（与 alembic/env.py 一致）
-import app.models.base  # noqa: F401,E402
-import app.models.redemption  # noqa: F401,E402
-import app.models.title  # noqa: F401,E402
-import app.models.ledger  # noqa: F401,E402
-import app.models.audit  # noqa: F401,E402
-import app.models.bot  # noqa: F401,E402
-import app.models.fx  # noqa: F401,E402
-import app.models.credit  # noqa: F401,E402
-
-BACKEND_DIR = Path(__file__).parents[1]
+from app.core.schema import BASELINE_REVISION, classify_schema, require_schema_current
+from app.models.base import User
+from app.models.title import Title
+from app.models.credit import LiquidationRun
 
 
-def _load_revision():
-    path = next(BACKEND_DIR.glob("alembic/versions/*credit_foundation_*.py"))
-    spec = importlib.util.spec_from_file_location("credit_foundation_migration", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def migrate(connection, revision="head", *, downgrade=False):
+    cfg = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    cfg.attributes["connection"] = connection
+    (command.downgrade if downgrade else command.upgrade)(cfg, revision)
 
 
-def _run_revision(conn, direction: str) -> None:
-    context = MigrationContext.configure(conn)
-    with Operations.context(context):
-        getattr(_load_revision(), direction)()
+def assert_schema(connection):
+    assert classify_schema(connection) == "upgradeable"
+    assert compare_metadata(MigrationContext.configure(connection), SQLModel.metadata) == []
+    inspector = inspect(connection)
+    assert set(inspector.get_table_names()) == set(SQLModel.metadata.tables) | {"alembic_version"}
+    # compare_metadata omits check-constraint comparison, so verify these explicitly.
+    for name, model in SQLModel.metadata.tables.items():
+        expected = {c.name for c in model.constraints if c.__class__.__name__ == "CheckConstraint"}
+        assert expected == {c['name'] for c in inspector.get_check_constraints(name)}
+    fk = next(f for f in inspector.get_foreign_keys("market") if f['constrained_columns'] == ['winning_outcome_id'])
+    assert fk['referred_table'] == 'outcome'
+    fk = next(f for f in inspector.get_foreign_keys("user") if f['constrained_columns'] == ['equipped_title_id'])
+    assert fk['options']['ondelete'] == 'SET NULL'
 
 
-def _diff(conn):
-    return compare_metadata(MigrationContext.configure(conn), SQLModel.metadata)
+@pytest.fixture
+def baseline(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path}/baseline.db")
+    @event.listens_for(engine, "connect")
+    def enforce_fks(dbapi, record):
+        dbapi.execute("PRAGMA foreign_keys=ON")
+    with engine.begin() as connection:
+        assert classify_schema(connection) == "empty"
+        migrate(connection)
+    yield engine
+    engine.dispose()
 
 
-def _assert_credit_foundation_schema(conn):
-    """Verify the historical revision's contract independently of later model additions."""
-    inspector = inspect(conn)
-    for table, columns in {
-        "user": {"economic_version", "credit_frozen"},
-        "fx_pair": {"reduce_only"},
-        "liquidation_events": {"run_id", "product"},
-        "liquidation_run": {
-            "id", "user_id", "status", "trigger_source", "started_at", "updated_at",
-            "next_round", "rounds", "last_group_product", "last_group_id",
-            "last_blocked_reason", "closed_at", "pre_cash", "pre_debt",
-            "pre_liquidation_equity", "total_proceeds", "total_repaid", "total_fee",
-        },
-        "liquidation_action": {
-            "id", "run_id", "user_id", "round_no", "kind", "product", "group_id",
-            "mode", "requested", "executed", "proceeds", "fee", "fee_currency",
-            "repaid", "debt_after", "cash_after", "economic_version_after",
-            "blocked_reason", "created_at",
-        },
-    }.items():
-        actual = {c["name"] for c in inspector.get_columns(table)}
-        if table in {"liquidation_run", "liquidation_action"}:
-            assert columns == actual, table
+def test_baseline_schema_and_empty_roundtrip(baseline):
+    with baseline.begin() as connection:
+        assert_schema(connection)
+        migrate(connection, "base", downgrade=True)
+        assert inspect(connection).get_table_names() == ['alembic_version']
+        migrate(connection)
+        assert_schema(connection)
+
+
+def exercise_model_constraints(engine):
+    with Session(engine) as session:
+        title = Title(name="preserved title")
+        user = User(username="preserved", cash=12, debt=3)
+        session.add_all([title, user]); session.commit()
+        user.equipped_title_id = title.id
+        session.commit()
+        uid = user.id
+        assert session.execute(select(User)).scalar_one().cash == 12
+        session.add(LiquidationRun(user_id=uid, status="active", trigger_source="scheduler"))
+        session.commit()
+        session.add(LiquidationRun(user_id=uid, status="active", trigger_source="scheduler"))
+        with pytest.raises(IntegrityError): session.commit()
+        session.rollback()
+        session.add(LiquidationRun(user_id=uid, status="invalid", trigger_source="scheduler"))
+        with pytest.raises(IntegrityError): session.commit()
+        session.rollback()
+        session.add(LiquidationRun(user_id=uid + 999999, status="active", trigger_source="scheduler"))
+        with pytest.raises(IntegrityError): session.commit()
+        session.rollback()
+        session.delete(title);session.commit()
+        session.refresh(user)
+        assert user.equipped_title_id is None
+
+
+def test_models_constraints_and_populated_downgrade_retains_all_tables(baseline):
+    exercise_model_constraints(baseline)
+    with baseline.begin() as connection:
+        tables = set(inspect(connection).get_table_names())
+        with pytest.raises(RuntimeError, match="populated"):
+            migrate(connection, "base", downgrade=True)
+        assert set(inspect(connection).get_table_names()) == tables
+        assert connection.execute(text('SELECT cash, debt FROM "user"')).one() == (12, 3)
+        assert connection.execute(text('SELECT version_num FROM alembic_version')).scalar_one() == BASELINE_REVISION
+
+
+def test_sqlite_reset_watermark_prevents_empty_business_id_reuse(baseline):
+    with baseline.begin() as connection:
+        connection.execute(text("INSERT INTO sqlite_sequence(name,seq) VALUES ('market', 500)"))
+        from app.models.base import Market
+        with Session(connection) as session:
+            market = Market(title="new market")
+            session.add(market);session.flush()
+            assert market.id == 501
+
+
+@pytest.mark.parametrize("state", ['old', 'unknown', 'partial', 'unversioned'])
+def test_preflight_rejects_unsupported_schema_without_changes(baseline, state):
+    with baseline.begin() as connection:
+        if state in ('old', 'unknown'):
+            connection.execute(text('UPDATE alembic_version SET version_num=:v'), {'v': 'fx_pool_events_20261013' if state == 'old' else 'head'})
+        elif state == 'partial':
+            connection.execute(text('DROP TABLE "transaction"'))
         else:
-            assert columns <= actual, table
-
-    for table, names in {
-        "user": {"economic_version", "credit_frozen"},
-        "fx_pair": {"reduce_only"},
-    }.items():
-        columns = {c["name"]: c for c in inspector.get_columns(table)}
-        for name in names:
-            assert columns[name]["nullable"] is False
-            assert columns[name]["default"] is not None
-
-    active = next(i for i in inspector.get_indexes("liquidation_run")
-                  if i["name"] == "uq_liquidation_run_active_user")
-    assert active["unique"]
-    assert active["column_names"] == ["user_id"]
-    predicate = active["dialect_options"][f"{conn.dialect.name}_where"]
-    assert "status" in str(predicate) and "'active'" in str(predicate)
-    unique = inspector.get_unique_constraints("liquidation_action")
-    assert any(c["column_names"] == ["run_id", "round_no"] for c in unique)
-    for table, names in {
-        "liquidation_run": {"ck_liquidation_run_status"},
-        "liquidation_action": {"ck_liquidation_action_kind", "ck_liquidation_action_fee_currency"},
-    }.items():
-        assert names <= {c["name"] for c in inspector.get_check_constraints(table)}
-    for table, column, target, ondelete in [
-        ("liquidation_events", "run_id", "liquidation_run", "SET NULL"),
-        ("liquidation_action", "run_id", "liquidation_run", "CASCADE"),
-    ]:
-        fk = next(f for f in inspector.get_foreign_keys(table)
-                  if f["constrained_columns"] == [column])
-        assert fk["referred_table"] == target
-        assert fk["referred_columns"] == ["id"]
-        assert fk["options"].get("ondelete") == ondelete
+            connection.execute(text('DROP TABLE alembic_version'))
+        tables = set(inspect(connection).get_table_names())
+        with pytest.raises(RuntimeError): classify_schema(connection)
+        assert set(inspect(connection).get_table_names()) == tables
 
 
-def test_init_db_create_all_has_no_metadata_diff(tmp_path):
-    """init_db.py 建出的 schema 必须与 metadata 一致（否则 alembic 会重复加列）。"""
-    engine = create_engine(f"sqlite:///{tmp_path}/init.db")
-    SQLModel.metadata.create_all(engine)
-    with engine.connect() as conn:
-        assert _diff(conn) == []
+@pytest.mark.asyncio
+async def test_startup_requires_installed_head_and_does_not_initialize(tmp_path):
+    from sqlalchemy.ext.asyncio import create_async_engine
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/startup.db")
+    try:
+        with pytest.raises(RuntimeError, match="Empty schema"):
+            await require_schema_current(engine)
+        async with engine.begin() as connection:
+            assert await connection.run_sync(lambda c: inspect(c).get_table_names()) == []
+            await connection.run_sync(migrate)
+        await require_schema_current(engine)
+    finally:
+        await engine.dispose()
 
 
-def test_credit_schema_objects_exist(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path}/schema.db")
-    SQLModel.metadata.create_all(engine)
-    inspector = inspect(engine)
-    names = set(inspector.get_table_names())
-    assert {"liquidation_run", "liquidation_action"} <= names
+@pytest.mark.asyncio
+async def test_future_incremental_upgrade_preserves_data_and_startup_boundary(tmp_path, monkeypatch):
+    """A later real revision remains deploy-upgradeable; startup waits for its head."""
+    import shutil
+    from alembic.script import ScriptDirectory
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from app.core import schema
 
-    for table, columns in {
-        "user": {"economic_version", "credit_frozen"},
-        "fx_pair": {"reduce_only"},
-        "liquidation_events": {"run_id", "product"},
-    }.items():
-        assert columns <= {c["name"] for c in inspector.get_columns(table)}, table
-
-    # 每用户最多一个 active run：部分唯一索引必须带上 WHERE 子句
-    idx = {i["name"]: i for i in inspector.get_indexes("liquidation_run")}
-    assert idx["uq_liquidation_run_active_user"]["unique"] == 1
-    with engine.connect() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE name='uq_liquidation_run_active_user'")
-        ).scalar_one()
-    assert "WHERE status = 'active'" in ddl
-
-    # LiquidationEvent.run_id FK 的 ondelete 语义（run 删除后保留公示行）
-    fks = {fk["constrained_columns"][0]: fk for fk in inspector.get_foreign_keys("liquidation_events")}
-    assert fks["run_id"]["referred_table"] == "liquidation_run"
-    assert fks["run_id"]["options"].get("ondelete") == "SET NULL"
-
-
-def test_migration_roundtrip_preserves_rows_and_credit_schema(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path}/roundtrip.db")
-    SQLModel.metadata.create_all(engine)   # 包含后续 revision 的当前 schema
-    with engine.begin() as conn:
-        conn.execute(text(
-            'INSERT INTO "user" (username, is_active, is_superuser, is_bot, cash, debt,'
-            " economic_version, credit_frozen) VALUES ('keep', 1, 0, 0, 12, 3, 4, 1)"
-        ))
-        conn.execute(text(
-            "INSERT INTO liquidation_run (user_id, status, trigger_source, started_at, updated_at,"
-            " next_round, rounds, pre_cash, pre_debt, pre_liquidation_equity, total_proceeds,"
-            " total_repaid, total_fee) SELECT id, 'active', 'scheduler', CURRENT_TIMESTAMP,"
-            " CURRENT_TIMESTAMP, 1, 0, 0, 0, 0, 0, 0, 0 FROM \"user\" WHERE username='keep'"
-        ))
-        conn.execute(text(
-            "INSERT INTO liquidation_events (user_id, triggered_at, pre_cash, pre_debt,"
-            " pre_holdings_value, pre_net_worth, sold_positions_count, total_proceeds, repaid_amount,"
-            " remaining_debt, post_cash, trigger_source, mode, run_id, product)"
-            " SELECT id, CURRENT_TIMESTAMP, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'scheduler', 'emergency',"
-            " (SELECT max(id) FROM liquidation_run), 'lmsr' FROM \"user\" WHERE username='keep'"
-        ))
-        conn.execute(text(
-            "INSERT INTO fx_pair (currency_code, currency_name, status, gold_reserve, foreign_reserve,"
-            " initial_price, buy_fee_rate, sell_fee_rate,"
-            " pool_version, reduce_only, created_at, updated_at)"
-            " VALUES ('KEEP', 'KEEP', 'paused', 1, 1, 1, 0, 0, 1, 0,"
-            " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-        ))
-
-    with engine.begin() as conn:
-        _run_revision(conn, "downgrade")
-    with engine.connect() as conn:
-        names = set(inspect(conn).get_table_names())
-        assert not ({"liquidation_run", "liquidation_action"} & names)
-        assert {"run_id", "product"} & {c["name"] for c in inspect(conn).get_columns("liquidation_events")} == set()
-        for table, removed in {
-            "user": {"economic_version", "credit_frozen"},
-            "fx_pair": {"reduce_only"},
-        }.items():
-            assert not (removed & {c["name"] for c in inspect(conn).get_columns(table)})
-        # 既有资金/身份行不受 downgrade 影响
-        row = conn.execute(text('SELECT username, cash, debt FROM "user" WHERE username=\'keep\'')).one()
-        assert tuple(row) == ("keep", Decimal("12"), Decimal("3"))
-        assert conn.execute(text("SELECT count(*) FROM liquidation_events")).scalar_one() == 1
-        assert conn.execute(text("SELECT status FROM fx_pair WHERE currency_code='KEEP'")).scalar_one() == "paused"
-
-    with engine.begin() as conn:
-        _run_revision(conn, "upgrade")
-    with engine.connect() as conn:
-        _assert_credit_foundation_schema(conn)
-        # downgrade 会删掉新列，其旧值随列一起丢（默认回 0/false）——资金行不受影响
-        assert conn.execute(
-            text('SELECT economic_version FROM "user" WHERE username=\'keep\'')
-        ).scalar_one() == 0
-        assert conn.execute(
-            text('SELECT cash, debt FROM "user" WHERE username=\'keep\'')
-        ).one() == (Decimal("12"), Decimal("3"))
-        assert conn.execute(text("SELECT count(*) FROM liquidation_events")).scalar_one() == 1
-        assert conn.execute(text(
-            'SELECT credit_frozen FROM "user" WHERE username=\'keep\''
-        )).scalar_one() == 0
-        assert conn.execute(text(
-            "SELECT status, reduce_only FROM fx_pair WHERE currency_code='KEEP'"
-        )).one() == ("paused", 0)
-        assert conn.execute(text("SELECT run_id, product FROM liquidation_events")).one() == (None, None)
-        # downgrade 丢的是 run/action 运行记录（资金不受影响）
-        assert conn.execute(text("SELECT count(*) FROM liquidation_run")).scalar_one() == 0
+    scripts_path = tmp_path / 'alembic'
+    shutil.copytree(Path(__file__).parents[1] / 'alembic', scripts_path)
+    (scripts_path / 'versions' / 'future.py').write_text(
+        "from alembic import op\nimport sqlalchemy as sa\n"
+        "revision = 'test_future_increment'\n"
+        f"down_revision = '{BASELINE_REVISION}'\n"
+        "def upgrade():\n    op.create_table('future_feature', sa.Column('id', sa.Integer(), primary_key=True))\n"
+        "def downgrade():\n    op.drop_table('future_feature')\n"
+    )
+    cfg = Config(str(Path(__file__).parents[1] / 'alembic.ini'))
+    cfg.set_main_option('script_location', str(scripts_path))
+    monkeypatch.setattr(schema, '_scripts', lambda: ScriptDirectory.from_config(cfg))
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/increment.db")
+    try:
+        async with engine.begin() as connection:
+            def install(c):
+                cfg.attributes['connection'] = c
+                command.upgrade(cfg, BASELINE_REVISION)
+                c.execute(User.__table__.insert().values(username='retained', cash=42))
+            await connection.run_sync(install)
+            assert await connection.run_sync(classify_schema) == 'upgradeable'
+        with pytest.raises(RuntimeError, match='upgrade required'):
+            await require_schema_current(engine)
+        async with engine.begin() as connection:
+            def advance(c):
+                cfg.attributes['connection'] = c
+                command.upgrade(cfg, 'head')
+                assert 'future_feature' in inspect(c).get_table_names()
+                assert c.execute(select(User.cash).where(User.username == 'retained')).scalar_one() == 42
+            await connection.run_sync(advance)
+        await require_schema_current(engine)
+    finally:
+        await engine.dispose()
 
 
-def test_downgrade_upgrade_is_idempotent(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path}/idem.db")
-    SQLModel.metadata.create_all(engine)
-    for _ in range(2):
-        with engine.begin() as conn:
-            _run_revision(conn, "downgrade")
-        with engine.begin() as conn:
-            _run_revision(conn, "upgrade")
-        with engine.connect() as conn:
-            _assert_credit_foundation_schema(conn)
-
-
-def _unified_revision():
-    path = BACKEND_DIR / 'alembic/versions/2026_10_10_1200-unified_credit_only.py'
-    spec = importlib.util.spec_from_file_location('unified_credit_only_migration', path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_unified_config_upgrade_preserves_economic_and_operator_data(tmp_path):
-    db = create_engine('sqlite:///' + str(tmp_path / 'unified.db'))
-    SQLModel.metadata.create_all(db)
-    with db.begin() as conn:
-        conn.execute(SQLModel.metadata.tables["title"].insert().values(id=7,name="owned"))
-        conn.execute(SQLModel.metadata.tables['user'].insert().values(id=42,username='disabled',cash=90,debt=20,credit_frozen=True,economic_version=8,is_active=False))
-        conn.execute(SQLModel.metadata.tables['user_title'].insert().values(user_id=42,title_id=7,source='admin'))
-        raw = {'credit_leverage':'2', 'credit_maintenance_ratio':'.2', 'unified_credit_enabled':'false',
-               'loan_leverage_k':'9', 'liquidation_hard_threshold':'.05', 'credit_new_risk_frozen':'true',
-               'loan_enabled':'false', 'fx_enabled':'false', 'fx_short_enabled':'false',
-               'liquidation_enabled':'false', 'pve_enabled':'false'}
-        for key, value in raw.items():
-            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
-        before = {name: conn.execute(text(f'SELECT * FROM "{name}"')).all() for name in ('user','title','user_title')}
-        with Operations.context(MigrationContext.configure(conn)):
-            _unified_revision().upgrade()
-        after = dict(conn.execute(text('SELECT key,value FROM siteconfig')).all())
-        assert after == {k:v for k,v in raw.items() if k not in _unified_revision().REMOVED}
-        for name, rows in before.items():
-            assert conn.execute(text(f'SELECT * FROM "{name}"')).all() == rows
-    db.dispose()
-
-
-def test_unified_config_upgrade_maps_missing_parameters(tmp_path):
-    db = create_engine('sqlite:///' + str(tmp_path / 'mapping.db'))
-    SQLModel.metadata.create_all(db)
-    with db.begin() as conn:
-        for key,value in (('loan_leverage_k','3'),('liquidation_hard_threshold','.15')):
-            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
-        with Operations.context(MigrationContext.configure(conn)):
-            _unified_revision().upgrade()
-        assert dict(conn.execute(text('SELECT key,value FROM siteconfig')).all()) == {'credit_leverage':'4','credit_maintenance_ratio':'0.15'}
-    db.dispose()
-
-
-def test_unified_config_upgrade_rejects_invalid_mapping_without_changes(tmp_path):
-    import pytest
-    db = create_engine('sqlite:///' + str(tmp_path / 'invalid.db'))
-    SQLModel.metadata.create_all(db)
-    with db.begin() as conn:
-        for key,value in (('loan_leverage_k','50'),('liquidation_hard_threshold','.2'),('loan_enabled','false')):
-            conn.execute(text("INSERT INTO siteconfig (key,value,value_type,updated_at) VALUES (:key,:value,'decimal',CURRENT_TIMESTAMP)"), {'key':key,'value':value})
-        before = conn.execute(text('SELECT * FROM siteconfig ORDER BY key')).all()
-        with Operations.context(MigrationContext.configure(conn)), pytest.raises(ValueError):
-            _unified_revision().upgrade()
-        assert conn.execute(text('SELECT * FROM siteconfig ORDER BY key')).all() == before
-    db.dispose()
+@pytest.mark.asyncio
+async def test_init_db_refuses_existing_schema_before_demo_or_data_changes(tmp_path, monkeypatch):
+    import init_db
+    from sqlalchemy.ext.asyncio import create_async_engine
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/bootstrap.db")
+    monkeypatch.setattr(init_db, 'engine', engine)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(migrate)
+            await connection.execute(User.__table__.insert().values(username='keep', cash=19))
+        with pytest.raises(RuntimeError, match='empty database'):
+            await init_db.init_db()
+        async with engine.connect() as connection:
+            assert (await connection.execute(select(User.cash))).scalar_one() == 19
+            assert (await connection.execute(text('SELECT count(*) FROM market'))).scalar_one() == 0
+    finally:
+        await engine.dispose()

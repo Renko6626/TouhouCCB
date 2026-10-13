@@ -1,6 +1,6 @@
 """WP3 main.py 启动隔离：只读/非 owner 跳过全部启动写；enabled 无锁拒绝启动。
 
-覆盖计划 WP3 "main.py 所有权必须覆盖 init_db/seed_current_config/seed/resync/writer/flusher/
+覆盖计划 WP3 "main.py 所有权必须覆盖 seed_current_config/seed/resync/writer/flusher/
 全部调度器"与"只读实例在任何写之前就跳过"。
 """
 import os
@@ -57,8 +57,8 @@ def startup(monkeypatch):
     events: list[str] = []
     credit_flags.clear_flags()
 
-    async def _init_db():
-        events.append("init_db")
+    async def _schema_check(engine):
+        events.append("schema_check")
 
     async def _seed_current_config():
         events.append("seed_current_config")
@@ -79,7 +79,7 @@ def startup(monkeypatch):
             events.append(f"stop:{name}")
         return _fn
 
-    monkeypatch.setattr(main, "init_db", _init_db)
+    monkeypatch.setattr(main, "require_schema_current", _schema_check)
     monkeypatch.setattr(main, "seed_current_config", _seed_current_config)
     monkeypatch.setattr(main, "_resync_recent_candles", _resync)
     monkeypatch.setattr(main, "setup_admin", _setup_admin)
@@ -126,9 +126,10 @@ async def test_read_only_skips_all_startup_writes(startup, monkeypatch):
 
     await _run_lifespan()
 
+    assert "schema_check" in startup
     assert own.read_only_marked is True
     assert "acquire" not in startup              # 只读实例不取锁
-    for forbidden in ("init_db", "seed_current_config", "resync", "setup_admin",
+    for forbidden in ("seed_current_config", "resync", "setup_admin",
                       "start:loan", "start:liquidation", "start:bot_detection",
                       "start:pve", "start:fx_publisher",
                       "WRITER.start", "FLUSHER.start"):
@@ -144,9 +145,9 @@ async def test_owner_runs_startup_writes_after_acquiring_lock(startup, monkeypat
 
     await _run_lifespan()
 
-    assert startup.index("acquire") < startup.index("init_db")
+    assert startup.index("schema_check") < startup.index("acquire")
     assert "acquire" in own.events
-    assert startup.index("init_db") < startup.index("seed_current_config")
+    assert startup.index("acquire") < startup.index("seed_current_config")
     assert startup.index("seed_current_config") < startup.index("resync")
     assert "setup_admin" in startup
     assert startup.index("setup_admin") < startup.index("resync")
@@ -170,7 +171,7 @@ async def test_non_owner_with_unified_credit_enabled_fails_startup(startup, monk
     with pytest.raises(RuntimeError, match="第二写实例"):
         await _run_lifespan()
 
-    assert "init_db" not in startup and "seed_current_config" not in startup
+    assert "seed_current_config" not in startup
     assert "resync" not in startup
     assert not any(e.startswith("start:") for e in startup)
     assert own.released is True  # 启动失败也要释放所有权
@@ -231,7 +232,7 @@ async def test_readonly_starts_even_with_unified_credit_enabled(startup, monkeyp
     await _run_lifespan()          # 不得抛 RuntimeError
 
     assert "acquire" not in startup
-    assert "init_db" not in startup and "seed_current_config" not in startup
+    assert "seed_current_config" not in startup
     assert "setup_admin" not in startup
     assert not any(e.startswith("start:") for e in startup)
     assert main.app.state.credit_writes_enabled is False
@@ -251,7 +252,7 @@ async def test_start_failure_still_runs_cleanup_and_releases_ownership(startup, 
     with pytest.raises(RuntimeError, match="scheduler start failed"):
         await _run_lifespan()
 
-    assert "init_db" in startup and "seed_current_config" in startup
+    assert "schema_check" in startup and "seed_current_config" in startup
     assert "start:loan" in startup                 # loan 已启动
     assert "start:liquidation" not in startup      # 失败的没启动
     for stopped in ("stop:loan", "stop:liquidation", "stop:bot_detection",
@@ -287,3 +288,19 @@ async def test_unified_sqladmin_economic_views_are_read_only():
     finally:
         main._configure_admin_economic_writes()
     assert all(not view.can_create and not view.can_edit and not view.can_delete for view in views)
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+async def test_schema_rejection_prevents_startup_writes(startup, monkeypatch, read_only):
+    if read_only:
+        monkeypatch.setenv(credit_flags.READ_ONLY_ENV, "true")
+    _install_ownership(monkeypatch, owner=True, events=startup)
+    async def reject(engine):
+        raise RuntimeError("Old or unknown schema revision")
+    monkeypatch.setattr(main, "require_schema_current", reject)
+    with pytest.raises(RuntimeError, match="schema revision"):
+        await _run_lifespan()
+    assert "acquire" not in startup
+    assert "seed_current_config" not in startup
+    assert "setup_admin" not in startup
+    assert not any(e.startswith("start:") for e in startup)

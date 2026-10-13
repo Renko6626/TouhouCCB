@@ -59,24 +59,25 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Online 模式：建 engine、连 DB、跑 migration。"""
+    supplied_connection = config.attributes.get("connection")
+    if supplied_connection is not None:
+        _run_with_connection(supplied_connection)
+        return
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+        prefix="sqlalchemy.", poolclass=pool.NullPool,
     )
-
     with connectable.connect() as connection:
-        # sqlite 不支持 ALTER constraint，必须开 render_as_batch 让 alembic 走
-        # copy-and-move 策略。pg/mysql 走原生 ALTER，保持现状。
-        is_sqlite = connection.dialect.name == "sqlite"
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_as_batch=is_sqlite,
-        )
+        _run_with_connection(connection)
 
-        with context.begin_transaction():
-            context.run_migrations()
+
+def _run_with_connection(connection) -> None:
+    context.configure(
+        connection=connection, target_metadata=target_metadata,
+        render_as_batch=connection.dialect.name == "sqlite",
+    )
+    with context.begin_transaction():
+        context.run_migrations()
 
 
 if context.is_offline_mode():
