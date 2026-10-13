@@ -85,6 +85,8 @@ def _disable_scheduler():
         return None
 
     with (
+        patch("app.main.start_fx_order_scheduler", _noop),
+        patch("app.main.stop_fx_order_scheduler", _noop),
         patch("app.main.start_loan_scheduler", _noop),
         patch("app.main.stop_loan_scheduler", _noop),
         patch("app.main.start_liquidation_scheduler", _noop),

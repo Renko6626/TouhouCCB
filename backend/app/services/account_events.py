@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from uuid import uuid4
 from app.services.trading_prices import now_string
+from app.schemas.fx import FxOrderResult
 
 logger = logging.getLogger(__name__)
 
@@ -94,3 +95,13 @@ async def notifying_transaction(session, transaction, reason):
     except BaseException:
         session.info.pop('trading_account_changes', None)
         raise
+
+
+def enqueue_order_result(user_id: int, payload: FxOrderResult) -> None:
+    """Offer committed FX outcomes only to the owner's existing subscriptions."""
+    try:
+        data = payload.model_dump(mode='json')
+        for subscriber in tuple(EVENTS._subscribers.get(user_id, ())):
+            subscriber.offer('fx_order_result', data)
+    except Exception:
+        logger.exception('Private FX order result dropped')

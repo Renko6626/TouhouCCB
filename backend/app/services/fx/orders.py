@@ -184,6 +184,33 @@ async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrde
         raise RuntimeError('FX order retry loop exhausted')
 
 
+async def fail_unavailable_order(order_id: int) -> FxTriggerOrderRead | None:
+    """End a permanently unavailable pair's order, rechecking under locks."""
+    from app.core.database import async_session_maker
+    from app.services.credit.ownership import OWNERSHIP
+    OWNERSHIP.require_writes()
+    async with async_session_maker() as db:
+        candidate = await db.get(FxTriggerOrder, order_id)
+        if candidate is None or candidate.status != 'waiting':
+            return None
+        user_id, pair_id = candidate.user_id, candidate.pair_id
+        await db.rollback()
+        pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
+            .with_for_update().execution_options(populate_existing=True))).scalar_one()
+        await lock_user(db, user_id)
+        order = await _locked_order(db, order_id)
+        if order is None or order.status != 'waiting' or not (pair.archived or pair.status == 'closed'):
+            return None
+        await _check_no_receipt(db, order)
+        order.status = 'failed'
+        order.failure_reason = 'FX pair is permanently unavailable'
+        order.finished_at = datetime.now(timezone.utc)
+        await db.flush()
+        result = FxTriggerOrderRead.model_validate(order)
+        await db.commit()
+        return result
+
+
 async def result_for_order(db: AsyncSession, order: FxTriggerOrderRead) -> FxOrderResult:
     """Build a private notification from a committed terminal outcome."""
     pair = await db.get(FxPair, order.pair_id)

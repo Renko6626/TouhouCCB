@@ -156,3 +156,24 @@ async def test_due_rechecks_run_with_continuously_available_frames(monkeypatch, 
         # The old timeout-only loop drained all 32 available frames first.
         assert sum(event == 'account_changed' for event, _ in seen) < 32
     assert uid not in EVENTS._subscribers and not PUBLISHER.subscriptions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', ['succeeded', 'failed'])
+async def test_fx_order_result_private_stream(status):
+    from app.services.account_events import enqueue_order_result
+    from app.schemas.fx import FxOrderResult
+    uid, other, ids = await seed()
+    seen = []
+    async def on_frame(event, payload, stopped):
+        seen.append((event, payload))
+        if event == 'sync':
+            result = FxOrderResult(order_id=1, pair_id=ids[0], currency_code='0',
+                action='buy', status=status, occurred_at=datetime.now(timezone.utc))
+            enqueue_order_result(other, result.model_copy(update={'order_id':2}))
+            enqueue_order_result(uid, result)
+        elif event == 'fx_order_result':
+            stopped.set()
+    await request_stream(create_access_token(uid), on_frame)
+    assert [(p['order_id'],p['status']) for e,p in seen if e == 'fx_order_result'] == [(1,status)]
+    assert not any(e == 'account_changed' for e,p in seen)

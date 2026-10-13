@@ -84,3 +84,16 @@ async def test_liquidation_site_config_keys_in_allowed():
     assert "liquidation_sweep_interval_sec" in _WHITELIST
     assert "credit_leverage" in _WHITELIST
     assert "credit_maintenance_ratio" in _WHITELIST
+
+
+@pytest.mark.asyncio
+async def test_fx_order_scan_default_and_validation():
+    from app.services.config_seed import seed_current_config
+    await seed_current_config()
+    async with async_session_maker() as db:
+        assert await get_int(db, 'fx_order_scan_interval_sec') == 10
+        for value in ('4', '3601', 'bad'):
+            with pytest.raises(SiteConfigError):
+                await set_value(db, 'fx_order_scan_interval_sec', value, admin_user_id=None)
+        await set_value(db, 'fx_order_scan_interval_sec', '5', admin_user_id=None)
+        assert await get_int(db, 'fx_order_scan_interval_sec') == 5

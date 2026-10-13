@@ -215,3 +215,56 @@ async def test_commit_failure_rolls_back_cross_zero_and_propagates(monkeypatch):
         assert position.principal_foreign == 10 and position.restricted_gold == 20
         for model in (FxExecution, FxTrade, FxWallet):
             assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
+
+
+async def test_scan_batch_observations_and_permanent_failure():
+    from app.models.fx import FxPair
+    from app.services.fx.order_scheduler import run_order_scan_once
+    uid, pid = await _seed()
+    async with async_session_maker() as db:
+        first = await create_order(db, uid, request(pid))
+        second = await create_order(db, uid, request(pid))
+        waiting = await create_order(db, uid, FxTriggerOrderCreate(pair_id=pid,
+            action='buy', amount=D('10'), comparison='gte', trigger_price=D('999')))
+    assert await run_order_scan_once() == dict(checked=3, triggered=2, succeeded=2, failed=0)
+    async with async_session_maker() as db:
+        history = {o.id:o for o in await list_orders(db, uid)}
+        assert history[first.id].observed_trigger_price == history[second.id].observed_trigger_price == D('1')
+        assert history[waiting.id].status == 'waiting'
+        pair = await db.get(FxPair, pid)
+        pair.status = 'closed'
+        await db.commit()
+    assert await run_order_scan_once() == dict(checked=1, triggered=0, succeeded=0, failed=1)
+
+
+async def test_scan_paused_trigger_fails():
+    from app.models.fx import FxPair
+    from app.services.fx.order_scheduler import run_order_scan_once
+    uid, pid = await _seed()
+    async with async_session_maker() as db:
+        await create_order(db, uid, request(pid))
+        pair = await db.get(FxPair, pid)
+        pair.status = 'paused'
+        await db.commit()
+    assert await run_order_scan_once() == dict(checked=1, triggered=1, succeeded=0, failed=1)
+
+
+async def test_scheduler_stop_waits_for_current_scan(monkeypatch):
+    import asyncio
+    from app.services.fx import order_scheduler
+    entered, finish = asyncio.Event(), asyncio.Event()
+    async def scan():
+        entered.set()
+        await finish.wait()
+    monkeypatch.setattr(order_scheduler, 'run_order_scan_once', scan)
+    await order_scheduler.start_scheduler()
+    tick = asyncio.create_task(order_scheduler._tick_safe())
+    await entered.wait()
+    await order_scheduler.reschedule(15)
+    stopping = asyncio.create_task(order_scheduler.stop_scheduler())
+    await asyncio.sleep(0)  # Yield only; no wall-clock delay.
+    assert not stopping.done() and not tick.done()
+    finish.set()
+    await stopping
+    await tick
+    assert order_scheduler._scheduler is None

@@ -20,11 +20,13 @@ class SiteConfigError(Exception):
 # explicitly enables and funds a pair.  config_seed imports this list when it
 # seeds a new or upgraded database.
 FX_DEFAULT_CONFIGS = [
+    ("fx_order_scan_interval_sec", "10", "int"),
     ("fx_enabled", "false", "bool"),
     ("fx_short_enabled", "false", "bool"),
 ]
 
 FX_CONFIG_RULES = {
+    "fx_order_scan_interval_sec": lambda v: 5 <= int(v) <= 3600,
     "fx_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
     "fx_short_enabled": lambda v: v.lower() in {"true", "false", "1", "0", "yes", "no"},
 }
