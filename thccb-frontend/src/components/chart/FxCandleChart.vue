@@ -838,6 +838,9 @@ const formatChartTime = (seconds: number | null): string => {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+const compactLegendValue = (value: string) => value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value
+const legendPrice = (value: Parameters<typeof formatFxPrice>[0]) => compactLegendValue(formatFxPrice(value))
+const legendAmount = (value: Parameters<typeof formatFxAmount>[0]) => compactLegendValue(formatFxAmount(value))
 const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 </script>
 
@@ -846,42 +849,46 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
     <div ref="chartRef" class="fx-candle-canvas"></div>
 
     <div v-if="legend" class="fx-candle-legend">
+      <div class="fx-legend-primary">
       <span class="fx-legend-time">{{ formatChartTime(legend.t) }}</span>
-      <span class="fx-legend-item"
-        >开 <b>{{ formatFxPrice(legend.o) }}</b></span
+      <span class="fx-legend-item fx-legend-ohl"
+        >开 <b>{{ legendPrice(legend.o) }}</b></span
+      >
+      <span class="fx-legend-item fx-legend-ohl"
+        >高 <b>{{ legendPrice(legend.h) }}</b></span
+      >
+      <span class="fx-legend-item fx-legend-ohl"
+        >低 <b>{{ legendPrice(legend.l) }}</b></span
       >
       <span class="fx-legend-item"
-        >高 <b>{{ formatFxPrice(legend.h) }}</b></span
-      >
-      <span class="fx-legend-item"
-        >低 <b>{{ formatFxPrice(legend.l) }}</b></span
-      >
-      <span class="fx-legend-item"
-        >收 <b>{{ formatFxPrice(legend.c) }}</b></span
+        >收 <b>{{ legendPrice(legend.c) }}</b></span
       >
       <span
         v-if="legend.changePct !== null"
         class="fx-legend-item"
         :class="legendUp ? 'up' : 'down'"
       >
-        {{ legendUp ? '+' : '' }}{{ legend.changePct.toFixed(2) }}%
+        {{ legendUp ? '+' : '' }}{{ compactLegendValue(legend.changePct.toFixed(2)) }}%
       </span>
-      <span class="fx-legend-item"
-        >量 <b>{{ formatFxAmount(legend.v) }}</b></span
+      </div>
+      <div class="fx-legend-secondary">
+      <span class="fx-legend-item fx-legend-volume"
+        >量 <b>{{ legendAmount(legend.v) }}</b></span
       >
       <span v-for="period in FX_MA_PERIODS" :key="period" class="fx-legend-item">
         <i class="fx-legend-dot" :style="{ background: MA_COLORS[period] }"></i>
-        MA{{ period }} <b>{{ formatFxPrice(legend.ma[period]) }}</b>
+        MA{{ period }} <b>{{ legendPrice(legend.ma[period]) }}</b>
       </span>
       <span
         v-for="line in holdingLines"
         :key="line.side"
-        class="fx-legend-item"
+        class="fx-legend-item fx-legend-holding"
         :class="line.side === 'long' ? 'up' : 'down'"
         title="当前持仓均价参考；实际平仓仍计入手续费和价格影响。空头使用当前含息欠币计算。"
       >
-        {{ holdingLineTitle(line.side) }} <b>{{ formatFxPrice(line.price) }}</b>
+        {{ holdingLineTitle(line.side) }} <b>{{ legendPrice(line.price) }}</b>
       </span>
+      </div>
     </div>
 
     <div v-if="error && candleCount > 0" class="fx-candle-stale" role="alert">
@@ -912,21 +919,28 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 }
 .fx-candle-legend {
   position: absolute;
-  top: 6px;
-  left: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  top: 5px;
+  left: 6px;
+  display: grid;
+  gap: 1px;
   max-width: calc(100% - 90px);
-  padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid #ddd;
   font-family: ui-monospace, monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #333;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #666;
+  text-shadow: 0 1px 2px #fff, 0 -1px 2px #fff;
   pointer-events: none;
   z-index: 2;
+}
+.fx-legend-primary, .fx-legend-secondary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1px 7px;
+}
+@media (max-width: 640px) {
+  .fx-candle-legend :is(.fx-legend-ohl, .fx-legend-volume, .fx-legend-holding) { display: none; }
+  .fx-legend-primary, .fx-legend-secondary { gap: 1px 6px; }
 }
 .fx-legend-time {
   color: #888;
@@ -934,11 +948,11 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 .fx-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   white-space: nowrap;
 }
 .fx-legend-item b {
-  font-weight: 700;
+  font-weight: 500;
 }
 .fx-legend-item.up {
   color: var(--color-up, #16a34a);
