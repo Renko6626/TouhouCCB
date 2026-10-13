@@ -22,7 +22,8 @@ from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
 from app.schemas.fx import FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
-from app.services.fx import liquidity
+from app.services.fx import liquidity, admin_reads
+from app.schemas.fx import FxAdminOverview, FxLiquidityPreviewRequest, FxLiquidityPreview, FxLiquidityHistory
 from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
@@ -230,6 +231,21 @@ async def list_pairs(_: User = Depends(current_superuser), db: AsyncSession = De
         })
         result.append(FxPairAdminDetail(**data))
     return result
+
+
+@router.get("/pairs/{pair_id}/overview", response_model=FxAdminOverview)
+async def pair_overview(pair_id: int, _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.overview(db, pair_id)
+
+
+@router.post("/pairs/{pair_id}/liquidity-preview", response_model=FxLiquidityPreview)
+async def preview_liquidity(pair_id: int, req: FxLiquidityPreviewRequest, _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.liquidity_preview(db, pair_id, req)
+
+
+@router.get("/pairs/{pair_id}/liquidity-history", response_model=FxLiquidityHistory)
+async def pair_liquidity_history(pair_id: int, before_id: Optional[int] = Query(None, ge=1), limit: int = Query(20, ge=1, le=100), _: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
+    return await admin_reads.liquidity_history(db, pair_id, before_id, limit)
 
 
 @router.post("/pairs", response_model=FxPairAdmin)
