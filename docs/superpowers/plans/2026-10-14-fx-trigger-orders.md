@@ -159,10 +159,10 @@
 - [x] 记录实际命令、结果、PG/截图范围、既有警告及未验证部署/生产项；任何全量失败先定位具体层，不删除有效断言或放宽预期。最终审阅状态单列如下，不把前述检查当作审阅通过。
 - [x] 只提交本任务文件，交付分支及 reviewable diff；推送/PR/合并/部署需后续授权，不能把实现计划当作发布授权。
 
-- [ ] Task6 及全分支 Sol medium 最终审阅（由 parent 在交付后执行）。
+- [x] Task6 及全分支 Sol medium 最终审阅：Ready；`bfaeaa7` 局部文案修复 scoped Approved，无剩余 C/I/M，见[最终审阅记录](../reviews/2026-10-14-fx-trigger-orders-final-review.md)。
 
 ## 计划自查与执行交接
 
 spec 基本原则对应 Task1/3；动作/融资 Task1/3/5；存储/API/删除/reset Task2；扫描/配置/生命周期 Task4；SSE Task4/5；文档与验证 Task6。测试分层覆盖独立风险，不逐层复制全部成交场景。
 
-用户已确认完整方案及全部推荐细节，选择 Sol low 顺序实施、Sol medium 逐任务审阅。Tasks0–5 已完成；Task6 集中验证与文档已完成，待审阅，全分支最终 medium 审阅待完成。仅获本地实施授权，未推送、合并或部署。实际证据见[验证记录](../../fx-trigger-orders-validation-2026-10-14.md)。
+用户已确认完整方案及全部推荐细节，选择 Sol low 顺序实施、Sol medium 逐任务审阅。Tasks0–6 已完成；全分支最终 Sol medium 审阅 Ready，局部文案修复 `bfaeaa7` scoped Approved，无剩余 C/I/M。仅获本地实施授权，未推送、合并或部署。实际证据见[验证记录](../../fx-trigger-orders-validation-2026-10-14.md)。

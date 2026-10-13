@@ -1,6 +1,6 @@
 # FX 到价挂单验证记录（2026-10-14）
 
-隔离分支 `feat/fx-trigger-orders-20261014`，worktree `/tmp/sunyunbo/thccb-fx-trigger-orders-20261014`。Task6 检查代码为 `2751953`；本任务只改文档，没有新增生产代码、算法、恢复机制或永久测试。Tasks1–5 已逐任务 Sol medium 审阅通过；Task6 与全分支最终 medium 审阅待完成。未推送、合并、部署或访问生产数据库。
+隔离分支 `feat/fx-trigger-orders-20261014`，worktree `/tmp/sunyunbo/thccb-fx-trigger-orders-20261014`。Task6 检查代码为 `2751953`；本任务只改文档，没有新增生产代码、算法、恢复机制或永久测试。Tasks1–5 已逐任务 Sol medium 审阅通过；Task6 与全分支最终 Sol medium 审阅完成，结论 Ready，无剩余 C/I/M；局部修复 `bfaeaa7` 已 scoped Approved。详见[最终审阅记录](superpowers/reviews/2026-10-14-fx-trigger-orders-final-review.md)。未推送、合并、部署或访问生产数据库。
 
 ## 最后一轮集中检查
 
@@ -50,3 +50,11 @@ Task5 的 `task-5-desktop.png`（1280×1000）和 `task-5-mobile.png`（390×844
 没有浏览器自动点击、填表、提交、撤单或交易。失败通知由 store 单元检查覆盖；失败列表、开启借款和平仓表单的所有视觉组合没有分别截图。没有生产混合压测、完整真实登录交易流、停机期间触价追溯、离线通知补发或生产迁移验证。分页恰好满页可能再出现一张空结果页，沿用上一页返回即可，未增加额外机制。
 
 本次迁移为 `business_baseline_20261013` 后新增 `fx_trigger_orders_20261014`。上线迁移、运行配置、开市、部署验收和生产操作需后续安排；当前证据不构成线上容量或已发布承诺。
+
+## 最终审阅修复与收尾
+
+全分支审阅到 `f45dabf` 未发现 C/I，发现一项 M：部分已知失败原因被通用文案隐藏。`bfaeaa7` 只为三个实际后端原因补充自然中文解释，保留旧别名和未知/null 回退，并修正明确指定临时 SQLite URL 的记录。Scoped Sol medium 审阅结论 Ready，无剩余 C/I/M。
+
+局部修复后 `npm --prefix thccb-frontend run type-check` exit 0；`node /tmp/sunyunbo/fx-final-reasons-runtime.cjs` exit 0，调用实际导出的 formatter 共 6 次，验证三个已知原因、旧别名及未知/null 回退；`git diff --check` exit 0。运行时检查只 stub 未使用的传输，不请求网络或写数据；临时 CommonJS bundle 对未调用的既有 SSE URL 函数产生两条 `empty-import-meta` 警告。没有新增永久测试，也没有在文案映射修复后重跑全量套件或构建；上面的全量结果对应修复前代码，不声称本次重跑。
+
+Parent 已停止自建的一次性 PG 集群（55547，`pg_ctl` exit 0），并只移除本任务创建的根目录 `node_modules` 符号链接；依赖、worktree 和证据保留。提交此完成记录前工作树干净。未推送、合并或部署，生产及 UI 验证限制保持不变。
