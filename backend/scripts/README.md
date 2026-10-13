@@ -14,7 +14,6 @@
 | [season_reset.py](season_reset.py) | 清理赛季活动数据、重置资产和审计锚点；保留账号、称号和兑换记录 | 执行前必须停止后端及经济写入 | 手工 CLI；`deploy/season_reset.sh` 调用；`--dry-run` 只预览 |
 | [gen_lmsr_golden.py](gen_lmsr_golden.py) | 生成前端 LMSR 对拍数据到标准输出；不访问数据库，重定向时写文件 | 无 | 开发工具，手工更新前端 `lmsr.golden.json` |
 | [simulate_pve_event.py](simulate_pve_event.py) | 用内存账本比较 PVE 参数；不访问数据库，`--output` 可写 JSON | 无 | 开发 CLI；已有测试调用模拟函数 |
-
 | [business_reset.py](business_reset.py) | 固定源 initial_balance 的新基线业务重置；保留身份和完整称号，清空兑换与经济业务；导出写私有文件，导入写独立空目标，验证只读 | 执行必须停止全部写入；目标只读验收后再启动 owner | `deploy/business_reset.sh`，专用 workflow 分阶段调用 |
 
 `season_reset.py` 保留未来赛季的兑换权益和对应审计。本次 `business_reset.py` 清空全部兑换数据，现金由源库 `siteconfig.initial_balance` 决定；expected_initial_balance 只核对源值，不能覆盖金额。
