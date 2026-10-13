@@ -12,8 +12,8 @@
 // 成交量不重复、不漏记。快照尾段只在「同一帧携带的覆盖游标 + 尚未应用更新成交」
 // 时用于加载；一旦有实时成交超过尾段游标，就改用 `/chart` 的 body+游标同源回退。
 //
-// 价格精度：右轴 `localization.priceFormatter` 与 tooltip 共用 `formatFxPrice`
-// （按数量级动态小数位）；成交量是「金额」口径，用 `formatFxAmount`，两者分开。
+// 价格精度：右轴 `localization.priceFormatter` 使用 `formatFxPrice`
+// （按数量级动态小数位）。
 // lightweight-charts 只接受 number，所以在 `toCandleData` 适配层一次性转换，
 // 展示时再由同一 formatter 还原字符串。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -34,7 +34,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from 'lightweight-charts'
-import { formatFxAmount, formatFxPrice, fxPricePrecision } from '@/api/fx'
+import { formatFxPrice, fxPricePrecision } from '@/api/fx'
 import type {
   FxChartInterval,
   FxChartPoint,
@@ -94,22 +94,10 @@ const MA_COLORS: Record<number, string> = { 10: '#f59e0b', 20: '#2563eb' }
 /** 加载/补尾期间允许缓冲的实时成交上限；超过则放弃缓冲并请求补尾段，绝不伪造零成交。 */
 const FX_MAX_PENDING_EVENTS = 5000
 
-interface FxLegend {
-  t: number | null
-  o: number | null
-  h: number | null
-  l: number | null
-  c: number | null
-  v: number
-  changePct: number | null
-  ma: Record<number, number | null>
-}
-
 const chartRef = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const candleCount = ref(0)
-const legend = ref<FxLegend | null>(null)
 
 let chartInstance: IChartApi | null = null
 let candleSeries: ISeriesApi<'Candlestick', Time> | null = null
@@ -230,29 +218,6 @@ const applyPriceAxis = (reference: number | null | undefined) => {
   for (const period of FX_MA_PERIODS) maSeries[period]?.applyOptions({ priceFormat })
 }
 
-const buildLegend = (index: number) => {
-  const candles = engine.candles
-  if (!candles.length) {
-    legend.value = null
-    return
-  }
-  const i = Math.min(Math.max(index, 0), candles.length - 1)
-  const c = candles[i]!
-  const prev = i > 0 ? candles[i - 1]!.c : null
-  const ma: Record<number, number | null> = {}
-  for (const period of FX_MA_PERIODS) ma[period] = engine.maAt(period, i)
-  legend.value = {
-    t: c.t,
-    o: c.o,
-    h: c.h,
-    l: c.l,
-    c: c.c,
-    v: c.v,
-    changePct: prev !== null && prev > 0 ? ((c.c - prev) / prev) * 100 : null,
-    ma,
-  }
-}
-
 const applyVisibleRangeToNow = () => {
   if (!chartInstance) return
   const range = fxCandleVisibleRange(
@@ -287,7 +252,6 @@ const renderAll = (resetRange = true) => {
   candleCount.value = candles.length
   applyPriceAxis(candles[candles.length - 1]?.c)
   if (resetRange) applyVisibleRangeToNow()
-  buildLegend(candles.length - 1)
 }
 
 /**
@@ -325,20 +289,6 @@ const applyChanged = (changed: FxCandle[]) => {
     userScrolledBack = false
     applyVisibleRangeToNow()
   }
-  if (!userScrolledBack) buildLegend(engine.count - 1)
-}
-
-const findIndexByTime = (seconds: number): number => {
-  const candles = engine.candles
-  let lo = 0
-  let hi = candles.length - 1
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1
-    if (candles[mid]!.t === seconds) return mid
-    if (candles[mid]!.t < seconds) lo = mid + 1
-    else hi = mid - 1
-  }
-  return hi >= 0 ? hi : -1
 }
 
 /** 立即清空渲染序列（不改变缓冲/加载标志），供 pair/周期切换与历史版本切换用。 */
@@ -347,7 +297,6 @@ const clearRenderedSeries = () => {
   volumeSeries?.setData([])
   for (const period of FX_MA_PERIODS) maSeries[period]?.setData([])
   candleCount.value = 0
-  legend.value = null
 }
 
 /**
@@ -648,7 +597,7 @@ const initChart = () => {
     },
     timeScale: { borderColor: '#000', timeVisible: true, secondsVisible: false },
     crosshair: { mode: 1 },
-    // 右轴与 tooltip 共用同一价格 formatter（动态小数位，不固定 2 位）
+    // 右轴使用动态小数位，不固定 2 位
     localization: { priceFormatter: (price: number) => formatFxPrice(price) },
     width: chartRef.value.clientWidth,
     height: chartRef.value.clientHeight || 420,
@@ -705,16 +654,7 @@ const initChart = () => {
     userScrolledBack = fxCandleScrolledBack(engine.candles, range.to as number)
   })
 
-  // 十字线移动 → 图例展示该根 OHLC / MA / 成交量；移出后回到最新根
-  chartInstance.subscribeCrosshairMove((param) => {
-    const time = param.time as number | undefined
-    if (time === undefined || !param.point) {
-      buildLegend(engine.count - 1)
-      return
-    }
-    const index = findIndexByTime(time)
-    if (index >= 0) buildLegend(index)
-  })
+
 }
 
 const setupResizeObserver = () => {
@@ -830,66 +770,11 @@ onUnmounted(() => {
   for (const period of FX_MA_PERIODS) maSeries[period] = null
 })
 
-const formatChartTime = (seconds: number | null): string => {
-  if (seconds === null) return '—'
-  const d = new Date(seconds * 1000)
-  if (!Number.isFinite(d.getTime())) return '—'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const compactLegendValue = (value: string) => value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value
-const legendPrice = (value: Parameters<typeof formatFxPrice>[0]) => compactLegendValue(formatFxPrice(value))
-const legendAmount = (value: Parameters<typeof formatFxAmount>[0]) => compactLegendValue(formatFxAmount(value))
-const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 </script>
 
 <template>
   <div class="fx-candle-chart" :style="{ height: props.height }">
     <div ref="chartRef" class="fx-candle-canvas"></div>
-
-    <div v-if="legend" class="fx-candle-legend">
-      <div class="fx-legend-primary">
-      <span class="fx-legend-time">{{ formatChartTime(legend.t) }}</span>
-      <span class="fx-legend-item fx-legend-ohl"
-        >开 <b>{{ legendPrice(legend.o) }}</b></span
-      >
-      <span class="fx-legend-item fx-legend-ohl"
-        >高 <b>{{ legendPrice(legend.h) }}</b></span
-      >
-      <span class="fx-legend-item fx-legend-ohl"
-        >低 <b>{{ legendPrice(legend.l) }}</b></span
-      >
-      <span class="fx-legend-item"
-        >收 <b>{{ legendPrice(legend.c) }}</b></span
-      >
-      <span
-        v-if="legend.changePct !== null"
-        class="fx-legend-item"
-        :class="legendUp ? 'up' : 'down'"
-      >
-        {{ legendUp ? '+' : '' }}{{ compactLegendValue(legend.changePct.toFixed(2)) }}%
-      </span>
-      </div>
-      <div class="fx-legend-secondary">
-      <span class="fx-legend-item fx-legend-volume"
-        >量 <b>{{ legendAmount(legend.v) }}</b></span
-      >
-      <span v-for="period in FX_MA_PERIODS" :key="period" class="fx-legend-item">
-        <i class="fx-legend-dot" :style="{ background: MA_COLORS[period] }"></i>
-        MA{{ period }} <b>{{ legendPrice(legend.ma[period]) }}</b>
-      </span>
-      <span
-        v-for="line in holdingLines"
-        :key="line.side"
-        class="fx-legend-item fx-legend-holding"
-        :class="line.side === 'long' ? 'up' : 'down'"
-        title="当前持仓均价参考；实际平仓仍计入手续费和价格影响。空头使用当前含息欠币计算。"
-      >
-        {{ holdingLineTitle(line.side) }} <b>{{ legendPrice(line.price) }}</b>
-      </span>
-      </div>
-    </div>
 
     <div v-if="error && candleCount > 0" class="fx-candle-stale" role="alert">
       <span>{{ error }}</span>
@@ -916,54 +801,6 @@ const legendUp = computed(() => (legend.value?.changePct ?? 0) >= 0)
 .fx-candle-canvas {
   width: 100%;
   height: 100%;
-}
-.fx-candle-legend {
-  position: absolute;
-  top: 5px;
-  left: 6px;
-  display: grid;
-  gap: 1px;
-  max-width: calc(100% - 90px);
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-  line-height: 1.4;
-  color: #666;
-  text-shadow: 0 1px 2px #fff, 0 -1px 2px #fff;
-  pointer-events: none;
-  z-index: 2;
-}
-.fx-legend-primary, .fx-legend-secondary {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 1px 7px;
-}
-@media (max-width: 640px) {
-  .fx-candle-legend :is(.fx-legend-ohl, .fx-legend-volume, .fx-legend-holding) { display: none; }
-  .fx-legend-primary, .fx-legend-secondary { gap: 1px 6px; }
-}
-.fx-legend-time {
-  color: #888;
-}
-.fx-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  white-space: nowrap;
-}
-.fx-legend-item b {
-  font-weight: 500;
-}
-.fx-legend-item.up {
-  color: var(--color-up, #16a34a);
-}
-.fx-legend-item.down {
-  color: var(--color-down, #dc2626);
-}
-.fx-legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 2px;
 }
 .fx-candle-stale {
   position: absolute;
