@@ -433,3 +433,72 @@ async def test_source_conversion_refuses_equal_timestamp_ambiguous_chain():
             assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 1
             with pytest.raises(ValueError, match="through-trade-id"):
                 await rebuild_pair(db, pair_id, 1)
+
+
+@pytest.mark.asyncio
+async def test_deploy_prepares_pending_history_preserves_finances_and_skips_ready_draft():
+    from scripts.prepare_fx_event_history import prepare, select_pending_pairs
+    pair_id = await _seed_pair(code="DEPLOY", initial_at=BASE)
+    await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10")
+    async with async_session_maker() as db:
+        db.add(FxPair(currency_code="DRAFT", currency_name="Unissued", status="draft"))
+        await db.execute(delete(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id))
+        await db.commit()
+        pair = await db.get(FxPair, pair_id)
+        finances = (pair.gold_reserve, pair.foreign_reserve)
+        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
+        balances = (treasury.gold_balance, treasury.foreign_balance)
+        sources = [(row.id, dict(row.payload)) for row in (await db.execute(select(AuditEvent))).scalars()]
+        trades = [(row.id, row.input_amount, row.output_amount) for row in (await db.execute(select(FxTrade))).scalars()]
+    assert await select_pending_pairs() == [pair_id]
+    assert await prepare() == 0
+    async with async_session_maker() as db:
+        state = await db.get(FxMarketDataState, pair_id)
+        assert state.history_ready and state.last_event_id > 0
+        version = state.history_version
+        pair = await db.get(FxPair, pair_id)
+        assert (pair.gold_reserve, pair.foreign_reserve) == finances
+        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
+        assert (treasury.gold_balance, treasury.foreign_balance) == balances
+        assert [(row.id, dict(row.payload)) for row in (await db.execute(select(AuditEvent))).scalars()] == sources
+        assert [(row.id, row.input_amount, row.output_amount) for row in (await db.execute(select(FxTrade))).scalars()] == trades
+        event_ids = list((await db.execute(select(FxPoolEvent.id))).scalars())
+    assert await select_pending_pairs() == []
+    assert await prepare() == 0
+    async with async_session_maker() as db:
+        assert (await db.get(FxMarketDataState, pair_id)).history_version == version
+        assert list((await db.execute(select(FxPoolEvent.id))).scalars()) == event_ids
+
+
+@pytest.mark.asyncio
+async def test_deploy_bad_source_prevents_conversion_of_all_selected_pairs():
+    from scripts.prepare_fx_event_history import prepare
+    good = await _seed_pair(code="GOOD", initial_at=BASE)
+    bad = await _seed_pair(code="BAD", initial_at=BASE)
+    async with async_session_maker() as db:
+        await db.execute(delete(FxPoolEvent))
+        audit = (await db.execute(select(AuditEvent).where(AuditEvent.ref_id == bad))).scalar_one()
+        audit.payload = {}
+        await db.commit()
+    with pytest.raises(ValueError, match="reserves"):
+        await prepare()
+    async with async_session_maker() as db:
+        for model in (FxPoolEvent, FxCandle, FxMarketDataState):
+            assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
+        assert (await db.get(FxPair, good)).gold_reserve == Decimal("1000")
+        assert (await db.get(FxPair, bad)).gold_reserve == Decimal("1000")
+
+
+@pytest.mark.asyncio
+async def test_deploy_refuses_initialized_pair_without_history_sources():
+    from scripts.prepare_fx_event_history import prepare
+    pair_id = await _seed_pair(code="NOSOURCE", initial_at=BASE)
+    async with async_session_maker() as db:
+        await db.execute(delete(FxPoolEvent))
+        await db.execute(delete(AuditEvent))
+        await db.commit()
+    with pytest.raises(ValueError, match="lack reconstructible history sources"):
+        await prepare()
+    async with async_session_maker() as db:
+        assert await db.get(FxMarketDataState, pair_id) is None
+        assert (await db.get(FxPair, pair_id)).gold_reserve == Decimal("1000")

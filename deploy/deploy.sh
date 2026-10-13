@@ -210,6 +210,8 @@ if [ "$FX_SHORT_ROLLOUT" = "initial" ]; then
     # Stop any preflight-to-stop race from enabling opening during first rollout.
     docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py --require-closed
 fi
+log "  Preparing pending FX event history against the stopped database..."
+docker compose run --rm --no-deps -T backend python scripts/prepare_fx_event_history.py
 log "  Verifying audit replay against the stopped database..."
 docker compose run --rm --no-deps -T backend python scripts/audit_verify.py
 
