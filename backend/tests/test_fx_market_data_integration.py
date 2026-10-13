@@ -20,7 +20,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.core.database import async_session_maker
 from app.models.base import SiteConfig, User
@@ -367,6 +367,29 @@ async def test_source_conversion_dry_run_reconstruction_and_refusal():
             with pytest.raises(ValueError, match="reserves"):
                 await rebuild_pair(db, pair_id, dry_run=True)
             await db.rollback()
+
+    # A withdrawal carrying an issuance action cannot supply the initial anchor,
+    # even when its post reserves exactly match the current pair.
+    invalid_pair = await _seed_pair(code="BADISSUE", initial_at=BASE)
+    async with async_session_maker() as db:
+        audit = (await db.execute(select(AuditEvent).where(AuditEvent.ref_id == invalid_pair))).scalars().one()
+        audit.event_type = "fx_withdraw"
+        await db.execute(delete(FxPoolEvent).where(FxPoolEvent.pair_id == invalid_pair))
+        await db.commit()
+        audit_id, payload = audit.id, dict(audit.payload)
+    async with async_session_maker() as db:
+        async with db.begin():
+            for dry_run in (True, False):
+                with pytest.raises(ValueError, match="contradictory initial_issuance.*fx_withdraw"):
+                    await rebuild_pair(db, invalid_pair, dry_run=dry_run)
+            for model in (FxPoolEvent, FxCandle, FxMarketDataState):
+                assert (await db.execute(select(func.count()).select_from(model).where(model.pair_id == invalid_pair))).scalar_one() == 0
+            audit = await db.get(AuditEvent, audit_id)
+            assert audit.event_type == "fx_withdraw" and audit.payload == payload
+            pair = await db.get(FxPair, invalid_pair)
+            treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == invalid_pair))).scalars().one()
+            assert (pair.gold_reserve, pair.foreign_reserve) == (Decimal("1000"), Decimal("1000"))
+            assert (treasury.gold_balance, treasury.foreign_balance) == (Decimal("1000"), Decimal("1000"))
 
 
 @pytest.mark.asyncio

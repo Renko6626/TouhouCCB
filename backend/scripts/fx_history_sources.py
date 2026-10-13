@@ -41,7 +41,10 @@ async def source_pages(db, pair_id, model, cutoff):
                 kind = 'trade'
                 volume = source.input_amount if source.side == 'buy' else source.output_amount
             else:
-                initial = source.payload.get('action') == 'initial_issuance'
+                issuance_action = source.payload.get('action') == 'initial_issuance'
+                if issuance_action and source.event_type != 'fx_fund':
+                    raise ValueError(f'contradictory initial_issuance audit type {source.event_type} (audit {source.id})')
+                initial = source.event_type == 'fx_fund' and issuance_action
                 kind = 'initialize' if initial else ('fund' if source.event_type == 'fx_fund' else 'withdraw')
                 pre = None if initial else reserves(source.payload.get('pool_before'))
                 post = reserves(source.payload.get('pool_after'))
