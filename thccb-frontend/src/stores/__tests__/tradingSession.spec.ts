@@ -246,3 +246,42 @@ it('allows a funded short-to-long reversal despite fractional-day interest round
   expect(tooLeveraged.condition).toBe('rejected')
   expect(tooLeveraged.rejected_reasons).toContain('insufficient_initial_margin')
 })
+
+const orderResult = { order_id: 7, pair_id: 2, currency_code: 'USD', action: 'buy', status: 'succeeded', occurred_at: time, input_amount: '10', output_amount: '20', borrow_amount: '0', execution_id: 8, trade_id: null, failure_reason: null }
+it('shows failed orders from any pair once without requiring an account change', async () => {
+  const store = await boot()
+  const result = { ...orderResult, status: 'failed', failure_reason: 'insufficient cash' }
+  frame('fx_order_result', result); frame('fx_order_result', result)
+  expect(store.lastOrderResult).toEqual(result)
+  const notifications = useNotificationStore().notifications
+  expect(notifications).toHaveLength(1)
+  expect(notifications[0]).toMatchObject({ type: 'error', title: 'USD 挂单 #7 未成交', message: '金圆券余额不足' })
+  await vi.advanceTimersByTimeAsync(200)
+  expect(mocks.context).toHaveBeenCalledTimes(1)
+})
+it('shows one order success notification and refreshes account while suppressing generic order hints', async () => {
+  const store = await boot()
+  mocks.context.mockResolvedValueOnce(context('2'))
+  frame('account_changed', { event_id: 'fx-account', economic_version: '2', reason: 'fx_orders', occurred_at: time })
+  frame('fx_order_result', orderResult); frame('fx_order_result', orderResult)
+  expect(store.lastOrderResult).toEqual(orderResult)
+  expect(useNotificationStore().notifications).toHaveLength(1)
+  expect(useNotificationStore().notifications[0]).toMatchObject({ type: 'success', title: 'USD 挂单 #7 已成交' })
+  await vi.advanceTimersByTimeAsync(200)
+  expect(mocks.context).toHaveBeenCalledTimes(2)
+  expect(store.account!.economic_version).toBe('2')
+})
+it('clears private order results on identity change and ignores the former stream', async () => {
+  const store = await boot()
+  frame('fx_order_result', { ...orderResult, status: 'failed' })
+  const old = mocks.handlers!
+  mocks.auth.user = { id: 2 }; mocks.auth.accessToken = 'B'
+  mocks.context.mockResolvedValueOnce(context('1', [fx()], { ...basis, user_id: 2 }))
+  mocks.auth.sessionGeneration++
+  await vi.advanceTimersByTimeAsync(0)
+  expect(store.lastOrderResult).toBeNull()
+  old.frame({ event: 'fx_order_result', data: JSON.stringify(orderResult) })
+  expect(store.lastOrderResult).toBeNull()
+  expect(useNotificationStore().notifications).toHaveLength(0)
+  expect(store.account!.user_id).toBe(2)
+})

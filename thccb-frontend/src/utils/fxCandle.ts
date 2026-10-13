@@ -431,7 +431,7 @@ export class FxCandleEngine {
   }
 
   /** Quiet time extends the last covered close, without inventing source events. */
-  carryTo(tsSeconds: number): FxPriceApply {
+  carryTo(tsSeconds: number): Pick<FxEventsApply, 'reload' | 'changed' | 'added'> {
     const last = this._candles[this._candles.length - 1]
     if (!last || last.n_events === undefined || !Number.isFinite(tsSeconds)) {
       return { reload: false, changed: [], added: 0 }

@@ -448,3 +448,42 @@ export interface FxLiquidityHistoryItem {
   price_change_pct: string | null
 }
 export interface FxLiquidityHistory { items: FxLiquidityHistoryItem[]; next_before_id: number | null }
+
+// Private trigger orders; Decimal fields follow the backend JSON string contract.
+export type FxTriggerAction = 'buy' | 'sell' | 'close_long' | 'close_short'
+export type FxTriggerStatus = 'waiting' | 'succeeded' | 'failed' | 'cancelled'
+export interface FxTriggerOrderCreate {
+  pair_id: number
+  action: FxTriggerAction
+  comparison: 'lte' | 'gte'
+  trigger_price: string
+  amount?: string | null
+  close_percent?: string | null
+  auto_borrow: boolean
+  borrow_limit: string
+}
+export interface FxTriggerOrder extends FxTriggerOrderCreate {
+  id: number
+  user_id: number
+  status: FxTriggerStatus
+  created_at: string
+  finished_at: string | null
+  observed_trigger_price: string | null
+  failure_reason: string | null
+  execution_id: number | null
+  trade_id: number | null
+}
+export interface FxOrderResult {
+  order_id: number
+  pair_id: number
+  currency_code: string
+  action: FxTriggerAction
+  status: 'succeeded' | 'failed'
+  occurred_at: string
+  input_amount: string | null
+  output_amount: string | null
+  borrow_amount: string | null
+  execution_id: number | null
+  trade_id: number | null
+  failure_reason: string | null
+}

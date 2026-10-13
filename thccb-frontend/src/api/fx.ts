@@ -3,6 +3,9 @@
 import api from './index'
 import { FxPendingOrder, type FxPendingStorage } from './fxPendingOrder'
 import type {
+  FxTriggerOrderCreate,
+  FxTriggerOrder,
+  FxTriggerStatus,
   FxBorrowBuyQuote,
   FxBorrowBuyQuoteRequest,
   FxBorrowBuyRequest,
@@ -56,6 +59,15 @@ export const FX_PUBLIC_FRAME_KEYS = [
 
 // 后端 detail → 中文提示。动态文案（如首轮失败原因）走 fallback。
 const FX_ERROR_DETAILS: Record<string, string> = {
+  '最多只能同时保留 3 张有效挂单': '全账户最多同时保留 3 张等待挂单，请先撤销或等待成交',
+  'FX pair is closed': '该币种已关闭，无法创建挂单',
+  'FX pair is permanently unavailable': '该币种已关闭或归档，挂单已结束',
+  'Order not found': '挂单不存在，请刷新记录',
+  'Order is already finished': '挂单已结束，请刷新记录查看结果',
+  'no long position to close': '到价时已无多头仓位可平',
+  'long close quantity is too small': '要平掉的多头数量太小，请调整比例',
+  'no short position to cover': '到价时已无空头仓位可平',
+  'User is inactive': '账户当前不可交易',
   risk_engine_unavailable: '信用风控暂不可用，无法借款买入',
   loan_disabled: '借款功能已暂停，仍可使用现金买入',
   'economic_version_changed; requote': '账户已变化，请重新报价后确认',
@@ -691,7 +703,27 @@ export function upsertFxPairAdmin(
 
 // ── 玩家 API（/api/v1/fx） ──
 
+/** Known business reasons only: never show internal exceptions to players. */
+export function describeFxOrderFailure(reason: string | null): string {
+  return reason && FX_ERROR_DETAILS[reason] || '到价时未能成交，请核对账户和市场状态后重新挂单'
+}
+
+export function mapFxOrderError(error: unknown, fallback: string): string {
+  const value = (error ?? {}) as FxErrorLike
+  const detail = typeof value.data?.detail === 'string' ? value.data.detail : ''
+  return FX_ERROR_DETAILS[detail] || mapFxError({ status: value.status }, fallback)
+}
+
 export const fxApi = {
+  createTriggerOrder(body: FxTriggerOrderCreate): Promise<FxTriggerOrder> {
+    return api.postForCurrentUser('/api/v1/fx/orders', body)
+  },
+  listTriggerOrders(params: { status?: FxTriggerStatus; before_id?: number; limit?: number } = {}): Promise<FxTriggerOrder[]> {
+    return api.getForCurrentUser('/api/v1/fx/orders', { params })
+  },
+  cancelTriggerOrder(orderId: number): Promise<FxTriggerOrder> {
+    return api.postForCurrentUser(`/api/v1/fx/orders/${orderId}/cancel`, {})
+  },
   quoteBorrowBuy(pairId: number, body: FxBorrowBuyQuoteRequest): Promise<FxBorrowBuyQuote> {
     return api.postForCurrentUser<FxBorrowBuyQuote>(
       `/api/v1/fx/pairs/${pairId}/borrow-buy/quote`,

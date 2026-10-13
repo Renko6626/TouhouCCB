@@ -28,6 +28,7 @@ import { useFxResource } from '@/composables/useFxResource'
 import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
 import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
+import FxTriggerOrders from '@/components/market/FxTriggerOrders.vue'
 import FxOrderSize from '@/components/market/FxOrderSize.vue'
 import FxBorrowConfirmation from '@/components/market/FxBorrowConfirmation.vue'
 import { useTradingPreferencesStore } from '@/stores/tradingPreferences'
@@ -2060,6 +2061,7 @@ onUnmounted(() => {
       </section>
 
       <div class="fx-lower">
+        <FxTriggerOrders :pair-id="activePair.id" />
         <section class="fx-block fx-trades-block">
           <div class="fx-panel-head">
             <h2>我的成交记录</h2>

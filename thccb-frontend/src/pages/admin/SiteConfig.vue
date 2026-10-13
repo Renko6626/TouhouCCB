@@ -6,7 +6,13 @@ import {
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import BackendMaintenance from '@/components/BackendMaintenance.vue'
-import { compareConfigKeys, getConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
+import { compareConfigKeys, getConfigMeta as baseConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
+
+function getConfigMeta(key: string) {
+  return key === 'fx_order_scan_interval_sec'
+    ? { group: 'fx' as const, label: 'FX 挂单检查间隔', description: '每隔指定秒数检查等待挂单，保存后生效；短暂触价可能错过。可设为 5–3600 秒。', unit: '秒' }
+    : baseConfigMeta(key)
+}
 
 // 套餐仅调整名义杠杆和维持率。
 type PresetKey = 'conservative' | 'moderate' | 'aggressive' | 'extreme' | 'fx10x'
@@ -361,6 +367,8 @@ onMounted(load)
 
                         @update:value="(v) => drafts[c.key] = v === null ? '' : String(v)"
                         size="small"
+                        :min="c.key === 'fx_order_scan_interval_sec' ? 5 : undefined"
+                        :max="c.key === 'fx_order_scan_interval_sec' ? 3600 : undefined"
                         :precision="c.value_type === 'int' ? 0 : undefined"
                         style="width: 160px"
                       />
