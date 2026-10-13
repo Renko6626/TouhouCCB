@@ -115,7 +115,7 @@ onUnmounted(() => { mounted = false; generation++; emit('waiting-change', []) })
 <template>
   <button class="manage-orders" type="button" @click="open">管理挂单 <span>{{ waitingLoaded ? waiting.length : '—' }}/3</span></button>
   <NModal v-model:show="show">
-  <section class="trigger-orders" role="dialog" aria-modal="true" aria-labelledby="trigger-orders-title">
+  <div class="trigger-orders" role="dialog" aria-modal="true" aria-labelledby="trigger-orders-title">
     <header class="order-heading">
       <h2 id="trigger-orders-title">管理挂单</h2>
       <span>全账户等待单 {{ waitingLoaded ? waiting.length : '—' }}/3</span>
@@ -174,7 +174,7 @@ onUnmounted(() => { mounted = false; generation++; emit('waiting-change', []) })
     </template>
     <p v-else class="order-note">登录后可创建挂单和查看记录。</p>
     </div>
-  </section>
+  </div>
   </NModal>
 </template>
 
