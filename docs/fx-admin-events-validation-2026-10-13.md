@@ -51,7 +51,7 @@
 
 ## 真实PG迁移与ownership
 
-baseline的 `test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_count` 在独立PG库复现 `EconomicWritesDisabled: unknown`。旧共享fixture只给SQLite取得OWNERSHIP，直接服务测试没有app lifespan。修正范围仅该integration模块：验证库名为test前／后缀，真实 `OWNERSHIP.acquire(required=True)`并在fixture结束释放；保留原writer guard，无mock或绕过。最终PG integration模块6 passed，SQLite migration+integration合计17 passed。
+baseline的 `test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_count` 在独立PG库复现 `EconomicWritesDisabled: unknown`。旧共享fixture只给SQLite取得OWNERSHIP，直接服务测试没有app lifespan。修正范围仅该integration模块：session/autouse fixture先验证库名为 `test_` 前缀或 `_test` 后缀，早于function-scoped `setup_db` 的drop/create；schema建立后真实 `OWNERSHIP.acquire(required=True)`并在fixture结束释放；保留原writer guard，无mock或绕过。最终PG integration模块6 passed，SQLite migration+integration合计17 passed。
 
 迁移库由baseline metadata建表，保留cash/debt小数、wallet、treasury、pool、原trade/audit/candle及history_version。通过SQLAlchemy asyncpg连接的 `run_sync` 与 Alembic `Operations.context(MigrationContext.configure(conn))` 调用实际revision `upgrade()/downgrade()`：升级仅新增事件元数据并置history_ready=false；无事件时downgrade/upgrade往返保留旧值；插入实际trade事件后downgrade明确拒绝，已有事件和金额仍在。原cash/debt为123.123456/45.123456，pool100/200，wallet20/40，treasury17/29，trade1/2，审计payload保持。
 
@@ -134,3 +134,22 @@ git diff --check
 ```
 
 新增永久回归仅覆盖暖ring复制后提交的window／prior-anchor事件强制fallback、bounds读取后generation轮换拒绝旧结果；复用原history夹具及真实生产聚合。原checkpoint回归显式保留旧ORM实例，继续捕获同语句读取未刷新checkpoint导致的重复成交量。既有route fake仅补合并投影字段及execute参数签名，没有放宽断言。日志、两次EXPLAIN和临时脚本保存在本任务scratch；未运行浏览器交互、生产迁移或生产环境，其他未验证范围仍见上文。
+
+## Review fix1：先于清表的PG URL检查
+
+首版ownership fixture依赖 `setup_db`，库名检查实际晚于drop/create；review指出这个顺序无法保护误指向非test库。已将URL检查移到本integration模块的session/autouse fixture，并让ownership fixture显式依赖它。检查只读取engine URL，不建立连接；真实writer ownership仍在setup_db建立schema后取得，未修改全局fixture或writer guard。
+
+基于 `d300429` 的实际复查命令：
+
+```bash
+DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_owner_test backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py -q
+# exit0，6 passed in 3.98s
+backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py -q
+# exit0，6 passed in 1.00s（默认隔离SQLite）
+DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:1/thccb_guard_probe backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py::test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_count -q
+# exit1，预期的setup拒绝：FX integration ownership requires a disposable test database
+git diff --check
+# exit0
+```
+
+非test URL检查使用未监听的端口1，在session guard报错；未进入function setup_db，没有连接或清空任何非test库。此次仅修正fixture顺序；原性能证据不变，图表局部修复的复测由父agent另行记录。
