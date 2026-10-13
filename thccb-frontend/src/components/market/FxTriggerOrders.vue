@@ -110,11 +110,11 @@ onUnmounted(() => { mounted = false; generation++ })
       <form class="order-form" @submit.prevent="submit">
         <p class="fill-sentence">当 {{ currentCurrency }} 的汇率
           <select v-model="comparison" aria-label="触价条件"><option value="lte">小于或等于</option><option value="gte">大于或等于</option></select>
-          <input v-model="triggerPrice" aria-label="触发汇率" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写触发价" />
+          <input :value="triggerPrice" @input="triggerPrice = ($event.target as HTMLInputElement).value" aria-label="触发汇率" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写触发价" />
           金圆券时，尝试
           <select v-model="action" aria-label="挂单动作"><option value="buy">买入</option><option value="sell">卖出</option><option value="close_long">平多头</option><option value="close_short">平空头</option></select>
           <template v-if="!isClose">
-            <input v-model="amount" :aria-label="action === 'buy' ? '投入金圆券' : '卖出外币数量'" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写数量" />
+            <input :value="amount" @input="amount = ($event.target as HTMLInputElement).value" :aria-label="action === 'buy' ? '投入金圆券' : '卖出外币数量'" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写数量" />
             {{ action === 'buy' ? '金圆券的外币' : '外币' }}。
           </template>
           <template v-else>
@@ -126,7 +126,7 @@ onUnmounted(() => { mounted = false; generation++ })
         <p v-if="isClose" class="order-note">按到价时仓位计算比例，只减仓，不反向开仓。当前多头 {{ formatFxAmount(currentPosition.long) }}，空头本金 {{ formatFxAmount(currentPosition.short) }}。</p>
         <div v-if="action === 'buy'" class="borrow-field">
           <label><input v-model="autoBorrow" type="checkbox" /> 允许自动借入金圆券</label>
-          <label v-if="autoBorrow">借款上限 <input v-model="borrowLimit" aria-label="自动借款上限" type="number" inputmode="decimal" min="0" step="0.000001" required placeholder="填写金圆券上限" /></label>
+          <label v-if="autoBorrow">借款上限 <input :value="borrowLimit" @input="borrowLimit = ($event.target as HTMLInputElement).value" aria-label="自动借款上限" type="number" inputmode="decimal" min="0" step="0.000001" required placeholder="填写金圆券上限" /></label>
           <span v-if="autoBorrow" class="order-note">按资金缺口借入，仍需符合账户借款条件。</span>
         </div>
         <p class="order-note">触发价不保证成交均价；不预留资金或借款额度。定时检查，短暂触价可能错过。到价后尝试一次，失败会结束挂单。</p>
