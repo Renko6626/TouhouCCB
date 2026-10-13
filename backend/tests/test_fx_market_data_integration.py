@@ -19,6 +19,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.engine import make_url
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
 
@@ -36,6 +38,25 @@ from scripts.backfill_fx_candles import rebuild_pair
 
 UTC = timezone.utc
 BASE = datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _pg_service_write_ownership(setup_db):
+    """Direct service tests have no lifespan; acquire its real PG writer lock."""
+    from app.core.database import engine
+    from app.services.credit.ownership import OWNERSHIP
+
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    database = make_url(str(engine.url)).database or ""
+    if not (database.endswith("_test") or database.startswith("test_")):
+        raise RuntimeError("FX integration ownership requires a disposable test database")
+    await OWNERSHIP.acquire(required=True)
+    try:
+        yield
+    finally:
+        await OWNERSHIP.release()
 
 
 async def _enable_fx() -> None:
