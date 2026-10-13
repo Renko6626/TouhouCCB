@@ -24,7 +24,9 @@ from sqlalchemy import func, select
 
 from app.core.database import async_session_maker
 from app.models.base import SiteConfig, User
-from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury
+from app.models.audit import AuditEvent
+from app.services.fx.pool_events import append_pool_event
+from app.models.fx import FxCandle, FxMarketDataState, FxPair, FxPoolEvent, FxTrade, FxTreasury
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.fx import trading
@@ -58,6 +60,13 @@ async def _seed_pair(*, code: str = "ITG", status: str = "trading",
                       sell_fee_rate=Decimal("0"))
         db.add(pair)
         await db.flush()
+        initial_at = datetime.now(UTC).replace(second=0, microsecond=0)
+        audit = AuditEvent(event_type="fx_fund", ref_table="fx_pair", ref_id=pair.id, ts=initial_at)
+        db.add(audit)
+        await db.flush()
+        append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=initial_at,
+                          pre_reserves=None, post_reserves=(Decimal("1000"), Decimal("1000")),
+                          gold_volume=Decimal("0"), audit_id=audit.id)
         db.add(FxTreasury(pair_id=pair.id, gold_balance=Decimal("1000"),
                           foreign_balance=Decimal("1000")))
         await db.commit()
@@ -110,7 +119,7 @@ async def _candle(pair_id: int, interval: str, bucket_start: datetime) -> dict |
             "open": Decimal(row.open_price), "high": Decimal(row.high_price),
             "low": Decimal(row.low_price), "close": Decimal(row.close_price),
             "volume": Decimal(row.gold_volume), "n": int(row.n_trades),
-            "first_id": int(row.first_trade_id), "last_id": int(row.last_trade_id),
+            "first_id": int(row.first_event_id), "last_id": int(row.last_event_id),
         }
 
 
@@ -134,11 +143,13 @@ async def _state(pair_id: int) -> dict | None:
 
 
 async def _wait_applied(pair_id: int, trade_id: int, timeout: float = 5.0) -> None:
+    async with async_session_maker() as db:
+        event_id = (await db.execute(select(FxPoolEvent.id).where(FxPoolEvent.trade_id == trade_id))).scalar_one()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
         state = FX_MARKET_DATA.state(pair_id)
-        if state is not None and state["applied_trade_id"] >= trade_id:
+        if state is not None and state["applied_event_id"] >= event_id:
             return
         if loop.time() > deadline:
             pytest.fail("FX market-data runtime never consumed the committed trade")

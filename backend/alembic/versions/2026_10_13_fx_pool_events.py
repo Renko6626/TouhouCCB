@@ -35,8 +35,18 @@ def upgrade():
             batch.add_column(sa.Column(prefix + "_event_at", sa.DateTime(timezone=True)))
             batch.add_column(sa.Column(prefix + "_event_id", sa.BigInteger()))
         batch.add_column(sa.Column("n_events", sa.Integer(), nullable=False, server_default="0"))
+        batch.create_check_constraint("ck_fx_candle_events_non_negative", "n_events >= 0")
+        for prefix in ("first", "last"):
+            batch.alter_column(prefix + "_trade_at", existing_type=sa.DateTime(timezone=True), nullable=True)
+            batch.alter_column(prefix + "_trade_id", existing_type=sa.Integer(), nullable=True)
     with op.batch_alter_table("fx_market_data_state") as batch:
         batch.add_column(sa.Column("last_event_id", sa.BigInteger(), nullable=False, server_default="0"))
+        batch.create_check_constraint("ck_fx_market_data_state_event_cursor_non_negative", "last_event_id >= 0")
+
+    op.create_index("ix_audit_event_ref_type_id", "audit_event", ["ref_table", "ref_id", "event_type", "id"])
+    # Old trade cursors never certify event history. Rebuild rotates the
+    # generation once sources have been reconciled by the offline tool.
+    op.execute(sa.text("UPDATE fx_market_data_state SET history_ready = false"))
 
 
 def downgrade():
@@ -51,8 +61,14 @@ def downgrade():
     if any(conn.execute(sa.text(query)).first() is not None for query in populated):
         raise RuntimeError("Cannot downgrade FX pool events: event history would be lost")
     with op.batch_alter_table("fx_market_data_state") as batch:
+        batch.drop_constraint("ck_fx_market_data_state_event_cursor_non_negative", type_="check")
         batch.drop_column("last_event_id")
     with op.batch_alter_table("fx_candle") as batch:
+        batch.drop_constraint("ck_fx_candle_events_non_negative", type_="check")
+        for prefix in ("first", "last"):
+            batch.alter_column(prefix + "_trade_at", existing_type=sa.DateTime(timezone=True), nullable=False)
+            batch.alter_column(prefix + "_trade_id", existing_type=sa.Integer(), nullable=False)
         for name in ("first_event_at", "first_event_id", "last_event_at", "last_event_id", "n_events"):
             batch.drop_column(name)
     op.drop_table("fx_pool_event")
+    op.drop_index("ix_audit_event_ref_type_id", table_name="audit_event")

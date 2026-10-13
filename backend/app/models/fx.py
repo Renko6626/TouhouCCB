@@ -169,15 +169,16 @@ class FxShortPosition(SQLModel, table=True):
 class FxCandle(SQLModel, table=True):
     """Materialised FX OHLCV candles; derived data only.
 
-    The natural key is ``(pair_id, interval, bucket_start)``.  ``FxTrade`` stays
-    the source of truth; these rows are rebuilt from it.  ``first_trade_*`` /
-    ``last_trade_*`` carry the ``(created_at, id)`` ordering keys so a batch
+    The natural key is ``(pair_id, interval, bucket_start)``. ``FxPoolEvent`` is
+    the price source; these rows are rebuilt from it. ``first_event_*`` /
+    ``last_event_*`` carry the ``(created_at, id)`` ordering keys so a batch
     applied out of order still yields the true bucket open/close.
     """
     __tablename__ = "fx_candle"
     __table_args__ = (
         CheckConstraint("gold_volume >= 0", name="ck_fx_candle_volume_non_negative"),
         CheckConstraint("n_trades >= 0", name="ck_fx_candle_n_non_negative"),
+        CheckConstraint("n_events >= 0", name="ck_fx_candle_events_non_negative"),
         CheckConstraint("high_price >= low_price", name="ck_fx_candle_h_ge_l"),
         CheckConstraint(
             "interval IN ('10s','1m','15m','1h')",
@@ -203,10 +204,10 @@ class FxCandle(SQLModel, table=True):
     last_event_id: Optional[int] = Field(default=None, sa_type=BigInteger())
     n_events: int = Field(default=0, nullable=False, sa_column_kwargs={"server_default": text("0")})
 
-    first_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
-    first_trade_id: int = Field(nullable=False)
-    last_trade_at: datetime = Field(sa_type=DateTime(timezone=True))
-    last_trade_id: int = Field(nullable=False)
+    first_trade_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    first_trade_id: Optional[int] = Field(default=None)
+    last_trade_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
+    last_trade_id: Optional[int] = Field(default=None)
 
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
 
@@ -214,7 +215,7 @@ class FxCandle(SQLModel, table=True):
 class FxMarketDataState(SQLModel, table=True):
     """Per-pair durable consumption cursor for derived FX market data.
 
-    ``last_trade_id`` is the highest trade id whose candles are durably
+    ``last_event_id`` is the highest pool event id whose candles are durably
     persisted.  ``history_version`` isolates published history caches from a
     rebuild; it is generated on first creation.  ``history_ready`` distinguishes
     a freshly created state (initial backfill pending) from a completed one.
@@ -222,6 +223,7 @@ class FxMarketDataState(SQLModel, table=True):
     __tablename__ = "fx_market_data_state"
     __table_args__ = (
         CheckConstraint("last_trade_id >= 0", name="ck_fx_market_data_state_cursor_non_negative"),
+        CheckConstraint("last_event_id >= 0", name="ck_fx_market_data_state_event_cursor_non_negative"),
     )
 
     pair_id: int = Field(foreign_key="fx_pair.id", primary_key=True)

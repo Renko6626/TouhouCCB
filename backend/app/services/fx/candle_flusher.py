@@ -55,8 +55,8 @@ def _row_key(row: dict) -> RowKey:
 @dataclass(eq=False)
 class _PendingBatch:
     pair_id: int
-    expected_trade_id: int
-    through_trade_id: int
+    expected_event_id: int
+    through_event_id: int
     history_version: str
     history_ready: bool | None = None
     # True once a flush attempt failed and the commit outcome is unknown.
@@ -93,19 +93,19 @@ class FxCandleFlusher:
         """
         in_flight = self._in_flight.get(pair_id)
         if in_flight is not None:
-            return in_flight.expected_trade_id
+            return in_flight.expected_event_id
         batches = self._pending.get(pair_id)
-        return None if not batches else batches[0].expected_trade_id
+        return None if not batches else batches[0].expected_event_id
 
     def pending_through(self, pair_id: int) -> int | None:
         """Highest trade id queued or in-flight for ``pair_id``."""
         candidates = []
         in_flight = self._in_flight.get(pair_id)
         if in_flight is not None:
-            candidates.append(in_flight.through_trade_id)
+            candidates.append(in_flight.through_event_id)
         batches = self._pending.get(pair_id)
         if batches:
-            candidates.append(batches[-1].through_trade_id)
+            candidates.append(batches[-1].through_event_id)
         return max(candidates) if candidates else None
 
     def pending_ranges(self, pair_id: int) -> int:
@@ -132,13 +132,13 @@ class FxCandleFlusher:
     def add_batch(
         self,
         pair_id: int,
-        expected_trade_id: int,
-        through_trade_id: int,
+        expected_event_id: int,
+        through_event_id: int,
         rows: Sequence[dict],
         history_version: str,
         history_ready: bool | None = None,
     ) -> None:
-        """Queue ``(expected_trade_id, through_trade_id]`` rows for one pair.
+        """Queue ``(expected_event_id, through_event_id]`` rows for one pair.
 
         ``history_ready=None`` preserves readiness (``False`` until an explicit
         initial/rebuild call passes ``True``).  Rules:
@@ -166,13 +166,13 @@ class FxCandleFlusher:
         * a covered range is ignored; a genuine gap or mixed generation raises
           :class:`~app.services.fx.candles.FxCandleCursorConflict`.
         """
-        if through_trade_id < expected_trade_id:
+        if through_event_id < expected_event_id:
             raise ValueError(
-                f"through_trade_id {through_trade_id} < expected_trade_id {expected_trade_id}"
+                f"through_event_id {through_event_id} < expected_event_id {expected_event_id}"
             )
-        if through_trade_id == expected_trade_id and rows:
+        if through_event_id == expected_event_id and rows:
             raise ValueError(
-                f"pair {pair_id} batch ({expected_trade_id}, {through_trade_id}] "
+                f"pair {pair_id} batch ({expected_event_id}, {through_event_id}] "
                 "consumes no trade but carries candle rows"
             )
 
@@ -183,43 +183,43 @@ class FxCandleFlusher:
 
         self._check_generation(pair_id, history_version, batches, in_flight)
 
-        if in_flight is not None and expected_trade_id == in_flight.expected_trade_id:
-            if through_trade_id == expected_trade_id:
+        if in_flight is not None and expected_event_id == in_flight.expected_event_id:
+            if through_event_id == expected_event_id:
                 raise FxCandleCursorConflict(
-                    f"pair {pair_id} metadata-only transition at {expected_trade_id} "
+                    f"pair {pair_id} metadata-only transition at {expected_event_id} "
                     "overlaps the in-flight range; retry after the flush settles"
                 )
             return  # volume recompute overlapping the frozen prefix: ignore
 
-        if through_trade_id == expected_trade_id:
-            self._queue_metadata(pair_id, expected_trade_id, history_version,
+        if through_event_id == expected_event_id:
+            self._queue_metadata(pair_id, expected_event_id, history_version,
                                  history_ready, batches, in_flight)
             return
 
         if not batches:
-            self._append_or_create(pair_id, expected_trade_id, through_trade_id, rows,
+            self._append_or_create(pair_id, expected_event_id, through_event_id, rows,
                                    history_version, history_ready, in_flight)
             return
 
         match = next(
             (batch for batch in batches
-             if batch.expected_trade_id == expected_trade_id
-             and not (batch.through_trade_id == batch.expected_trade_id and not batch.rows)),
+             if batch.expected_event_id == expected_event_id
+             and not (batch.through_event_id == batch.expected_event_id and not batch.rows)),
             None,
         )
         if match is not None:
-            self._merge_match(match, through_trade_id, rows, history_ready)
+            self._merge_match(match, through_event_id, rows, history_ready)
             return
 
         tail = batches[-1]
-        if expected_trade_id == tail.through_trade_id and through_trade_id >= expected_trade_id:
+        if expected_event_id == tail.through_event_id and through_event_id >= expected_event_id:
             if tail.uncertain:
                 batches.append(self._new_batch(
-                    pair_id, expected_trade_id, through_trade_id, rows,
+                    pair_id, expected_event_id, through_event_id, rows,
                     history_version, history_ready,
                 ))
             else:
-                tail.through_trade_id = through_trade_id
+                tail.through_event_id = through_event_id
                 if history_ready is not None:
                     tail.history_ready = history_ready
                 for row in rows:
@@ -228,11 +228,11 @@ class FxCandleFlusher:
                     tail.rows[key] = merge_row(existing, row) if existing else dict(row)
             return
 
-        if through_trade_id <= tail.through_trade_id and expected_trade_id >= tail.expected_trade_id:
+        if through_event_id <= tail.through_event_id and expected_event_id >= tail.expected_event_id:
             return  # already covered by the tail
         raise FxCandleCursorConflict(
-            f"pair {pair_id} queued ranges cover through {tail.through_trade_id}, "
-            f"cannot add ({expected_trade_id}, {through_trade_id}]"
+            f"pair {pair_id} queued ranges cover through {tail.through_event_id}, "
+            f"cannot add ({expected_event_id}, {through_event_id}]"
         )
 
     def _check_generation(self, pair_id, history_version, batches, in_flight) -> None:
@@ -254,26 +254,26 @@ class FxCandleFlusher:
         """
         if batches:
             first, tail = batches[0], batches[-1]
-            if expected == first.expected_trade_id:
-                if first.through_trade_id == expected and not first.rows:
+            if expected == first.expected_event_id:
+                if first.through_event_id == expected and not first.rows:
                     if history_ready is not None:
                         first.history_ready = history_ready
                 else:
                     batches.insert(0, self._metadata_batch(pair_id, expected, version, history_ready))
                 return
-            if expected == tail.through_trade_id and expected > tail.expected_trade_id:
+            if expected == tail.through_event_id and expected > tail.expected_event_id:
                 batches.append(self._metadata_batch(pair_id, expected, version, history_ready))
                 return
-            if in_flight is not None and expected == in_flight.through_trade_id:
+            if in_flight is not None and expected == in_flight.through_event_id:
                 batches.insert(0, self._metadata_batch(pair_id, expected, version, history_ready))
                 return
             raise FxCandleCursorConflict(
                 f"pair {pair_id} cannot order a metadata-only transition at "
                 f"{expected} within the queued ranges"
             )
-        if in_flight is not None and expected != in_flight.through_trade_id:
+        if in_flight is not None and expected != in_flight.through_event_id:
             raise FxCandleCursorConflict(
-                f"pair {pair_id} in-flight range ends at {in_flight.through_trade_id}, "
+                f"pair {pair_id} in-flight range ends at {in_flight.through_event_id}, "
                 f"cannot order a metadata-only transition at {expected}"
             )
         self._pending[pair_id] = [self._metadata_batch(pair_id, expected, version, history_ready)]
@@ -283,20 +283,20 @@ class FxCandleFlusher:
         if in_flight is None:
             self._pending[pair_id] = [self._new_batch(pair_id, expected, through, rows, version, ready)]
             return
-        if expected == in_flight.through_trade_id:
+        if expected == in_flight.through_event_id:
             self._pending[pair_id] = [self._new_batch(pair_id, expected, through, rows, version, ready)]
             return
-        if through <= in_flight.through_trade_id:
+        if through <= in_flight.through_event_id:
             return  # covered/stale
         raise FxCandleCursorConflict(
-            f"pair {pair_id} in-flight range ends at {in_flight.through_trade_id}, "
+            f"pair {pair_id} in-flight range ends at {in_flight.through_event_id}, "
             f"cannot add ({expected}, {through}]"
         )
 
     def _merge_match(self, match, through, rows, history_ready):
-        if through < match.through_trade_id:
+        if through < match.through_event_id:
             return  # narrower recompute must not replace the wider authoritative rows
-        if through == match.through_trade_id:
+        if through == match.through_event_id:
             match.rows = {_row_key(row): dict(row) for row in rows}
             if history_ready is not None:
                 match.history_ready = history_ready
@@ -304,7 +304,7 @@ class FxCandleFlusher:
         if match.uncertain:
             return  # never widen a possibly-committed prefix
         match.rows = {_row_key(row): dict(row) for row in rows}
-        match.through_trade_id = through
+        match.through_event_id = through
         if history_ready is not None:
             match.history_ready = history_ready
 
@@ -312,8 +312,8 @@ class FxCandleFlusher:
     def _new_batch(pair_id, expected, through, rows, version, ready) -> _PendingBatch:
         return _PendingBatch(
             pair_id=pair_id,
-            expected_trade_id=expected,
-            through_trade_id=through,
+            expected_event_id=expected,
+            through_event_id=through,
             history_version=version,
             history_ready=ready,
             rows={_row_key(row): dict(row) for row in rows},
@@ -323,8 +323,8 @@ class FxCandleFlusher:
     def _metadata_batch(pair_id, expected, version, ready) -> _PendingBatch:
         return _PendingBatch(
             pair_id=pair_id,
-            expected_trade_id=expected,
-            through_trade_id=expected,
+            expected_event_id=expected,
+            through_event_id=expected,
             history_version=version,
             history_ready=ready,
             rows={},
@@ -379,8 +379,8 @@ class FxCandleFlusher:
 
                 # Freeze everything the commit depends on: add_batch may run
                 # while we await, and must not affect this transaction.
-                expected = batch.expected_trade_id
-                through = batch.through_trade_id
+                expected = batch.expected_event_id
+                through = batch.through_event_id
                 history_version = batch.history_version
                 history_ready = batch.history_ready
                 rows = list(batch.rows.values())
@@ -392,8 +392,8 @@ class FxCandleFlusher:
                                 applied = await apply_candle_batch(
                                     db,
                                     pair_id=pair_id,
-                                    expected_trade_id=expected,
-                                    through_trade_id=through,
+                                    expected_event_id=expected,
+                                    through_event_id=through,
                                     rows=rows,
                                     history_version=history_version,
                                     history_ready=history_ready,

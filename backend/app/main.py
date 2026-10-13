@@ -382,7 +382,7 @@ app.add_middleware(
     # /chart exposes the exact body coverage so the frontend can de-dup the
     # SSE tail against the HTTP fallback.  Exposing response headers is not an
     # auth change.
-    expose_headers=["X-FX-Through-Trade-ID", "X-FX-History-Version"],
+    expose_headers=["X-FX-Through-Event-ID", "X-FX-History-Version"],
 )
 
 

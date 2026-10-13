@@ -25,7 +25,9 @@ BASE = datetime(2026, 10, 1, 12, 0, 0, tzinfo=UTC)
 def _trade(tid, ts, price, *, side="buy", input_amount="2", output_amount="1"):
     return SimpleNamespace(
         id=tid, pair_id=1, created_at=ts, post_price=Decimal(price),
-        side=side, input_amount=Decimal(input_amount), output_amount=Decimal(output_amount),
+        pre_gold_reserve=Decimal(price), pre_foreign_reserve=Decimal("1"),
+        kind="trade", gold_volume=Decimal(input_amount if side == "buy" else output_amount),
+        post_gold_reserve=Decimal(price), post_foreign_reserve=Decimal("1"),
     )
 
 
@@ -64,7 +66,7 @@ async def test_pg_upsert_merges_out_of_order_batches_once(pg_sessionmaker):
     async with pg_sessionmaker() as db:
         async with db.begin():
             assert await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=3,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=3,
                 rows=later, history_version="gen-1",
             ) is True
 
@@ -72,7 +74,7 @@ async def test_pg_upsert_merges_out_of_order_batches_once(pg_sessionmaker):
     async with pg_sessionmaker() as db:
         async with db.begin():
             assert await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=3, through_trade_id=4,
+                db, pair_id=pair_id, expected_event_id=3, through_event_id=4,
                 rows=earlier, history_version="gen-1",
             ) is True
 
@@ -83,18 +85,20 @@ async def test_pg_upsert_merges_out_of_order_batches_once(pg_sessionmaker):
     assert candle.low_price == Decimal("1.10")
     assert candle.gold_volume == Decimal("8")
     assert candle.n_trades == 4
-    assert (candle.first_trade_id, candle.last_trade_id) == (1, 4)
+    assert candle.n_events == 4
+    assert (candle.first_event_id, candle.last_event_id) == (1, 4)
 
     # Duplicate retry after an uncertain commit adds nothing.
     async with pg_sessionmaker() as db:
         async with db.begin():
             assert await apply_candle_batch(
-                db, pair_id=pair_id, expected_trade_id=0, through_trade_id=4,
+                db, pair_id=pair_id, expected_event_id=0, through_event_id=4,
                 rows=later + earlier, history_version="gen-1",
             ) is False
     candle = await _read_candle(pg_sessionmaker, pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("8")
     assert candle.n_trades == 4
+    assert candle.n_events == 4
 
 
 async def test_pg_duplicate_batch_serialized_by_row_lock(pg_sessionmaker):
@@ -108,7 +112,7 @@ async def test_pg_duplicate_batch_serialized_by_row_lock(pg_sessionmaker):
         async with pg_sessionmaker() as db:
             async with db.begin():
                 applied = await apply_candle_batch(
-                    db, pair_id=pair_id, expected_trade_id=0, through_trade_id=1,
+                    db, pair_id=pair_id, expected_event_id=0, through_event_id=1,
                     rows=rows, history_version="gen-1",
                 )
                 holding.set()
@@ -120,7 +124,7 @@ async def test_pg_duplicate_batch_serialized_by_row_lock(pg_sessionmaker):
         async with pg_sessionmaker() as db:
             async with db.begin():
                 return await apply_candle_batch(
-                    db, pair_id=pair_id, expected_trade_id=0, through_trade_id=1,
+                    db, pair_id=pair_id, expected_event_id=0, through_event_id=1,
                     rows=rows, history_version="gen-1",
                 )
 
@@ -133,7 +137,8 @@ async def test_pg_duplicate_batch_serialized_by_row_lock(pg_sessionmaker):
         results = await asyncio.gather(first_task, second_task)
 
     assert sorted(results) == [False, True], results
-    assert (await _read_state(pg_sessionmaker, pair_id)).last_trade_id == 1
+    assert (await _read_state(pg_sessionmaker, pair_id)).last_event_id == 1
     candle = await _read_candle(pg_sessionmaker, pair_id, "1m", BASE)
     assert candle.gold_volume == Decimal("2")
     assert candle.n_trades == 1
+    assert candle.n_events == 1
