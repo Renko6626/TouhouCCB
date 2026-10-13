@@ -16,8 +16,9 @@ import type {
   FxHistorySegment,
   FxHistoryTail,
   FxTradeTick,
+  FxEventTick,
 } from '@/types/fx'
-import { fxTimestampToSeconds, type FxCandleTrade } from '@/utils/fxCandle'
+import { fxTimestampToSeconds, type FxCandleEvent } from '@/utils/fxCandle'
 
 /** 与后端 RING_SPEC 一致的四档周期。 */
 export const FX_HISTORY_INTERVALS: readonly FxHistoryInterval[] = ['10s', '1m', '15m', '1h']
@@ -107,9 +108,9 @@ export function sanitizeFxHistorySegment(
     }
   }
 
-  const columns = ['t', 'o', 'h', 'l', 'c', 'v', 'trades'] as const
+  const columns = ['t', 'o', 'h', 'l', 'c', 'v', 'trades', 'events'] as const
   const rawColumns: Record<(typeof columns)[number], unknown[]> = {
-    t: [], o: [], h: [], l: [], c: [], v: [], trades: [],
+    t: [], o: [], h: [], l: [], c: [], v: [], trades: [], events: [],
   }
   let length = -1
   for (const key of columns) {
@@ -119,7 +120,7 @@ export function sanitizeFxHistorySegment(
     else if (column.length !== length) return null
     rawColumns[key] = column
   }
-  if (length === 0) return { t0, step, n_buckets: nBuckets, t: [], o: [], h: [], l: [], c: [], v: [], trades: [] }
+  if (length === 0) return { t0, step, n_buckets: nBuckets, t: [], o: [], h: [], l: [], c: [], v: [], trades: [], events: [] }
 
   const t: number[] = []
   const o: string[] = []
@@ -128,6 +129,7 @@ export function sanitizeFxHistorySegment(
   const c: string[] = []
   const v: string[] = []
   const trades: number[] = []
+  const events: number[] = []
   for (let i = 0; i < length; i++) {
     const offset = rawColumns.t[i]
     if (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0 || offset >= nBuckets) return null
@@ -148,7 +150,8 @@ export function sanitizeFxHistorySegment(
     if (!isValidEpoch(t0 + offset * step)) return null
     const parsedVolume = decimalToNumber(volume)
     const parsedCount = safeNonNegativeInt(count)
-    if (parsedVolume === null || parsedVolume < 0 || parsedCount === null) return null
+    const parsedEvents = safeNonNegativeInt(rawColumns.events[i])
+    if (parsedVolume === null || parsedVolume < 0 || parsedCount === null || parsedEvents === null || parsedEvents < parsedCount) return null
     t.push(offset)
     o.push(open as string)
     h.push(high as string)
@@ -156,8 +159,9 @@ export function sanitizeFxHistorySegment(
     c.push(close as string)
     v.push(volume as string)
     trades.push(parsedCount)
+    events.push(parsedEvents)
   }
-  return { t0, step, n_buckets: nBuckets, t, o, h, l, c, v, trades }
+  return { t0, step, n_buckets: nBuckets, t, o, h, l, c, v, trades, events }
 }
 
 /** 校验 SSE `history_tail`：只保留已知 interval 且结构合法的段（校验 step 对齐）。 */
@@ -213,13 +217,15 @@ export function decodeFxHistorySegment(segment: FxHistorySegment): FxChartPoint[
       l: Number(segment.l[i]),
       c: Number(segment.c[i]),
       v: Number(segment.v[i]),
+      n_events: segment.events[i]!,
+      n_trades: segment.trades[i]!,
     })
   }
   return points
 }
 
 /** 公开逐笔成交 → K 线引擎输入；非法/超出安全范围返回 null。 */
-export function decodeFxTradeTick(tick: FxTradeTick): FxCandleTrade | null {
+export function decodeFxTradeTick(tick: FxTradeTick): FxCandleEvent | null {
   const ts = fxTimestampToSeconds(tick.ts)
   if (ts === null) return null
   const price = Number(tick.post_price)
@@ -302,15 +308,36 @@ export function mergeFxHistoryCandles(
   if (!first) return []
 
   const out: FxChartPoint[] = []
-  let prevClose = first.o
+  const firstEpoch = fxTimestampToSeconds(first.t)!
+  let prevClose = first.c
+  // A sealed segment may include several older anchors before the requested start.
+  for (const [epoch, point] of [...byEpoch.entries()].sort((a, b) => a[0] - b[0])) {
+    if (epoch >= start) break
+    prevClose = point.c
+  }
   for (let epoch = start; epoch < toSecExclusive; epoch += stepSec) {
     const existing = byEpoch.get(epoch)
     if (existing) {
       out.push(existing)
       prevClose = existing.c
-    } else {
-      out.push({ t: new Date(epoch * 1000).toISOString(), o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0 })
+    } else if (epoch >= firstEpoch) {
+      out.push({ t: new Date(epoch * 1000).toISOString(), o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0, n_events: 0, n_trades: 0 })
     }
   }
   return out
+}
+
+/** 严格事件白名单；保留零量价格变化和真实成交计数。 */
+export function sanitizeFxEventTicks(raw: unknown): FxEventTick[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const tick = sanitizeFxTradeTick(item)
+    const n = safeNonNegativeInt(item?.n_trades)
+    return tick && n !== null && n <= 1 ? [{ ...tick, n_trades: n }] : []
+  })
+}
+
+export function decodeFxEventTick(tick: FxEventTick): FxCandleEvent | null {
+  const event = decodeFxTradeTick(tick)
+  return event ? { ...event, nTrades: tick.n_trades } : null
 }

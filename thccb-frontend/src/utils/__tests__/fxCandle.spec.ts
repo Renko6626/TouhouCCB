@@ -24,6 +24,8 @@ const point = (seconds: number, c: number, v = 1): FxChartPoint => ({
   l: c - 0.5,
   c,
   v,
+  n_events: v === 0 ? 0 : 1,
+  n_trades: v === 0 ? 0 : 1,
 })
 
 const series = (count: number, step = 60, start = BASE): FxChartPoint[] =>
@@ -189,12 +191,12 @@ describe('FxCandleEngine', () => {
   })
 })
 
-describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
+describe('FxCandleEngine.applyEvents（真实成交增量）', () => {
   it('按真实成交时间分桶，重复 id / 尾段覆盖 id 不重复累计金侧量', () => {
     const engine = new FxCandleEngine(60, [10, 20])
     engine.load([point(BASE, 10, 1)], 100)   // 历史含 v=1；尾段覆盖到 id=100
 
-    const first = engine.applyTrades([
+    const first = engine.applyEvents([
       { id: 100, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },   // <= coverage → 跳过
       { id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },
       { id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 },   // 同批重复 → 跳过
@@ -207,18 +209,18 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     expect(engine.candles[1]).toMatchObject({ t: BASE + 60, o: 10, h: 11, l: 10, c: 11, v: 5 })
 
     // 断线重放同一笔成交：不得再次累计成交量
-    const replay = engine.applyTrades([{ id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 }])
+    const replay = engine.applyEvents([{ id: 101, ts: BASE + 60, prePrice: 10, price: 11, volume: 5 }])
     expect(replay.applied).toBe(0)
     expect(replay.skipped).toBe(1)
     expect(engine.candles[1]!.v).toBe(5)
-    expect(engine.throughTradeId).toBe(101)
+    expect(engine.throughEventId).toBe(101)
   })
 
   it('合成空桶首笔成交以真实交易前价重置OHLC，不保留未知池变化之前的极值', () => {
     const engine = new FxCandleEngine(60)
     // merge 平推出的 forming 桶：o=h=l=c=10、v=0（合成空桶，非真实成交）
     engine.load([point(BASE, 10, 0)])
-    const result = engine.applyTrades([
+    const result = engine.applyEvents([
       { id: 1, ts: BASE + 5, prePrice: 9, price: 11, volume: 2 },   // 首笔定义整根 OHLC
       { id: 2, ts: BASE + 10, prePrice: 12, price: 12, volume: 3 },
       { id: 3, ts: BASE + 20, prePrice: 13, price: 13, volume: 4 },
@@ -237,7 +239,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 7)])
     const far = BASE + (FX_MAX_LOCAL_FILL_BUCKETS + 3) * 60
-    const result = engine.applyTrades([{ id: 1, ts: far, prePrice: 20, price: 20, volume: 5 }])
+    const result = engine.applyEvents([{ id: 1, ts: far, prePrice: 20, price: 20, volume: 5 }])
     expect(result.reload).toBe(true)
     expect(result.applied).toBe(0)
     expect(engine.count).toBe(1)
@@ -247,7 +249,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
   it('早于已知历史的成交要求 reload，避免静默丢弃或错桶累计', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1), point(BASE + 60, 11, 1)])
-    const result = engine.applyTrades([{ id: 5, ts: BASE - 120, prePrice: 9, price: 9, volume: 3 }])
+    const result = engine.applyEvents([{ id: 5, ts: BASE - 120, prePrice: 9, price: 9, volume: 3 }])
     expect(result.reload).toBe(true)
     expect(engine.candles[0]!.v).toBe(1)
   })
@@ -255,7 +257,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
   it('非法成交（负量 / 非安全 id / 非有限价）被跳过', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1)])
-    const result = engine.applyTrades([
+    const result = engine.applyEvents([
       { id: -1, ts: BASE, prePrice: 10, price: 10, volume: 5 },
       { id: 1.5, ts: BASE, prePrice: 10, price: 10, volume: 5 },
       { id: 2, ts: BASE, prePrice: 10, price: 10, volume: -5 },
@@ -269,11 +271,11 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([])
     // 批次 1：以 id=1/ts=BASE+65 创建桶 BASE+60
-    engine.applyTrades([{ id: 1, ts: BASE + 65, prePrice: 10, price: 10, volume: 1 }])
+    engine.applyEvents([{ id: 1, ts: BASE + 65, prePrice: 10, price: 10, volume: 1 }])
     expect(engine.candles[0]).toMatchObject({ t: BASE + 60, o: 10, c: 10 })
 
     // 批次 2：更高 id 但更早 ts（发布乱序）→ 成为新的 open，close 不动
-    const result = engine.applyTrades([{ id: 2, ts: BASE + 61, prePrice: 13, price: 12, volume: 2 }])
+    const result = engine.applyEvents([{ id: 2, ts: BASE + 61, prePrice: 13, price: 12, volume: 2 }])
     expect(result.reload).toBe(false)
     const candle = engine.candles[0]!
     expect(candle.o).toBe(13)
@@ -283,7 +285,7 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     expect(candle.v).toBe(3)
 
     // 批次 3：更晚 ts → 更新 close
-    engine.applyTrades([{ id: 3, ts: BASE + 70, prePrice: 8, price: 8, volume: 4 }])
+    engine.applyEvents([{ id: 3, ts: BASE + 70, prePrice: 8, price: 8, volume: 4 }])
     expect(engine.candles[0]).toMatchObject({ o: 13, c: 8, h: 13, l: 8, v: 7 })
   })
 
@@ -291,8 +293,50 @@ describe('FxCandleEngine.applyTrades（真实成交增量）', () => {
     const engine = new FxCandleEngine(60)
     engine.load([point(BASE, 10, 1), point(BASE + 60, 11, 1), point(BASE + 120, 12, 1)])
     // 成交落在中间预加载桶（非 forming 末桶）→ 无历史首末键，无法判定时序
-    const result = engine.applyTrades([{ id: 5, ts: BASE + 61, prePrice: 99, price: 99, volume: 3 }])
+    const result = engine.applyEvents([{ id: 5, ts: BASE + 61, prePrice: 99, price: 99, volume: 3 }])
     expect(result.reload).toBe(true)
     expect(engine.candles[1]!.v).toBe(1)
+  })
+})
+
+
+describe('event-only zero-volume continuity', () => {
+  it('trade → funding → trade preserves every price and only real volume across reload/replay', () => {
+    const engine = new FxCandleEngine(60)
+    const events = [
+      { id: 1, ts: BASE + 1, prePrice: 10, price: 11, volume: 2, nTrades: 1 },
+      { id: 2, ts: BASE + 2, prePrice: 11, price: 20, volume: 0, nTrades: 0 },
+      { id: 3, ts: BASE + 3, prePrice: 20, price: 12, volume: 3, nTrades: 1 },
+    ]
+    engine.applyEvents(events)
+    expect(engine.candles[0]).toMatchObject({ o: 10, h: 20, l: 10, c: 12, v: 5, n_events: 3, n_trades: 2 })
+    engine.load([{ t: iso(BASE), o: 10, h: 20, l: 10, c: 12, v: 5, n_events: 3, n_trades: 2 }], 3)
+    expect(engine.applyEvents(events).applied).toBe(0)
+    engine.applyEvents([{ id: 4, ts: BASE + 4, prePrice: 12, price: 13, volume: 1, nTrades: 1 }])
+    expect(engine.candles[0]).toMatchObject({ o: 10, h: 20, l: 10, c: 13, v: 6, n_events: 4, n_trades: 3 })
+  })
+
+  it('loaded funding OHLC survives a later trade and quiet carried-close buckets', () => {
+    const engine = new FxCandleEngine(60)
+    engine.load([{ t: iso(BASE), o: 10, h: 20, l: 10, c: 20, v: 0, n_events: 1, n_trades: 0 }], 7)
+    engine.applyEvents([{ id: 8, ts: BASE + 5, prePrice: 20, price: 15, volume: 3, nTrades: 1 }])
+    expect(engine.candles[0]).toMatchObject({ o: 10, h: 20, l: 10, c: 15, v: 3, n_events: 2, n_trades: 1 })
+    engine.carryTo(BASE + 180)
+    expect(engine.candles.slice(1).map(c => [c.o, c.h, c.l, c.c, c.v, c.n_events])).toEqual([
+      [15, 15, 15, 15, 0, 0], [15, 15, 15, 15, 0, 0], [15, 15, 15, 15, 0, 0],
+    ])
+    engine.applyEvents([{ id: 9, ts: BASE + 125, prePrice: 15, price: 18, volume: 0, nTrades: 0 }])
+    expect(engine.candles.at(-1)).toMatchObject({ o: 18, h: 18, l: 18, c: 18, v: 0, n_events: 0 })
+    engine.applyEvents([{ id: 10, ts: BASE + 185, prePrice: 18, price: 19, volume: 2, nTrades: 1 }])
+    expect(engine.candles.at(-1)).toMatchObject({ o: 18, h: 19, l: 18, c: 19, v: 2, n_events: 1 })
+  })
+
+  it('unknown event count requests history instead of overwriting zero-volume prices', () => {
+    const engine = new FxCandleEngine(60)
+    engine.load([{ t: iso(BASE), o: 10, h: 20, l: 10, c: 20, v: 0 }])
+    const before = engine.candles[0]!.c
+    expect(engine.applyEvents([{ id: 2, ts: BASE + 5, prePrice: 20, price: 15, volume: 3 }]).reload).toBe(true)
+    expect(engine.candles[0]!.c).toBe(before)
+    expect(engine.carryTo(BASE + 60).added).toBe(0)
   })
 })

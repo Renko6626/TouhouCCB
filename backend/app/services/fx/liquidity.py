@@ -8,6 +8,8 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.fx.pool_events import append_pool_event
+from app.services.fx import publisher
+from app.services.fx.trading import notify_market_data_committed
 from app.models.fx import FxPair, FxTreasury
 from app.schemas.fx import FxPairAdmin
 from app.services import audit_service
@@ -29,7 +31,9 @@ async def fund_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreig
     await db.commit()
     notify_pricing_changed(())
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        return await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
+        result = await _fund_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
+    _publish_liquidity(result)
+    return result
 
 
 async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
@@ -72,7 +76,9 @@ async def withdraw_pair(db: AsyncSession, pair_id: int, gold_amount: Decimal, fo
     await db.commit()
     notify_pricing_changed(())
     async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        return await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
+        result = await _withdraw_pair_impl(db, pair_id, gold_amount, foreign_amount, operator_user_id)
+    _publish_liquidity(result)
+    return result
 
 
 async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, foreign_amount: Decimal,
@@ -107,3 +113,10 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
     notify_pricing_changed(())
     await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)
+
+
+def _publish_liquidity(pair: FxPairAdmin) -> None:
+    """Wake the existing event consumer and publisher after commit and gate release."""
+    notify_market_data_committed(pair.id)
+    if pair.gold_reserve > 0 and pair.foreign_reserve > 0:
+        publisher.enqueue_publication(pair.id, pair.gold_reserve / pair.foreign_reserve)

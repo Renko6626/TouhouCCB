@@ -18,6 +18,8 @@ import {
   FX_HISTORY_MAX_SEGMENTS,
   FX_HISTORY_SEGMENT_SECONDS,
   decodeFxHistorySegment,
+  decodeFxEventTick,
+  sanitizeFxEventTicks,
   decodeFxTradeTick,
   fxHistorySegmentEpochs,
   mergeFxHistoryCandles,
@@ -41,7 +43,7 @@ const UNALIGNED_SEG_BOUNDARY = UNALIGNED_NOW_SEC - (UNALIGNED_NOW_SEC % 3600) //
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString()
 
 const point = (seconds: number, c: number, v = 0): FxChartPoint => ({
-  t: iso(seconds), o: c, h: c, l: c, c, v,
+  t: iso(seconds), o: c, h: c, l: c, c, v, n_events: 1, n_trades: v === 0 ? 0 : 1,
 })
 
 const segment = (t0: number, rows: Array<[number, number, number]>, nBuckets = 60): FxHistorySegment => ({
@@ -55,10 +57,11 @@ const segment = (t0: number, rows: Array<[number, number, number]>, nBuckets = 6
   c: rows.map(([, price]) => price.toFixed(8)),
   v: rows.map(([, , volume]) => volume.toFixed(6)),
   trades: rows.map(() => 1),
+  events: rows.map(() => 1),
 })
 
-const chartMeta = (points: FxChartPoint[], throughTradeId = 99, historyVersion = 'v1') =>
-  ({ points, throughTradeId, historyVersion })
+const chartMeta = (points: FxChartPoint[], throughEventId = 99, historyVersion = 'v1') =>
+  ({ points, throughEventId, historyVersion })
 
 const findAt = (points: FxChartPoint[], seconds: number): FxChartPoint | undefined =>
   points.find((p) => p.t === iso(seconds))
@@ -136,7 +139,7 @@ describe('decodeFxHistorySegment', () => {
   it('稀疏桶按 t0 + offset*step 定位，价格/量只在解码边界转 number', () => {
     const points = decodeFxHistorySegment(segment(1_755_734_400, [[0, 1.5, 2], [3, 2.5, 4]]))
     expect(points).toHaveLength(2)
-    expect(points[0]).toEqual({ t: iso(1_755_734_400), o: 1.5, h: 1.5, l: 1.5, c: 1.5, v: 2 })
+    expect(points[0]).toEqual({ t: iso(1_755_734_400), o: 1.5, h: 1.5, l: 1.5, c: 1.5, v: 2, n_events: 1, n_trades: 1 })
     expect(points[1]!.t).toBe(iso(1_755_734_400 + 180))
     expect(points[1]!.c).toBe(2.5)
   })
@@ -148,14 +151,14 @@ it('六位精度下前价舍入为零时，历史与实时仍显示完整涨幅'
   expect(history).not.toBeNull()
   const historical = new FxCandleEngine(60)
   historical.load(decodeFxHistorySegment(history!))
-  const expected = { t: BOUNDARY, o: 0, h: 0.000001, l: 0, c: 0.000001, v: 2 }
+  const expected = { t: BOUNDARY, o: 0, h: 0.000001, l: 0, c: 0.000001, v: 2, n_events: 1, n_trades: 1 }
   expect(historical.candles[0]).toEqual(expected)
 
   const ticks = sanitizeFxTradeTicks([{ id: 1, ts: iso(BOUNDARY), pre_price: '0.000000', post_price: '0.000001', gold_volume: '2' }])
   expect(ticks).toHaveLength(1)
   const live = new FxCandleEngine(60)
   live.load([])
-  expect(live.applyTrades([decodeFxTradeTick(ticks[0]!)!]).reload).toBe(false)
+  expect(live.applyEvents([decodeFxTradeTick(ticks[0]!)!]).reload).toBe(false)
   expect(live.candles[0]).toEqual(expected)
 })
 
@@ -199,7 +202,7 @@ describe('loadFxHistoryResult', () => {
     history_version: 'v1',
     history_tail: { '1m': segment(BOUNDARY, [[0, 2, 5], [10, 3, 6]], 31) },
     history_tail_at: iso(NOW_SEC),
-    history_tail_through_trade_id: 42,
+    history_tail_through_event_id: 42,
     history_ready: true,
   }
 
@@ -210,7 +213,7 @@ describe('loadFxHistoryResult', () => {
     expect(getChartWithMeta).not.toHaveBeenCalled()
     expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
     expect(fetchFxHistorySegment).toHaveBeenCalledWith(7, 'v1', '1m', BOUNDARY - 3600)
-    expect(result.throughTradeId).toBe(42)
+    expect(result.throughEventId).toBe(42)
     expect(result.historyVersion).toBe('v1')
     expect(findAt(result.points, BOUNDARY - 1800)).toMatchObject({ c: 2, v: 2 })  // 11:30 封存段
     expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 2, v: 5 })         // 12:00 尾段
@@ -226,7 +229,7 @@ describe('loadFxHistoryResult', () => {
     const result = await loadFxHistoryResult(7, '1m', 60, freshTail)
 
     expect(getChartWithMeta).toHaveBeenCalledTimes(1)
-    expect(result.throughTradeId).toBe(1234)
+    expect(result.throughEventId).toBe(1234)
     expect(result.historyVersion).toBe('v2')
     expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 9, v: 9 })
   })
@@ -248,7 +251,7 @@ describe('loadFxHistoryResult', () => {
 
     expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
     expect(getChartWithMeta).toHaveBeenCalledWith(7, '1m', iso(BOUNDARY), iso(NOW_SEC))
-    expect(result.throughTradeId).toBe(555)
+    expect(result.throughEventId).toBe(555)
     expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 7, v: 7 })
     expect(findAt(result.points, BOUNDARY - 1800)).toMatchObject({ c: 2, v: 2 })
   })
@@ -279,16 +282,16 @@ describe('loadFxHistoryResult', () => {
         ),
       },
       history_tail_at: iso(UNALIGNED_NOW_SEC),
-      history_tail_through_trade_id: 42,
+      history_tail_through_event_id: 42,
       history_ready: true,
     }
     const result = await loadFxHistoryResult(7, '1m', 90, tail)
     expect(result.points.at(-1)!.t).toBe(iso(UNALIGNED_FORMING))   // 不是未来桶 12:31
 
     const engine = new FxCandleEngine(60)
-    engine.load(result.points, result.throughTradeId)
-    const applied = engine.applyTrades([
-      { id: result.throughTradeId + 1, ts: UNALIGNED_NOW_SEC, prePrice: 7, price: 7, volume: 3 },
+    engine.load(result.points, result.throughEventId)
+    const applied = engine.applyEvents([
+      { id: result.throughEventId + 1, ts: UNALIGNED_NOW_SEC, prePrice: 7, price: 7, volume: 3 },
     ])
     expect(applied.reload).toBe(false)
     const forming = engine.candles.at(-1)!
@@ -298,10 +301,10 @@ describe('loadFxHistoryResult', () => {
 
   it('超大 lookback 裁剪后恰好不超过 20000 桶（未对齐 now 也成立）', async () => {
     vi.setSystemTime(UNALIGNED_NOW_SEC * 1000)
-    vi.mocked(getChartWithMeta).mockResolvedValue(chartMeta([point(UNALIGNED_FORMING, 1, 1)], 9, 'v9'))
+    vi.mocked(getChartWithMeta).mockResolvedValue(chartMeta([point(UNALIGNED_FORMING - (FX_HISTORY_MAX_BUCKETS - 1) * 60, 1, 1)], 9, 'v9'))
     const result = await loadFxHistoryResult(7, '1m', FX_HISTORY_MAX_BUCKETS + 60, {
       history_version: null, history_tail: null, history_tail_at: null,
-      history_tail_through_trade_id: null,
+      history_tail_through_event_id: null,
     })
     expect(result.points.length).toBe(FX_HISTORY_MAX_BUCKETS)
     expect(result.points.at(-1)!.t).toBe(iso(UNALIGNED_FORMING))
@@ -319,7 +322,7 @@ describe('loadFxHistoryResult', () => {
     expect(getChartWithMeta).toHaveBeenCalledTimes(2)
     expect(getChartWithMeta).toHaveBeenNthCalledWith(2, 7, '1m', iso(BOUNDARY - 1800), iso(NOW_SEC))
     expect(result.historyVersion).toBe('v2')
-    expect(result.throughTradeId).toBe(701)
+    expect(result.throughEventId).toBe(701)
     // 版本 A 的封存点（c=2,v=2）被丢弃；11:30 来自版本 B 的整窗响应
     expect(findAt(result.points, BOUNDARY - 1800)).toMatchObject({ c: 8, v: 8 })
     expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 8, v: 0 })   // 不是 v2 部分响应的 v=7
@@ -331,7 +334,7 @@ describe('useFxCandleHistory 重载时机', () => {
     history_version: 'v1',
     history_tail: { '1m': segment(BOUNDARY, [[0, 2, 5]], 31) },
     history_tail_at: iso(NOW_SEC),
-    history_tail_through_trade_id: 42,
+    history_tail_through_event_id: 42,
     history_ready: true,
   }
 
@@ -350,7 +353,7 @@ describe('useFxCandleHistory 重载时机', () => {
     })
     await flush()
     expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
-    expect(state!.throughTradeId.value).toBe(42)
+    expect(state!.throughEventId.value).toBe(42)
 
     tailRef.value = { ...freshTail }               // 同版本、新对象引用
     await nextTick()
@@ -363,4 +366,17 @@ describe('useFxCandleHistory 重载时机', () => {
     expect(fetchFxHistorySegment).toHaveBeenCalledTimes(2)
     scope.stop()
   })
+})
+
+
+it('segment counts distinguish funding prices from synthetic carry; missing events require matching version', () => {
+  const ticks = sanitizeFxEventTicks([{ id: 9, ts: iso(BOUNDARY), pre_price: '10', post_price: '20', gold_volume: '0', n_trades: 0 }])
+  expect(decodeFxEventTick(ticks[0]!)).toEqual({ id: 9, ts: BOUNDARY, prePrice: 10, price: 20, volume: 0, nTrades: 0 })
+  const raw = { ...segment(BOUNDARY, [[0, 20, 0]]), o: ['10'], h: ['20'], l: ['10'], trades: [0], events: [1] }
+  const decoded = decodeFxHistorySegment(sanitizeFxHistorySegment(raw)!)
+  expect(decoded[0]).toMatchObject({ o: 10, h: 20, l: 10, c: 20, v: 0, n_events: 1, n_trades: 0 })
+  expect(mergeFxHistoryCandles([], decoded, 60, BOUNDARY - 60, BOUNDARY + 120)).toEqual([
+    decoded[0], { t: iso(BOUNDARY + 60), o: 20, h: 20, l: 20, c: 20, v: 0, n_events: 0, n_trades: 0 },
+  ])
+  expect(sanitizeFxHistorySegment({ ...raw, events: undefined })).toBeNull()
 })

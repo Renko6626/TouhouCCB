@@ -47,7 +47,7 @@ function historyTailFor(snapshot: FxSnapshot | undefined): FxHistorySnapshotTail
     history_version: meta?.history_version ?? null,
     history_tail: null,
     history_tail_at: null,
-    history_tail_through_trade_id: null,
+    history_tail_through_event_id: null,
     history_ready: meta?.history_ready === true,
   }
 }
