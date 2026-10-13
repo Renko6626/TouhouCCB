@@ -225,7 +225,9 @@ async def test_net_two_leg_http_auth_strings_private_history_and_market_volume()
             'expected_economic_version':q['economic_version'], 'allow_growth':True})
         assert replay.json()['replay']
     async with async_session_maker() as db:
-        rows = list((await db.execute(select(FxTrade).where(FxTrade.pair_id == pid))).scalars())
+        from app.models.fx import FxPoolEvent
+        rows = list((await db.execute(select(FxPoolEvent).where(
+            FxPoolEvent.pair_id == pid).order_by(FxPoolEvent.id))).scalars())
         candles = compute_fx_candle_rows(rows)
         one_min = [c for c in candles if c['interval'] == '1m']
         assert sum(c['n_trades'] for c in one_min) == 2

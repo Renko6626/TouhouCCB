@@ -1,6 +1,6 @@
 # 管理员资金与统一价格事件验证（2026-10-13）
 
-代码基线为 `19ed988`，被测实现为 `8699e2d`，本记录中的金融数据和性能证据来自可丢弃 PostgreSQL；未连接生产库。金融场景的有效三轮中位数未超过排查门槛，但热点图表读取有明确退化，仍待局部优化和复测，不能据此宣布性能收尾完成。
+首组表格保留代码基线 `19ed988` 与初次被测实现 `8699e2d` 的原始测量；金融数据和性能证据均来自可丢弃 PostgreSQL，未连接生产库。初次热点图表退化已完成局部修复和复测，后续图表结果与成交热路径优化结果见相应附录。原始结果与波动限制仍保留，不作为最终版本的线上容量承诺。
 
 ## PostgreSQL 对照
 
@@ -88,7 +88,7 @@ DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_perf_t
 
 尚未验证线上网络、实际管理员交互、生产迁移、停机恢复、事件长期增长／归档、混合负载与全站容量。离线导入归一化及排序保留O(N)内存；磁盘staging仅为后续待办，本轮没有新增临时文件功能。
 
-前端检查由Task5在 `thccb-frontend` 完成，当前前端未变化：`npm run type-check` exit0；`npm run test:unit -- src/utils/__tests__/fxPairSetup.spec.ts src/utils/__tests__/fx.spec.ts` 47 passed；`npm run build` exit0（20.71s），保留既有empty charts、auth混合导入和>500kB bundle警告。Task6 `git diff --check` exit0。
+前端检查由Task5在 `thccb-frontend` 完成，当前前端未变化：`npm run type-check` exit 0；`npm run test:unit -- src/utils/__tests__/fxPairSetup.spec.ts src/utils/__tests__/fx.spec.ts` 47 passed；`npm run build` exit 0（20.71s），保留既有empty charts、auth混合导入和>500kB bundle警告。Task6 `git diff --check` exit 0。
 
 ## 热点图表局部优化复测
 
@@ -130,7 +130,7 @@ backend/venv/bin/python -m pytest backend/tests/test_fx_history.py::test_chart_f
 DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_chart_checks_test backend/venv/bin/python -m pytest backend/tests/test_fx_history.py::test_chart_flush_before_joined_read_refreshes_cached_checkpoint -q
 # 1 passed in 1.22s
 git diff --check
-# exit0
+# exit 0
 ```
 
 新增永久回归仅覆盖暖ring复制后提交的window／prior-anchor事件强制fallback、bounds读取后generation轮换拒绝旧结果；复用原history夹具及真实生产聚合。原checkpoint回归显式保留旧ORM实例，继续捕获同语句读取未刷新checkpoint导致的重复成交量。既有route fake仅补合并投影字段及execute参数签名，没有放宽断言。日志、两次EXPLAIN和临时脚本保存在本任务scratch；未运行浏览器交互、生产迁移或生产环境，其他未验证范围仍见上文。
@@ -143,13 +143,13 @@ git diff --check
 
 ```bash
 DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:50557/thccb_admin_fx_owner_test backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py -q
-# exit0，6 passed in 3.98s
+# exit 0，6 passed in 3.98s
 backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py -q
-# exit0，6 passed in 1.00s（默认隔离SQLite）
+# exit 0，6 passed in 1.00s（默认隔离SQLite）
 DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:1/thccb_guard_probe backend/venv/bin/python -m pytest backend/tests/test_fx_market_data_integration.py::test_player_commit_wakes_runtime_and_replay_rollback_rejection_do_not_count -q
 # exit1，预期的setup拒绝：FX integration ownership requires a disposable test database
 git diff --check
-# exit0
+# exit 0
 ```
 
 非test URL检查使用未监听的端口1，在session guard报错；未进入function setup_db，没有连接或清空任何非test库。此次仅修正fixture顺序；原性能证据不变，图表局部修复的复测由父agent另行记录。
@@ -165,15 +165,40 @@ git diff --check
 npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts
 # 修复前 exit1：新增回归失败，零价格被白名单丢弃；23 passed / 1 failed
 npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts src/utils/__tests__/fxCandle.spec.ts
-# 修复后 exit0：47 passed
+# 修复后 exit 0：47 passed
 npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts src/utils/__tests__/fxCandle.spec.ts src/utils/__tests__/fxStream.spec.ts
-# exit0：3 files / 53 passed
+# exit 0：3 files / 53 passed
 npm run type-check
-# exit0
+# exit 0
 npm run build
-# exit0，vite built in 19.41s；空 charts chunk、auth 混合导入及大 chunk 提示
+# exit 0，vite built in 19.41s；空 charts chunk、auth 混合导入及大 chunk 提示
 git diff --check
-# exit0
+# exit 0
 ```
 
 未运行浏览器交互、资金性能复测、生产迁移或部署；本轮只修正前端已有事件管线。
+
+
+## 成交热路径局部优化复测
+
+在 `092ac23` 后，仅将 net 请求身份与 pair／wallet／short rows／treasury 查询结构改为不可变 bindparam 模板，避免每次重建 SQLAlchemy 表达式。参数逐请求绑定，仍读取真实数据库并取得原锁、刷新已有对象；资金、审计、事件保持同事务，flush 与提交时机不改。没有调整事件、索引或存储合同。
+
+在两份新可丢弃 PG 库 `thccb_admin_fx_financial_baseline_test`／`thccb_admin_fx_financial_current_test`，使用原 `19ed988` 与优化后的实现做三轮交替金融对照；真实入口、每场景120请求、并发4、预热8次。此次只测 ordinary／crosszero，双方均移除图表数据及 ring 暖启动，旧证据保留。
+
+| 场景 | baseline rps | current rps | 变化 | baseline p95 ms | current p95 ms | 变化 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 普通成交 | 87.561 | 87.927 | +0.42% | 51.167 | 55.517 | +8.50% |
+| 跨零成交 | 33.258 | 31.091 | -6.52% | 144.510 | 155.993 | +7.95% |
+
+普通请求 SELECT6／UPDATE4／flush3，跨零 SELECT26／UPDATE8／flush4，均未改变；INSERT仍分别4→5与6→8。额外事件与已确认索引的写入工作仍存在。单轮波动较大，且未加入同事件版本优化前的同期配对组，不能把相对旧报告的变化完全归因于 SQL 模板，也未证明稳定独立提速；这些数据不代表线上容量。两场景最终中位数未越过既定调查门槛。
+
+既有金融检查实际命令：
+
+```bash
+backend/venv/bin/python -m pytest backend/tests/test_fx_net_trading.py backend/tests/test_fx_trading_service.py backend/tests/test_fx_trading_in_session.py backend/tests/test_fx_short_trading.py backend/tests/test_fx_short_audit_replay.py backend/tests/test_fx_liquidation_service.py backend/tests/test_fx_short_liquidation.py backend/tests/test_fx_market_data_integration.py -q
+# 169 passed in 28.72s，隔离SQLite
+backend/venv/bin/python .superpowers/sdd/2026-10-13-admin-fx/financial-perf-paired.py
+# 三轮交替PG金融对照，exit 0，真实OWNERSHIP
+```
+
+检查保留实际资金、幂等、回滚、跨零、审计和强平断言。旧 net 蜡烛夹具仍传 FxTrade、旧强平显式 schema漏事件表，均先在原 `092ac23` 隔离归档复现，再最小适配事件合同；同步数据库适配器增加标准 execute params透传，没有删减断言或新增永久测试。另两份同型适配器 end_to_end／season_reset仅审查未执行，未运行全站或生产测试。完整命令、每轮结果、SQL耗时与局限见本计划临时 `trade-perf-report.md`；原始输出 `financial-perf-final-results.jsonl`及六份 financial-perf-final日志，前版产物未覆盖。

@@ -547,7 +547,7 @@ class _ResetSession:
 
     def add(self, value): self._session.add(value)
     def add_all(self, values): self._session.add_all(values)
-    async def execute(self, statement): return self._session.execute(statement)
+    async def execute(self, statement, params=None): return self._session.execute(statement, params)
     async def flush(self): self._session.flush()
     async def commit(self): self._session.commit()
     async def rollback(self): self._session.rollback()

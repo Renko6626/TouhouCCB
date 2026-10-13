@@ -34,7 +34,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import bindparam, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +55,14 @@ from app.services.market_locks import lock_user
 
 if TYPE_CHECKING:  # risk imports this module, so only type-check the cycle.
     from app.services.credit.risk import DependencySet
+
+# Reuse immutable SQL structure, while reading fresh locked rows each time.
+_SHORT_ROWS_LOCK = select(FxShortPosition).where(
+    FxShortPosition.user_id == bindparam('fx_user_id')
+).order_by(FxShortPosition.pair_id.asc()).with_for_update().execution_options(populate_existing=True)
+_TREASURY_LOCK = select(FxTreasury).where(
+    FxTreasury.pair_id == bindparam('fx_pair_id')
+).with_for_update().execution_options(populate_existing=True)
 
 _logger = logging.getLogger(__name__)
 
@@ -254,16 +262,13 @@ async def _lock_wallet(db: AsyncSession, user_id: int, pair_id: int) -> Optional
 
 async def _lock_short_rows(db: AsyncSession, user_id: int) -> list[FxShortPosition]:
     return list((await db.execute(
-        select(FxShortPosition).where(FxShortPosition.user_id == user_id)
-        .order_by(FxShortPosition.pair_id.asc())
-        .with_for_update().execution_options(populate_existing=True)
+        _SHORT_ROWS_LOCK, {'fx_user_id': user_id}
     )).scalars().all())
 
 
 async def _lock_treasury(db: AsyncSession, pair_id: int) -> Optional[FxTreasury]:
     return (await db.execute(
-        select(FxTreasury).where(FxTreasury.pair_id == pair_id)
-        .with_for_update().execution_options(populate_existing=True)
+        _TREASURY_LOCK, {'fx_pair_id': pair_id}
     )).scalars().first()
 
 
