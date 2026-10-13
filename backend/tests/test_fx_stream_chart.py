@@ -9,7 +9,7 @@ from app.api.v1.fx_stream import FX_THROUGH_HEADER, FX_VERSION_HEADER, chart
 
 
 def _state(ready=True, version="v1", cursor=0):
-    return SimpleNamespace(pair_id=3, window_max=0, anchor_id=None, last_trade_id=0, last_event_id=cursor, history_version=version,
+    return SimpleNamespace(pair_id=3, window_max=0, anchor_id=None, last_event_id=cursor, history_version=version,
                            history_ready=ready)
 
 

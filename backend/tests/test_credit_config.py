@@ -16,7 +16,7 @@ from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
 from app.services import site_config as site_config_service
 from app.services.credit import flags as credit_flags
-from app.services.loan_migrate import auto_migrate, seed_credit_risk_configs
+from app.services.config_seed import seed_current_config, seed_credit_risk_configs
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -54,7 +54,7 @@ async def _config_value(key):
 
 @pytest.mark.asyncio
 async def test_fresh_config_defaults_and_idempotence(setup_db):
-    await auto_migrate()
+    await seed_current_config()
     assert await _config_value("credit_leverage") == "10"
     assert await _config_value("credit_maintenance_ratio") == "0.04"
     assert await _config_value("loan_enabled") == "true"
@@ -72,35 +72,23 @@ async def test_fresh_config_defaults_and_idempotence(setup_db):
 
 @pytest.mark.asyncio
 async def test_existing_params_and_operator_gates_preserved(setup_db):
-    for key, value in {"credit_leverage":"3", "credit_maintenance_ratio":".2", "loan_leverage_k":"9", "liquidation_hard_threshold":".05", "unified_credit_enabled":"false", "loan_enabled":"false", "credit_new_risk_frozen":"true"}.items():
+    for key, value in {"credit_leverage":"3", "credit_maintenance_ratio":".2", "loan_enabled":"false", "credit_new_risk_frozen":"true"}.items():
         await _seed_config(key, value)
-    await auto_migrate()
+    await seed_current_config()
     assert await seed_credit_risk_configs() == []
     assert await _config_value("credit_leverage") == "3"
     assert await _config_value("credit_maintenance_ratio") == ".2"
     assert await _config_value("loan_enabled") == "false"
     assert await _config_value("credit_new_risk_frozen") == "true"
-    assert await _config_value("unified_credit_enabled") is None
-    assert await _config_value("loan_leverage_k") is None
 
 
 @pytest.mark.asyncio
-async def test_missing_params_map_legacy_once(setup_db):
-    await _seed_config("loan_leverage_k", "3")
-    await _seed_config("liquidation_hard_threshold", ".15")
-    assert set(await seed_credit_risk_configs()) == {"credit_leverage", "credit_maintenance_ratio"}
-    assert await _config_value("credit_leverage") == "4"
-    assert await _config_value("credit_maintenance_ratio") == "0.15"
-    assert await seed_credit_risk_configs() == []
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("values", [{"loan_leverage_k":"50", "liquidation_hard_threshold":".2"}, {"credit_leverage":"abc", "credit_maintenance_ratio":".2"}, {"loan_leverage_k":"1", "liquidation_hard_threshold":"1.5"}, {"loan_enabled":"false"}])
+@pytest.mark.parametrize("values", [{"credit_leverage":"abc", "credit_maintenance_ratio":".2"}, {"credit_leverage":"2", "credit_maintenance_ratio":"1.5"}, {"credit_leverage":"3"}, {"loan_enabled":"false"}])
 async def test_invalid_existing_config_fails_without_mutation(setup_db, values):
     for key, value in values.items():
         await _seed_config(key, value)
     with pytest.raises(ValueError):
-        await auto_migrate()
+        await seed_current_config()
     async with async_session_maker() as s:
         actual = {r.key:r.value for r in (await s.execute(select(SiteConfig))).scalars()}
     assert actual == values
@@ -122,7 +110,7 @@ async def test_invalid_config_rejects_startup_all_instances(setup_db, monkeypatc
 @pytest.mark.asyncio
 async def test_hot_freeze_is_read_at_runtime_bypassing_ttl(setup_db):
     """风险检查消费的值必须运行期热读：直接改 DB 后（不清 site_config 缓存）立即生效。"""
-    await auto_migrate()
+    await seed_current_config()
     credit_flags.set_flags(credit_flags.CreditFlags())
     assert credit_flags.new_risk_frozen() is False
 

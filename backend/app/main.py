@@ -37,7 +37,7 @@ from app.services.pve.scheduler import (
 )
 from app.services.fx.publisher import start_publisher as start_fx_publisher, stop_publisher as stop_fx_publisher
 from app.services.fx.market_state import FX_MARKET_DATA
-from app.services.loan_migrate import auto_migrate
+from app.services.config_seed import seed_current_config
 from app.services.credit import flags as credit_flags
 from app.services.credit import ownership as credit_ownership
 
@@ -112,9 +112,9 @@ async def lifespan(app: FastAPI):
 
 async def _startup(app: FastAPI) -> None:
     # 启动顺序（WP3 单写所有权，spec §6.1 / 计划 WP3 "ownership"）：
-    #   0) 只读实例声明 → 在**任何启动写之前**跳过 init_db/auto_migrate/seed/resync
+    #   0) 只读实例声明 → 在**任何启动写之前**跳过 init_db/seed_current_config/seed/resync
     #   1) 非只读实例先用专用非池化 PG 连接取 pg_try_advisory_lock（启动写之前！）
-    #   2) 只有 owner 才跑 init_db/auto_migrate（含 seed）
+    #   2) 只有 owner 才跑 init_db/seed_current_config（含 seed）
     #   3) 所有实例加载合法统一信贷配置；非只读实例必须取得写所有权。
     #   4) 只有 owner 才挂 SQLAdmin（它自带直写 API）、跑 resync / writer / flusher /
     #      全部写调度器；HTTP 经济写路径由 WP6 的 require_writes() 兜底
@@ -124,7 +124,7 @@ async def _startup(app: FastAPI) -> None:
     if read_only:
         credit_ownership.OWNERSHIP.mark_read_only()
         main_logger.warning(
-            "read-only instance (%s): skip init_db/auto_migrate/resync/writer/flusher/"
+            "read-only instance (%s): skip init_db/seed_current_config/resync/writer/flusher/"
             "all schedulers", credit_flags.READ_ONLY_ENV,
         )
     else:
@@ -132,10 +132,10 @@ async def _startup(app: FastAPI) -> None:
         owner = await credit_ownership.OWNERSHIP.acquire()
         if owner:
             await init_db()
-            await auto_migrate()
+            await seed_current_config()
         else:
             main_logger.critical(
-                "single-writer ownership NOT acquired (%s): skip init_db/auto_migrate/"
+                "single-writer ownership NOT acquired (%s): skip init_db/seed_current_config/"
                 "resync/writer/flusher/all schedulers",
                 credit_ownership.OWNERSHIP.reason,
             )

@@ -60,9 +60,9 @@ async def test_set_value_updates_row():
 @pytest.mark.asyncio
 async def test_liquidation_site_config_defaults_loaded(client):
     """强平总闸、扫描间隔和统一风险参数默认存在。"""
-    from app.services.loan_migrate import auto_migrate
-    # setup_db 已 drop_all + create_all，需重新 auto_migrate 才有默认值
-    await auto_migrate()
+    from app.services.config_seed import seed_current_config
+    # setup_db 已 drop_all + create_all，需重新 seed_current_config 才有默认值
+    await seed_current_config()
 
     async with async_session_maker() as db:
         enabled = await get_bool(db, "liquidation_enabled")

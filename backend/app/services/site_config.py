@@ -17,7 +17,7 @@ class SiteConfigError(Exception):
 
 
 # FX is deliberately disabled and has conservative defaults until an operator
-# explicitly enables and funds a pair.  loan_migrate imports this list when it
+# explicitly enables and funds a pair.  config_seed imports this list when it
 # seeds a new or upgraded database.
 FX_DEFAULT_CONFIGS = [
     ("fx_enabled", "false", "bool"),

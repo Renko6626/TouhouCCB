@@ -1,4 +1,4 @@
-"""Task 3 integration: real commit hooks, rebuild generation and season cleanup.
+"""Task 3 integration: real commit hooks and event-history generation.
 
 Asserts only observable behaviour on the real async database:
 
@@ -6,8 +6,8 @@ Asserts only observable behaviour on the real async database:
   runtime (proved by a long reconcile interval: only the post-commit hint can
   wake the consumer in time), and replay / rejection / in-session rollback
   leave the derived candles untouched;
-* a rebuild reproduces a fresh full aggregation exactly, rotates the history
-  generation and honours the frozen source cutoff for paused/archived pairs.
+* event materialization reproduces a fresh full aggregation exactly, rotates the history
+  generation.
 
 The storage layer and the runtime ring are covered by their own suites; this
 file only covers the wiring between them.
@@ -34,7 +34,7 @@ from app.services.credit import flags as credit_flags
 from app.services.fx import trading
 from app.services.fx.candles import FxCandleCursorConflict, apply_candle_batch
 from app.services.fx.market_state import FX_MARKET_DATA
-from scripts.backfill_fx_candles import rebuild_pair
+from tests.fx_test_helpers import backfill_fx_history
 
 UTC = timezone.utc
 BASE = datetime(2026, 10, 1, 9, 0, 0, tzinfo=UTC)
@@ -126,7 +126,12 @@ async def _add_raw_trade(pair_id: int, *, at: datetime, price: str, side: str = 
         await db.flush()
         trade_id = int(trade.id)
         pair = await db.get(FxPair, pair_id)
-        pair.gold_reserve = max(pair.gold_reserve, trade.post_gold_reserve)
+        append_pool_event(db, pair_id=pair_id, kind="trade", created_at=at,
+                          pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                          post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                          gold_volume=trade.input_amount if side == "buy" else trade.output_amount,
+                          trade_id=trade_id)
+        pair.gold_reserve = trade.post_gold_reserve
         await db.commit()
         return trade_id
 
@@ -168,7 +173,7 @@ async def _state(pair_id: int) -> dict | None:
         ))).scalars().first()
         if row is None:
             return None
-        return {"last_trade_id": int(row.last_trade_id), "last_event_id": int(row.last_event_id),
+        return {"last_event_id": int(row.last_event_id),
                 "history_version": str(row.history_version),
                 "history_ready": bool(row.history_ready)}
 
@@ -267,9 +272,9 @@ async def _all_1m_candles(pair_id: int) -> list[dict]:
                  "volume": Decimal(r.gold_volume), "n": int(r.n_trades)} for r in rows]
 
 
-# ── rebuild ───────────────────────────────────────────────────────────────
+# ── event materialization ───────────────────────────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_rebuild_pair_matches_fresh_aggregation_and_rotates_generation():
+async def test_event_history_materialization_rotates_generation_and_rejects_stale_flush():
     pair_id = await _seed_pair(code="RB", initial_at=BASE)
     await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=30), price="1.30", input_amount="1")
     await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10", input_amount="2")
@@ -278,8 +283,8 @@ async def test_rebuild_pair_matches_fresh_aggregation_and_rotates_generation():
     through = await _max_trade_id(pair_id)
 
     async with async_session_maker() as db:
-        async with db.begin():
-            cutoff = await rebuild_pair(db, pair_id)
+        await backfill_fx_history(db, pair_id)
+    cutoff = (await _state(pair_id))["last_event_id"]
     assert cutoff > through
     row = await _candle(pair_id, "1m", BASE)
     assert row["open"] == Decimal("1.00")     # earliest created_at
@@ -293,13 +298,13 @@ async def test_rebuild_pair_matches_fresh_aggregation_and_rotates_generation():
     assert state["history_ready"] is True and state["last_event_id"] == cutoff
     first_version = state["history_version"]
 
-    # Repeated rebuild is exact (no double count) and rotates the generation.
+    # Repeated event materialization is exact (no double count) and rotates the generation.
     async with async_session_maker() as db:
-        async with db.begin():
-            assert await rebuild_pair(db, pair_id) == cutoff
+        await backfill_fx_history(db, pair_id)
+    assert (await _state(pair_id))["last_event_id"] == cutoff
     assert await _candle(pair_id, "1m", BASE) == row
     # Initialize at :00 and trades at :10/:20/:30 occupy four 10s buckets
-    # plus 1m/15m/1h -> seven rows; repeat rebuild must not add any.
+    # plus 1m/15m/1h -> seven rows; repeat materialization must not add any.
     assert await _candle_count(pair_id) == 7
     second_version = (await _state(pair_id))["history_version"]
     assert second_version != first_version
@@ -312,193 +317,3 @@ async def test_rebuild_pair_matches_fresh_aggregation_and_rotates_generation():
                     db, pair_id=pair_id, expected_event_id=cutoff,
                     through_event_id=cutoff, rows=[],
                     history_version=first_version, history_ready=None)
-
-
-@pytest.mark.asyncio
-async def test_rebuild_honours_cutoff_for_paused_archived_pair():
-    pair_id = await _seed_pair(code="RB2", status="paused", archived=True, initial_at=BASE)
-    first = await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10),
-                                 price="1.10", input_amount="1")
-    await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=20),
-                         price="1.20", input_amount="1")
-
-    async with async_session_maker() as db:
-        async with db.begin():
-            await rebuild_pair(db, pair_id)
-            event_cutoff = (await db.execute(select(FxPoolEvent.id).where(FxPoolEvent.trade_id == first))).scalar_one()
-            cutoff = await rebuild_pair(db, pair_id, through_event_id=event_cutoff)
-    assert cutoff == event_cutoff
-    row = await _candle(pair_id, "1m", BASE)
-    assert row["n"] == 1
-    assert row["volume"] == Decimal("1")
-    assert row["close"] == Decimal("1.10")
-    assert (await _state(pair_id))["last_event_id"] == event_cutoff
-    assert (await _state(pair_id))["history_ready"] is False
-
-
-@pytest.mark.asyncio
-async def test_rebuild_pair_refuses_while_owner_runtime_is_started():
-    pair_id = await _seed_pair(code="RB3")
-    await _add_raw_trade(pair_id, at=BASE, price="1.0", input_amount="1")
-    await FX_MARKET_DATA.start(write_owner=True)
-    try:
-        async with async_session_maker() as db:
-            with pytest.raises(RuntimeError, match="offline maintenance"):
-                async with db.begin():
-                    await rebuild_pair(db, pair_id, await _max_trade_id(pair_id))
-    finally:
-        await FX_MARKET_DATA.stop()
-
-
-@pytest.mark.asyncio
-async def test_source_conversion_dry_run_reconstruction_and_refusal():
-    pair_id = await _seed_pair(code="SRC", initial_at=BASE)
-    first = await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10")
-    second = await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=20), price="1.20")
-    async with async_session_maker() as db:
-        trade = await db.get(FxTrade, second)
-        event = append_pool_event(db, pair_id=pair_id, kind="trade", created_at=trade.created_at,
-            pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
-            post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
-            gold_volume=trade.input_amount, trade_id=trade.id)
-        await db.commit()
-        old_id = event.id
-        for kind, before, after, second_offset in (("fx_fund", "1200", "1300", 30), ("fx_withdraw", "1300", "1250", 40)):
-            db.add(AuditEvent(event_type=kind, ref_table="fx_pair", ref_id=pair_id,
-                ts=BASE + timedelta(seconds=second_offset), payload={
-                    "pool_before": {"gold": before, "foreign": "1000"},
-                    "pool_after": {"gold": after, "foreign": "1000"}}))
-        pair = await db.get(FxPair, pair_id)
-        pair.gold_reserve = Decimal("1250")
-        await db.commit()
-    async with async_session_maker() as db:
-        async with db.begin():
-            await rebuild_pair(db, pair_id, dry_run=True)
-            assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 2
-            with pytest.raises(ValueError, match="reconstruction"):
-                await rebuild_pair(db, pair_id, through_event_id=old_id)
-            cutoff = await rebuild_pair(db, pair_id)
-            events = (await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id).order_by(FxPoolEvent.id))).scalars().all()
-            assert all(e.id > old_id for e in events)
-            assert [e.trade_id for e in events] == [None, first, second, None, None]
-            assert [e.kind for e in events] == ["initialize", "trade", "trade", "fund", "withdraw"]
-            assert events[2].created_at == trade.created_at
-            assert events[2].gold_volume == trade.input_amount
-            assert events[-1].gold_volume == 0
-            assert cutoff == events[-1].id
-    # A completed rerun retains event/source identities and never doubles volume.
-    async with async_session_maker() as db:
-        async with db.begin():
-            assert await rebuild_pair(db, pair_id) == cutoff
-            audit = (await db.execute(select(AuditEvent).where(AuditEvent.ref_id == pair_id).order_by(AuditEvent.id))).scalars().first()
-            audit.payload = {}
-            await db.flush()
-            with pytest.raises(ValueError, match="reserves"):
-                await rebuild_pair(db, pair_id, dry_run=True)
-            await db.rollback()
-
-    # A withdrawal carrying an issuance action cannot supply the initial anchor,
-    # even when its post reserves exactly match the current pair.
-    invalid_pair = await _seed_pair(code="BADISSUE", initial_at=BASE)
-    async with async_session_maker() as db:
-        audit = (await db.execute(select(AuditEvent).where(AuditEvent.ref_id == invalid_pair))).scalars().one()
-        audit.event_type = "fx_withdraw"
-        await db.execute(delete(FxPoolEvent).where(FxPoolEvent.pair_id == invalid_pair))
-        await db.commit()
-        audit_id, payload = audit.id, dict(audit.payload)
-    async with async_session_maker() as db:
-        async with db.begin():
-            for dry_run in (True, False):
-                with pytest.raises(ValueError, match="contradictory initial_issuance.*fx_withdraw"):
-                    await rebuild_pair(db, invalid_pair, dry_run=dry_run)
-            for model in (FxPoolEvent, FxCandle, FxMarketDataState):
-                assert (await db.execute(select(func.count()).select_from(model).where(model.pair_id == invalid_pair))).scalar_one() == 0
-            audit = await db.get(AuditEvent, audit_id)
-            assert audit.event_type == "fx_withdraw" and audit.payload == payload
-            pair = await db.get(FxPair, invalid_pair)
-            treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == invalid_pair))).scalars().one()
-            assert (pair.gold_reserve, pair.foreign_reserve) == (Decimal("1000"), Decimal("1000"))
-            assert (treasury.gold_balance, treasury.foreign_balance) == (Decimal("1000"), Decimal("1000"))
-
-
-@pytest.mark.asyncio
-async def test_source_conversion_refuses_equal_timestamp_ambiguous_chain():
-    pair_id = await _seed_pair(code="AMB", initial_at=BASE)
-    await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10")
-    await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10")
-    async with async_session_maker() as db:
-        async with db.begin():
-            with pytest.raises(ValueError, match="ambiguous.*at"):
-                await rebuild_pair(db, pair_id, dry_run=True)
-            assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 1
-            with pytest.raises(ValueError, match="through-trade-id"):
-                await rebuild_pair(db, pair_id, 1)
-
-
-@pytest.mark.asyncio
-async def test_deploy_prepares_pending_history_preserves_finances_and_skips_ready_draft():
-    from scripts.prepare_fx_event_history import prepare, select_pending_pairs
-    pair_id = await _seed_pair(code="DEPLOY", initial_at=BASE)
-    await _add_raw_trade(pair_id, at=BASE + timedelta(seconds=10), price="1.10")
-    async with async_session_maker() as db:
-        db.add(FxPair(currency_code="DRAFT", currency_name="Unissued", status="draft"))
-        await db.execute(delete(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id))
-        await db.commit()
-        pair = await db.get(FxPair, pair_id)
-        finances = (pair.gold_reserve, pair.foreign_reserve)
-        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
-        balances = (treasury.gold_balance, treasury.foreign_balance)
-        sources = [(row.id, dict(row.payload)) for row in (await db.execute(select(AuditEvent))).scalars()]
-        trades = [(row.id, row.input_amount, row.output_amount) for row in (await db.execute(select(FxTrade))).scalars()]
-    assert await select_pending_pairs() == [pair_id]
-    assert await prepare() == 0
-    async with async_session_maker() as db:
-        state = await db.get(FxMarketDataState, pair_id)
-        assert state.history_ready and state.last_event_id > 0
-        version = state.history_version
-        pair = await db.get(FxPair, pair_id)
-        assert (pair.gold_reserve, pair.foreign_reserve) == finances
-        treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalar_one()
-        assert (treasury.gold_balance, treasury.foreign_balance) == balances
-        assert [(row.id, dict(row.payload)) for row in (await db.execute(select(AuditEvent))).scalars()] == sources
-        assert [(row.id, row.input_amount, row.output_amount) for row in (await db.execute(select(FxTrade))).scalars()] == trades
-        event_ids = list((await db.execute(select(FxPoolEvent.id))).scalars())
-    assert await select_pending_pairs() == []
-    assert await prepare() == 0
-    async with async_session_maker() as db:
-        assert (await db.get(FxMarketDataState, pair_id)).history_version == version
-        assert list((await db.execute(select(FxPoolEvent.id))).scalars()) == event_ids
-
-
-@pytest.mark.asyncio
-async def test_deploy_bad_source_prevents_conversion_of_all_selected_pairs():
-    from scripts.prepare_fx_event_history import prepare
-    good = await _seed_pair(code="GOOD", initial_at=BASE)
-    bad = await _seed_pair(code="BAD", initial_at=BASE)
-    async with async_session_maker() as db:
-        await db.execute(delete(FxPoolEvent))
-        audit = (await db.execute(select(AuditEvent).where(AuditEvent.ref_id == bad))).scalar_one()
-        audit.payload = {}
-        await db.commit()
-    with pytest.raises(ValueError, match="reserves"):
-        await prepare()
-    async with async_session_maker() as db:
-        for model in (FxPoolEvent, FxCandle, FxMarketDataState):
-            assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
-        assert (await db.get(FxPair, good)).gold_reserve == Decimal("1000")
-        assert (await db.get(FxPair, bad)).gold_reserve == Decimal("1000")
-
-
-@pytest.mark.asyncio
-async def test_deploy_refuses_initialized_pair_without_history_sources():
-    from scripts.prepare_fx_event_history import prepare
-    pair_id = await _seed_pair(code="NOSOURCE", initial_at=BASE)
-    async with async_session_maker() as db:
-        await db.execute(delete(FxPoolEvent))
-        await db.execute(delete(AuditEvent))
-        await db.commit()
-    with pytest.raises(ValueError, match="lack reconstructible history sources"):
-        await prepare()
-    async with async_session_maker() as db:
-        assert await db.get(FxMarketDataState, pair_id) is None
-        assert (await db.get(FxPair, pair_id)).gold_reserve == Decimal("1000")

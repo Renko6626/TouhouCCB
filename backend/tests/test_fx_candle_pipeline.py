@@ -234,13 +234,22 @@ async def test_multipage_backfill_merges_order_and_volume_once():
 
 # ── missed signal / reconciliation ────────────────────────────────────────
 @pytest.mark.asyncio
-async def test_catch_up_recovers_trades_without_any_notification():
+@pytest.mark.parametrize("has_unready_state", [False, True])
+async def test_catch_up_recovers_trades_without_any_notification(has_unready_state):
     pair = await _seed_pair()
+    if has_unready_state:
+        async with async_session_maker() as db:
+            db.add(FxMarketDataState(pair_id=pair, history_version="initial", history_ready=False))
+            await db.commit()
     service = FxMarketDataService(async_session_maker)
     await service.start(write_owner=True)
     try:
         assert service.state(pair)["history_ready"] is True
         assert service.state(pair)["applied_event_id"] == 1
+        initialized = await _read_candle(pair, "1m", NOW)
+        assert initialized["n"] == 0 and initialized["volume"] == Decimal("0")
+        if has_unready_state:
+            assert service.state(pair)["history_version"] == "initial"
         # Committed by another transaction after start and never notified.
         trade_id = await _add_trade(pair, created_at=NOW + timedelta(seconds=5))
         assert await service.catch_up(pair) == trade_id
@@ -626,8 +635,8 @@ async def test_catch_up_yields_after_ten_pages_and_requeues_remaining_events():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy_cursor", [None, 0, 7])
-async def test_legacy_sources_without_events_never_become_ready(legacy_cursor):
+@pytest.mark.parametrize("has_state", [False, True])
+async def test_sources_without_events_never_become_ready(has_state):
     async with async_session_maker() as db:
         pair = FxPair(currency_code="OLD", currency_name="Legacy")
         db.add(pair)
@@ -636,8 +645,8 @@ async def test_legacy_sources_without_events_never_become_ready(legacy_cursor):
                        output_amount=Decimal("1"), pre_gold_reserve=Decimal("1"),
                        pre_foreign_reserve=Decimal("1"), post_gold_reserve=Decimal("2"),
                        post_foreign_reserve=Decimal("1"), post_price=Decimal("2"), created_at=NOW))
-        if legacy_cursor is not None:
-            db.add(FxMarketDataState(pair_id=pair.id, last_trade_id=legacy_cursor,
+        if has_state:
+            db.add(FxMarketDataState(pair_id=pair.id,
                                     history_version="legacy", history_ready=False))
         await db.commit()
         pid = pair.id
@@ -655,7 +664,7 @@ async def test_legacy_sources_without_events_never_become_ready(legacy_cursor):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("missing_source", ["trade", "fund"])
-async def test_initialize_does_not_certify_legacy_sources_missing_event_records(missing_source):
+async def test_initialize_does_not_certify_sources_missing_event_records(missing_source):
     pair = await _seed_pair()
     async with async_session_maker() as db:
         if missing_source == "fund":

@@ -23,6 +23,7 @@ from sqlalchemy import select
 from app.models.fx import FxMarketDataState, FxPair, FxTrade
 from app.services.fx.market_reads import clear_fx_history_cache, read_fx_history
 from app.services.fx.market_state import FX_MARKET_DATA
+from app.services.fx.pool_events import append_pool_event
 
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 
@@ -35,7 +36,7 @@ async def _seed_pair(factory) -> int:
         db.add(pair)
         await db.flush()
         pid = int(pair.id)
-        db.add(FxMarketDataState(pair_id=pid, last_trade_id=0,
+        db.add(FxMarketDataState(pair_id=pid,
                                  history_version="gen-1", history_ready=True))
         await db.commit()
         return pid
@@ -72,7 +73,13 @@ async def test_history_read_waits_for_inflight_producer_and_refuses_after_commit
 
     producer = pg_sessionmaker()
     await producer.execute(select(FxPair.id).where(FxPair.id == pid).with_for_update())
-    producer.add(_trade(pid, 1, trade_at))
+    trade = _trade(pid, 1, trade_at)
+    producer.add(trade)
+    await producer.flush()  # establish the receipt FK inside the same transaction
+    append_pool_event(producer, pair_id=pid, kind="trade", created_at=trade_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount, trade_id=trade.id)
     await producer.flush()  # uncommitted; the pair row lock is held
 
     reader = pg_sessionmaker()
@@ -101,7 +108,13 @@ async def test_history_read_serves_after_inflight_producer_rolls_back(pg_session
 
     producer = pg_sessionmaker()
     await producer.execute(select(FxPair.id).where(FxPair.id == pid).with_for_update())
-    producer.add(_trade(pid, 2, datetime.fromtimestamp(seg + 120, tz=UTC)))
+    trade = _trade(pid, 2, datetime.fromtimestamp(seg + 120, tz=UTC))
+    producer.add(trade)
+    await producer.flush()  # establish the receipt FK inside the same transaction
+    append_pool_event(producer, pair_id=pid, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount, trade_id=trade.id)
     await producer.flush()
 
     reader = pg_sessionmaker()

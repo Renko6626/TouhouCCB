@@ -1,6 +1,6 @@
 """WP3 main.py 启动隔离：只读/非 owner 跳过全部启动写；enabled 无锁拒绝启动。
 
-覆盖计划 WP3 "main.py 所有权必须覆盖 init_db/auto_migrate/seed/resync/writer/flusher/
+覆盖计划 WP3 "main.py 所有权必须覆盖 init_db/seed_current_config/seed/resync/writer/flusher/
 全部调度器"与"只读实例在任何写之前就跳过"。
 """
 import os
@@ -60,8 +60,8 @@ def startup(monkeypatch):
     async def _init_db():
         events.append("init_db")
 
-    async def _auto_migrate():
-        events.append("auto_migrate")
+    async def _seed_current_config():
+        events.append("seed_current_config")
 
     async def _resync(*args, **kwargs):
         events.append("resync")
@@ -80,7 +80,7 @@ def startup(monkeypatch):
         return _fn
 
     monkeypatch.setattr(main, "init_db", _init_db)
-    monkeypatch.setattr(main, "auto_migrate", _auto_migrate)
+    monkeypatch.setattr(main, "seed_current_config", _seed_current_config)
     monkeypatch.setattr(main, "_resync_recent_candles", _resync)
     monkeypatch.setattr(main, "setup_admin", _setup_admin)
     for name in ("loan", "liquidation", "bot_detection", "pve"):
@@ -128,7 +128,7 @@ async def test_read_only_skips_all_startup_writes(startup, monkeypatch):
 
     assert own.read_only_marked is True
     assert "acquire" not in startup              # 只读实例不取锁
-    for forbidden in ("init_db", "auto_migrate", "resync", "setup_admin",
+    for forbidden in ("init_db", "seed_current_config", "resync", "setup_admin",
                       "start:loan", "start:liquidation", "start:bot_detection",
                       "start:pve", "start:fx_publisher",
                       "WRITER.start", "FLUSHER.start"):
@@ -146,8 +146,8 @@ async def test_owner_runs_startup_writes_after_acquiring_lock(startup, monkeypat
 
     assert startup.index("acquire") < startup.index("init_db")
     assert "acquire" in own.events
-    assert startup.index("init_db") < startup.index("auto_migrate")
-    assert startup.index("auto_migrate") < startup.index("resync")
+    assert startup.index("init_db") < startup.index("seed_current_config")
+    assert startup.index("seed_current_config") < startup.index("resync")
     assert "setup_admin" in startup
     assert startup.index("setup_admin") < startup.index("resync")
     for expected in ("start:loan", "start:liquidation", "start:bot_detection",
@@ -170,7 +170,7 @@ async def test_non_owner_with_unified_credit_enabled_fails_startup(startup, monk
     with pytest.raises(RuntimeError, match="第二写实例"):
         await _run_lifespan()
 
-    assert "init_db" not in startup and "auto_migrate" not in startup
+    assert "init_db" not in startup and "seed_current_config" not in startup
     assert "resync" not in startup
     assert not any(e.startswith("start:") for e in startup)
     assert own.released is True  # 启动失败也要释放所有权
@@ -231,7 +231,7 @@ async def test_readonly_starts_even_with_unified_credit_enabled(startup, monkeyp
     await _run_lifespan()          # 不得抛 RuntimeError
 
     assert "acquire" not in startup
-    assert "init_db" not in startup and "auto_migrate" not in startup
+    assert "init_db" not in startup and "seed_current_config" not in startup
     assert "setup_admin" not in startup
     assert not any(e.startswith("start:") for e in startup)
     assert main.app.state.credit_writes_enabled is False
@@ -251,7 +251,7 @@ async def test_start_failure_still_runs_cleanup_and_releases_ownership(startup, 
     with pytest.raises(RuntimeError, match="scheduler start failed"):
         await _run_lifespan()
 
-    assert "init_db" in startup and "auto_migrate" in startup
+    assert "init_db" in startup and "seed_current_config" in startup
     assert "start:loan" in startup                 # loan 已启动
     assert "start:liquidation" not in startup      # 失败的没启动
     for stopped in ("stop:loan", "stop:liquidation", "stop:bot_detection",

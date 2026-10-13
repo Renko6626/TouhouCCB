@@ -273,7 +273,7 @@ async def test_chart_coverage_headers_describe_body_after_midread_flush(client, 
             fired["done"] = True
             snap_rows = [_snapshot(row) for row in rows]
             snap_state = SimpleNamespace(
-                pair_id=int(st.pair_id), last_event_id=int(st.last_event_id), last_trade_id=0,
+                pair_id=int(st.pair_id), last_event_id=int(st.last_event_id),
                 history_version=str(st.history_version),
                 history_ready=bool(st.history_ready),
             )

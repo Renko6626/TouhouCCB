@@ -1,0 +1,34 @@
+@pytest.mark.asyncio
+async def test_existing_params_and_operator_gates_preserved(setup_db):
+    for key, value in {"credit_leverage":"3", "credit_maintenance_ratio":".2", "loan_leverage_k":"9", "liquidation_hard_threshold":".05", "unified_credit_enabled":"false", "loan_enabled":"false", "credit_new_risk_frozen":"true"}.items():
+        await _seed_config(key, value)
+    await auto_migrate()
+    assert await seed_credit_risk_configs() == []
+    assert await _config_value("credit_leverage") == "3"
+    assert await _config_value("credit_maintenance_ratio") == ".2"
+    assert await _config_value("loan_enabled") == "false"
+    assert await _config_value("credit_new_risk_frozen") == "true"
+    assert await _config_value("unified_credit_enabled") is None
+    assert await _config_value("loan_leverage_k") is None
+
+
+@pytest.mark.asyncio
+async def test_missing_params_map_legacy_once(setup_db):
+    await _seed_config("loan_leverage_k", "3")
+    await _seed_config("liquidation_hard_threshold", ".15")
+    assert set(await seed_credit_risk_configs()) == {"credit_leverage", "credit_maintenance_ratio"}
+    assert await _config_value("credit_leverage") == "4"
+    assert await _config_value("credit_maintenance_ratio") == "0.15"
+    assert await seed_credit_risk_configs() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("values", [{"loan_leverage_k":"50", "liquidation_hard_threshold":".2"}, {"credit_leverage":"abc", "credit_maintenance_ratio":".2"}, {"loan_leverage_k":"1", "liquidation_hard_threshold":"1.5"}, {"loan_enabled":"false"}])
+async def test_invalid_existing_config_fails_without_mutation(setup_db, values):
+    for key, value in values.items():
+        await _seed_config(key, value)
+    with pytest.raises(ValueError):
+        await auto_migrate()
+    async with async_session_maker() as s:
+        actual = {r.key:r.value for r in (await s.execute(select(SiteConfig))).scalars()}
+    assert actual == values

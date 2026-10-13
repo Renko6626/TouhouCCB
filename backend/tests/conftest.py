@@ -3,7 +3,7 @@
 设计理由（见 pytest.ini + memory project_pending_perf_work）：
 - APScheduler（loan sweep）在 lifespan startup 启动，跟测试 drop_all 互锁导致偶发卡死。
   → session-scope mock 掉 start/stop，全程测试内不真启 scheduler。
-- LifespanManager 原本每个测试重跑一次（init_db + auto_migrate + setup_admin + start_scheduler），
+- LifespanManager 原本每个测试重跑一次（init_db + seed_current_config + setup_admin + start_scheduler），
   占测试时间显著。→ module-scope 共享 client/lifespan。
 - 每个测试仍 drop_all + create_all 保隔离，但 LifespanManager 只跑一次/module。
 - site_config 进程内缓存每测试 reset，避免上一测试写 DB 后这一测试拿到 stale。

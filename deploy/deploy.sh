@@ -13,7 +13,7 @@ PROJECT_ROOT="$(pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backups"
 HEALTH_URL="http://127.0.0.1:8004/api/v1/market/list"
 HEALTH_TIMEOUT=10
-# 20×3s=60s 窗口：给冷启动期（init_db + auto_migrate + admin setup + APS）留余地
+# 20×3s=60s 窗口：给冷启动期（init_db + seed_current_config + admin setup + APS）留余地
 HEALTH_RETRIES=20
 BACKEND_STOPPED=0
 SCHEMA_ATTEMPTED=0
@@ -210,8 +210,6 @@ if [ "$FX_SHORT_ROLLOUT" = "initial" ]; then
     # Stop any preflight-to-stop race from enabling opening during first rollout.
     docker compose run --rm --no-deps -T backend python scripts/check_fx_short_rollout.py --require-closed
 fi
-log "  Preparing pending FX event history against the stopped database..."
-docker compose run --rm --no-deps -T backend python scripts/prepare_fx_event_history.py
 log "  Verifying audit replay against the stopped database..."
 docker compose run --rm --no-deps -T backend python scripts/audit_verify.py
 
