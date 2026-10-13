@@ -1397,6 +1397,11 @@ onUnmounted(() => {
               ? '仅可减仓'
               : statusLabel
           }}</span>
+          <FxTriggerOrders
+            v-if="activePair && !loading && !error"
+            :pair-id="activePair.id"
+            @waiting-change="waitingOrders = $event"
+          />
         </div>
       </div>
       <div class="fx-topbar-price">
@@ -2065,7 +2070,6 @@ onUnmounted(() => {
       </section>
 
       <div class="fx-lower">
-        <FxTriggerOrders :pair-id="activePair.id" @waiting-change="waitingOrders = $event" />
         <section class="fx-block fx-trades-block">
           <div class="fx-panel-head">
             <h2>我的成交记录</h2>
@@ -2290,6 +2294,8 @@ onUnmounted(() => {
   color: var(--color-down-strong);
 }
 .fx-topbar-id {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2306,10 +2312,18 @@ onUnmounted(() => {
   margin-left: 8px;
 }
 .fx-pair-row {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+.fx-pair-row :deep(.manage-orders) {
+  color: #000;
+  background: #fff;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .fx-pair-select {
   border: 1px solid #bbb;
@@ -3114,6 +3128,9 @@ onUnmounted(() => {
   }
 }
 @media (max-width: 640px) {
+  .fx-topbar-id {
+    flex-wrap: wrap;
+  }
   .fx-page {
     padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0px));
   }
