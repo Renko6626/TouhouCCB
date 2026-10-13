@@ -49,8 +49,10 @@ async def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        code = asyncio.run(main())
-    finally:
-        asyncio.run(engine.dispose())
-    sys.exit(code)
+    async def run_and_dispose():
+        try:
+            return await main()
+        finally:
+            await engine.dispose()
+
+    sys.exit(asyncio.run(run_and_dispose()))

@@ -83,3 +83,5 @@ sync 驱动需要单独装（生产 Postgres 环境需要 `psycopg2` / `psycopg2
 所以无论 dev 还是 prod，空库首次都经 `init_db.py` 建 schema；此后的 schema 变更一律走
 alembic。手动起空库时 `init_db.py` 有 `YES` 交互确认（CI / deploy.sh 用
 `echo YES | ... -T` 绕过）。
+
+业务重置使用独立空目标实际升级新基线，旧 schema 不走普通升级；入口与恢复边界见[业务重置操作单](business-reset.md)。
