@@ -395,6 +395,10 @@ def test_pool_events_upgrade_roundtrip_keeps_trade_candles_and_money():
         assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)
         assert conn.execute(text('SELECT n_trades,n_events,first_event_id FROM fx_candle')).one() == (1, 0, None)
         assert conn.execute(text('SELECT last_trade_id,last_event_id,history_version,history_ready FROM fx_market_data_state')).one() == (1, 0, 'existing-history', 1)
+        # Empty additive event schema remains reversible without touching trade history.
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+            revision.upgrade()
         insert = "INSERT INTO fx_pool_event(pair_id,created_at,kind,pre_gold_reserve,pre_foreign_reserve,post_gold_reserve,post_foreign_reserve,gold_volume,trade_id) VALUES (1,CURRENT_TIMESTAMP,'trade',100,200,101,198,1,1)"
         conn.execute(text(insert))
         assert conn.execute(text('SELECT id FROM fx_pool_event')).scalar_one() == 1
@@ -403,7 +407,29 @@ def test_pool_events_upgrade_roundtrip_keeps_trade_candles_and_money():
         with pytest.raises(IntegrityError):
             conn.execute(text("UPDATE fx_pool_event SET gold_volume=-1"))
         with Operations.context(MigrationContext.configure(conn)):
-            revision.downgrade()
-            revision.upgrade()
+            with pytest.raises(RuntimeError, match='history would be lost'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT id,trade_id,gold_volume FROM fx_pool_event')).one() == (1, 1, 1)
+        # A funding event has no trade or volume, but still preserves price history.
+        conn.execute(text('DELETE FROM fx_pool_event'))
+        conn.execute(text('INSERT INTO audit_event (id) VALUES (1)'))
+        conn.execute(text("INSERT INTO fx_pool_event(pair_id,created_at,kind,pre_gold_reserve,pre_foreign_reserve,post_gold_reserve,post_foreign_reserve,gold_volume,audit_id) VALUES (1,CURRENT_TIMESTAMP,'fund',100,200,103,200,0,1)"))
+        with Operations.context(MigrationContext.configure(conn)):
+            with pytest.raises(RuntimeError, match='history would be lost'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT kind,audit_id,gold_volume FROM fx_pool_event')).one() == ('fund', 1, 0)
+        # Even missing raw rows cannot authorize discarding derived event history.
+        conn.execute(text('DELETE FROM fx_pool_event'))
+        conn.execute(text('UPDATE fx_candle SET n_events=1,first_event_id=1'))
+        with Operations.context(MigrationContext.configure(conn)):
+            with pytest.raises(RuntimeError, match='history would be lost'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT n_events,first_event_id FROM fx_candle')).one() == (1, 1)
+        conn.execute(text('UPDATE fx_candle SET n_events=0,first_event_id=NULL'))
+        conn.execute(text('UPDATE fx_market_data_state SET last_event_id=1'))
+        with Operations.context(MigrationContext.configure(conn)):
+            with pytest.raises(RuntimeError, match='history would be lost'):
+                revision.downgrade()
+        assert conn.execute(text('SELECT last_event_id FROM fx_market_data_state')).scalar_one() == 1
         assert conn.execute(text('SELECT n_trades FROM fx_candle')).scalar_one() == 1
         assert conn.execute(text('SELECT last_trade_id,history_version FROM fx_market_data_state')).one() == (1, 'existing-history')

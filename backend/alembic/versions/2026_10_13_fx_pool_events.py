@@ -40,6 +40,16 @@ def upgrade():
 
 
 def downgrade():
+    # Preflight every source/derived event field before the first destructive DDL.
+    # Zero-volume funding still changes price history and must be preserved.
+    conn = op.get_bind()
+    populated = (
+        "SELECT 1 FROM fx_pool_event LIMIT 1",
+        "SELECT 1 FROM fx_candle WHERE n_events <> 0 OR first_event_at IS NOT NULL OR first_event_id IS NOT NULL OR last_event_at IS NOT NULL OR last_event_id IS NOT NULL LIMIT 1",
+        "SELECT 1 FROM fx_market_data_state WHERE last_event_id <> 0 LIMIT 1",
+    )
+    if any(conn.execute(sa.text(query)).first() is not None for query in populated):
+        raise RuntimeError("Cannot downgrade FX pool events: event history would be lost")
     with op.batch_alter_table("fx_market_data_state") as batch:
         batch.drop_column("last_event_id")
     with op.batch_alter_table("fx_candle") as batch:
