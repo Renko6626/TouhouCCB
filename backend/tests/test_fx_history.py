@@ -640,3 +640,105 @@ async def test_unflushed_funding_before_window_supplies_carried_close_and_event_
     assert response.headers["x-fx-through-event-id"] == str(fund)
     assert len(response.json()) == 2
     assert all(row["close"] == 1.5 and row["n_events"] == 0 for row in response.json())
+
+
+@pytest.mark.asyncio
+async def test_chart_flush_before_joined_read_refreshes_cached_checkpoint(client, monkeypatch):
+    """A separate-session flush must not pair new candles with the cached old cursor."""
+    from sqlalchemy import select
+    from app.services.fx import market_reads
+    from app.services.fx.candles import apply_candle_batch, compute_fx_candle_rows
+    pid = await _seed_pair()
+    version = await _seed_state(pid, ready=True, cursor=2)
+    start = datetime(2026, 10, 1, 0, 0, tzinfo=UTC)
+    await _seed_candle(pid, "1m", start, v="2", n=2)
+    await _seed_trade(pid, 3, start + timedelta(seconds=20), volume="3")
+    original = market_reads._load_candles_with_state
+    fired = False
+
+    async def flush_then_join(db, pair_id, interval, start_, end_):
+        nonlocal fired
+        if not fired:
+            fired = True
+            # Initial request state read has already cached cursor2. Advance
+            # its real production checkpoint in an independent transaction.
+            async with async_session_maker() as writer:
+                async with writer.begin():
+                    event = (await writer.execute(select(FxPoolEvent).where(FxPoolEvent.id == 3))).scalar_one()
+                    await apply_candle_batch(writer, pair_id=pid, expected_event_id=2,
+                                             through_event_id=3, rows=compute_fx_candle_rows([event]),
+                                             history_version=version)
+        return await original(db, pair_id, interval, start_, end_)
+
+    monkeypatch.setattr(market_reads, "_load_candles_with_state", flush_then_join)
+    response = await client.get(f"/api/v1/fx/pairs/{pid}/chart", params={
+        "interval": "1m", "from": start.isoformat(), "to": (start + timedelta(minutes=1)).isoformat()})
+    assert response.status_code == 200, response.text
+    assert response.headers["x-fx-through-event-id"] == "3"
+    point, = response.json()
+    assert Decimal(str(point["volume"])) == Decimal("5")
+    assert point["n_trades"] == point["n_events"] == 3
+
+
+@pytest.mark.asyncio
+async def test_stream_lock_wait_crossing_bucket_boundary_never_claims_absent_event(monkeypatch):
+    """Committed boundary funding is represented at the post-lock snapshot time."""
+    import asyncio
+    import json
+    from types import SimpleNamespace
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from app.core.database import engine
+    from app.api.v1 import fx_stream
+    from app.services.realtime import MarketEventBroker
+
+    pid = await _seed_pair()
+    boundary = datetime(2026, 10, 1, 12, 1, tzinfo=UTC)
+    before = boundary - timedelta(seconds=1)
+    after = boundary + timedelta(seconds=2)
+    initialize = await _seed_fund_event(pid, boundary - timedelta(minutes=1), post="1", initialize=True)
+    await _seed_state(pid, ready=True, cursor=initialize)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return after if release.is_set() else before
+
+    class WaitingSession(AsyncSession):
+        waited = False
+
+        async def execute(self, statement, *args, **kwargs):
+            if not self.waited:
+                self.waited = True
+                entered.set()
+                await release.wait()
+            return await super().execute(statement, *args, **kwargs)
+
+    waiting_factory = async_sessionmaker(engine, class_=WaitingSession, expire_on_commit=False)
+    calls = 0
+
+    def reader_factory():
+        nonlocal calls
+        calls += 1
+        return waiting_factory() if calls == 2 else async_session_maker()
+
+    monkeypatch.setattr(fx_stream, "datetime", Clock)
+    monkeypatch.setattr(fx_stream, "async_session_maker", reader_factory)
+    monkeypatch.setattr(fx_stream, "BROKER", MarketEventBroker())
+    request = SimpleNamespace(headers={}, client=SimpleNamespace(host="boundary-test"))
+    response = await fx_stream.stream(pid, request)
+    packet = asyncio.create_task(response.body_iterator.__anext__())
+    await entered.wait()
+    fund = await _seed_fund_event(pid, boundary, pre="1", post="1.5")
+    release.set()
+    try:
+        wire = json.loads((await packet).decode().split("data: ", 1)[1])["data"]
+        assert wire["history_tail_through_event_id"] == fund
+        minute = wire["history_tail"]["1m"]
+        at = (int(boundary.timestamp()) - minute["t0"]) // minute["step"]
+        index = minute["t"].index(at)
+        assert Decimal(minute["c"][index]) == Decimal("1.5")
+        assert minute["events"][index] == 1 and minute["trades"][index] == 0
+        assert wire["history_tail_at"] == after.isoformat()
+    finally:
+        await response.body_iterator.aclose()

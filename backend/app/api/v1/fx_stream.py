@@ -72,7 +72,6 @@ async def stream(pair_id: int, request: Request):
             # Anchor first, then read state. Any commit after the anchor is
             # either reflected in this snapshot or remains queued for replay.
             #
-            now = datetime.now(timezone.utc)
             async with async_session_maker() as db:
                 # Writers hold the same pair lock through commit: the quote,
                 # tail and cursor name one committed prefix and generation.
@@ -85,6 +84,9 @@ async def stream(pair_id: int, request: Request):
                     # event prefix. Keep quotes available without claiming it.
                     await db.rollback()
                     locked = False
+                # The lock may have waited across a bucket boundary. Capture
+                # tail time only after its committed prefix is established.
+                now = datetime.now(timezone.utc)
                 snapshot = await trading.get_public_snapshot(db, pair_id)
                 try:
                     if not locked:

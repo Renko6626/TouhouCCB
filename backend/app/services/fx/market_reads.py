@@ -271,6 +271,9 @@ async def _load_candles_with_state(db: AsyncSession, pair_id: int, interval: str
         .outerjoin(FxCandle, condition)
         .where(FxMarketDataState.pair_id == int(pair_id))
         .order_by(FxCandle.bucket_start.asc())
+        # Initial readiness reads may already have cached this ORM state. Both
+        # entities must refresh from this statement's snapshot after a flush.
+        .execution_options(populate_existing=True)
     )
     state = None
     rows: list[Any] = []

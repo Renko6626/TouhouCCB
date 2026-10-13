@@ -37,3 +37,16 @@ Focused meaningful new fixture cases cover funding-only price moves, same-bucket
 - Readiness probes check source coverage and anchor presence for native histories; historical chronology/chain auditing is an offline responsibility, not a GET repair. Generation-cached failure remains blocked until checkpoint generation changes or restart, which is intentional during conversion.
 - PG migration execution plan, source-table size, index size, old/new throughput and hot-chart comparisons are unverified here and remain Task6. SQLite migration behavior and real PG candle storage behavior do not establish production capacity.
 - The existing backend/PG tests are not product acceptance of frontend chart interaction. No browser work was performed.
+
+## Round1 review corrections (base f8f814f)
+
+Two Important concurrency findings were reproduced and corrected without changing the approved event contracts or bounds.
+
+1. SSE snapshot time is now captured after the shared consistency lock returns. A writer committing a boundary event during lock wait can no longer be included in the global event cursor while excluded by an earlier tail time. The added existing-history-fixture test pauses the reader at lock acquisition, commits genuine funding from a separate session across a minute/10s bucket boundary, advances a controlled clock, then calls the real stream and bounded history reader. It asserts the claimed event's minute bucket, close, zero trades/nonzero event count and post-lock tail timestamp are present. This uses a deterministic wait seam on SQLite, not a claim of PostgreSQL lock-wait coverage.
+2. The candle/state joined statement now uses `populate_existing=True` so its checkpoint and candles both refresh from the statement snapshot despite the earlier readiness ORM read. The added existing-history-fixture test commits a real `apply_candle_batch` in a separate session between initial state read and joined read, then asserts volume5, n_trades3 and n_events3 exactly. This supplements the existing after-joined-read flush fixture with the previously uncovered ordering.
+
+Verification:
+
+- Before fixes: `cd backend && venv/bin/python -m pytest tests/test_fx_history.py -k 'flush_before_joined or lock_wait_crossing' -q` reproduced **2 failures**: volume8 instead of5; claimed boundary event absent from the minute tail.
+- After fixes: `cd backend && venv/bin/python -m pytest tests/test_fx_history.py tests/test_fx_stream.py -q`: **36 passed** (3.82s).
+- `git diff --check`: passed. Self-review confirmed time capture follows lock acquisition/rollback and precedes quote/history reads; refresh applies to both entities in the one joined statement. No broader suite, PG rerun, maintenance script, production operation or frontend work was performed in this correction round.
