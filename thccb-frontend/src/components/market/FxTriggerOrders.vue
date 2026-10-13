@@ -127,11 +127,11 @@ onUnmounted(() => { mounted = false; generation++; emit('waiting-change', []) })
       <form class="order-form" @submit.prevent="submit">
         <div class="fill-sentence"><div class="condition-clause"><span>当 {{ currentCurrency }} 汇率</span><span class="condition-fields">
           <select v-model="comparison" aria-label="触价条件"><option value="lte">小于或等于</option><option value="gte">大于或等于</option></select>
-          <input :value="triggerPrice" @input="triggerPrice = ($event.target as HTMLInputElement).value" aria-label="触发汇率" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写触发价" />
+          <input :value="triggerPrice" @input="triggerPrice = ($event.target as HTMLInputElement).value" aria-label="触发汇率" type="text" inputmode="decimal" autocomplete="off" required placeholder="填写触发价" />
           <span>金圆券</span></span></div><div class="action-clause"><span>时，尝试</span><span class="action-fields">
           <select v-model="action" aria-label="挂单动作"><option value="buy">买入</option><option value="sell">卖出</option><option value="close_long">平多头</option><option value="close_short">平空头</option></select>
           <template v-if="!isClose">
-            <input :value="amount" @input="amount = ($event.target as HTMLInputElement).value" :aria-label="action === 'buy' ? '投入金圆券' : '卖出外币数量'" type="number" inputmode="decimal" min="0.000001" step="0.000001" required placeholder="填写数量" />
+            <input :value="amount" @input="amount = ($event.target as HTMLInputElement).value" :aria-label="action === 'buy' ? '投入金圆券' : '卖出外币数量'" type="text" inputmode="decimal" autocomplete="off" required placeholder="填写数量" />
             {{ action === 'buy' ? '金圆券的外币' : '外币' }}。
           </template>
           <template v-else>
@@ -143,7 +143,7 @@ onUnmounted(() => { mounted = false; generation++; emit('waiting-change', []) })
         <p v-if="isClose" class="order-note">按到价时仓位计算比例，只减仓，不反向开仓。当前多头 {{ amountText(currentPosition.long) }}，空头本金 {{ amountText(currentPosition.short) }}。</p>
         <div v-if="action === 'buy'" class="borrow-field">
           <label><input v-model="autoBorrow" type="checkbox" /> 允许自动借入金圆券</label>
-          <label v-if="autoBorrow">借款上限 <input :value="borrowLimit" @input="borrowLimit = ($event.target as HTMLInputElement).value" aria-label="自动借款上限" type="number" inputmode="decimal" min="0" step="0.000001" required placeholder="填写金圆券上限" /></label>
+          <label v-if="autoBorrow">借款上限 <input :value="borrowLimit" @input="borrowLimit = ($event.target as HTMLInputElement).value" aria-label="自动借款上限" type="text" inputmode="decimal" autocomplete="off" required placeholder="填写金圆券上限" /></label>
           <span v-if="autoBorrow" class="order-note">按资金缺口借入，须符合借款条件。</span>
         </div>
         <div class="submit-row"><button class="create-order" :disabled="submitting || !waitingLoaded || waiting.length >= 3" type="submit">{{ submitting ? '处理中…' : '创建挂单' }}</button><span class="order-note">修改请撤销重建。</span></div>
@@ -199,7 +199,7 @@ button { cursor: pointer; } button:disabled { opacity: .4; cursor: not-allowed; 
 .fill-sentence { gap: 8px 12px; line-height: 1.5; } .fill-sentence :is(input, select) { line-height: 1.4; } .fill-sentence input { width: 142px; }
 .order-note { color: #777; line-height: 1.7; } .order-form > .order-note { margin-top: 8px; }
 .borrow-field { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
-.borrow-field label { display: flex; align-items: center; gap: 6px; } .borrow-field input[type=number] { width: 142px; }
+.borrow-field label { display: flex; align-items: center; gap: 6px; } .borrow-field input[type=text] { width: 142px; }
 .submit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .create-order { background: #000; color: #fff; font-weight: 700; padding: 7px 16px; }
 .order-error { color: var(--color-down, #b52819); line-height: 1.7; }
@@ -217,8 +217,8 @@ li { border-bottom: 1px solid #eee; padding: 8px 0; line-height: 1.5; overflow-w
 @media (max-width: 640px) {
   .order-heading { padding: 10px; }
   .order-body { padding: 0 10px 10px; }
-  button, select, input[type=number] { min-height: 36px; box-sizing: border-box; }
-  input[type=number] { font-size: 16px; }
+  button, select, input[type=text] { min-height: 36px; box-sizing: border-box; }
+  input[type=text] { font-size: 16px; }
   .fill-sentence { display: grid; gap: 8px; }
   .condition-clause { display: grid; gap: 6px; }
   .condition-fields { display: grid; grid-template-columns: 104px minmax(0, 1fr) auto; gap: 6px; }
