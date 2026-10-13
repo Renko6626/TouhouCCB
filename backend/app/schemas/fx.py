@@ -652,3 +652,19 @@ class FxTriggerOrderRead(FxTradeInstruction):
         if value is None:
             return None
         return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+class FxOrderResult(BaseModel):
+    """Committed private outcome; excludes account and pool details."""
+    order_id: int
+    pair_id: int
+    currency_code: str
+    action: Literal['buy', 'sell', 'close_long', 'close_short']
+    status: Literal['succeeded', 'failed']
+    occurred_at: datetime
+    input_amount: Decimal | None = None
+    output_amount: Decimal | None = None
+    borrow_amount: Decimal | None = None
+    execution_id: int | None = None
+    trade_id: int | None = None
+    failure_reason: str | None = None

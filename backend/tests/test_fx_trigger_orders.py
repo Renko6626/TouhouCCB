@@ -99,3 +99,119 @@ async def test_historical_order_requires_archive_instead_of_pair_delete():
         assert exc.value.status_code == 409 and 'archive' in exc.value.detail
         await db.rollback()
         assert await db.get(FxPair, pid) is not None
+
+
+async def _order(uid, pid, **changes):
+    params = dict(pair_id=pid, action='buy', amount=D('10'), comparison='lte', trigger_price=D('1'))
+    params.update(changes)
+    async with async_session_maker() as db:
+        return await create_order(db, uid, FxTriggerOrderCreate(**params))
+
+
+@pytest.mark.parametrize('action', ['buy', 'sell'])
+async def test_trigger_condition_cross_zero_and_repeat(action):
+    from sqlalchemy import select
+    from app.models.base import User
+    from app.models.fx import FxExecution, FxShortPosition, FxTrade, FxWallet
+    from app.services.fx.orders import attempt_order, result_for_order
+    uid, pid = await _seed(cash='1000', wallet_foreign='5' if action == 'sell' else None,
+        short={'principal':'5', 'restricted':'10'} if action == 'buy' else None)
+    order = await _order(uid, pid, action=action, amount=D('20'),
+        comparison='gte' if action == 'sell' else 'lte')
+    assert await attempt_order(order.id, D('0.5') if action == 'sell' else D('2')) is None
+    result = await attempt_order(order.id, D('1'))
+    assert result.status == 'succeeded' and result.observed_trigger_price == 1
+    assert await attempt_order(order.id, D('1')) is None
+    async with async_session_maker() as db:
+        receipts = (await db.execute(select(FxExecution))).scalars().all()
+        trades = (await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars().all()
+        assert len(receipts) == 1 and len(trades) == 2
+        assert [t.purpose for t in trades] == (['short_cover', 'spot'] if action == 'buy' else ['spot', 'short_open'])
+        position = (await db.execute(select(FxShortPosition))).scalar_one()
+        wallet = (await db.execute(select(FxWallet))).scalar_one()
+        user = await db.get(User, uid)
+        if action == 'buy':
+            assert position.principal_foreign + position.interest_foreign == 0
+            assert wallet.foreign_amount == trades[-1].output_amount and user.cash == 980
+        else:
+            assert wallet.foreign_amount == 0 and position.principal_foreign == 15
+            assert user.cash == 1000 + sum(t.output_amount for t in trades)
+        notification = await result_for_order(db, result)
+        assert notification.order_id == order.id and notification.input_amount == 20
+        assert notification.borrow_amount == 0
+
+
+@pytest.mark.parametrize('failure', ['cash', 'authorization', 'paused', 'disabled'])
+async def test_business_failure_rolls_back_and_releases_slot(failure):
+    from sqlalchemy import func, select
+    from app.models.base import User, SiteConfig
+    from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
+    from app.services.fx.orders import attempt_order, result_for_order
+    from app.services import site_config
+    uid, pid = await _seed(cash='0' if failure in ('cash', 'authorization') else '1000')
+    order = await _order(uid, pid, auto_borrow=failure == 'authorization',
+        borrow_limit=D('9') if failure == 'authorization' else D('0'))
+    await _order(uid, pid)
+    await _order(uid, pid)
+    async with async_session_maker() as db:
+        if failure == 'paused':
+            pair = await db.get(FxPair, pid)
+            pair.status, pair.reduce_only = 'paused', True
+        if failure == 'disabled':
+            config = (await db.execute(select(SiteConfig).where(SiteConfig.key == 'fx_enabled'))).scalar_one()
+            config.value = 'false'
+        await db.commit()
+    site_config.clear_cache()
+    result = await attempt_order(order.id, D('1'))
+    assert result.status == 'failed' and result.failure_reason and result.execution_id is None
+    async with async_session_maker() as db:
+        assert (await db.get(User, uid)).cash == (0 if failure in ('cash','authorization') else 1000)
+        assert (await db.get(User, uid)).debt == 0
+        for model in (FxExecution, FxTrade, FxWallet):
+            assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
+        assert (await db.get(FxTriggerOrder, order.id)).status == 'failed'
+        assert (await result_for_order(db, result)).failure_reason == result.failure_reason
+        assert (await create_order(db, uid, request(pid))).status == 'waiting'
+
+
+async def test_full_short_close_includes_interest():
+    from sqlalchemy import select
+    from app.models.fx import FxShortPosition, FxTrade
+    from app.services.fx.orders import attempt_order, result_for_order
+    uid, pid = await _seed(short={'principal':'9', 'interest':'1', 'restricted':'20'})
+    order = await _order(uid, pid, action='close_short', amount=None, close_percent=D('100'))
+    result = await attempt_order(order.id, D('1'))
+    assert result.status == 'succeeded' and result.trade_id and result.execution_id is None
+    async with async_session_maker() as db:
+        position = (await db.execute(select(FxShortPosition))).scalar_one()
+        trade = await db.get(FxTrade, result.trade_id)
+        assert position.principal_foreign == position.interest_foreign == position.restricted_gold == 0
+        assert trade.output_amount == 10
+        notification = await result_for_order(db, result)
+        assert notification.output_amount == 10 and notification.input_amount == trade.input_amount
+
+
+async def test_commit_failure_rolls_back_cross_zero_and_propagates(monkeypatch):
+    from sqlalchemy import func, select
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.models.base import User
+    from app.models.fx import FxExecution, FxPair, FxShortPosition, FxTrade, FxTriggerOrder, FxWallet
+    from app.services.fx.orders import attempt_order
+    uid, pid = await _seed(cash='20', short={'principal':'10', 'restricted':'20'})
+    order = await _order(uid, pid, amount=D('30'), auto_borrow=True, borrow_limit=D('10'))
+    async def reject_commit(db):
+        await db.rollback()
+        raise RuntimeError('test commit failed before commit')
+    with monkeypatch.context() as scoped:
+        scoped.setattr(AsyncSession, 'commit', reject_commit)
+        with pytest.raises(RuntimeError, match='test commit failed'):
+            await attempt_order(order.id, D('1'))
+    async with async_session_maker() as db:
+        assert (await db.get(FxTriggerOrder, order.id)).status == 'waiting'
+        user, pair = await db.get(User, uid), await db.get(FxPair, pid)
+        assert user.cash == 20 and user.debt == 0
+        assert pair.gold_reserve == pair.foreign_reserve == 1000
+        position = (await db.execute(select(FxShortPosition))).scalar_one()
+        assert position.principal_foreign == 10 and position.restricted_gold == 20
+        for model in (FxExecution, FxTrade, FxWallet):
+            assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0

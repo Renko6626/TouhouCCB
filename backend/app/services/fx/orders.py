@@ -1,12 +1,14 @@
 """Private trigger order storage; no funds are reserved here."""
 from datetime import datetime, timezone
+from decimal import Decimal
+import logging
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.fx import FxPair, FxTriggerOrder
-from app.schemas.fx import FxTriggerOrderCreate, FxTriggerOrderRead
+from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder
+from app.schemas.fx import FxOrderResult, FxTradeInstruction, FxTriggerOrderCreate, FxTriggerOrderRead
 from app.services.market_locks import lock_user
 
 
@@ -30,6 +32,183 @@ async def create_order(db: AsyncSession, user_id: int, req: FxTriggerOrderCreate
     await db.flush()
     result = FxTriggerOrderRead.model_validate(order)
     await db.commit()
+    return result
+
+
+logger = logging.getLogger(__name__)
+
+
+def order_request_key(order_id: int) -> str:
+    return f'fx-order:{order_id}'
+
+
+async def _locked_order(db, order_id):
+    return (await db.execute(select(FxTriggerOrder).where(FxTriggerOrder.id == order_id)
+        .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+
+
+async def _check_no_receipt(db, order):
+    receipt = (await db.execute(select(FxExecution.id).where(
+        FxExecution.user_id == order.user_id,
+        FxExecution.idempotency_key == order_request_key(order.id)))).scalar_one_or_none()
+    legacy = (await db.execute(select(FxTrade.id).where(
+        FxTrade.user_id == order.user_id,
+        FxTrade.idempotency_key == order_request_key(order.id)))).scalar_one_or_none()
+    if receipt is not None or legacy is not None or order.execution_id or order.trade_id:
+        logger.error('Unexecuted FX order %s has execution evidence; manual check required', order.id)
+        raise RuntimeError('FX order/receipt mismatch; manual check required')
+
+
+async def _record_failure(db, user_id, order_id, price, reason):
+    # The money transaction has already rolled back. Cancellation wins if it
+    # committed while these locks were released.
+    await lock_user(db, user_id)
+    order = await _locked_order(db, order_id)
+    if order is None or order.status != 'waiting':
+        await db.rollback()
+        return None
+    await _check_no_receipt(db, order)
+    order.status = 'failed'
+    order.failure_reason = reason[:512]
+    order.observed_trigger_price = price
+    order.finished_at = datetime.now(timezone.utc)
+    await db.flush()
+    result = FxTriggerOrderRead.model_validate(order)
+    await db.commit()
+    return result
+
+
+async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrderRead | None:
+    """Try a price candidate once; money and terminal outcome commit together.
+
+    Infrastructure/commit errors propagate and stop the scan. A subsequent
+    call reads persisted state first; it never retries a waiting order with a
+    receipt. Only explicit business rejection becomes a failed outcome.
+    """
+    from app.core.database import async_session_maker
+    from app.services import site_config
+    from app.services.account_events import capture_accounts, publish_accounts
+    from app.services.credit import flags
+    from app.services.credit.gates import GATES
+    from app.services.credit.keys import GroupKey
+    from app.services.credit.risk import discover_dependencies
+    from app.services.fx import net_trading, publisher, shorts, trading
+
+    async with async_session_maker() as db:
+        order = await db.get(FxTriggerOrder, order_id)
+        if order is None:
+            return None
+        if order.status != 'waiting':
+            # A prior commit may have succeeded even if its acknowledgement
+            # failed. Read its existing evidence; never reconstruct a trade.
+            try:
+                if order.status == 'succeeded':
+                    await result_for_order(db, FxTriggerOrderRead.model_validate(order))
+                else:
+                    await _check_no_receipt(db, order)
+            except BaseException:
+                logger.exception('FX order %s result cannot be verified; stopping scan', order_id)
+                raise
+            return None
+        if not (observed_price <= order.trigger_price if order.comparison == 'lte'
+                else observed_price >= order.trigger_price):
+            return None
+        user_id, pair_id = order.user_id, order.pair_id
+        await db.rollback()
+        key = GroupKey('fx', pair_id)
+        needs_discovery = False
+        failure = None
+        for attempt in range(flags.get_flags().credit_risk_retry_limit + 2):
+            try:
+                deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
+                if db.in_transaction():
+                    await db.rollback()
+                async with GATES.hold(exclusive=[key], shared=deps.groups if deps else ()):
+                    try:
+                        pair = await trading._pair(db, pair_id, lock=True)
+                        user = await lock_user(db, user_id)
+                        order = await _locked_order(db, order_id)
+                        if order is None or order.status != 'waiting':
+                            await db.rollback()
+                            return None
+                        await _check_no_receipt(db, order)
+                        if not user.is_active:
+                            raise HTTPException(403, 'User is inactive')
+                        if pair.archived or pair.status != 'trading':
+                            raise HTTPException(400, 'FX pair is not trading')
+                        if not await site_config.get_bool_or(db, 'fx_enabled', False):
+                            raise HTTPException(400, 'FX trading is disabled')
+                        instruction = FxTradeInstruction.model_validate({
+                            name: getattr(order, name) for name in FxTradeInstruction.model_fields})
+                        try:
+                            execution = await net_trading.execute_fx_instruction_in_session(db,
+                                user_id=user_id, pair_id=pair_id, instruction=instruction,
+                                request_key=order_request_key(order_id), credit_deps=deps)
+                        except (ValueError, ArithmeticError) as exc:
+                            raise trading.TradeRejected(str(exc)) from exc
+                        if execution.replay:
+                            raise RuntimeError('FX order/receipt mismatch; manual check required')
+                        order.status = 'succeeded'
+                        order.finished_at = datetime.now(timezone.utc)
+                        order.observed_trigger_price = observed_price
+                        if isinstance(execution, shorts.FxShortExecution):
+                            order.trade_id = execution.trade_id
+                            trade_id = execution.trade_id
+                        else:
+                            order.execution_id = execution.execution_id
+                            trade_id = execution.trade_ids[-1]
+                        await db.flush()
+                        result = FxTriggerOrderRead.model_validate(order)
+                        post_price = execution.post_price
+                        hints = capture_accounts(db)
+                        await db.commit()
+                    except BaseException:
+                        await db.rollback()
+                        raise
+                publish_accounts(hints, 'fx_orders')
+                trading.notify_market_data_committed(pair_id)
+                publisher.enqueue_publication(pair_id=pair_id, post_price=post_price, trade_id=trade_id)
+                return result
+            except (trading._RetryCredit, shorts.ShortRetryCredit):
+                needs_discovery = True
+                if attempt == flags.get_flags().credit_risk_retry_limit + 1:
+                    failure = 'version_conflict; retry'
+            except (HTTPException, trading.TradeRejected, shorts.ShortRejected) as exc:
+                failure = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            except BaseException:
+                logger.exception('FX order %s execution interrupted; stopping scan', order_id)
+                raise
+            if failure is not None:
+                await db.rollback()
+                return await _record_failure(db, user_id, order_id, observed_price, failure)
+        raise RuntimeError('FX order retry loop exhausted')
+
+
+async def result_for_order(db: AsyncSession, order: FxTriggerOrderRead) -> FxOrderResult:
+    """Build a private notification from a committed terminal outcome."""
+    pair = await db.get(FxPair, order.pair_id)
+    result = FxOrderResult(order_id=order.id, pair_id=order.pair_id,
+        currency_code=pair.currency_code, action=order.action, status=order.status,
+        occurred_at=order.finished_at, execution_id=order.execution_id,
+        trade_id=order.trade_id, failure_reason=order.failure_reason)
+    if order.status == 'succeeded':
+        receipt = (await db.execute(select(FxExecution).where(
+            FxExecution.user_id == order.user_id,
+            FxExecution.idempotency_key == order_request_key(order.id)))).scalar_one_or_none()
+        if receipt is None:
+            raise RuntimeError('FX order/receipt mismatch; manual check required')
+        if order.execution_id:
+            if receipt.id != order.execution_id:
+                raise RuntimeError('FX order/receipt mismatch; manual check required')
+            result.input_amount = Decimal(receipt.response_payload['input_amount'])
+            result.output_amount = Decimal(receipt.response_payload['output_amount'])
+            result.borrow_amount = Decimal(receipt.response_payload['borrow_amount'])
+        else:
+            if receipt.response_payload.get('trade_id') != order.trade_id:
+                raise RuntimeError('FX order/receipt mismatch; manual check required')
+            trade = await db.get(FxTrade, order.trade_id)
+            result.input_amount, result.output_amount = trade.input_amount, trade.output_amount
+            result.borrow_amount = Decimal('0')
     return result
 
 
