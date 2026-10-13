@@ -19,7 +19,7 @@ from sqlmodel import SQLModel, Session as ModelSession
 
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxCandle, FxMarketDataState, FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPoolEvent, FxCandle, FxMarketDataState, FxShortPosition, FxPair, FxTrade, FxTreasury, FxWallet
 from app.models.title import Title
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
@@ -111,6 +111,9 @@ async def test_in_session_execution_does_not_commit_and_rollback_reverts_all(db_
             db_session, uid, pid, "buy", Decimal("10"), Decimal("0"), "tx-1")
 
         assert execution.replay is False
+        event = (await db_session.execute(select(FxPoolEvent))).scalar_one()
+        assert event.trade_id == execution.trade.id and event.gold_volume == Decimal("10")
+        assert event.post_gold_reserve == execution.trade.post_gold_reserve
         assert execution.public.id == execution.trade.id
         assert execution.public.post_price == execution.trade.post_price
         # The caller's transaction is still open: nothing was committed.
@@ -124,6 +127,7 @@ async def test_in_session_execution_does_not_commit_and_rollback_reverts_all(db_
         treasury = (await db_session.execute(select(FxTreasury))).scalars().first()
         assert user.cash == before_cash
         assert _trades(db_session) == []
+        assert (await db_session.execute(select(FxPoolEvent))).scalars().all() == []
         assert (await db_session.execute(select(FxWallet))).scalars().all() == []
         assert (await db_session.execute(select(AuditEvent))).scalars().all() == []
         assert pair.pool_version == 1

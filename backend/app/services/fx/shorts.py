@@ -39,6 +39,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import User
+from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
@@ -538,6 +539,11 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_short_open(
         db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
         treasury_before=treasury_before,
@@ -733,6 +739,11 @@ async def _write_cover_ledger(
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_short_cover(
         db, trade=trade, user=user, pair=pair, position=target, treasury=treasury,
         treasury_before=treasury_before, user_before=user_before,

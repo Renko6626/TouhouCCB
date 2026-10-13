@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.credit.cash import available_cash
 from app.models.base import User
+from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
@@ -482,6 +483,11 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
                     source="player", idempotency_key=idempotency_key)
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
     if normalized == "sell" and user.debt > 0:
@@ -701,6 +707,11 @@ async def execute_liquidation_sell_in_session(
     )
     db.add(trade)
     await db.flush()
+    append_pool_event(db, pair_id=trade.pair_id, kind="trade", created_at=trade.created_at,
+                      pre_reserves=(trade.pre_gold_reserve, trade.pre_foreign_reserve),
+                      post_reserves=(trade.post_gold_reserve, trade.post_foreign_reserve),
+                      gold_volume=trade.input_amount if trade.side == "buy" else trade.output_amount,
+                      trade_id=trade.id)
     audit_service.record_fx_trade(db, trade=trade, user=user, pair=pair,
                                   wallet=wallet, treasury=treasury)
     return FxLiquidationExecution(

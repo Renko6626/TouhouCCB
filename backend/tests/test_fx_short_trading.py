@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from app.core.database import async_session_maker
 from app.models.audit import AuditEvent
 from app.models.base import SiteConfig, User
-from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPoolEvent, FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import audit_replay, site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
@@ -536,6 +536,10 @@ async def test_same_key_replays_one_borrow_trade_and_audit():
             FxTrade.idempotency_key == "k-replay",
         ))).scalars().all()
         assert len(trades) == 1
+        events = (await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pid))).scalars().all()
+        assert len(events) == 1
+        assert events[0].trade_id == first.trade_id
+        assert events[0].gold_volume == trades[0].output_amount
         audits = (await db.execute(select(AuditEvent).where(
             AuditEvent.event_type == "fx_trade"))).scalars().all()
         assert len(audits) == 1

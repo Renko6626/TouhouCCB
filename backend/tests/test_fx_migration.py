@@ -368,3 +368,42 @@ def test_net_execution_upgrade_keeps_legacy_and_guards_request_identity():
             with pytest.raises(RuntimeError, match='history'):
                 revision.downgrade()
         assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)
+
+
+def test_pool_events_upgrade_roundtrip_keeps_trade_candles_and_money():
+    """New price sources must not reset or replace the current trade pipeline."""
+    import pytest
+    from sqlalchemy import text
+    from sqlalchemy.exc import IntegrityError
+    path = next(Path(__file__).parents[1].glob('alembic/versions/*_fx_pool_events.py'))
+    spec = importlib.util.spec_from_file_location('pool_events_revision', path)
+    revision = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(revision)
+    with create_engine('sqlite://').begin() as conn:
+        conn.execute(text('CREATE TABLE user (id INTEGER PRIMARY KEY)'))
+        conn.execute(text('CREATE TABLE audit_event (id INTEGER PRIMARY KEY)'))
+        with Operations.context(MigrationContext.configure(conn)):
+            _load_revision().upgrade()
+            _candle_revision().upgrade()
+        conn.execute(text(_FX_PAIR_INSERT))
+        conn.execute(text(_FX_TRADE_INSERT))
+        conn.execute(text(_candle_insert()))
+        conn.execute(text("INSERT INTO fx_market_data_state VALUES (1,1,'existing-history',1,CURRENT_TIMESTAMP)"))
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.upgrade()
+        assert conn.execute(text('SELECT gold_reserve,foreign_reserve FROM fx_pair')).one() == (100, 200)
+        assert conn.execute(text('SELECT input_amount,output_amount FROM fx_trade')).one() == (1, 2)
+        assert conn.execute(text('SELECT n_trades,n_events,first_event_id FROM fx_candle')).one() == (1, 0, None)
+        assert conn.execute(text('SELECT last_trade_id,last_event_id,history_version,history_ready FROM fx_market_data_state')).one() == (1, 0, 'existing-history', 1)
+        insert = "INSERT INTO fx_pool_event(pair_id,created_at,kind,pre_gold_reserve,pre_foreign_reserve,post_gold_reserve,post_foreign_reserve,gold_volume,trade_id) VALUES (1,CURRENT_TIMESTAMP,'trade',100,200,101,198,1,1)"
+        conn.execute(text(insert))
+        assert conn.execute(text('SELECT id FROM fx_pool_event')).scalar_one() == 1
+        with pytest.raises(IntegrityError):
+            conn.execute(text(insert))
+        with pytest.raises(IntegrityError):
+            conn.execute(text("UPDATE fx_pool_event SET gold_volume=-1"))
+        with Operations.context(MigrationContext.configure(conn)):
+            revision.downgrade()
+            revision.upgrade()
+        assert conn.execute(text('SELECT n_trades FROM fx_candle')).scalar_one() == 1
+        assert conn.execute(text('SELECT last_trade_id,history_version FROM fx_market_data_state')).one() == (1, 'existing-history')

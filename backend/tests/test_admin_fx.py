@@ -12,7 +12,7 @@ from app.core.database import get_async_session
 from app.core.users import current_active_user, current_superuser
 from app.models.audit import AuditEvent
 from app.models.base import User
-from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
+from app.models.fx import FxPoolEvent, FxPair, FxTrade, FxTreasury, FxWallet
 from app.services.credit.ownership import EconomicWritesDisabled, WriteOwnership
 from tests.fx_test_helpers import fx_db
 
@@ -90,6 +90,15 @@ async def test_initial_issuance_fund_withdraw_and_audit(ctx):
     assert {a.event_type for a in audits} >= {"fx_fund", "fx_withdraw"}
     assert all(a.operator_user_id == admin.id for a in audits)
     assert any(a.payload.get("action") == "initial_issuance" for a in audits)
+    events = (await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id).order_by(FxPoolEvent.id))).scalars().all()
+    assert [e.kind for e in events] == ["initialize", "fund", "withdraw"]
+    assert all(e.gold_volume == 0 and e.trade_id is None for e in events)
+    assert {e.audit_id for e in events} == {a.id for a in audits if a.event_type in {"fx_fund", "fx_withdraw"}}
+    assert events[0].pre_gold_reserve is None and events[0].post_gold_reserve == 100
+    assert events[1].pre_gold_reserve == 100 and events[1].post_gold_reserve == 103
+    assert events[2].pre_gold_reserve == 103 and events[2].post_gold_reserve == 102
+    assert (await client.patch(f"/api/v1/admin/fx/pairs/{pair_id}", json={"status": "paused"})).status_code == 200
+    assert len((await db.execute(select(FxPoolEvent).where(FxPoolEvent.pair_id == pair_id))).scalars().all()) == 3
     for event_type in ("fx_fund", "fx_withdraw"):
         row = next(a for a in audits if a.event_type == event_type and "pool_before" in a.payload)
         for section in ("pool_before", "pool_after", "treasury_before", "treasury_after"):
@@ -167,15 +176,18 @@ async def test_fee_rate_must_be_strictly_below_one(ctx):
 async def test_delete_unused_pair_cleans_dependents_and_keeps_audit(ctx):
     client, db, app, admin, normal = ctx
     pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
+    assert (await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/fund", json={"gold_amount": "1", "foreign_amount": "0"})).status_code == 200
     db.add(FxWallet(user_id=admin.id, pair_id=pair_id))
     await db.commit()
     response = await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')
     assert response.status_code == 204, response.text
     assert await db.get(FxPair, pair_id) is None
-    for model in (FxWallet, FxTreasury):
+    for model in (FxWallet, FxTreasury, FxPoolEvent):
         assert not (await db.execute(select(model).where(model.pair_id == pair_id))).scalars().all()
     assert (await client.get('/api/v1/fx/pairs')).json() == []
     audits = (await db.execute(select(AuditEvent).where(AuditEvent.event_type == 'fx_pair_delete'))).scalars().all()
+    funding_audits = (await db.execute(select(AuditEvent).where(AuditEvent.event_type == "fx_fund", AuditEvent.ref_id == pair_id))).scalars().all()
+    assert len(funding_audits) == 2
     assert len(audits) == 1 and audits[0].operator_user_id == admin.id
     assert audits[0].payload['before']['currency_code'] == 'USD'
     assert (await client.delete(f'/api/v1/admin/fx/pairs/{pair_id}')).status_code == 404

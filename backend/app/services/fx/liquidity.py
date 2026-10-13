@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.fx.pool_events import append_pool_event
 from app.models.fx import FxPair, FxTreasury
 from app.schemas.fx import FxPairAdmin
 from app.services import audit_service
@@ -48,12 +49,17 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
     pair.gold_reserve += gold_amount; pair.foreign_reserve += foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance += gold_amount; treasury.foreign_balance += foreign_amount; treasury.updated_at = _utc()
     pair.pool_version += 1
-    audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
+    audit = audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
                                   "treasury_before": {"gold": before["treasury_gold"], "foreign": before["treasury_foreign"]},
                                   "pool_after": {"gold": str(pair.gold_reserve), "foreign": str(pair.foreign_reserve)},
                                   "treasury_after": {"gold": str(treasury.gold_balance), "foreign": str(treasury.foreign_balance)}})
+    await db.flush()
+    append_pool_event(db, pair_id=pair.id, kind="fund", created_at=pair.updated_at,
+                      pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
+                      post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                      gold_volume=Decimal("0"), audit_id=audit.id)
     await db.commit()
     notify_pricing_changed(())
     await db.refresh(pair)
@@ -86,12 +92,17 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
     pair.gold_reserve -= gold_amount; pair.foreign_reserve -= foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance -= gold_amount; treasury.foreign_balance -= foreign_amount; treasury.updated_at = _utc()
     pair.pool_version += 1
-    audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
+    audit = audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
                                   "treasury_before": {"gold": before["treasury_gold"], "foreign": before["treasury_foreign"]},
                                   "pool_after": {"gold": str(pair.gold_reserve), "foreign": str(pair.foreign_reserve)},
                                   "treasury_after": {"gold": str(treasury.gold_balance), "foreign": str(treasury.foreign_balance)}})
+    await db.flush()
+    append_pool_event(db, pair_id=pair.id, kind="withdraw", created_at=pair.updated_at,
+                      pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
+                      post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                      gold_volume=Decimal("0"), audit_id=audit.id)
     await db.commit()
     notify_pricing_changed(())
     await db.refresh(pair)
