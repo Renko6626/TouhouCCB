@@ -28,7 +28,7 @@ async def seed(url):
             md.reflect(c)
             now = datetime.now(timezone.utc)
             for i, bot in [(7,False),(9,True),(11,True)]:
-                c.execute(md.tables['user'].insert().values(id=i,username=f'private-{i}',is_active=bot,is_superuser=not bot,is_bot=bot,cash=55,debt=2,economic_version=19,credit_frozen=True,tos_accepted_at=now))
+                c.execute(md.tables['user'].insert().values(id=i,username=f'private-{i}',is_active=bot,is_superuser=not bot,is_bot=bot,cash=55,debt=2,auto_repay=bot,economic_version=19,credit_frozen=True,tos_accepted_at=now))
             c.execute(md.tables['title'].insert().values(id=4,name='old',description='full',color='#000000',icon='',sort_order=5,is_active=True,created_at=now))
             c.execute(md.tables['user_title'].insert().values(id=17,user_id=9,title_id=4,granted_at=now,granted_by_admin_id=9,source='admin'))
             c.execute(md.tables['title_code_batch'].insert().values(id=20,title_id=4,name='batch',description='',created_at=now,created_by_admin_id=9))
@@ -57,10 +57,11 @@ async def flow(source,target):
     await reset.verify_database(target,manifest)
     engine = create_async_engine(target)
     async with engine.connect() as c:
-        rows = (await c.execute(text('SELECT id,cash,debt,economic_version,is_active,is_superuser,equipped_title_id FROM "user" ORDER BY id'))).all()
+        rows = (await c.execute(text('SELECT id,cash,debt,economic_version,is_active,is_superuser,equipped_title_id,auto_repay FROM "user" ORDER BY id'))).all()
         assert [r.id for r in rows] == [7,9]
         assert Decimal(str(rows[0].cash)) == Decimal('123.456789')
         assert rows[0].economic_version == 20 and not rows[0].is_active and rows[0].is_superuser and rows[0].equipped_title_id == 4
+        assert not rows[0].auto_repay and rows[1].auto_repay
         assert rows[1].cash == rows[1].debt == 0 and not rows[1].is_active and rows[1].equipped_title_id is None
         assert (await c.execute(text('SELECT MIN(id) FROM audit_event'))).scalar_one() == 100
         for name in ('redemption_partner','redemption_batch','redemption_code','redemption_transaction','danmuku_exchange'):
