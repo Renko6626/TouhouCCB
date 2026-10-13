@@ -41,17 +41,17 @@ onMounted(loadConfig)
   </div>
 </template>
 <style>
-.fx-admin {
+.fx-framework.fx-admin {
   padding: 16px;
   max-width: 1200px;
   margin: 0 auto;
 }
-.page-title {
+.fx-framework .page-title {
   font-size: 22px;
   font-weight: 700;
   margin: 0 0 16px;
 }
-.fx-state {
+.fx-framework .fx-state {
   border: 2px solid #000;
   padding: 24px;
   background: #fff;
@@ -60,10 +60,10 @@ onMounted(loadConfig)
   gap: 12px;
   align-items: center;
 }
-.fx-state-error {
+.fx-framework .fx-state-error {
   color: var(--color-down, #dc2626);
 }
-.fx-gate {
+.fx-framework .fx-gate {
   border: 2px solid #000;
   background: #fff;
   padding: 14px 16px;
@@ -74,34 +74,34 @@ onMounted(loadConfig)
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-.fx-gate.on {
+.fx-framework .fx-gate.on {
   background: #fffbeb;
   border-color: #b45309;
 }
-.fx-gate p {
+.fx-framework .fx-gate p {
   margin: 4px 0 0;
   font-size: 12px;
   color: #555;
 }
-.fx-panel {
+.fx-framework .fx-panel {
   border: 2px solid #000;
   background: #fff;
   padding: 16px;
   margin-bottom: 16px;
 }
-.fx-panel h2 {
+.fx-framework .fx-panel h2 {
   margin: 0 0 10px;
   font-size: 15px;
   font-weight: 800;
 }
-.fx-panel-head {
+.fx-framework .fx-panel-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
-.fx-gap-note {
+.fx-framework .fx-gap-note {
   border-left: 3px solid #b45309;
   background: #fffbeb;
   padding: 8px 10px;
@@ -110,34 +110,34 @@ onMounted(loadConfig)
   color: #92400e;
   margin: 8px 0;
 }
-.fx-config-grid {
+.fx-framework .fx-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 18px;
 }
-.fx-config-item > span {
+.fx-framework .fx-config-item > span {
   display: block;
   font-size: 12px;
   color: #444;
   margin-bottom: 3px;
 }
-.fx-config-description {
+.fx-framework .fx-config-description {
   display: block;
   color: #555;
   font-size: 12px;
   line-height: 1.45;
 }
-.fx-config-item code {
+.fx-framework .fx-config-item code {
   color: #999;
   margin-left: 6px;
   font-size: 11px;
 }
-.fx-config-row {
+.fx-framework .fx-config-row {
   display: flex;
   gap: 6px;
   align-items: center;
 }
-.fx-input {
+.fx-framework .fx-input {
   border: 2px solid #000;
   padding: 6px 8px;
   font-family: inherit;
@@ -145,32 +145,32 @@ onMounted(loadConfig)
   background: #fff;
   width: 100%;
 }
-.fx-input:disabled {
+.fx-framework .fx-input:disabled {
   background: #f0f0f0;
   color: #777;
 }
-.fx-form-grid {
+.fx-framework .fx-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 16px;
 }
-.fx-form-card {
+.fx-framework .fx-form-card {
   border: 1.5px solid #000;
   padding: 12px;
   background: #fafafa;
 }
-.fx-edit-panel {
+.fx-framework .fx-edit-panel {
   margin-top: 16px;
 }
-.fx-form-card h3 {
+.fx-framework .fx-form-card h3 {
   margin: 0 0 10px;
   font-size: 14px;
 }
-.fx-pair-setup {
+.fx-framework .fx-pair-setup {
   grid-column: 1 / -1;
 }
-.fx-setup-head {
+.fx-framework .fx-setup-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -178,34 +178,34 @@ onMounted(loadConfig)
   border-bottom: 2px solid #000;
   margin-bottom: 12px;
 }
-.fx-setup-badge {
+.fx-framework .fx-setup-badge {
   font-size: 12px;
   font-weight: 700;
 }
-.fx-setup-fields {
+.fx-framework .fx-setup-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px 24px;
 }
-.fx-setup-fields small {
+.fx-framework .fx-setup-fields small {
   color: #555;
   font-weight: 400;
 }
-.fx-setup-preview {
+.fx-framework .fx-setup-preview {
   background: #f5f5f5;
   border: 1px solid #bbb;
   padding: 16px;
   margin: 16px 0;
   overflow-wrap: anywhere;
 }
-.fx-setup-preview h4 {
+.fx-framework .fx-setup-preview h4 {
   margin: 0 0 12px;
 }
-.fx-setup-preview dl {
+.fx-framework .fx-setup-preview dl {
   margin: 0;
   font-size: 13px;
 }
-.fx-setup-preview dl > div {
+.fx-framework .fx-setup-preview dl > div {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -213,12 +213,12 @@ onMounted(loadConfig)
   padding: 8px 0;
   border-bottom: 1px solid #ddd;
 }
-.fx-setup-preview dd {
+.fx-framework .fx-setup-preview dd {
   margin: 0;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.fx-form-card label {
+.fx-framework .fx-form-card label {
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -226,60 +226,60 @@ onMounted(loadConfig)
   color: #444;
   margin-bottom: 8px;
 }
-.fx-form-actions {
+.fx-framework .fx-form-actions {
   display: flex;
   gap: 8px;
 }
-.fx-actions-cell {
+.fx-framework .fx-actions-cell {
   min-width: 160px;
 }
-.fx-error {
+.fx-framework .fx-error {
   color: var(--color-down, #dc2626);
   font-size: 12px;
   font-weight: 600;
   margin: 4px 0;
 }
-.fx-hint {
+.fx-framework .fx-hint {
   font-size: 12px;
   color: #777;
   line-height: 1.5;
   margin: 8px 0 0;
 }
-.table-wrap {
+.fx-framework .table-wrap {
   margin-top: 8px;
   overflow-x: auto;
   border: 2px solid #000;
 }
-.fx-table {
+.fx-framework .fx-table {
   width: 100%;
   border-collapse: collapse;
   background: #fff;
 }
-.fx-table th,
-.fx-table td {
+.fx-framework .fx-table th,
+.fx-framework .fx-table td {
   border: 1px solid #ddd;
   padding: 6px 10px;
   text-align: left;
   white-space: nowrap;
   font-size: 12px;
 }
-.fx-table th {
+.fx-framework .fx-table th {
   background: #000;
   color: #fff;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 11px;
 }
-.fx-empty-cell {
+.fx-framework .fx-empty-cell {
   text-align: center;
   color: #888;
 }
 @media (max-width: 900px) {
-  .fx-setup-fields {
+  .fx-framework .fx-setup-fields {
     grid-template-columns: 1fr;
   }
-  .fx-config-grid,
-  .fx-form-grid {
+  .fx-framework .fx-config-grid,
+  .fx-framework .fx-form-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -287,9 +287,12 @@ onMounted(loadConfig)
 
 <style>
 .fx-framework > .fx-admin { padding: 0; }
-.fx-admin-tabs { display:flex; gap:0; margin-bottom:16px; border-bottom:2px solid #000; }
-.fx-admin-tabs a { padding:10px 18px; color:#000; font-weight:700; }
-.fx-admin-tabs .router-link-active { background:#000; color:#fff; }
-.fx-admin button:disabled { opacity:.5; cursor:not-allowed; }
-.fx-admin input:focus-visible, .fx-admin select:focus-visible, .fx-admin button:focus-visible, .fx-admin a:focus-visible { outline:3px solid #777; outline-offset:3px; }
+.fx-framework .fx-admin-tabs { display:flex; gap:0; margin-bottom:16px; border-bottom:2px solid #000; }
+.fx-framework .fx-admin-tabs a { padding:10px 18px; color:#000; font-weight:700; }
+.fx-framework .fx-admin-tabs .router-link-active { background:#000; color:#fff; }
+.fx-framework button:disabled { opacity:.5; cursor:not-allowed; }
+.fx-framework input:focus-visible,
+.fx-framework select:focus-visible,
+.fx-framework button:focus-visible,
+.fx-framework a:focus-visible { outline:3px solid #777; outline-offset:3px; }
 </style>

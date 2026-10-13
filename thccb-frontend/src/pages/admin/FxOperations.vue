@@ -20,6 +20,7 @@ const playerStatus = computed(() => {
   if (!p || gate?.value == null) return '玩家交易状态未知'
   if (p.archived) return '已归档，玩家不可交易'
   if (!gate.value) return '总闸关闭，玩家不可交易'
+  if (p.status === 'paused' && p.reduce_only) return '市场暂停，玩家只允许卖出减仓或回补空头'
   if (p.status !== 'trading') return `${labels[p.status] ?? p.status}，玩家不可交易`
   return p.reduce_only ? '玩家当前只允许减仓' : '玩家当前可交易，仍受账户风控限制'
 })
