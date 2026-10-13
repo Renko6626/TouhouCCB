@@ -166,7 +166,7 @@ run_tool verify
 # this second preview refuses B changes before any connection/name changes.
 run_tool preview
 # Obtain only the SQL-quoted application role, never its password or URL.
-ROLE_SQL=$(newcompose run --rm --no-deps -T --name "$ONEOFF" --label "$OWNER_LABEL" backend python -c 'from sqlalchemy.engine import make_url; from app.core.config import settings; u=make_url(settings.DATABASE_URL); assert u.username; print("\"" + u.username.replace("\"", "\"\"") + "\"")')
+ROLE_SQL=$(newcompose run --rm --no-deps -T --name "$ONEOFF" --label "$OWNER_LABEL" backend python -c 'from sqlalchemy.engine import make_url; from app.core.config import settings; u=make_url(settings.build_db_url()); assert u.username; print("\"" + u.username.replace("\"", "\"\"") + "\"")')
 [[ "$ROLE_SQL" =~ ^\"[a-zA-Z_][a-zA-Z_0-9]*\"$ ]] || fail 'Invalid application role'
 # Save exact previous role+database value as a restoration command. No global
 # role setting and no other database is touched.
