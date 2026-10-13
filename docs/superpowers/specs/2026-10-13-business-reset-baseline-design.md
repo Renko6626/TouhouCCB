@@ -31,7 +31,7 @@
 
 推荐保留完整称号子系统 title、user_title、title_code_batch、title_code，既有授予、佩戴和称号码状态均保留；market_required_title 随旧市场清空。这是实施方为保持“账号和称号”完整提出的保留范围，须随本设计确认。
 
-被保留称号记录引用的 bot/system 操作者仅作为依赖身份保留原 ID，设为停用、现金/债务 0，不恢复 bot_profile/bot_suspicion。不清空授予者字段来绕过外键。
+被保留称号记录引用的 bot/system 账号（包括持有人、称号码使用者、创建者、授予者）仅作为依赖身份保留原 ID，设为停用、现金/债务 0、佩戴称号为空，不恢复 bot_profile/bot_suspicion。完整称号记录中的机器人外键不丢弃；不清空关联字段来绕过外键。这是为完整保留称号所作的实施方取舍，不恢复机器人的交易能力。
 
 推荐保留现有有效的当前配置键（当前声明的配置集合），补缺省项，去除已废弃键；initial_balance 原值保留。环境文件及 Casdoor/JWT 密钥不更换。重建后 fx_enabled、fx_short_enabled、loan_enabled、liquidation_enabled、pve_enabled 关闭，credit_new_risk_frozen=true，待管理员准备新市场后主动开启。这是推荐的暂停运营政策，须随设计确认。
 
