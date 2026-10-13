@@ -85,7 +85,7 @@ DSH 只读调查已完成，agent_id：`18cda5aa-2ea8-4a2c-a9e3-6760de7cd55e`，
 ### 5.1 现有行为与参数口径
 
 - 借款额度为 `max(0, k × (cash - debt + holdings_value) - debt)`，见 `backend/app/services/loan_service.py:220`。k 是债务/权益上限，不是名义仓位/权益。忽略费用与滑点，500 本金、20x 名义仓位对应总仓位 10,000、债务 9,500，即 k=19；设置 k=20 则对应 21x 总资产/权益。本文前面的 20x 测算统一按名义仓位/投入保证金理解。
-- 现有强平 margin 定义为 `(cash - debt + LMSR_LCV) / debt`，不是权益/名义仓位，见 `backend/app/services/liquidation_service.py:415`。默认 hard=0.2、emergency=0.05；默认扫描间隔 600 秒，见 `backend/app/services/loan_migrate.py:31`。这些是代码默认值，不是已读取的线上配置。不能直接用于 FX 20x。
+- 现有强平 margin 定义为 `(cash - debt + LMSR_LCV) / debt`，不是权益/名义仓位，见 `backend/app/services/liquidation_service.py:415`。默认 hard=0.2、emergency=0.05；默认扫描间隔 600 秒，见 `backend/app/services/config_seed.py`。这些是代码默认值，不是已读取的线上配置。不能直接用于 FX 20x。
 - 现有管理 API 限制 `loan_leverage_k <= 10`，见 `backend/app/api/v1/site_config.py:69`。只有选择修改既有借贷产品时才涉及这个上限；FX 采用独立参数并不要求放宽 LMSR 的 k 上限。
 - FX 已共用 `User.cash`、`lock_user`、审计设施，但有债禁买；交易锁序是 pair → user → wallet → treasury，见 `backend/app/services/fx/trading.py:127`。现有风控估值和强平执行只覆盖 LMSR；`backend/tests/test_fx_valuation.py:76` 明确断言 FX 展示价值不能改善现有 margin_status。
 - LMSR writer 强平逐市场提交，每个市场的卖出与还债在同一事务内完成，最后汇总事件，见 `backend/app/services/liquidation_service.py:370` 和 `backend/app/services/writer_ops.py:708`。它不是整个账户所有市场一次性原子清算。FX 当前依靠池子行锁，不走 LMSR writer。

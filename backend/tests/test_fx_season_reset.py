@@ -75,7 +75,7 @@ async def seed_fx_state(monkeypatch):
                          first_trade_id=1,
                          last_trade_at=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
                          last_trade_id=1),
-                FxMarketDataState(pair_id=pair.id, last_trade_id=1, history_ready=True),
+                FxMarketDataState(pair_id=pair.id, history_ready=True),
                 RedemptionTransaction(user_id=user.id, amount=Decimal("5"), batch_name_snapshot="kept"),
                 DanmukuExchange(user_id=user.id, qq_user_id="1", room_id="r", yuan=Decimal("1"),
                                 huo=Decimal("1"), amount=Decimal("2"), code_string="kept-code"),

@@ -18,8 +18,8 @@ from app.services import bot_detection
 
 async def _seed_anti_bot_defaults():
     """setup_db 每个 case 都 drop_all → 默认 site_config rows 没了；这里 re-seed。"""
-    from app.services.loan_migrate import auto_migrate
-    await auto_migrate()
+    from app.services.config_seed import seed_current_config
+    await seed_current_config()
 
 
 async def _enable_detection_with_low_threshold():

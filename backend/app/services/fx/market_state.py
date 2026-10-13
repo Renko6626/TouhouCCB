@@ -216,7 +216,6 @@ def _encode_segment(buckets: dict[int, dict], interval: str, t0: int, until_excl
 
 @dataclass(frozen=True)
 class _StateValues:
-    legacy_trade_id: int
     pair_id: int
     last_event_id: int
     history_version: str
@@ -232,7 +231,7 @@ class _PairRuntime:
     durable_event_id: int
     queued_event_id: int
     has_state: bool
-    requires_rebuild: bool = False
+    sources_incomplete: bool = False
     sources_verified: bool = False
     covered_through_at: datetime | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -469,7 +468,7 @@ class FxMarketDataService:
             self._states[pair_id] = rt
 
         async with rt.lock:
-            if rt.requires_rebuild:
+            if rt.sources_incomplete:
                 return rt.applied_event_id
             cutoff = await self._pair_max_event_id(pair_id)
             if cutoff < rt.applied_event_id:
@@ -477,7 +476,7 @@ class FxMarketDataService:
             initial = not rt.history_ready
             if initial and not rt.sources_verified:
                 if not await self._sources_complete(pair_id):
-                    rt.requires_rebuild = True
+                    rt.sources_incomplete = True
                     return rt.applied_event_id
                 rt.sources_verified = True
             sources_complete = True
@@ -650,9 +649,8 @@ class FxMarketDataService:
                 durable_event_id=values.last_event_id,
                 queued_event_id=values.last_event_id,
                 has_state=True,
-                requires_rebuild=values.legacy_trade_id > 0 and values.last_event_id == 0,
             )
-        if not rt.requires_rebuild and (rt.history_ready or rt.applied_event_id > 0):
+        if not rt.sources_incomplete and (rt.history_ready or rt.applied_event_id > 0):
             await self._warm_ring(rt)
         return rt
 
@@ -736,14 +734,14 @@ class FxMarketDataService:
             rt.has_state = False
             return
         rt.sources_verified = False
-        rt.requires_rebuild = values.legacy_trade_id > 0 and values.last_event_id == 0
+        rt.sources_incomplete = False
         rt.applied_event_id = values.last_event_id
         rt.durable_event_id = values.last_event_id
         rt.queued_event_id = values.last_event_id
         rt.history_version = values.history_version
-        rt.history_ready = values.history_ready and not rt.requires_rebuild
+        rt.history_ready = values.history_ready and not rt.sources_incomplete
         rt.has_state = True
-        if not rt.requires_rebuild:
+        if not rt.sources_incomplete:
             await self._warm_ring(rt)
 
     # ── durable write helpers ─────────────────────────────────────────────
@@ -814,19 +812,14 @@ class FxMarketDataService:
     async def _sources_complete(self, pair_id: int) -> bool:
         """Only native, anchored event histories can become ready automatically.
 
-        Legacy gaps need the offline source reconciliation; GETs never import
-        them. Existing ready histories were verified by that tool or this gate.
+        An initialization anchor and links for every trade/funding source are
+        required before publishing coverage. Reads never create missing events.
         """
         async with self._factory() as db:
             first = (await db.execute(select(FxPoolEvent.kind)
                      .where(FxPoolEvent.pair_id == pair_id)
                      .order_by(FxPoolEvent.id).limit(1))).scalar()
             if first != "initialize":
-                return False
-            legacy_candle = (await db.execute(select(FxCandle.pair_id).where(
-                FxCandle.pair_id == pair_id, FxCandle.n_events == 0,
-            ).limit(1))).first()
-            if legacy_candle is not None:
                 return False
             missing_trade = (await db.execute(select(FxTrade.id).where(
                 FxTrade.pair_id == pair_id,
@@ -848,7 +841,6 @@ class FxMarketDataService:
             rows = (await db.execute(select(FxMarketDataState))).scalars().all()
             return [
                 _StateValues(
-                    legacy_trade_id=int(row.last_trade_id),
                     pair_id=int(row.pair_id),
                     last_event_id=int(row.last_event_id),
                     history_version=str(row.history_version),
@@ -865,7 +857,6 @@ class FxMarketDataService:
             if row is None:
                 return None
             return _StateValues(
-                legacy_trade_id=int(row.last_trade_id),
                 pair_id=int(row.pair_id),
                 last_event_id=int(row.last_event_id),
                 history_version=str(row.history_version),

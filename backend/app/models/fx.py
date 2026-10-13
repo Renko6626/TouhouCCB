@@ -222,14 +222,10 @@ class FxMarketDataState(SQLModel, table=True):
     """
     __tablename__ = "fx_market_data_state"
     __table_args__ = (
-        CheckConstraint("last_trade_id >= 0", name="ck_fx_market_data_state_cursor_non_negative"),
         CheckConstraint("last_event_id >= 0", name="ck_fx_market_data_state_event_cursor_non_negative"),
     )
 
     pair_id: int = Field(foreign_key="fx_pair.id", primary_key=True)
-    last_trade_id: int = Field(
-        default=0, nullable=False, sa_column_kwargs={"server_default": text("0")},
-    )
     last_event_id: int = Field(default=0, sa_type=BigInteger(), nullable=False, sa_column_kwargs={"server_default": text("0")})
     history_version: str = Field(
         default_factory=lambda: str(uuid4()), max_length=36, nullable=False,

@@ -25,9 +25,9 @@ ANTI_BOT_KEYS = [
 @pytest.mark.asyncio
 async def test_anti_bot_configs_seeded_with_defaults(client):
     """启动 lifespan 后 11 个 anti-bot config keys 应该都存在 + 默认值正确。"""
-    from app.services.loan_migrate import auto_migrate
-    # setup_db 已 drop_all + create_all，需重新 auto_migrate 才有默认值
-    await auto_migrate()
+    from app.services.config_seed import seed_current_config
+    # setup_db 已 drop_all + create_all，需重新 seed_current_config 才有默认值
+    await seed_current_config()
 
     async with async_session_maker() as s:
         for k in ANTI_BOT_KEYS:

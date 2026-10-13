@@ -116,10 +116,10 @@ async def _seed_txns(user_id: int, n: int):
 @pytest.mark.asyncio
 async def test_bot_detection_skips_is_bot_users(client):
     """同样的高频行为：真人触发预警，is_bot 机器人不触发。"""
-    from app.services.loan_migrate import auto_migrate
+    from app.services.config_seed import seed_current_config
     from app.services import bot_detection
 
-    await auto_migrate()  # seed anti-bot 默认配置行
+    await seed_current_config()  # seed anti-bot 默认配置行
     for k, v in [
         ("bot_detection_enabled", "true"),
         ("bot_detection_window_sec", "7200"),

@@ -354,7 +354,7 @@ def _chart_window_statement():
     ).order_by(FxPoolEvent.created_at.desc(), FxPoolEvent.id.desc()).limit(1).subquery()
     return select(
         FxPair.id, FxMarketDataState.history_ready, FxMarketDataState.history_version,
-        FxMarketDataState.last_trade_id, FxMarketDataState.last_event_id,
+        FxMarketDataState.last_event_id,
         window.c.window_max, anchor.c.anchor_id, anchor.c.kind,
         anchor.c.pre_gold_reserve, anchor.c.pre_foreign_reserve,
         anchor.c.post_gold_reserve, anchor.c.post_foreign_reserve,
@@ -480,7 +480,7 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
         db, pair_id, first_bucket, query_end)
     if state is None:
         raise HTTPException(status_code=404, detail="FX pair not found")
-    if not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
+    if not state.history_ready:
         # No complete history yet: retryable, never a full raw-trade rebuild.
         raise HTTPException(status_code=503, detail="FX history is not ready")
     version = str(state.history_version)
@@ -504,7 +504,7 @@ async def read_fx_chart_with_meta(db: AsyncSession, pair_id: int, interval: str,
     base_rows, db_state = await _load_candles_with_state(
         db, pair_id, base_interval, first_bucket, query_end,
     )
-    if db_state is None or not db_state.history_ready or (db_state.last_trade_id > 0 and db_state.last_event_id == 0):
+    if db_state is None or not db_state.history_ready:
         raise HTTPException(status_code=503, detail="FX history is not ready")
     # The generation travels with the candle rows from the same statement, so a
     # rebuild in flight can never mix two generations in one body.
@@ -605,7 +605,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
 
     pair_id = int(pair_id)
     state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
+    if state is None or not state.history_ready:
         raise HTTPException(status_code=503, detail="FX 历史未就绪，请稍后重试")
     if str(state.history_version) != str(history_version):
         # The URL names a generation that is no longer current: the segment can
@@ -644,7 +644,7 @@ async def read_fx_history(db: AsyncSession, pair_id: int, history_version: str,
 
     # Re-read under the lock: the generation may have rotated while waiting.
     state = await _read_state(db, pair_id)
-    if state is None or not state.history_ready or (state.last_trade_id > 0 and state.last_event_id == 0):
+    if state is None or not state.history_ready:
         raise HTTPException(status_code=503, detail="FX 历史未就绪，请稍后重试")
     if str(state.history_version) != str(history_version):
         raise HTTPException(status_code=404, detail="历史版本已失效")
@@ -706,7 +706,7 @@ async def read_fx_snapshot_metadata(db: AsyncSession, pair_id: int,
         return {"history_version": None, "history_ready": False}
     return {
         "history_version": str(state.history_version),
-        "history_ready": bool(state.history_ready) and not (state.last_trade_id > 0 and state.last_event_id == 0),
+        "history_ready": bool(state.history_ready),
     }
 
 
