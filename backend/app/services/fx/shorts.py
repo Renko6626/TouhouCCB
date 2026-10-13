@@ -782,6 +782,8 @@ async def execute_short_cover_in_session(
     max_gold_in: Decimal,
     idempotency_key: str,
     credit_deps: "DependencySet",
+    _close_percent: Decimal | None = None,
+    _now: datetime | None = None,
 ) -> FxShortExecution:
     """Buy back exactly the requested (or entire) foreign debt and repay it.
 
@@ -808,10 +810,10 @@ async def execute_short_cover_in_session(
     is_cover_all = bool(cover_all)
     if is_cover_all and foreign_amount is not None:
         raise ShortCoverRejected("cover_all and foreign_amount are mutually exclusive")
-    if not is_cover_all and foreign_amount is None:
+    if not is_cover_all and foreign_amount is None and _close_percent is None:
         raise ShortCoverRejected("foreign_amount is required unless cover_all")
     amount = (
-        None if is_cover_all
+        None if is_cover_all or _close_percent is not None
         else _positive_six(foreign_amount, "foreign_amount", ShortCoverRejected)
     )
     limit_gold = _nonnegative_six(max_gold_in, "max_gold_in", ShortCoverRejected)
@@ -875,7 +877,7 @@ async def execute_short_cover_in_session(
         treasury = FxTreasury(pair_id=pair_id)
         db.add(treasury)
 
-    now = utcnow()
+    now = _now or utcnow()
     daily_rate = _finite_decimal(
         credit_deps.daily_rate, "daily_rate", ShortCoverRejected)
 
@@ -890,7 +892,10 @@ async def execute_short_cover_in_session(
     ).quantize(_Q6)
     if q_effective <= 0:
         raise HTTPException(status_code=400, detail="no outstanding short to cover")
-    q = q_effective if is_cover_all else amount
+    q = (q_effective if is_cover_all else
+         amount_down(q_effective * _close_percent / 100) if _close_percent is not None else amount)
+    if q <= 0:
+        raise HTTPException(status_code=400, detail="short close quantity is too small")
     if q > q_effective:
         raise HTTPException(status_code=400, detail="foreign_amount exceeds outstanding short")
     full_cover = q == q_effective
@@ -903,6 +908,8 @@ async def execute_short_cover_in_session(
     except (TypeError, ValueError, ArithmeticError) as exc:
         raise ShortCoverRejected(str(exc)) from exc
     x = quote.input_amount
+    if _close_percent is not None:
+        limit_gold = x
     if x > limit_gold:
         raise HTTPException(status_code=409, detail="quoted gold cost exceeds max_gold_in")
 

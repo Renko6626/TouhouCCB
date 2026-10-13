@@ -496,3 +496,87 @@ async def test_private_commit_hints_skip_replay_and_failed_trade():
         assert sub.queue.empty()
     finally:
         EVENTS.unsubscribe(sub)
+
+
+async def _instruction(uid, pid, instruction, *, key='instruction', rollback=False):
+    from app.services.credit.gates import GATES
+    from app.services.credit.keys import GroupKey
+    from app.services.credit.risk import discover_dependencies
+    from app.services.fx.net_trading import execute_fx_instruction_in_session
+    async with async_session_maker() as db:
+        target = GroupKey('fx', pid)
+        deps = await discover_dependencies(db, uid, extra_groups=[target])
+        await db.rollback()
+        async with GATES.hold(exclusive=[target], shared=[g for g in deps.groups if g != target]):
+            result = await execute_fx_instruction_in_session(db, user_id=uid, pair_id=pid,
+                instruction=instruction, request_key=key, credit_deps=deps)
+            if rollback:
+                await db.rollback()
+            else:
+                await db.commit()
+            return result
+
+
+@pytest.mark.parametrize('limit,success', [('20', True), ('19', False)])
+async def test_instruction_auto_borrow_actual_gap_and_limit(limit, success):
+    from fastapi import HTTPException
+    from app.models.base import User
+    from app.models.fx import FxExecution, FxPair, FxWallet
+    from app.schemas.fx import FxTradeInstruction
+    uid, pid = await _seed(cash='80')
+    instruction = FxTradeInstruction(action='buy', amount=D('100'), auto_borrow=True, borrow_limit=D(limit))
+    if success:
+        result = await _instruction(uid, pid, instruction)
+        assert result.borrow_amount == 20
+        assert result.gold_debt_delta == 20
+    else:
+        with pytest.raises(HTTPException, match='auto borrow limit exceeded'):
+            await _instruction(uid, pid, instruction)
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.cash == (0 if success else 80)
+        assert user.debt == (20 if success else 0)
+        if not success:
+            assert (await db.get(FxPair, pid)).gold_reserve == 1000
+            for model in (FxTrade, FxExecution, FxWallet, AuditEvent):
+                assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
+
+
+async def test_instruction_cross_zero_finances_only_new_long_and_rollback():
+    from app.models.base import User
+    from app.models.fx import FxExecution, FxPair, FxShortPosition, FxWallet
+    from app.schemas.fx import FxTradeInstruction
+    uid, pid = await _seed(cash='20', short={'principal': '10', 'restricted': '20'})
+    result = await _instruction(uid, pid,
+        FxTradeInstruction(action='buy', amount=D('30'), auto_borrow=True, borrow_limit=D('10')),
+        rollback=True)
+    assert result.borrow_amount == 10
+    assert [leg.purpose for leg in result.legs] == ['short_cover', 'borrow_buy']
+    async with async_session_maker() as db:
+        user = await db.get(User, uid)
+        assert user.cash == 20 and user.debt == 0
+        pair = await db.get(FxPair, pid)
+        assert pair.gold_reserve == 1000 and pair.foreign_reserve == 1000
+        position = (await db.execute(select(FxShortPosition))).scalar_one()
+        assert position.principal_foreign == 10 and position.restricted_gold == 20
+        for model in (FxTrade, FxExecution, FxWallet, FxPoolEvent, AuditEvent):
+            assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
+
+
+@pytest.mark.parametrize('action,percent,remaining', [('close_long','50','5'), ('close_short','50','5'), ('close_short','100','0')])
+async def test_instruction_closes_current_position_and_replays(action, percent, remaining):
+    from app.models.fx import FxShortPosition
+    from app.schemas.fx import FxTradeInstruction
+    uid, pid = await _seed(wallet_foreign='10' if action == 'close_long' else None,
+        short={'principal':'9','interest':'1','restricted':'20'} if action == 'close_short' else None)
+    instruction = FxTradeInstruction(action=action, close_percent=D(percent))
+    result = await _instruction(uid, pid, instruction)
+    replay = await _instruction(uid, pid, instruction)
+    assert replay.replay
+    if action == 'close_long':
+        assert result.wallet_after == D(remaining)
+        assert result.growth_amount == 0
+    else:
+        async with async_session_maker() as db:
+            position = (await db.execute(select(FxShortPosition))).scalar_one()
+            assert position.principal_foreign + position.interest_foreign == D(remaining)

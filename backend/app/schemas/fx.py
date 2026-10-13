@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -576,3 +576,32 @@ class FxLiquidityHistoryItem(BaseModel):
 class FxLiquidityHistory(BaseModel):
     items: list[FxLiquidityHistoryItem]
     next_before_id: Optional[int] = None
+
+
+class FxTradeInstruction(BaseModel):
+    """Authorized internal instruction, resolved from locked financial state."""
+    action: Literal['buy', 'sell', 'close_long', 'close_short']
+    amount: Decimal | None = None
+    close_percent: Decimal | None = None
+    auto_borrow: bool = False
+    borrow_limit: Decimal = Decimal('0')
+
+    @model_validator(mode='after')
+    def valid_instruction(self):
+        _finite_six(self.borrow_limit)
+        if self.borrow_limit > _MAX_GOLD:
+            raise ValueError('borrow_limit exceeds storage limit')
+        if self.action in ('buy', 'sell'):
+            if self.amount is None or self.close_percent is not None:
+                raise ValueError('buy/sell requires amount only')
+            _finite_six(self.amount, positive=True)
+            if self.amount > _MAX_GOLD:
+                raise ValueError('amount exceeds storage limit')
+        else:
+            if self.amount is not None or self.close_percent is None:
+                raise ValueError('close requires close_percent only')
+            if not self.close_percent.is_finite() or not 0 < self.close_percent <= 100:
+                raise ValueError('close_percent must be within (0, 100]')
+        if self.action != 'buy' and (self.auto_borrow or self.borrow_limit):
+            raise ValueError('financing is only available for buy')
+        return self
