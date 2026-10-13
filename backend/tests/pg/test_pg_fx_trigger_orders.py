@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.engine import make_url
 
 from app.models.base import User
-from app.models.fx import FxExecution, FxTrade, FxTriggerOrder, FxWallet
+from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
 from app.schemas.fx import FxTriggerOrderCreate
 from app.services.fx import orders, net_trading
 from tests.pg.test_pg_fx_short_concurrency import seed, writer
@@ -39,15 +39,23 @@ def request(pid):
 
 async def test_concurrent_creation_holds_account_limit(pg_sessionmaker):
     uid, pid = await seed(pg_sessionmaker)
-    async def create():
+    async with pg_sessionmaker() as db:
+        extra_pairs = [FxPair(currency_code=f'SLOT{i}', currency_name=f'Slot {i}',
+                              status='trading') for i in range(4)]
+        db.add_all(extra_pairs)
+        await db.flush()
+        pair_ids = [pid, *(pair.id for pair in extra_pairs)]
+        await db.commit()
+    # Separate Pair locks must still serialize on this account's User lock.
+    async def create(pair_id):
         async with pg_sessionmaker() as db:
             try:
-                return await orders.create_order(db, uid, request(pid))
+                return await orders.create_order(db, uid, request(pair_id))
             except HTTPException as exc:
                 await db.rollback()
                 assert exc.status_code == 409
                 return None
-    created = await asyncio.wait_for(asyncio.gather(*(create() for _ in range(5))), 10)
+    created = await asyncio.wait_for(asyncio.gather(*(create(pair_id) for pair_id in pair_ids)), 10)
     assert sum(result is not None for result in created) == 3
     async with pg_sessionmaker() as db:
         assert (await db.execute(select(func.count()).select_from(FxTriggerOrder))).scalar_one() == 3
