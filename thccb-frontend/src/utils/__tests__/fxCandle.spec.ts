@@ -1,5 +1,5 @@
 // FX K 线增量内核行为测试：bucket 归类、空桶填充、forming candle 实时合并、
-// MA10/MA20 增量维护、跨桶过多 reload、时钟漂移容错。断言可执行行为，不碰 DOM。
+// MA10/MA20 增量维护、跨桶过多 reload。断言可执行行为，不碰 DOM。
 import { describe, expect, it } from 'vitest'
 import {
   FxCandleEngine,
@@ -115,70 +115,6 @@ describe('FxCandleEngine', () => {
     expect(Number.isNaN(ma20[18]!)).toBe(true)
     // closes 1..20 → 10.5
     expect(ma20[19]).toBeCloseTo(10.5)
-  })
-
-  it('同一 bucket 的价格 tick 原地更新 h/l/c/v 并刷新 MA', () => {
-    const engine = engineWith(12)
-    const lastBucket = BASE + 11 * 60
-    const result = engine.applyPrice(100, lastBucket * 1000, 5)
-    expect(result.reload).toBe(false)
-    expect(result.added).toBe(0)
-    expect(result.changed).toHaveLength(1)
-    const last = engine.candles[11]!
-    expect(last.c).toBe(100)
-    expect(last.h).toBe(100)
-    expect(last.l).toBe(11.5)
-    expect(last.v).toBe(11 + 5)
-    // 最后 10 根 closes = 3..11 + 100 = 163 → 16.3
-    expect(engine.maAt(10, 11)).toBeCloseTo(16.3)
-    // 再跌回 1.0：l 保持不变，h 保持 100
-    engine.applyPrice(1, lastBucket * 1000)
-    expect(engine.candles[11]!.l).toBe(1)
-    expect(engine.candles[11]!.h).toBe(100)
-  })
-
-  it('跨 bucket 时本地合成空桶并新建 forming candle', () => {
-    const engine = new FxCandleEngine(60, [10, 20])
-    engine.load([point(BASE, 10)])
-    const result = engine.applyPrice(20, (BASE + 3 * 60) * 1000)
-    expect(result.reload).toBe(false)
-    expect(result.added).toBe(3)
-    expect(engine.count).toBe(4)
-    expect(result.changed.map((c) => c.t)).toEqual([BASE + 60, BASE + 120, BASE + 180])
-    expect(result.changed[0]).toMatchObject({ o: 10, h: 10, l: 10, c: 10, v: 0 })
-    expect(result.changed[1]).toMatchObject({ o: 10, h: 10, l: 10, c: 10, v: 0 })
-    expect(result.changed[2]).toMatchObject({ o: 10, h: 20, l: 10, c: 20 })
-  })
-
-  it('跨桶数超过上限时要求整段 reload 且不改动本地数据', () => {
-    const engine = new FxCandleEngine(60, [10, 20])
-    engine.load([point(BASE, 10)])
-    const farSeconds = BASE + (FX_MAX_LOCAL_FILL_BUCKETS + 2) * 60
-    const result = engine.applyPrice(5, farSeconds * 1000)
-    expect(result.reload).toBe(true)
-    expect(result.changed).toHaveLength(0)
-    expect(engine.count).toBe(1)
-  })
-
-  it('落后 bucket 的 tick 更新最后一根（容忍客户端时钟略慢）', () => {
-    const engine = new FxCandleEngine(60, [10, 20])
-    engine.load([point(BASE, 10), point(BASE + 60, 12)])
-    const result = engine.applyPrice(7, (BASE - 120) * 1000)
-    expect(result.reload).toBe(false)
-    expect(result.changed).toHaveLength(1)
-    expect(engine.count).toBe(2)
-    expect(engine.candles[1]!.c).toBe(7)
-    expect(engine.candles[0]!.c).toBe(10)
-  })
-
-  it('无历史时第一根 tick 直接建 candle；非法价格被忽略', () => {
-    const engine = new FxCandleEngine(60, [10, 20])
-    const created = engine.applyPrice(0.2, BASE * 1000)
-    expect(created.added).toBe(1)
-    expect(engine.candles[0]!.c).toBe(0.2)
-    expect(engine.applyPrice(Number.NaN, BASE * 1000).changed).toHaveLength(0)
-    expect(engine.applyPrice(-1, BASE * 1000).changed).toHaveLength(0)
-    expect(engine.count).toBe(1)
   })
 
   it('setStep 切换周期会清空，等待调用方重新 load', () => {

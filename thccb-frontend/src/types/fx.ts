@@ -172,7 +172,7 @@ export interface FxPublicEnvelope extends FxPublicFrame {
 }
 
 /**
- * `loadFxHistoryCandles` 需要的快照尾段上下文，由 `FxStream` envelope 组装。
+ * 历史加载器需要的快照尾段上下文，由 `FxStream` envelope 组装。
  * 字段允许为 null，表示当前没有可用尾段/版本。
  */
 export interface FxHistorySnapshotTail {
@@ -192,14 +192,6 @@ export interface FxChartPoint {
   l: number
   c: number
   v: number
-}
-
-/** FX 实时价格帧经页面转成的图表 tick（价格保持字符串语义）。 */
-export interface FxPriceTick {
-  /** 边际汇率，金圆券 / 1 外币（字符串十进制，避免 Number 破坏精度） */
-  price: string
-  /** 客户端接收时刻（ms），用于归类到当前 bucket */
-  ts: number
 }
 
 /** 图表的当前持仓参考线，价格单位为金圆券 / 外币。 */

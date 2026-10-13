@@ -3,10 +3,10 @@
 // 复用市场页 `CandleChart.vue` 已验证的成熟行为：
 //   - 后端 `fill=true` 已把空桶填到当前 bucket，因此初始加载的最后一根永远当作
 //     forming candle 原地更新，不用客户端时钟判断（避免时钟漂移归类错误）；
-//   - 实时 tick 跨桶时本地合成空桶（o=h=l=c=prevClose, v=0），跨桶过多才要求整页重载；
-//   - 同一 bucket 合并 h/l/c/v；MA 增量维护，避免每 tick O(N) 重算。
+//   - 真实成交跨桶时本地合成空桶（o=h=l=c=prevClose, v=0），跨桶过多才要求整页重载；
+//   - 同一 bucket 合并 h/l/c/v；MA 增量维护，避免逐笔 O(N) 重算。
 //
-// 生产 SSE 的 trades 使用真实成交时间和交易前后边际价；旧 applyPrice 仅作兼容。
+// SSE trades 使用真实成交时间和交易前后边际价。
 //
 // 放到 `utils/` 下让 Vitest（node 环境）可直接对 bucket/MA/实时合并做行为断言。
 
@@ -36,15 +36,6 @@ export function fxCandleVisibleRange(
 export function fxCandleScrolledBack(candles: readonly FxCandle[], visibleTo: number): boolean {
   const last = candles[candles.length - 1]
   return !!last && visibleTo < last.t
-}
-
-export interface FxPriceApply {
-  /** 跨桶过多，组件应重新拉取整段历史 */
-  reload: boolean
-  /** 本次被创建或修改的 candle，按时间升序（最后一个是 forming candle） */
-  changed: FxCandle[]
-  /** 新增 candle 数（用于空态/可见数量统计） */
-  added: number
 }
 
 /**
@@ -245,64 +236,6 @@ export class FxCandleEngine {
     const values = this.ma(period)
     const value = values[index]
     return value === undefined || Number.isNaN(value) ? null : value
-  }
-
-  /**
-   * 用一条实时价格更新 forming candle：
-   * - 无历史 → 新建第一根；
-   * - 同一/落后 bucket → 原地更新最后一根（FX 帧是当前价，容忍客户端时钟略慢）；
-   * - 新 bucket → 本地合成中间空桶；跨桶 > `FX_MAX_LOCAL_FILL_BUCKETS` 时要求 reload。
-   * 价格非法（NaN/<=0）直接忽略。
-   */
-  applyPrice(price: number, tsMs: number = Date.now(), volume = 0): FxPriceApply {
-    if (!Number.isFinite(price) || price <= 0) {
-      return { reload: false, changed: [], added: 0 }
-    }
-    const safeVolume = Number.isFinite(volume) && volume > 0 ? volume : 0
-    const bucket = fxBucketStart(Math.floor(tsMs / 1000), this.stepSeconds)
-    const candles = this._candles
-
-    if (candles.length === 0) {
-      const candle: FxCandle = { t: bucket, o: price, h: price, l: price, c: price, v: safeVolume }
-      candles.push(candle)
-      this.rebuildMa(0)
-      return { reload: false, changed: [candle], added: 1 }
-    }
-
-    const last = candles[candles.length - 1]!
-    if (bucket > last.t) {
-      const gapBuckets = (bucket - last.t) / this.stepSeconds - 1
-      if (gapBuckets > FX_MAX_LOCAL_FILL_BUCKETS) {
-        return { reload: true, changed: [], added: 0 }
-      }
-      const changed: FxCandle[] = []
-      const prevClose = last.c
-      for (let t = last.t + this.stepSeconds; t < bucket; t += this.stepSeconds) {
-        const fill: FxCandle = { t, o: prevClose, h: prevClose, l: prevClose, c: prevClose, v: 0 }
-        candles.push(fill)
-        changed.push(fill)
-      }
-      const next: FxCandle = {
-        t: bucket,
-        o: prevClose,
-        h: Math.max(prevClose, price),
-        l: Math.min(prevClose, price),
-        c: price,
-        v: safeVolume,
-      }
-      candles.push(next)
-      changed.push(next)
-      this.rebuildMa(candles.length - changed.length)
-      return { reload: false, changed, added: changed.length }
-    }
-
-    // bucket === last.t 或 bucket < last.t（客户端时钟略慢）→ 原地更新最后一根
-    last.h = Math.max(last.h, price)
-    last.l = Math.min(last.l, price)
-    last.c = price
-    last.v += safeVolume
-    this.rebuildMa(candles.length - 1)
-    return { reload: false, changed: [last], added: 0 }
   }
 
   /**

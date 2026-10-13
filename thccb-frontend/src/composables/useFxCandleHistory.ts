@@ -7,11 +7,9 @@
 //   - 后端历史未就绪 / 段缺失 / 段结构非法时回退 `/chart`，且**结果必须带明确的
 //     覆盖游标**：元数据缺失时显式报错（safe retry），绝不拿旧 SSE 游标假装保护了新数据。
 //
-// `loadFxHistoryResult` 返回 `{points, throughTradeId, historyVersion}`；旧的
-// `loadFxHistoryCandles`（只取点）保留兼容。`useFxCandleHistory` 是轻量有状态封装。
+// `loadFxHistoryResult` 返回 `{points, throughTradeId, historyVersion}`。
 // 本文件不建立任何 SSE 连接——实时增量由组件持有的 FxStream + FxCandleEngine 负责。
 
-import { ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue'
 import { fetchFxHistorySegment, getChartWithMeta } from '@/api/fx'
 import type {
   FxChartPoint,
@@ -115,15 +113,6 @@ export async function loadFxHistoryTailResult(
   }
 }
 
-/** 兼容包装：只要点。 */
-export async function loadFxHistoryTail(
-  pairId: number,
-  interval: FxHistoryInterval,
-  snapshotTail: FxHistorySnapshotTail | null,
-): Promise<FxChartPoint[]> {
-  return (await loadFxHistoryTailResult(pairId, interval, snapshotTail)).points
-}
-
 /**
  * 加载 FX 图表初始数据并返回**结果游标**：封存段 + 尾段，按桶合并（封存段优先）并补齐空桶。
  *
@@ -210,96 +199,4 @@ export async function loadFxHistoryResult(
     throughTradeId: meta.throughTradeId,
     historyVersion: meta.historyVersion,
   }
-}
-
-/**
- * 兼容包装（冻结签名）：只返回点。需要精确覆盖游标时用 `loadFxHistoryResult`。
- */
-export async function loadFxHistoryCandles(
-  pairId: number,
-  interval: FxHistoryInterval,
-  lookbackMinutes: number,
-  snapshotTail: FxHistorySnapshotTail | null,
-): Promise<FxChartPoint[]> {
-  return (await loadFxHistoryResult(pairId, interval, lookbackMinutes, snapshotTail)).points
-}
-
-export interface UseFxCandleHistoryParams {
-  pairId: MaybeRefOrGetter<number | null>
-  interval: MaybeRefOrGetter<FxHistoryInterval>
-  tail: MaybeRefOrGetter<FxHistorySnapshotTail | null>
-  lookbackMinutes?: MaybeRefOrGetter<number>
-}
-
-export interface UseFxCandleHistoryReturn {
-  /** 最近一次成功加载的升序连续图表点 */
-  points: Ref<FxChartPoint[]>
-  loading: Ref<boolean>
-  /** 最近一次失败；成功刷新后清空。失败时 points 保留上次成功结果 */
-  error: Ref<unknown | null>
-  /** 最近一次结果的 history_version（可能是 /chart 响应头里的版本） */
-  version: Ref<string | null>
-  /** 最近一次结果覆盖到的成交 id；组件据此设置引擎 coverage */
-  throughTradeId: Ref<number | null>
-  /** 完整重载（初始/切周期/gap） */
-  reload: () => Promise<void>
-}
-
-/**
- * 有状态封装：pairId / interval / lookback / `history_version` 变化时自动重载，
- * 并用 generation 丢弃被后续请求取代的旧响应。任何单项失败都保留上一次成功数据。
- *
- * 关键：watch 用**独立 primitive getter**，同一版本下替换 `tail` 对象不会触发重载，
- * 避免重复请求封存段。
- */
-export function useFxCandleHistory(params: UseFxCandleHistoryParams): UseFxCandleHistoryReturn {
-  const points = ref<FxChartPoint[]>([])
-  const loading = ref(false)
-  const error = ref<unknown | null>(null)
-  const version = ref<string | null>(null)
-  const throughTradeId = ref<number | null>(null)
-  let generation = 0
-
-  const reload = async (): Promise<void> => {
-    const pairId = toValue(params.pairId)
-    const interval = toValue(params.interval)
-    const tail = toValue(params.tail)
-    const lookback = toValue(params.lookbackMinutes) ?? FX_HISTORY_DEFAULT_LOOKBACK_MINUTES
-    if (pairId === null || pairId === undefined || pairId <= 0) {
-      points.value = []
-      version.value = null
-      throughTradeId.value = null
-      error.value = null
-      return
-    }
-    const gen = ++generation
-    loading.value = true
-    try {
-      const result = await loadFxHistoryResult(pairId, interval, lookback, tail)
-      if (gen !== generation) return
-      points.value = result.points
-      version.value = result.historyVersion
-      throughTradeId.value = result.throughTradeId
-      error.value = null
-    } catch (err) {
-      if (gen !== generation) return
-      error.value = err
-      console.error('[useFxCandleHistory] load failed:', err)
-    } finally {
-      if (gen === generation) loading.value = false
-    }
-  }
-
-  watch(
-    [
-      () => toValue(params.pairId),
-      () => toValue(params.interval),
-      () => toValue(params.lookbackMinutes) ?? FX_HISTORY_DEFAULT_LOOKBACK_MINUTES,
-      () => toValue(params.tail)?.history_version ?? null,
-    ],
-    () => { void reload() },
-    { immediate: true },
-  )
-
-  return { points, loading, error, version, throughTradeId, reload }
 }

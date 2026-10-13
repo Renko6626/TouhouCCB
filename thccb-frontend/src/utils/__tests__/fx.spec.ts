@@ -9,8 +9,6 @@ import {
   expandExponential,
   formatFxAmount,
   formatFxPrice,
-  FxOrderSubmitter,
-  fxOrderSignature,
   fxPriceDecimals,
   fxPricePrecision,
   isConflictError,
@@ -231,41 +229,6 @@ describe('C1 管理端本地 pair 合并：草稿可进入 fund/open 流程', ()
   })
 })
 
-describe('I1 并发 submit 单飞', () => {
-  it('并发调用只触发一次 API，第二次返回 null', async () => {
-    const submitter = new FxOrderSubmitter()
-    let calls = 0
-    const run = async (key: string) => {
-      calls += 1
-      expect(key).toMatch(/^fx-/)
-      await Promise.resolve()
-      return 'ok'
-    }
-    const [a, b] = await Promise.all([submitter.submit('sig', run), submitter.submit('sig', run)])
-    expect(calls).toBe(1)
-    expect(a).toBe('ok')
-    expect(b).toBeNull()
-    // 完成后可再次提交
-    expect(await submitter.submit('sig', run)).toBe('ok')
-    expect(calls).toBe(2)
-  })
-})
-
-describe('I2 逻辑订单幂等键复用', () => {
-  it('同一签名复用同一键，参数变化生成新键，成功后 reset', () => {
-    const submitter = new FxOrderSubmitter()
-    const sig = fxOrderSignature({ pairId: 1, side: 'buy', amount: '10', minOut: '9.900000' })
-    const first = submitter.keyFor(sig)
-    expect(submitter.keyFor(sig)).toBe(first) // 重试/409 后参数一致 → 复用
-
-    const changed = fxOrderSignature({ pairId: 1, side: 'buy', amount: '11', minOut: '10.890000' })
-    expect(submitter.keyFor(changed)).not.toBe(first)
-
-    submitter.reset()
-    expect(submitter.keyFor(changed)).not.toBe(first)
-  })
-})
-
 // ── FX 高敏感汇率精度：动态小数位，价格 formatter 与金额 formatter 分离 ──
 
 describe('FX 价格精度（动态小数位）', () => {
@@ -349,7 +312,7 @@ it('开空参考敞口按完整汇率换算数量，不把极小正汇率截成�
   expect(divideFxAmount('100', '0', 6)).toBeNull()
 })
 
-describe('交易面板回归：min-out 与双击单飞', () => {
+describe('交易面板回归：min-out', () => {
   it('min-out 不放宽滑点保护：随 bps 单调不增且向下取 6 位', () => {
     const output = '0.123456'
     expect(computeMinOut(output, 0)).toBe('0.123456')
@@ -363,29 +326,6 @@ describe('交易面板回归：min-out 与双击单飞', () => {
     expect(computeMinOut(output, 1)).toBe('0.123443')
   })
 
-  it('报价 await 期间双击只提交一笔 API', async () => {
-    const submitter = new FxOrderSubmitter()
-    const calls: string[] = []
-    const click = async () => {
-      let quote = ''
-      const fetchQuote = async () => {
-        await Promise.resolve()
-        quote = '0.900000'
-        return quote
-      }
-      if (!quote) await fetchQuote()
-      const signature = fxOrderSignature({ pairId: 1, side: 'buy', amount: '10', minOut: quote })
-      return submitter.submit(signature, async () => {
-        calls.push(quote)
-        await Promise.resolve()
-        return 'filled'
-      })
-    }
-    const [first, second] = await Promise.all([click(), click()])
-    expect(calls).toHaveLength(1)
-    expect([first, second].filter((r) => r === 'filled')).toHaveLength(1)
-    expect([first, second].filter((r) => r === null)).toHaveLength(1)
-  })
 })
 
 describe('cover maximum gold input', () => {
@@ -486,7 +426,7 @@ it('never sends a short write when its retry identity cannot be persisted', asyn
       writes++
       return {}
     }),
-  ).rejects.toThrow('Cannot safely persist')
+  ).rejects.toThrow('无法保存订单')
   expect(writes).toBe(0)
   expect(order.hasUnresolved).toBe(true)
 })

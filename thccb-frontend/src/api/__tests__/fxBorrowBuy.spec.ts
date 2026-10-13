@@ -87,7 +87,7 @@ describe.each([
       }),
     ).rejects.toThrow()
     expect(sent).toBe(false)
-    expect(order.unreadable).toBe(true)
+    expect(order.storageError).toBe(true)
   })
 
   it('a late result after account switching does not clear the other account request', async () => {
@@ -139,5 +139,53 @@ describe('net writer admission identity', () => {
     })
     expect(receipt).toEqual({ succeeded: true })
     expect(new FxPendingNetOrder(1, storage).hasUnresolved).toBe(false)
+  })
+})
+
+describe('manual review of a pending FX order', () => {
+  const body = { side: 'buy' as const, amount: '50', borrow_amount: '0',
+    min_out: '40', expected_economic_version: 7, allow_growth: false }
+
+  it('clears a corrupt local record after review and permits a new order', async () => {
+    const storage = memory()
+    storage.setItem('fx-net-pending-v1:1', '{invalid')
+    const order = new FxPendingNetOrder(1, storage)
+    expect(order.hasUnresolved).toBe(true)
+    expect(order.clearAfterReview()).toBe(true)
+    expect(order.storageError).toBe(false)
+    expect(new FxPendingNetOrder(1, storage).hasUnresolved).toBe(false)
+    expect(await order.start(7, body, async () => 'new receipt')).toBe('new receipt')
+  })
+
+  it('keeps an unknown order blocked if manual removal fails', async () => {
+    const storage = memory(), order = new FxPendingNetOrder(1, storage)
+    await expect(order.start(7, body, async () => { throw new Error('lost') })).rejects.toThrow('lost')
+    const original = order.pending
+    storage.removeItem = () => { throw new Error('unavailable') }
+    expect(order.clearAfterReview()).toBe(false)
+    expect(order.pending).toEqual(original)
+    expect(order.hasUnresolved).toBe(true)
+    expect(order.storageError).toBe(true)
+  })
+
+  it('returns a successful receipt even when removing the saved identity fails', async () => {
+    const storage = memory(), order = new FxPendingNetOrder(1, storage)
+    const removeItem = storage.removeItem
+    storage.removeItem = () => { throw new Error('unavailable') }
+    expect(await order.start(7, body, async () => 'committed')).toBe('committed')
+    expect(order.storageError).toBe(true)
+    storage.removeItem = removeItem
+    expect(order.clearAfterReview()).toBe(true)
+    expect(order.hasUnresolved).toBe(false)
+  })
+
+  it('does not discard an order while its submission is in flight', async () => {
+    const order = new FxPendingNetOrder(1, memory())
+    let finish!: (value: string) => void
+    const result = order.start(7, body, () => new Promise<string>(resolve => { finish = resolve }))
+    expect(order.clearAfterReview()).toBe(false)
+    expect(order.pending).not.toBeNull()
+    finish('committed')
+    expect(await result).toBe('committed')
   })
 })

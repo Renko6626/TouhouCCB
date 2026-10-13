@@ -5,8 +5,7 @@
 //
 // 实时增量只走「真实成交」：页面唯一 `FxStream.onEnvelope` 转发 `FxPublicEnvelope`，
 // 组件用 `decodeFxTradeTick` + `engine.applyTrades` 按真实成交时间与金侧成交量更新
-// OHLCV；quote-only 帧只更新页面报价条，不伪造成交。`tick`/`applyPrice` 仅保留给
-// 没有 envelope 的旧调用方，不与真实成交路径并行使用。
+// OHLCV；quote-only 帧只更新页面报价条，不伪造成交。
 //
 // 覆盖游标纪律：加载期间到达的实时成交先进入有界缓冲，`engine.load(points,
 // throughTradeId)` 先写入覆盖游标，再按游标补放缓冲（重复 id 自动跳过），保证
@@ -40,7 +39,6 @@ import type {
   FxChartInterval,
   FxChartPoint,
   FxHistorySnapshotTail,
-  FxPriceTick,
   FxPublicEnvelope,
   FxTradeTick,
   FxHoldingPriceLine,
@@ -71,8 +69,6 @@ const props = withDefaults(
      * 尾段元数据与逐笔真实成交；quote-only 帧不产生任何成交。
      */
     envelope?: FxPublicEnvelope | null
-    /** 旧兼容：无 envelope 的调用方用纯价格 tick（applyPrice）；有 envelope 时忽略。 */
-    tick?: FxPriceTick | null
     /** 递增：重连/手动刷新/成交后优先补尾段（不重读封存段）。 */
     reloadToken?: number
     height?: string
@@ -82,7 +78,6 @@ const props = withDefaults(
   {
     interval: '1m',
     envelope: null,
-    tick: null,
     reloadToken: 0,
     height: '100%',
     holdingPriceLines: () => [],
@@ -720,18 +715,6 @@ const stopTicker = () => {
   }
 }
 
-const onTick = (tick: FxPriceTick | null | undefined) => {
-  // 有 envelope 时只走真实成交路径，绝不并行混用 applyPrice（会改写同一桶 OHLC）。
-  if (props.envelope || !tick) return
-  const price = Number(tick.price)
-  const result = engine.applyPrice(price, tick.ts)
-  if (result.reload) {
-    void loadFull()
-    return
-  }
-  applyChanged(result.changed)
-}
-
 watch(
   () => props.envelope,
   (env) => {
@@ -751,10 +734,6 @@ watch(
   { flush: 'sync' },
 )
 
-watch(
-  () => props.tick,
-  (tick) => onTick(tick),
-)
 watch(holdingLines, syncHoldingLines, { flush: 'sync' })
 
 watch(

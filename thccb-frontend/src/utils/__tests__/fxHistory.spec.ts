@@ -1,9 +1,8 @@
 // FX 历史适配层纯工具 + 加载器行为测试。
 // 覆盖真实故障：封存段/尾段重叠导致成交量重复、缺段被伪装成完整历史、
 // 结构非法的段/逐笔成交混入公开数据（可见性防线）、段/窗口超限被静默截断、
-// 以及同版本尾段替换触发重复封存段请求。
+// 以及封存段与尾段混用历史版本。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { effectScope, nextTick, ref } from 'vue'
 
 vi.mock('@/api/fx', () => ({
   fxApi: { getChart: vi.fn(), getChartWithMeta: vi.fn() },
@@ -25,7 +24,7 @@ import {
   sanitizeFxHistoryTail,
   sanitizeFxTradeTicks,
 } from '@/utils/fxHistory'
-import { loadFxHistoryCandles, loadFxHistoryResult, useFxCandleHistory } from '@/composables/useFxCandleHistory'
+import { loadFxHistoryResult } from '@/composables/useFxCandleHistory'
 import { FxCandleEngine } from '@/utils/fxCandle'
 import type { FxChartPoint, FxHistorySegment, FxHistorySnapshotTail } from '@/types/fx'
 
@@ -62,11 +61,6 @@ const chartMeta = (points: FxChartPoint[], throughTradeId = 99, historyVersion =
 
 const findAt = (points: FxChartPoint[], seconds: number): FxChartPoint | undefined =>
   points.find((p) => p.t === iso(seconds))
-
-/** 冲掉被 mock 的 promise 链（fake timers 下不使用 setTimeout）。 */
-const flush = async () => {
-  for (let i = 0; i < 50; i++) await Promise.resolve()
-}
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -259,12 +253,6 @@ describe('loadFxHistoryResult', () => {
       .rejects.toThrow('missing history metadata')
   })
 
-  it('旧 loadFxHistoryCandles 包装仍只返回点', async () => {
-    vi.mocked(getChartWithMeta).mockResolvedValue(chartMeta([point(BOUNDARY, 3, 3)]))
-    const points = await loadFxHistoryCandles(7, '1m', 60, { ...freshTail, history_version: null })
-    expect(findAt(points, BOUNDARY)).toMatchObject({ c: 3, v: 3 })
-  })
-
   it('now 未对齐时结束于当前 forming 桶，当前桶成交不触发 reload / 不重复量', async () => {
     vi.setSystemTime(UNALIGNED_NOW_SEC * 1000)
     const sealedEpoch = UNALIGNED_SEG_BOUNDARY - 3600
@@ -323,44 +311,5 @@ describe('loadFxHistoryResult', () => {
     // 版本 A 的封存点（c=2,v=2）被丢弃；11:30 来自版本 B 的整窗响应
     expect(findAt(result.points, BOUNDARY - 1800)).toMatchObject({ c: 8, v: 8 })
     expect(findAt(result.points, BOUNDARY)).toMatchObject({ c: 8, v: 0 })   // 不是 v2 部分响应的 v=7
-  })
-})
-
-describe('useFxCandleHistory 重载时机', () => {
-  const freshTail: FxHistorySnapshotTail = {
-    history_version: 'v1',
-    history_tail: { '1m': segment(BOUNDARY, [[0, 2, 5]], 31) },
-    history_tail_at: iso(NOW_SEC),
-    history_tail_through_trade_id: 42,
-    history_ready: true,
-  }
-
-  it('同一 history_version 下替换 tail 对象不重复请求封存段', async () => {
-    vi.mocked(fetchFxHistorySegment).mockResolvedValue(segment(BOUNDARY - 3600, [[30, 2, 2]]))
-    const tailRef = ref<FxHistorySnapshotTail | null>({ ...freshTail })
-    const scope = effectScope()
-    let state: ReturnType<typeof useFxCandleHistory> | undefined
-    scope.run(() => {
-      state = useFxCandleHistory({
-        pairId: () => 7,
-        interval: () => '1m',
-        lookbackMinutes: () => 60,
-        tail: tailRef,
-      })
-    })
-    await flush()
-    expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
-    expect(state!.throughTradeId.value).toBe(42)
-
-    tailRef.value = { ...freshTail }               // 同版本、新对象引用
-    await nextTick()
-    await flush()
-    expect(fetchFxHistorySegment).toHaveBeenCalledTimes(1)
-
-    tailRef.value = { ...freshTail, history_version: 'v2' }
-    await nextTick()
-    await flush()
-    expect(fetchFxHistorySegment).toHaveBeenCalledTimes(2)
-    scope.stop()
   })
 })

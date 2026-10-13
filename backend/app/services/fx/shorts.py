@@ -454,40 +454,14 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
     }
     short_before = _short_snapshot(target)
 
-    # One UTC T: settle gold debt and every relevant foreign position before
-    # adding principal, so the new Q never inherits an older accrual base.
-    before_debt = Decimal(user.debt)
-    gold_clock_before = user.debt_last_accrued_at
-    loan_service.accrue_interest(user, daily_rate, now)
-    if Decimal(user.debt) != before_debt:
-        audit_service.record(
-            db, "interest_accrual", user_id=user.id,
-            payload={"debt_before": before_debt, "debt_after": Decimal(user.debt),
-                     "interest": Decimal(user.debt) - before_debt,
-                     "daily_rate": daily_rate, "source": "fx_short_open",
-                     "debt_last_accrued_at_before": audit_service._utc_iso(gold_clock_before),
-                     "debt_last_accrued_at_after": audit_service._utc_iso(user.debt_last_accrued_at),
-                     "accrued_at": audit_service._utc_iso(now)},
-            user_after=audit_service.user_snapshot(user),
-            ts=now,
-        )
-
-    for pos in positions:
-        if Decimal(pos.principal_foreign) + Decimal(pos.interest_foreign) <= 0:
-            continue
-        clock_before = pos.interest_last_accrued_at
-        added = accrue_short_interest(pos, daily_rate, now)
-        if added:
-            audit_service.record_fx_short_interest(
-                db, user=user, position=pos, pair_id=int(pos.pair_id),
-                interest=added, daily_rate=daily_rate,
-                elapsed_sec=(_elapsed_seconds(clock_before, now) if clock_before else None),
-                interest_last_accrued_at_before=clock_before,
-                accrued_at=now, source="fx_short_open",
-            )
-        if target is not None and pos is target:
-            # Force the base even when settlement was dust-only.
-            pos.interest_last_accrued_at = now
+    # Settle existing debt at T before adding principal to the target.
+    await _settle_interest_at_T(
+        db, user=user, positions=positions, daily_rate=daily_rate,
+        now=now, source="fx_short_open",
+    )
+    if target is not None:
+        # New principal starts at T even when settlement was dust-only.
+        target.interest_last_accrued_at = now
 
     if target is None:
         target = FxShortPosition(

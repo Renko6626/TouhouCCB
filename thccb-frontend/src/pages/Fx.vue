@@ -25,7 +25,6 @@ import { safeEconomicVersion } from '@/api/fxNetTrading'
 import { useAuthStore } from '@/stores/auth'
 import type { UserSummary } from '@/types/user'
 import { useFxResource } from '@/composables/useFxResource'
-import type { ShortQuoteOrder } from '@/composables/useFxShortQuote'
 import { FxPendingBorrowBuyOrder } from '@/api/fxBorrowBuy'
 import type { FxBorrowBuyTrade, FxNetQuote, FxNetTrade, FxShortQuote } from '@/types/fx'
 import { FxPendingNetOrder, fxNetApi } from '@/api/fxNetTrading'
@@ -60,6 +59,7 @@ import type {
   FxPersonalTrade,
   FxShortPosition,
   FxShortTrade,
+  FxShortQuoteRequest,
   FxChartInterval,
   FxPairPublic,
   FxPublicEnvelope,
@@ -358,23 +358,45 @@ const shortUnresolved = ref(shortSubmitter.hasUnresolved)
 let shortAccountGeneration = 0
 const borrowSubmitter = new FxPendingBorrowBuyOrder(authStore.user?.id ?? null)
 const borrowPending = ref(borrowSubmitter.pending)
-const borrowUnreadable = ref(borrowSubmitter.unreadable)
+const borrowStorageBlocked = ref(borrowSubmitter.storageError)
 const borrowUnresolved = ref(borrowSubmitter.hasUnresolved)
 const netSubmitter = new FxPendingNetOrder(authStore.user?.id ?? null)
 const netPending = ref(netSubmitter.pending)
-const netStorageBlocked = ref(netSubmitter.unreadable)
+const netStorageBlocked = ref(netSubmitter.storageError)
 const netUnresolved = ref(netSubmitter.hasUnresolved)
 const pendingRisk = computed(
   () => shortUnresolved.value || borrowUnresolved.value || netUnresolved.value,
 )
+const pendingRecordsReviewed = ref(false)
+function clearReviewedOrders() {
+  if (!pendingRecordsReviewed.value || submitting.value) return
+  const orders = [netSubmitter, borrowSubmitter, shortSubmitter]
+  if (orders.some(order => order.busy)) return
+  let cleared = true
+  for (const order of orders) {
+    if (order.hasUnresolved && !order.clearAfterReview()) cleared = false
+  }
+  syncPendingOrders()
+  pendingRecordsReviewed.value = false
+  if (!cleared) {
+    msg.warning('本地记录仍无法清除，请恢复浏览器存储并刷新页面后重试。')
+    return
+  }
+  tradeError.value = null
+  borrowError.value = ''
+  shortError.value = ''
+  msg.success('本地待确认记录已清除，请更新账户后再下单。')
+  void refreshAll()
+}
 const borrowError = ref('')
 const borrowReceipt = ref<{ trade: FxBorrowBuyTrade; currency: string } | null>(null)
 let borrowGeneration = 0
 if (pendingShort.value) tradeMode.value = 'short'
-const shortStorageBlocked = ref(shortSubmitter.unreadable || !authStore.user?.id)
+const shortStorageBlocked = ref(shortSubmitter.storageError || !authStore.user?.id)
 watch(
   () => authStore.user?.id,
   (id) => {
+    pendingRecordsReviewed.value = false
     holdingAuthGeneration.value++
     shortAccountGeneration++
     shortLoading.value = false
@@ -387,23 +409,17 @@ watch(
     shortPosition.value = null
     shortReceipt.value = null
     netSubmitter.setUser(id ?? null)
-    netPending.value = netSubmitter.pending
-    netUnresolved.value = netSubmitter.hasUnresolved
-    netStorageBlocked.value = netSubmitter.unreadable
     receipt.value = null
     quote.value = null
     if (netSubmitter.busy) submitting.value = false
     borrowGeneration++
     if (borrowSubmitter.busy) submitting.value = false
     borrowSubmitter.setUser(id ?? null)
-    syncBorrowState()
     borrowReceipt.value = null
     borrowError.value = ''
     amount.value = ''
     shortSubmitter.setUser(id ?? null)
-    pendingShort.value = shortSubmitter.pending
-    shortUnresolved.value = shortSubmitter.hasUnresolved
-    shortStorageBlocked.value = shortSubmitter.unreadable || !id
+    syncPendingOrders()
     if (id && pairId.value) {
       void nextTick(() => refreshAll())
     }
@@ -416,7 +432,7 @@ const shortValid = computed(
     (/^\d+(\.\d{0,6})?$/.test(shortAmount.value.trim()) &&
       compareFxAmounts(shortAmount.value.trim(), '0') === 1),
 )
-const shortQuoteOrder = computed<ShortQuoteOrder | null>(() => {
+const shortQuoteOrder = computed<{ pairId: number; body: FxShortQuoteRequest } | null>(() => {
   if (
     !authStore.user?.id ||
     loading.value ||
@@ -847,10 +863,16 @@ watch(
   },
   { flush: 'sync' },
 )
-function syncBorrowState() {
+function syncPendingOrders() {
+  netPending.value = netSubmitter.pending
+  netUnresolved.value = netSubmitter.hasUnresolved
+  netStorageBlocked.value = netSubmitter.storageError
   borrowPending.value = borrowSubmitter.pending
-  borrowUnreadable.value = borrowSubmitter.unreadable
   borrowUnresolved.value = borrowSubmitter.hasUnresolved
+  borrowStorageBlocked.value = borrowSubmitter.storageError
+  pendingShort.value = shortSubmitter.pending
+  shortUnresolved.value = shortSubmitter.hasUnresolved
+  shortStorageBlocked.value = shortSubmitter.storageError || !authStore.user?.id
 }
 async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
   if (submitting.value) return
@@ -860,7 +882,7 @@ async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
   let completed = false
   try {
     const promise = run()
-    syncBorrowState()
+    syncPendingOrders()
     const result = await promise
     if (!result || generation !== borrowGeneration) return
     completed = true
@@ -871,7 +893,7 @@ async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
         `外币（${result.pair_id}）`,
     }
     amount.value = ''
-    syncBorrowState()
+    syncPendingOrders()
     msg.success(result.replay ? '已确认原融资成交' : '借款并买入已成交')
     await refreshAll()
     if (generation !== borrowGeneration) return
@@ -883,12 +905,12 @@ async function sendBorrowBuy(run: () => Promise<FxBorrowBuyTrade | null>) {
     if (generation !== borrowGeneration) return
     borrowError.value = completed
       ? '借款买入已完成，账户信息刷新失败。'
-      : borrowSubmitter.hasUnresolved
+      : borrowSubmitter.pending
         ? '成交结果尚未确认，请重试原订单核对同一笔成交；期间不能提交新的交易。'
         : mapFxError(e, '借款买入失败，请重新报价')
   } finally {
     if (generation === borrowGeneration) {
-      syncBorrowState()
+      syncPendingOrders()
       submitting.value = false
     }
   }
@@ -951,11 +973,6 @@ async function retryShort() {
   if (submitting.value || !pendingShort.value) return
   await sendShortRequest(() => shortSubmitter.retry(executePendingShort))
 }
-function syncShortState() {
-  pendingShort.value = shortSubmitter.pending
-  shortUnresolved.value = shortSubmitter.hasUnresolved
-  shortStorageBlocked.value = shortSubmitter.unreadable || !authStore.user?.id
-}
 async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
   const account = authStore.user?.id,
     generation = shortAccountGeneration
@@ -964,7 +981,7 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
   submitting.value = true
   try {
     const promise = run()
-    syncShortState()
+    syncPendingOrders()
     const result = await promise
     if (!result || !current()) return
     completed = true
@@ -973,7 +990,7 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
     shortAmount.value = ''
     shortGoldAmount.value = ''
     shortError.value = ''
-    syncShortState()
+    syncPendingOrders()
     msg.success(result.purpose === 'short_open' ? '开空已成交，所得已锁定用于回补' : '回补已成交')
     await refreshAll()
     if (!current()) return
@@ -985,12 +1002,12 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
     shortQuote.value = null
     shortError.value = completed
       ? '交易已成交，账户信息刷新失败。'
-      : shortSubmitter.hasUnresolved
+      : shortSubmitter.pending
         ? '成交结果尚未确认，请恢复原请求核对同一笔成交；期间不能提交新的交易。'
         : mapFxError(e, '空头成交失败，请重新报价')
   } finally {
     if (current()) {
-      syncShortState()
+      syncPendingOrders()
       submitting.value = false
     }
   }
@@ -1210,8 +1227,7 @@ async function sendNet(run: () => Promise<FxNetTrade | null>) {
   let completed = false
   try {
     const promise = run()
-    netPending.value = netSubmitter.pending
-    netUnresolved.value = netSubmitter.hasUnresolved
+    syncPendingOrders()
     const result = await promise
     if (!result || account !== authStore.user?.id) return
     completed = true
@@ -1219,8 +1235,7 @@ async function sendNet(run: () => Promise<FxNetTrade | null>) {
       trade: result,
       currency: pairs.value.find((p) => p.id === result.pair_id)?.currency_name ?? '外币',
     }
-    netPending.value = netSubmitter.pending
-    netUnresolved.value = netSubmitter.hasUnresolved
+    syncPendingOrders()
     amount.value = ''
     msg.success(result.replay ? '已确认原成交' : `${fxNetActionLabel(result.legs)}已成交`)
     await refreshAll()
@@ -1232,14 +1247,12 @@ async function sendNet(run: () => Promise<FxNetTrade | null>) {
     if (account !== authStore.user?.id) return
     tradeError.value = completed
       ? '交易已完成，账户信息刷新失败。'
-      : netSubmitter.hasUnresolved
+      : netSubmitter.pending
         ? '成交结果尚未确认，请恢复原订单核对同一笔成交；期间不能提交新的交易。'
         : mapFxError(e, '成交失败，请重新报价')
   } finally {
     if (account === authStore.user?.id) {
-      netPending.value = netSubmitter.pending
-      netUnresolved.value = netSubmitter.hasUnresolved
-      netStorageBlocked.value = netSubmitter.unreadable
+      syncPendingOrders()
       submitting.value = false
     }
   }
@@ -1442,6 +1455,22 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <section v-if="pendingRisk" class="fx-receipt" role="status">
+      <p v-if="netStorageBlocked || borrowStorageBlocked || shortStorageBlocked" class="fx-error">
+        本地订单记录无法读取、保存或清除，请核对记录后再尝试清除。浏览器存储仍不可用时，请恢复存储并刷新页面。
+      </p>
+      <p>交易暂时受阻。可以先重试原订单；记录无法恢复时，请核对成交记录和账户余额，确认不清楚可联系管理员。</p>
+      <router-link to="/user/transactions" class="fx-text-button">查看成交记录</router-link>
+      <p>清除本地记录不会撤销成交或修改账户。</p>
+      <label class="fx-field fx-field--inline">
+        <input v-model="pendingRecordsReviewed" type="checkbox" :disabled="submitting" />
+        <span>我已核对成交记录和账户</span>
+      </label>
+      <button class="btn-secondary" :disabled="submitting || !pendingRecordsReviewed" @click="clearReviewedOrders">
+        已核对记录，清除本地待确认订单
+      </button>
+    </section>
+
     <div v-if="borrowPending" class="fx-pending-short" role="status">
       <div>
         <strong>一笔借款买入订单尚未确认</strong>
@@ -1455,12 +1484,6 @@ onUnmounted(() => {
         {{ submitting ? '核对中…' : '重试原订单' }}
       </button>
     </div>
-    <p v-if="borrowUnreadable" class="fx-error" role="alert">
-      融资订单记录无法安全读取或保存，暂不能新增融资。
-      {{
-        borrowUnresolved && !borrowPending ? '请核对成交记录并联系管理员，当前暂停新增交易。' : ''
-      }}
-    </p>
     <p v-if="borrowError" class="fx-error" role="status">{{ borrowError }}</p>
     <section v-if="borrowReceipt" class="fx-receipt" role="status">
       <h2>{{ borrowReceipt.trade.replay ? '原借款买入已确认' : '借款并买入已成交' }}</h2>
@@ -1831,12 +1854,8 @@ onUnmounted(() => {
             </div>
 
             <div v-show="tradeMode === 'short'" class="fx-trade-body">
-              <p v-if="shortStorageBlocked" class="fx-error" role="alert">
-                {{
-                  authStore.user?.id
-                    ? '待确认订单记录无法安全读取或保存，请核对成交历史并联系管理员。'
-                    : '请先登录后使用空头交易。'
-                }}
+              <p v-if="!authStore.user?.id" class="fx-error" role="alert">
+                请先登录后使用空头交易。
               </p>
               <div v-if="shortAction === 'open'" class="fx-short-size">
                 <div class="fx-preview-row fx-short-quantity">

@@ -1,6 +1,7 @@
 // FX 玩家/管理 API 封装 + 可测试纯函数（金额格式化、min-out/滑点、SSE 白名单、
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
+import { FxPendingOrder, type FxPendingStorage } from './fxPendingOrder'
 import type {
   FxBorrowBuyQuote,
   FxBorrowBuyQuoteRequest,
@@ -673,69 +674,6 @@ export function upsertFxPairAdmin(
   return { ...store, [pair.id]: pair }
 }
 
-// ── 玩家下单：并发单飞 + 逻辑订单幂等键复用 ──
-
-export interface FxOrderSignatureParams {
-  pairId: number
-  side: FxSide
-  amount: string
-  /** 由报价产出与滑点算出的 min_out；改变即视为新的逻辑订单 */
-  minOut: string
-}
-
-/** 逻辑订单签名：任一参数变化都应生成新的幂等键。 */
-export function fxOrderSignature(params: FxOrderSignatureParams): string {
-  return `${params.pairId}|${params.side}|${params.amount}|${params.minOut}`
-}
-
-/**
- * 下单单飞控制器。
- * - `submit` 在第一次 await 前同步占位，因此并发/双击只会真正执行一次 `run`；
- * - 同一逻辑订单（签名一致）复用同一幂等键，直到成功调用 `reset` 或参数变化；
- *   409 刷新报价后若参数一致，重试继续复用原键。
- */
-export class FxOrderSubmitter {
-  private inFlight = false
-  private signature: string | null = null
-  private idempotencyKey: string | null = null
-
-  get busy(): boolean {
-    return this.inFlight
-  }
-
-  /** 参数不变则复用旧键；参数变化生成新键。 */
-  keyFor(signature: string): string {
-    if (this.signature !== signature || !this.idempotencyKey) {
-      this.signature = signature
-      this.idempotencyKey = newFxIdempotencyKey()
-    }
-    return this.idempotencyKey
-  }
-
-  /** 成交成功后调用，让下一笔逻辑订单使用新键。 */
-  reset(): void {
-    this.signature = null
-    this.idempotencyKey = null
-  }
-
-  /**
-   * 并发单飞执行：已在途时返回 null 且不调用 `run`。
-   * 返回 null 表示本次点击被合并，调用方不应做成功处理。
-   */
-  async submit<T>(
-    signature: string,
-    run: (idempotencyKey: string) => Promise<T>,
-  ): Promise<T | null> {
-    if (this.inFlight) return null
-    this.inFlight = true
-    try {
-      return await run(this.keyFor(signature))
-    } finally {
-      this.inFlight = false
-    }
-  }
-}
-
 // ── 玩家 API（/api/v1/fx） ──
 
 export const fxApi = {
@@ -929,8 +867,6 @@ export class FxStream {
           if (frame) this.frameListeners.forEach((cb) => cb(frame))
           return
         }
-        const frame = parseFxSsePayload(raw)
-        if (frame) this.frameListeners.forEach((cb) => cb(frame))
       }
       source.addEventListener('fx', receive)
       source.addEventListener('snapshot', receive)
@@ -1057,17 +993,6 @@ export interface FxPendingShortRequest {
   }>
 }
 
-type PendingShortStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
-const PENDING_SHORT_PREFIX = 'fx-short-pending-v1:'
-
-function browserPendingStorage(): PendingShortStorage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage
-  } catch {
-    return null
-  }
-}
-
 function restoredShortRequest(value: unknown): FxPendingShortRequest | null {
   if (!value || typeof value !== 'object') return null
   const request = value as Partial<FxPendingShortRequest>
@@ -1099,127 +1024,18 @@ function restoredShortRequest(value: unknown): FxPendingShortRequest | null {
   })
 }
 
-/** Retain the exact wire identity across route changes and reloads for one user. */
-export class FxPendingShortOrder {
-  pending: FxPendingShortRequest | null = null
-  unreadable = false
-  private busy = false
-  private userId: string | null = null
-  private generation = 0
-
-  constructor(
-    userId: number | string | null = null,
-    private readonly storage: PendingShortStorage | null = browserPendingStorage(),
-  ) {
-    this.setUser(userId)
+/** Wire-specific adapter; old short requests retain their route and identity. */
+export class FxPendingShortOrder extends FxPendingOrder<FxPendingShortRequest> {
+  constructor(userId: number | string | null = null, storage?: FxPendingStorage | null) {
+    super(userId, 'fx-short-pending-v1:', restoredShortRequest, storage)
   }
-
-  setUser(userId: number | string | null): void {
-    const next = userId == null ? null : String(userId)
-    if (next === this.userId) return
-    this.generation++
-    this.userId = next
-    this.pending = null
-    this.unreadable = false
-    if (next === null) return
-    if (!this.storage) {
-      this.unreadable = true
-      return
-    }
-    try {
-      const raw = this.storage.getItem(PENDING_SHORT_PREFIX + next)
-      if (!raw) return
-      const restored = restoredShortRequest(JSON.parse(raw))
-      if (restored) this.pending = restored
-      else this.unreadable = true
-    } catch {
-      this.unreadable = true
-    }
-  }
-
-  get hasUnresolved(): boolean {
-    return this.unreadable || this.pending !== null
-  }
-
-  private persist(request: FxPendingShortRequest): void {
-    if (this.userId === null || !this.storage || this.unreadable)
-      throw new Error('Cannot safely persist the short request identity')
-    // This must complete before the first network write. A storage failure
-    // fails closed, so a lost response can never turn into a fresh key.
-    try {
-      this.storage.setItem(PENDING_SHORT_PREFIX + this.userId, JSON.stringify(request))
-    } catch {
-      this.unreadable = true
-      throw new Error('Cannot safely persist the short request identity')
-    }
-    this.pending = request
-  }
-
-  private clear(userId: string | null, request: FxPendingShortRequest): void {
-    if (userId === null || !this.storage) {
-      this.unreadable = true
-      return
-    }
-    try {
-      const key = PENDING_SHORT_PREFIX + userId
-      const raw = this.storage.getItem(key)
-      if (raw !== null) {
-        const stored = restoredShortRequest(JSON.parse(raw))
-        if (!stored) {
-          if (this.userId === userId) this.unreadable = true
-          return
-        }
-        // A response from a component that has since unmounted must not erase
-        // a newer request saved by the remounted component.
-        if (stored.body.idempotency_key !== request.body.idempotency_key) return
-        this.storage.removeItem(key)
-      }
-      if (
-        this.userId === userId &&
-        this.pending?.body.idempotency_key === request.body.idempotency_key
-      )
-        this.pending = null
-    } catch {
-      if (this.userId === userId) this.unreadable = true
-    }
-  }
-
-  async start<T>(
+  start<T>(
     pairId: number,
     action: 'open' | 'cover',
     body: Omit<FxPendingShortRequest['body'], 'idempotency_key'>,
     run: (request: FxPendingShortRequest) => Promise<T>,
   ): Promise<T | null> {
-    if (this.busy || this.hasUnresolved) throw new Error('A short request is awaiting its result')
-    this.persist(
-      Object.freeze({
-        pairId,
-        action,
-        body: Object.freeze({ ...body, idempotency_key: newFxIdempotencyKey() }),
-      }),
-    )
-    return this.retry(run)
-  }
-
-  async retry<T>(run: (request: FxPendingShortRequest) => Promise<T>): Promise<T | null> {
-    if (this.busy || !this.pending) return null
-    const request = this.pending
-    const userId = this.userId
-    const generation = this.generation
-    this.busy = true
-    try {
-      const result = await run(request)
-      this.clear(userId, request)
-      return userId === this.userId && generation === this.generation ? result : null
-    } catch (error) {
-      const e = error as { status?: unknown; response?: { status?: unknown } } | null
-      const status = Number(e?.response?.status ?? e?.status)
-      // A request timeout can occur after commit. Unknown/5xx outcomes remain pending.
-      if (status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status))
-        this.clear(userId, request)
-      throw error
-    } finally {
-      this.busy = false
-    }
+    return this.submit({ pairId, action,
+      body: { ...body, idempotency_key: newFxIdempotencyKey() } }, run)
   }
 }
