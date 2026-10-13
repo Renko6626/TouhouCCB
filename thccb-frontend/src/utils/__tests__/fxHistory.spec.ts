@@ -380,3 +380,25 @@ it('segment counts distinguish funding prices from synthetic carry; missing even
   ])
   expect(sanitizeFxHistorySegment({ ...raw, events: undefined })).toBeNull()
 })
+
+
+it('quantized zero funding prices reach candles without adding trades or volume', () => {
+  const raw = { id: 900001, ts: iso(BOUNDARY + 1), pre_price: '0.000001', post_price: '0.000000', gold_volume: '0.000000', n_trades: 0 }
+  const ticks = sanitizeFxEventTicks([raw])
+  expect(ticks).toHaveLength(1)
+  const event = decodeFxEventTick(ticks[0]!)!
+  expect(event).not.toBeNull()
+  const engine = new FxCandleEngine(60)
+  engine.load([{ t: iso(BOUNDARY), o: 0.000001, h: 0.000001, l: 0.000001, c: 0.000001, v: 0, n_events: 1, n_trades: 0 }], 900000)
+  expect(engine.applyEvents([event])).toMatchObject({ applied: 1, skipped: 0, reload: false, throughEventId: 900001 })
+  expect(engine.candles[0]).toMatchObject({ o: 0.000001, h: 0.000001, l: 0, c: 0, v: 0, n_events: 2, n_trades: 0 })
+  expect(engine.applyEvents([event])).toMatchObject({ applied: 0, skipped: 1, throughEventId: 900001 })
+  expect(sanitizeFxTradeTicks([raw])).toEqual([])
+  expect(decodeFxTradeTick(raw)).toBeNull()
+  for (const price of [undefined, '-0.000001', 'Infinity', 'NaN', '']) {
+    const invalid = { ...raw, post_price: price }
+    expect(sanitizeFxEventTicks([invalid])).toEqual([])
+    expect(decodeFxEventTick(invalid as typeof raw)).toBeNull()
+  }
+  expect(sanitizeFxEventTicks([{ ...raw, pre_price: '0.000000' }])).toHaveLength(1)
+})

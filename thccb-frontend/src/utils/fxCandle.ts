@@ -540,12 +540,12 @@ function FX_CANDLE_STEP(stepSeconds: number): number {
   return Number.isFinite(stepSeconds) && stepSeconds > 0 ? Math.floor(stepSeconds) : 60
 }
 
-/** 真实成交输入合法性：id 安全非负、ts 有限正、价格有限正、量有限非负。 */
+/** 池子事件输入合法性：id 安全非负、ts 有限正、量化价格及量有限非负。 */
 function isValidEvent(event: FxCandleEvent): boolean {
   return Number.isSafeInteger(event.id) && event.id >= 0
     && Number.isFinite(event.ts) && event.ts > 0
     && Number.isFinite(event.prePrice) && event.prePrice >= 0
-    && Number.isFinite(event.price) && event.price > 0
+    && Number.isFinite(event.price) && event.price >= 0
     && Number.isFinite(event.volume) && event.volume >= 0
 }
 

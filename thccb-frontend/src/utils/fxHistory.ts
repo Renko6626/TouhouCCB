@@ -178,6 +178,10 @@ export function sanitizeFxHistoryTail(raw: unknown): FxHistoryTail | null {
 
 /** 校验一条公开逐笔成交；字段保持字符串语义，图表边界才转 number。 */
 export function sanitizeFxTradeTick(raw: unknown): FxTradeTick | null {
+  return sanitizeFxPriceTick(raw, false)
+}
+
+function sanitizeFxPriceTick(raw: unknown, allowZeroPrice: boolean): FxTradeTick | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const source = raw as Record<string, unknown>
   const id = safeNonNegativeInt(source.id)
@@ -187,7 +191,7 @@ export function sanitizeFxTradeTick(raw: unknown): FxTradeTick | null {
   const prePrice = decimalToNumber(source.pre_price)
   const postPrice = decimalToNumber(source.post_price)
   const goldVolume = decimalToNumber(source.gold_volume)
-  if (prePrice === null || prePrice < 0 || postPrice === null || postPrice <= 0 || goldVolume === null || goldVolume < 0) return null
+  if (prePrice === null || prePrice < 0 || postPrice === null || postPrice < 0 || (!allowZeroPrice && postPrice === 0) || goldVolume === null || goldVolume < 0) return null
   return { id, ts, pre_price: source.pre_price as string, post_price: source.post_price as string, gold_volume: source.gold_volume as string }
 }
 
@@ -331,13 +335,18 @@ export function mergeFxHistoryCandles(
 export function sanitizeFxEventTicks(raw: unknown): FxEventTick[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap((item) => {
-    const tick = sanitizeFxTradeTick(item)
+    const tick = sanitizeFxPriceTick(item, true)
     const n = safeNonNegativeInt(item?.n_trades)
     return tick && n !== null && n <= 1 ? [{ ...tick, n_trades: n }] : []
   })
 }
 
 export function decodeFxEventTick(tick: FxEventTick): FxCandleEvent | null {
-  const event = decodeFxTradeTick(tick)
-  return event ? { ...event, nTrades: tick.n_trades } : null
+  const validated = sanitizeFxEventTicks([tick])[0]
+  if (!validated) return null
+  return {
+    id: validated.id, ts: fxTimestampToSeconds(validated.ts)!,
+    prePrice: Number(validated.pre_price), price: Number(validated.post_price),
+    volume: Number(validated.gold_volume), nTrades: validated.n_trades,
+  }
 }

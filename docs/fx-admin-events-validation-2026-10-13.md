@@ -153,3 +153,27 @@ git diff --check
 ```
 
 非test URL检查使用未监听的端口1，在session guard报错；未进入function setup_db，没有连接或清空任何非test库。此次仅修正fixture顺序；原性能证据不变，图表局部修复的复测由父agent另行记录。
+
+
+## Final review fix：六位价格量化为零的实时事件
+
+正储备比值仍可能在六位公开价格中舍入为 `0.000000`。事件白名单、解码和蜡烛内核现接受有限非负价格，旧逐笔成交入口仍要求后价为正；缺失、负数及非有限价格继续拒绝。复用 `fxHistory.spec.ts` 增加一个完整管线回归，断言收盘变零、精确事件游标、事件数累加、重复事件不重计、成交量和成交笔数仍为零。
+
+实际命令（在 `thccb-frontend` 执行，diff 检查在仓库根目录）：
+
+```bash
+npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts
+# 修复前 exit1：新增回归失败，零价格被白名单丢弃；23 passed / 1 failed
+npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts src/utils/__tests__/fxCandle.spec.ts
+# 修复后 exit0：47 passed
+npm run test:unit -- src/utils/__tests__/fxHistory.spec.ts src/utils/__tests__/fxCandle.spec.ts src/utils/__tests__/fxStream.spec.ts
+# exit0：3 files / 53 passed
+npm run type-check
+# exit0
+npm run build
+# exit0，vite built in 19.41s；空 charts chunk、auth 混合导入及大 chunk 提示
+git diff --check
+# exit0
+```
+
+未运行浏览器交互、资金性能复测、生产迁移或部署；本轮只修正前端已有事件管线。
