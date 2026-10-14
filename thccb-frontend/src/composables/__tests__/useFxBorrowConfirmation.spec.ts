@@ -6,9 +6,10 @@ const details = {
   borrowAmount: '20',
   cashInput: '80',
   quantity: '50',
-  lockedGold: null,
+  saleProceeds: null,
   equity: '100',
   basis: '200',
+  initial: '0.5',
   maintenance: '0.2',
   reliable: true,
 }

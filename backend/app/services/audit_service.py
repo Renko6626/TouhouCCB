@@ -373,7 +373,6 @@ def record_fx_short_open(
             "principal_foreign": position.principal_foreign,
             "interest_foreign": position.interest_foreign,
             "interest_last_accrued_at": position.interest_last_accrued_at,
-            "restricted_gold": position.restricted_gold,
             "proceeds_basis_gold": position.proceeds_basis_gold,
         },
     }
@@ -399,8 +398,6 @@ def record_fx_short_cover(
     pool_before: dict[str, Any],
     interest_paid_foreign: Decimal,
     principal_paid_foreign: Decimal,
-    released_lock: Decimal,
-    total_restricted_gold_before: Decimal,
     allocated_proceeds_basis: Decimal,
     realized_pl: Decimal,
     accrued_at: datetime,
@@ -412,8 +409,7 @@ def record_fx_short_cover(
     Keeps the generic ``fx_trade`` event so the user/pool replay anchors stay
     valid, with the cover-specific legs: real gold paid (``input_amount``) and
     the buy fee in gold, the exact foreign repaid and its interest/principal
-    split, the released lock (which may exceed the proportional base on a losing
-    cover), the independently apportioned historical proceeds basis, the
+    split, the independently apportioned historical proceeds basis, the
     realized P/L (allocated basis minus real gold), the treasury before/after it
     actually received q, the user cash/debt before/after, the short row before/
     after, the operation key and the user economic version.  ``wallet_after`` is
@@ -439,8 +435,6 @@ def record_fx_short_cover(
         "repaid_foreign": trade.output_amount,
         "interest_paid_foreign": interest_paid_foreign,
         "principal_paid_foreign": principal_paid_foreign,
-        "released_lock": released_lock,
-        "total_restricted_gold_before": total_restricted_gold_before,
         "allocated_proceeds_basis": allocated_proceeds_basis,
         "realized_pl": realized_pl,
         "full_cover": full_cover,
@@ -480,7 +474,6 @@ def record_fx_short_cover(
             "principal_foreign": position.principal_foreign,
             "interest_foreign": position.interest_foreign,
             "interest_last_accrued_at": position.interest_last_accrued_at,
-            "restricted_gold": position.restricted_gold,
             "proceeds_basis_gold": position.proceeds_basis_gold,
         },
     }

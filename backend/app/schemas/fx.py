@@ -289,7 +289,6 @@ class FxShortPositionPublic(BaseModel):
     principal_foreign: Decimal
     interest_foreign: Decimal
     pending_short_debt: Optional[Decimal] = None
-    restricted_gold: Decimal
     proceeds_basis_gold: Decimal
     interest_last_accrued_at: Optional[datetime] = None
     reference_cover_cost: Optional[Decimal] = None
@@ -346,8 +345,7 @@ class FxShortQuoteResponse(BaseModel):
     """Advisory short quote; never a promise that the order will execute.
 
     ``input_amount``/``output_amount`` mirror the AMM direction (open: foreign
-    in / gold out; cover: gold in / foreign out).  ``restricted_gold_delta`` is
-    signed (positive lock increase on open, negative release on cover).
+    in / gold out; cover: gold in / foreign out). All proceeds are account cash.
 
     Order eligibility and portfolio valuation are separate signals:
     ``executable`` is false only when an order-level gate blocks the action and
@@ -371,7 +369,6 @@ class FxShortQuoteResponse(BaseModel):
     fee_currency: str
     post_price: Optional[Decimal] = None
     pool_version: Optional[int] = None
-    restricted_gold_delta: Optional[Decimal] = None
     available_cash: Optional[Decimal] = None
     affordable: Optional[bool] = None
     estimated_equity: Optional[Decimal] = None
@@ -476,7 +473,6 @@ class FxNetQuote(BaseModel):
     foreign_debt_after: Decimal
     cash_delta: Decimal
     gold_debt_delta: Decimal
-    restricted_gold_delta: Decimal
     growth_amount: Decimal
     borrow_amount: Decimal
     repaid_gold: Decimal
@@ -506,7 +502,6 @@ class FxHoldingsSummary(BaseModel):
     short_users: int
     short_principal_foreign: Decimal
     short_recorded_interest_foreign: Decimal
-    short_restricted_gold: Decimal
     interest_is_realtime: bool = False
 
 

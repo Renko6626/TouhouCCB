@@ -114,8 +114,6 @@ async def _stock(pair_id):
             select(func.coalesce(func.sum(User.cash), ZERO)))).scalar_one())
         wallet = D((await s.execute(
             select(func.coalesce(func.sum(FxWallet.foreign_amount), ZERO)))).scalar_one())
-        locked = D((await s.execute(
-            select(func.coalesce(func.sum(FxShortPosition.restricted_gold), ZERO)))).scalar_one())
         principal = D((await s.execute(
             select(func.coalesce(func.sum(FxShortPosition.principal_foreign), ZERO))
             .where(FxShortPosition.pair_id == pair_id))).scalar_one())
@@ -126,7 +124,6 @@ async def _stock(pair_id):
             "treasury_foreign": D(treasury.foreign_balance),
             "cash": cash,
             "wallet_foreign": wallet,
-            "locked": locked,
             "principal": principal,
             "pool_version": int(pair.pool_version),
         }
@@ -162,7 +159,7 @@ async def _quote(client, headers, pair_id, payload):
 
 
 async def _seed_short_direct(pair_id, user_id, *, principal="0", interest="0",
-                             restricted="0", proceeds=None, accrued=None):
+                             proceeds=None, accrued=None):
     """Seed a persisted short row without going through the open route."""
     async with async_session_maker() as s:
         async with s.begin():
@@ -170,8 +167,7 @@ async def _seed_short_direct(pair_id, user_id, *, principal="0", interest="0",
                 user_id=user_id, pair_id=pair_id,
                 principal_foreign=D(principal), interest_foreign=D(interest),
                 interest_last_accrued_at=accrued,
-                restricted_gold=D(restricted),
-                proceeds_basis_gold=D(restricted if proceeds is None else proceeds),
+                proceeds_basis_gold=D("0" if proceeds is None else proceeds),
             ))
 
 
@@ -182,7 +178,7 @@ async def _seed_overflow_short(pair_id, user_id, *, principal="99999999999999900
                 user_id=user_id, pair_id=pair_id,
                 principal_foreign=D(principal), interest_foreign=ZERO,
                 interest_last_accrued_at=datetime.now(timezone.utc) - timedelta(days=400),
-                restricted_gold=ZERO, proceeds_basis_gold=ZERO,
+                proceeds_basis_gold=ZERO,
             ))
 
 
@@ -525,13 +521,10 @@ async def test_short_read_is_own_position_and_reference_cover_without_clock_adva
     assert D(body["principal_foreign"]) == principal_before
     assert isinstance(body["principal_foreign"], str)
     assert isinstance(body["pending_short_debt"], str)
-    assert isinstance(body["restricted_gold"], str)
     assert isinstance(body["reference_cover_cost"], str)
     assert D(body["interest_foreign"]) == interest_before
     assert D(body["pending_short_debt"]) >= principal_before
-    locked = D(body["restricted_gold"])
-    assert locked > ZERO
-    assert D(body["proceeds_basis_gold"]) == locked
+    assert D(body["proceeds_basis_gold"]) > ZERO
     assert D(body["reference_cover_cost"]) > ZERO
     assert body["executable"] is True
     assert body["risk_status"] == "ok"
@@ -618,14 +611,13 @@ async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(cli
     assert body["fee_currency"] == "foreign"
     # New money/quantity fields stay decimal strings, never JSON numbers.
     for field in ("input_amount", "output_amount", "fee_amount",
-                  "restricted_gold_delta", "estimated_equity"):
+                  "estimated_equity"):
         assert isinstance(body[field], str), field
     expected_sell = quote_sell(D("100"), D("1000"), D("1000"), D("0.01"))
     assert D(body["input_amount"]) == expected_sell.input_amount
     assert D(body["output_amount"]) == expected_sell.output_amount
     assert D(body["fee_amount"]) == expected_sell.fee_amount
     assert D(body["post_price"]) == expected_sell.post_price.quantize(Q6)
-    assert D(body["restricted_gold_delta"]) == expected_sell.output_amount
     assert body["estimated_equity"] is not None
     assert body["estimated_risk_basis"] is not None
     assert body["pool_version"] == before["pool_version"]
@@ -674,7 +666,7 @@ async def test_open_quote_matches_amm_and_execution_requotes_at_current_pool(cli
 
 
 async def test_cover_all_quote_uses_pending_interest_exact_cost_and_release(client):
-    """``cover_all`` prices the settled principal+interest and releases only its lock."""
+    """``cover_all`` prices the settled principal plus interest."""
     _, admin_headers = await _make_user(superuser=True)
     user_id, user_headers = await _make_user(cash="1000")
     await _seed_config(fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
@@ -709,8 +701,6 @@ async def test_cover_all_quote_uses_pending_interest_exact_cost_and_release(clie
     assert D(body["output_amount"]) == D("101.5")
     assert D(body["fee_amount"]) == expected_buy.fee_amount
     assert body["fee_currency"] == "gold"
-    # A full cover releases exactly this position's own lock.
-    assert D(body["restricted_gold_delta"]) == -stock["locked"].quantize(Q6)
     assert body["executable"] is True
     assert body["blocked_reason"] is None
     assert body["estimated_equity"] is not None
@@ -724,8 +714,7 @@ async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(
     pair_id = await _create_pair(client, admin_headers, gold_reserve="1000",
                                  foreign_reserve="50",
                                  short_lending_limit_foreign="0")
-    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(pair_id, user_id, principal="100", accrued=datetime.now(timezone.utc))
 
     full = await _quote(client, user_headers, pair_id,
                         {"action": "cover", "cover_all": True})
@@ -758,7 +747,6 @@ async def test_cover_quote_blocks_pool_exhaustion_but_allows_smaller_and_paused(
                                      short_lending_limit_foreign="0")
     paused_user_id, paused_headers = await _make_user(cash="1000")
     await _seed_short_direct(paused_pair, paused_user_id, principal="100",
-                             restricted="300",
                              accrued=datetime.now(timezone.utc))
     paused = await _quote(client, paused_headers, paused_pair,
                           {"action": "cover", "cover_all": True})
@@ -916,8 +904,7 @@ async def test_frozen_cover_quote_separates_order_from_risk_reason_and_executes(
                                  foreign_reserve="1000", buy_fee_rate="0.02",
                                  sell_fee_rate="0.01",
                                  short_lending_limit_foreign="1000000")
-    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(pair_id, user_id, principal="100", accrued=datetime.now(timezone.utc))
     async with async_session_maker() as s:
         async with s.begin():
             user = await s.get(User, user_id)
@@ -959,8 +946,7 @@ async def test_read_marks_fx_disabled_order_block_keeping_reference_cost(
                                  foreign_reserve="1000", buy_fee_rate="0.02",
                                  sell_fee_rate="0.01",
                                  short_lending_limit_foreign="1000000")
-    await _seed_short_direct(pair_id, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(pair_id, user_id, principal="100", accrued=datetime.now(timezone.utc))
 
     live = await _short_get(client, user_headers, pair_id)
     assert live.status_code == 200, live.text
@@ -1016,10 +1002,8 @@ async def test_other_pair_unknown_k_blocks_only_the_risk_reason(client):
                               gold_reserve="1000", foreign_reserve="50",
                               buy_fee_rate="0.02", sell_fee_rate="0.01",
                               short_lending_limit_foreign="1000000")
-    await _seed_short_direct(good, user_id, principal="10", restricted="30",
-                             accrued=datetime.now(timezone.utc))
-    await _seed_short_direct(dead, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(good, user_id, principal="10", accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(dead, user_id, principal="100", accrued=datetime.now(timezone.utc))
 
     quote = await _quote(client, user_headers, good,
                          {"action": "cover", "foreign_amount": "5"})
@@ -1049,8 +1033,7 @@ async def test_cover_all_quote_includes_uncached_other_asset_in_equity_and_basis
                                     gold_reserve="1000", foreign_reserve="1000",
                                     buy_fee_rate="0", sell_fee_rate="0",
                                     short_lending_limit_foreign="0")
-    await _seed_short_direct(short_pair, user_id, principal="100", restricted="300",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(short_pair, user_id, principal="100", accrued=datetime.now(timezone.utc))
     await _seed_wallet(asset_pair, user_id, "1000")
     async with async_session_maker() as s:
         async with s.begin():
@@ -1103,8 +1086,7 @@ async def test_cover_quote_margin_status_uses_exact_basis_at_rounding_boundary(c
     pair_id = await _create_pair(client, admin_headers, gold_reserve="100",
                                  foreign_reserve="100", buy_fee_rate="0", sell_fee_rate="0",
                                  short_lending_limit_foreign="0")
-    await _seed_short_direct(pair_id, user_id, principal="0.000004", restricted="0",
-                             accrued=datetime.now(timezone.utc))
+    await _seed_short_direct(pair_id, user_id, principal="0.000004", accrued=datetime.now(timezone.utc))
     response = await _quote(client, user_headers, pair_id,
                             {"action": "cover", "foreign_amount": "0.000001"})
     assert response.status_code == 200, response.text

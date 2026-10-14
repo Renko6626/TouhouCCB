@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { NModal } from 'naive-ui'
-import { compareFxAmounts, formatFxAmount, multiplyFxAmount } from '@/api/fx'
+import { formatFxAmount, multiplyFxAmount } from '@/api/fx'
 import { fxMarginPercent } from '@/utils/fxPresentation'
 import type { FxBorrowConfirmationDetails } from '@/composables/useFxBorrowConfirmation'
 const props = defineProps<{ details: FxBorrowConfirmationDetails | null }>()
@@ -44,10 +44,6 @@ watch(
             <dt>现金投入</dt>
             <dd>{{ formatFxAmount(details.cashInput, 6) }} 金圆券</dd>
           </div>
-          <div v-if="compareFxAmounts(details.lockedGold, '0') === 1">
-            <dt>本仓锁金投入</dt>
-            <dd>{{ formatFxAmount(details.lockedGold, 6) }} 金圆券</dd>
-          </div>
           <div>
             <dt>预计买入</dt>
             <dd>{{ formatFxAmount(details.quantity, 6) }} {{ details.currency }}</dd>
@@ -63,12 +59,12 @@ watch(
         </p>
         <dl>
           <div>
-            <dt>预计卖出所得锁定</dt>
-            <dd>{{ formatFxAmount(details.lockedGold, 6) }} 金圆券</dd>
+            <dt>预计卖出所得</dt>
+            <dd>{{ formatFxAmount(details.saleProceeds, 6) }} 金圆券</dd>
           </div>
         </dl>
         <p>
-          锁定所得用于回补，不能花用。你需要买回并归还借入的外币及利息；价格上涨会增加回补成本。
+          卖出所得计入现金。你需要买回并归还借入的外币及利息；价格上涨会增加回补成本。
         </p>
       </template>
       <div class="borrow-risk">
@@ -78,6 +74,7 @@ watch(
             details.reliable ? fxMarginPercent(details.equity, details.basis) : '暂无法可靠估算'
           }}</strong>
         </div>
+        <p v-if="details.initial != null">初始门槛 {{ formatFxAmount(multiplyFxAmount(details.initial, '100'), 2) }}%。</p>
         <p v-if="details.maintenance != null">
           低于
           <strong>{{ formatFxAmount(multiplyFxAmount(details.maintenance, '100'), 2) }}%</strong>

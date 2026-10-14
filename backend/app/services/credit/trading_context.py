@@ -51,12 +51,12 @@ async def read_basis(db, user_id):
         values[name] = clock_string(values[name])
     positions = (await db.execute(select(Outcome.market_id, Position.outcome_id, Position.amount, Position.cost_basis).outerjoin(Outcome, Outcome.id == Position.outcome_id).where(Position.user_id == user_id).order_by(Position.outcome_id))).all()
     wallets = (await db.execute(select(FxWallet.pair_id, FxWallet.foreign_amount, FxWallet.cost_basis).where(FxWallet.user_id == user_id).order_by(FxWallet.pair_id))).all()
-    names_short = ('pair_id', 'principal_foreign', 'interest_foreign', 'interest_last_accrued_at', 'restricted_gold', 'proceeds_basis_gold')
+    names_short = ('pair_id', 'principal_foreign', 'interest_foreign', 'interest_last_accrued_at', 'proceeds_basis_gold')
     shorts = (await db.execute(select(*(getattr(FxShortPosition, n) for n in names_short)).where(FxShortPosition.user_id == user_id).order_by(FxShortPosition.pair_id))).all()
     return AccountBasis(user_id=user_id, **values,
         lmsr_positions=[dict(market_id=r[0], outcome_id=r[1], amount=decimal_string(r[2]), cost_basis=decimal_string(r[3])) for r in positions],
         fx_wallets=[dict(pair_id=r[0], foreign_amount=decimal_string(r[1]), cost_basis=decimal_string(r[2])) for r in wallets],
-        fx_shorts=[dict(zip(names_short, [r[0], decimal_string(r[1]), decimal_string(r[2]), clock_string(r[3]), decimal_string(r[4]), decimal_string(r[5])])) for r in shorts])
+        fx_shorts=[dict(zip(names_short, [r[0], decimal_string(r[1]), decimal_string(r[2]), clock_string(r[3]), decimal_string(r[4])])) for r in shorts])
 
 def missing_keys(keys, groups):
     found = {(g.product, g.id) for g in groups}

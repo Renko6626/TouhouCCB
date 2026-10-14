@@ -31,7 +31,7 @@ export interface FxOrder { side: 'buy' | 'sell'; amount: string; borrow_amount?:
 export interface FxLeg extends FxMath { purpose: 'spot' | 'borrow_buy' | 'short_open' | 'short_cover'; side: 'buy' | 'sell' }
 export interface FxOrderPreview {
   output_amount: string; fee_amount: string; wallet_after: string; foreign_debt_after: string
-  cash_delta: string; gold_debt_delta: string; restricted_gold_delta: string; repaid_gold: string
+  cash_delta: string; gold_debt_delta: string; repaid_gold: string
   final_direction: 'long' | 'short' | 'flat'
   interest_uncertainty: TradingInterestUncertainty
   legs: FxLeg[]; account_after: AccountBasis; pricing_after: FxPricingGroup; growth_amount: string
@@ -58,7 +58,7 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
   const a: AccountBasis = { ...account, fx_wallets: account.fx_wallets.map(v => ({ ...v })), fx_shorts: account.fx_shorts.map(v => ({ ...v })) }
   let coverBoundary = false
   let p = { ...pricing }; const legs: FxLeg[] = [], rejected: string[] = []
-  const result: FxOrderPreview = { output_amount: '0', fee_amount: '0', wallet_after: '0', foreign_debt_after: '0', cash_delta: '0', gold_debt_delta: '0', restricted_gold_delta: '0', repaid_gold: '0', final_direction: 'flat', interest_uncertainty: { gold: '0', shorts: {} }, legs, account_after: a, pricing_after: p, growth_amount: '0.000000', condition: 'satisfied', rejected_reasons: rejected, unchecked_reasons: ['treasury_inventory', 'lending_cap', 'submission_version_and_price_protection'], error_status: 'exact', account_preview: null }
+  const result: FxOrderPreview = { output_amount: '0', fee_amount: '0', wallet_after: '0', foreign_debt_after: '0', cash_delta: '0', gold_debt_delta: '0', repaid_gold: '0', final_direction: 'flat', interest_uncertainty: { gold: '0', shorts: {} }, legs, account_after: a, pricing_after: p, growth_amount: '0.000000', condition: 'satisfied', rejected_reasons: rejected, unchecked_reasons: ['treasury_inventory', 'lending_cap', 'submission_version_and_price_protection'], error_status: 'exact', account_preview: null }
   const block = (reason: string) => { if (!rejected.includes(reason)) rejected.push(reason) }
   try {
     const goldAccrued = accrueTradingDebt(a.debt, a.debt_last_accrued_at, rules.loan_daily_rate, now)
@@ -76,11 +76,10 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
       if (units(accrued.amount) > total) row.interest_last_accrued_at = new Date(now).toISOString()
     }
     if (accrueTradingDebt(a.debt, a.debt_last_accrued_at, rules.loan_daily_rate, now).approximate) result.error_status = 'approximate'
-    const target = a.fx_shorts.find(v => v.pair_id === p.id) ?? { pair_id: p.id, principal_foreign: '0', interest_foreign: '0', restricted_gold: '0', proceeds_basis_gold: '0', interest_last_accrued_at: null }
+    const target = a.fx_shorts.find(v => v.pair_id === p.id) ?? { pair_id: p.id, principal_foreign: '0', interest_foreign: '0', proceeds_basis_gold: '0', interest_last_accrued_at: null }
     if (!a.fx_shorts.includes(target)) a.fx_shorts.push(target)
     let principal = units(target.principal_foreign), interest = units(target.interest_foreign), owed = principal + interest
-    let lock = units(target.restricted_gold), proceeds = units(target.proceeds_basis_gold)
-    const ownLock = lock, locks = a.fx_shorts.reduce((s, v) => s + units(v.restricted_gold), 0n)
+    let proceeds = units(target.proceeds_basis_gold)
     if (holdings > 0n && owed > 0n) throw new Error('same_pair_long_and_short')
     let budget = units(order.amount), growth = 0n; const borrow = units(order.borrow_amount ?? '0')
     if (budget <= 0n || borrow < 0n || budget > FX_MAX) throw new Error('invalid order amount')
@@ -104,7 +103,7 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
       if (residual) {
         const q = quoteFx('sell', formatUnits(residual), p); leg('short_open', 'sell', q)
         growth = residual; principal += residual; owed += residual
-        cash += units(q.output_amount); lock += units(q.output_amount); proceeds += units(q.output_amount)
+        cash += units(q.output_amount); proceeds += units(q.output_amount)
       }
     } else {
       if (owed) {
@@ -115,28 +114,25 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
         coverBoundary = (exactCoverForeign != null ? units(q.output_amount) === owed : !!exact && q === exact) && result.error_status === 'approximate'
         const out = units(q.output_amount), input = units(q.input_amount)
         if (out > owed) throw new Error('cover output exceeds foreign debt')
-        const releaseBase = out === owed ? ownLock : ownLock * out / owed
-        let release = releaseBase > input - (cash - locks) ? releaseBase : input - (cash - locks)
-        if (release > ownLock || cash < locks) block('insufficient cash to cover')
-        if (release > ownLock) release = ownLock
+        if (cash < input) block('insufficient cash to cover')
         const paidInterest = out < interest ? out : interest
         interest -= paidInterest; principal -= out - paidInterest
         proceeds = out === owed ? 0n : proceeds - proceeds * out / owed
-        owed -= out; cash -= input; lock -= release; budget -= input; leg('short_cover', 'buy', q)
+        owed -= out; cash -= input; budget -= input; leg('short_cover', 'buy', q)
       }
       if (budget) {
         const q = quoteFx('buy', formatUnits(budget), p); leg(borrow ? 'borrow_buy' : 'spot', 'buy', q)
         growth = units(q.output_amount)
         if (cash + borrow > FX_MAX) block('trade exceeds storage limit')
         if (borrow > budget) block('borrow_amount exceeds new long budget')
-        if (cash - (locks - ownLock + lock) < budget - borrow) block('insufficient cash')
+        if (cash < budget - borrow) block('insufficient cash')
         cash += borrow - budget; debt += borrow; holdings += growth; basis += budget
       } else if (borrow) block('financing requires a new long leg')
     }
     a.cash = formatUnits(cash); a.debt = formatUnits(debt); a.debt_last_accrued_at = debt === 0n ? null : borrow > 0n || units(goldAccrued.amount) > units(account.debt) ? new Date(now).toISOString() : account.debt_last_accrued_at
     wallet.foreign_amount = formatUnits(holdings); wallet.cost_basis = formatUnits(basis)
-    Object.assign(target, { principal_foreign: formatUnits(principal), interest_foreign: formatUnits(interest), restricted_gold: formatUnits(lock), proceeds_basis_gold: formatUnits(proceeds), interest_last_accrued_at: principal + interest === 0n ? null : legs.some(v => v.purpose === 'short_open') ? new Date(now).toISOString() : target.interest_last_accrued_at })
-    Object.assign(result, { growth_amount: formatUnits(growth), output_amount: formatUnits(legs.reduce((sum, v) => sum + units(v.output_amount), 0n)), fee_amount: formatUnits(legs.reduce((sum, v) => sum + units(v.fee_amount), 0n)), wallet_after: formatUnits(holdings), foreign_debt_after: formatUnits(owed), cash_delta: formatUnits(cash - units(account.cash)), gold_debt_delta: formatUnits(debt - units(account.debt)), restricted_gold_delta: formatUnits(lock - ownLock), final_direction: holdings > 0n ? 'long' : owed > 0n ? 'short' : 'flat' })
+    Object.assign(target, { principal_foreign: formatUnits(principal), interest_foreign: formatUnits(interest), proceeds_basis_gold: formatUnits(proceeds), interest_last_accrued_at: principal + interest === 0n ? null : legs.some(v => v.purpose === 'short_open') ? new Date(now).toISOString() : target.interest_last_accrued_at })
+    Object.assign(result, { growth_amount: formatUnits(growth), output_amount: formatUnits(legs.reduce((sum, v) => sum + units(v.output_amount), 0n)), fee_amount: formatUnits(legs.reduce((sum, v) => sum + units(v.fee_amount), 0n)), wallet_after: formatUnits(holdings), foreign_debt_after: formatUnits(owed), cash_delta: formatUnits(cash - units(account.cash)), gold_debt_delta: formatUnits(debt - units(account.debt)), final_direction: holdings > 0n ? 'long' : owed > 0n ? 'short' : 'flat' })
     if (!rules.fx_enabled) block('FX trading is disabled')
     if (!a.is_active) block('account_inactive')
     if (p.status !== 'trading' && !(p.status === 'paused' && p.reduce_only)) block('FX pair is not trading')
@@ -151,7 +147,7 @@ function simulateFxOrderInternal(account: AccountBasis, pricing: FxPricingGroup,
       if (legs.some(l => l.purpose === 'short_open') && !rules.fx_short_enabled) block('FX short opening is disabled')
       if ((borrow || legs.some(l => l.purpose === 'short_open')) && !rules.loan_enabled) block('loan_disabled')
     }
-    if ([cash, debt, holdings, basis, lock, units(p.gold_reserve), units(p.foreign_reserve)].some(v => v < 0n || v > FX_MAX)) block('trade exceeds storage limit')
+    if ([cash, debt, holdings, basis, units(p.gold_reserve), units(p.foreign_reserve)].some(v => v < 0n || v > FX_MAX)) block('trade exceeds storage limit')
     result.account_preview = valueTradingAccount(a, [p], rules, now, undefined, result.interest_uncertainty)
     const owes = debt > 0n || a.fx_shorts.some(v => units(v.principal_foreign) + units(v.interest_foreign) > 0n)
     if (growth && owes) {

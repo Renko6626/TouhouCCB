@@ -45,8 +45,8 @@ async def _seed_user_with_headers(**kwargs):
     return uid, {"Authorization": f"Bearer {token}"}
 
 
-async def _seed_short_lock(uid: int, *, lock: str = "80", principal: str = "10") -> None:
-    """Persist a restricted short lock that is already part of the user's cash."""
+async def _seed_short(uid: int, *, principal: str = "10") -> None:
+    """Persist a foreign short obligation."""
     async with async_session_maker() as s:
         pair = FxPair(
             currency_code=uuid.uuid4().hex[:16], currency_name="test",
@@ -57,7 +57,6 @@ async def _seed_short_lock(uid: int, *, lock: str = "80", principal: str = "10")
         await s.flush()
         s.add(FxShortPosition(
             user_id=uid, pair_id=pair.id, principal_foreign=Decimal(principal),
-            restricted_gold=Decimal(lock),
             interest_last_accrued_at=datetime.now(timezone.utc),
         ))
         await s.commit()
@@ -153,10 +152,10 @@ async def test_deduct_skips_when_would_go_negative(client, admin_headers):
 
 
 @pytest.mark.asyncio
-async def test_dry_run_debit_below_short_lock_matches_execution(client, admin_headers):
-    """C=100, S=80, debit=30: preview skips it and total_delta excludes it."""
+async def test_dry_run_debit_with_short_debt_matches_execution(client, admin_headers):
+    """Cash 100 with a small short debt admits a 30 debit in preview and execution."""
     uid = await _seed_user(cash=Decimal("100"))
-    await _seed_short_lock(uid, lock="80")
+    await _seed_short(uid)
 
     payload = {
         "filter": {"user_id_min": uid, "user_id_max": uid},
@@ -170,10 +169,10 @@ async def test_dry_run_debit_below_short_lock_matches_execution(client, admin_he
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["matched_count"] == 1
-    assert data["eligible_count"] == 0
-    assert data["will_fail_count"] == 1
-    assert data["total_delta"] == 0.0
-    assert data["matched_users"][0]["will_fail"] is True
+    assert data["eligible_count"] == 1
+    assert data["will_fail_count"] == 0
+    assert data["total_delta"] == -30.0
+    assert data["matched_users"][0]["will_fail"] is False
 
     payload["dry_run"] = False
     resp = await client.post(
@@ -181,11 +180,11 @@ async def test_dry_run_debit_below_short_lock_matches_execution(client, admin_he
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["updated_count"] == 0
-    assert data["failed_count"] == 1
-    assert data["total_delta"] == 0.0
+    assert data["updated_count"] == 1
+    assert data["failed_count"] == 0
+    assert data["total_delta"] == -30.0
     async with async_session_maker() as s:
-        assert (await s.get(User, uid)).cash == Decimal("100")
+        assert (await s.get(User, uid)).cash == Decimal("70")
 
 
 @pytest.mark.asyncio

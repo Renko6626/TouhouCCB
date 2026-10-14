@@ -157,9 +157,8 @@ export function valueTradingAccount(account: AccountBasis, groups: PricingGroup[
     cash = decimal(account.cash)
     uncertainty = add(uncertainty, decimal(inheritedUncertainty?.equity ?? '0'))
     approximate ||= units(inheritedUncertainty?.equity ?? '0') > 0n
-    if (account.fx_wallets.some(v => units(v.foreign_amount) < 0n) || account.fx_shorts.some(v => [v.principal_foreign, v.interest_foreign, v.restricted_gold, v.proceeds_basis_gold].some(amount => units(amount) < 0n))) throw new Error('invalid negative position')
-    available = formatUnits(units(account.cash) - account.fx_shorts.reduce((s, v) => s + units(v.restricted_gold), 0n))
-    if (units(available) < 0n) fail('restricted_exceeds_cash', false)
+    if (account.fx_wallets.some(v => units(v.foreign_amount) < 0n) || account.fx_shorts.some(v => [v.principal_foreign, v.interest_foreign, v.proceeds_basis_gold].some(amount => units(amount) < 0n))) throw new Error('invalid negative position')
+    available = formatUnits(units(account.cash))
     const accrued = accrueTradingDebt(account.debt, account.debt_last_accrued_at, rules.loan_daily_rate, now)
     if (units(accrued.amount) > FX_MAX) throw new Error('gold debt storage overflow')
     debt = decimal(accrued.amount); goldDebtKnown = true; uncertainty = add(uncertainty, add(decimal(accrued.uncertainty), decimal(inheritedUncertainty?.gold ?? '0'))); approximate ||= accrued.approximate || units(inheritedUncertainty?.gold ?? '0') > 0n

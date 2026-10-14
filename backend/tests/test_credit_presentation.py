@@ -98,7 +98,7 @@ async def test_public_liquidation_exposes_product_only(client):
 @pytest.mark.parametrize('status,quantity,expected', [
     ('trading', '100', 'danger'), ('trading', '5000', 'blocked'), ('paused', '100', 'danger')])
 async def test_short_account_and_quota_keep_gold_debt_separate(client, status, quantity, expected):
-    """Locked proceeds are not spendable; unquotable debt cannot appear healthy."""
+    """Cash remains spendable; unquotable debt cannot appear healthy."""
     from app.models.base import SiteConfig, LiquidationEvent
     from app.models.fx import FxShortPosition
     uid, headers = await _make_user(cash=Decimal('21'))
@@ -119,7 +119,7 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
         pid = pair.id
         db.add(FxShortPosition(user_id=uid, pair_id=pid,
             principal_foreign=Decimal(quantity), interest_foreign=Decimal('1'),
-            restricted_gold=Decimal('20'), proceeds_basis_gold=Decimal('20'),
+            proceeds_basis_gold=Decimal('20'),
             interest_last_accrued_at=clock))
         db.add(LiquidationEvent(user_id=uid, triggered_at=clock, product='fx',
             pre_cash=21, pre_debt=0, pre_holdings_value=None, pre_net_worth=None,
@@ -129,8 +129,7 @@ async def test_short_account_and_quota_keep_gold_debt_separate(client, status, q
     response = await client.get('/api/v1/user/summary', headers=headers)
     assert response.status_code == 200, response.text
     data = response.json()
-    assert data['cash'] == 21 and Decimal(str(data['available_cash'])) == 1
-    assert Decimal(str(data['restricted_cash'])) == 20
+    assert data['cash'] == 21 and Decimal(str(data['available_cash'])) == 21
     assert data['debt'] == data['debt_with_interest'] == 0
     assert data['risk_status'] == expected
     short = data['short_positions'][0]

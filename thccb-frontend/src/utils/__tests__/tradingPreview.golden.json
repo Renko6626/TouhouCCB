@@ -149,7 +149,6 @@
       "held": "10",
       "principal": "0",
       "interest": "0",
-      "lock": "0",
       "quote": {
         "pair_id": 1,
         "side": "sell",
@@ -177,7 +176,6 @@
         "foreign_debt_after": "0",
         "cash_delta": "4.914004",
         "gold_debt_delta": "0",
-        "restricted_gold_delta": "0",
         "growth_amount": "0",
         "borrow_amount": "0",
         "repaid_gold": "0",
@@ -195,7 +193,6 @@
       "held": "0",
       "principal": "1",
       "interest": "0.1",
-      "lock": "5",
       "quote": {
         "pair_id": 1,
         "side": "buy",
@@ -236,7 +233,6 @@
         "foreign_debt_after": "0.0",
         "cash_delta": "-10.000000",
         "gold_debt_delta": "0",
-        "restricted_gold_delta": "-5",
         "growth_amount": "18.459901",
         "borrow_amount": "0",
         "repaid_gold": "0",
@@ -254,7 +250,6 @@
       "held": "0",
       "principal": "1",
       "interest": "0.1",
-      "lock": "5",
       "quote": {
         "pair_id": 1,
         "side": "buy",
@@ -282,7 +277,6 @@
         "foreign_debt_after": "0.705019",
         "cash_delta": "-0.2",
         "gold_debt_delta": "0",
-        "restricted_gold_delta": "-1.795368",
         "growth_amount": "0",
         "borrow_amount": "0",
         "repaid_gold": "0",

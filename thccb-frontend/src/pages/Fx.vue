@@ -266,7 +266,7 @@ const spotHoldingClosePnl = computed(() => {
 })
 const newShortLeg = computed(() => quote.value?.legs.find(leg => leg.purpose === 'short_open'))
 const crossesPosition = computed(() => (quote.value?.legs.length ?? 0) > 1)
-const spotOutputLabel = computed(() => side.value === 'sell' ? (newShortLeg.value && !crossesPosition.value ? '预计所得（锁定）' : '预计所得')
+const spotOutputLabel = computed(() => side.value === 'sell' ? '预计所得'
   : crossesPosition.value ? '预计买回（含回补）' : quote.value?.legs[0]?.purpose === 'short_cover' ? '预计回补' : '预计新增持仓')
 const shortNotice = computed(() => {
   if (shortError.value || shortQuoteError.value) return shortError.value || shortQuoteError.value
@@ -498,7 +498,7 @@ watch(localShortPreview, (local) => {
     requested_foreign_amount: order.body.foreign_amount ?? null, cover_all: !!order.body.cover_all,
     actual_foreign_amount: foreign, input_amount: budget, output_amount: p.output_amount,
     fee_amount: p.fee_amount, fee_currency: order.body.action === 'open' ? currencyName.value : '金圆券',
-    restricted_gold_delta: p.restricted_gold_delta, available_cash: account?.available_cash ?? null,
+    available_cash: account?.available_cash ?? null,
     affordable: p.rejected_reasons.length === 0, estimated_equity: account?.liquidation_equity ?? null,
     estimated_risk_basis: account?.risk_basis ?? null, margin_status: risk, risk_status: risk,
     risk_blocked_reason: account?.unknown_reasons.join('、') || null,
@@ -681,7 +681,7 @@ const shortSubmitSummary = computed(() => {
   const q = shortQuote.value
   if (!q || !shortCanSubmit.value || submitting.value || pendingRisk.value) return null
   const foreign = q.actual_foreign_amount
-  const gold = shortAction.value === 'open' ? q.restricted_gold_delta : q.input_amount
+  const gold = shortAction.value === 'open' ? q.output_amount : q.input_amount
   return foreign != null && gold != null ? { foreign, gold, receiving: shortAction.value === 'open' } : null
 })
 const pendingShortInterest = computed(() => {
@@ -700,7 +700,6 @@ const fundingAmounts = computed(() =>
   fxNetFundingPreview(
     amount.value,
     summary.value,
-    shortPosition.value?.pair_id === pairId.value ? shortPosition.value : null,
     null,
   ),
 )
@@ -712,7 +711,6 @@ const fundingPreview = computed(() =>
     ? fxNetFundingPreview(
         amount.value,
         summary.value,
-        shortPosition.value?.pair_id === pairId.value ? shortPosition.value : null,
         quote.value,
       )
     : null,
@@ -767,6 +765,10 @@ const riskLabels = {
   unestimated: '未生成风险预估',
 }
 const accountRiskLabel = computed(() => riskLabels[accountRisk.value])
+const initialPercent = computed(() => {
+  const ratio = tradingSession.rules?.initial_ratio
+  return ratio == null ? '—' : `${displayAmount(multiplyFxAmount(ratio, '100'), 2)}%`
+})
 const maintenancePercent = computed(() => {
   const ratio = tradingSession.rules?.maintenance_ratio
   return ratio == null ? '—' : `${displayAmount(multiplyFxAmount(ratio, '100'), 2)}%`
@@ -959,8 +961,8 @@ async function submitShort() {
     const account = localShortPreview.value?.preview.account_preview
     await borrowConfirmation.request({
       kind: 'short', currency: currencyName.value, borrowAmount: quantity, cashInput: null,
-      quantity, lockedGold: q.restricted_gold_delta, equity: q.estimated_equity,
-      basis: q.estimated_risk_basis, maintenance: tradingSession.rules?.maintenance_ratio ?? null,
+      quantity, saleProceeds: q.output_amount, equity: q.estimated_equity,
+      basis: q.estimated_risk_basis, initial: tradingSession.rules?.initial_ratio ?? null, maintenance: tradingSession.rules?.maintenance_ratio ?? null,
       reliable: !!account && account.risk_status !== 'unknown',
     }, Date.parse(q.expires_at), execute)
   } else await execute()
@@ -996,7 +998,7 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
     shortGoldAmount.value = ''
     shortError.value = ''
     syncPendingOrders()
-    msg.success(result.purpose === 'short_open' ? '开空已成交，所得已锁定用于回补' : '回补已成交')
+    msg.success(result.purpose === 'short_open' ? '开空已成交，所得已计入现金' : '回补已成交')
     await refreshAll()
     if (!current()) return
     chartReloadToken.value++
@@ -1203,7 +1205,7 @@ watch(localOrderPreview, (p) => {
     pair_id: order.pairId, side: order.body.side, input_amount: order.body.amount,
     output_amount: p.output_amount, fee_amount: p.fee_amount, post_price: divideFxAmount(g, f, 12) ?? '0', legs,
     final_direction: p.final_direction, wallet_after: p.wallet_after, foreign_debt_after: p.foreign_debt_after,
-    cash_delta: p.cash_delta, gold_debt_delta: p.gold_debt_delta, restricted_gold_delta: p.restricted_gold_delta,
+    cash_delta: p.cash_delta, gold_debt_delta: p.gold_debt_delta,
     growth_amount: p.growth_amount, borrow_amount: order.body.borrow_amount, repaid_gold: p.repaid_gold,
     executable: p.condition === 'satisfied' || (closeOnly.value && p.condition === 'unknown' && p.rejected_reasons.length === 0 && compareFxAmounts(p.growth_amount, '0') === 0),
     blocked_reason: p.rejected_reasons[0] ?? (p.condition === 'unknown' ? p.unchecked_reasons[0] ?? '估值未知' : null),
@@ -1288,9 +1290,9 @@ async function submitTrade() {
     await borrowConfirmation.request({
       ...borrowing, currency: currencyName.value,
       cashInput: fundingPreview.value?.cashInput ?? null,
-      lockedGold: borrowing.kind === 'short' ? borrowing.lockedGold : fundingPreview.value?.lockedInput ?? null,
+      saleProceeds: borrowing.saleProceeds,
       equity: account?.liquidation_equity ?? null, basis: account?.risk_basis ?? null,
-      maintenance: tradingSession.rules?.maintenance_ratio ?? null,
+      initial: tradingSession.rules?.initial_ratio ?? null, maintenance: tradingSession.rules?.maintenance_ratio ?? null,
       reliable: !!account && account.risk_status !== 'unknown',
     }, Date.parse(q.expires_at), execute)
   } else await execute()
@@ -1418,7 +1420,7 @@ onUnmounted(() => {
           }}</strong>
         </div>
         <div>
-          可用现金
+          现金余额
           <strong>{{
             summaryLoading
               ? '刷新中…'
@@ -1659,7 +1661,6 @@ onUnmounted(() => {
                 <p>平仓预估包含手续费和价格影响，未扣金圆券借款利息。</p>
               </div>
               <div v-if="hasShortHolding" class="fx-position-extra">
-                <div class="fx-preview-row"><span>锁定所得</span><strong>{{ displayAmount(shortPosition?.restricted_gold, 2) }} 金圆券</strong></div>
                 <div class="fx-preview-row"><span>借币本金</span><strong>{{ displayAmount(shortPosition?.principal_foreign) }} {{ currencyName }}</strong></div>
                 <div class="fx-preview-row"><span>已计／待计利息</span><strong>{{ displayAmount(shortPosition?.interest_foreign) }} / {{ displayAmount(pendingShortInterest) }} {{ currencyName }}</strong></div>
                 <p>盈亏按剩余开空所得减去预计回补支出估算，包含利息、手续费和价格影响。</p>
@@ -1762,10 +1763,6 @@ onUnmounted(() => {
                     <span>现金</span
                     ><strong>{{ displayAmount(fundingPreview?.cashInput, 2) }}</strong>
                   </div>
-                  <div v-if="compareFxAmounts(fundingPreview?.lockedInput, '0') !== 0">
-                    <span>锁金</span
-                    ><strong>{{ displayAmount(fundingPreview?.lockedInput, 2) }}</strong>
-                  </div>
                   <div v-if="compareFxAmounts(fundingPreview?.shortfall, '0') !== 0">
                     <span>借款</span
                     ><strong>{{
@@ -1818,7 +1815,7 @@ onUnmounted(() => {
                 </template>
                 <div v-if="compareFxAmounts(quote.repaid_gold, '0') === 1" class="fx-preview-row"><span>自动还款</span><strong>{{ displayAmount(quote.repaid_gold, 2) }} 金圆券</strong></div>
               </div>
-              <div v-if="amountValid" class="fx-order-margin"><div class="fx-preview-row"><span>预计成交后保证金率</span><strong>{{ postTradeMarginDisplay }}</strong></div><small>维持门槛 {{ maintenancePercent }}，低于门槛将被强平</small></div>
+              <div v-if="amountValid" class="fx-order-margin"><div class="fx-preview-row"><span>预计成交后保证金率</span><strong>{{ postTradeMarginDisplay }}</strong></div><small>初始门槛 {{ initialPercent }}；维持门槛 {{ maintenancePercent }}，低于维持门槛将被强平</small></div>
               <div class="fx-submit-state" role="status">
                 <span v-if="tradeError || tradeBlockReason" class="fx-error">{{ tradeError || tradeBlockReason }}</span
                 ><span v-else-if="submitting" class="fx-hint">提交中…</span
@@ -1916,13 +1913,13 @@ onUnmounted(() => {
               <div v-if="shortValid" class="fx-quote-box" aria-label="空头交易报价">
                 <div class="fx-short-funding">
                   <div class="fx-preview-row">
-                    <span>{{ shortAction === 'open' ? '预计锁定所得' : '预计回补成本' }}</span
+                    <span>{{ shortAction === 'open' ? '预计卖出所得' : '预计回补成本' }}</span
                     ><strong
                       >{{
                         shortQuote
                           ? displayAmount(
                               shortAction === 'open'
-                                ? shortQuote.restricted_gold_delta
+                                ? shortQuote.output_amount
                                 : shortQuote.input_amount,
                             )
                           : '—'
@@ -1933,8 +1930,8 @@ onUnmounted(() => {
                   <p>
                     {{
                       shortAction === 'open'
-                        ? '所得锁定用于回补。'
-                        : '优先使用本仓锁金。'
+                        ? '卖出所得计入现金。'
+                        : '使用账户现金支付回补成本。'
                     }}
                   </p>
                 </div>
@@ -1972,7 +1969,7 @@ onUnmounted(() => {
                   :unavailable="shortCloseUnavailable"
                 />
               </div>
-              <div v-if="shortValid" class="fx-order-margin"><div class="fx-preview-row"><span>预计成交后保证金率</span><strong>{{ postTradeMarginDisplay }}</strong></div><small>维持门槛 {{ maintenancePercent }}，低于门槛将被强平</small></div>
+              <div v-if="shortValid" class="fx-order-margin"><div class="fx-preview-row"><span>预计成交后保证金率</span><strong>{{ postTradeMarginDisplay }}</strong></div><small>初始门槛 {{ initialPercent }}；维持门槛 {{ maintenancePercent }}，低于维持门槛将被强平</small></div>
               <div class="fx-submit-state" role="status">
                 <span v-if="shortNotice" class="fx-error">{{ shortNotice }}</span>
                 <span v-else-if="shortQuote?.risk_blocked_reason" class="fx-hint">{{ shortBlockMessage(shortQuote.risk_blocked_reason) }}</span>
@@ -2053,8 +2050,7 @@ onUnmounted(() => {
           </p>
           <p v-if="receipt.trade.side === 'sell'">
             自动还款 {{ displayAmount(receipt.trade.repaid_gold, 2) }} 金圆券，现金变化
-            {{ displayAmount(receipt.trade.cash_delta, 2) }} 金圆券，锁金变化
-            {{ displayAmount(receipt.trade.restricted_gold_delta, 2) }} 金圆券。
+            {{ displayAmount(receipt.trade.cash_delta, 2) }} 金圆券。
           </p>
         </details>
       </section>
@@ -2062,7 +2058,7 @@ onUnmounted(() => {
         <h2>
           {{
             shortReceipt.purpose === 'short_open'
-              ? '做空已成交，所得锁定'
+              ? '做空已成交，所得已计入现金'
               : '空头平仓已成交，外币已归还'
           }}
         </h2>

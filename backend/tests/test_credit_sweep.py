@@ -108,7 +108,6 @@ async def test_warning_and_unknown_cover_scan_preserves_funds():
         s.add_all([warning, blocked, pair]); await s.flush()
         s.add(FxShortPosition(user_id=blocked.id, pair_id=pair.id,
                              principal_foreign=D('1000'), interest_last_accrued_at=datetime.now(timezone.utc),
-                             restricted_gold=D('0'),
                              proceeds_basis_gold=D('0')))
         await s.commit(); warning_id, blocked_id = warning.id, blocked.id
     result = await liquidation_sweep.run_liquidation_sweep_once()

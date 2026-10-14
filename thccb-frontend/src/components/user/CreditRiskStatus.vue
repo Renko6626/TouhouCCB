@@ -25,7 +25,9 @@ const label = computed(() => ({ healthy: '健康', warning: '低于开仓门槛'
 <template>
   <div class="credit-risk" :class="`credit-risk-${status}`">
     <div class="credit-risk-head"><span>{{ title }}</span><span class="credit-risk-badge">{{ label }}</span></div>
-    <strong class="credit-risk-ratio">{{ blocked || noRisk ? '—' : percent(ratio) }}</strong>
+    <slot name="ratio" :formatted-ratio="blocked || noRisk ? '—' : percent(ratio)">
+      <strong class="credit-risk-ratio">{{ blocked || noRisk ? '—' : percent(ratio) }}</strong>
+    </slot>
     <div class="credit-risk-thresholds">
       <span>开仓 / 恢复门槛 <b>≥ {{ percent(initialRatio) }}</b></span>
       <span>强平触发线 <b>&lt; {{ percent(maintenanceRatio) }}</b></span>

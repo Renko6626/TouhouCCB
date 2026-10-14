@@ -20,12 +20,13 @@ async def test_complete_private_basis_and_missing_identity():
         db.add_all([user, other, market, *pairs]); await db.flush()
         outcomes = [Outcome(market_id=market.id, label=str(i), total_shares=Decimal(i)) for i in (3,7)]
         db.add_all(outcomes); await db.flush()
-        db.add_all([Position(user_id=user.id,outcome_id=outcomes[0].id,amount=Decimal('2'),cost_basis=Decimal('1')), Position(user_id=other.id,outcome_id=outcomes[1].id,amount=Decimal('99')), FxWallet(user_id=user.id,pair_id=pairs[0].id,foreign_amount=Decimal('10')), FxShortPosition(user_id=user.id,pair_id=pairs[1].id,principal_foreign=Decimal('5'),interest_foreign=Decimal('1'),interest_last_accrued_at=clock,restricted_gold=Decimal('7'),proceeds_basis_gold=Decimal('6'))]); await db.commit()
+        db.add_all([Position(user_id=user.id,outcome_id=outcomes[0].id,amount=Decimal('2'),cost_basis=Decimal('1')), Position(user_id=other.id,outcome_id=outcomes[1].id,amount=Decimal('99')), FxWallet(user_id=user.id,pair_id=pairs[0].id,foreign_amount=Decimal('10')), FxShortPosition(user_id=user.id,pair_id=pairs[1].id,principal_foreign=Decimal('5'),interest_foreign=Decimal('1'),interest_last_accrued_at=clock,proceeds_basis_gold=Decimal('6'))]); await db.commit()
         registry = PricingRegistry(async_session_maker)
         result = await read_trading_context(db,user.id,registry=registry)
         assert result.account.cash == '100.000000' and result.account.debt == '20.000000'
         assert result.account.debt_last_accrued_at and len(result.account.lmsr_positions)==1
-        assert result.account.fx_shorts[0].restricted_gold == '7.000000'
+
+        assert result.account.fx_shorts[0].proceeds_basis_gold == '6.000000'
         assert len(result.groups)==3
         lmsr = next(g for g in result.groups if g.product=='lmsr')
         assert lmsr.q_dec == ['3.000000','7.000000'] and lmsr.b=='1.234567890123'

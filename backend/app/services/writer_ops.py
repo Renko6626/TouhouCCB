@@ -1059,24 +1059,12 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             if defer_repay:
                 from app.services.credit.execution import accrue_gold_only
                 await accrue_gold_only(session, locked_user, cmd.daily_rate, trigger_source)
-                repay_cap = None
-            else:
-                # Cap at post-sale free cash, never the pre-sale snapshot: the sale
-                # just credited net proceeds while every short lock is unchanged,
-                # so ``account_pre.available_cash`` would under-pay gold debt.
-                if has_foreign:
-                    from app.services.credit.execution import post_sale_free_cash
-                    repay_cap = post_sale_free_cash(locked_user, account_pre)
-                else:
-                    repay_cap = None
             if not defer_repay and locked_user.cash > ZERO and locked_user.debt > ZERO:
                 from app.services import loan_service   # 局部 import 避免环
                 debt_before = locked_user.debt
                 now = loan_service._compat_now(locked_user)
                 loan_service.accrue_interest(locked_user, cmd.daily_rate, now)
                 repay_amount = min(locked_user.cash, locked_user.debt)
-                if repay_cap is not None:
-                    repay_amount = min(repay_amount, repay_cap)
                 repay_amount = repay_amount.quantize(Q6)
                 if repay_amount > ZERO:
                     repaid = await loan_service.decrease_debt_locked(

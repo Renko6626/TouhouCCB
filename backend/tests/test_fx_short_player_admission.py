@@ -77,12 +77,12 @@ async def _pair(db, *, code: str, gold: str = "1000", foreign: str = "1000",
 
 
 async def _short(db, *, user_id: int, pair_id: int, principal: str = "10",
-                 interest: str = "0", restricted: str = "0") -> FxShortPosition:
+                 interest: str = "0", basis: str = "0") -> FxShortPosition:
     total = D(principal) + D(interest)
     row = FxShortPosition(
         user_id=user_id, pair_id=pair_id,
         principal_foreign=D(principal), interest_foreign=D(interest),
-        restricted_gold=D(restricted), proceeds_basis_gold=D(restricted),
+        proceeds_basis_gold=D(basis),
         interest_last_accrued_at=datetime.now(timezone.utc) if total > 0 else None,
     )
     db.add(row)
@@ -145,7 +145,7 @@ async def test_foreign_only_short_blocks_other_pair_fx_buy():
         short = (await db.execute(select(FxShortPosition).where(
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == spid,
         ))).scalars().one()
-        assert short.principal_foreign == D("500") and short.restricted_gold == ZERO
+        assert short.principal_foreign == D("500")
         assert not GATES.held_keys()
 
 

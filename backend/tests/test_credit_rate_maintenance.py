@@ -24,7 +24,7 @@ async def seed(amount="100", invalid=None):
         db.add_all([u, pair, SiteConfig(key="loan_daily_rate", value="0.1", value_type="decimal")])
         await db.flush()
         p = FxShortPosition(user_id=u.id, pair_id=pair.id, principal_foreign=D(amount),
-                            interest_last_accrued_at=T-timedelta(days=1), restricted_gold=D("2"), proceeds_basis_gold=D("3"))
+                            interest_last_accrued_at=T-timedelta(days=1), proceeds_basis_gold=D("3"))
         db.add(p)
         if invalid:
             db.add(User(username=uuid4().hex,
@@ -45,7 +45,7 @@ async def test_old_rate_settlement_then_new_rate():
         u, p = await db.get(User, uid), await db.get(FxShortPosition, pid)
         assert u.debt == D("110") and p.interest_foreign == D("10")
         assert u.cash == D("123") and p.principal_foreign == D("100")
-        assert p.restricted_gold == D("2") and p.proceeds_basis_gold == D("3")
+        assert p.proceeds_basis_gold == D("3")
         assert u.economic_version == 1
         assert pending_debt(u, D("0.2"), T+timedelta(days=1)) == D("132")
         assert pending_short_debt(p, D("0.2"), T+timedelta(days=1)) == D("132")

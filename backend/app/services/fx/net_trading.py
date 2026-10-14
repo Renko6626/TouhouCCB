@@ -36,7 +36,6 @@ class Simulation:
     maths: list
     cash_after: Decimal
     debt_after: Decimal
-    cover_release: Decimal
     now: object
     daily_rate: Decimal
 
@@ -52,10 +51,6 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
     cash = Decimal(user.cash)
     old_debt = loan_service.pending_debt(user, rate, now)
     debt = old_debt
-    locks = sum((Decimal(p.restricted_gold) for p in positions), ZERO)
-    own_lock = Decimal(target.restricted_gold) if target else ZERO
-    remaining_lock = own_lock
-    release = ZERO
     treasury_gold = Decimal(treasury.gold_balance) if treasury else ZERO
     treasury_foreign = Decimal(treasury.foreign_balance) if treasury else ZERO
     repaid = ZERO
@@ -99,7 +94,6 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
             growth = residual
             foreign_debt += residual
             cash += q.output_amount
-            remaining_lock += q.output_amount
             if treasury_foreign < residual:
                 block('insufficient treasury foreign balance')
             treasury_foreign += q.fee_amount - residual
@@ -114,23 +108,17 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
                  quote_buy(budget, gold, foreign, pair.buy_fee_rate))
             if q.output_amount > foreign_debt:
                 raise trading.TradeRejected('cover output exceeds foreign debt')
-            full = q.output_amount == foreign_debt
-            base_release = own_lock if full else amount_down(own_lock * q.output_amount / foreign_debt)
-            free_cash = cash - locks
-            release = max(base_release, q.input_amount - free_cash)
-            if release > own_lock or cash < locks:
+            if q.input_amount > cash:
                 block('insufficient cash to cover')
-            release = min(own_lock, release)
             add('short_cover', 'buy', q)
             treasury_gold += q.fee_amount
             treasury_foreign += q.output_amount
             foreign_debt -= q.output_amount
             cash -= q.input_amount
-            remaining_lock -= release
             budget -= q.input_amount
         if budget:
             if instruction and instruction.auto_borrow:
-                available = cash - (locks - own_lock + remaining_lock)
+                available = cash
                 borrowed = max(ZERO, budget - available)
                 if borrowed > instruction.borrow_limit:
                     block('auto borrow limit exceeded')
@@ -142,7 +130,7 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
                 block('trade exceeds storage limit')
             if borrowed > budget:
                 block('borrow_amount exceeds new long budget')
-            if cash - (locks - own_lock + remaining_lock) < budget - borrowed:
+            if cash < budget - borrowed:
                 block('insufficient cash')
             cash += borrowed - budget
             debt += borrowed
@@ -190,7 +178,7 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
     basis = Decimal(wallet.cost_basis) if wallet else ZERO
     if req.side == 'buy':
         basis += sum((l.input_amount for l in legs if l.purpose in ('spot', 'borrow_buy')), ZERO)
-    values = [cash, debt, holdings, basis, remaining_lock, gold, foreign, treasury_gold, treasury_foreign,
+    values = [cash, debt, holdings, basis, gold, foreign, treasury_gold, treasury_foreign,
               *(v for q in maths for v in (q.input_amount, q.output_amount, q.fee_amount, q.post_price))]
     if any(v < 0 or v > MAX or not v.is_finite() for v in values):
         block('trade exceeds storage limit')
@@ -200,11 +188,11 @@ async def _simulate(db, user, pair, wallet, positions, treasury, req, *, now, de
         legs=legs, final_direction='long' if holdings > 0 else 'short' if foreign_debt > 0 else 'flat',
         wallet_after=holdings, foreign_debt_after=foreign_debt,
         cash_delta=cash - Decimal(user.cash), gold_debt_delta=debt - Decimal(user.debt),
-        restricted_gold_delta=remaining_lock - own_lock, growth_amount=growth,
+        growth_amount=growth,
         borrow_amount=borrowed, repaid_gold=repaid, executable=not reason,
         blocked_reason=reason, economic_version=economic_version_of(user),
         pool_version=pair.pool_version, expires_at=now + timedelta(seconds=30))
-    return Simulation(result, maths, cash, debt, release, now, rate)
+    return Simulation(result, maths, cash, debt, now, rate)
 
 
 async def _read_quote_base(db, user_id: int, pair_id: int) -> tuple[FxPair, User, FxWallet | None, FxTreasury | None]:
@@ -342,7 +330,7 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
             cover = await shorts._write_cover_ledger(db, pair=pair, user=user,
                 target=target, positions=positions, treasury=treasury, now=now,
                 quote=math, q=math.output_amount, x=math.input_amount,
-                q_effective=effective, release=simulation.cover_release,
+                q_effective=effective,
                 full_cover=math.output_amount == effective, limited_by_cash=False,
                 requested_foreign_amount=math.output_amount, cover_all=None,
                 max_gold_in=math.input_amount, idempotency_key=None, source='player',

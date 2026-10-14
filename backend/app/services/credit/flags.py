@@ -195,7 +195,6 @@ async def has_live_fx_short_obligation(session: AsyncSession) -> bool:
         select(FxShortPosition.id).where(or_(
             FxShortPosition.principal_foreign > 0,
             FxShortPosition.interest_foreign > 0,
-            FxShortPosition.restricted_gold > 0,
         )).limit(1)
     )).first() is not None
 

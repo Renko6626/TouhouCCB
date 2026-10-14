@@ -28,7 +28,6 @@ from app.models.base import LiquidationEvent, User
 from app.models.credit import LiquidationRun
 from app.models.fx import FxPair, FxShortPosition, FxTreasury
 from app.services import audit_service, loan_service
-from app.services.credit.cash import CashInvariantError
 from app.services.credit.flags import get_flags
 from app.services.credit.fx_quote import BLOCKED_SHORT_QUOTE_FAILED, quote_fx_group
 from app.services.credit.gates import GATES
@@ -166,7 +165,6 @@ async def _seed_run_snapshot(session, run, pre):
         str(position.pair_id): {
             'principal_foreign': str(position.principal_foreign),
             'interest_foreign': str(position.interest_foreign),
-            'restricted_gold': str(position.restricted_gold),
             'proceeds_basis_gold': str(position.proceeds_basis_gold),
             'interest_last_accrued_at': (
                 position.interest_last_accrued_at.isoformat()
@@ -182,7 +180,7 @@ def _blocked_short_group(pre: AccountValuation, reason):
     ``short_cover`` 组各自只带一条 ``blocked_reason``。按排序取第一个空头会把
     健康/最高 K 的 pair 记到别的 pair 的失败原因旁，而且 K 排序漂移会让同一
     逻辑阻塞换 pair、重复记 blocked 轮。只有恰好一个空头组自身原因出现在
-    *reason* 中时才归属到它；全局原因（如 ``restricted_cash_exceeds_cash``）
+    *reason* 中时才归属到它；全局原因
     或多个同原因 pair 一律返回 ``None``，由调用方中性记录，绝不认领健康 pair。
     """
     reasons = {part for part in (reason or '').split(',') if part}
@@ -249,24 +247,6 @@ async def accrue_gold_only(session, user, rate, source):
     return ZERO
 
 
-def post_sale_free_cash(user, pre) -> Decimal:
-    """卖出正资产后可用于还金债的权威现金 = 当前 ``cash − Σ锁金``。
-
-    卖出一组正资产只会增加现金，不改变任何空头的 ``restricted_gold``（本组是
-    资产组，不是空头对），所以锁内 ``pre.restricted_cash`` 仍是权威锁金快照。
-    若仍拿卖出**前**的 ``pre.available_cash`` 当还款上限，刚到手的净回款会被
-    误判为不可用，金债少还、run 无谓保持 active（spec §8.1 第 1/4 步“否则可还
-    自由现金”）。锁金高于现金属于违反 ``0<=ΣS<=C`` 的不变量：必须失败回滚，
-    绝不把差额当可用现金花掉。
-    """
-    cash = Decimal(user.cash)
-    restricted = Decimal(pre.restricted_cash)
-    if not cash.is_finite() or not restricted.is_finite() or cash < restricted:
-        raise CashInvariantError(
-            f"restricted cash exceeds total cash after sale: cash={cash}, restricted={restricted}")
-    return cash - restricted
-
-
 def public_event(session, user, run, pre, *, product, mode, sold, proceeds, repaid, source,
                  foreign_repaid=ZERO):
     """公开强平事件；未知 E 时金额字段保持 ``None``，不写 0/Infinity。"""
@@ -298,7 +278,7 @@ class Choice:
     role: str                 # "asset_sale" | "short_cover"
     mode: str                 # "partial" | "full"
     planned: Decimal | None = None   # 空头回补计划量（封顶后）
-    budget: Decimal | None = None    # 空头回补硬预算 = 未锁现金 + 本仓锁金
+    budget: Decimal | None = None    # 空头回补硬预算 = 账户现金
 
 
 @dataclass
@@ -326,8 +306,7 @@ def _short_cover_plan(group, deps, free_cash, *, mode, pct, daily_rate, now):
     """空头的纯前置检查：返回 ``(planned, budget)`` 或 ``None``。
 
     ``planned`` 是 ``ceil_6(Q_effective*partial_pct)`` 封顶 Q_effective；E<=0
-    时计划全仓。``budget = 未锁现金 + 本仓锁金``（绝不借新金债、绝不动别的
-    空头锁金，spec §8.1 第 5 步）。任何无法形成正数量成交的情形返回 ``None``，
+    时计划全仓。``budget = 账户现金``，不自动借新金债。任何无法形成正数量成交的情形返回 ``None``，
     让调用方跳到后续组。
     """
     snap = deps.snapshots.get(group.key)
@@ -353,8 +332,7 @@ def _short_cover_plan(group, deps, free_cash, *, mode, pct, daily_rate, now):
     if planned <= 0:
         return None
     requested = min(planned, q_effective)
-    own_lock = Decimal(snap.short_debt.restricted_gold)
-    budget = (free_cash + own_lock).quantize(Q6)
+    budget = free_cash.quantize(Q6)
     if budget <= 0:
         return None
     fee_rate = Decimal(pair.buy_fee_rate)
@@ -651,14 +629,11 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
                           'cover' if choice.role == 'short_cover' else 'sell',
                           defer_repay=True)
 
-    # 只有未锁现金可还金债；有空头时绝不把空头 S 花在金债上（spec §8.1 第 1 步）。
-    free_cash = pre.available_cash if has_short else pre.cash
-    free_cash = ZERO if free_cash is None else free_cash
-    cash_repay = min(max(free_cash, ZERO), pre.debt_effective)
+    # 无待执行回补时，统一账户现金可用于偿还金债。
+    cash_repay = min(max(pre.cash, ZERO), pre.debt_effective)
     cash_recovers = _recovered(thresholds, pre, has_short, debt=pre.debt_effective - cash_repay)
     if (not defer_repay) and (cash_recovers or choice is None):
-        paid = await repay(session, user, rate, source,
-                           cash_cap=(None if not has_short else pre.available_cash))
+        paid = await repay(session, user, rate, source)
         await session.flush()
         after = await value_user_detailed(session, user.id, daily_rate=rate)
         cash_recovers = _recovered(thresholds, after, has_short)
@@ -770,13 +745,11 @@ async def _execute_cover_locked(session, user, plan, fresh, *, rate, source):
             'full_cover': bool(execution.full_cover),
             'repaid_foreign': str(execution.repaid_foreign),
             'paid_gold': str(execution.paid_gold),
-            'released_lock': str(execution.released_lock),
         },
         gold_spent=execution.paid_gold, foreign_repaid=execution.repaid_foreign,
         short_after={
             'principal_foreign': str(execution.principal_foreign_after),
             'interest_foreign': str(execution.interest_foreign_after),
-            'restricted_gold': str(execution.restricted_gold_after),
             'proceeds_basis_gold': str(execution.proceeds_basis_gold_after),
         },
         fee=execution.fee_gold, fee_currency='gold', repaid=ZERO,
@@ -872,12 +845,7 @@ async def execute_user(user_id, *, rate, pct, source):
                                 repaid = ZERO
                                 await accrue_gold_only(session, user, rate, source)
                             else:
-                                # Cap at post-sale free cash, not the pre-sale
-                                # snapshot: the net proceeds just increased cash.
-                                cash_cap = (post_sale_free_cash(user, plan.pre)
-                                            if _has_foreign_obligation(plan.pre) else None)
-                                repaid = await repay(session, user, rate, source,
-                                                     cash_cap=cash_cap)
+                                repaid = await repay(session, user, rate, source)
                             quote = result.quote
                             action = await record_action(
                                 session, run=plan.run, round_no=round_no, kind='sell_group',

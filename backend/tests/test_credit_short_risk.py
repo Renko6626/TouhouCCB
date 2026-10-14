@@ -112,7 +112,7 @@ async def _pair(s, code, *, gold="1000", foreign="1000", status="trading",
     return pair
 
 
-async def _short(s, user, pair, *, principal="0", interest="0", restricted="0",
+async def _short(s, user, pair, *, principal="0", interest="0", basis="0",
                  accrued=None) -> FxShortPosition:
     total = Decimal(principal) + Decimal(interest)
     if accrued is None and total > 0:
@@ -120,7 +120,7 @@ async def _short(s, user, pair, *, principal="0", interest="0", restricted="0",
     row = FxShortPosition(
         user_id=user.id, pair_id=pair.id,
         principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
-        restricted_gold=Decimal(restricted), proceeds_basis_gold=Decimal(restricted),
+        proceeds_basis_gold=Decimal(basis),
         interest_last_accrued_at=accrued,
     )
     s.add(row)
@@ -168,7 +168,7 @@ async def _short_row(uid: int, pid: int) -> tuple:
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == pid,
         ))).scalars().one()
         return (row.principal_foreign, row.interest_foreign,
-                row.interest_last_accrued_at, row.restricted_gold)
+                row.interest_last_accrued_at)
 
 
 async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
@@ -180,7 +180,7 @@ async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
         row = await _short(s, user, pair, principal="10")
         uid, pid = int(user.id), int(pair.id)
         before = (row.principal_foreign, row.interest_foreign,
-                  row.interest_last_accrued_at, row.restricted_gold)
+                  row.interest_last_accrued_at)
 
     async with async_session_maker() as s:
         row = (await s.execute(select(User).where(User.id == uid))).scalars().one()
@@ -215,10 +215,10 @@ async def test_foreign_only_short_blocks_gold_loan_and_cash_spend():
         borrower = await _user(s, "fo_borrower", cash="5000", debt="0")
         control = await _user(s, "fo_control", cash="5000", debt="0")
         pair = await _pair(s, "fo_p", gold="1000", foreign="1000")
-        row = await _short(s, borrower, pair, principal="10", restricted="100")
+        row = await _short(s, borrower, pair, principal="10", basis="100")
         bid, cid, pid = int(borrower.id), int(control.id), int(pair.id)
         before = (row.principal_foreign, row.interest_foreign,
-                  row.interest_last_accrued_at, row.restricted_gold)
+                  row.interest_last_accrued_at)
 
     k = quote_buy_exact_out(Decimal("10"), Decimal("1000"), Decimal("1000"), ZERO).input_amount
 
@@ -254,8 +254,8 @@ async def test_post_reserve_and_pending_interest_change_k_and_admission():
         int_user = await _user(s, "k_interest", cash="100000", debt="0")
         plain = await _pair(s, "k_plain", gold="1000", foreign="1000")
         old = await _pair(s, "k_old", gold="1000", foreign="1000")
-        base_row = await _short(s, base_user, plain, principal="10", restricted="50")
-        int_row = await _short(s, int_user, old, principal="10", restricted="50",
+        base_row = await _short(s, base_user, plain, principal="10", basis="50")
+        int_row = await _short(s, int_user, old, principal="10", basis="50",
                                accrued=NOW - timedelta(days=30))
         buid, iuid, pid = int(base_user.id), int(int_user.id), int(plain.id)
         base_before = await _short_row(buid, pid)
@@ -334,7 +334,7 @@ async def test_stale_post_order_short_reserve_is_not_used():
     async with async_session_maker() as s:
         user = await _user(s, "stale_short", cash="100000", debt="0")
         pair = await _pair(s, "stale_short_p", gold="1000", foreign="1000")
-        await _short(s, user, pair, principal="10", restricted="50")
+        await _short(s, user, pair, principal="10", basis="50")
         uid, pid = int(user.id), int(pair.id)
 
     deps = await _deps(uid)
@@ -375,7 +375,7 @@ async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
             s.add(FxShortPosition(
                 user_id=uid, pair_id=pid,
                 principal_foreign=Decimal("10"), interest_foreign=ZERO,
-                restricted_gold=Decimal("50"), proceeds_basis_gold=Decimal("50"),
+                proceeds_basis_gold=Decimal("50"),
                 interest_last_accrued_at=NOW,
             ))
 
@@ -388,8 +388,8 @@ async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
     assert decision.max_borrow is None
     # No money changed and the concurrently opened short row is untouched.
     assert await _user_money(uid) == (Decimal("100000"), Decimal("0"))
-    principal, interest, accrued, restricted = await _short_row(uid, pid)
-    assert (principal, interest, restricted) == (Decimal("10"), ZERO, Decimal("50"))
+    principal, interest, accrued = await _short_row(uid, pid)
+    assert (principal, interest) == (Decimal("10"), ZERO)
     assert accrued is not None
 
 

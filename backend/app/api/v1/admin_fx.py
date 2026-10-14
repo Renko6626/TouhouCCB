@@ -347,11 +347,10 @@ async def _ensure_no_short_obligations(db: AsyncSession, pair_id: int) -> None:
         FxShortPosition.pair_id == pair_id,
         (FxShortPosition.principal_foreign > 0)
         | (FxShortPosition.interest_foreign > 0)
-        | (FxShortPosition.restricted_gold > 0)
         | (FxShortPosition.proceeds_basis_gold != 0),
     ).limit(1))).first()
     if outstanding is not None:
-        raise HTTPException(409, "FX pair has outstanding short obligations or restricted gold")
+        raise HTTPException(409, "FX pair has outstanding short obligations")
 
 
 async def _cleanup_pair(db: AsyncSession, pair_id: int) -> FxPair:

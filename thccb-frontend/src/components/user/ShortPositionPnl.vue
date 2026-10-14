@@ -5,6 +5,8 @@ import { compareFxAmounts, formatFxAmount, subtractFxAmounts } from '@/api/fx'
 const props = defineProps<{
   proceedsBasisGold: string
   referenceCoverCost: string | null
+  hideNote?: boolean
+  digits?: number
 }>()
 
 // Use the remaining proceeds basis, not restricted cash: partial covers can
@@ -19,8 +21,8 @@ const label = computed(() => direction.value === 1 ? '预计浮盈'
 <template>
   <div class="short-pnl" :class="{ profit: direction === 1, loss: direction === -1 }">
     <span class="short-pnl-label">{{ label }}</span>
-    <strong class="short-pnl-amount">{{ direction === 1 ? '+' : '' }}金 {{ formatFxAmount(pnl) }}</strong>
-    <p class="short-pnl-note">
+    <strong class="short-pnl-amount">{{ direction === 1 ? '+' : '' }}金 {{ formatFxAmount(pnl, digits ?? 6) }}</strong>
+    <p v-if="!hideNote" class="short-pnl-note">
       {{ pnl == null ? '回补成本暂不可用，盈亏无法估算。' : '剩余空头的未实现盈亏，按最近回补估值计算（含利息、手续费与滑点），实际以成交为准。' }}
     </p>
   </div>

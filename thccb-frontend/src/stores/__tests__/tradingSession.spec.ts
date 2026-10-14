@@ -146,7 +146,7 @@ it('keeps the context-to-subscribe gap provisional until the sync account target
   expect(store.ready).toBe(true)
 })
 it('preserves genuine full-cover interest uncertainty even if whole-account margin passes', async () => {
-  const data = context('1', [fx()], { ...basis, debt: '1', debt_last_accrued_at: '2025-12-31T23:59:59Z', fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: '2025-12-31T23:59:59Z', restricted_gold: '2', proceeds_basis_gold: '2' }] })
+  const data = context('1', [fx()], { ...basis, debt: '1', debt_last_accrued_at: '2025-12-31T23:59:59Z', fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: '2025-12-31T23:59:59Z', proceeds_basis_gold: '2' }] })
   data.rules = { ...rules, loan_daily_rate: '0.1' }
   const store = await boot(data)
   const owed = accrueTradingDebt('1', '2025-12-31T23:59:59Z', '0.1', store.now).amount
@@ -225,7 +225,7 @@ it('a forced versionless refresh survives coverage arriving for an older pending
 })
 
 it('allows a funded short-to-long reversal despite fractional-day interest rounding', async () => {
-  const data = context('1', [fx()], { ...basis, fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0.1', interest_last_accrued_at: time, restricted_gold: '5', proceeds_basis_gold: '5' }] })
+  const data = context('1', [fx()], { ...basis, fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0.1', interest_last_accrued_at: time, proceeds_basis_gold: '5' }] })
   data.rules = { ...rules, loan_daily_rate: '0.001' }
   const store = await boot(data)
   await vi.advanceTimersByTimeAsync(60000)

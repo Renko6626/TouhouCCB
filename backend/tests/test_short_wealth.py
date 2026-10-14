@@ -25,7 +25,7 @@ async def test_short_proceeds_display_matches_account_and_does_not_jump_rank():
         pair = await _pair(s)
         # Seed a sale: cash contains the locked proceeds, and foreign debt remains.
         user.cash += Decimal("10")
-        await _short(s, user, pair, principal="10", restricted="10")
+        await _short(s, user, pair, principal="10", basis="10")
         after = (await compute_total_net_worth(s, [user.id]))[user.id]
         account = await value_user_detailed(s, user.id, daily_rate=Decimal("0"))
         summary = await get_user_summary(user=user, db=s)
@@ -40,8 +40,8 @@ async def test_pair_prices_adjust_separate_foreign_liabilities():
         user = await _user(s, cash="100")
         p1 = await _pair(s)
         p2 = await _pair(s, gold="200")
-        await _short(s, user, p1, principal="10", restricted="10")
-        await _short(s, user, p2, principal="5", restricted="10")
+        await _short(s, user, p1, principal="10", basis="10")
+        await _short(s, user, p2, principal="5", basis="10")
         assert (await compute_total_net_worth(s, [user.id]))[user.id] == Decimal("80")
         p2.gold_reserve = Decimal("400")
         await s.commit()
@@ -65,7 +65,7 @@ async def test_unknown_marginal_debt_excluded_from_rank_and_distribution(monkeyp
             return real_quote(replace(snapshot, gold_reserve=Decimal("0")),
                               foreign_debt=foreign_debt)
         monkeypatch.setattr(valuation_mod, "quote_fx_short_group", invalid_quote)
-        await _short(s, user, pair, principal="10", restricted="10")
+        await _short(s, user, pair, principal="10", basis="10")
         assert (await compute_total_net_worth(s, [user.id]))[user.id] is None
         board = await _leaderboard_uncached(10, "net_worth", s)
         assert [item.user_id for item in board] == [known.id]

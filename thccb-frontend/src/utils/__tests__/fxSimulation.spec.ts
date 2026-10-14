@@ -8,7 +8,7 @@ export const now = '2026-01-01T00:00:00Z'
 export const pricing: FxPricingGroup = { product: 'fx', id: 1, stamp: { epoch: 'test', revision: '1', input_hash: 'x' }, as_of: now, gold_reserve: '1000', foreign_reserve: '2000', buy_fee_rate: '.01234567'.replace(/^\./, '0.'), sell_fee_rate: '0.01234567', pool_version: '1', status: 'trading', archived: false, reduce_only: false }
 export const rules: TradingRules = { rule_version: 'r', loan_daily_rate: '0', lmsr_sell_fee_rate: '0.01234567', fx_enabled: true, fx_short_enabled: true, loan_enabled: true, unified_credit_enabled: true, credit_new_risk_frozen: false, risk_engine_ready: true, leverage: '3', initial_ratio: '0.5', maintenance_ratio: '0.2' }
 export const account: AccountBasis = { user_id: 1, economic_version: '9007199254740993', cash: '100', debt: '0', debt_last_accrued_at: null, credit_frozen: false, is_active: true, is_bot: false, tos_accepted_at: now, last_liquidated_at: null, lmsr_positions: [], fx_wallets: [], fx_shorts: [] }
-const short = { pair_id: 1, principal_foreign: '1', interest_foreign: '0.1', interest_last_accrued_at: now, restricted_gold: '5', proceeds_basis_gold: '5' }
+const short = { pair_id: 1, principal_foreign: '1', interest_foreign: '0.1', interest_last_accrued_at: now, proceeds_basis_gold: '5' }
 describe('production FX stage rounding and sequential net preview', () => {
   it('retains 8dp fees, both exact-output ceil stages, large amounts and dust rejection', () => {
     const p = { ...pricing, buy_fee_rate: '0.12345678' }
@@ -24,7 +24,7 @@ describe('production FX stage rounding and sequential net preview', () => {
   })
   it('matches independent production sell, full cover then buy and partial cover outputs', () => {
     for (const vector of golden.net) {
-      const a = { ...account, cash: vector.cash, fx_wallets: [{ pair_id: 1, foreign_amount: vector.held, cost_basis: '4' }], fx_shorts: vector.principal === '0' ? [] : [{ ...short, principal_foreign: vector.principal, interest_foreign: vector.interest, restricted_gold: vector.lock }] }
+      const a = { ...account, cash: vector.cash, fx_wallets: [{ pair_id: 1, foreign_amount: vector.held, cost_basis: '4' }], fx_shorts: vector.principal === '0' ? [] : [{ ...short, principal_foreign: vector.principal, interest_foreign: vector.interest, proceeds_basis_gold: short.proceeds_basis_gold }] }
       const p = simulateFxOrder(a, pricing, rules, { side: vector.side as 'buy' | 'sell', amount: vector.amount }, now)
       expect(p.condition).toBe('satisfied')
       expect(units(p.account_after.fx_wallets[0]!.foreign_amount)).toBe(units(vector.quote.wallet_after))
@@ -32,8 +32,8 @@ describe('production FX stage rounding and sequential net preview', () => {
       expect(p.legs.map(v => [units(v.input_amount), units(v.output_amount), units(v.fee_amount)])).toEqual(vector.quote.legs.map(v => [units(v.input_amount), units(v.output_amount), units(v.fee_amount)]))
     }
   })
-  it('uses the first sell leg reserves for the short-opening leg and preserves other locks', () => {
-    const a = { ...account, fx_wallets: [{ pair_id: 1, foreign_amount: '10', cost_basis: '4' }], fx_shorts: [{ ...short, pair_id: 2, restricted_gold: '90' }] }
+  it('uses the first sell leg reserves for the short-opening leg and preserves other short positions', () => {
+    const a = { ...account, fx_wallets: [{ pair_id: 1, foreign_amount: '10', cost_basis: '4' }], fx_shorts: [{ ...short, pair_id: 2 }] }
     const preview = simulateFxOrder(a, pricing, rules, { side: 'sell', amount: '15' }, now)
     expect(preview.legs.map(v => v.purpose)).toEqual(['spot', 'short_open'])
     expect(preview.legs[0]!.output_amount).toBe('4.914004')
@@ -41,13 +41,14 @@ describe('production FX stage rounding and sequential net preview', () => {
     expect(preview.legs[1]!.fee_amount).toBe('0.061729')
     expect(preview.legs[1]!.post_gold_reserve).toBe('992.647061')
     expect(preview.legs[1]!.post_foreign_reserve).toBe('2014.814814')
-    expect(preview.account_after.fx_shorts.find(v => v.pair_id === 2)!.restricted_gold).toBe('90')
+    expect(preview.account_after.fx_shorts.find(v => v.pair_id === 2)!.proceeds_basis_gold).toBe('5')
     expect(preview.condition).toBe('unknown') // other debt group has no snapshot
     expect(a.cash).toBe('100')
   })
-  it('does not spend other locks or borrow money on a cover leg', () => {
-    const a = { ...account, cash: '5', fx_shorts: [{ ...short, restricted_gold: '0' }, { ...short, pair_id: 2, restricted_gold: '5' }] }
-    expect(simulateFxOrder(a, pricing, rules, { side: 'buy', amount: '1', borrow_amount: '1' }, now).rejected_reasons).toContain('insufficient cash to cover')
+  it('spends unified cash on covers and does not borrow money on a cover leg', () => {
+    const a = { ...account, cash: '5', fx_shorts: [{ ...short }, { ...short, pair_id: 2 }] }
+    expect(simulateFxOrder(a, pricing, rules, { side: 'buy', amount: '1' }, now).rejected_reasons).not.toContain('insufficient cash to cover')
+    expect(simulateFxOrder({ ...a, cash: '0.1' }, pricing, rules, { side: 'buy', amount: '1' }, now).rejected_reasons).toContain('insufficient cash to cover')
     expect(simulateFxOrder({ ...account, fx_shorts: [short] }, pricing, rules, { side: 'buy', amount: '0.2', borrow_amount: '0.1' }, now).rejected_reasons).toContain('financing requires a new long leg')
   })
   it('rejects intermediate funded cash and every-leg post-price overflow despite in-range final balances', () => {
@@ -81,11 +82,11 @@ describe('production FX stage rounding and sequential net preview', () => {
 })
 
 
-it('simulates legacy partial cover exact foreign output and its own released lock', () => {
+it('simulates legacy partial cover exact foreign output and proportionally reduces the proceeds basis', () => {
   const pool = { ...pricing, gold_reserve: '1', foreign_reserve: '1000000', buy_fee_rate: '0', sell_fee_rate: '0' }
   const a = { ...account, cash: '0.000004', credit_frozen: true, fx_shorts: [
-    { ...short, principal_foreign: '1.4', interest_foreign: '0.1', restricted_gold: '0.000003', proceeds_basis_gold: '0.000003' },
-    { ...short, pair_id: 2, principal_foreign: '1', interest_foreign: '0', restricted_gold: '0.000001', proceeds_basis_gold: '0.000001' },
+    { ...short, principal_foreign: '1.4', interest_foreign: '0.1', proceeds_basis_gold: '0.000003' },
+    { ...short, pair_id: 2, principal_foreign: '1', interest_foreign: '0', proceeds_basis_gold: '0.000001' },
   ] }
   const p = simulateFxShortCover(a, pool, rules, '1', now)
   expect(p.condition).toBe('satisfied')
@@ -93,17 +94,17 @@ it('simulates legacy partial cover exact foreign output and its own released loc
     post_gold_reserve: '1.000002', post_foreign_reserve: '999999.000000' })
   expect(p.foreign_debt_after).toBe('0.500000')
   expect(p.account_after.fx_shorts[0]).toMatchObject({ principal_foreign: '0.500000', interest_foreign: '0.000000',
-    restricted_gold: '0.000001', proceeds_basis_gold: '0.000001', interest_last_accrued_at: now })
-  expect(p.account_after.fx_shorts[1]?.restricted_gold).toBe('0.000001')
+    proceeds_basis_gold: '0.000001', interest_last_accrued_at: now })
+  expect(p.account_after.fx_shorts[1]?.proceeds_basis_gold).toBe('0.000001')
   expect(p.account_after.cash).toBe('0.000002')
   expect(p.growth_amount).toBe('0.000000')
   const whole = valueFxPostTrade(a, p, [pool, { ...pricing, id: 2 }], rules, now)
   expect(whole.liquidation_equity).not.toBeNull()
-  expect(whole.available_cash).toBe('0.000000')
+  expect(whole.available_cash).toBe('0.000002')
   const all = simulateFxShortCover({ ...a, cash: '0.000005' }, pool, rules, null, now)
   expect(all.output_amount).toBe('1.500000')
   expect(all.foreign_debt_after).toBe('0.000000')
-  expect(all.account_after.fx_shorts[0]?.restricted_gold).toBe('0.000000')
+  expect(all.account_after.fx_shorts[0]?.proceeds_basis_gold).toBe('0.000000')
   expect(all.account_after.fx_shorts[0]?.interest_last_accrued_at).toBeNull()
   const feeCover = simulateFxShortCover({ ...account, fx_shorts: [{ ...short, principal_foreign: '2', interest_foreign: '0.1' }] },
     { ...pricing, buy_fee_rate: '0.12345678' }, rules, '1.000001', now)

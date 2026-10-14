@@ -95,7 +95,7 @@ class _StalePostState(Exception):
 
 @dataclass(frozen=True)
 class ShortDebtSnapshot:
-    """持久化的空头欠币（本金/利息/时点）与锁金，用于按 T 计息。
+    """持久化的空头欠币（本金/利息/时点），用于按 T 计息。
 
     只保存**数据库权威值**；含息数量在 check 内按统一 ``now`` 用
     ``fx.shorts.pending_short_debt`` 计算，从不落库（spec §4/§11）。
@@ -104,7 +104,6 @@ class ShortDebtSnapshot:
     principal_foreign: Decimal
     interest_foreign: Decimal
     interest_last_accrued_at: Optional[datetime]
-    restricted_gold: Decimal = ZERO
 
 
 @dataclass(frozen=True)
@@ -477,7 +476,6 @@ def _fx_snapshot_version(
         str(short_debt.principal_foreign) if short_debt is not None else "0",
         str(short_debt.interest_foreign) if short_debt is not None else "0",
         _iso(short_debt.interest_last_accrued_at) if short_debt is not None else None,
-        str(short_debt.restricted_gold) if short_debt is not None else "0",
     )
 
 
@@ -639,7 +637,6 @@ async def _load_short_snapshots(
             FxShortPosition.principal_foreign,
             FxShortPosition.interest_foreign,
             FxShortPosition.interest_last_accrued_at,
-            FxShortPosition.restricted_gold,
             FxPair.status, FxPair.reduce_only, FxPair.gold_reserve,
             FxPair.foreign_reserve, FxPair.buy_fee_rate, FxPair.sell_fee_rate,
             FxPair.pool_version,
@@ -651,7 +648,7 @@ async def _load_short_snapshots(
                | (FxShortPosition.interest_foreign > ZERO))
     )).all()
     result: dict[int, tuple[FxShortPairSnapshot, ShortDebtSnapshot]] = {}
-    for (pair_id, principal, interest, accrued, restricted,
+    for (pair_id, principal, interest, accrued,
          status, reduce_only, gold_reserve, foreign_reserve,
          buy_fee_rate, sell_fee_rate, pool_version) in rows:
         pid = int(pair_id)
@@ -666,7 +663,6 @@ async def _load_short_snapshots(
                 principal_foreign=Decimal(principal),
                 interest_foreign=Decimal(interest),
                 interest_last_accrued_at=accrued,
-                restricted_gold=Decimal(restricted),
             ),
         )
     return result
@@ -757,7 +753,6 @@ async def discover_dependencies(
             FxShortPosition.principal_foreign,
             FxShortPosition.interest_foreign,
             FxShortPosition.interest_last_accrued_at,
-            FxShortPosition.restricted_gold,
             FxPair.status, FxPair.reduce_only, FxPair.gold_reserve,
             FxPair.foreign_reserve, FxPair.buy_fee_rate, FxPair.sell_fee_rate,
             FxPair.pool_version,
@@ -768,7 +763,7 @@ async def discover_dependencies(
                | (FxShortPosition.interest_foreign > ZERO))
     )).all()
     short_debt_meta: dict[int, ShortDebtSnapshot] = {}
-    for (pair_id, principal, interest, accrued, restricted,
+    for (pair_id, principal, interest, accrued,
          status, reduce_only, gold_reserve, foreign_reserve,
          buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
         pid = int(pair_id)
@@ -789,7 +784,6 @@ async def discover_dependencies(
             principal_foreign=Decimal(principal),
             interest_foreign=Decimal(interest),
             interest_last_accrued_at=accrued,
-            restricted_gold=Decimal(restricted),
         )
 
     raw = await site_config.get_many(session, [LOAN_DAILY_RATE_KEY, SELL_FEE_RATE_KEY])

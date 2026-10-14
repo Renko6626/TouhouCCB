@@ -63,7 +63,6 @@ RISK_STATUS_OK = "ok"
 RISK_STATUS_BLOCKED = "blocked"
 
 #: 现金用途边界被破坏（0 <= S <= C 不成立），属数据错误，不伪造成已知净值。
-REASON_RESTRICTED_EXCEEDS_CASH = "restricted_cash_exceeds_cash"
 REASON_INVALID_SHORT_DEBT = "invalid_short_debt"
 
 GroupRole = Literal["asset_sale", "short_cover"]
@@ -93,7 +92,6 @@ class ShortPositionValuation:
     principal_foreign: Decimal
     interest_foreign: Decimal
     interest_last_accrued_at: datetime | None
-    restricted_gold: Decimal
     proceeds_basis_gold: Decimal
     pending_short_debt: Decimal | None
     quote: FxShortQuote | None
@@ -112,12 +110,11 @@ class AccountValuation:
     liquidation_equity: Decimal | None
     groups: tuple[GroupLiquidation, ...]
     economic_version: int
-    # ── WP2b1 空头读模型（C 已含 S，估值不重复相加）──
+    # ── 空头读模型（所得已包含在 C 中）──
     short_cover_cost: Decimal | None = None
     short_marginal_debt: Decimal | None = None
     risk_basis: Decimal | None = None
     available_cash: Decimal | None = None
-    restricted_cash: Decimal = ZERO
     risk_status: str = RISK_STATUS_OK
     blocked_reason: str | None = None
     short_positions: tuple[ShortPositionValuation, ...] = ()
@@ -221,7 +218,7 @@ async def _account_valuations(
             Decimal(foreign_amount),
         ))
 
-    # 空头（含息欠币 + 锁金）一次批量读取；不逐用户逐 pair 查公共行情。
+    # 空头（含息欠币 + 收益基准）一次批量读取；不逐用户逐 pair 查公共行情。
     short_rows = (await session.execute(
         select(
             FxShortPosition.user_id,
@@ -229,7 +226,6 @@ async def _account_valuations(
             FxShortPosition.principal_foreign,
             FxShortPosition.interest_foreign,
             FxShortPosition.interest_last_accrued_at,
-            FxShortPosition.restricted_gold,
             FxShortPosition.proceeds_basis_gold,
             FxPair.currency_code,
             FxPair.status,
@@ -244,13 +240,11 @@ async def _account_valuations(
         .where(FxShortPosition.user_id.in_(ids))
         .order_by(FxShortPosition.user_id, FxShortPosition.pair_id)
     )).all()
-    restricted_by_user: dict[int, Decimal] = {}
     shorts_by_user: dict[int, list[tuple[FxShortPairSnapshot, object]]] = {}
-    for (uid, pair_id, principal, interest, accrued, restricted, basis, code,
+    for (uid, pair_id, principal, interest, accrued, basis, code,
          status, reduce_only, gold_reserve, foreign_reserve,
          buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
         uid = int(uid)
-        restricted_by_user[uid] = restricted_by_user.get(uid, ZERO) + Decimal(restricted)
         shorts_by_user.setdefault(uid, []).append((
             FxShortPairSnapshot(
                 pair_id=int(pair_id),
@@ -264,7 +258,6 @@ async def _account_valuations(
             ),
             SimpleNamespace(
                 currency_code=code,
-                restricted_gold=Decimal(restricted),
                 proceeds_basis_gold=Decimal(basis),
                 principal_foreign=Decimal(principal),
                 interest_foreign=Decimal(interest),
@@ -359,11 +352,7 @@ async def _account_valuations(
         # 到这里 groups 只含正资产组；旧口径的 A = Σ L_asset（不可执行资产为 0）。
         asset_value = sum((group.value for group in groups if group.value is not None), ZERO)
 
-        restricted = restricted_by_user.get(uid, ZERO)
-        cash_invariant_broken = restricted > cash
-        available_cash: Decimal | None = (
-            None if cash_invariant_broken else cash - restricted
-        )
+        available_cash: Decimal | None = cash
         unknown_reasons: list[str] = []
         short_cover = ZERO
         short_marginal = ZERO
@@ -372,13 +361,12 @@ async def _account_valuations(
         short_positions: list[ShortPositionValuation] = []
         for snapshot, position in shorts_by_user.get(uid, []):
             if not any((position.principal_foreign, position.interest_foreign,
-                        position.restricted_gold, position.proceeds_basis_gold)):
+                        position.proceeds_basis_gold)):
                 continue
             fields = dict(pair_id=snapshot.pair_id, currency_code=position.currency_code,
                           principal_foreign=position.principal_foreign,
                           interest_foreign=position.interest_foreign,
                           interest_last_accrued_at=position.interest_last_accrued_at,
-                          restricted_gold=position.restricted_gold,
                           proceeds_basis_gold=position.proceeds_basis_gold)
             try:
                 foreign_debt = pending_short_debt(position, daily_rate, now)
@@ -424,10 +412,8 @@ async def _account_valuations(
             None if marginal_incomplete else short_marginal
         )
         blocked_reasons = list(unknown_reasons)
-        if cash_invariant_broken:
-            blocked_reasons.append(REASON_RESTRICTED_EXCEEDS_CASH)
         risk_status = RISK_STATUS_BLOCKED if blocked_reasons else RISK_STATUS_OK
-        equity_unknown = short_cover_cost is None or cash_invariant_broken
+        equity_unknown = short_cover_cost is None
 
         if equity_unknown:
             liquidation_equity: Decimal | None = None
@@ -471,7 +457,6 @@ async def _account_valuations(
             short_marginal_debt=short_marginal_debt,
             risk_basis=risk_basis,
             available_cash=available_cash,
-            restricted_cash=restricted,
             risk_status=risk_status,
             blocked_reason=(
                 ",".join(sorted(set(blocked_reasons))) if blocked_reasons else None

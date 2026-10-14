@@ -1,8 +1,4 @@
-"""Restricted short proceeds cannot finance other products or gold debt.
-
-These persisted scenarios catch cash-purpose violations, independently of the
-later foreign-margin integration. No simulated quote or source-text assertions.
-"""
+"""Short cash can repay gold debt; foreign debt still blocks consumption."""
 from datetime import datetime, timezone
 from decimal import Decimal
 import uuid
@@ -42,15 +38,14 @@ async def seed(*, debt="0", frozen=False, pair_status="trading"):
                         casdoor_id=uuid.uuid4().hex, is_superuser=True)
         s.add_all([user, operator])
         await s.flush()
-        for lock in ("50", "30"):
+        for _ in range(2):
             pair = FxPair(currency_code=uuid.uuid4().hex[:16], currency_name="test",
                           status=pair_status,
                           gold_reserve=D("10000"), foreign_reserve=D("10000"))
             s.add(pair)
             await s.flush()
             s.add(FxShortPosition(user_id=user.id, pair_id=pair.id,
-                                 principal_foreign=D("10"), restricted_gold=D(lock),
-                                 interest_last_accrued_at=datetime.now(timezone.utc)))
+                                 principal_foreign=D("10"), interest_last_accrued_at=datetime.now(timezone.utc)))
         await s.commit()
         return user.id, operator.id
 
@@ -58,24 +53,22 @@ async def seed(*, debt="0", frozen=False, pair_status="trading"):
 async def state(uid):
     async with async_session_maker() as s:
         user = await s.get(User, uid)
-        locks = (await s.execute(select(FxShortPosition.restricted_gold)
-                                .where(FxShortPosition.user_id == uid))).scalars().all()
-        return user.cash, user.debt, sum(locks, D("0"))
+        return user.cash, user.debt
 
 
-async def test_gold_repayment_caps_at_unrestricted_cash():
+async def test_gold_repayment_uses_total_cash():
     uid, _ = await seed(debt="70")
     async with async_session_maker() as s:
         _, repaid = await loan_service.decrease_debt(
-            s, uid, D("30"), consume_cash=True, daily_rate=D("0"), source="repay")
+            s, uid, D("100"), consume_cash=True, daily_rate=D("0"), source="repay")
         await s.commit()
-    assert repaid == D("20")
-    assert await state(uid) == (D("80"), D("50"), D("80"))
+    assert repaid == D("70")
+    assert await state(uid) == (D("30"), D("0"))
 
 
 @pytest.mark.parametrize("unified", [False, True])
-async def test_amnesty_cannot_reset_below_other_short_locks_even_when_forgiving_gold(unified):
-    uid, operator = await seed(debt="10", frozen=True)
+async def test_amnesty_resets_cash_with_short_debt_when_margin_sufficient(unified):
+    uid, operator = await seed(debt="10")
     if unified:
         flags.set_flags(CreditFlags( credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
     async with async_session_maker() as s:
@@ -84,12 +77,12 @@ async def test_amnesty_cannot_reset_below_other_short_locks_even_when_forgiving_
         result = await admin.amnesty(s, f=admin.UserFilter(user_id_min=uid, user_id_max=uid),
                                     reset_cash_to=D("70"), forgive_debt=True,
                                     reason="cash purpose", admin_id=operator, dry_run=False)
-    assert result["updated_count"] == 0
-    assert await state(uid) == (D("100"), D("10"), D("80"))
+    assert result["updated_count"] == 1
+    assert await state(uid) == (D("70"), D("0"))
 
 
 @pytest.mark.parametrize("product", ["redemption", "danmuku"])
-async def test_foreign_only_debt_blocks_consumption_even_with_unrestricted_cash(product):
+async def test_foreign_only_debt_blocks_consumption_even_with_cash(product):
     uid, _ = await seed()
     async with async_session_maker() as s:
         if product == "redemption":
@@ -110,4 +103,43 @@ async def test_foreign_only_debt_blocks_consumption_even_with_unrestricted_cash(
                                       yuan=D("10"), huo=D("0"))
         assert exc.value.code == "OUTSTANDING_DEBT"
         await s.rollback()
-    assert await state(uid) == (D("100"), D("0"), D("80"))
+    assert await state(uid) == (D("100"), D("0"))
+
+
+@pytest.mark.parametrize("buy_fee, succeeds", [("0", True), ("0.5", False)])
+async def test_open_proceeds_buy_another_pair_subject_to_initial_margin(buy_fee, succeeds):
+    from fastapi import HTTPException
+    from app.models.fx import FxWallet, FxTreasury
+    from app.services.fx import trading
+    from tests.test_fx_short_trading import _seed, _open
+
+    flags.set_flags(CreditFlags(credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
+    uid, short_pid = await _seed(cash="50")
+    await _open(uid, short_pid, "100")
+    async with async_session_maker() as s:
+        pair = FxPair(currency_code=uuid.uuid4().hex[:16], currency_name="Other",
+                      status="trading", gold_reserve=D("10000"),
+                      foreign_reserve=D("10000"), buy_fee_rate=D(buy_fee))
+        s.add(pair)
+        await s.flush()
+        s.add(FxTreasury(pair_id=pair.id, gold_balance=D("10000"), foreign_balance=D("10000")))
+        await s.commit()
+        pid = pair.id
+    before = await state(uid)
+    assert before[0] > D("100")
+    async with async_session_maker() as s:
+        if succeeds:
+            result = await trading.execute_trade(s, uid, pid, "buy", D("100"), D("0"), uuid.uuid4().hex)
+            await s.commit()
+            assert result.output_amount > 0
+        else:
+            with pytest.raises(HTTPException) as exc:
+                await trading.execute_trade(s, uid, pid, "buy", D("100"), D("0"), uuid.uuid4().hex)
+            assert "margin" in str(exc.value.detail)
+            await s.rollback()
+    after = await state(uid)
+    assert after == ((before[0] - D("100"), before[1]) if succeeds else before)
+    async with async_session_maker() as s:
+        wallet = (await s.execute(select(FxWallet).where(
+            FxWallet.user_id == uid, FxWallet.pair_id == pid))).scalar_one_or_none()
+        assert (wallet is not None and wallet.foreign_amount > 0) if succeeds else wallet is None

@@ -72,14 +72,14 @@ async def _pair(session, *, gold="100", foreign="100", status="trading",
 
 
 async def _short(session, user, pair, *, principal="0", interest="0",
-                 restricted="0", accrued=None):
+                 basis="0", accrued=None):
     total = Decimal(principal) + Decimal(interest)
     if accrued is None and total > 0:
         accrued = datetime.now(timezone.utc)
     row = FxShortPosition(
         user_id=user.id, pair_id=pair.id,
         principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
-        restricted_gold=Decimal(restricted), proceeds_basis_gold=Decimal(restricted),
+        proceeds_basis_gold=Decimal(basis),
         interest_last_accrued_at=accrued,
     )
     session.add(row)
@@ -92,12 +92,12 @@ def _cover_groups(valuation):
     return [g for g in valuation.groups if g.role == "short_cover"]
 
 
-async def test_cash_includes_restricted_proceeds_once():
-    """C already contains S: equity subtracts the liability K, never adds S again."""
+async def test_cash_includes_short_proceeds_once():
+    """Cash includes short proceeds; equity subtracts the cover liability once."""
     async with async_session_maker() as session:
         user = await _user(session, cash="1000")
         pair = await _pair(session, gold="100", foreign="100")
-        await _short(session, user, pair, principal="10", restricted="400")
+        await _short(session, user, pair, principal="10", basis="400")
 
         v = await value_user_detailed(session, user.id, daily_rate=RATE)
         expected_k = quote_buy_exact_out(
@@ -105,11 +105,10 @@ async def test_cash_includes_restricted_proceeds_once():
         ).input_amount
 
         assert v.cash == Decimal("1000")
-        assert v.restricted_cash == Decimal("400")
-        assert v.available_cash == Decimal("600")
+        assert v.available_cash == Decimal("1000")
         assert v.short_cover_cost == expected_k
         assert v.liquidation_equity == (Decimal("1000") - expected_k).quantize(Q6)
-        # Double counting S would produce this instead.
+        # Double counting the short proceeds would produce this instead.
         assert v.liquidation_equity != (Decimal("1400") - expected_k).quantize(Q6)
 
         cover = _cover_groups(v)
@@ -128,7 +127,7 @@ async def test_k_uses_buy_fee_and_pending_interest_without_writing():
         row = await _short(session, user, pair, principal="10", accrued=accrued)
         row_id = row.id
         before = (row.principal_foreign, row.interest_foreign,
-                  row.interest_last_accrued_at, row.restricted_gold)
+                  row.interest_last_accrued_at)
 
         v = await value_user_detailed(session, user.id, daily_rate=RATE)
 
@@ -153,7 +152,7 @@ async def test_k_uses_buy_fee_and_pending_interest_without_writing():
             select(FxShortPosition).where(FxShortPosition.id == row_id)
         )).scalars().one()
         assert (stored.principal_foreign, stored.interest_foreign,
-                stored.interest_last_accrued_at, stored.restricted_gold) == before
+                stored.interest_last_accrued_at) == before
 
 
 async def test_two_pairs_cover_costs_sum_without_merging_units():
@@ -329,10 +328,9 @@ async def test_no_short_account_keeps_old_values_and_neutral_short_fields():
         assert v.groups[0].value == expected_asset
         assert v.groups[0].executable is True
 
-        # No short: K is a known zero, not unknown; locks are zero.
+        # No short: cover cost is a known zero.
         assert v.short_cover_cost == ZERO
         assert v.short_marginal_debt == ZERO
-        assert v.restricted_cash == ZERO
         assert v.available_cash == Decimal("5")
         assert v.risk_status == "ok" and v.blocked_reason is None
         # Debt-free assets still contribute to the risk basis of the 2x profile.
@@ -396,7 +394,7 @@ async def test_short_valuation_batches_sql_for_many_users():
             FxShortPosition(
                 user_id=user.id, pair_id=pair.id,
                 principal_foreign=Decimal("1"), interest_foreign=ZERO,
-                restricted_gold=Decimal("1"), proceeds_basis_gold=Decimal("1"),
+                proceeds_basis_gold=Decimal("1"),
                 interest_last_accrued_at=datetime.now(timezone.utc),
             )
             for user in users

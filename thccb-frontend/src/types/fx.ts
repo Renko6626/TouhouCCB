@@ -265,7 +265,6 @@ export interface FxShortPosition {
   principal_foreign: string
   interest_foreign: string
   pending_short_debt: string | null
-  restricted_gold: string
   proceeds_basis_gold: string
   reference_cover_cost: string | null
   reference_cover_fee: string | null
@@ -289,7 +288,6 @@ export interface FxShortQuote {
   output_amount: string | null
   fee_amount: string | null
   fee_currency: string
-  restricted_gold_delta: string | null
   available_cash: string | null
   affordable: boolean | null
   estimated_equity: string | null
@@ -381,7 +379,6 @@ export interface FxNetQuote extends Omit<FxQuote, 'effective_price'> {
   foreign_debt_after: string
   cash_delta: string
   gold_debt_delta: string
-  restricted_gold_delta: string
   growth_amount: string
   borrow_amount: string
   repaid_gold: string
@@ -407,7 +404,6 @@ export interface FxHoldingsSummary {
   short_users: number
   short_principal_foreign: string
   short_recorded_interest_foreign: string
-  short_restricted_gold: string
   interest_is_realtime: boolean
 }
 export interface FxAdminOverview {

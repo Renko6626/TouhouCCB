@@ -76,7 +76,7 @@ async def lifecycle():
 async def _seed_foreign_only_overflow(*, principal='1000', foreign_reserve='1000',
                                       cash='50', with_asset=False):
     uid, pid, _ = await _seed_cover(
-        cash=cash, principal=principal, restricted="0", basis="0",
+        cash=cash, principal=principal, basis="0",
         foreign=foreign_reserve, treasury_foreign=foreign_reserve,
     )
     if with_asset:
@@ -180,13 +180,13 @@ async def _seed_healthy_and_overflow_shorts(*, cash='50'):
                 user_id=user.id, pair_id=healthy.id,
                 principal_foreign=D('100'), interest_foreign=D('0'),
                 interest_last_accrued_at=now,
-                restricted_gold=D('0'), proceeds_basis_gold=D('0'),
+                proceeds_basis_gold=D('0'),
             ),
             FxShortPosition(
                 user_id=user.id, pair_id=overflow.id,
                 principal_foreign=D('1000'), interest_foreign=D('0'),
                 interest_last_accrued_at=now,
-                restricted_gold=D('0'), proceeds_basis_gold=D('0'),
+                proceeds_basis_gold=D('0'),
             ),
         ])
         await s.commit()
@@ -260,16 +260,15 @@ async def test_multi_pair_unknown_k_blocked_action_names_the_blocked_pair_once()
 # ── WP4b: budgeted forced-cover transaction kernel ──────────────────────────
 #
 # 真实故障（spec §7.3/§8.1–8.2）：系统强制回补预算受限时若按计划量全买会
-# 掏空现金、动用其他空头的锁金或借出金债；同 (run_id,round_no) 重试若二次
+# 掏空现金或借出金债；同 (run_id,round_no) 重试若二次
 # 扣款会重复买币归还；预算/输出为零时若静默写 q=0 会制造免费回补。下面的
-# 场景直接检查持久化钱币守恒、锁金/收益基准、审计包与幂等。
+# 场景直接检查持久化钱币守恒、收益基准、审计包与幂等。
 
 async def _seed_cover(*, cash="1000", principal="100", interest="0",
-                      restricted="100", basis="100", gold="1000", foreign="1000",
+                      basis="100", gold="1000", foreign="1000",
                       treasury_foreign="100000", treasury_gold=None, buy_fee="0",
                       status="trading", reduce_only=False, archived=False,
-                      second_short=False, second_restricted="90",
-                      second_principal="10", second_interest="0",
+                      second_short=False, second_principal="10", second_interest="0",
                       second_age_sec=0,
                       debt="0", gold_age_sec=0, foreign_age_sec=0):
     """One funded pair with a real short row, optionally a second locked short.
@@ -311,7 +310,7 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
             user_id=user.id, pair_id=pair.id,
             principal_foreign=D(principal), interest_foreign=D(interest),
             interest_last_accrued_at=foreign_clock,
-            restricted_gold=D(restricted), proceeds_basis_gold=D(basis),
+            proceeds_basis_gold=D(basis),
         ))
         other_pid = None
         if second_short:
@@ -331,8 +330,7 @@ async def _seed_cover(*, cash="1000", principal="100", interest="0",
                 principal_foreign=D(second_principal),
                 interest_foreign=D(second_interest),
                 interest_last_accrued_at=sibling_clock,
-                restricted_gold=D(second_restricted),
-                proceeds_basis_gold=D(second_restricted),
+                proceeds_basis_gold=D("90"),
             ))
             other_pid = other.id
         await s.commit()
@@ -390,7 +388,7 @@ async def _cover_state(db, uid, pid):
         "treasury_foreign": D(treasury.foreign_balance),
         "shorts": [
             (int(s.pair_id), D(s.principal_foreign), D(s.interest_foreign),
-             D(s.restricted_gold), D(s.proceeds_basis_gold))
+             D(s.proceeds_basis_gold))
             for s in shorts
         ],
         "trade_ids": [int(t.id) for t in trades],
@@ -408,7 +406,7 @@ async def _wallet_sum(db):
 async def test_budget_limited_liquidation_cover_caps_planned_and_conserves():
     """预算 < exact-output 成本：按预算买正数量，不借金债，钱币守恒。"""
     uid, pid, _ = await _seed_cover(
-        cash="1000", principal="100", restricted="100", basis="100",
+        cash="1000", principal="100", basis="100",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
 
     async with async_session_maker() as db:
@@ -424,10 +422,8 @@ async def test_budget_limited_liquidation_cover_caps_planned_and_conserves():
     assert execution.full_cover is False
     assert execution.paid_gold == D("100")
     assert execution.repaid_foreign == D("90.909090")
-    assert execution.released_lock == D("90.909090")
     assert execution.principal_foreign_after == D("9.090910")
     assert execution.interest_foreign_after == D("0")
-    assert execution.restricted_gold_after == D("9.090910")
     assert execution.proceeds_basis_gold_after == D("9.090910")
 
     async with async_session_maker() as db:
@@ -463,7 +459,6 @@ async def test_budget_limited_liquidation_cover_caps_planned_and_conserves():
         assert target[1] == D("9.090910")
         assert target[2] == D("0")
         assert target[3] == D("9.090910")
-        assert target[4] == D("9.090910")
 
         # Conservation: pool + treasury + wallets is constant for both currencies.
         assert (after["pool_gold"] + after["treasury_gold"] + after["cash"]
@@ -480,7 +475,6 @@ async def test_budget_limited_liquidation_cover_caps_planned_and_conserves():
         assert D(payload["paid_gold"]) == D("100")
         assert D(payload["principal_paid_foreign"]) == D("90.909090")
         assert D(payload["interest_paid_foreign"]) == D("0")
-        assert D(payload["released_lock"]) == D("90.909090")
         assert D(payload["allocated_proceeds_basis"]) == D("90.909090")
         assert D(payload["realized_pl"]) == D("-9.090910")
 
@@ -488,7 +482,7 @@ async def test_budget_limited_liquidation_cover_caps_planned_and_conserves():
 async def test_liquidation_cover_replays_same_run_round_without_second_move():
     """同 (run_id,round_no) 重试返回原成交，二次不动钱/币/债；改参冲突。"""
     uid, pid, _ = await _seed_cover(
-        cash="1000", principal="100", restricted="100", basis="100",
+        cash="1000", principal="100", basis="100",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
 
     first = await _liq_cover(uid, pid, run_id=11, round_no=3,
@@ -530,7 +524,7 @@ async def test_liquidation_cover_replays_same_run_round_without_second_move():
 async def test_liquidation_cover_zero_budget_and_zero_output_block_untouched():
     """预算为零或输出向下归零：blocked 返回，不动钱/币/债/成交/审计。"""
     uid, pid, _ = await _seed_cover(
-        cash="1000", principal="100", restricted="100", basis="100",
+        cash="1000", principal="100", basis="100",
         gold="1000", foreign="200", treasury_foreign="100000", buy_fee="0")
 
     async with async_session_maker() as db:
@@ -557,22 +551,20 @@ async def test_liquidation_cover_zero_budget_and_zero_output_block_untouched():
     assert after_zero_output == before
 
 
-async def test_liquidation_cover_uses_only_own_lock_and_free_cash():
-    """预算 = min(上限, 未锁现金 + 本仓锁金)；不得动另一空头的锁金。"""
+async def test_liquidation_cover_uses_total_cash_with_other_short():
+    """回补可使用全部现金，其他空头的本金与收益基准不受影响。"""
     uid, pid, other_pid = await _seed_cover(
-        cash="120", principal="10", restricted="20", basis="5",
+        cash="120", principal="10", basis="5",
         gold="1000", foreign="205", treasury_foreign="100000", buy_fee="0",
-        second_short=True, second_restricted="90")
+        second_short=True, )
 
     execution = await _liq_cover(uid, pid, run_id=31, round_no=1,
                                  planned="10", budget="1000000")
     assert execution.blocked_reason is None
-    assert execution.limited_by_cash is True
-    # budget = free cash (120-110=10) + own lock (20) = 30, not 120.
-    assert execution.paid_gold == D("30")
-    assert execution.repaid_foreign == D("5.970873")
-    assert execution.released_lock == D("20")
-    assert execution.restricted_gold_after == D("0")
+    assert execution.limited_by_cash is False
+    # Cash 120 covers the full target obligation without reserving it for the sibling.
+    assert execution.paid_gold == D("51.282052")
+    assert execution.repaid_foreign == D("10")
 
     async with async_session_maker() as db:
         user = await db.get(User, uid)
@@ -580,12 +572,11 @@ async def test_liquidation_cover_uses_only_own_lock_and_free_cash():
             FxShortPosition.pair_id == pid))).scalars().one()
         other = (await db.execute(select(FxShortPosition).where(
             FxShortPosition.pair_id == other_pid))).scalars().one()
-        assert D(user.cash) == D("90")
-        assert D(target.restricted_gold) == D("0")
-        assert D(target.principal_foreign) == D("4.029127")
-        assert D(target.proceeds_basis_gold) == D("2.014564")
-        # The other short keeps every unit of its own lock and basis.
-        assert D(other.restricted_gold) == D("90")
+        assert D(user.cash) == D("68.717948")
+        assert D(target.principal_foreign) == D("0")
+        assert D(target.proceeds_basis_gold) == D("0")
+        # The other short keeps its principal and historical basis.
+        assert D(other.principal_foreign) == D("10")
         assert D(other.proceeds_basis_gold) == D("90")
 
 
@@ -638,7 +629,7 @@ async def test_blocked_liquidation_cover_commits_with_zero_interest_and_audit_mu
     site_config.clear_cache()
 
     uid, pid, _ = await _seed_cover(
-        cash="1000", principal="1000", interest="0", restricted="0", basis="0",
+        cash="1000", principal="1000", interest="0", basis="0",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0",
         debt="100", gold_age_sec=30 * 86400, foreign_age_sec=30 * 86400)
 
@@ -688,7 +679,7 @@ async def test_post_settlement_bound_failure_requires_whole_transaction_rollback
     site_config.clear_cache()
 
     uid, pid, _ = await _seed_cover(
-        cash="1000", principal="100", interest="0", restricted="100", basis="100",
+        cash="1000", principal="100", interest="0", basis="100",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0.01",
         treasury_gold=str(_TREASURY_GOLD_MAX), debt="100",
         gold_age_sec=30 * 86400, foreign_age_sec=30 * 86400)
@@ -774,11 +765,10 @@ async def test_sibling_settlement_overflow_requires_whole_transaction_rollback()
     site_config.clear_cache()
 
     uid, pid, other_pid = await _seed_cover(
-        cash="1000", principal="100", interest="0", restricted="100", basis="100",
+        cash="1000", principal="100", interest="0", basis="100",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0",
         debt="100", gold_age_sec=30 * 86400, foreign_age_sec=30 * 86400,
-        second_short=True, second_restricted="90",
-        second_principal=str(_FOREIGN_DEBT_MAX), second_age_sec=30 * 86400)
+        second_short=True, second_principal=str(_FOREIGN_DEBT_MAX), second_age_sec=30 * 86400)
     assert other_pid is not None
 
     async with async_session_maker() as db:
@@ -841,7 +831,7 @@ async def _seed_rotation(*, cash="0", debt="50", short_principal="10000",
                          short_gold="10000", short_foreign="100000",
                          asset_foreign="500", asset_gold="1000",
                          asset_reserve="10000"):
-    """零未锁现金的最大空头 + 两组正 FX 资产 + 正金债（rotation 场景）。"""
+    """零现金的最大空头 + 两组正 FX 资产 + 正金债（rotation 场景）。"""
     now = datetime.now(timezone.utc)
     async with async_session_maker() as s:
         user = User(username=uuid4().hex, casdoor_id=uuid4().hex,
@@ -861,8 +851,7 @@ async def _seed_rotation(*, cash="0", debt="50", short_principal="10000",
         s.add(FxShortPosition(
             user_id=user.id, pair_id=short_pair.id,
             principal_foreign=D(short_principal), interest_foreign=D("0"),
-            interest_last_accrued_at=now, restricted_gold=D("0"),
-            proceeds_basis_gold=D("0")))
+            interest_last_accrued_at=now, proceeds_basis_gold=D("0")))
         asset_ids = []
         for _ in range(2):
             ap = FxPair(
@@ -941,7 +930,7 @@ async def test_rotation_sells_one_asset_retains_cash_then_covers_foreign_debt():
 async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_charge():
     """cover_group 落库真实 q/x/limited_by_cash；同轮重放与重复扫描不二次扣款。"""
     uid, pid, _ = await _seed_cover(
-        cash="111.111112", principal="100", restricted="100", basis="100",
+        cash="111.111112", principal="100", basis="100",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
 
     first = await liquidation_sweep.run_liquidation_sweep_once()
@@ -956,12 +945,11 @@ async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_ch
         assert action.executed["limited_by_cash"] is False
         assert action.executed["full_cover"] is True
         assert D(action.short_after["principal_foreign"]) == D("0")
-        assert D(action.short_after["restricted_gold"]) == D("0")
         short = (await s.execute(select(FxShortPosition).where(
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == pid,
         ))).scalars().one()
         assert (short.principal_foreign, short.interest_foreign,
-                short.restricted_gold, short.proceeds_basis_gold) == (D("0"),) * 4
+                short.proceeds_basis_gold) == (D("0"),) * 3
         assert short.interest_last_accrued_at is None
         trade = (await s.execute(select(FxTrade).where(
             FxTrade.idempotency_key == f"liq:{run.id}:{action.round_no}"))).scalars().one()
@@ -990,10 +978,10 @@ async def test_cover_group_records_actual_q_x_and_replay_scan_does_not_double_ch
         assert len(list((await s.execute(select(LiquidationAction))).scalars())) == 1
 
 
-async def test_gold_repay_leaves_locked_short_s_untouched():
-    """无可执行空头时自动还金债只花未锁现金，绝不消费空头锁金 S。"""
+async def test_gold_repay_uses_cash_without_changing_short():
+    """无可执行空头时，自动还金债使用统一现金，保留外币欠款。"""
     uid, pid, _ = await _seed_cover(
-        cash="200", principal="100", restricted="150", basis="150",
+        cash="200", principal="100", basis="150",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0",
         debt="100", status="paused")
 
@@ -1004,17 +992,14 @@ async def test_gold_repay_leaves_locked_short_s_untouched():
         user = await s.get(User, uid)
         short = (await s.execute(select(FxShortPosition).where(
             FxShortPosition.pair_id == pid))).scalars().one()
-        # Only the unlocked 50 was spent; the 150 lock is intact and cash>=S.
-        assert D(user.cash) == D("150")
-        assert D(user.debt) == D("50")
-        assert D(short.restricted_gold) == D("150")
-        assert D(user.cash) >= D(short.restricted_gold)
+        # The full 100 gold debt is repaid from the cash balance.
+        assert D(user.cash) == D("100")
+        assert D(user.debt) == D("0")
         action = (await s.execute(select(LiquidationAction))).scalars().one()
-        assert action.kind == "repay_cash" and D(action.repaid) == D("50")
+        assert action.kind == "repay_cash" and D(action.repaid) == D("100")
 
 
-async def _seed_sale_with_paused_short(*, cash="200", debt="300", restricted="150",
-                                       short_principal="100",
+async def _seed_sale_with_paused_short(*, cash="200", debt="300", short_principal="100",
                                        short_gold="1000", short_foreign="1000",
                                        asset_foreign="200",
                                        asset_gold="1000", asset_reserve="10000"):
@@ -1043,8 +1028,7 @@ async def _seed_sale_with_paused_short(*, cash="200", debt="300", restricted="15
         s.add(FxShortPosition(
             user_id=user.id, pair_id=sp.id,
             principal_foreign=D(short_principal), interest_foreign=D("0"),
-            interest_last_accrued_at=now, restricted_gold=D(restricted),
-            proceeds_basis_gold=D(restricted)))
+            interest_last_accrued_at=now, proceeds_basis_gold=D("150")))
         ap = FxPair(
             currency_code=uuid4().hex[:16], currency_name="A", status="trading",
             gold_reserve=D(asset_gold), foreign_reserve=D(asset_reserve),
@@ -1060,15 +1044,15 @@ async def _seed_sale_with_paused_short(*, cash="200", debt="300", restricted="15
 
 
 async def test_sale_proceeds_repay_gold_debt_despite_paused_short():
-    """paused 不可回补空头持有 S 时，卖出资产的净回款仍是可还债自由现金。"""
+    """存在 paused 不可回补空头时，卖出资产净回款仍可用于还金债。"""
     uid, short_pid, asset_pid = await _seed_sale_with_paused_short()
 
     async with async_session_maker() as s:
         user_before = await s.get(User, uid)
         short_before = (await s.execute(select(FxShortPosition).where(
             FxShortPosition.pair_id == short_pid))).scalars().one()
-        pre_sale_free = D(user_before.cash) - D(short_before.restricted_gold)
-        assert pre_sale_free == D("50") < D(user_before.debt)
+        pre_sale_free = D(user_before.cash)
+        assert pre_sale_free == D("200") < D(user_before.debt)
 
     result = await liquidation_sweep.run_liquidation_sweep_once()
     assert result.get("monetary_action_count") == 1
@@ -1083,9 +1067,7 @@ async def test_sale_proceeds_repay_gold_debt_despite_paused_short():
         assert action.product == "fx" and int(action.group_id) == asset_pid
         # The sale proceeds are spendable now: repay more than the pre-sale free cash.
         assert D(action.repaid) > pre_sale_free, "post-sale free cash must cap repayment"
-        # Short lock S is never spent and stays intact.
-        assert D(short.restricted_gold) == D("150")
-        assert D(user.cash) >= D(short.restricted_gold), "locked S must remain covered"
+        # The foreign short obligation remains unchanged.
         # Gold debt is reduced by exactly the recorded actual repayment.
         assert D(user.debt) == D("300") - D(action.repaid)
         # Foreign obligation untouched: paused short and its pair/treasury unchanged.
@@ -1124,7 +1106,7 @@ async def _seed_lmsr_with_unpayable_short(*, debt="100", shares="100",
         s.add(FxShortPosition(
             user_id=user.id, pair_id=sp.id, principal_foreign=D("10000"),
             interest_foreign=D("0"), interest_last_accrued_at=now,
-            restricted_gold=D("0"), proceeds_basis_gold=D("0")))
+            proceeds_basis_gold=D("0")))
         market = Market(title=uuid4().hex[:12], liquidity_b=100,
                         status=MarketStatus.TRADING)
         s.add(market)
@@ -1189,7 +1171,6 @@ async def test_lmsr_sale_with_paused_short_repays_gold_from_proceeds():
         short = (await s.execute(select(FxShortPosition).where(
             FxShortPosition.pair_id == short_pid))).scalars().one()
         assert D(short.principal_foreign) == D("10000")
-        assert D(short.restricted_gold) == D("0")
 
 
 async def test_queued_lmsr_sale_revalidation_persists_unknown_short_block(monkeypatch):
@@ -1311,7 +1292,7 @@ async def test_unknown_full_quote_overflow_covers_only_fixed_budgeted_short(cash
         assert user.cash + pair.gold_reserve + treasury.gold_balance == D(cash) + D('9000001000')
         assert pair.foreign_reserve + treasury.foreign_balance == D('2000')
         assert short.principal_foreign + action.foreign_repaid == D('500')
-        assert short.restricted_gold == 0 and short.interest_foreign == 0
+        assert short.interest_foreign == 0
         assert (await s.execute(select(Position))).scalar_one().amount == D('10')
         post = await value_user_detailed(s, uid, daily_rate=D('0'))
         assert post.short_cover_cost is None and post.liquidation_equity is None
@@ -1349,7 +1330,7 @@ async def test_unknown_overflow_skips_unstorable_treasury_and_covers_next_pair()
         s.add(FxShortPosition(user_id=uid, pair_id=second_id,
             principal_foreign=D('500'), interest_foreign=D('0'),
             interest_last_accrued_at=datetime.now(timezone.utc),
-            restricted_gold=D('0'), proceeds_basis_gold=D('0')))
+            proceeds_basis_gold=D('0')))
         await s.commit()
 
     result = await liquidation_sweep.run_liquidation_sweep_once()
@@ -1385,7 +1366,7 @@ async def test_unknown_overflow_skips_unstorable_treasury_and_covers_next_pair()
 
 async def test_complete_foreign_insolvency_preserves_debt_and_resumes_after_deposit():
     uid, pid, _ = await _seed_cover(
-        cash="0", principal="100", interest="2", restricted="0", basis="0",
+        cash="0", principal="100", interest="2", basis="0",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
     await liquidation_sweep.run_liquidation_sweep_once()
     async with async_session_maker() as s:
@@ -1416,7 +1397,7 @@ async def test_complete_foreign_insolvency_preserves_debt_and_resumes_after_depo
 
 async def test_complete_paused_short_with_no_resources_waits_for_market():
     uid, pid, _ = await _seed_cover(
-        cash="0", principal="100", restricted="0", basis="0",
+        cash="0", principal="100", basis="0",
         gold="1000", foreign="1000", status="paused", buy_fee="0")
     await liquidation_sweep.run_liquidation_sweep_once()
     async with async_session_maker() as s:
@@ -1465,7 +1446,7 @@ async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
         s.add(FxShortPosition(user_id=uid, pair_id=second_id,
             principal_foreign=D('10'), interest_foreign=D('0'),
             interest_last_accrued_at=datetime.now(timezone.utc),
-            restricted_gold=D('0'), proceeds_basis_gold=D('0')))
+            proceeds_basis_gold=D('0')))
         await s.commit()
         pre = await value_user_detailed(s, uid, daily_rate=D('0'))
         assert pre.risk_status == 'ok' and pre.liquidation_equity < 0
@@ -1507,7 +1488,6 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
     async with async_session_maker() as s:
         short = (await s.execute(select(FxShortPosition))).scalar_one()
         short.interest_foreign = D('5')
-        short.restricted_gold = D('20')
         short.proceeds_basis_gold = D('20')
         treasury = (await s.execute(select(FxTreasury))).scalar_one()
         # Borrowing consumed real treasury stock, independently of pool reserves.
@@ -1532,8 +1512,7 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         action = (await s.execute(select(LiquidationAction))).scalar_one()
         assert action.kind == 'blocked' and action.blocked_reason == 'insufficient_pool_foreign'
         short = (await s.execute(select(FxShortPosition))).scalar_one()
-        assert (short.principal_foreign, short.interest_foreign, short.restricted_gold,
-                short.proceeds_basis_gold) == (D('900'), D('5'), D('20'), D('20'))
+        assert (short.principal_foreign, short.interest_foreign, short.proceeds_basis_gold) == (D('900'), D('5'), D('20'))
         user = await s.get(User, uid)
         assert user.cash == D('50') and user.debt == D('0')
         treasury = (await s.execute(select(FxTreasury))).scalar_one()
@@ -1548,7 +1527,7 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
 async def test_blocked_run_resumes_cover_with_current_provenance():
     """A paused obligation resumes on the same run with usable start provenance."""
     uid, pid, _ = await _seed_cover(
-        cash="114", principal="100", restricted="20", basis="30",
+        cash="114", principal="100", basis="30",
         gold="1000", foreign="1000", treasury_foreign="100000", buy_fee="0")
     async with async_session_maker() as s:
         pair = await s.get(FxPair, pid)
@@ -1564,7 +1543,6 @@ async def test_blocked_run_resumes_cover_with_current_provenance():
         assert run.pre_equity_to_risk_basis is not None
         snapshot = run.pre_short_positions[str(pid)]
         assert D(snapshot["principal_foreign"]) == D("100")
-        assert D(snapshot["restricted_gold"]) == D("20")
         pair = await s.get(FxPair, pid)
         pair.status = "trading"
         await s.commit()

@@ -75,7 +75,7 @@ describe('unified local fill refresh failure', () => {
   it('blocks spending and equity until a fresh summary replaces the pre-fill snapshot', async () => {
     const store = useUserStore()
     store.summary = makeSummary({ cash: 5500,
-      available_cash: '500', restricted_cash: '5000', display_equity: 500,
+      available_cash: '5500', display_equity: 500,
       liquidation_equity: 450, risk_basis: '4500', equity_to_risk_basis: 0.1,
       risk_status: 'healthy' })
     vi.mocked(userApi.getSummary).mockRejectedValueOnce(new Error('refresh unavailable'))

@@ -474,7 +474,7 @@ SSE 的主页做缓存历史引导用的追加公开字段：未回填时 `histo
 卖出先卖自有外币，不足部分借真实 treasury 外币开空；买入先回补含息欠币，再把剩余预算用于多头。
 第二段使用第一段成交后的池子储备。报价只读，不落计息、审计或资金记录；expires_at 为统一时点加30秒。
 返回总 input_amount/output_amount/fee_amount、legs（真实用途、各段输入输出币种/金额/费用及前后储备）、
-final_direction、wallet_after、foreign_debt_after、cash_delta、gold_debt_delta、restricted_gold_delta、
+final_direction、wallet_after、foreign_debt_after、cash_delta、gold_debt_delta、
 growth_amount、borrow_amount、repaid_gold、executable/blocked_reason、economic_version、pool_version、post_price。
 所有金额为十进制字符串。
 
@@ -487,7 +487,7 @@ growth_amount、borrow_amount、repaid_gold、executable/blocked_reason、econom
 一次请求全部成功或回滚，保存一个成功回执及一至两条真实成交，无汇总 FxTrade。
 返回完整报价资金拆分、execution_id、trade_ids、created_at、replay。
 成功回放优先于当前账户版本/开仓开关检查；同用户请求编号与所有旧FX写入口共用命名空间，换参数或跨入口占用返回409。
-现货卖出所得优先还金债；新开空只锁其自身所得。回补只花自由现金及本仓锁金，不能消费其他仓锁金或先借新金债回补。
+现货卖出按账户 auto_repay 设置偿还金债或保留现金；新增空头所得进入统一现金。回补可使用全部账户现金，不自动借新金债。新增风险按整笔最终账户状态检查初始保证金，纯减仓不要求先恢复初始门槛。
 纯减仓沿用原允许规则；增仓按整笔最终组合风控一次。总闸 fx_enabled=false 继续暂停用户交易。
 私人历史增加可空 execution_id/execution_leg；按limit先读真实腿，若最旧边界落在net请求中间，补齐同用户同pair的兄弟腿（正常最多额外一条），按created_at/id降序稳定返回。旧单腿limit行为不变；公开逐笔、行情和K线仍只消费每条真实腿一次。
 旧现货、融资、开空和回补入口保留原动作，旧pending请求继续用原入口恢复。
@@ -530,7 +530,7 @@ growth_amount、borrow_amount、repaid_gold、executable/blocked_reason、econom
 
 请求：`{ "amount": "50", "borrow_amount": "20", "min_out": "40", "idempotency_key": "fx-..." }`。
 仅统一信贷启用、借款开启且 FX 允许买入时可新增融资；冻结、保证金不足、同币种欠币或现金不足拒绝。
-空头锁金不能承担现金差额。成交锁内重报价，`min_out` 保护沿用 FX 规则；借款、计息、买入、钱包、
+空头所得进入统一现金，可承担新增多头的现金差额，但仍须通过保证金检查。成交锁内重报价，`min_out` 保护沿用 FX 规则；借款、计息、买入、钱包、
 池子、手续费及审计在同一事务提交，失败全部回滚，新本金从本次操作时点起息。
 
 返回 `trade_id/pair_id/input_amount/borrow_amount/cash_amount/output_amount/fee_amount/post_price/replay/created_at`，

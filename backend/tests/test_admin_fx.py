@@ -347,10 +347,10 @@ async def test_delete_replay_matches_live_and_keeps_historical_snapshot(ctx):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('principal,interest,locked,basis', [
-    ('10', '1', '5', '5'), ('0', '1', '0', '0'),
+@pytest.mark.parametrize('principal,interest,basis', [
+    ('10', '1', '5'), ('0', '1', '0'),
 ])
-async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx, principal, interest, locked, basis):
+async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx, principal, interest, basis):
     from datetime import datetime, timezone
     from app.models.fx import FxShortPosition
     client, db, _, _, user = ctx
@@ -359,7 +359,7 @@ async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx
     short = FxShortPosition(user_id=user.id, pair_id=pair_id,
                             principal_foreign=Decimal(principal), interest_foreign=Decimal(interest),
                             interest_last_accrued_at=datetime.now(timezone.utc),
-                            restricted_gold=Decimal(locked), proceeds_basis_gold=Decimal(basis))
+                            proceeds_basis_gold=Decimal(basis))
     db.add(short)
     await db.commit()
     pair = await db.get(FxPair, pair_id)
@@ -380,8 +380,7 @@ async def test_short_obligations_block_pair_cleanup_but_allow_risk_reduction(ctx
         assert before == (pair.status, pair.archived, pair.pool_version, pair.gold_reserve,
                           pair.foreign_reserve, treasury.gold_balance, treasury.foreign_balance)
         assert audit_ids == [a.id for a in (await db.execute(select(AuditEvent))).scalars()]
-        assert (short.principal_foreign, short.interest_foreign, short.restricted_gold,
-                short.proceeds_basis_gold) == tuple(map(Decimal, (principal, interest, locked, basis)))
+        assert (short.principal_foreign, short.interest_foreign, short.proceeds_basis_gold) == tuple(map(Decimal, (principal, interest, basis)))
     response = await client.patch(f'/api/v1/admin/fx/pairs/{pair_id}',
                                   json={'status': 'paused', 'reduce_only': True})
     assert response.status_code == 200, response.text
@@ -420,13 +419,13 @@ async def test_admin_overview_preview_and_keyset_history(ctx):
     for user, amount in ((admin, 3), (normal, 7)):
         db.add(FxWallet(user_id=user.id, pair_id=pair_id, foreign_amount=amount, cost_basis=amount * 2))
         db.add(FxShortPosition(user_id=user.id, pair_id=pair_id, principal_foreign=amount,
-            interest_foreign=1, restricted_gold=amount * 4, interest_last_accrued_at=datetime.now(timezone.utc)))
+            interest_foreign=1, interest_last_accrued_at=datetime.now(timezone.utc)))
     await db.commit()
     base = f"/api/v1/admin/fx/pairs/{pair_id}"
     overview = (await client.get(base + "/overview")).json()
     assert overview["holdings"] == {"long_users": 2, "long_foreign": "10.000000", "long_cost_gold": "20.000000",
         "short_users": 2, "short_principal_foreign": "10.000000", "short_recorded_interest_foreign": "2.000000",
-        "short_restricted_gold": "40.000000", "interest_is_realtime": False}
+        "interest_is_realtime": False}
     assert Decimal(overview["reference_price"]) == 1 and overview["as_of"]
     audits_before = list((await db.execute(select(AuditEvent.id))).scalars())
     for amount, expected in (({"gold_amount": "10"}, Decimal("1.1")), ({"foreign_amount": "25"}, Decimal("0.8"))):

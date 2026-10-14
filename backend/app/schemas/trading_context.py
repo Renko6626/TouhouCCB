@@ -53,7 +53,6 @@ class FxShortBasis(BaseModel):
     principal_foreign: str
     interest_foreign: str
     interest_last_accrued_at: str | None
-    restricted_gold: str
     proceeds_basis_gold: str
 
 class AccountBasis(BaseModel):

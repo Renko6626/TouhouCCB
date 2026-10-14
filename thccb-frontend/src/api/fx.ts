@@ -76,7 +76,7 @@ const FX_ERROR_DETAILS: Record<string, string> = {
   'economic_version_changed; requote': '账户已变化，请重新报价后确认',
   'growth_requires_confirmation; requote': '新的报价包含开仓，请重新确认交易结果',
   interest_exact_cover_uncertainty: '本笔贴近回补或风控边界，请调整金额或先全部回补',
-  'insufficient cash to cover': '现金与本仓锁金不足以完成回补',
+  'insufficient cash to cover': '现金不足以完成回补',
   same_pair_short: '请先回补当前币种的空头，再借款买入',
   incomplete_asset_valuation: '账户持仓暂无法完整估值，请更新账户和报价',
   'FX trading is disabled': 'FX 交易总闸未开启，管理员开市后才能交易',

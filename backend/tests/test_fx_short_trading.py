@@ -2,7 +2,7 @@
 
 These scenarios run against the real SQLite test database and the real AMM /
 risk / audit services.  They assert persisted cash, pool, treasury, debt,
-lock, trade and audit postconditions -- never source text, constants or private
+trade and audit postconditions -- never source text, constants or private
 helper structure.  The caller owns the transaction and the complete GATE set in
 every case, exactly like the later player API.
 
@@ -64,8 +64,7 @@ def _utc(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
-def _short_row(user_id, pair_id, *, principal="10", interest="0", restricted="0",
-               basis="0", accrued_ago_sec=0):
+def _short_row(user_id, pair_id, *, principal="10", interest="0", basis="0", accrued_ago_sec=0):
     total = D(principal) + D(interest)
     clock = (
         datetime.now(timezone.utc) - timedelta(seconds=accrued_ago_sec)
@@ -74,7 +73,7 @@ def _short_row(user_id, pair_id, *, principal="10", interest="0", restricted="0"
     return FxShortPosition(
         user_id=user_id, pair_id=pair_id,
         principal_foreign=D(principal), interest_foreign=D(interest),
-        restricted_gold=D(restricted), proceeds_basis_gold=D(basis),
+        proceeds_basis_gold=D(basis),
         interest_last_accrued_at=clock,
     )
 
@@ -166,7 +165,7 @@ async def _cover(uid, pid, *, q=None, cover_all=False, max_gold_in="1000000",
     Mirrors the API contract: the caller discovers dependencies, rolls the
     discovery transaction back, holds the target exclusive gate plus every other
     dependency shared, then commits once.  Rejections roll back and re-raise so a
-    scenario can assert that no money/debt/lock moved.
+    scenario can assert that no money/debt moved.
     """
     key = key or uuid4().hex
     for _ in range(attempts):
@@ -197,9 +196,9 @@ async def _cover(uid, pid, *, q=None, cover_all=False, max_gold_in="1000000",
     raise AssertionError("short-cover retries exhausted")
 
 
-async def _add_second_short(uid, *, principal="10", restricted="90", basis="90",
+async def _add_second_short(uid, *, principal="10", basis="90",
                             gold="1000", foreign="1000"):
-    """A second pair with its own short lock, to prove cover cannot touch it."""
+    """A second pair whose short obligation and basis should remain untouched."""
     async with async_session_maker() as db:
         pair = FxPair(
             currency_code=uuid4().hex[:16], currency_name="T2",
@@ -213,7 +212,7 @@ async def _add_second_short(uid, *, principal="10", restricted="90", basis="90",
             user_id=uid, pair_id=pair.id,
             principal_foreign=D(principal), interest_foreign=ZERO,
             interest_last_accrued_at=datetime.now(timezone.utc),
-            restricted_gold=D(restricted), proceeds_basis_gold=D(basis),
+            proceeds_basis_gold=D(basis),
         ))
         await db.commit()
         return int(pair.id)
@@ -226,8 +225,6 @@ async def _stocks(db, pid):
     cash = (await db.execute(select(func.coalesce(func.sum(User.cash), ZERO)))).scalar_one()
     wallet = (await db.execute(select(func.coalesce(
         func.sum(FxWallet.foreign_amount), ZERO)))).scalar_one()
-    locked = (await db.execute(select(func.coalesce(
-        func.sum(FxShortPosition.restricted_gold), ZERO)))).scalar_one()
     principal = (await db.execute(select(func.coalesce(
         func.sum(FxShortPosition.principal_foreign), ZERO)).where(
             FxShortPosition.pair_id == pid))).scalar_one()
@@ -236,7 +233,7 @@ async def _stocks(db, pid):
         "pool_gold": pool_gold, "pool_foreign": pool_foreign,
         "treasury_gold": D(treasury.gold_balance),
         "treasury_foreign": D(treasury.foreign_balance),
-        "cash": D(cash), "wallet_foreign": D(wallet), "locked": D(locked),
+        "cash": D(cash), "wallet_foreign": D(wallet),
         "principal": D(principal), "price": pool_gold / pool_foreign,
         "pool_version": int(pair.pool_version),
     }
@@ -260,7 +257,7 @@ async def _full_state(db, uid, pid):
         "treasury_foreign": D(treasury.foreign_balance),
         "shorts": [
             (int(s.pair_id), D(s.principal_foreign), D(s.interest_foreign),
-             D(s.restricted_gold), D(s.proceeds_basis_gold))
+             D(s.proceeds_basis_gold))
             for s in shorts
         ],
         "trade_ids": [int(t.id) for t in trades],
@@ -294,7 +291,7 @@ async def test_open_and_add_conserve_stock_move_price_and_keep_wallet_empty():
         assert D(trade.requested_foreign_amount) == D("100")
         assert D(trade.input_amount) == D("100")
         assert pos.principal_foreign == D("100")
-        assert pos.restricted_gold == D(trade.output_amount)
+
         assert pos.proceeds_basis_gold == D(trade.output_amount)
         assert (await db.execute(select(FxWallet))).scalars().all() == []
         first_output = D(trade.output_amount)
@@ -307,7 +304,6 @@ async def test_open_and_add_conserve_stock_move_price_and_keep_wallet_empty():
             == before["pool_foreign"] + before["treasury_foreign"]
             + before["wallet_foreign"])
     assert after_first["price"] < before["price"]
-    assert after_first["locked"] <= after_first["cash"]
     assert after_first["cash"] == before["cash"] + first_output
     assert after_first["treasury_foreign"] == before["treasury_foreign"] - D("100")
     assert after_first["pool_foreign"] == before["pool_foreign"] + D("100")
@@ -321,7 +317,7 @@ async def test_open_and_add_conserve_stock_move_price_and_keep_wallet_empty():
             FxTrade.id == second.trade_id))).scalars().one()
         second_output = D(second_trade.output_amount)
         assert pos.principal_foreign == D("150")
-        assert pos.restricted_gold == first_output + second_output
+
         assert pos.proceeds_basis_gold == first_output + second_output
 
     assert (after_second["pool_gold"] + after_second["treasury_gold"] + after_second["cash"]
@@ -330,9 +326,8 @@ async def test_open_and_add_conserve_stock_move_price_and_keep_wallet_empty():
             + after_second["wallet_foreign"]
             == before["pool_foreign"] + before["treasury_foreign"]
             + before["wallet_foreign"])
+    assert after_second["cash"] == before["cash"] + first_output + second_output
     assert after_second["price"] < after_first["price"]
-    assert after_second["locked"] <= after_second["cash"]
-    assert after_second["cash"] == before["cash"] + after_second["locked"]
 
 
 async def test_sell_fee_open_conserves_foreign_and_audits_treasury_after():
@@ -374,10 +369,9 @@ async def test_sell_fee_open_conserves_foreign_and_audits_treasury_after():
                 == before["pool_foreign"] + before["treasury_foreign"]
                 + before["wallet_foreign"])
 
-        # Gold: net P enters cash exactly once and locks the target once; stock conserved.
+        # Gold: net P enters cash exactly once; stock is conserved.
         assert D(user.cash) == D(user_before.cash) + proceeds
         assert D(pos.principal_foreign) == borrowed
-        assert D(pos.restricted_gold) == proceeds
         assert D(pos.proceeds_basis_gold) == proceeds
         assert (after["pool_gold"] + after["treasury_gold"] + D(user.cash)
                 == before["pool_gold"] + before["treasury_gold"] + D(user_before.cash))
@@ -593,13 +587,12 @@ async def test_partial_then_full_cover_conserves_stock_and_settles_interest():
     uid, pid = await _seed(
         cash="1000", rate="0.1", buy_fee="0.02",
         treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
-        short={"principal": "100", "interest": "0", "restricted": "100",
+        short={"principal": "100", "interest": "0",
                "basis": "100", "accrued_ago_sec": 86400},
     )
     async with async_session_maker() as db:
         before = await _stocks(db, pid)
         pre_pos = await _position(db, uid, pid)
-        pre_lock = D(pre_pos.restricted_gold)
         pre_basis = D(pre_pos.proceeds_basis_gold)
 
     partial = await _cover(uid, pid, q="50", key="k-cover-1")
@@ -647,13 +640,9 @@ async def test_partial_then_full_cover_conserves_stock_and_settles_interest():
         assert D(pos.interest_foreign) == ZERO
         assert D(payload["repaid_foreign"]) == q
 
-        # Lock release and proceeds basis apportion independently; realized P/L is
-        # allocated basis minus real gold paid, never lock release minus X.
+        # Realized P/L uses allocated historical proceeds minus actual gold paid.
         q_effective = q + D(pos.principal_foreign) + D(pos.interest_foreign)
-        expected_release = amount_down(pre_lock * q / q_effective)
         expected_basis = amount_down(pre_basis * q / q_effective)
-        assert D(payload["released_lock"]) == expected_release
-        assert D(pos.restricted_gold) == pre_lock - expected_release
         assert D(payload["allocated_proceeds_basis"]) == expected_basis
         assert D(pos.proceeds_basis_gold) == pre_basis - expected_basis
         assert D(payload["realized_pl"]) == expected_basis - x
@@ -673,12 +662,10 @@ async def test_partial_then_full_cover_conserves_stock_and_settles_interest():
         assert q_full > ZERO
         assert D(pos_full.principal_foreign) == ZERO
         assert D(pos_full.interest_foreign) == ZERO
-        assert D(pos_full.restricted_gold) == ZERO
         assert D(pos_full.proceeds_basis_gold) == ZERO
         assert pos_full.interest_last_accrued_at is None
         assert D(after_full["treasury_foreign"]) == D(after["treasury_foreign"]) + q_full
         assert D(after_full["pool_foreign"]) == D(after["pool_foreign"]) - q_full
-        assert D(after_full["locked"]) == ZERO
         assert (after_full["pool_gold"] + after_full["treasury_gold"] + after_full["cash"]
                 == before["pool_gold"] + before["treasury_gold"] + before["cash"])
         assert (after_full["pool_foreign"] + after_full["treasury_foreign"]
@@ -687,15 +674,15 @@ async def test_partial_then_full_cover_conserves_stock_and_settles_interest():
                 + before["wallet_foreign"])
 
 
-async def test_losing_partial_cover_consumes_own_lock_only_and_uses_basis():
-    """A losing cover may spend extra gold from *this* lock, never another short."""
+async def test_losing_partial_cover_uses_total_cash_and_historical_basis():
+    """A losing cover spends cash and preserves the sibling short obligation."""
     uid, pid = await _seed(
         cash="120", rate="0", buy_fee="0",
         treasury_foreign="100000", gold="1000", foreign="205", limit="100000",
-        short={"principal": "10", "interest": "0", "restricted": "20",
+        short={"principal": "10", "interest": "0",
                "basis": "5", "accrued_ago_sec": 0},
     )
-    other_pid = await _add_second_short(uid, restricted="90", basis="90")
+    other_pid = await _add_second_short(uid, basis="90")
 
     execution = await _cover(uid, pid, q="5", key="k-loss")
 
@@ -709,20 +696,14 @@ async def test_losing_partial_cover_consumes_own_lock_only_and_uses_basis():
             AuditEvent.ref_id == trade.id))).scalars().one()
         payload = audit.payload
         x = D(trade.input_amount)
-        # G=1000, F=205, fee=0, q=5 -> X=25; F_cash=10, S_base=10, so 15 of the
-        # target's own lock is released and the other pair's 90 is untouched.
+        # G=1000, F=205, fee=0, q=5 -> X=25 from the common cash balance.
         assert x == D("25")
-        assert D(target.restricted_gold) == D("5")
         assert D(target.proceeds_basis_gold) == D("2.5")
-        assert D(other.restricted_gold) == D("90")
+        assert D(other.principal_foreign) == D("10")
         assert D(other.proceeds_basis_gold) == D("90")
         assert D((await db.get(User, uid)).cash) == D("95")
-        assert D(payload["released_lock"]) == D("15")
         assert D(payload["allocated_proceeds_basis"]) == D("2.5")
         assert D(payload["realized_pl"]) == D("-22.5")
-        # Fault mode: substituting the released lock for historical basis gives
-        # -10; the ledger must book the basis-based -22.5 instead.
-        assert D(payload["realized_pl"]) != D(payload["released_lock"]) - x
 
 
 async def test_cover_all_settles_tail_replays_and_rejects_conflicts():
@@ -730,7 +711,7 @@ async def test_cover_all_settles_tail_replays_and_rejects_conflicts():
     uid, pid = await _seed(
         cash="1000", rate="0.1", buy_fee="0.02",
         treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
-        short={"principal": "100", "interest": "0", "restricted": "100",
+        short={"principal": "100", "interest": "0",
                "basis": "100", "accrued_ago_sec": 86400},
     )
     first = await _cover(uid, pid, cover_all=True, max_gold_in="1000000", key="k-all")
@@ -745,7 +726,6 @@ async def test_cover_all_settles_tail_replays_and_rejects_conflicts():
         assert D(first_trade.output_amount) > D("100")
         assert D(pos.principal_foreign) == ZERO
         assert D(pos.interest_foreign) == ZERO
-        assert D(pos.restricted_gold) == ZERO
         assert D(pos.proceeds_basis_gold) == ZERO
         assert pos.interest_last_accrued_at is None
 
@@ -775,7 +755,7 @@ async def test_cover_all_settles_tail_replays_and_rejects_conflicts():
 
 @pytest.mark.parametrize("seed_overrides, cover_kwargs, kind", [
     ({"cash": "20", "foreign": "205",
-      "short": {"principal": "10", "interest": "0", "restricted": "15",
+      "short": {"principal": "10", "interest": "0",
                 "basis": "15"}}, {"q": "5"}, "cash"),
     ({"buy_fee": "0.02"}, {"q": "50", "max_gold_in": "0"}, "max_gold_in"),
     ({"foreign": "5"}, {"q": "5"}, "pool"),
@@ -786,7 +766,7 @@ async def test_cover_rejections_change_nothing(seed_overrides, cover_kwargs, kin
     seed_kwargs = dict(
         cash="1000", rate="0", treasury_foreign="100000",
         gold="1000", foreign="1000", limit="100000",
-        short={"principal": "100", "interest": "0", "restricted": "100",
+        short={"principal": "100", "interest": "0",
                "basis": "100"},
     )
     seed_kwargs.update(seed_overrides)
@@ -820,7 +800,7 @@ async def test_non_coverable_pair_state_blocks_cover_and_retains_debt(
         cash="1000", rate="0",
         treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
         status=status, reduce_only=reduce_only, archived=archived,
-        short={"principal": "10", "interest": "0", "restricted": "100",
+        short={"principal": "10", "interest": "0",
                "basis": "100"},
     )
     async with async_session_maker() as db:
@@ -842,7 +822,7 @@ async def test_cover_allowed_with_gates_off_frozen_and_below_margin():
         cash="1000", debt="2000", debt_ago_sec=86400, rate="0.1",
         short_enabled=False, loan_enabled=False, credit_frozen=True,
         treasury_foreign="100000", gold="1000", foreign="1000", limit="100000",
-        short={"principal": "100", "interest": "0", "restricted": "100",
+        short={"principal": "100", "interest": "0",
                "basis": "100", "accrued_ago_sec": 86400},
     )
     execution = await _cover(uid, pid, q="50", max_gold_in="1000", key="k-off")
@@ -894,7 +874,7 @@ async def test_malformed_cover_numbers_are_cover_rejections(cover_kwargs):
     uid, pid = await _seed(
         cash="1000", rate="0", treasury_foreign="100000",
         gold="1000", foreign="1000", limit="100000",
-        short={"principal": "100", "interest": "0", "restricted": "100",
+        short={"principal": "100", "interest": "0",
                "basis": "100"},
     )
     async with async_session_maker() as db:
@@ -916,7 +896,7 @@ async def test_cover_treasury_gold_overflow_rejects_before_any_mutation():
         cash="1000", rate="0", buy_fee="0.02",
         treasury_foreign="100000", gold="1000", foreign="1000",
         treasury_gold=near_max, limit="100000",
-        short={"principal": "10", "interest": "0", "restricted": "10",
+        short={"principal": "10", "interest": "0",
                "basis": "10"},
     )
     async with async_session_maker() as db:
@@ -936,7 +916,7 @@ async def test_short_trade_audit_preserves_one_authoritative_accrual_clock(opera
     """Historical replay must accrue both debt currencies at the persisted T."""
     uid, pid = await _seed(
         cash="1000", debt="100", debt_ago_sec=86400, rate="0.1",
-        short={"principal": "100", "restricted": "100", "basis": "100",
+        short={"principal": "100", "basis": "100",
                "accrued_ago_sec": 86400},
     )
     async with async_session_maker() as db:

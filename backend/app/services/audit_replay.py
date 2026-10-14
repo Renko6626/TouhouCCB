@@ -64,7 +64,7 @@ def utc_clock(value: Any) -> Optional[datetime]:
 class FxShortState:
     principal_foreign: Decimal
     interest_foreign: Decimal
-    restricted_gold: Decimal
+    restricted_gold: Optional[Decimal]  # Historical payloads only; None after lock removal.
     proceeds_basis_gold: Decimal
     interest_last_accrued_at: Optional[datetime]
     last_event_id: int = 0
@@ -179,7 +179,7 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
             if gold != state.treasury_gold: bad(ev, f"fx_pair:{payload.get('pair_id')}", "treasury.gold", state.treasury_gold, gold)
             if foreign != state.treasury_foreign: bad(ev, f"fx_pair:{payload.get('pair_id')}", "treasury.foreign", state.treasury_foreign, foreign)
 
-    short_fields = ("principal_foreign", "interest_foreign", "restricted_gold", "proceeds_basis_gold")
+    short_fields = ("principal_foreign", "interest_foreign", "proceeds_basis_gold")
     pre_user_interest: dict[int, UserState] = {}
     pre_interest: dict[tuple[int, int], FxShortState] = {}
 
@@ -211,10 +211,16 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
         values = [required(p, f) for f in short_fields]
         if any(value < 0 for value in values):
             raise ValueError("negative short replay snapshot balance")
-        return FxShortState(*values, utc_clock(p["interest_last_accrued_at"]))
+        legacy_lock = required(p, "restricted_gold") if "restricted_gold" in p else None
+        if legacy_lock is not None and legacy_lock < 0:
+            raise ValueError("negative short replay snapshot balance")
+        return FxShortState(values[0], values[1], legacy_lock, values[2], utc_clock(p["interest_last_accrued_at"]))
 
     def compare_short(ev, expected, actual, prefix=""):
-        for f in (*short_fields, "interest_last_accrued_at"):
+        fields = (*short_fields, "interest_last_accrued_at")
+        if actual.restricted_gold is not None:
+            fields += ("restricted_gold",)
+        for f in fields:
             if getattr(expected, f) != getattr(actual, f):
                 bad(ev, f"fx_short:{ev.user_id}:{ev.payload['pair_id']}", prefix + f, getattr(expected, f), getattr(actual, f))
 
@@ -279,10 +285,15 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
             if check and prev is not None:
                 compare_short(ev, pre_interest.get(key, prev) if purpose == "short_open" else prev, before, "before.")
             st = replace(prev or before)
+            # A snapshot without locks is the migration boundary. Never carry
+            # obsolete earmarking into new trades or live reconciliation.
+            if before.restricted_gold is None:
+                st.restricted_gold = None
             if purpose == "short_open":
                 q, proceeds = required(p, "borrowed_foreign"), required(p, "gold_proceeds")
                 st.principal_foreign += q
-                st.restricted_gold += proceeds
+                if st.restricted_gold is not None:
+                    st.restricted_gold += proceeds
                 st.proceeds_basis_gold += proceeds
                 # Open timestamps are recorded on the new principal's clock.
                 st.interest_last_accrued_at = utc_clock(p["accrued_at"]) if p.get("accrued_at") else after.interest_last_accrued_at
@@ -298,19 +309,20 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
                 ip = min(q, st.interest_foreign); pp = q - ip
                 total = st.principal_foreign + st.interest_foreign
                 basis = st.proceeds_basis_gold if q == total else (st.proceeds_basis_gold * q / total).quantize(Q6, rounding=ROUND_DOWN)
-                base_release = st.restricted_gold if q == total else (st.restricted_gold * q / total).quantize(Q6, rounding=ROUND_DOWN)
-                cash = required(p.get("user_before") or {}, "cash")
-                total_lock = required(p, "total_restricted_gold_before")
-                known_locks = sum((v.restricted_gold for k, v in snap.fx_shorts.items() if k[0] == key[0] and k != key), D(0)) + st.restricted_gold
-                if total_lock < 0 or total_lock < known_locks or total_lock > cash:
-                    raise ValueError("invalid total_restricted_gold_before short replay baseline")
-                free = cash - total_lock
-                release = max(base_release, D(p["input_amount"]) - free)
-                if check:
-                    for f, expected in (("allocated_proceeds_basis", basis), ("released_lock", release)):
-                        if required(p, f) != expected: bad(ev, f"fx_short:{key[0]}:{key[1]}", f, expected, p[f])
+                if st.restricted_gold is not None:
+                    base_release = st.restricted_gold if q == total else (st.restricted_gold * q / total).quantize(Q6, rounding=ROUND_DOWN)
+                    cash = required(p.get("user_before") or {}, "cash")
+                    total_lock = required(p, "total_restricted_gold_before")
+                    known_locks = sum((v.restricted_gold or D(0) for k, v in snap.fx_shorts.items() if k[0] == key[0] and k != key), D(0)) + st.restricted_gold
+                    if total_lock < 0 or total_lock < known_locks or total_lock > cash:
+                        raise ValueError("invalid total_restricted_gold_before short replay baseline")
+                    release = max(base_release, D(p["input_amount"]) - (cash - total_lock))
+                    if check and required(p, "released_lock") != release:
+                        bad(ev, f"fx_short:{key[0]}:{key[1]}", "released_lock", release, p["released_lock"])
+                    st.restricted_gold -= release
+                if check and required(p, "allocated_proceeds_basis") != basis:
+                    bad(ev, f"fx_short:{key[0]}:{key[1]}", "allocated_proceeds_basis", basis, p["allocated_proceeds_basis"])
                 st.interest_foreign -= ip; st.principal_foreign -= pp
-                st.restricted_gold -= release
                 st.proceeds_basis_gold -= basis
                 if st.principal_foreign + st.interest_foreign == 0:
                     st.interest_last_accrued_at = None
@@ -322,9 +334,10 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
             else:
                 if check:
                     for f, expected in (("principal_written_off_foreign", st.principal_foreign),
-                                        ("released_lock", st.restricted_gold),
                                         ("written_off_proceeds_basis_gold", st.proceeds_basis_gold)):
                         if required(p, f) != expected: bad(ev, f"fx_short:{key[0]}:{key[1]}", f, expected, p[f])
+                    if st.restricted_gold is not None and required(p, "released_lock") != st.restricted_gold:
+                        bad(ev, f"fx_short:{key[0]}:{key[1]}", "released_lock", st.restricted_gold, p["released_lock"])
                     if required(p, "interest_written_off_foreign") != st.interest_foreign + required(p, "pending_interest_foreign"):
                         bad(ev, f"fx_short:{key[0]}:{key[1]}", "interest_written_off_foreign", st.interest_foreign + required(p, "pending_interest_foreign"), p["interest_written_off_foreign"])
                 pair_state = snap.fx_pairs.get(key[1])
@@ -334,7 +347,7 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
                             gold, foreign = fx_after(p, name)
                             if gold != pair_state.treasury_gold: bad(ev, f"fx_pair:{key[1]}", name + ".gold", pair_state.treasury_gold, gold)
                             if foreign != pair_state.treasury_foreign: bad(ev, f"fx_pair:{key[1]}", name + ".foreign", pair_state.treasury_foreign, foreign)
-                st = FxShortState(D(0), D(0), D(0), D(0), None)
+                st = FxShortState(D(0), D(0), D(0) if st.restricted_gold is not None else None, D(0), None)
                 if check and p.get("treasury_before") != p.get("treasury_after"):
                     bad(ev, f"fx_pair:{key[1]}", "treasury(writeoff)", p.get("treasury_before"), p.get("treasury_after"))
             if check: compare_short(ev, st, after)
@@ -621,7 +634,7 @@ async def compare_with_live(session, snap: Snapshot) -> list[Mismatch]:
         live = {(r.user_id, r.pair_id): r for r in rows}
         for key, st in snap.fx_shorts.items():
             row = live.get(key)
-            for f in ("principal_foreign", "interest_foreign", "restricted_gold", "proceeds_basis_gold", "interest_last_accrued_at"):
+            for f in ("principal_foreign", "interest_foreign", "proceeds_basis_gold", "interest_last_accrued_at"):
                 actual = (utc_clock(getattr(row, f)) if f == "interest_last_accrued_at" else D(getattr(row, f))) if row else None
                 expected = getattr(st, f)
                 if actual != expected:

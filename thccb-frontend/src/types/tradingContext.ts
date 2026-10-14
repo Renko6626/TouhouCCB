@@ -16,7 +16,7 @@ export interface LmsrPosition { market_id: number | null; outcome_id: number; am
 export interface FxWalletBasis { pair_id: number; foreign_amount: string; cost_basis: string }
 export interface FxShortBasis {
   pair_id: number; principal_foreign: string; interest_foreign: string
-  interest_last_accrued_at: string | null; restricted_gold: string; proceeds_basis_gold: string
+  interest_last_accrued_at: string | null; proceeds_basis_gold: string
 }
 export interface AccountBasis {
   auto_repay?: boolean

@@ -295,44 +295,22 @@ export function fxGroupPersonalTrades(rows: readonly FxPersonalTrade[]) {
   return groups
 }
 
-/** Allocate net buys from free cash and this pair's lock before any new loan. */
+/** Allocate net buys from account cash; financing can only fund the new long leg. */
 export function fxNetFundingPreview(
   amount: string,
   summary: Pick<UserSummary, 'cash' | 'available_cash'> | null,
-  position: Pick<FxShortPosition, 'pending_short_debt' | 'restricted_gold'> | null,
   quote: {
     legs: readonly Pick<import('@/types/fx').FxNetLeg, 'purpose' | 'side' | 'input_amount'>[]
   } | null,
 ) {
   const base = fxFundingPreview(amount, summary)
   if (!base || !summary || summary.available_cash == null) return null
-  const ownLock =
-    position && compareFxAmounts(position.pending_short_debt, '0') === 1
-      ? position.restricted_gold
-      : '0'
-  const lockedCash = subtractFxAmounts(summary.cash, summary.available_cash)
-  if (
-    lockedCash == null ||
-    compareFxAmounts(ownLock, '0') == null ||
-    compareFxAmounts(ownLock, '0') === -1 ||
-    compareFxAmounts(ownLock, lockedCash) === 1
-  )
-    return null
-  const lockedInput = compareFxAmounts(base.shortfall, ownLock) === 1 ? ownLock : base.shortfall
-  const shortfall = subtractFxAmounts(base.shortfall, lockedInput)
-  const availableForCover = addFxAmounts(summary.available_cash, ownLock)
-  if (shortfall == null || availableForCover == null) return null
   const cover = quote?.legs.find((leg) => leg.purpose === 'short_cover')
   const long = quote?.legs.find(
     (leg) => leg.side === 'buy' && ['spot', 'borrow_buy'].includes(leg.purpose),
   )
-  const coverAffordable = !cover || compareFxAmounts(cover.input_amount, availableForCover) !== 1
-  return {
-    cashInput: base.cashInput,
-    lockedInput,
-    shortfall,
-    loanApplicable: !!long && coverAffordable && compareFxAmounts(shortfall, '0') === 1,
-  }
+  const coverAffordable = !cover || compareFxAmounts(cover.input_amount, summary.available_cash) !== 1
+  return { ...base, loanApplicable: !!long && coverAffordable && compareFxAmounts(base.shortfall, '0') === 1 }
 }
 
 /** Quick close intent cannot grant permission to open, even after a requote. */
@@ -370,12 +348,11 @@ export function fxNetBorrowAction(quote: {
     legs.reduce((sum, leg) => addFxAmounts(sum, leg[field]) ?? sum, '0')
   if (shorts.length) {
     const quantity = total(shorts, 'input_amount')
-    return { kind: 'short' as const, borrowAmount: quantity, quantity, lockedGold: total(shorts, 'output_amount') }
+    return { kind: 'short' as const, borrowAmount: quantity, quantity, saleProceeds: total(shorts, 'output_amount') }
   }
   if (compareFxAmounts(quote.borrow_amount, '0') === 1) {
     return { kind: 'long' as const, borrowAmount: quote.borrow_amount,
-      quantity: total(quote.legs.filter(leg => leg.side === 'buy' && ['spot', 'borrow_buy'].includes(leg.purpose)), 'output_amount'),
-      lockedGold: null }
+      quantity: total(quote.legs.filter(leg => leg.side === 'buy' && ['spot', 'borrow_buy'].includes(leg.purpose)), 'output_amount'), saleProceeds: null }
   }
   return null
 }

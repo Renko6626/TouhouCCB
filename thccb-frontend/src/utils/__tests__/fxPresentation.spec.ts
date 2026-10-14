@@ -93,7 +93,7 @@ describe('FX 交易展示口径', () => {
     })
   })
 
-  it('部分回补按最近含息欠币分摊历史所得，不用锁金当成本', () => {
+  it('部分回补按最近含息欠币分摊历史所得，保留收益基准', () => {
     expect(
       fxShortClosePreview(
         { ...coverQuote, cover_all: false, actual_foreign_amount: '50.5', input_amount: '450' },
@@ -125,11 +125,11 @@ describe('FX 交易展示口径', () => {
     expect(fxOrderPrincipal({ liquidation_equity: 0 })).toBeNull()
   })
 
-  it('按本金倍数计算交易规模，保留六位精度并用未锁定现金自动拆借款', () => {
+  it('按本金倍数计算交易规模，保留六位精度并用账户现金自动拆借款', () => {
     expect(fxOrderScale('1000.000001', '0.25')).toBe('250.000000')
     expect(fxOrderScale('999999999.999999', '3.5')).toBe('3499999999.999996')
     const total = fxOrderScale('1000.000001', '2')!
-    expect(fxFundingPreview(total, { cash: 3000, available_cash: '400.000001' })).toEqual({
+    expect(fxFundingPreview(total, { cash: 400.000001, available_cash: '400.000001' })).toEqual({
       cashInput: '400.000001',
       shortfall: '1600.000001',
     })
@@ -160,7 +160,7 @@ describe('FX 交易展示口径', () => {
     principal_foreign: '100',
     interest_foreign: '1',
     pending_short_debt: '101',
-    restricted_gold: '10',
+
     proceeds_basis_gold: '50.000001',
     reference_cover_cost: '40',
     reference_cover_fee: '0.1',
@@ -170,7 +170,7 @@ describe('FX 交易展示口径', () => {
     interest_last_accrued_at: null,
   }
 
-  it('首页包含纯空头，并以剩余开仓所得而非锁定现金汇总多空盈亏', () => {
+  it('首页包含纯空头，并以剩余开仓所得按收益基准汇总多空盈亏', () => {
     const shortOnly = fxHomeHoldings({
       fx_unrealized_pnl: 0,
       fx_cost_basis: 0,
@@ -283,10 +283,10 @@ describe('FX 交易展示口径', () => {
     expect(fxAvailableCash({ cash: 100 })).toBeNull()
   })
 
-  it('买入资金差额只使用未锁定现金，保留六位金额精度', () => {
+  it('买入资金差额只使用账户现金，保留六位金额精度', () => {
     expect(
       fxFundingPreview('100.000001', {
-        cash: 1000,
+        cash: 10.000001,
         available_cash: '10.000001',
       }),
     ).toEqual({ cashInput: '10.000001', shortfall: '90.000000' })
@@ -397,38 +397,20 @@ it('groups only linked legs and retains the real leg details', () => {
 })
 
 import { fxNetFundingPreview, fxNetAllowsGrowth, fxNetNewExposure } from '../fxPresentation'
-it('net financing spends only free cash and this covered pair lock, loans only the new long gap', () => {
-  const summary = { cash: '150', available_cash: '50' }
-  const position = { pending_short_debt: '80', restricted_gold: '100' }
-  const cross = {
-    legs: [
-      { purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '87.834871' },
-      { purpose: 'spot' as const, side: 'buy' as const, input_amount: '112.165129' },
-    ],
-  }
-  expect(fxNetFundingPreview('200', summary, position, cross)).toEqual({
-    cashInput: '50.000000',
-    lockedInput: '100',
-    shortfall: '50.000000',
-    loanApplicable: true,
+it('net financing spends account cash and loans only the new long gap', () => {
+  const summary = { cash: '150', available_cash: '150' }
+  const cross = { legs: [
+    { purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '87.834871' },
+    { purpose: 'spot' as const, side: 'buy' as const, input_amount: '112.165129' },
+  ] }
+  expect(fxNetFundingPreview('200', summary, cross)).toEqual({
+    cashInput: '150.000000', shortfall: '50.000000', loanApplicable: true,
   })
-  const pureCover = {
-    legs: [{ purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '80' }],
-  }
-  expect(fxNetFundingPreview('80', summary, position, pureCover)).toEqual({
-    cashInput: '50.000000',
-    lockedInput: '30.000000',
-    shortfall: '0.000000',
-    loanApplicable: false,
+  const pureCover = { legs: [{ purpose: 'short_cover' as const, side: 'buy' as const, input_amount: '80' }] }
+  expect(fxNetFundingPreview('80', summary, pureCover)).toEqual({
+    cashInput: '80.000000', shortfall: '0.000000', loanApplicable: false,
   })
-  // Another pair's 100 locked gold stays outside this order's funding sources.
-  expect(
-    fxNetFundingPreview('200', { cash: '250', available_cash: '50' }, position, cross)?.shortfall,
-  ).toBe('50.000000')
-  expect(
-    fxNetFundingPreview('200', summary, { ...position, restricted_gold: '0' }, cross)
-      ?.loanApplicable,
-  ).toBe(false)
+  expect(fxNetFundingPreview('200', { cash: '50', available_cash: '50' }, cross)?.loanApplicable).toBe(false)
 })
 
 it('quick close never permits growth and return estimates use only the opening leg', () => {
@@ -473,12 +455,12 @@ it('requires borrowing confirmation for the new short leg when selling through a
   expect(fxNetBorrowAction({ borrow_amount: '0', legs: [
     { purpose: 'spot', side: 'sell', input_amount: '10', output_amount: '20' },
     { purpose: 'short_open', side: 'sell', input_amount: '5', output_amount: '9.9' },
-  ] })).toEqual({ kind: 'short', borrowAmount: '5.000000', quantity: '5.000000', lockedGold: '9.900000' })
+  ] })).toEqual({ kind: 'short', borrowAmount: '5.000000', quantity: '5.000000', saleProceeds: '9.900000' })
   expect(fxNetBorrowAction({ borrow_amount: '0', legs: [
     { purpose: 'spot', side: 'sell', input_amount: '10', output_amount: '20' },
   ] })).toBeNull()
   expect(fxNetBorrowAction({ borrow_amount: '4', legs: [
     { purpose: 'short_cover', side: 'buy', input_amount: '2', output_amount: '1' },
     { purpose: 'borrow_buy', side: 'buy', input_amount: '8', output_amount: '3.9' },
-  ] })).toEqual({ kind: 'long', borrowAmount: '4', quantity: '3.900000', lockedGold: null })
+  ] })).toEqual({ kind: 'long', borrowAmount: '4', quantity: '3.900000', saleProceeds: null })
 })

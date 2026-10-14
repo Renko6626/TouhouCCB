@@ -5,9 +5,10 @@ export interface FxBorrowConfirmationDetails {
   borrowAmount: string
   cashInput: string | null
   quantity: string
-  lockedGold: string | null
+  saleProceeds: string | null
   equity: string | null
   basis: string | null
+  initial: string | null
   maintenance: string | null
   reliable: boolean
 }

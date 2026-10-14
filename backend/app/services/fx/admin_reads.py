@@ -38,8 +38,7 @@ async def overview(db: AsyncSession, pair_id: int) -> FxAdminOverview:
         .where(FxWallet.pair_id == pair_id).subquery()
     short = select(func.count(case(((FxShortPosition.principal_foreign + FxShortPosition.interest_foreign > 0), 1))).label("short_users"),
         func.coalesce(func.sum(FxShortPosition.principal_foreign), 0).label("short_principal_foreign"),
-        func.coalesce(func.sum(FxShortPosition.interest_foreign), 0).label("short_recorded_interest_foreign"),
-        func.coalesce(func.sum(FxShortPosition.restricted_gold), 0).label("short_restricted_gold"))\
+        func.coalesce(func.sum(FxShortPosition.interest_foreign), 0).label("short_recorded_interest_foreign"))\
         .where(FxShortPosition.pair_id == pair_id).subquery()
     row = (await db.execute(_state_query(db, pair_id).add_columns(*long.c, *short.c)
                             .join(long, true()).join(short, true()))).mappings().first()

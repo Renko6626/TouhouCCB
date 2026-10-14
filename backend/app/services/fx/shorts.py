@@ -12,15 +12,15 @@ Transaction contract (spec §7.1–7.3 / §11):
   releases every lock and re-discovers rather than taking a missing pair GATE
   while holding the User lock (spec §11).
 - ``execute_short_cover_in_session`` is the risk-reducing twin: it settles the
-  debt at one UTC T, buys exactly q foreign through the AMM, releases only this
-  position's lock (plus free cash) and repays interest then principal.  It is
+  debt at one UTC T, buys exactly q foreign through the AMM using account cash
+  and repays interest then principal.  It is
   allowed below margin, while frozen and with the opening/loan gates off.
 
 Lock order is ``pair -> User -> wallet/short rows (pair_id asc) -> treasury``
 for opening and ``pair -> User -> short rows (pair_id asc) -> treasury`` for
 covering; cover never touches or creates the spot wallet.  Opening deliberately
-borrows real treasury foreign, sells it through the same AMM and locks the net
-gold proceeds; covering never credits ``FxWallet`` and never auto-repays gold
+borrows real treasury foreign, sells it through the same AMM and credits the net
+gold proceeds to unified account cash; covering never credits ``FxWallet`` and never auto-repays gold
 debt.
 """
 from __future__ import annotations
@@ -279,7 +279,6 @@ def _short_snapshot(position: Optional[FxShortPosition]) -> dict:
             "principal_foreign": Decimal("0"),
             "interest_foreign": Decimal("0"),
             "interest_last_accrued_at": None,
-            "restricted_gold": Decimal("0"),
             "proceeds_basis_gold": Decimal("0"),
         }
     return {
@@ -287,7 +286,6 @@ def _short_snapshot(position: Optional[FxShortPosition]) -> dict:
         "principal_foreign": position.principal_foreign,
         "interest_foreign": position.interest_foreign,
         "interest_last_accrued_at": position.interest_last_accrued_at,
-        "restricted_gold": position.restricted_gold,
         "proceeds_basis_gold": position.proceeds_basis_gold,
     }
 
@@ -404,7 +402,6 @@ async def execute_short_open_in_session(
     _require_gold_bound(q.output_amount, "gold proceeds")
     _require_gold_bound(Decimal(user.cash) + q.output_amount, "cash")
     if target is not None:
-        _require_gold_bound(Decimal(target.restricted_gold) + q.output_amount, "restricted gold")
         _require_gold_bound(Decimal(target.proceeds_basis_gold) + q.output_amount, "proceeds basis")
     _require_gold_bound(q.post_gold_reserve, "pool gold")
     _require_gold_bound(q.post_foreign_reserve, "pool foreign")
@@ -473,7 +470,7 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
         target = FxShortPosition(
             user_id=user_id, pair_id=pair_id,
             principal_foreign=Decimal("0"), interest_foreign=Decimal("0"),
-            interest_last_accrued_at=now, restricted_gold=Decimal("0"),
+            interest_last_accrued_at=now,
             proceeds_basis_gold=Decimal("0"),
         )
         db.add(target)
@@ -490,19 +487,10 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
 
     user.cash = (Decimal(user.cash) + q.output_amount).quantize(_Q6)
     target.principal_foreign = (Decimal(target.principal_foreign) + amount).quantize(_Q6)
-    target.restricted_gold = (Decimal(target.restricted_gold) + q.output_amount).quantize(_Q6)
     target.proceeds_basis_gold = (Decimal(target.proceeds_basis_gold) + q.output_amount).quantize(_Q6)
     target.interest_last_accrued_at = now
     target.updated_at = now
     bump_economic_version(user)
-
-    # 0 <= ΣS <= C: proceeds are a subset of cash, never extra cash.
-    other_locks = sum(
-        (Decimal(p.restricted_gold) for p in positions if int(p.pair_id) != pair_id),
-        Decimal("0"),
-    )
-    if other_locks + Decimal(target.restricted_gold) > Decimal(user.cash):
-        raise ShortOpenRejected("restricted gold exceeds total cash")
 
     # Match the ``Numeric(16,6)`` storage so a replay returns the exact value
     # the first execution reported.
@@ -595,7 +583,6 @@ class _CoverLedger:
 
     trade: FxTrade
     post_price: Decimal
-    release: Decimal
     allocated_basis: Decimal
     realized_pl: Decimal
     interest_paid: Decimal
@@ -615,7 +602,6 @@ async def _write_cover_ledger(
     q: Decimal,
     x: Decimal,
     q_effective: Decimal,
-    release: Decimal,
     full_cover: bool,
     limited_by_cash: bool,
     requested_foreign_amount: Optional[Decimal],
@@ -649,9 +635,7 @@ async def _write_cover_ledger(
     round.
     """
     cash = Decimal(user.cash)
-    position_lock = Decimal(target.restricted_gold)
     basis_before = Decimal(target.proceeds_basis_gold)
-    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
     pre_treasury_gold = Decimal(treasury_before["gold_balance"])
     pre_treasury_foreign = Decimal(treasury_before["foreign_balance"])
 
@@ -664,7 +648,6 @@ async def _write_cover_ledger(
     else:
         allocated_basis = amount_down(basis_before * q / q_effective)
     realized_pl = (allocated_basis - x).quantize(_Q6)
-    post_lock = (position_lock - release).quantize(_Q6)
     post_basis = (basis_before - allocated_basis).quantize(_Q6)
 
     _require_gold_bound(pre_treasury_gold + quote.fee_amount, "treasury gold", reject)
@@ -672,12 +655,9 @@ async def _write_cover_ledger(
     _require_gold_bound(cash - x, "cash", reject)
     _require_gold_bound(quote.post_gold_reserve, "pool gold", reject)
     _require_gold_bound(quote.post_foreign_reserve, "pool foreign", reject)
-    _require_gold_bound(post_lock, "restricted gold", reject)
     _require_gold_bound(post_basis, "proceeds basis", reject)
-    if post_lock < 0 or post_basis < 0:
+    if post_basis < 0:
         raise reject("cover would leave a negative short tail")
-    if total_lock - release < 0 or total_lock - release > cash - x:
-        raise reject("restricted gold exceeds total cash")
 
     pair.gold_reserve = quote.post_gold_reserve
     pair.foreign_reserve = quote.post_foreign_reserve
@@ -692,12 +672,10 @@ async def _write_cover_ledger(
     # q repays interest first, then principal.
     target.interest_foreign = (interest_before - interest_paid).quantize(_Q6)
     target.principal_foreign = (principal_before - principal_paid).quantize(_Q6)
-    target.restricted_gold = post_lock
     target.proceeds_basis_gold = post_basis
     if full_cover:
         target.principal_foreign = Decimal("0")
         target.interest_foreign = Decimal("0")
-        target.restricted_gold = Decimal("0")
         target.proceeds_basis_gold = Decimal("0")
         target.interest_last_accrued_at = None
     target.updated_at = now
@@ -729,12 +707,12 @@ async def _write_cover_ledger(
         short_before=short_before,
         pool_before={"gold": pre_gold, "foreign": pre_foreign},
         interest_paid_foreign=interest_paid, principal_paid_foreign=principal_paid,
-        released_lock=release, total_restricted_gold_before=total_lock, allocated_proceeds_basis=allocated_basis,
+        allocated_proceeds_basis=allocated_basis,
         realized_pl=realized_pl, accrued_at=now, full_cover=full_cover,
         limited_by_cash=limited_by_cash,
     )
     return _CoverLedger(
-        trade=trade, post_price=post_price, release=release,
+        trade=trade, post_price=post_price,
         allocated_basis=allocated_basis, realized_pl=realized_pl,
         interest_paid=interest_paid, principal_paid=principal_paid,
     )
@@ -913,25 +891,10 @@ async def execute_short_cover_in_session(
     if x > limit_gold:
         raise HTTPException(status_code=409, detail="quoted gold cost exceeds max_gold_in")
 
-    # Cash purpose boundary: this cover may spend only F_cash + its own lock.
+    # A cover spends unified account cash and never originates a gold loan.
     cash = Decimal(user.cash)
-    position_lock = Decimal(target.restricted_gold)
-    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
-    if cash < total_lock:
-        raise ShortCoverRejected("restricted gold exceeds total cash")
-    free_cash = cash - total_lock
-    base_release = (
-        position_lock if full_cover else amount_down(position_lock * q / q_effective)
-    )
-    if x <= free_cash + base_release:
-        release = base_release
-    elif x <= free_cash + position_lock:
-        # A losing cover may consume extra gold from this position's own lock,
-        # never another short's, and never a new gold loan.
-        release = max(base_release, x - free_cash)
-    else:
+    if x > cash:
         raise HTTPException(status_code=400, detail="insufficient cash to cover")
-    release = release.quantize(_Q6)
 
     _require_writes()
     pre_gold, pre_foreign = gold_reserve, foreign_reserve
@@ -949,7 +912,7 @@ async def execute_short_cover_in_session(
     ledger = await _write_cover_ledger(
         db, pair=pair, user=user, target=target, positions=positions,
         treasury=treasury, now=now, quote=quote, q=q, x=x,
-        q_effective=q_effective, release=release, full_cover=full_cover,
+        q_effective=q_effective, full_cover=full_cover,
         limited_by_cash=False,
         requested_foreign_amount=(None if is_cover_all else q),
         cover_all=(True if is_cover_all else None), max_gold_in=limit_gold,
@@ -997,7 +960,6 @@ class FxLiquidationCoverExecution:
     repaid_foreign: Decimal
     paid_gold: Decimal
     fee_gold: Decimal
-    released_lock: Decimal
     limited_by_cash: bool
     full_cover: bool
     interest_paid_foreign: Decimal
@@ -1006,7 +968,6 @@ class FxLiquidationCoverExecution:
     realized_pl: Decimal
     principal_foreign_after: Decimal
     interest_foreign_after: Decimal
-    restricted_gold_after: Decimal
     proceeds_basis_gold_after: Decimal
     accrued_at: Optional[datetime]
 
@@ -1041,12 +1002,12 @@ def _liquidation_cover_blocked(
         pair_id=pair_id, idempotency_key=idempotency_key,
         post_price=None, trade_id=None,
         repaid_foreign=Decimal("0"), paid_gold=Decimal("0"),
-        fee_gold=Decimal("0"), released_lock=Decimal("0"),
+        fee_gold=Decimal("0"),
         limited_by_cash=False, full_cover=False,
         interest_paid_foreign=Decimal("0"), principal_paid_foreign=Decimal("0"),
         allocated_proceeds_basis=Decimal("0"), realized_pl=Decimal("0"),
         principal_foreign_after=Decimal("0"), interest_foreign_after=Decimal("0"),
-        restricted_gold_after=Decimal("0"), proceeds_basis_gold_after=Decimal("0"),
+        proceeds_basis_gold_after=Decimal("0"),
         accrued_at=None,
     )
 
@@ -1072,7 +1033,6 @@ async def _replay_cover_metadata(db: AsyncSession, trade: FxTrade) -> dict:
     except (TypeError, ValueError):  # pragma: no cover - malformed legacy audit
         accrued_at = None
     return {
-        "released_lock": _d(payload.get("released_lock")),
         "limited_by_cash": bool(payload.get("limited_by_cash")),
         "full_cover": bool(payload.get("full_cover")),
         "interest_paid_foreign": _d(payload.get("interest_paid_foreign")),
@@ -1081,7 +1041,6 @@ async def _replay_cover_metadata(db: AsyncSession, trade: FxTrade) -> dict:
         "realized_pl": _d(payload.get("realized_pl")),
         "principal_foreign_after": _d(short_after.get("principal_foreign")),
         "interest_foreign_after": _d(short_after.get("interest_foreign")),
-        "restricted_gold_after": _d(short_after.get("restricted_gold")),
         "proceeds_basis_gold_after": _d(short_after.get("proceeds_basis_gold")),
         "accrued_at": accrued_at,
     }
@@ -1113,7 +1072,7 @@ async def execute_liquidation_cover_in_session(
       non-reduce-only retain the debt but block the action).
     - One UTC T settles the gold debt and every own foreign position once; the
       requested plan is capped by the *post-settlement* actual debt.
-    - The budget is ``min(max_gold_budget, free_cash + own_restricted_gold)``;
+    - The budget is ``min(max_gold_budget, account_cash)``;
       another short's lock is never touched and no gold debt is originated.
     - If the exact plan is quotable within budget it buys exactly the plan;
       otherwise it falls back to an exact-input buy bounded by the budget whose
@@ -1217,16 +1176,12 @@ async def execute_liquidation_cover_in_session(
     pre_treasury_foreign = (
         Decimal("0") if treasury is None else Decimal(treasury.foreign_balance))
 
-    # The cash budget depends only on cash and the locked gold, neither of which
-    # interest accrual changes; an unpayable or invariant-breaking attempt is
-    # rejected before advancing any clock so even the T settlement is untouched.
+    # Cash is unaffected by interest accrual. Reject an unpayable attempt before
+    # advancing clocks; all short positions share the same account cash budget.
     cash = Decimal(user.cash)
-    position_lock = Decimal(target.restricted_gold)
-    total_lock = sum((Decimal(p.restricted_gold) for p in positions), Decimal("0"))
-    if cash < total_lock:
-        raise ShortLiquidationRejected("restricted gold exceeds total cash")
-    free_cash = cash - total_lock
-    budget = amount_down(min(budget_cap, free_cash + position_lock))
+    if not cash.is_finite() or cash < 0:
+        raise ShortLiquidationRejected("invalid cash balance")
+    budget = amount_down(min(budget_cap, cash))
     if budget <= 0:
         return _liquidation_cover_blocked(
             pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
@@ -1312,20 +1267,6 @@ async def execute_liquidation_cover_in_session(
             pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
 
     full_cover = q == q_effective
-    base_release = (
-        position_lock if full_cover else amount_down(position_lock * q / q_effective)
-    )
-    if x <= free_cash + base_release:
-        release = base_release
-    elif x <= free_cash + position_lock:
-        # A losing forced cover may spend extra gold from this position's own
-        # lock (never another short's) but never originates a gold loan.
-        release = max(base_release, x - free_cash)
-    else:  # pragma: no cover - budget <= free_cash + own lock makes this unreachable
-        return _liquidation_cover_blocked(
-            pair_id=pair_id, idempotency_key=key, reason=LIQ_COVER_BLOCKED_CASH)
-    release = release.quantize(_Q6)
-
     # ── truly executable: advance every clock once at the common T ──────────
     _require_writes()
     try:
@@ -1380,7 +1321,7 @@ async def execute_liquidation_cover_in_session(
     ledger = await _write_cover_ledger(
         db, pair=pair, user=user, target=target, positions=positions,
         treasury=treasury, now=now, quote=quote, q=q, x=x,
-        q_effective=q_effective, release=release, full_cover=full_cover,
+        q_effective=q_effective, full_cover=full_cover,
         limited_by_cash=limited_by_cash, requested_foreign_amount=planned,
         cover_all=None, max_gold_in=budget_cap,
         idempotency_key=key, source=LIQUIDATION_SOURCE,
@@ -1393,14 +1334,13 @@ async def execute_liquidation_cover_in_session(
         pair_id=int(pair_id), idempotency_key=key,
         post_price=ledger.post_price, trade_id=int(ledger.trade.id),
         repaid_foreign=q, paid_gold=x, fee_gold=quote.fee_amount,
-        released_lock=release, limited_by_cash=limited_by_cash,
+        limited_by_cash=limited_by_cash,
         full_cover=full_cover, interest_paid_foreign=ledger.interest_paid,
         principal_paid_foreign=ledger.principal_paid,
         allocated_proceeds_basis=ledger.allocated_basis,
         realized_pl=ledger.realized_pl,
         principal_foreign_after=Decimal(target.principal_foreign),
         interest_foreign_after=Decimal(target.interest_foreign),
-        restricted_gold_after=Decimal(target.restricted_gold),
         proceeds_basis_gold_after=Decimal(target.proceeds_basis_gold),
         accrued_at=now,
     )
@@ -1602,7 +1542,6 @@ BLOCKED_INVALID_RESERVE = "invalid_short_reserve"
 BLOCKED_INVALID_DEBT = "invalid_short_debt"
 BLOCKED_QUOTE_FAILED = "quote_failed"
 BLOCKED_INSUFFICIENT_CASH = "insufficient_cash"
-BLOCKED_RESTRICTED_EXCEEDS_CASH = "restricted_cash_exceeds_cash"
 BLOCKED_RISK_UNAVAILABLE = "risk_engine_unavailable"
 BLOCKED_RISK_UNKNOWN = "short_quote_failed"
 
@@ -1616,7 +1555,6 @@ class FxShortPositionRead:
     principal_foreign: Decimal
     interest_foreign: Decimal
     pending_short_debt: Optional[Decimal]
-    restricted_gold: Decimal
     proceeds_basis_gold: Decimal
     interest_last_accrued_at: Optional[datetime]
     reference_cover_cost: Optional[Decimal]
@@ -1642,7 +1580,6 @@ class FxShortQuoteRead:
     fee_currency: str
     post_price: Optional[Decimal]
     pool_version: Optional[int]
-    restricted_gold_delta: Optional[Decimal]
     available_cash: Optional[Decimal]
     affordable: Optional[bool]
     estimated_equity: Optional[Decimal]
@@ -1669,7 +1606,6 @@ def _blocked_quote(
     fee_amount: Optional[Decimal] = None,
     post_price: Optional[Decimal] = None,
     pool_version: Optional[int] = None,
-    restricted_gold_delta: Optional[Decimal] = None,
     available_cash: Optional[Decimal] = None,
     affordable: Optional[bool] = None,
     estimated_equity: Optional[Decimal] = None,
@@ -1690,7 +1626,6 @@ def _blocked_quote(
         fee_currency="foreign" if action == "open" else "gold",
         post_price=post_price,
         pool_version=pool_version,
-        restricted_gold_delta=restricted_gold_delta,
         available_cash=available_cash,
         affordable=affordable,
         estimated_equity=estimated_equity,
@@ -1727,7 +1662,6 @@ async def read_short_position(
 
     principal = Decimal(position.principal_foreign) if position is not None else Decimal("0")
     interest = Decimal(position.interest_foreign) if position is not None else Decimal("0")
-    restricted = Decimal(position.restricted_gold) if position is not None else Decimal("0")
     basis = Decimal(position.proceeds_basis_gold) if position is not None else Decimal("0")
     accrued = position.interest_last_accrued_at if position is not None else None
 
@@ -1754,7 +1688,7 @@ async def read_short_position(
     materialized = ShortPositionValuation(
         pair_id=pair_id, currency_code=str(pair.currency_code),
         principal_foreign=principal, interest_foreign=interest,
-        pending_short_debt=pending, restricted_gold=restricted,
+        pending_short_debt=pending,
         proceeds_basis_gold=basis, interest_last_accrued_at=accrued, quote=quote,
         blocked_reason=BLOCKED_INVALID_DEBT if pending is None else None)
     return FxShortPositionRead(**short_position_fields(materialized,
@@ -1856,11 +1790,6 @@ async def quote_short(
 
     positions = list((await db.execute(select(FxShortPosition).where(
         FxShortPosition.user_id == int(user_id)))).scalars().all())
-    from app.services.credit import cash as credit_cash
-    try:
-        total_lock = await credit_cash.restricted_cash(db, int(user_id))
-    except credit_cash.CashInvariantError:
-        return _blocked(BLOCKED_RESTRICTED_EXCEEDS_CASH)
     user_cash = Decimal((await db.execute(
         select(User.cash).where(User.id == int(user_id)))).scalar_one_or_none()
         or Decimal("0"))
@@ -1868,8 +1797,7 @@ async def quote_short(
         select(User.debt).where(User.id == int(user_id)))).scalar_one_or_none()
         or Decimal("0"))
     daily_rate = await site_config.get_decimal_or(db, "loan_daily_rate", Decimal("0"))
-    free_cash = user_cash - total_lock
-    available_cash = free_cash if free_cash >= 0 else None
+    available_cash = user_cash if user_cash >= 0 else None
     pool_version = int(pair.pool_version)
 
     if not cover:
@@ -1906,7 +1834,6 @@ async def quote_short(
         post_cash = user_cash + sell.output_amount
         post_gold = sell.post_gold_reserve
         post_foreign = sell.post_foreign_reserve
-        restricted_delta = sell.output_amount
         quote_kwargs = dict(
             actual_foreign_amount=amount,
             input_amount=sell.input_amount,
@@ -1914,7 +1841,6 @@ async def quote_short(
             fee_amount=sell.fee_amount,
             post_price=sell.post_price.quantize(_Q6),
             pool_version=pool_version,
-            restricted_gold_delta=restricted_delta,
             available_cash=available_cash,
         )
     else:
@@ -1957,25 +1883,9 @@ async def quote_short(
             return _blocked(BLOCKED_QUOTE_FAILED, actual_foreign_amount=q,
                             available_cash=available_cash, pool_version=pool_version)
         cover_order_reason = None if coverable else BLOCKED_PAIR_NOT_COVERABLE
-        if user_cash < total_lock:
-            return _blocked(BLOCKED_RESTRICTED_EXCEEDS_CASH, actual_foreign_amount=q,
-                            available_cash=None, pool_version=pool_version)
-        position_lock = Decimal(target.restricted_gold)
-        base_release = (
-            position_lock if full_cover
-            else amount_down(position_lock * q / q_effective)
-        )
-        if buy.input_amount <= free_cash + base_release:
-            release = base_release
-            affordable = True
-        elif buy.input_amount <= free_cash + position_lock:
-            release = max(base_release, buy.input_amount - free_cash)
-            affordable = True
-        else:
-            release = None
-            affordable = False
+        affordable = buy.input_amount <= user_cash
+        if not affordable:
             cover_order_reason = cover_order_reason or BLOCKED_INSUFFICIENT_CASH
-        release = None if release is None else release.quantize(_Q6)
         post_cash = user_cash - buy.input_amount
         post_gold = buy.post_gold_reserve
         post_foreign = buy.post_foreign_reserve
@@ -1987,11 +1897,10 @@ async def quote_short(
             fee_amount=buy.fee_amount,
             post_price=buy.post_price.quantize(_Q6),
             pool_version=pool_version,
-            restricted_gold_delta=(None if release is None else -release),
             available_cash=available_cash,
             affordable=affordable,
         )
-        if release is None:
+        if not affordable:
             # Unaffordable: the AMM cost is real, but no valid post cash exists.
             return _blocked(cover_order_reason, **quote_kwargs)
 
@@ -2025,7 +1934,6 @@ async def quote_short(
             fee_currency="foreign" if not cover else "gold",
             post_price=quote_kwargs["post_price"],
             pool_version=quote_kwargs["pool_version"],
-            restricted_gold_delta=quote_kwargs["restricted_gold_delta"],
             available_cash=quote_kwargs["available_cash"],
             affordable=quote_kwargs.get("affordable"),
             estimated_equity=estimated_equity,

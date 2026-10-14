@@ -44,7 +44,7 @@ async def test_sell_classifies_without_writing(amount, direction, purposes, rema
 ])
 async def test_buy_budget_splits_at_effective_debt(extra, direction, purposes):
     from app.services.fx.amm import quote_buy_exact_out
-    uid, pid = await _seed(short={'principal': '9', 'interest': '1', 'restricted': '5'}, buy_fee='0.01')
+    uid, pid = await _seed(short={'principal': '9', 'interest': '1'}, buy_fee='0.01')
     cost = quote_buy_exact_out(D('10'), D('1000'), D('1000'), D('0.01')).input_amount
     async with async_session_maker() as db:
         quote = await quote_net_trade(db, uid, pid, FxNetQuoteRequest(side='buy', amount=cost + D(extra)))
@@ -101,7 +101,7 @@ async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
         pair = await db.get(FxPair, pid)
         assert wallet.foreign_amount == 0 and user.debt == (0 if auto_repay else 50)
         assert short.principal_foreign == 40
-        assert short.restricted_gold == result.legs[1].output_amount
+        assert short.proceeds_basis_gold == result.legs[1].output_amount
         assert user.cash == D('1000') + result.output_amount - result.repaid_gold
         assert treasury.foreign_balance == D('100000') - 40 + result.fee_amount
         assert pair.gold_reserve == result.legs[-1].post_gold_reserve
@@ -125,7 +125,7 @@ async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
 async def test_cross_zero_buy_repay_interest_and_finance_only_long(auto_repay):
     from app.models.base import User
     from app.models.fx import FxShortPosition, FxWallet
-    uid, pid = await _seed(short={'principal': '9', 'interest': '1', 'restricted': '5'}, buy_fee='0.01')
+    uid, pid = await _seed(short={'principal': '9', 'interest': '1'}, buy_fee='0.01')
     async with async_session_maker() as db:
         user = await db.get(User, uid)
         user.auto_repay = auto_repay
@@ -138,7 +138,7 @@ async def test_cross_zero_buy_repay_interest_and_finance_only_long(auto_repay):
         short = (await db.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
         wallet = (await db.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one()
         assert user.cash == 980 and user.debt == 10
-        assert short.principal_foreign == short.interest_foreign == short.restricted_gold == 0
+        assert short.principal_foreign == short.interest_foreign == 0
         assert wallet.foreign_amount == result.legs[1].output_amount
         assert wallet.cost_basis == result.legs[1].input_amount
 
@@ -352,23 +352,23 @@ async def test_net_uses_one_interest_timestamp_and_keeps_audit_replay(monkeypatc
         assert await audit_replay.compare_with_live(db, snap) == []
 
 
-async def test_net_cover_cannot_spend_sibling_locks_or_new_loan():
+async def test_net_cover_cannot_spend_new_loan_before_cover():
     from app.models.fx import FxPair, FxTreasury, FxShortPosition
     from fastapi import HTTPException
     from tests.test_fx_short_trading import _short_row
-    uid, pid = await _seed(cash='910', short={'principal':'10'})
+    uid, pid = await _seed(cash='10', short={'principal':'10'})
     async with async_session_maker() as db:
-        other = FxPair(currency_code='LOCKED', currency_name='Locked', status='trading',
+        other = FxPair(currency_code='OTHER', currency_name='Other', status='trading',
                        gold_reserve=D('1000'), foreign_reserve=D('1000'))
         db.add(other); await db.flush()
         db.add(FxTreasury(pair_id=other.id, gold_balance=D('1000'), foreign_balance=D('1000')))
-        db.add(_short_row(uid, other.id, principal='8', restricted='900'))
+        db.add(_short_row(uid, other.id, principal='8'))
         await db.commit()
     with pytest.raises(HTTPException, match='cash to cover'):
         await _net(uid, pid, 'buy', '20', borrowed='10')
     async with async_session_maker() as db:
-        assert (await db.execute(select(FxShortPosition.restricted_gold).where(
-            FxShortPosition.user_id == uid, FxShortPosition.pair_id == other.id))).scalar_one() == 900
+        assert (await db.execute(select(FxShortPosition.principal_foreign).where(
+            FxShortPosition.user_id == uid, FxShortPosition.pair_id == other.id))).scalar_one() == 8
         assert (await db.execute(select(func.count()).select_from(FxPoolEvent))).scalar_one() == 0
         assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 0
 
@@ -560,7 +560,7 @@ async def test_instruction_cross_zero_finances_only_new_long_and_rollback():
     from app.models.base import User
     from app.models.fx import FxExecution, FxPair, FxShortPosition, FxWallet
     from app.schemas.fx import FxTradeInstruction
-    uid, pid = await _seed(cash='20', short={'principal': '10', 'restricted': '20'})
+    uid, pid = await _seed(cash='20', short={'principal': '10'})
     result = await _instruction(uid, pid,
         FxTradeInstruction(action='buy', amount=D('30'), auto_borrow=True, borrow_limit=D('10')),
         rollback=True)
@@ -572,7 +572,7 @@ async def test_instruction_cross_zero_finances_only_new_long_and_rollback():
         pair = await db.get(FxPair, pid)
         assert pair.gold_reserve == 1000 and pair.foreign_reserve == 1000
         position = (await db.execute(select(FxShortPosition))).scalar_one()
-        assert position.principal_foreign == 10 and position.restricted_gold == 20
+        assert position.principal_foreign == 10
         for model in (FxTrade, FxExecution, FxWallet, FxPoolEvent, AuditEvent):
             assert (await db.execute(select(func.count()).select_from(model))).scalar_one() == 0
 
@@ -582,7 +582,7 @@ async def test_instruction_closes_current_position_and_replays(action, percent, 
     from app.models.fx import FxShortPosition
     from app.schemas.fx import FxTradeInstruction
     uid, pid = await _seed(wallet_foreign='10' if action == 'close_long' else None,
-        short={'principal':'9','interest':'1','restricted':'20'} if action == 'close_short' else None)
+        short={'principal':'9','interest':'1'} if action == 'close_short' else None)
     instruction = FxTradeInstruction(action=action, close_percent=D(percent))
     result = await _instruction(uid, pid, instruction)
     replay = await _instruction(uid, pid, instruction)

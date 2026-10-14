@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import managed_transaction
 from app.models.fx import FxShortPosition
-from app.services.credit.cash import available_cash, has_foreign_debt
+from app.services.credit.cash import has_foreign_debt
 from app.models.base import User
 from app.services import ledger_service, loan_service, site_config
 from app.services import audit_service
@@ -144,20 +144,14 @@ async def _deps_for_cash_write(db: AsyncSession, user_id: int) -> DependencySet:
     )
 
 
-async def _cash_floor_ok(db: AsyncSession, user: User, new_cash: Decimal) -> bool:
-    """Mandatory cash-purpose check, including explicit debt writeoff exceptions."""
-    free = await available_cash(db, user)
-    return new_cash >= user.cash - free
-
-
 async def _apply_cash_change(
     db: AsyncSession, *, user: User, amount: Decimal, reason: str, admin_id: int,
 ) -> Decimal:
-    """写现金 + ledger 审计（同事务）；现金不能低于空头锁金。"""
+    """写现金 + ledger 审计（同事务）；现金不能为负。"""
     OWNERSHIP.require_writes()
     new_cash = user.cash + amount
-    if not await _cash_floor_ok(db, user, new_cash):
-        raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
+    if new_cash < ZERO:
+        raise AdminUserError(400, "现金不足")
     user.cash = new_cash
     await ledger_service.record_entry(
         db, user=user, entry_type="admin_adjust_cash",
@@ -237,8 +231,8 @@ async def _debit_cash_unified(
                     u = await _lock_user(db, target_id)
                     if economic_version_of(u) != deps.economic_version:
                         raise _RiskRetry()
-                    if not await _cash_floor_ok(db, u, u.cash + amount):
-                        raise AdminUserError(400, "现金不足：不能支用空头锁定资金")
+                    if u.cash + amount < ZERO:
+                        raise AdminUserError(400, "现金不足")
                     decision = await check_cash_spend(
                         db, user=u, deps=deps, spend=-amount, thresholds=thresholds,
                         partial_pct=ONE, now=_utcnow(),
@@ -471,22 +465,6 @@ async def _lock_users(db: AsyncSession, f: UserFilter) -> List[User]:
     return users
 
 
-async def _restricted_cash_by_user(
-    db: AsyncSession, user_ids: List[int],
-) -> Dict[int, Decimal]:
-    """批量读每个用户的短空头锁金合计（advisory preview 用，一次聚合查询）。"""
-    ids = [int(uid) for uid in user_ids]
-    if not ids:
-        return {}
-    rows = (await db.execute(
-        select(FxShortPosition.user_id,
-               func.coalesce(func.sum(FxShortPosition.restricted_gold), ZERO))
-        .where(FxShortPosition.user_id.in_(ids))
-        .group_by(FxShortPosition.user_id)
-    )).all()
-    return {int(uid): Decimal(total) for uid, total in rows}
-
-
 async def batch_adjust_cash(
     db: AsyncSession, *, f: UserFilter, amount: Decimal, reason: str, admin_id: int, dry_run: bool,
 ) -> Dict[str, Any]:
@@ -495,19 +473,14 @@ async def batch_adjust_cash(
         raise AdminUserError(400, "amount 不能为 0")
 
     preview = await _preview_users(db, f)
-    locked = await _restricted_cash_by_user(db, [int(u.id) for u in preview])
     matched = []
     for u in preview:
         new_cash = u.cash + amount
-        restricted = locked.get(int(u.id), ZERO)
-        # Advisory preview only: the authoritative C >= ΣS check stays under the
-        # User lock in execution, but the preview must not promise a debit that
-        # the lock floor will reject.
         matched.append({
             "id": u.id, "username": u.username,
             "cash_before": _money(u.cash), "debt": _money(u.debt),
             "cash_after": _money(new_cash),
-            "will_fail": new_cash < ZERO or new_cash < restricted,
+            "will_fail": new_cash < ZERO,
         })
     will_fail = sum(1 for m in matched if m["will_fail"])
     eligible = len(matched) - will_fail
@@ -576,11 +549,10 @@ async def _batch_adjust_one(
                         if economic_version_of(u) != deps.economic_version:
                             raise _RiskRetry()
                         new_cash = u.cash + amount
-                        if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
+                        if new_cash < ZERO:
                             return False, {
                                 "user_id": u.id, "username": u.username,
-                                "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
-                                       else "操作后现金低于空头锁金，已跳过"),
+                                "reason": "操作后现金为负，已跳过",
                                 "cash_before": _money(u.cash), "would_be": _money(new_cash),
                             }
                         decision = await check_cash_spend(
@@ -611,11 +583,10 @@ async def _batch_adjust_one(
     async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         u = await _lock_user(db, user_id)
         new_cash = u.cash + amount
-        if new_cash < 0 or not await _cash_floor_ok(db, u, new_cash):
+        if new_cash < ZERO:
             return False, {
                 "user_id": u.id, "username": u.username,
-                "reason": ("操作后现金为负，已跳过" if new_cash < ZERO
-                               else "操作后现金低于空头锁金，已跳过"),
+                "reason": "操作后现金为负，已跳过",
                 "cash_before": _money(u.cash), "would_be": _money(new_cash),
             }
         before = u.cash
@@ -737,10 +708,10 @@ async def _amnesty_one(
                         # post.cash 是绝对值，不能被 _rebase_post 的增量语义重放；重发现重试
                         raise _RiskRetry()
                     cash_before, debt_before = u.cash, u.debt
-                    if not await _cash_floor_ok(db, u, reset_cash_to):
+                    if reset_cash_to < ZERO:
                         return False, {"user_id": u.id, "username": u.username,
                                        "cash_before": _money(cash_before), "debt_before": _money(debt_before),
-                                       "reason": "现金重置低于空头锁金，已跳过"}, ZERO, ZERO
+                                       "reason": "现金重置为负，已跳过"}, ZERO, ZERO
                     now = loan_service._compat_now(u)
                     # check_new_risk itself accrues interest from the persistent debt.
                     post_debt = ZERO if forgive_debt else u.debt
@@ -866,20 +837,15 @@ async def writeoff_fx_short(
                 .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
             if position is None:
                 raise AdminUserError(404, "FX short position not found")
-            total_locks = (await db.execute(select(func.coalesce(func.sum(
-                FxShortPosition.restricted_gold), ZERO)).where(
-                FxShortPosition.user_id == target_id))).scalar_one()
             principal = Decimal(position.principal_foreign)
             interest = Decimal(position.interest_foreign)
-            lock = Decimal(position.restricted_gold)
             basis = Decimal(position.proceeds_basis_gold)
-            amounts = (principal, interest, lock, basis, Decimal(user.cash), Decimal(total_locks))
+            amounts = (principal, interest, basis, Decimal(user.cash))
             if (not all(amount.is_finite() for amount in amounts)
-                    or min(principal, interest, lock, basis) < ZERO
-                    or Decimal(user.cash) < total_locks):
-                raise AdminUserError(409, "inconsistent FX short cash locks")
+                    or min(amounts) < ZERO):
+                raise AdminUserError(409, "inconsistent FX short balances")
             if principal + interest == ZERO:
-                if lock or basis or position.interest_last_accrued_at is not None:
+                if basis or position.interest_last_accrued_at is not None:
                     raise AdminUserError(409, "inconsistent zero FX short debt")
                 # An accepted no-op without a durable key would become a
                 # destructive delayed retry if this pair is shorted again.
@@ -901,7 +867,7 @@ async def writeoff_fx_short(
                 raise AdminUserError(409, str(exc)) from exc
             before = {
                 "short_position_id": position.id, "principal_foreign": principal,
-                "interest_foreign": interest, "restricted_gold": lock,
+                "interest_foreign": interest,
                 "proceeds_basis_gold": basis,
                 "interest_last_accrued_at": audit_service._utc_iso(position.interest_last_accrued_at),
             }
@@ -913,17 +879,16 @@ async def writeoff_fx_short(
             version_before = economic_version_of(user)
             position.principal_foreign = ZERO
             position.interest_foreign = ZERO
-            position.restricted_gold = ZERO
             position.proceeds_basis_gold = ZERO
             position.interest_last_accrued_at = None
             position.updated_at = now
             bump_economic_version(user)
             after = dict(before, principal_foreign=ZERO, interest_foreign=ZERO,
-                restricted_gold=ZERO, proceeds_basis_gold=ZERO, interest_last_accrued_at=None)
+                proceeds_basis_gold=ZERO, interest_last_accrued_at=None)
             result = {"user_id": target_id, "pair_id": pair_id, "written_off": True,
                 "principal_foreign": str(principal),
                 "interest_foreign": str(effective_total - principal),
-                "released_lock": str(lock), "replay": False}
+                "replay": False}
             audit_service.record(db, "admin_fx_short_writeoff", user_id=target_id,
                 operator_user_id=admin_id, ref_table="fx_short_position", ref_id=position.id,
                 ts=now, user_after=audit_service.user_snapshot(user), payload={
@@ -933,15 +898,13 @@ async def writeoff_fx_short(
                     "principal_written_off_foreign": principal,
                     "interest_written_off_foreign": effective_total - principal,
                     "pending_interest_foreign": effective_total - principal - interest,
-                    "released_lock": lock, "written_off_proceeds_basis_gold": basis,
+                    "written_off_proceeds_basis_gold": basis,
                     "short_before": before, "short_after": after,
                     "treasury_before": treasury_state, "treasury_after": treasury_state,
                     "user_before": user_before,
                     "economic_version_before": version_before,
                     "economic_version": economic_version_of(user),
                     "cash_delta": ZERO, "debt_delta": ZERO,
-                    "restricted_cash_before": total_locks,
-                    "restricted_cash_after": total_locks - lock,
                 })
             OWNERSHIP.require_writes()
             return result

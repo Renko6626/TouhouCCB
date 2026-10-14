@@ -147,12 +147,12 @@ class FxTrade(SQLModel, table=True):
 
 
 class FxShortPosition(SQLModel, table=True):
-    """Foreign obligation; restricted gold is already included in User.cash."""
+    """Foreign obligation with its remaining proceeds basis for realized P&L."""
     __tablename__ = "fx_short_position"
     __table_args__ = (
         UniqueConstraint("user_id", "pair_id", name="uq_fx_short_position_user_pair"),
-        CheckConstraint("principal_foreign >= 0 AND interest_foreign >= 0 AND restricted_gold >= 0 AND proceeds_basis_gold >= 0", name="ck_fx_short_position_non_negative"),
-        CheckConstraint("(principal_foreign + interest_foreign > 0 AND interest_last_accrued_at IS NOT NULL) OR (principal_foreign = 0 AND interest_foreign = 0 AND restricted_gold = 0 AND proceeds_basis_gold = 0 AND interest_last_accrued_at IS NULL)", name="ck_fx_short_position_state"),
+        CheckConstraint("principal_foreign >= 0 AND interest_foreign >= 0 AND proceeds_basis_gold >= 0", name="ck_fx_short_position_non_negative"),
+        CheckConstraint("(principal_foreign + interest_foreign > 0 AND interest_last_accrued_at IS NOT NULL) OR (principal_foreign = 0 AND interest_foreign = 0 AND proceeds_basis_gold = 0 AND interest_last_accrued_at IS NULL)", name="ck_fx_short_position_state"),
     )
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", nullable=False, index=True)
@@ -160,7 +160,6 @@ class FxShortPosition(SQLModel, table=True):
     principal_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False)
     interest_foreign: Decimal = Field(default=Decimal("0"), sa_type=Numeric(24, 6), nullable=False)
     interest_last_accrued_at: Optional[datetime] = Field(default=None, sa_type=DateTime(timezone=True))
-    restricted_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     proceeds_basis_gold: Decimal = Field(default=Decimal("0"), sa_type=Numeric(16, 6), nullable=False)
     created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
     updated_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)

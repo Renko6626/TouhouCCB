@@ -186,7 +186,7 @@ async def test_reset_live_short_clears_obligation_and_short_audit(monkeypatch, s
             pair = (await db.execute(select(FxPair))).scalar_one()
             db.add(FxShortPosition(user_id=user.id, pair_id=pair.id,
                 principal_foreign=Decimal("2"), interest_foreign=Decimal("1"),
-                restricted_gold=Decimal("8"), interest_last_accrued_at=datetime.now(timezone.utc)))
+                interest_last_accrued_at=datetime.now(timezone.utc)))
             db.add(SiteConfig(key="fx_short_enabled", value="true", value_type="bool"))
             audit_service.record(db, "admin_fx_short_writeoff", user_id=user.id, payload={"pair_id": pair.id})
             audit_service.record(db, "interest_accrual", user_id=user.id, ref_table="fx_short_position", payload={"currency": "foreign", "pair_id": pair.id})

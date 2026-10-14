@@ -23,18 +23,18 @@ describe('whole-account liquidation and distinct display valuation', () => {
     const value = valueTradingAccount(a, [{ ...fx, status: 'paused' }], rules, now)
     expect(value.display_equity).toBe('105.000000')
     expect(value.liquidation_equity).toBe('100.000000')
-    const short = { pair_id: 1, principal_foreign: '2000', interest_foreign: '0', interest_last_accrued_at: now, restricted_gold: '10', proceeds_basis_gold: '10' }
+    const short = { pair_id: 1, principal_foreign: '2000', interest_foreign: '0', interest_last_accrued_at: now, proceeds_basis_gold: '10' }
     const impossible = valueTradingAccount({ ...account, fx_shorts: [short] }, [fx], rules, now)
     expect(impossible.display_equity).toBe('-900.000000')
     expect(impossible.liquidation_equity).toBeNull()
     expect(impossible.short_cover_cost).toBeNull()
-    expect(impossible.available_cash).toBe('90.000000')
+    expect(impossible.available_cash).toBe('100.000000')
     expect(impossible.risk_status).toBe('unknown')
     expect(valueTradingAccount({ ...account, fx_shorts: [short] }, [], rules, now).display_equity).toBeNull()
   })
   it('reuses immutable group inputs without retaining stale cutoff, holdings or interest values', () => {
     const market = { ...lmsr(['100', '200'], 100), closes_at: '2026-01-01T01:00:00Z' }
-    const a = { ...account, lmsr_positions: [{ market_id: 1, outcome_id: 1, amount: '10', cost_basis: '0' }], fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: now, restricted_gold: '1', proceeds_basis_gold: '1' }] }
+    const a = { ...account, lmsr_positions: [{ market_id: 1, outcome_id: 1, amount: '10', cost_basis: '0' }], fx_shorts: [{ pair_id: 1, principal_foreign: '1', interest_foreign: '0', interest_last_accrued_at: now, proceeds_basis_gold: '1' }] }
     const activeRules = { ...rules, loan_daily_rate: '0.1' }
     const first = valueTradingAccount(a, [market, fx], activeRules, now)
     const updated = { ...a, lmsr_positions: [{ ...a.lmsr_positions[0]!, amount: '20' }] }

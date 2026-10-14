@@ -64,7 +64,7 @@ function relativeTime(ms: number): string {
 
     <p>清算净值与风险状态为最近刷新快照；定时扫描按最新资产执行。</p>
     <p v-if="summary">
-      总现金 C：金 {{ summary.cash.toFixed(2) }}；未锁定现金 C−S：金 {{ summary.available_cash ?? '—' }}
+      现金 C：金 {{ summary.cash.toFixed(2) }}
       <br>金圆券借款 D（含息）：金 {{ debt.toFixed(2) }}；外币全仓回补成本 K：金 {{ summary.short_cover_cost ?? '—' }}
       <br>外币义务按币种列示于持仓明细；B 是风险基数，保证金率为 E/B。
     </p>

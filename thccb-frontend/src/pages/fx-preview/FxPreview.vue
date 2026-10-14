@@ -19,7 +19,6 @@ const goldDebt = ref(0)
 const longQuantity = ref(0)
 const longCost = ref(0)
 const shortQuantity = ref(0)
-const restrictedGold = ref(0)
 const shortBasis = ref(0)
 const size = ref<number | ''>(1000)
 const interval = ref('15 分钟')
@@ -32,7 +31,7 @@ const signed = (n: number) => `${n >= 0 ? '+' : '−'}${money(Math.abs(n))}`
 const longValue = computed(() => longQuantity.value * price)
 const coverCost = computed(() => shortQuantity.value * price * (1 + feeRate))
 const equity = computed(
-  () => cash.value + longValue.value + restrictedGold.value - coverCost.value - goldDebt.value,
+  () => cash.value + longValue.value - coverCost.value - goldDebt.value,
 )
 const exposure = computed(() => longValue.value + shortQuantity.value * price)
 const amount = computed(() => Number(size.value) || 0)
@@ -82,7 +81,7 @@ const closeCost = computed(() =>
   closePercent.value === null ? 0 : (coverCost.value * closePercent.value) / 100,
 )
 const canClose = computed(
-  () => holdingDirection.value === 'long' || closeCost.value <= restrictedGold.value + cash.value,
+  () => holdingDirection.value === 'long' || closeCost.value <= cash.value,
 )
 const returnPreview = computed(() => {
   if (closePercent.value === null) return 0
@@ -91,7 +90,7 @@ const returnPreview = computed(() => {
     const proceeds = longValue.value * part * (1 - feeRate)
     return Math.max(0, proceeds - goldDebt.value)
   }
-  return Math.max(0, restrictedGold.value - closeCost.value)
+  return Math.max(0, cash.value - closeCost.value)
 })
 
 function setLeverage(target: number) {
@@ -111,7 +110,6 @@ function resetAccount() {
   longQuantity.value = 0
   longCost.value = 0
   shortQuantity.value = 0
-  restrictedGold.value = 0
   shortBasis.value = 0
   closePercent.value = null
   notice.value = ''
@@ -123,7 +121,7 @@ function resetAccount() {
     direction.value = 'long'
   } else if (scenario.value === 'short') {
     shortQuantity.value = 5000
-    restrictedGold.value = 1040
+    cash.value += 1040
     shortBasis.value = 1040
     direction.value = 'short'
   }
@@ -143,7 +141,7 @@ function executeDemo() {
     longCost.value += n + tradeFee
   } else {
     shortQuantity.value += n / price
-    restrictedGold.value += n - tradeFee
+    cash.value += n - tradeFee
     shortBasis.value += n - tradeFee
   }
   notice.value = `模拟${direction.value === 'long' ? '做多' : '做空'}已完成，持仓已更新。`
@@ -161,15 +159,9 @@ function closeDemo() {
     longCost.value *= 1 - part
   } else {
     const cost = closeCost.value
-    const lockedUse = Math.min(restrictedGold.value, cost)
-    restrictedGold.value -= lockedUse
-    cash.value -= cost - lockedUse
+    cash.value -= cost
     shortQuantity.value *= 1 - part
     shortBasis.value *= 1 - part
-    if (shortQuantity.value === 0) {
-      cash.value += restrictedGold.value
-      restrictedGold.value = 0
-    }
   }
   notice.value = `模拟${part === 1 ? '全部平仓' : '减仓'}已完成。`
   closePercent.value = null
@@ -353,15 +345,15 @@ const candles = computed(() =>
                   }}</b>
                 </div>
                 <div>
-                  <span>{{ holdingDirection === 'long' ? '待还金圆券' : '锁定卖出所得' }}</span
-                  ><b>{{ money(holdingDirection === 'long' ? goldDebt : restrictedGold) }}</b>
+                  <span>{{ holdingDirection === 'long' ? '待还金圆券' : '剩余收益基准' }}</span
+                  ><b>{{ money(holdingDirection === 'long' ? goldDebt : shortBasis) }}</b>
                 </div>
               </div>
               <div class="position-bottom">
                 <span>{{
                   holdingDirection === 'long'
                     ? '卖出所得先还借款，余额成为可用现金。'
-                    : '平仓时买回摩拉归还，结清后释放剩余锁金。'
+                    : '平仓时用现金买回摩拉归还。'
                 }}</span>
                 <div>
                   <button class="secondary-button" @click="closePercent = 50">减仓 50%</button
@@ -478,9 +470,9 @@ const candles = computed(() =>
               <span>借入并卖出</span><strong>{{ money(amount / price, 0) }} 摩拉</strong>
             </div>
             <div>
-              <span>卖出所得锁定</span><strong>{{ money(amount - fee) }} 金圆券</strong>
+              <span>卖出所得</span><strong>{{ money(amount - fee) }} 金圆券</strong>
             </div>
-            <p>锁定资金用于买回归还，不能花用。</p>
+            <p>卖出所得计入现金；回补时用现金买回归还。</p>
           </div>
 
           <div class="payoff-preview">
@@ -586,7 +578,7 @@ const candles = computed(() =>
           {{
             holdingDirection === 'long'
               ? '卖出摩拉，所得优先偿还金圆券借款。'
-              : '买回摩拉归还，使用锁定所得和可用现金支付。'
+              : '买回摩拉归还，使用账户现金支付。'
           }}
         </p>
         <dl>
@@ -603,15 +595,13 @@ const candles = computed(() =>
               {{
                 holdingDirection === 'long'
                   ? '预计现金增加'
-                  : closePercent === 100
-                    ? '预计释放锁金'
-                    : '剩余锁定所得'
+                  : '预计剩余现金'
               }}
             </dt>
             <dd>{{ money(returnPreview) }} 金圆券</dd>
           </div>
         </dl>
-        <p v-if="!canClose" class="order-error">可用现金和锁定资金不足，请减少回补数量。</p>
+        <p v-if="!canClose" class="order-error">现金不足，请减少回补数量。</p>
         <button class="black-button" :disabled="!canClose" @click="closeDemo">
           确认模拟{{ closePercent === 100 ? '平仓' : '减仓' }}
         </button>

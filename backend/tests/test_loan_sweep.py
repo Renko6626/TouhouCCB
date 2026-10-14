@@ -115,7 +115,7 @@ async def test_sweep_skips_recently_accrued_users():
 
 
 async def _seed_short_user(*, principal="100", interest="0", accrued, cash="0", debt="0",
-                           gold="1000", foreign="1000", restricted="50", proceeds="50",
+                           gold="1000", foreign="1000", proceeds="50",
                            gold_accrued=None):
     """Seed a user holding a positive foreign short plus untouched pool/treasury."""
     tag = uuid.uuid4().hex[:6]
@@ -146,7 +146,6 @@ async def _seed_short_user(*, principal="100", interest="0", accrued, cash="0", 
                 pair_id=pair.id,
                 principal_foreign=Decimal(principal),
                 interest_foreign=Decimal(interest),
-                restricted_gold=Decimal(restricted),
                 proceeds_basis_gold=Decimal(proceeds),
                 interest_last_accrued_at=accrued,
             )

@@ -19,7 +19,6 @@ class LoanQuotaResponse(BaseModel):
     cash: Decimal
     debt: Decimal
     available_cash: Optional[Decimal] = None
-    restricted_cash: Decimal = Decimal("0")
     short_positions: list[FxShortPositionPublic] = []
     short_cover_cost: Optional[Decimal] = None
     risk_basis: Optional[Decimal] = None

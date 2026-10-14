@@ -215,10 +215,8 @@ const holdingsByMarketArray = computed(() => {
     <div v-else-if="userStore.summary">
       <div class="asset-grid">
         <div class="asset-card">
-          <span class="asset-label">总现金（含锁定所得）</span>
+          <span class="asset-label">总现金</span>
           <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
-            <span>未锁定现金 金 {{ userStore.summary.available_cash ?? '—' }}</span>
-            <span>空头锁定所得 金 {{ userStore.summary.restricted_cash ?? '—' }}（专用于回补）</span>
         </div>
         <div class="asset-card">
           <span class="asset-label">持仓成本（预测 + FX）</span>
@@ -297,7 +295,6 @@ const holdingsByMarketArray = computed(() => {
               :reference-cover-cost="position.reference_cover_cost"
             />
             <span>本金 {{ position.principal_foreign }} · 已结利息 {{ position.interest_foreign }}</span>
-            <span>锁定所得 金 {{ position.restricted_gold }}</span>
             <span>剩余收益基准 金 {{ position.proceeds_basis_gold }}</span>
             <span>全仓回补参考成本 金 {{ position.reference_cover_cost ?? '—' }}（含费与滑点）</span>
             <span v-if="position.reference_cover_cost == null">估值待恢复：{{ position.blocked_reason || '无法完整报价' }}</span>
@@ -305,7 +302,7 @@ const holdingsByMarketArray = computed(() => {
             <NButton size="small" @click="router.push({ path: '/fx', query: { pair: position.pair_id, action: 'cover' } })">查看 / 回补</NButton>
           </div>
         </div>
-        <p class="asset-sub">锁定所得已计入总现金，不能用于消费或偿还金圆券借款。</p>
+        <p class="asset-sub">空头卖出所得计入总现金。交易仍须满足全账户保证金要求。</p>
       </section>
       <NAlert v-if="userStore.summary.blocked_reason" type="warning" title="风险检查阻塞">
         {{ userStore.summary.blocked_reason }}

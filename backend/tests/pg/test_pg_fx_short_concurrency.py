@@ -83,11 +83,9 @@ async def state(factory, uid, pid):
             FxWallet.user_id == uid))).scalars().all()
         trades = (await db.execute(select(FxTrade).order_by(FxTrade.id))).scalars().all()
         audits = (await db.execute(select(AuditEvent).order_by(AuditEvent.id))).scalars().all()
-        locked = sum((p.restricted_gold for p in positions), D('0'))
-        assert D('0') <= locked <= user.cash
         assert not (any(w.foreign_amount > 0 for w in wallets)
                     and any(p.principal_foreign + p.interest_foreign > 0 for p in positions))
-        return dict(cash=user.cash, debt=user.debt, locked=locked,
+        return dict(cash=user.cash, debt=user.debt,
                     version=user.economic_version, pool_version=pair.pool_version,
                     principal=sum((p.principal_foreign for p in positions), D('0')),
                     interest=sum((p.interest_foreign for p in positions), D('0')),
@@ -237,8 +235,6 @@ async def test_cover_waits_for_gold_repayment_and_replays_without_double_return(
     assert after['gold'] == before['gold'] - D('200')
     assert after['foreign'] == before['foreign']
     assert after['treasury_foreign'] == before['treasury_foreign'] + D('40')
-    assert D('0') < after['locked'] < before['locked']
-    assert before['locked'] - after['locked'] >= cover_result.input_amount
     assert [t[1] for t in after['trades']] == ['short_open', 'short_cover']
     assert sum(a[1] == 'loan_repay' for a in after['audits']) == 1
     assert sum(a[1] == 'fx_trade' for a in after['audits']) == 2
@@ -298,7 +294,7 @@ async def test_pair_mutation_rejects_stale_short_open(
         result, _ = await asyncio.gather(opening_task, mutation_task)
     assert isinstance(result, HTTPException) and result.status_code == expected_code, result
     after = await state(pg_sessionmaker, uid, pid)
-    for field in ('cash', 'debt', 'locked', 'principal', 'interest', 'gold',
+    for field in ('cash', 'debt', 'principal', 'interest', 'gold',
                   'foreign', 'treasury_foreign', 'trades', 'version'):
         assert after[field] == before[field], field
     assert not any(a[1] == 'fx_trade' for a in after['audits'])
@@ -370,7 +366,7 @@ async def test_scheduled_foreign_interest_and_cover_all_settle_once(
     assert after['cash'] == before['cash'] - execution.input_amount
     assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
     assert after['treasury_foreign'] == before['treasury_foreign'] + D('101')
-    assert after['principal'] == after['interest'] == after['locked'] == 0
+    assert after['principal'] == after['interest'] == 0
     assert after['debt'] == 0 and after['version'] == before['version'] + 2
     assert [t[1] for t in after['trades']] == ['short_open', 'short_cover']
     async with pg_sessionmaker() as db:
@@ -437,8 +433,6 @@ async def test_consumption_waiting_on_opening_user_cannot_spend_new_short_procee
     after = await state(pg_sessionmaker, uid, pid)
     assert before['cash'] < D('150') < after['cash']
     assert after['cash'] == before['cash'] + opened.output_amount
-    assert after['locked'] == opened.output_amount
-    assert after['cash'] - after['locked'] == before['cash']
     assert after['principal'] == D('100') and after['debt'] == 0
     assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
     assert after['version'] == before['version'] + 1
@@ -494,8 +488,6 @@ async def test_new_gold_borrow_rechecks_shared_risk_after_concurrent_short_open(
     after = await state(pg_sessionmaker, uid, pid)
     assert after['debt'] == 0 and after['principal'] == D('100')
     assert after['cash'] == before['cash'] + opened.output_amount
-    assert after['locked'] == opened.output_amount
-    assert after['cash'] - after['locked'] == before['cash']
     assert after['gold'] == before['gold'] and after['foreign'] == before['foreign']
     assert after['version'] == before['version'] + 1
     assert [t[1] for t in after['trades']] == ['short_open']
@@ -558,7 +550,7 @@ async def test_cover_requotes_after_concurrent_player_buy_changes_pool(
     assert after['gold'] == before['gold'] + buy_result.input_amount
     assert after['foreign'] == before['foreign'] - buy_result.output_amount
     assert after['cash'] == before['cash'] - covered.input_amount
-    assert after['principal'] == after['interest'] == after['locked'] == after['debt'] == 0
+    assert after['principal'] == after['interest'] == after['debt'] == 0
     assert covered.output_amount == D('100')
     assert covered.input_amount > old_quote.input_amount
     assert after['version'] == before['version'] + 1
@@ -708,7 +700,7 @@ async def test_competing_short_opens_cannot_overborrow_treasury(pg_sessionmaker)
     assert len(after[uid]['trades']) == 1
     trade_id = after[uid]['trades'][0][0]
     assert after[uid]['audits'] == [(after[uid]['audits'][0][0], 'fx_trade', trade_id)]
-    for field in ('cash', 'debt', 'locked', 'principal', 'interest', 'version'):
+    for field in ('cash', 'debt', 'principal', 'interest', 'version'):
         assert after[failed_uid][field] == before[failed_uid][field], field
     async with pg_sessionmaker() as db:
         assert not (await db.execute(select(LedgerEntry).where(

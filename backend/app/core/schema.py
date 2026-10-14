@@ -44,7 +44,12 @@ def classify_schema(connection) -> str:
         raise RuntimeError("Schema predates business baseline; use business reset")
     baseline = scripts.get_revision(BASELINE_REVISION).module
     for name, columns in baseline.SCHEMA_TABLE_COLUMNS.items():
-        if name not in tables or not set(columns) <= {c["name"] for c in inspector.get_columns(name)}:
+        required = set(columns)
+        # This descendant deliberately removes the baseline cash-lock column.
+        # Older revisions still require it; other baseline columns remain mandatory.
+        if name == "fx_short_position" and "remove_short_cash_lock_20261014" in ancestry:
+            required.remove("restricted_gold")
+        if name not in tables or not required <= {c["name"] for c in inspector.get_columns(name)}:
             raise RuntimeError("Partial business database schema; use business reset")
     return "upgradeable"
 

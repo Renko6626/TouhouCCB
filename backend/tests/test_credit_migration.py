@@ -267,3 +267,35 @@ def test_auto_repay_upgrade_preserves_money_and_downgrade(baseline):
         migrate(c, previous, downgrade=True)
         assert 'auto_repay' not in {col['name'] for col in inspect(c).get_columns('user')}
         assert c.execute(text('SELECT username, cash, debt FROM "user" ORDER BY id')).all() == [('existing', 42, 12), ('new', 5, 0)]
+
+
+def test_short_cash_unlock_upgrade_preserves_cash_debt_basis_and_history(tmp_path):
+    from app.models.fx import FxPair, FxShortPosition
+    from datetime import datetime, timezone
+    engine = create_engine(f"sqlite:///{tmp_path}/unlock.db")
+    with engine.begin() as connection:
+        migrate(connection, "account_auto_repay_20261014")
+        users = Table('user', MetaData(), autoload_with=connection)
+        shorts = Table('fx_short_position', MetaData(), autoload_with=connection)
+        connection.execute(users.insert().values(id=1, username='retained-short', cash=100, debt=7,
+            is_active=True, is_superuser=False, is_bot=False))
+        connection.execute(FxPair.__table__.insert().values(id=1, currency_code='SHORT', currency_name='Short'))
+        connection.execute(shorts.insert().values(user_id=1, pair_id=1, principal_foreign=10,
+            interest_foreign=2, restricted_gold=80, proceeds_basis_gold=75,
+            interest_last_accrued_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+        audit = Table('audit_event', MetaData(), autoload_with=connection)
+        connection.execute(audit.insert().values(event_type='legacy-short', user_id=1, ts=datetime.now(timezone.utc),
+            payload={'restricted_gold': '80'}))
+        migrate(connection, "remove_short_cash_lock_20261014")
+        assert connection.execute(select(User.cash, User.debt)).one() == (100, 7)
+        assert connection.execute(select(FxShortPosition.principal_foreign,
+            FxShortPosition.interest_foreign, FxShortPosition.proceeds_basis_gold)).one() == (10, 2, 75)
+        assert connection.execute(select(audit.c.payload)).scalar_one() == {'restricted_gold': '80'}
+        with pytest.raises(IntegrityError):
+            connection.execute(FxShortPosition.__table__.update().values(principal_foreign=-1))
+        migrate(connection, "account_auto_repay_20261014", downgrade=True)
+        restored = Table('fx_short_position', MetaData(), autoload_with=connection)
+        assert connection.execute(select(restored.c.restricted_gold)).scalar_one() == 0
+        assert connection.execute(select(User.cash, User.debt)).one() == (100, 7)
+    engine.dispose()

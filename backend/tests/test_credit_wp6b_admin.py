@@ -106,12 +106,12 @@ async def _seed_market_position(uid: int, *, amount: str = "10") -> GroupKey:
 
 async def _seed_short_pairs(
     uid: int, *, pair_status: str = "trading",
-    locks: tuple[str, ...] = ("50", "30"), principal: str = "10",
+    bases: tuple[str, ...] = ("50", "30"), principal: str = "10",
 ) -> list[GroupKey]:
     """Persist foreign-only short debt (User.debt stays 0) on real pairs."""
     keys: list[GroupKey] = []
     async with async_session_maker() as s:
-        for lock in locks:
+        for basis in bases:
             pair = FxPair(
                 currency_code=uuid.uuid4().hex[:16], currency_name="test",
                 status=pair_status, gold_reserve=Decimal("10000"),
@@ -121,7 +121,7 @@ async def _seed_short_pairs(
             await s.flush()
             s.add(FxShortPosition(
                 user_id=uid, pair_id=pair.id, principal_foreign=Decimal(principal),
-                restricted_gold=Decimal(lock),
+                proceeds_basis_gold=Decimal(basis),
                 interest_last_accrued_at=datetime.now(timezone.utc),
             ))
             keys.append(GroupKey("fx", int(pair.id)))
@@ -130,14 +130,14 @@ async def _seed_short_pairs(
 
 
 async def _short_state(uid: int) -> list[tuple[Decimal, Decimal, Decimal]]:
-    """Persisted foreign obligation/lock per short: (principal, interest, restricted)."""
+    """Persisted short principal, interest and historical proceeds basis."""
     async with async_session_maker() as s:
         rows = (await s.execute(
             select(FxShortPosition).where(FxShortPosition.user_id == uid)
             .order_by(FxShortPosition.id)
         )).scalars().all()
     return [
-        (Decimal(p.principal_foreign), Decimal(p.interest_foreign), Decimal(p.restricted_gold))
+        (Decimal(p.principal_foreign), Decimal(p.interest_foreign), Decimal(p.proceeds_basis_gold))
         for p in rows
     ]
 
@@ -268,8 +268,7 @@ async def test_unified_debit_retries_after_short_appears_post_discovery(writes_e
                 await s2.flush()
                 s2.add(FxShortPosition(
                     user_id=user_id, pair_id=pair.id,
-                    principal_foreign=Decimal("10"), restricted_gold=Decimal("20"),
-                    interest_last_accrued_at=datetime.now(timezone.utc),
+                    principal_foreign=Decimal("10"), interest_last_accrued_at=datetime.now(timezone.utc),
                 ))
                 bumped = await s2.get(User, user_id)
                 bump_economic_version(bumped)
@@ -404,13 +403,13 @@ async def test_unified_batch_grant_applies_to_all_and_bumps(writes_enabled):
         assert cash == Decimal("125.000000") and version == 1
 
 
-async def test_unified_batch_debit_foreign_only_debt_holds_gates_and_skips_below_lock(
+async def test_unified_batch_debit_foreign_only_debt_holds_gates_and_admits_healthy_margin(
     writes_enabled, monkeypatch,
 ):
-    """D=0 foreign-only debt: full gates held, and C cannot fall below S."""
+    """Foreign-only debt still holds its gates while healthy cash deductions succeed."""
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
-    keys = await _seed_short_pairs(uid)  # S = 80, User.debt = 0
+    keys = await _seed_short_pairs(uid)  # User.debt = 0
     credit_flags.set_flags(UNIFIED)
 
     observed: list[frozenset] = []
@@ -426,16 +425,15 @@ async def test_unified_batch_debit_foreign_only_debt_holds_gates_and_skips_below
         r = await svc.batch_adjust_cash(
             s, f=f, amount=Decimal("-30"), reason="pull", admin_id=admin, dry_run=False,
         )
-    assert r["updated_count"] == 0 and r["failed_count"] == 1
-    assert "空头锁金" in r["failed"][0]["reason"]
+    assert r["updated_count"] == 1 and r["failed_count"] == 0
     assert observed and set(keys).issubset(observed[0])
     assert GATES.metrics().holders == 0
     cash, _, version = await _state(uid)
-    assert cash == Decimal("100.000000") and version == 0
+    assert cash == Decimal("70.000000") and version == 1
 
 
 async def test_unified_batch_debit_foreign_only_debt_prices_cover_cost(writes_enabled):
-    """Free cash exactly at S is admitted only after pricing the foreign cover cost."""
+    """A cash deduction is admitted after pricing the foreign cover cost."""
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
     await _seed_short_pairs(uid)
@@ -504,7 +502,7 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
     await _seed_loan_config()
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
-    keys = await _seed_short_pairs(uid, principal="9000")  # S = 80, K >> cash
+    keys = await _seed_short_pairs(uid, principal="9000")  # K >> cash
     credit_flags.set_flags(UNIFIED)
 
     observed: list[frozenset] = []
@@ -519,7 +517,7 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
     async with async_session_maker() as s:
         r = await svc.amnesty(
             s, f=f, reset_cash_to=Decimal("80"), forgive_debt=True,
-            reason="reset to lock boundary", admin_id=admin, dry_run=False,
+            reason="reset cash", admin_id=admin, dry_run=False,
         )
     assert r["updated_count"] == 0 and r["failed_count"] == 1
     assert "初始保证金" in r["failed"][0]["reason"]
@@ -536,7 +534,7 @@ async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(
     await _seed_loan_config()
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"), debt=Decimal(gold_debt), frozen=True)
-    await _seed_short_pairs(uid)  # S = 80
+    await _seed_short_pairs(uid)  # foreign debt remains
     credit_flags.set_flags(UNIFIED)
     short_before = await _short_state(uid)
 
@@ -662,7 +660,7 @@ async def test_explicit_short_writeoff_preserves_gold_and_other_pair(writeoff_cl
         assert user.credit_frozen
         treasury = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pairs[0].group_id))).scalar_one()
         assert (treasury.gold_balance, treasury.foreign_balance) == (Decimal('23'), Decimal('29'))
-        assert await available_cash(s, user) == Decimal('70')
+        assert await available_cash(s, user) == Decimal('100')
         target = (await s.execute(select(FxShortPosition).where(
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == pairs[0].group_id))).scalar_one()
         assert target.proceeds_basis_gold == ZERO and target.interest_last_accrued_at is None
@@ -684,7 +682,7 @@ async def test_short_writeoff_overflow_fails_without_partial_changes(writeoff_cl
     from app.models.fx import FxTreasury
     admin_id = await _seed_admin()
     uid = await _seed_user(cash=Decimal('100'), frozen=True)
-    pairs = await _seed_short_pairs(uid, locks=('50',))
+    pairs = await _seed_short_pairs(uid, bases=('50',))
     async with async_session_maker() as s:
         admin = await s.get(User, admin_id)
         s.add(SiteConfig(key='loan_daily_rate', value='1', value_type='decimal'))
@@ -731,7 +729,6 @@ async def test_short_writeoff_delayed_retry_preserves_reopened_obligation(writeo
             short = (await s.execute(select(FxShortPosition).where(
                 FxShortPosition.user_id == uid, FxShortPosition.pair_id == pairs[0].group_id))).scalar_one()
             short.principal_foreign = Decimal('7')
-            short.restricted_gold = Decimal('35')
             short.proceeds_basis_gold = Decimal('31')
             short.interest_last_accrued_at = datetime.now(timezone.utc)
             user.cash = Decimal('131')
@@ -756,7 +753,7 @@ async def test_short_writeoff_delayed_retry_preserves_reopened_obligation(writeo
     finally:
         app.dependency_overrides.pop(current_superuser, None)
     assert await _state(uid) == (Decimal('131'), ZERO, 2)
-    assert await _short_state(uid) == [(Decimal('7'), ZERO, Decimal('35')), (Decimal('10'), ZERO, Decimal('30'))]
+    assert await _short_state(uid) == [(Decimal('7'), ZERO, Decimal('31')), (Decimal('10'), ZERO, Decimal('30'))]
     async with async_session_maker() as s:
         treasury = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pairs[0].group_id))).scalar_one()
         assert treasury.foreign_balance == Decimal('22')

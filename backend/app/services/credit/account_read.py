@@ -36,7 +36,7 @@ def account_risk_fields(valuation: AccountValuation, thresholds: RiskThresholds)
                                   blocked_reason=valuation.blocked_reason)
     if valuation.risk_basis is None:
         status = 'blocked'
-    return dict(available_cash=valuation.available_cash, restricted_cash=valuation.restricted_cash,
+    return dict(available_cash=valuation.available_cash,
                 short_cover_cost=cover, risk_basis=valuation.risk_basis,
                 equity_to_risk_basis=(equity / valuation.risk_basis
                     if equity is not None and valuation.risk_basis is not None
@@ -75,7 +75,7 @@ def short_position_fields(position: ShortPositionValuation, *, fx_enabled: bool,
               'unified_credit_disabled' if not unified_enabled else quote.blocked_reason)
     return dict(pair_id=position.pair_id, currency_code=position.currency_code,
                 principal_foreign=position.principal_foreign, interest_foreign=position.interest_foreign,
-                pending_short_debt=position.pending_short_debt, restricted_gold=position.restricted_gold,
+                pending_short_debt=position.pending_short_debt,
                 proceeds_basis_gold=position.proceeds_basis_gold,
                 interest_last_accrued_at=position.interest_last_accrued_at,
                 reference_cover_cost=None if unknown else quote.gold_in,

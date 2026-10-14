@@ -205,14 +205,6 @@ const actionHint = computed<string>(() => {
         <span class="asset-label">总现金</span>
         <span class="asset-value">金 {{ userStore.summary.cash.toFixed(2) }}</span>
       </div>
-        <div class="asset-item">
-          <span class="asset-label">未锁定现金</span>
-          <span class="asset-value">金 {{ formatFxAmount(session.accountPreview?.available_cash, 2) }}</span>
-        </div>
-        <div class="asset-item">
-          <span class="asset-label" title="空头锁定所得（专用于回补）">空头锁金</span>
-          <span class="asset-value">金 {{ session.account?.fx_shorts.reduce((sum, row) => sum + Number(row.restricted_gold), 0).toFixed(2) ?? '—' }}</span>
-        </div>
       <div class="asset-item">
         <span class="asset-label">持仓</span>
         <span class="asset-value">金 {{ userStore.holdingsValueMtm.toFixed(2) }}</span>

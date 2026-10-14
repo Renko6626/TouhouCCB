@@ -35,7 +35,6 @@ export interface AccountShortPosition {
   principal_foreign: string
   interest_foreign: string
   pending_short_debt: string | null
-  restricted_gold: string
   proceeds_basis_gold: string
   reference_cover_cost: string | null
   reference_cover_fee: string | null
@@ -48,7 +47,6 @@ export interface AccountShortPosition {
 export interface UserSummary {
   auto_repay?: boolean
   available_cash?: string | null
-  restricted_cash?: string
   short_positions?: AccountShortPosition[]
   short_cover_cost?: string | null
   risk_basis?: string | null

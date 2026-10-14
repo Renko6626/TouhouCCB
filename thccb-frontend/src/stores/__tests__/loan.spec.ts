@@ -18,7 +18,7 @@ describe('loan quota refresh', () => {
   it('clears stale spendable cash while refreshing and keeps it unavailable on failure', async () => {
     const store = useLoanStore()
     store.quota = {
-      enabled: true, cash: '5500', available_cash: '5500', restricted_cash: '0',
+      enabled: true, cash: '5500', available_cash: '5500',
       debt: '100', max_borrow: '900', net_worth: '5400', credit_leverage: '11',
       daily_rate: '0.01', last_accrued_at: null,
     } satisfies LoanQuota

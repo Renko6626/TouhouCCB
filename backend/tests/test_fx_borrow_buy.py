@@ -89,7 +89,7 @@ async def test_success_replay_and_original_terms_survive_later_freeze():
         assert exc.value.status_code == 409
 
 
-@pytest.mark.parametrize('case', ['slippage', 'margin', 'cash', 'frozen', 'loan_off', 'short', 'locked'])
+@pytest.mark.parametrize('case', ['slippage', 'margin', 'cash', 'frozen', 'loan_off', 'short'])
 async def test_rejections_leave_both_legs_unchanged(case):
     uid, pid = await seed(cash='1' if case == 'margin' else '100', debt='10', rate='0.01')
     async with async_session_maker() as s:
@@ -98,16 +98,10 @@ async def test_rejections_leave_both_legs_unchanged(case):
         elif case == 'loan_off':
             config = (await s.execute(select(SiteConfig).where(SiteConfig.key == 'loan_enabled'))).scalar_one()
             config.value = 'false'
-        elif case in ('short', 'locked'):
+        elif case in ('short'):
             target = pid
-            if case == 'locked':
-                p = FxPair(currency_code='LOCK', currency_name='Lock', status='trading',
-                           gold_reserve=D('10000'), foreign_reserve=D('10000'))
-                s.add(p)
-                await s.flush()
-                target = p.id
             s.add(FxShortPosition(user_id=uid, pair_id=target, principal_foreign=D('1'),
-                                 restricted_gold=D('90'), interest_last_accrued_at=NOW))
+                                 interest_last_accrued_at=NOW))
         await s.commit()
     site_config.clear_cache()
     before = await state(uid, pid)

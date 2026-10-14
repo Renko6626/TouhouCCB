@@ -8,7 +8,6 @@ export interface LoanQuota {
   enabled: boolean
   cash: string
   available_cash?: string | null
-  restricted_cash?: string
   short_positions?: AccountShortPosition[]
   short_cover_cost?: string | null
   risk_basis?: string | null
