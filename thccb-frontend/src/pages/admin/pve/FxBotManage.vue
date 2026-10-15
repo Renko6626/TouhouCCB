@@ -982,7 +982,12 @@ h2 {
   margin-bottom: 16px;
 }
 .table {
+  display: block;
+  width: 100%;
   overflow-x: auto;
+}
+.table :deep(table) {
+  width: 100%;
 }
 .table :deep(th),
 .table :deep(td.num) {
