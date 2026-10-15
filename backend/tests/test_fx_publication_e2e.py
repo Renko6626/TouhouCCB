@@ -193,3 +193,38 @@ async def test_liquidity_commit_publishes_price_events_and_reconnect_keeps_zero_
         await instance.stop()
         await BROKER.unsubscribe(f"fx:{pid}", sub)
         await runtime.stop()
+
+@pytest.mark.asyncio
+async def test_controlled_bot_commit_reaches_public_frame(monkeypatch):
+    from app.models.bot import BotProfile
+    from app.schemas.pve_fx import FxPveConfig, FxPairBotConfig, FxPveGenerateRequest
+    from app.services.pve_fx import accounts, executor
+    from app.services.pve_fx.config import save_fx_config
+    from app.services.pve_fx.types import FxDecision, FxOrderIntent, FxTickFrame
+    uid, pid = await _seed()
+    async with async_session_maker() as db:
+        item = (await accounts.generate_fx_bots(db, FxPveGenerateRequest(pair_id=pid,
+            items=[{'template':'random', 'count':1}], initial_cash='100', initial_foreign='0'), uid))[0]
+        profile = await db.get(BotProfile, item.profile_id)
+        profile.status = 'active'
+        await save_fx_config(db, FxPveConfig(enabled=True, pair_configs={pid:FxPairBotConfig(enabled=True)}), uid)
+        await db.commit()
+    sub, _ = await BROKER.subscribe(f'fx:{pid}')
+    instance = publisher.FxPublisher()
+    monkeypatch.setattr(publisher, 'PUBLISHER', instance)
+    await instance.start()
+    try:
+        result = await executor.execute_bot_order(item.profile_id,
+            FxDecision(FxOrderIntent('buy_foreign', Decimal('.1'), 'test')),
+            FxTickFrame(1, pid, datetime.now(timezone.utc), (), Decimal('1')))
+        assert result.rejection is None
+        await instance.drain()
+        payload = json.loads((await asyncio.wait_for(sub.q.get(), 3)).decode().split('data: ', 1)[1])['data']
+        assert Decimal(payload['volume']) == result.fill.input_amount
+        assert instance.stats()['published'] == 1
+        async with async_session_maker() as db:
+            event = (await db.execute(select(FxPoolEvent).where(FxPoolEvent.trade_id == result.fill.trade_id))).scalars().one()
+            assert event.gold_volume == result.fill.input_amount
+    finally:
+        await instance.stop()
+        await BROKER.unsubscribe(f'fx:{pid}', sub)
