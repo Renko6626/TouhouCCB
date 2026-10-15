@@ -32,6 +32,7 @@ from app.services.bot_detection import (
     start_scheduler as start_bot_detection_scheduler,
     stop_scheduler as stop_bot_detection_scheduler,
 )
+from app.services.pve_fx.scheduler import start_fx_pve_scheduler, stop_fx_pve_scheduler
 from app.services.pve.scheduler import (
     start_scheduler as start_pve_scheduler,
     stop_scheduler as stop_pve_scheduler,
@@ -210,6 +211,7 @@ async def _startup(app: FastAPI) -> None:
         await start_pve_scheduler()
         await start_fx_publisher()
         await start_fx_order_scheduler()
+        await start_fx_pve_scheduler()
     # ── 定频广播帧（spec § 5.1）：统一 tick 帧发布，无条件启动（只读，不写库）──
     from app.services.tick_broadcaster import TICK_BROADCASTER
     await TICK_BROADCASTER.start()
@@ -246,6 +248,7 @@ async def _shutdown() -> None:
             logger.exception("shutdown: %s 清理失败（继续其余清理）", name)
 
     try:
+        await _safe("fx_pve_scheduler", stop_fx_pve_scheduler)
         await _safe("fx_order_scheduler", stop_fx_order_scheduler)
         await _safe("pve_scheduler", stop_pve_scheduler)
         await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
