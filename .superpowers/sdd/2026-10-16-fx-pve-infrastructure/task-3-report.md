@@ -33,3 +33,9 @@ Evidence includes actual custom initial allocation -> controlled buy/sell -> aud
 ## Self-review / limits
 
 Reviewed owned changes and lock ordering, replay identity, callback rollback, profile pause/closed episode preservation, fee and cost sharing, no research imports and unchanged HTTP schemas. No production migration, grant, trade, bot gate activation or deployment. Tests use SQLite, so PostgreSQL row-lock scheduling itself was not exercised. Foreign debt admission is implemented using principal OR interest across all pairs; the focused suite tests cash debt while existing short tests were not expanded. No browser automation or full suite beyond requested relevant checks.
+
+## Stage review precision fix
+
+Verified Important review finding with real RandomStrategy.prepare_tick/decide using normal draws +/-0.123456789 and sigma1: both execution tests rejected with `amount must have at most 6 fractional digits` (2 failed,11 passed). Executor now rounds only overprecision executable amounts down to six places after remaining-episode clipping, explicitly rejects zero, and preserves original intent in fill.requested_amount. Already valid amount representations and public human validation remain unchanged. Added one parameterized actual strategy-to-real-executor BUY/SELL behavior test; both execute exactly0.123456 foreign and report original0.123456789 request.
+
+Focused final command: `venv/bin/python -m pytest tests/test_fx_pve_execution.py -q` from worktree backend, outside sandbox on disposable test DB: **13 passed in2.35s**. Intermediate unconditional quantization exposed existing exact audit-string equivalence (`1` versus `1.000000`); limited normalization to overprecision amounts and retained all assertions. `git diff --check` passed. No other suite, browser, runtime DB or scope expansion.

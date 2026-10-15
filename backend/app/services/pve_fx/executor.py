@@ -13,6 +13,7 @@ from app.models.fx import FxTreasury, FxWallet
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.fx import trading
+from app.services.fx.amm import amount_down
 from app.services.market_locks import lock_user
 from app.services.pve_fx.registry import get_strategy
 from app.services.pve_fx.types import FxDecision, FxExecutionResult, FxFill, FxOrderIntent, FxTickFrame
@@ -101,6 +102,10 @@ async def _execute(profile_id, decision, frame, *, purpose='scheduled', operator
             amount = intent.amount
             if callback_state.get('episode') and not callback_state.get('pending', {}).get('opening', True):
                 amount = min(amount, Decimal(callback_state['episode']['remaining']))
+            if amount.as_tuple().exponent < -6:
+                amount = amount_down(amount)
+            if amount <= 0:
+                raise trading.TradeRejected('amount rounds to zero')
             side = 'sell' if intent.action == 'sell_foreign' else 'buy'
             mode = 'foreign_out' if intent.action == 'buy_foreign' else 'input'
             key = (f'fxbot:{profile_id}:{frame.tick_id}' if purpose == 'scheduled'

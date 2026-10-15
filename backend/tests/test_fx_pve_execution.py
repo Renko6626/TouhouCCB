@@ -177,3 +177,22 @@ async def test_partial_episode_exit_and_paused_admin_liquidation():
     assert closed.rejection is None and closed.state['episode'] is None
     async with async_session_maker() as db:
         assert (await db.get(BotProfile, profile)).status == 'paused'
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('draw', ['0.123456789', '-0.123456789'])
+async def test_real_random_strategy_intent_executes_at_storage_precision(draw):
+    from app.services.pve_fx.types import FxBotSnapshot, FxExecutionView
+    profile, uid, pid, _ = await seed()
+    class Rng:
+        def normal(self): return float(draw)
+    strategy = executor.get_strategy('random')
+    bot = FxBotSnapshot(profile, uid, pid, 'random', {'order_sigma_foreign':'1'},
+                        D('1000'), D('100'))
+    tick = frame(pid)
+    intent = strategy.decide(bot, strategy.prepare_tick(bot, tick, Rng()),
+                             FxExecutionView(D('10000'), D('10000'), D('.01'), D('.01')))
+    result = await executor.execute_bot_order(profile, intent, tick)
+    assert result.rejection is None
+    assert result.fill.requested_amount == abs(D(draw))
+    actual_foreign = (result.fill.output_amount if D(draw) > 0 else result.fill.input_amount)
+    assert actual_foreign == D('0.123456')
