@@ -158,3 +158,105 @@ async def test_retirement_rejects_independent_foreign_debt(fx_db):
     await fx_db.flush()
     with pytest.raises(BotOpError, match='外币债务'):
         await accounts.retire_fx_bot(fx_db, item.profile_id, 1)
+
+# HTTP coverage focuses on route admission and composition; finance behavior is covered above.
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from app.api.v1 import admin_pve_fx
+from app.core.database import async_session_maker
+from app.core.users import current_superuser, current_active_user
+from app.models.base import SiteConfig
+from app.models.fx import FxPair, FxTreasury
+
+P = '/api/v1/admin/pve/fx'
+
+async def api_seed():
+    async with async_session_maker() as db:
+        admin = User(username='fx-admin', is_superuser=True, is_active=True)
+        pair = FxPair(currency_code='API', currency_name='API', status='trading',
+                      gold_reserve=Decimal('10000'), foreign_reserve=Decimal('10000'))
+        db.add(admin)
+        db.add(pair)
+        await db.flush()
+        db.add(FxTreasury(pair_id=pair.id, gold_balance=Decimal('10000'), foreign_balance=Decimal('10000')))
+        db.add(SiteConfig(key='fx_enabled', value='true', value_type='bool'))
+        await db.commit()
+        return admin, pair.id
+
+def management_app(admin=None):
+    app = FastAPI()
+    app.include_router(admin_pve_fx.router, prefix=P)
+    if admin is not None:
+        app.dependency_overrides[current_superuser] = lambda: admin
+    return app
+
+@pytest.mark.asyncio
+async def test_fx_management_requires_superuser():
+    app = management_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+        for path in ['/overview', '/config', '/bots', '/bots/1/log']:
+            assert (await client.get(P+path)).status_code == 401
+        for method,path,body in [('put','/config',{'enabled':False}),
+                                ('post','/bots/generate',{}),('post','/bots/batch',{}),
+                                ('patch','/bots/1',{}),('post','/bots/1/fund',{}),
+                                ('post','/bots/1/liquidate',{})]:
+            assert (await client.request(method,P+path,json=body)).status_code == 401
+        assert (await client.delete(P+'/bots/1')).status_code == 401
+        app.dependency_overrides[current_active_user] = lambda: User(username='ordinary', is_superuser=False)
+        assert (await client.get(P+'/overview')).status_code == 403
+        assert (await client.post(P+'/bots/batch', json={'profile_ids':[1],'patch':{'status':'active'}})).status_code == 403
+
+@pytest.mark.asyncio
+async def test_fx_api_batch_real_params_and_atomic_validation():
+    admin,pair_id = await api_seed()
+    async with AsyncClient(transport=ASGITransport(app=management_app(admin)), base_url='http://test') as client:
+        result = await client.post(P+'/bots/generate',json={
+            'pair_id':pair_id,'items':[{'template':'random','count':2}],
+            'initial_cash':'123','initial_foreign':'2'})
+        assert result.status_code == 200, result.text
+        items=result.json()['created']
+        ids=[b['profile_id'] for b in items]
+        assert all(b['status']=='paused' for b in items)
+        result=await client.post(P+'/bots/batch',json={'profile_ids':ids,'patch':{'params':{'order_sigma_foreign':37}}})
+        assert result.status_code == 200, result.text
+        assert [b['params']['order_sigma_foreign'] for b in result.json()['updated']]==[37,37]
+        # A later invalid/foreign profile must roll back changes to earlier selections.
+        result=await client.post(P+'/bots/batch',json={'profile_ids':[ids[0],99999],'patch':{'status':'active'}})
+        assert result.status_code==404
+        result=await client.get(P+'/bots')
+        assert [b['status'] for b in result.json()]==['paused','paused']
+        result=await client.post(P+'/bots/batch',json={'profile_ids':ids,'patch':{'params':{'inventory_baseline_foreign':'99'}}})
+        assert result.status_code==400
+        assert (await client.get(P+'/overview')).json()['preset']['items'][-1]['template']=='episode'
+        async with async_session_maker() as db:
+            second = await db.get(BotProfile, ids[1])
+            second.status = 'retired'
+            await db.commit()
+        result = await client.post(P+'/bots/batch', json={'profile_ids':ids,'patch':{'params':{'order_sigma_foreign':99}}})
+        assert result.status_code == 409
+        persisted = (await client.get(P+'/bots')).json()
+        assert persisted[0]['params']['order_sigma_foreign'] == 37
+
+@pytest.mark.asyncio
+async def test_fx_api_paused_liquidation_then_retirement():
+    admin,pair_id=await api_seed()
+    async with AsyncClient(transport=ASGITransport(app=management_app(admin)), base_url='http://test') as client:
+        result=await client.post(P+'/bots/generate',json={
+            'pair_id':pair_id,'items':[{'template':'inventory','count':1}],
+            'initial_cash':'123','initial_foreign':'2'})
+        item=result.json()['created'][0]
+        pid=item['profile_id']
+        assert (await client.delete(f'{P}/bots/{pid}')).status_code==409
+        result=await client.post(f'{P}/bots/{pid}/liquidate',json={'min_out':'0'})
+        assert result.status_code==200,result.text
+        bot=result.json()['bot']
+        assert bot['status']=='paused' and Decimal(bot['wallet'])==0
+        assert Decimal(bot['cash'])>Decimal('123')
+        assert not bot['strategy_state'].get('episode')
+        result=await client.delete(f'{P}/bots/{pid}')
+        assert result.status_code==200,result.text
+        assert result.json()['mode']=='retired'
+        async with async_session_maker() as db:
+            profile=await db.get(BotProfile,pid)
+            user=await db.get(User,item['user_id'])
+            assert profile.status=='retired' and not user.is_active and user.cash==0

@@ -484,6 +484,8 @@ app.include_router(admin_users_api.router, prefix="/api/v1/admin/users", tags=["
 
 from app.api.v1 import admin_pve as admin_pve_api
 app.include_router(admin_pve_api.router, prefix="/api/v1/admin/pve", tags=["AdminPve"])
+from app.api.v1 import admin_pve_fx as admin_pve_fx_api
+app.include_router(admin_pve_fx_api.router, prefix="/api/v1/admin/pve/fx", tags=["AdminPveFx"])
 
 from app.api.v1 import title as title_api
 app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])
