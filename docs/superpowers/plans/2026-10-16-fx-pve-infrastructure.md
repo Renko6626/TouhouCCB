@@ -1,6 +1,6 @@
 # FX 机器人基础设施 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. 用户尚未选择实现委派方式；推荐主 agent 顺序实现，独立 reviewer 在完整改动后审阅。若用户选择 subagent-driven，再使用对应技能。Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. 用户已确认在隔离 worktree 中按任务实施与阶段审阅，最终完整改动另做独立审阅。Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在现有账户和真实 FX 现货体系上接入可配置的随机、库存调节、短线轮次机器人。
 
@@ -68,12 +68,12 @@
 - `BotProfile.market_kind/fx_pair_id/strategy_state`；默认lmsr、null、空对象。
 - `types.py` 定义设计§5的 FxTickFrame、FxBotSnapshot、FxExecutionView、FxPreparedSignal、FxDecision、FxOrderIntent、FxFill；补 FxBotValues(cash/wallet/mtm/liquidation_cash)、FxExecutionResult(fill/state/rejection)。Decimal使用真实Decimal，持久JSON字符串化由状态serializer处理。
 
-- [ ] 从当前 migration head 追加迁移；升级给原profile填lmsr，不改钱。约束LMSR无FX绑定、FX必须绑定且market_scope为空。存在FX profile时降级拒绝；没有FX profile时降级保留原User/钱包和LMSR数据。
-- [ ] 将冻结参数与5户个人系数复制为生产预设，保留源快照路径及哈希说明；不把研究10000tick、冲击日程等夹具引入生产。
-- [ ] 旧LMSR引擎、旧API列表/overview/修改/删除显式限定market_kind=lmsr，防止FX账户被双重调度或经旧入口改坏。
-- [ ] 配置总闸默认false。season/business reset关闭新开关，清空pair配置；新增外键要求profile先于pair清理，独立FX reset也不得留下悬空profile。
-- [ ] 在 `backend/tests/test_fx_pve_migration.py` 覆盖真实升级、降级和旧数据保留；复用 `test_fx_season_reset.py`／`test_admin_pve.py` 现有夹具补绑定清理和作用域案例。迁移测试不锁死“必须是最新revision”。
-- [ ] 局部验证：`cd backend` 后 `pytest tests/test_fx_pve_migration.py tests/test_fx_season_reset.py tests/test_admin_pve.py -q`。仅一次性测试库；不对运行库执行upgrade/downgrade。
+- [x] 从当前 migration head 追加迁移；升级给原profile填lmsr，不改钱。约束LMSR无FX绑定、FX必须绑定且market_scope为空。存在FX profile时降级拒绝；没有FX profile时降级保留原User/钱包和LMSR数据。
+- [x] 将冻结参数与5户个人系数复制为生产预设，保留源快照路径及哈希说明；不把研究10000tick、冲击日程等夹具引入生产。
+- [x] 旧LMSR引擎、旧API列表/overview/修改/删除显式限定market_kind=lmsr，防止FX账户被双重调度或经旧入口改坏。
+- [x] 配置总闸默认false。season/business reset关闭新开关，清空pair配置；新增外键要求profile先于pair清理，独立FX reset也不得留下悬空profile。
+- [x] 在 `backend/tests/test_fx_pve_migration.py` 覆盖真实升级、降级和旧数据保留；复用 `test_fx_season_reset.py`／`test_admin_pve.py` 现有夹具补绑定清理和作用域案例。迁移测试不锁死“必须是最新revision”。
+- [x] 局部验证：`cd backend` 后 `pytest tests/test_fx_pve_migration.py tests/test_fx_season_reset.py tests/test_admin_pve.py -q`。仅一次性测试库；不对运行库执行upgrade/downgrade。
 
 ## Task 2：自定义初始资产、审计与FX账户生命周期
 
@@ -85,13 +85,13 @@
 - `read_fx_bot_values(db, profile_ids: list[int]) -> dict[int, FxBotValues]`：cash、wallet、MTM、全仓卖出可得现金，列表与死亡判定使用各自明确口径。
 - `fund_fx_bot(...)` 复用ledger；`retire_fx_bot(...)` 无钱包/轮次/债务时复用旧退休记账语义。创建与管理方法由API拥有事务。
 
-- [ ] 创建schema支持pair_id、items、initial_cash、initial_foreign、naming_style；检查有限/非负/6位及现有金额上限、有效未归档交易对。每户实际初始外币记为只读基准，不经过spawn_params扰动。
-- [ ] 现金按现有ledger发放；外币钱包按设计§4.1初始化，cost_basis=初始外币×发放时边际价，6位向下量化。创建前验证cost_basis乘积和外币数量均不超Numeric(16,6)，错误明确拒绝。新钱包及新profile与发放在同事务。
-- [ ] 正数初始外币注册并写入 `pve_fx_initial_allocation`，在现有 audit_replay.fold_fx 增加独立钱包增量处理；零外币不写分配事件。不得伪造成交、资金池注资或价格事件。
-- [ ] 完成paused/dead/retired、现金注资复活及退休前资产/债务拒绝。FX净值读数包含外币；死亡判定使用真实可卖价值。正数初始外币未卖出不能删，卖出后因已有FxTrade只能退休；零外币空白户保留原现金ledger删除语义。退休拒绝独立FxShortPosition欠币，不加入偿债算法。
-- [ ] 扩展 `backend/tests/test_admin_pve_fx.py`：自定义1234现金和600外币、基准600、paused；0现金/600外币的估值；发放后池/金库/FxTrade不变；初始成本乘积越界或其他错误参数事务不留部分账户。
-- [ ] 扩展已有 `test_fx_audit_replay.py`：发放后调用真实现货买卖，fold(check=True)及compare_with_live匹配。此层覆盖发放完整性，管理API不再机械复制整套回放场景。
-- [ ] 局部验证：`pytest tests/test_admin_pve_fx.py tests/test_fx_audit_replay.py tests/test_credit_wp6b_pve.py -q`。
+- [x] 创建schema支持pair_id、items、initial_cash、initial_foreign、naming_style；检查有限/非负/6位及现有金额上限、有效未归档交易对。每户实际初始外币记为只读基准，不经过spawn_params扰动。
+- [x] 现金按现有ledger发放；外币钱包按设计§4.1初始化，cost_basis=初始外币×发放时边际价，6位向下量化。创建前验证cost_basis乘积和外币数量均不超Numeric(16,6)，错误明确拒绝。新钱包及新profile与发放在同事务。
+- [x] 正数初始外币注册并写入 `pve_fx_initial_allocation`，在现有 audit_replay.fold_fx 增加独立钱包增量处理；零外币不写分配事件。不得伪造成交、资金池注资或价格事件。
+- [x] 完成paused/dead/retired、现金注资复活及退休前资产/债务拒绝。FX净值读数包含外币；死亡判定使用真实可卖价值。正数初始外币未卖出不能删，卖出后因已有FxTrade只能退休；零外币空白户保留原现金ledger删除语义。退休拒绝独立FxShortPosition欠币，不加入偿债算法。
+- [x] 扩展 `backend/tests/test_admin_pve_fx.py`：自定义1234现金和600外币、基准600、paused；0现金/600外币的估值；发放后池/金库/FxTrade不变；初始成本乘积越界或其他错误参数事务不留部分账户。
+- [x] 扩展已有 `test_fx_audit_replay.py`：发放后调用真实现货买卖，fold(check=True)及compare_with_live匹配。此层覆盖发放完整性，管理API不再机械复制整套回放场景。
+- [x] 局部验证：`pytest tests/test_admin_pve_fx.py tests/test_fx_audit_replay.py tests/test_credit_wp6b_pve.py -q`。
 
 ## Task 3：受控现货入口、exact-out与状态事务
 
@@ -103,13 +103,13 @@
 - `execute_bot_order(profile_id: int, decision: FxDecision, frame: FxTickFrame) -> FxExecutionResult`：独立DB session，复用普通现货wrapper及回调，结果包含已提交fill/state或明确拒绝原因；不会自行重试未知结果。
 - `liquidate_fx_bot(profile_id: int, min_out: Decimal, operator_id: int) -> FxExecutionResult`：仅超管调用，用途admin_liquidate、账户paused，完成后清轮次状态并保持paused。
 
-- [ ] 把受控bot与真人资格分支集中到现货准入处：均检查账户启用，机器人额外检查profile与绑定、用途及状态、调度开关、无现金/外币债务；普通HTTP继续拒绝bot并执行真人TOS规则。不得从请求body接受bot上下文或伪造TOS时间。
-- [ ] foreign_out在最新持锁储备上调用quote_buy_exact_out并复用现有记账。既有requested_foreign_amount记录原始外币请求量；幂等回放区分输入预算与指定输出，重复键不同模式/数量拒绝。原input模式不改变。
-- [ ] 实现意图单位转换、0.5%池外币及钱包裁剪；现金不足的buy_foreign在同一资金锁内以quote_buy(可用现金)求六位外币上限，再quote_buy_exact_out执行裁剪量，不退化成预算买入；不可执行就拒绝，允许少量现金尘额。原请求量用于幂等识别，fill记录实际量和裁剪。库存buy_gold仍保持观察价乘意向量。
-- [ ] 收益峰值/退出锁定是观察状态，到达后按资金锁→profile顺序先保存，包括稍后订单失败的情况；无成交不扣数量/成本。通过before_commit将on_fill成交相关状态和last_trade_at一起保存，回调失败则交易/审计/数量/成本一起回滚，但保留先前观察状态。幂等重放不重复on_fill。提交后的账户、市场增量、publisher沿用既有流程。
-- [ ] 用相同初始钱包/储备，分别经真实ASGI普通现货HTTP与内部bot入口买卖，比较实际现金、钱包、成本、储备、手续费、成交和审计经济字段；忽略ID/时间/身份字段。一次参数化用例覆盖买/卖，不在其他层重复。
-- [ ] 其他集中用例：HTTP仍拒绝bot；停用/paused/wrong pair拒绝scheduled；可负担的foreign_out恰好输出指定6位数量；现金裁剪后不超实际可负担量和剩余轮次量；回调故意抛错后余额/成交/剩余数量和成本不变，观察原因保留；复用已有publisher测试覆盖提交后传播，补一个bot入口样例即可。
-- [ ] 局部验证：`pytest tests/test_fx_pve_execution.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_publication_e2e.py -q`。
+- [x] 把受控bot与真人资格分支集中到现货准入处：均检查账户启用，机器人额外检查profile与绑定、用途及状态、调度开关、无现金/外币债务；普通HTTP继续拒绝bot并执行真人TOS规则。不得从请求body接受bot上下文或伪造TOS时间。
+- [x] foreign_out在最新持锁储备上调用quote_buy_exact_out并复用现有记账。既有requested_foreign_amount记录原始外币请求量；幂等回放区分输入预算与指定输出，重复键不同模式/数量拒绝。原input模式不改变。
+- [x] 实现意图单位转换、0.5%池外币及钱包裁剪；现金不足的buy_foreign在同一资金锁内以quote_buy(可用现金)求六位外币上限，再quote_buy_exact_out执行裁剪量，不退化成预算买入；不可执行就拒绝，允许少量现金尘额。原请求量用于幂等识别，fill记录实际量和裁剪。库存buy_gold仍保持观察价乘意向量。
+- [x] 收益峰值/退出锁定是观察状态，到达后按资金锁→profile顺序先保存，包括稍后订单失败的情况；无成交不扣数量/成本。通过before_commit将on_fill成交相关状态和last_trade_at一起保存，回调失败则交易/审计/数量/成本一起回滚，但保留先前观察状态。幂等重放不重复on_fill。提交后的账户、市场增量、publisher沿用既有流程。
+- [x] 用相同初始钱包/储备，分别经真实ASGI普通现货HTTP与内部bot入口买卖，比较实际现金、钱包、成本、储备、手续费、成交和审计经济字段；忽略ID/时间/身份字段。一次参数化用例覆盖买/卖，不在其他层重复。
+- [x] 其他集中用例：HTTP仍拒绝bot；停用/paused/wrong pair拒绝scheduled；可负担的foreign_out恰好输出指定6位数量；现金裁剪后不超实际可负担量和剩余轮次量；回调故意抛错后余额/成交/剩余数量和成本不变，观察原因保留；复用已有publisher测试覆盖提交后传播，补一个bot入口样例即可。
+- [x] 局部验证：`pytest tests/test_fx_pve_execution.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_publication_e2e.py -q`。
 
 ## Task 4：策略注册合同与冻结三策略
 
@@ -120,12 +120,12 @@
 - `FX_STRATEGY_REGISTRY`注册 `random`、`inventory`、`episode`，返回经验证的元数据和参数schema，不执行数据库访问。
 - 订单模式与状态序列化使用任务1合同；任务3只负责真实成交及提交，不复制策略公式。
 
-- [ ] 随机：到达时N(0,120)外币意向，允许同tick多次。独立mark流不消费到达流。
-- [ ] 库存：参考360个过去对数收盘均值；目标500*tanh(100*d)；相对每户真实初始基准，调整50%；买入预算语义保持。
-- [ ] 短线：每tick生成个人噪声，30tick趋势/均价，趋势分母30及系数1/4；以个人sigma判入场；每轮200、退出阈值0.004/0.005/0.002/0.002。负向只卖自有外币，不借币。
-- [ ] 实现整笔剩余量可平仓收益、峰值、锁定退出原因、部分成交按数量分配剩余基准；无持仓超时。填充实际成交后更新，未成交不扣数量/成本。
-- [ ] 精简行为用例：600初始外币时正确计算净库存目标；29/30历史的趋势边界；正向卖出和负向买回的可执行退出收益；部分买回不超过剩余量、成本按比例、退出原因不解锁；无到达时仍预计算短线噪声。复用生产AMM数学，预期基于可观察钱包和明确现金差，不复制整套信号算法。
-- [ ] 局部验证：`pytest tests/test_fx_pve_strategies.py -q`；已有研究用例只运行与轮次/执行相关的 `python -m unittest research.fx.tests.test_execution research.fx.tests.test_episodes research.fx.tests.test_entry_policies`（仓库根目录），不重跑长模拟。
+- [x] 随机：到达时N(0,120)外币意向，允许同tick多次。独立mark流不消费到达流。
+- [x] 库存：参考360个过去对数收盘均值；目标500*tanh(100*d)；相对每户真实初始基准，调整50%；买入预算语义保持。
+- [x] 短线：每tick生成个人噪声，30tick趋势/均价，趋势分母30及系数1/4；以个人sigma判入场；每轮200、退出阈值0.004/0.005/0.002/0.002。负向只卖自有外币，不借币。
+- [x] 实现整笔剩余量可平仓收益、峰值、锁定退出原因、部分成交按数量分配剩余基准；无持仓超时。填充实际成交后更新，未成交不扣数量/成本。
+- [x] 精简行为用例：600初始外币时正确计算净库存目标；29/30历史的趋势边界；正向卖出和负向买回的可执行退出收益；部分买回不超过剩余量、成本按比例、退出原因不解锁；无到达时仍预计算短线噪声。复用生产AMM数学，预期基于可观察钱包和明确现金差，不复制整套信号算法。
+- [x] 局部验证：`pytest tests/test_fx_pve_strategies.py -q`；已有研究用例只运行与轮次/执行相关的 `python -m unittest research.fx.tests.test_execution research.fx.tests.test_episodes research.fx.tests.test_entry_policies`（仓库根目录），不重跑长模拟。
 
 ## Task 5：5秒FX引擎与进程生命周期
 
@@ -136,13 +136,13 @@
 - `start_fx_pve_scheduler()` / `stop_fx_pve_scheduler()`，仅写owner下启动，5秒、max_instances=1、coalesce=True。
 - 消费任务1配置、任务2账户估值、任务4纯策略、任务3executor；不直接改FxWallet/User/储备。
 
-- [ ] 每pair独立收盘deque和z；只读过去收盘生成固定frame，短线每tick准备信号，然后独立Poisson到达、打乱并串行执行；最后采样真实最新池价更新热度。
-- [ ] 每笔前重读真实钱包和执行报价；当前tick不因前序交易重新生成信号。拒绝或失败记日志后等待以后正常到达，不添加订单补偿/重发队列。
-- [ ] 库存/短线同tick仅一次成功成交，随机可多次；消费或暂停不被当作永久死亡，死亡使用现金＋FX全仓可得现金。
-- [ ] 重启保留strategy_state，重建窗口和z；不读取10秒K线假充5秒样本、不补跑漏tick。只需保存策略必要字段，不持久化全部随机流/热度。
-- [ ] main在FX行情runtime就绪、写owner明确后启动；反序停机并等待进行中的交易。测试conftest禁用新调度别名，避免后台真实tick污染测试库。
-- [ ] 小型确定性到达用例调用真实策略/AMM/执行器验证：未到达仍预计算、事件前信号固定、同tick成交次数限制、tick末收益影响下一tick热度；一个真实DB重建engine案例验证未完成轮次继续退出。不要复制整个研究模拟器搭新测试框架。
-- [ ] 局部验证：`pytest tests/test_fx_pve_engine.py tests/test_pve_engine.py -q`。
+- [x] 每pair独立收盘deque和z；只读过去收盘生成固定frame，短线每tick准备信号，然后独立Poisson到达、打乱并串行执行；最后采样真实最新池价更新热度。
+- [x] 每笔前重读真实钱包和执行报价；当前tick不因前序交易重新生成信号。拒绝或失败记日志后等待以后正常到达，不添加订单补偿/重发队列。
+- [x] 库存/短线同tick仅一次成功成交，随机可多次；消费或暂停不被当作永久死亡，死亡使用现金＋FX全仓可得现金。
+- [x] 重启保留strategy_state，重建窗口和z；不读取10秒K线假充5秒样本、不补跑漏tick。只需保存策略必要字段，不持久化全部随机流/热度。
+- [x] main在FX行情runtime就绪、写owner明确后启动；反序停机并等待进行中的交易。测试conftest禁用新调度别名，避免后台真实tick污染测试库。
+- [x] 小型确定性到达用例调用真实策略/AMM/执行器验证：未到达仍预计算、事件前信号固定、同tick成交次数限制、tick末收益影响下一tick热度；一个真实DB重建engine案例验证未完成轮次继续退出。不要复制整个研究模拟器搭新测试框架。
+- [x] 局部验证：`pytest tests/test_fx_pve_engine.py tests/test_pve_engine.py -q`。
 
 ## Task 6：管理API与可配置页面
 
@@ -150,25 +150,25 @@
 
 **Interfaces:** 设计§8列出的管理API与请求形状；FX API前缀 `/api/v1/admin/pve/fx`。前端父路由 `admin-pve`、子路由 `admin-pve-lmsr` 与 `admin-pve-fx`；路径分别 `/admin/pve/lmsr`、`/admin/pve/fx`。FX子页面只消费pveFx API，LMSR继续原API；共享排行榜开关继续原config API。
 
-- [ ] 实现overview/config/list/generate/patch/batch/fund/liquidate/delete/log，全部current_superuser；账户路径验证market_kind及目标归属。批量操作与单户使用同一参数校验，提交前列出目标账户数量。
-- [ ] overview返回冻结预设及策略字段schema；创建默认paused，表单可改现金、外币、人数，展示预计总发放；不出现写死的1000库存基准。
-- [ ] 按现有FxManage父子页面模式，将原PveManage内容移至LmsrBotManage，PveManage仅保留导航和RouterView；注册两个子路由，`/admin/pve`默认跳转LMSR。各自仅加载本页面数据，保留父入口书签与现有侧栏路径高亮；不为简单页面拆分新增永久测试。
-- [ ] FX子页面按交易对看账户、余额、MTM/清算值、轮次、日志；提供公共参数与个人系数编辑、批量启停、暂停后清仓及退休。没有轮次时才允许换短线模板/参数，失败原因在界面直接显示。
-- [ ] 复用已有“排行榜是否包含机器人”“财富统计是否包含机器人”开关，提示影响全部bot；不重复保存FX版开关、不自动关榜。
-- [ ] API用例只补超管权限、批量参数实际生效、paused清仓后资产/状态和可退休；资金与策略完整性留给任务2/3/4，前端不机械新增表单测试。
-- [ ] 验证：`pytest tests/test_admin_pve_fx.py -q`；`cd thccb-frontend` 后 `npm run type-check`、`npm run build`。可最多截图核对页面，不启动浏览器自动点击、填表或交互验收。
+- [x] 实现overview/config/list/generate/patch/batch/fund/liquidate/delete/log，全部current_superuser；账户路径验证market_kind及目标归属。批量操作与单户使用同一参数校验，提交前列出目标账户数量。
+- [x] overview返回冻结预设及策略字段schema；创建默认paused，表单可改现金、外币、人数，展示预计总发放；不出现写死的1000库存基准。
+- [x] 按现有FxManage父子页面模式，将原PveManage内容移至LmsrBotManage，PveManage仅保留导航和RouterView；注册两个子路由，`/admin/pve`默认跳转LMSR。各自仅加载本页面数据，保留父入口书签与现有侧栏路径高亮；不为简单页面拆分新增永久测试。
+- [x] FX子页面按交易对看账户、余额、MTM/清算值、轮次、日志；提供公共参数与个人系数编辑、批量启停、暂停后清仓及退休。没有轮次时才允许换短线模板/参数，失败原因在界面直接显示。
+- [x] 复用已有“排行榜是否包含机器人”“财富统计是否包含机器人”开关，提示影响全部bot；不重复保存FX版开关、不自动关榜。
+- [x] API用例只补超管权限、批量参数实际生效、paused清仓后资产/状态和可退休；资金与策略完整性留给任务2/3/4，前端不机械新增表单测试。
+- [x] 验证：`pytest tests/test_admin_pve_fx.py -q`；`cd thccb-frontend` 后 `npm run type-check`、`npm run build`。可最多截图核对页面，不启动浏览器自动点击、填表或交互验收。
 
 ## Task 7：集中验收、操作说明与交付
 
 **Files:** 更新 `docs/pve.md`；按实际修改补 `test_pve_filters.py`、reset与审计已有用例；设计/计划中标记完成项和实际结果。
 
-- [ ] 自查数据到UI的任务覆盖，核对生产未引用research；6位金额、初始库存基准、MTM与清算值标签、停用/暂停、退出状态回滚、清仓退休都符合设计。
-- [ ] 复用已有过滤测试加入一个持FX钱包的bot：隐藏时人类名次连续，bot不出现；公开成交与池价格不因隐藏被删。仅覆盖现有过滤与FX资产组合，不新增排行榜机制。
-- [ ] 一次性集中运行：`cd backend` 后 `pytest tests/test_fx_pve_migration.py tests/test_admin_pve_fx.py tests/test_fx_pve_execution.py tests/test_fx_pve_strategies.py tests/test_fx_pve_engine.py tests/test_pve_filters.py tests/test_admin_pve.py tests/test_pve_engine.py tests/test_credit_wp6b_pve.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_audit_replay.py tests/test_fx_publication_e2e.py tests/test_fx_season_reset.py -q`。已有business reset相关用例按实际文件名追加，限新增开关和数据清理影响，不全库扩测。
-- [ ] 最终新改动涉及借贷/通用现货分支时，仅追加已有 `test_fx_net_trading.py` 和 `test_fx_borrow_buy.py` 回归，检查新增默认参数没有改变原调用；不增加对应功能。
-- [ ] 文档写明：创建时自定义资产、默认paused、按pair开闸、短线只到达时退出、重启热度/窗口预热、真实费用、隐藏排名的全局范围，以及暂停→清仓→退休流程。
+- [x] 自查数据到UI的任务覆盖，核对生产未引用research；6位金额、初始库存基准、MTM与清算值标签、停用/暂停、退出状态回滚、清仓退休都符合设计。
+- [x] 复用已有过滤测试加入一个持FX钱包的bot：隐藏时人类名次连续，bot不出现；公开成交与池价格不因隐藏被删。仅覆盖现有过滤与FX资产组合，不新增排行榜机制。
+- [x] 一次性集中运行：`cd backend` 后 `pytest tests/test_fx_pve_migration.py tests/test_admin_pve_fx.py tests/test_fx_pve_execution.py tests/test_fx_pve_strategies.py tests/test_fx_pve_engine.py tests/test_pve_filters.py tests/test_admin_pve.py tests/test_pve_engine.py tests/test_credit_wp6b_pve.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_audit_replay.py tests/test_fx_publication_e2e.py tests/test_fx_season_reset.py -q`。已有business reset相关用例按实际文件名追加，限新增开关和数据清理影响，不全库扩测。
+- [x] 最终新改动涉及借贷/通用现货分支时，仅追加已有 `test_fx_net_trading.py` 和 `test_fx_borrow_buy.py` 回归，检查新增默认参数没有改变原调用；不增加对应功能。
+- [x] 文档写明：创建时自定义资产、默认paused、按pair开闸、短线只到达时退出、重启热度/窗口预热、真实费用、隐藏排名的全局范围，以及暂停→清仓→退休流程。
 - [ ] 按实际变更做一次独立代码审阅，区分核心缺陷与低概率可人工处理问题；不为理论风险新增机制或反复扩大审阅。
-- [ ] 交付代码、迁移文件与检查结果，列明未验证项。默认所有开关仍关闭；不运行生产迁移、不创建真实bot、不实际发放资产、不部署。用户另行授权上线后再执行。
+- [x] 交付代码、迁移文件与检查结果，列明未验证项。默认所有开关仍关闭；不运行生产迁移、不创建真实bot、不实际发放资产、不部署。用户另行授权上线后再执行。
 
 ## 验证环境与交接约定
 
@@ -176,4 +176,26 @@
 - Python/pytest使用仓库当前可用环境；不为本计划安装依赖或启动新数据库。PG专项检查仅在已有可用一次性测试库且实际变更要求时运行，不新增CI/E2E环境。
 - 文档阶段不要求运行功能测试。实施阶段各任务局部检查完成后，在完整改动上执行一次相关集中检查；只有新改动或具体失败才追加。
 - 执行前检查工作树，保留用户已有research和文档改动；需要隔离时遵循using-git-worktrees。只提交本计划的实现文件，不将既有输出或研究目录整体纳入提交。
-- 任务提交按独立可审阅交付物组织，不为每个机械小步骤强制提交。当前只准备文档，不自动提交或推送。
+- 任务提交按独立可审阅交付物组织，不为每个机械小步骤强制提交。实现阶段已获授权按任务提交；不推送、不合并、不部署。
+
+## 实施结果（2026-10-16）
+
+Task 1–6 已完成并经各阶段审阅。Task 3 的六位精度边界修正在 `7faf859`，
+Task 5 真实多到达集成用例发现的随机事件幂等键修正在 `819337e`；相关行为由原测试覆盖。
+Task 7 在既有 `test_pve_filters.py` 补持 FX 钱包的机器人场景：关闭共享开关后，
+榜单前两位完整留给真人，财富统计排除机器人，公开 FX 成交和池数据保持不变。
+生产目录定向检查未发现 `from research` 或 `import research`。
+
+最终集中命令（worktree 的 `backend` 目录，现有 venv；conftest 一次性 SQLite）：
+
+```bash
+venv/bin/python -m pytest tests/test_fx_pve_migration.py tests/test_admin_pve_fx.py tests/test_fx_pve_execution.py tests/test_fx_pve_strategies.py tests/test_fx_pve_engine.py tests/test_pve_filters.py tests/test_admin_pve.py tests/test_pve_engine.py tests/test_credit_wp6b_pve.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_audit_replay.py tests/test_fx_publication_e2e.py tests/test_fx_season_reset.py tests/test_business_reset.py tests/test_fx_net_trading.py tests/test_fx_borrow_buy.py -q
+```
+
+结果：**171 passed, 1 deselected in 35.12s**。沿用 pytest 项目默认筛选，未放宽或删除断言。
+前端 Task 6 已通过 `npm run type-check` 和 `npm run build`，其后无功能修改，本阶段未重复。
+`git diff --check` 通过。操作说明已补入 `docs/pve.md`。最终独立审阅仍由主 agent 完成后勾选。
+
+未验证 PostgreSQL 行锁调度、真实时钟下调度器停机时序和浏览器交互；未运行全库测试、
+新建 E2E 环境或追加研究模拟。没有检查或写入运行库，没有复制 `.env`，没有运行生产迁移、
+真实发放、激活机器人、部署、推送或合并。上线仍须单独授权；默认新开关保持关闭。

@@ -11,6 +11,8 @@ from sqlalchemy import select
 
 from app.core.database import async_session_maker
 from app.core.users import create_access_token
+from app.models.fx import FxPair, FxTrade, FxWallet
+
 from app.models.base import (
     BotSuspicion, Market, MarketStatus, Outcome, SiteConfig,
     Transaction, TransactionType, User,
@@ -60,11 +62,50 @@ async def test_leaderboard_includes_bots_by_default(client):
 @pytest.mark.asyncio
 async def test_leaderboard_excludes_bots_when_switched_off(client):
     human_id = await _seed_user("human", "100")
+    richer_id = await _seed_user("human", "200")
     bot_id = await _seed_user("npcbot", "1000", is_bot=True)
+    admin_id = await _seed_user("adm", "0")
+    async with async_session_maker() as s:
+        async with s.begin():
+            (await s.get(User, admin_id)).is_superuser = True
+            pair = FxPair(currency_code="FILTER", currency_name="Filter test", status="trading",
+                          gold_reserve=Decimal("110"), foreign_reserve=Decimal("90"))
+            s.add(pair)
+            await s.flush()
+            pair_id = pair.id
+            s.add(FxWallet(user_id=bot_id, pair_id=pair_id,
+                           foreign_amount=Decimal("10"), cost_basis=Decimal("10")))
+            trade = FxTrade(pair_id=pair_id, user_id=bot_id, side="buy",
+                            input_amount=Decimal("10"), output_amount=Decimal("10"),
+                            min_out=Decimal("0"), pre_gold_reserve=Decimal("100"),
+                            pre_foreign_reserve=Decimal("100"), post_gold_reserve=Decimal("110"),
+                            post_foreign_reserve=Decimal("90"), post_price=Decimal("1.222222"),
+                            idempotency_key="filter-public")
+            s.add(trade)
+            await s.flush()
+            trade_id = trade.id
+    headers = {"Authorization": f"Bearer {create_access_token(admin_id)}"}
+    trades_url = f"/api/v1/fx/pairs/{pair_id}/trades"
+    snapshot_url = f"/api/v1/fx/pairs/{pair_id}/snapshot"
+    before_trades = await client.get(trades_url)
+    before_snapshot = await client.get(snapshot_url)
+    assert before_trades.status_code == before_snapshot.status_code == 200
+    assert trade_id in [row["id"] for row in before_trades.json()]
+
     await _set_config("leaderboard_include_bots", "false")
-    r = await client.get("/api/v1/market/leaderboard?mode=net_worth")
-    ids = [it["user_id"] for it in r.json()]
-    assert bot_id not in ids and human_id in ids
+    await _set_config("wealth_stats_include_bots", "false")
+    r = await client.get("/api/v1/market/leaderboard?mode=net_worth&limit=2")
+    assert r.status_code == 200
+    # Filtering happens before the limit: the two human places stay contiguous.
+    assert [it["user_id"] for it in r.json()] == [richer_id, human_id]
+    wealth = await client.get("/api/v1/admin/stats/wealth", headers=headers)
+    assert wealth.status_code == 200
+    assert wealth.json()["user_count"] == 3
+    after_trades = await client.get(trades_url)
+    after_snapshot = await client.get(snapshot_url)
+    assert after_trades.status_code == after_snapshot.status_code == 200
+    assert after_trades.json() == before_trades.json()
+    assert after_snapshot.json()["pair"] == before_snapshot.json()["pair"]
 
 
 # ── 财富统计开关 ────────────────────────────────────────────────────────
