@@ -1021,8 +1021,10 @@ async function sendShortRequest(run: () => Promise<FxShortTrade | null>) {
 }
 
 // ── 数据加载 ──
-async function loadPairs() {
-  pairs.value = await fxApi.listPairs()
+async function loadPairs(selection: number) {
+  const result = await fxApi.listPairs()
+  if (selection !== selectionGeneration) return
+  pairs.value = result
   const preferred =
     pairs.value.find((p) => p.id === Number(route.query.pair)) ??
     pairs.value.find((p) => p.status === 'trading') ??
@@ -1041,11 +1043,14 @@ async function loadSnapshot() {
     if (pid === pairId.value && request === snapshotGeneration) {
       snapshot.value = result
       snapshotFailed.value = false
+      error.value = null
       marketUpdatedAt.value = new Date().toLocaleTimeString()
     }
   } catch (e) {
-    if (pid === pairId.value && request === snapshotGeneration) snapshotFailed.value = true
-    throw e
+    if (pid === pairId.value && request === snapshotGeneration) {
+      snapshotFailed.value = true
+      if (!snapshot.value) error.value = mapFxError(e, 'FX 行情加载失败')
+    }
   } finally {
     if (request === snapshotGeneration) snapshotLoading.value = false
   }
@@ -1100,10 +1105,10 @@ function connectStream() {
       const reconnected = streamFailed.value
       streamConnected.value = true
       streamFailed.value = false
-      if (reconnected) {
+      if (reconnected || !snapshot.value || snapshotFailed.value) {
         void loadSnapshot()
-        chartReloadToken.value += 1
       }
+      if (reconnected) chartReloadToken.value += 1
     })
     stream.onError(() => {
       streamFailed.value = true
@@ -1143,9 +1148,13 @@ async function selectPair(id: number) {
   try {
     startAccountSession()
     await Promise.all([loadSnapshot(), loadTrades()])
-    if (selection === selectionGeneration) connectStream()
   } catch (e) {
     if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
+  } finally {
+    if (selection === selectionGeneration) {
+      loading.value = false
+      connectStream()
+    }
   }
 }
 
@@ -1160,18 +1169,22 @@ async function refreshMarket() {
 }
 
 async function load() {
+  const selection = selectionGeneration
   loading.value = true
   error.value = null
   try {
-    await loadPairs()
-    if (pairId.value === null) return
+    await loadPairs(selection)
+    if (selection !== selectionGeneration || pairId.value === null) return
     startAccountSession()
-    await Promise.all([loadSnapshot(), loadTrades()])
-    connectStream()
+    try {
+      await Promise.all([loadSnapshot(), loadTrades()])
+    } finally {
+      if (selection === selectionGeneration) connectStream()
+    }
   } catch (e) {
-    error.value = mapFxError(e, 'FX 行情加载失败')
+    if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
   } finally {
-    loading.value = false
+    if (selection === selectionGeneration) loading.value = false
   }
 }
 

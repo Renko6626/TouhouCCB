@@ -1,0 +1,29 @@
+--- frozen/entry_model.py
++++ random20_comparison/model.py
+@@ -14,19 +14,19 @@
+ from research.fx.factor_activity.model import components,target_position
+ from research.fx.episodes.model import BehaviorTrader,liquidation_mark
+ from research.fx.episodes.run import longest_empty
+-from ..inventory import inventory_step
+-
+-
+-def simulate(cfg,profiles,inventory_count,b,seed,shock_schedule=None,policy="original",settings=None):
++from research.fx.reversion.inventory import inventory_step
++
++
++def simulate(cfg,profiles,inventory_count,b,seed,shock_schedule=None,policy="original",settings=None,random_count=None):
+     assert policy in ('original','weak_trend','confirmed_trend','random_direction')
+     settings={} if settings is None else settings
+     decisions=[]
+     n = cfg['accounts']
+     assert n>=20 and n%20==0 and len(profiles)==n
+-    episode_start=3*n//4
+-    random_count=episode_start-inventory_count
++    random_count=3*n//4-inventory_count if random_count is None else random_count
++    episode_start=random_count+inventory_count
+     variant='trailing'
+-    assert inventory_count in (0,n//4)
++    assert 0<=random_count<=episode_start<=n
+     shock_schedule={} if shock_schedule is None else dict(shock_schedule)
+     assert all(0<t<=cfg['ticks'] and -.5<jump<.5 for t,jump in shock_schedule.items())
+     state = ActivityState(b,cfg['tau'],cfg['mean_arrivals'],cfg['psi'],cfg['initial_z'])

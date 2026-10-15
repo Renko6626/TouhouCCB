@@ -3,6 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
+  NCheckbox,
+  NModal,
+  NSpin,
+  NTag,
   NInput,
   NInputNumber,
   NSelect,
@@ -33,7 +37,9 @@ const pairId = ref<number | null>(null),
   edit = ref<Bot | null>(null),
   strategy = ref(''),
   params = ref<Record<string, unknown>>({}),
-  logs = ref<unknown[]>([])
+  logs = ref<unknown[]>([]),
+  logsLoading = ref(false),
+  logsLoaded = ref(false)
 const cash = ref('5000'),
   foreign = ref('1000'),
   naming = ref('lowkey'),
@@ -124,6 +130,7 @@ function ensure() {
 }
 async function load() {
   loading.value = true
+  error.value = ''
   try {
     const [o, c, b, s] = await Promise.all([
       api.overview(),
@@ -163,6 +170,9 @@ async function act(fn: () => Promise<unknown>, text = '已保存') {
   }
 }
 watch(pairId, () => {
+  edit.value = null
+  logs.value = []
+  logsLoaded.value = false
   ensure()
   selected.value = []
 })
@@ -178,6 +188,7 @@ function open(b: Bot) {
   strategy.value = b.template
   params.value = { ...b.params }
   logs.value = []
+  logsLoaded.value = false
 }
 function change(s: string) {
   strategy.value = s
@@ -203,330 +214,880 @@ function numeric(s: Field) {
 function num(v: unknown) {
   return v == null ? null : Number(v)
 }
-function toggle(id: number, e: Event) {
-  selected.value = (e.target as HTMLInputElement).checked
-    ? [...selected.value, id]
-    : selected.value.filter((x) => x !== id)
+function toggle(id: number, checked: boolean) {
+  selected.value = checked ? [...selected.value, id] : selected.value.filter((x) => x !== id)
+}
+const pairBots = computed(() => bots.value.filter((b) => b.pair_id === pairId.value))
+const statusLabel = (s: string) =>
+  ({ active: '在编', paused: '已暂停', dead: '已死亡', retired: '已退役' })[s] ?? s
+const statusType = (s: string) =>
+  s === 'active' ? 'success' : s === 'paused' ? 'warning' : s === 'dead' ? 'error' : 'default'
+const format = (v: unknown) =>
+  Number(v ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
+const creationHint = computed(() =>
+  !pair.value
+    ? '请选择交易对后创建账户。'
+    : pair.value.archived
+      ? '当前交易对已归档，无法创建账户。'
+      : pair.value.status !== 'trading'
+        ? '当前交易对未开放交易，无法创建账户。'
+        : '',
+)
+const editPair = computed(
+  () => ov.value?.pairs.find((p) => p.id === edit.value?.pair_id)?.code ?? '',
+)
+const logRows = computed(() =>
+  logs.value.map((value) => {
+    const row = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+    const date = new Date(String(row.ts ?? ''))
+    const extra = Object.fromEntries(
+      Object.entries(row).filter(([k]) => !['ts', 'event', 'msg'].includes(k)),
+    )
+    return {
+      time: Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false }),
+      event: String(row.event ?? '记录'),
+      message: String(row.msg ?? '查看详情'),
+      detail: JSON.stringify(Object.keys(row).length ? extra : value, null, 2),
+      hasDetail: !Object.keys(row).length || Object.keys(extra).length > 0,
+    }
+  }),
+)
+async function loadLogs() {
+  if (!edit.value || logsLoading.value) return
+  const id = edit.value.profile_id
+  logsLoading.value = true
+  try {
+    const result = await api.log(id)
+    if (edit.value?.profile_id === id) {
+      logs.value = result.log
+      logsLoaded.value = true
+    }
+  } catch (e) {
+    msg.error(err(e))
+  } finally {
+    logsLoading.value = false
+  }
 }
 onMounted(load)
 </script>
 <template>
-  <div class="fx-bots">
-    <div class="row">
-      <h2>FX 机器人</h2>
-      <NButton :loading="loading" :disabled="busy" @click="load">刷新</NButton>
-    </div>
-    <NAlert v-if="error" type="error">{{ error }}</NAlert>
-    <p v-if="loading">正在读取…</p>
-    <template v-if="ov">
-      <section>
-        <h3>运行设置</h3>
-        <p>固定每5秒一个tick，保存后下一tick生效。普通FX交易总闸与交易对状态仍约束成交。</p>
-        <label>FX机器人总开关<NSwitch v-model:value="cfg.enabled" :disabled="busy" /></label
-        ><NSelect
-          v-model:value="pairId"
-          :options="ov.pairs.map((p) => ({ label: p.code, value: p.id }))"
-          placeholder="选择交易对"
-        />
-        <div v-if="draft" class="grid">
-          <label v-for="(s, k) in ov.pair_config_schema.properties" :key="k"
-            >{{ labels[k] ?? s.title ?? k
-            }}<NSwitch
-              v-if="s.type === 'boolean'"
-              :value="Boolean(draft[k])"
-              @update:value="draft[k] = $event" /><NInputNumber
-              v-else
-              :value="num(draft[k])"
-              :min="numeric(s).minimum"
-              :max="numeric(s).maximum"
-              @update:value="draft[k] = $event"
-          /></label>
+  <div class="pve-manage">
+    <NSpin :show="loading">
+      <NAlert v-if="error" type="error" :title="error" class="error-alert" />
+      <section class="panel stats-panel">
+        <div class="stats-row">
+          <div class="stat-item">
+            <span class="stat-label">FX 引擎</span
+            ><NSwitch v-model:value="cfg.enabled" :disabled="busy || !ov"
+              ><template #checked>运行中</template><template #unchecked>已停止</template></NSwitch
+            ><span class="param-doc">保存运行设置后生效</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">当前交易对</span
+            ><NSelect
+              v-model:value="pairId"
+              :options="ov?.pairs.map((p) => ({ label: p.code, value: p.id })) ?? []"
+              placeholder="选择交易对"
+              size="small"
+              style="width: 180px"
+            />
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">在编 / 暂停 / 死亡</span
+            ><span class="stat-value"
+              >{{ pairBots.filter((b) => b.status === 'active').length }} /
+              {{ pairBots.filter((b) => b.status === 'paused').length }} /
+              <span class="danger">{{
+                pairBots.filter((b) => b.status === 'dead').length
+              }}</span></span
+            >
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">当前边际价</span
+            ><span class="stat-value">{{ pair ? format(pair.price) : '—' }}</span>
+          </div>
+          <NButton size="small" :loading="loading" :disabled="busy" @click="load">刷新</NButton>
         </div>
-        <NButton :disabled="busy" @click="act(() => api.saveConfig(cfg))">保存运行设置</NButton>
-        <details>
-          <summary>热度与运行状态</summary>
-          <pre>{{ JSON.stringify(ov.engine, null, 2) }}</pre>
-        </details>
-        <div class="row">
-          <label v-for="k in ['leaderboard_include_bots', 'wealth_stats_include_bots']" :key="k"
-            >{{ k === 'leaderboard_include_bots' ? '排行榜包含机器人' : '财富统计包含机器人'
-            }}<NSwitch
-              :value="shared[k]"
-              :disabled="busy"
-              @update:value="act(() => pveApi.putConfig({ [k]: String($event) }))"
-          /></label>
-        </div>
-        <p>两个统计开关影响全部机器人；排行榜缓存到期后更新。</p>
       </section>
-      <section>
-        <div class="row">
-          <h3>创建账户</h3>
-          <NButton @click="preset">填入冻结研究预设</NButton>
-        </div>
-        <p>预设可修改，新账户保持暂停。库存基准采用实际初始外币量。</p>
-        <div class="grid">
-          <label>每户现金<NInput v-model:value="cash" /></label
-          ><label>每户外币<NInput v-model:value="foreign" /></label
-          ><label v-for="s in ov.templates" :key="s.template"
-            >{{ labels[s.template] }}人数<NInputNumber
-              :value="counts[s.template]"
-              :min="0"
-              :max="50"
-              :precision="0"
-              @update:value="counts[s.template] = $event ?? 0" /></label
-          ><label
-            >命名风格<NSelect
-              v-model:value="naming"
-              :options="[
-                { label: '低调', value: 'lowkey' },
-                { label: 'NPC', value: 'npc' },
-                { label: '短语', value: 'phrase' },
-              ]"
-          /></label>
-        </div>
-        <p>
-          共{{ total }}户，现金发放{{ Number(cash) * total }}，外币发放{{
-            Number(foreign) * total
-          }}，按当前边际价估算总初始市值{{ estimated.toFixed(6) }}。
-        </p>
-        <NButton
-          :disabled="busy || !total || !pairId || pair?.archived || pair?.status !== 'trading'"
-          @click="
-            act(
-              () =>
-                api.generate({
-                  pair_id: pairId,
-                  items: Object.entries(counts)
-                    .filter(([, c]) => c > 0)
-                    .map(([template, count]) => ({ template, count })),
-                  initial_cash: cash,
-                  initial_foreign: foreign,
-                  naming_style: naming,
-                }),
-              '已创建暂停账户',
-            )
-          "
-          >创建暂停账户</NButton
-        >
-      </section>
-      <section>
-        <h3>账户池</h3>
-        <div class="row">
-          <NSelect
-            v-model:value="filter"
-            :options="options"
-            clearable
-            placeholder="全部策略"
-          /><NSelect
-            v-model:value="status"
-            :options="['active', 'paused', 'dead', 'retired'].map((s) => ({ label: s, value: s }))"
-            clearable
-            placeholder="全部状态"
-          />
-        </div>
-        <p>已选{{ targets.length }}户，批量操作须为同一交易对、同一策略。</p>
-        <div class="row">
-          <NButton :disabled="busy || !batchOK" @click="batch({ status: 'active' })"
-            >启用所选{{ targets.length }}户</NButton
-          ><NButton :disabled="busy || !batchOK" @click="batch({ status: 'paused' })"
-            >暂停所选{{ targets.length }}户</NButton
-          >
-        </div>
-        <div class="table">
-          <NTable size="small"
-            ><thead>
-              <tr>
-                <th>选择</th>
-                <th>账户 / 策略</th>
-                <th>状态</th>
-                <th>现金</th>
-                <th>外币</th>
-                <th>钱包MTM</th>
-                <th>钱包清算所得</th>
-                <th>现金＋MTM / 现金＋清算</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="b in visible" :key="b.profile_id">
-                <td>
-                  <input
-                    type="checkbox"
-                    :checked="selected.includes(b.profile_id)"
-                    :disabled="b.status === 'retired'"
-                    @change="toggle(b.profile_id, $event)"
-                  />
-                </td>
-                <td>{{ b.username }} / {{ labels[b.template] }}</td>
-                <td>{{ b.status }}</td>
-                <td>{{ b.cash }}</td>
-                <td>{{ b.wallet }}</td>
-                <td>{{ b.mtm }}</td>
-                <td>{{ b.liquidation_cash }}</td>
-                <td>
-                  {{ (Number(b.cash) + Number(b.mtm)).toFixed(6) }} /
-                  {{ (Number(b.cash) + Number(b.liquidation_cash)).toFixed(6) }}
-                </td>
-                <td><NButton size="small" @click="open(b)">管理</NButton></td>
-              </tr>
-              <tr v-if="!visible.length">
-                <td colspan="9">暂无账户</td>
-              </tr>
-            </tbody></NTable
-          >
-        </div>
-        <p>MTM为边际价估值，清算所得为整仓卖出报价；两项仅计钱包，总值各加一次现金。</p>
-      </section>
-      <section v-if="edit">
-        <div class="row">
-          <h3>{{ edit.username }}</h3>
-          <NButton @click="edit = null">收起</NButton>
-        </div>
-        <p>
-          状态{{ edit.status }}；实际初始外币基准{{
-            edit.inventory_baseline_foreign
-          }}，注资不改变基准。
-        </p>
-        <NButton
-          :disabled="busy || edit.status === 'retired'"
-          @click="
-            act(() =>
-              api.patch(edit!.profile_id, {
-                status: edit!.status === 'active' ? 'paused' : 'active',
-              }),
-            )
-          "
-          >{{ edit.status === 'active' ? '暂停' : '启用' }}</NButton
-        >
-        <h4>策略参数</h4>
-        <p>随机与库存参数可运行中修改；切换策略和修改短线参数须暂停且没有未结束轮次。</p>
-        <NSelect
-          :value="strategy"
-          :options="options"
-          :disabled="edit.status !== 'paused' || live"
-          @update:value="change"
-        />
-        <p>{{ ov.templates.find((t) => t.template === strategy)?.description }}</p>
-        <div class="grid">
-          <label v-for="(s, k) in fields" :key="k"
-            >{{ labels[k] ?? s.title ?? k
-            }}<NInputNumber
-              :value="num(params[k])"
-              :min="numeric(s).minimum"
-              :max="numeric(s).maximum"
-              :disabled="s.readOnly || !canEdit"
-              @update:value="params[k] = $event"
-            /><small>{{ k }} {{ s.unit ?? '' }}</small></label
-          >
-        </div>
-        <div class="row">
+      <template v-if="ov">
+        <section class="panel">
+          <h2>策略图鉴</h2>
+          <p class="hint">三类策略使用各自的参数模板，创建后可在账户管理中调整。</p>
+          <div class="persona-grid">
+            <details v-for="t in ov.templates" :key="t.template" class="persona-card">
+              <summary class="persona-head">
+                <span class="persona-title">{{ labels[t.template] ?? t.template }}</span
+                ><code class="persona-code">{{ t.template }}</code>
+              </summary>
+              <p class="persona-summary">{{ t.description }}</p>
+              <p class="persona-desc">
+                {{
+                  t.editable_when === 'paused_without_episode'
+                    ? '须暂停且没有未结束轮次时修改参数。'
+                    : t.editable_when === 'next_tick'
+                      ? '参数可运行中修改，下一 tick 生效。'
+                      : t.editable_when
+                }}
+              </p>
+            </details>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="section-head">
+            <h2>运行设置</h2>
+            <NButton
+              size="small"
+              type="primary"
+              :loading="busy"
+              @click="act(() => api.saveConfig(cfg))"
+              >保存运行设置</NButton
+            >
+          </div>
+          <p class="hint">
+            固定每 5 秒一个 tick，保存后下一 tick 生效。普通 FX 交易总闸与交易对状态仍约束成交。
+          </p>
+          <p class="hint">
+            当前交易对：{{ pair?.code ?? '未选择'
+            }}<template v-if="pair"
+              >，{{
+                pair.archived ? '已归档' : pair.status === 'trading' ? '交易中' : '已暂停交易'
+              }}</template
+            >
+          </p>
+          <div v-if="draft" class="table">
+            <NTable size="small" :single-line="false"
+              ><thead>
+                <tr>
+                  <th>参数 / 说明</th>
+                  <th class="config-value">值</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, k) in ov.pair_config_schema.properties" :key="k">
+                  <td>
+                    <div class="config-cell">
+                      <span class="field-label">{{ labels[k] ?? s.title ?? k }}</span
+                      ><code class="param-doc"
+                        >{{ k }}<template v-if="s.unit">（{{ s.unit }}）</template></code
+                      >
+                    </div>
+                  </td>
+                  <td>
+                    <NSwitch
+                      v-if="s.type === 'boolean'"
+                      :value="Boolean(draft[k])"
+                      :disabled="busy"
+                      @update:value="draft[k] = $event"
+                    /><NInputNumber
+                      v-else
+                      size="small"
+                      :value="num(draft[k])"
+                      :min="numeric(s).minimum"
+                      :max="numeric(s).maximum"
+                      :disabled="busy"
+                      @update:value="draft[k] = $event"
+                    />
+                  </td>
+                </tr></tbody
+            ></NTable>
+          </div>
+          <details class="technical-detail">
+            <summary>热度与运行状态</summary>
+            <pre>{{ JSON.stringify(ov.engine, null, 2) }}</pre>
+          </details>
+          <div class="row">
+            <label
+              v-for="k in ['leaderboard_include_bots', 'wealth_stats_include_bots']"
+              :key="k"
+              class="inline-field"
+              ><span class="field-label">{{
+                k === 'leaderboard_include_bots' ? '排行榜包含机器人' : '财富统计包含机器人'
+              }}</span
+              ><NSwitch
+                :value="shared[k]"
+                :disabled="busy"
+                @update:value="act(() => pveApi.putConfig({ [k]: String($event) }))"
+            /></label>
+          </div>
+          <p class="hint top-gap">两个统计开关影响全部机器人；排行榜缓存到期后更新。</p>
+        </section>
+        <section class="panel">
+          <div class="section-head">
+            <h2>创建账户</h2>
+            <NButton size="small" :disabled="busy" @click="preset">填入冻结研究预设</NButton>
+          </div>
+          <p class="hint">预设可修改，新账户保持暂停。库存基准采用实际初始外币量。</p>
+          <div class="row creation-fields">
+            <label v-for="t in ov.templates" :key="t.template"
+              ><span class="field-label">{{ labels[t.template] }}人数</span
+              ><NInputNumber
+                size="small"
+                :value="counts[t.template]"
+                :min="0"
+                :max="50"
+                :precision="0"
+                @update:value="counts[t.template] = $event ?? 0" /></label
+            ><label
+              ><span class="field-label">每户现金</span
+              ><NInput v-model:value="cash" size="small" /></label
+            ><label
+              ><span class="field-label">每户外币</span
+              ><NInput v-model:value="foreign" size="small" /></label
+            ><label
+              ><span class="field-label">命名风格</span
+              ><NSelect
+                v-model:value="naming"
+                size="small"
+                :options="[
+                  { label: '低调', value: 'lowkey' },
+                  { label: 'NPC', value: 'npc' },
+                  { label: '短语', value: 'phrase' },
+                ]"
+            /></label>
+          </div>
+          <p class="hint top-gap">
+            共 {{ total }} 户，现金发放 {{ format(Number(cash) * total) }}，外币发放
+            {{ format(Number(foreign) * total) }}，按当前边际价估算总初始市值
+            {{ format(estimated) }}。
+          </p>
+          <p v-if="creationHint" class="hint danger">{{ creationHint }}</p>
           <NButton
-            :disabled="busy || !canEdit"
+            size="small"
+            type="primary"
+            :loading="busy"
+            :disabled="busy || !total || !!creationHint"
             @click="
-              act(() => api.patch(edit!.profile_id, { template: strategy, params: writable() }))
+              act(
+                () =>
+                  api.generate({
+                    pair_id: pairId,
+                    items: Object.entries(counts)
+                      .filter(([, c]) => c > 0)
+                      .map(([template, count]) => ({ template, count })),
+                    initial_cash: cash,
+                    initial_foreign: foreign,
+                    naming_style: naming,
+                  }),
+                '已创建暂停账户',
+              )
             "
-            >保存个人参数</NButton
-          ><NButton
-            :disabled="busy || !batchOK || !canEdit || targets.some((b) => b.template !== strategy)"
-            @click="batch({ params: writable() })"
-            >应用参数到所选{{ targets.length }}户</NButton
+            >创建暂停账户</NButton
           >
-        </div>
-        <h4>现金注资</h4>
-        <div class="row">
-          <NInput v-model:value="fund" /><NButton
+        </section>
+        <section class="panel">
+          <h2>账户池（{{ pairBots.length }}）</h2>
+          <div class="row">
+            <NSelect
+              v-model:value="filter"
+              :options="options"
+              clearable
+              placeholder="全部策略"
+              size="small"
+              style="width: 180px"
+            /><NSelect
+              v-model:value="status"
+              :options="
+                ['active', 'paused', 'dead', 'retired'].map((s) => ({
+                  label: statusLabel(s),
+                  value: s,
+                }))
+              "
+              clearable
+              placeholder="全部状态"
+              size="small"
+              style="width: 150px"
+            /><NButton
+              size="small"
+              :disabled="busy || !batchOK"
+              @click="batch({ status: 'active' })"
+              >启用所选 {{ targets.length }} 户</NButton
+            ><NButton size="small" :disabled="busy || !batchOK" @click="batch({ status: 'paused' })"
+              >暂停所选 {{ targets.length }} 户</NButton
+            >
+          </div>
+          <p class="hint top-gap">
+            已选 {{ targets.length }} 户，批量操作须为同一交易对、同一策略。
+          </p>
+          <div v-if="visible.length" class="table">
+            <NTable size="small" :single-line="false"
+              ><thead>
+                <tr>
+                  <th>选择</th>
+                  <th>机器人</th>
+                  <th>模板</th>
+                  <th>状态</th>
+                  <th class="num">现金</th>
+                  <th class="num">外币</th>
+                  <th class="num">钱包 MTM</th>
+                  <th class="num">钱包清算所得</th>
+                  <th class="num">现金＋MTM / 现金＋清算</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="b in visible" :key="b.profile_id">
+                  <td>
+                    <NCheckbox
+                      :checked="selected.includes(b.profile_id)"
+                      :disabled="b.status === 'retired'"
+                      :aria-label="`选择 ${b.username}`"
+                      @update:checked="toggle(b.profile_id, $event)"
+                    />
+                  </td>
+                  <td>
+                    <strong>{{ b.username }}</strong>
+                  </td>
+                  <td>
+                    <NTag size="small">{{ labels[b.template] ?? b.template }}</NTag>
+                  </td>
+                  <td>
+                    <NTag size="small" :type="statusType(b.status)">{{
+                      statusLabel(b.status)
+                    }}</NTag>
+                  </td>
+                  <td class="num mono">{{ format(b.cash) }}</td>
+                  <td class="num mono">{{ format(b.wallet) }}</td>
+                  <td class="num mono">{{ format(b.mtm) }}</td>
+                  <td class="num mono">{{ format(b.liquidation_cash) }}</td>
+                  <td class="num mono">
+                    <strong>{{ format(Number(b.cash) + Number(b.mtm)) }}</strong> /
+                    {{ format(Number(b.cash) + Number(b.liquidation_cash)) }}
+                  </td>
+                  <td><NButton size="tiny" :disabled="busy" @click="open(b)">管理</NButton></td>
+                </tr>
+              </tbody></NTable
+            >
+          </div>
+          <div v-else class="empty-hint">
+            {{
+              pairBots.length
+                ? '没有符合筛选条件的账户'
+                : '账户池为空，可用上面的「创建账户」建立编制'
+            }}
+          </div>
+          <p class="hint top-gap">
+            MTM 为边际价估值，清算所得为整仓卖出报价；两项仅计钱包，总值各加一次现金。
+          </p>
+        </section>
+      </template>
+    </NSpin>
+    <NModal
+      :show="edit !== null"
+      preset="card"
+      :title="`账户管理：${edit?.username ?? ''}（${editPair}）`"
+      class="manage-modal"
+      style="width: 760px; max-width: calc(100vw - 32px)"
+      @update:show="
+        (v) => {
+          if (!v) edit = null
+        }
+      "
+    >
+      <div v-if="edit && ov" class="modal-form">
+        <NAlert v-if="error" type="error">{{ error }}</NAlert>
+        <div class="section-head">
+          <div class="row">
+            <NTag size="small" :type="statusType(edit.status)">{{ statusLabel(edit.status) }}</NTag
+            ><span class="hint">现金 {{ format(edit.cash) }}，外币 {{ format(edit.wallet) }}</span>
+          </div>
+          <NButton
+            size="small"
             :disabled="busy || edit.status === 'retired'"
-            @click="act(() => api.fund(edit!.profile_id, fund))"
-            >注资</NButton
-          >
-        </div>
-        <h4>轮次与清仓</h4>
-        <pre>{{ JSON.stringify(edit.strategy_state, null, 2) }}</pre>
-        <p>
-          每次仅执行一笔真实清仓；负向短线轮次买回，其他持仓卖出。受单笔上限限制，未清完须核对剩余仓位后再次手动提交。
-        </p>
-        <label
-          >本笔最小输出 min_out（卖出为现金，买回为外币）<NInput v-model:value="minOut"
-        /></label>
-        <div class="row">
-          <NButton
-            :disabled="busy || edit.status !== 'paused'"
             @click="
-              act(async () => {
-                edit = (await api.liquidate(edit!.profile_id, minOut)).bot
-              }, '本笔已成交，请核对剩余仓位；未清完可再次提交')
+              act(() =>
+                api.patch(edit!.profile_id, {
+                  status: edit!.status === 'active' ? 'paused' : 'active',
+                }),
+              )
             "
-            >执行一笔清仓</NButton
-          ><NButton
-            :disabled="busy || edit.status !== 'paused' || Number(edit.wallet) > 0 || live"
-            @click="act(() => api.retire(edit!.profile_id), '空白账户已删除或账户已退休并回收现金')"
-            >退休 / 删除空白账户</NButton
+            >{{ edit.status === 'active' ? '暂停' : '启用' }}</NButton
           >
         </div>
-        <p>
-          剩余外币{{ edit.wallet }}；未结束轮次{{
-            live ? '有' : '无'
-          }}。钱包与轮次清空后可退休，已有成交保留身份和流水。
-        </p>
-        <h4>决策日志</h4>
-        <NButton
-          :disabled="busy"
-          @click="
-            act(async () => {
-              logs = (await api.log(edit!.profile_id)).log
-            }, '已读取日志')
-          "
-          >读取日志</NButton
-        >
-        <p>内存日志重启后丢失。</p>
-        <pre>{{ JSON.stringify(logs, null, 2) }}</pre>
-      </section>
-    </template>
+        <section class="modal-section">
+          <h3>策略参数</h3>
+          <p class="hint">
+            随机与库存参数可运行中修改；切换策略和修改短线参数须暂停且没有未结束轮次。
+          </p>
+          <div class="row">
+            <span class="field-label">策略模板</span
+            ><NSelect
+              :value="strategy"
+              :options="options"
+              size="small"
+              style="width: 210px"
+              :disabled="busy || edit.status !== 'paused' || live"
+              @update:value="change"
+            />
+          </div>
+          <p class="hint persona-pick top-gap">
+            {{ ov.templates.find((t) => t.template === strategy)?.description }}
+          </p>
+          <p class="hint">
+            实际初始外币基准（只读）：{{ edit.inventory_baseline_foreign }}，注资不改变基准。
+          </p>
+          <div class="param-form">
+            <div v-for="(s, k) in fields" :key="k" class="param-row">
+              <div class="param-info">
+                <span class="field-label">{{ labels[k] ?? s.title ?? k }}</span
+                ><code class="param-doc"
+                  >{{ k }}<template v-if="s.unit">（{{ s.unit }}）</template
+                  ><template v-if="s.readOnly">，只读</template></code
+                >
+              </div>
+              <NInputNumber
+                size="small"
+                class="param-input"
+                :value="num(params[k])"
+                :min="numeric(s).minimum"
+                :max="numeric(s).maximum"
+                :disabled="busy || s.readOnly || !canEdit"
+                @update:value="params[k] = $event"
+              />
+            </div>
+          </div>
+          <div class="row right">
+            <NButton
+              size="small"
+              :disabled="
+                busy || !batchOK || !canEdit || targets.some((b) => b.template !== strategy)
+              "
+              @click="batch({ params: writable() })"
+              >应用参数到所选 {{ targets.length }} 户</NButton
+            ><NButton
+              size="small"
+              type="primary"
+              :loading="busy"
+              :disabled="busy || !canEdit"
+              @click="
+                act(() => api.patch(edit!.profile_id, { template: strategy, params: writable() }))
+              "
+              >保存个人参数</NButton
+            >
+          </div>
+        </section>
+        <section class="modal-section">
+          <h3>现金注资</h3>
+          <div class="row">
+            <label class="inline-field"
+              ><span class="field-label">金额</span
+              ><NInput v-model:value="fund" size="small" style="width: 180px" /></label
+            ><NButton
+              size="small"
+              :disabled="busy || edit.status === 'retired'"
+              @click="act(() => api.fund(edit!.profile_id, fund))"
+              >注资</NButton
+            >
+          </div>
+        </section>
+        <section class="modal-section">
+          <h3>轮次与清仓</h3>
+          <details class="technical-detail">
+            <summary>查看轮次状态</summary>
+            <pre>{{ JSON.stringify(edit.strategy_state, null, 2) }}</pre>
+          </details>
+          <p class="hint">
+            每次仅执行一笔真实清仓；负向短线轮次买回，其他持仓卖出。受单笔上限限制，未清完须核对剩余仓位后再次手动提交。
+          </p>
+          <label class="minout-field"
+            ><span class="field-label">本笔最小输出 min_out</span
+            ><NInput v-model:value="minOut" size="small" style="width: 180px" /><span
+              class="param-doc"
+              >卖出为现金，买回为外币</span
+            ></label
+          >
+          <div class="row">
+            <NButton
+              size="small"
+              :disabled="busy || edit.status !== 'paused'"
+              @click="
+                act(async () => {
+                  edit = (await api.liquidate(edit!.profile_id, minOut)).bot
+                }, '本笔已成交，请核对剩余仓位；未清完可再次提交')
+              "
+              >执行一笔清仓</NButton
+            ><NButton
+              size="small"
+              type="error"
+              ghost
+              :disabled="busy || edit.status !== 'paused' || Number(edit.wallet) > 0 || live"
+              @click="
+                act(() => api.retire(edit!.profile_id), '空白账户已删除或账户已退休并回收现金')
+              "
+              >退休 / 删除空白账户</NButton
+            >
+          </div>
+          <p class="hint top-gap">
+            剩余外币 {{ edit.wallet }}；未结束轮次{{
+              live ? '有' : '无'
+            }}。钱包与轮次清空后可退休，已有成交保留身份和流水。
+          </p>
+        </section>
+        <section class="modal-section">
+          <div class="section-head">
+            <h3>决策日志</h3>
+            <NButton size="small" :loading="logsLoading" @click="loadLogs">读取日志</NButton>
+          </div>
+          <p class="hint">内存日志重启后丢失。</p>
+          <div v-if="logRows.length" class="table">
+            <NTable size="small" :single-line="false"
+              ><thead>
+                <tr>
+                  <th>时间</th>
+                  <th>事件</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, i) in logRows" :key="i">
+                  <td class="ts">{{ row.time }}</td>
+                  <td>
+                    <NTag
+                      size="small"
+                      :type="
+                        row.event === 'error'
+                          ? 'error'
+                          : row.event === 'trade'
+                            ? 'success'
+                            : 'default'
+                      "
+                      >{{ row.event }}</NTag
+                    >
+                  </td>
+                  <td class="log-content">
+                    {{ row.message }}
+                    <details v-if="row.hasDetail">
+                      <summary>详情</summary>
+                      <pre>{{ row.detail }}</pre>
+                    </details>
+                  </td>
+                </tr>
+              </tbody></NTable
+            >
+          </div>
+          <div v-else class="empty-hint">
+            {{ logsLoaded ? '暂无决策记录' : '点击「读取日志」查看决策记录' }}
+          </div>
+        </section>
+      </div>
+    </NModal>
   </div>
 </template>
 <style scoped>
-section {
-  border: 2px solid #000;
-  background: #fff;
+.pve-manage {
   padding: 16px;
-  margin: 16px 0;
+}
+.panel {
+  margin-bottom: 16px;
+  border: 2px solid #000;
+  padding: 16px;
+  background: #fff;
+}
+.stats-panel {
+  background: #fafafa;
+}
+.stats-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #666;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.danger {
+  color: #cc0000;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+h2 {
+  margin: 0 0 8px 0;
+}
+.user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.user-id {
+  font-family: monospace;
+  font-size: 10px;
+  color: #888;
+}
+.action-cell {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ts {
+  font-size: 12px;
+  color: #555;
+  white-space: nowrap;
+}
+.mono {
+  font-family: monospace;
+  font-size: 12px;
+}
+.num {
+  text-align: right;
+}
+.small {
+  font-size: 11px;
+  color: #888;
+}
+.empty-hint {
+  padding: 24px 12px;
+  text-align: center;
+  color: #888;
+  border: 1.5px dashed #ccc;
+  font-size: 13px;
 }
 .row {
   display: flex;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  margin: 12px 0;
+  margin-top: 8px;
 }
-.row > .n-select,
-.row > .n-input {
-  max-width: 260px;
+.row.right {
+  justify-content: flex-end;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin: 12px 0;
+.field-label {
+  font-size: 12px;
+  font-weight: 700;
 }
-label {
+.modal-form {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
-p,
-small {
-  color: #555;
-  font-size: 13px;
-  line-height: 1.6;
+.hint {
+  font-size: 12px;
+  color: #666;
+  margin: 0 0 6px 0;
+}
+.persona-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.persona-card {
+  border: 2px solid #000;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+.persona-card[open] {
+  background: #fff;
+}
+.persona-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.persona-head::-webkit-details-marker {
+  display: none;
+}
+.persona-title {
+  font-weight: 800;
+  font-size: 14px;
+}
+.persona-code {
+  font-family: monospace;
+  font-size: 11px;
+  color: #888;
+}
+.persona-summary {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+.persona-desc {
+  margin: 6px 0 0 0;
+  font-size: 12px;
+  color: #444;
+  line-height: 1.7;
+}
+.persona-summary + .persona-desc {
+  border-top: 1.5px dashed #ccc;
+  padding-top: 6px;
+}
+.persona-pick {
+  border-left: 3px solid #000;
+  padding-left: 8px;
+  color: #000;
+}
+.param-form {
+  max-height: 46vh;
+  overflow-y: auto;
+  border: 1.5px solid #ddd;
+}
+.param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #eee;
+}
+.param-row:last-child {
+  border-bottom: none;
+}
+.param-info,
+.config-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.param-key {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+.param-doc {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.5;
+}
+.param-input {
+  flex-shrink: 0;
+}
+.spacer {
+  flex: 1;
+}
+
+.error-alert {
+  margin-bottom: 16px;
 }
 .table {
-  overflow: auto;
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+}
+.table :deep(table) {
+  width: 100%;
+}
+.table :deep(th),
+.table :deep(td.num) {
+  white-space: nowrap;
+}
+.config-value {
+  width: 200px;
+}
+.creation-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 150px;
+}
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.top-gap {
+  margin-top: 10px;
+}
+.technical-detail {
+  font-size: 12px;
+  color: #666;
+  margin: 10px 0;
+}
+.technical-detail summary,
+.log-content summary {
+  cursor: pointer;
 }
 pre {
+  padding: 10px;
   background: #f5f5f5;
-  padding: 12px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.modal-form {
+  max-height: 76vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.modal-section {
+  border-top: 1px solid #ddd;
+  padding-top: 12px;
+}
+h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+.param-input {
+  width: 170px;
+}
+.minout-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.log-content {
+  min-width: 180px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .pve-manage {
+    padding: 8px;
+  }
+  .panel {
+    padding: 12px;
+  }
+  .stats-row {
+    gap: 16px;
+  }
+  .stat-value {
+    font-size: 20px;
+  }
+  .persona-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .param-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .param-info {
+    flex: 1 1 100%;
+  }
+  .param-input {
+    width: 100%;
+  }
+  .config-value {
+    width: 140px;
+  }
+  .inline-field {
+    flex-wrap: wrap;
+  }
+  .modal-form {
+    max-height: 78vh;
+  }
 }
 </style>

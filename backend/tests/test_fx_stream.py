@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.services.realtime import MarketEventBroker
+from app.services.realtime import IpConcurrencyLimiter, MarketEventBroker
 from app.services.fx.market_data import publish_public_frame, publish_trade
 
 
@@ -48,7 +48,7 @@ async def test_fx_public_stream_uses_broker_and_disconnects_kicked_subscriber():
 
 
 @pytest.mark.asyncio
-async def test_fx_stream_snapshot_serializes_decimal_values(monkeypatch):
+async def test_fx_stream_snapshot_serializes_decimal_values_and_cleans_up_on_disconnect(monkeypatch):
     from app.api.v1 import fx_stream
 
     class FakeDB:
@@ -82,12 +82,39 @@ async def test_fx_stream_snapshot_serializes_decimal_values(monkeypatch):
     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
 
+    broker = MarketEventBroker()
+    limiter = IpConcurrencyLimiter()
+    monkeypatch.setattr(fx_stream, "BROKER", broker)
+    monkeypatch.setattr(fx_stream, "IP_LIMITER", limiter)
+    waiting = asyncio.Event()
+    child_tasks = set()
+    original_wait = asyncio.wait
+
+    async def wait(tasks, **kwargs):
+        child_tasks.update(tasks)
+        waiting.set()
+        return await original_wait(tasks, **kwargs)
+
+    monkeypatch.setattr(fx_stream.asyncio, "wait", wait)
     response = await fx_stream.stream(91, request)
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["x-accel-buffering"] == "no"
     body = await response.body_iterator.__anext__()
     payload = json.loads(body.decode().split("data: ", 1)[1])
     assert payload["type"] == "snapshot"
     assert payload["data"]["price"] == "1.10"
     assert payload["data"]["spread"] == "0.02"
+    next_event = asyncio.create_task(response.body_iterator.__anext__())
+    await asyncio.wait_for(waiting.wait(), timeout=1)
+    assert broker.subscriber_count("fx:91") == 1
+    assert limiter.count("fx:91", "test") == 1
+    next_event.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await next_event
+    assert len(child_tasks) == 2
+    assert all(task.done() for task in child_tasks)
+    assert broker.subscriber_count("fx:91") == 0
+    assert limiter.count("fx:91", "test") == 0
     await response.body_iterator.aclose()
 
 
