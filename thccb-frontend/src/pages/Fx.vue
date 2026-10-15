@@ -1049,7 +1049,7 @@ async function loadSnapshot() {
   } catch (e) {
     if (pid === pairId.value && request === snapshotGeneration) {
       snapshotFailed.value = true
-      error.value = mapFxError(e, 'FX 行情加载失败')
+      if (!snapshot.value) error.value = mapFxError(e, 'FX 行情加载失败')
     }
   } finally {
     if (request === snapshotGeneration) snapshotLoading.value = false
