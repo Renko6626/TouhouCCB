@@ -180,6 +180,8 @@ async def fund_bot(
     统一信贷 ON：注资只增加现金（bot 常规债务为 0），不可能恶化保证金 ——
     不做组合发现 / 报价（无债快路径），只要求 owner + 自增版本。
     """
+    if profile.status == BOT_STATUS_RETIRED:
+        raise BotOpError(409, "已退休机器人不能注资")
     OWNERSHIP.require_writes()
     user = (
         await db.execute(select(User).where(User.id == profile.user_id).with_for_update().execution_options(populate_existing=True))

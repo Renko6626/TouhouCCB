@@ -363,6 +363,17 @@ def fold(events: Iterable[AuditEvent], *, check: bool = False) -> tuple[Snapshot
 
     def fold_fx(ev: AuditEvent) -> None:
         p = ev.payload or {}
+        if ev.event_type == "pve_fx_initial_allocation":
+            key = (ev.user_id, int(p["pair_id"]))
+            previous = snap.fx_wallets.get(key, Decimal("0"))
+            before = D((p.get("wallet_before") or {}).get("foreign_amount"))
+            expected = previous + D(p["foreign_amount"])
+            actual = D(p["wallet_after"]["foreign_amount"])
+            if check:
+                if before != previous: bad(ev, f"fx_wallet:{key[0]}:{key[1]}", "before.foreign_amount", previous, before)
+                if expected != actual: bad(ev, f"fx_wallet:{key[0]}:{key[1]}", "foreign_amount", expected, actual)
+            snap.fx_wallets[key] = actual
+            return
         if ev.event_type == "fx_pair_delete":
             # Preserve the original events for historical cutoffs, while the
             # latest replay reflects the intentional removal from live storage.

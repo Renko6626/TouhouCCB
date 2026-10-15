@@ -68,5 +68,6 @@ def validate_strategy_params(template: str, params: dict) -> dict:
 def strategy_metadata() -> list[dict]:
     return [{'template': name, 'description': entry['description'],
              'params_schema': entry['params_model'].model_json_schema(),
-             'editable_when': 'paused_without_episode'}
+             'editable_when': 'paused_without_episode' if name == 'episode' else 'next_tick',
+             'template_change_when': 'paused_without_episode'}
             for name, entry in FX_STRATEGY_REGISTRY.items()]
