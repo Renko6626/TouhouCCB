@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlmodel import SQLModel, Field
-from sqlalchemy import Column, DateTime, JSON
+from sqlalchemy import Column, DateTime, JSON, CheckConstraint, String
 
 # status 取值（应用层收敛，不加 DB enum，沿用 Transaction.type 惯例）
 BOT_STATUS_ACTIVE = "active"    # 参与调度
@@ -22,6 +22,16 @@ BOT_STATUSES = frozenset(
 
 class BotProfile(SQLModel, table=True):
     __tablename__ = "bot_profile"
+
+    __table_args__ = (CheckConstraint(
+        "(market_kind = 'lmsr' AND fx_pair_id IS NULL) OR "
+        "(market_kind = 'fx' AND fx_pair_id IS NOT NULL AND "
+        "(market_scope IS NULL OR CAST(market_scope AS TEXT) = 'null' OR CAST(market_scope AS TEXT) = '[]'))",
+        name="ck_bot_profile_market_binding"),)
+
+    market_kind: str = Field(default="lmsr", sa_column=Column(String(16), nullable=False, server_default="lmsr", index=True))
+    fx_pair_id: Optional[int] = Field(default=None, foreign_key="fx_pair.id", index=True)
+    strategy_state: dict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False, server_default="{}"))
 
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", unique=True, index=True)

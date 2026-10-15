@@ -124,7 +124,7 @@ async def pve_overview(
     counts = {
         s: c
         for s, c in (
-            await db.execute(select(BotProfile.status, func.count()).group_by(BotProfile.status))
+            await db.execute(select(BotProfile.status, func.count()).where(BotProfile.market_kind == "lmsr").group_by(BotProfile.status))
         ).all()
     }
     enabled = await site_config.get_bool_or(db, "pve_enabled", False)
@@ -173,7 +173,7 @@ async def list_bots(
 ):
     rows = (
         await db.execute(
-            select(BotProfile, User).join(User, User.id == BotProfile.user_id).order_by(BotProfile.id)
+            select(BotProfile, User).join(User, User.id == BotProfile.user_id).where(BotProfile.market_kind == "lmsr").order_by(BotProfile.id)
         )
     ).all()
     if not rows:
@@ -255,7 +255,7 @@ async def patch_bot(
     admin: User = Depends(current_superuser),
 ):
     profile = (
-        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id, BotProfile.market_kind == "lmsr"))
     ).scalars().first()
     if profile is None:
         raise HTTPException(404, detail="机器人不存在")
@@ -314,7 +314,7 @@ async def destroy_bot(
     已卖出的部分保留（LMSR 成交不可回滚），重试会接着卖剩下的，是幂等的。
     """
     profile = (
-        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id, BotProfile.market_kind == "lmsr"))
     ).scalars().first()
     if profile is None:
         raise HTTPException(404, detail="机器人不存在")
@@ -350,7 +350,7 @@ async def destroy_bot(
     db.expire_all()
     async with managed_transaction(db):
         profile = (
-            await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+            await db.execute(select(BotProfile).where(BotProfile.id == profile_id, BotProfile.market_kind == "lmsr"))
         ).scalars().first()
         if profile is None:
             raise HTTPException(404, detail="机器人不存在")
@@ -377,7 +377,7 @@ async def fund_bot(
     admin: User = Depends(current_superuser),
 ):
     profile = (
-        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id, BotProfile.market_kind == "lmsr"))
     ).scalars().first()
     if profile is None:
         raise HTTPException(404, detail="机器人不存在")
@@ -401,7 +401,7 @@ async def bot_log(
     _: User = Depends(current_superuser),
 ):
     profile = (
-        await db.execute(select(BotProfile).where(BotProfile.id == profile_id))
+        await db.execute(select(BotProfile).where(BotProfile.id == profile_id, BotProfile.market_kind == "lmsr"))
     ).scalars().first()
     if profile is None:
         raise HTTPException(404, detail="机器人不存在")

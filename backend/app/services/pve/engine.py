@@ -217,7 +217,7 @@ class PveEngine:
             await db.execute(
                 select(BotProfile, User.username)
                 .join(User, User.id == BotProfile.user_id)
-                .where(BotProfile.status == BOT_STATUS_ACTIVE)
+                .where(BotProfile.status == BOT_STATUS_ACTIVE, BotProfile.market_kind == "lmsr")
             )
         ).all()
         seen = set()

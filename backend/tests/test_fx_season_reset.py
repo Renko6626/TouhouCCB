@@ -219,3 +219,28 @@ async def test_reset_live_short_clears_obligation_and_short_audit(monkeypatch, s
         events = (await db.execute(select(AuditEvent))).scalars().all()
         assert any(e.event_type == "redeem_purchase" for e in events)
         assert all(e.event_type != "admin_fx_short_writeoff" and not e.event_type.startswith("fx_") for e in events)
+
+
+@pytest.mark.asyncio
+async def test_independent_fx_reset_removes_bindings_and_config(seed_fx_state):
+    from app.models.bot import BotProfile
+    from scripts.season_reset import reset_fx_state
+    async with seed_fx_state() as db:
+        async with db.begin():
+            user = (await db.execute(select(User))).scalar_one()
+            pair = (await db.execute(select(FxPair))).scalar_one()
+            db.add(BotProfile(user_id=user.id, market_kind="fx", fx_pair_id=pair.id, template="random"))
+            db.add(SiteConfig(key="fx_pve_enabled", value="true", value_type="bool"))
+            db.add(SiteConfig(key="fx_pve_pair_configs", value='{"1":{"enabled":true}}', value_type="string"))
+            db.add(AuditEvent(event_type="pve_fx_initial_allocation", user_id=user.id, payload={"pair_id": pair.id}))
+    async with seed_fx_state() as db:
+        async with db.begin():
+            await reset_fx_state(db)
+    assert await count(BotProfile, seed_fx_state) == 0
+    assert await count(FxPair, seed_fx_state) == 0
+    assert await count(User, seed_fx_state) == 1
+    async with seed_fx_state() as db:
+        values = dict((await db.execute(select(SiteConfig.key, SiteConfig.value))).all())
+        assert values["fx_pve_enabled"] == "false"
+        assert values["fx_pve_pair_configs"] == "{}"
+        assert not (await db.execute(select(AuditEvent).where(AuditEvent.event_type == "pve_fx_initial_allocation"))).scalars().all()

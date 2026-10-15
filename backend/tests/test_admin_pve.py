@@ -373,3 +373,31 @@ async def test_retired_bot_rejects_further_intervention(client, admin_headers):
                                json={"status": "active"})).status_code == 409
     assert (await client.delete(
         f"{BASE}/bots/{bot['profile_id']}", headers=admin_headers)).status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_lmsr_endpoints_and_engine_exclude_fx_profiles(client, admin_headers):
+    from app.models.fx import FxPair
+    from app.services.pve.engine import PveEngine
+    from datetime import datetime, timezone
+    async with async_session_maker() as db:
+        async with db.begin():
+            user = User(username="fx-isolated", is_bot=True, cash=Decimal("10"))
+            pair = FxPair(currency_code="ISO", currency_name="isolation")
+            db.add_all([user, pair])
+            await db.flush()
+            profile = BotProfile(user_id=user.id, template="hodler", market_kind="fx", fx_pair_id=pair.id)
+            db.add(profile)
+            await db.flush()
+            pid = profile.id
+        engine = PveEngine()
+        await engine._sync_runtimes(db, datetime.now(timezone.utc))
+        assert pid not in engine.runtimes
+    assert (await client.get(f"{BASE}/bots", headers=admin_headers)).json() == []
+    assert (await client.get(f"{BASE}/overview", headers=admin_headers)).json()["counts"]["active"] == 0
+    for method, suffix, payload in (("patch", "", {"status": "paused"}), ("post", "/fund", {"amount": "1"}), ("delete", "", None), ("get", "/log", None)):
+        kwargs = {"headers": admin_headers}
+        if payload is not None:
+            kwargs["json"] = payload
+        response = await getattr(client, method)(f"{BASE}/bots/{pid}{suffix}", **kwargs)
+        assert response.status_code == 404

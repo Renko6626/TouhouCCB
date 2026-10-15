@@ -64,7 +64,7 @@ CLEAR_ORDER = [
 PRESERVED_AUDIT_TYPES = ("redeem_purchase", "danmuku_exchange", "redeem_fulfill", "redeem_fulfill_revoke")
 FX_AUDIT_TYPES = (
     "fx_trade", "fx_fund", "fx_withdraw", "fx_event_publish", "fx_event_complete", "fx_event_cancel",
-    "admin_fx_short_writeoff",
+    "admin_fx_short_writeoff", "pve_fx_initial_allocation",
 )
 # Derived market-data rows first (they reference fx_pair); the runtime state row
 # carries the per-pair history generation and must be removed with the candles so
@@ -135,6 +135,7 @@ async def _stop_and_reset_fx_market_data() -> None:
 
 async def reset_fx_state(session) -> None:
     """Remove all FX state and its audit trail within the caller's transaction."""
+    await session.execute(delete(BotProfile).where(BotProfile.market_kind == "fx"))
     # Pool events reference both trades and audits. Remove children first.
     for model in FX_CLEAR_ORDER:
         await session.execute(delete(model))
@@ -143,12 +144,14 @@ async def reset_fx_state(session) -> None:
         (AuditEvent.event_type == "interest_accrual")
         & (AuditEvent.ref_table == "fx_short_position"),
     )))
-    for key in ("fx_enabled", "fx_short_enabled"):
+    for key in ("fx_enabled", "fx_short_enabled", "fx_pve_enabled", "fx_pve_pair_configs"):
         flag = (await session.execute(select(SiteConfig).where(SiteConfig.key == key))).scalar_one_or_none()
+        value = "{}" if key == "fx_pve_pair_configs" else "false"
+        value_type = "string" if key == "fx_pve_pair_configs" else "bool"
         if flag is None:
-            flag = SiteConfig(key=key, value="false", value_type="bool")
+            flag = SiteConfig(key=key, value=value, value_type=value_type)
         else:
-            flag.value = "false"
+            flag.value = value
             flag.updated_at = datetime.now(timezone.utc)
         session.add(flag)
 
