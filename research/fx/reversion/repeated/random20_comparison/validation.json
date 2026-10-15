@@ -1,0 +1,103 @@
+{
+  "paths": 12,
+  "checks": [
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "normal",
+      "seed": 81,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "normal",
+      "seed": 82,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "normal",
+      "seed": 83,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "shock",
+      "seed": 81,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    },
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "shock",
+      "seed": 82,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    },
+    {
+      "arm": "mixed_10_5_5",
+      "scenario": "shock",
+      "seed": 83,
+      "frozen_baseline_exact": true,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    },
+    {
+      "arm": "random_20",
+      "scenario": "normal",
+      "seed": 81,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "random_20",
+      "scenario": "normal",
+      "seed": 82,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "random_20",
+      "scenario": "normal",
+      "seed": 83,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": null
+    },
+    {
+      "arm": "random_20",
+      "scenario": "shock",
+      "seed": 81,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    },
+    {
+      "arm": "random_20",
+      "scenario": "shock",
+      "seed": 82,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    },
+    {
+      "arm": "random_20",
+      "scenario": "shock",
+      "seed": 83,
+      "frozen_baseline_exact": false,
+      "wallet_conservation_mtm_trade_counts": true,
+      "pre1000_prefix": true
+    }
+  ],
+  "protected_files_unchanged": 5731,
+  "all_checks_passed": true
+}

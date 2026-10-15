@@ -1,0 +1,13 @@
+COMPLETE mixed_10_5_5 normal 81
+COMPLETE mixed_10_5_5 normal 82
+COMPLETE mixed_10_5_5 normal 83
+COMPLETE mixed_10_5_5 shock 81
+COMPLETE mixed_10_5_5 shock 82
+COMPLETE mixed_10_5_5 shock 83
+COMPLETE random_20 normal 81
+COMPLETE random_20 normal 82
+COMPLETE random_20 normal 83
+COMPLETE random_20 shock 81
+COMPLETE random_20 shock 82
+COMPLETE random_20 shock 83
+VALIDATED 12 paths 5731 unchanged files
