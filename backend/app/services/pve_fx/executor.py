@@ -108,8 +108,11 @@ async def _execute(profile_id, decision, frame, *, purpose='scheduled', operator
                 raise trading.TradeRejected('amount rounds to zero')
             side = 'sell' if intent.action == 'sell_foreign' else 'buy'
             mode = 'foreign_out' if intent.action == 'buy_foreign' else 'input'
-            key = (f'fxbot:{profile_id}:{frame.tick_id}' if purpose == 'scheduled'
-                   else f'fxbot-admin:{profile_id}:{uuid4().hex}')
+            if purpose == 'scheduled':
+                event_key = uuid4().hex if template == 'random' else str(frame.tick_id)
+                key = f'fxbot:{profile_id}:{event_key}'
+            else:
+                key = f'fxbot-admin:{profile_id}:{uuid4().hex}'
 
             async def before_commit(session, execution):
                 nonlocal fill, state

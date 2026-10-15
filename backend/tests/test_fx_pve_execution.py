@@ -73,10 +73,11 @@ async def test_cash_clipped_exact_out_replay_and_mode_identity():
     before = await snapshot(uid, pid)
     async def fail(*_): raise AssertionError('callback repeated')
     async with async_session_maker() as db:
-        replay = await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), f'fxbot:{profile}:1', bot_profile_id=profile, amount_mode='foreign_out', before_commit=fail)
+        key = (await db.get(FxTrade, result.fill.trade_id)).idempotency_key
+        replay = await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), key, bot_profile_id=profile, amount_mode='foreign_out', before_commit=fail)
         assert replay.output_amount == result.fill.output_amount
         with pytest.raises(Exception, match='idempotency key parameter mismatch'):
-            await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), f'fxbot:{profile}:1', bot_profile_id=profile, bot_reference_price=D('1'))
+            await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), key, bot_profile_id=profile, bot_reference_price=D('1'))
     assert await snapshot(uid, pid) == before
 
 @pytest.mark.asyncio
