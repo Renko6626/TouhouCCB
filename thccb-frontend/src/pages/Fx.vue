@@ -1047,8 +1047,10 @@ async function loadSnapshot() {
       marketUpdatedAt.value = new Date().toLocaleTimeString()
     }
   } catch (e) {
-    if (pid === pairId.value && request === snapshotGeneration) snapshotFailed.value = true
-    throw e
+    if (pid === pairId.value && request === snapshotGeneration) {
+      snapshotFailed.value = true
+      error.value = mapFxError(e, 'FX 行情加载失败')
+    }
   } finally {
     if (request === snapshotGeneration) snapshotLoading.value = false
   }
@@ -1104,10 +1106,7 @@ function connectStream() {
       streamConnected.value = true
       streamFailed.value = false
       if (reconnected || !snapshot.value || snapshotFailed.value) {
-        const selection = selectionGeneration
-        void loadSnapshot().catch((e) => {
-          if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
-        })
+        void loadSnapshot()
       }
       if (reconnected) chartReloadToken.value += 1
     })
@@ -1152,7 +1151,10 @@ async function selectPair(id: number) {
   } catch (e) {
     if (selection === selectionGeneration) error.value = mapFxError(e, 'FX 行情加载失败')
   } finally {
-    if (selection === selectionGeneration) connectStream()
+    if (selection === selectionGeneration) {
+      loading.value = false
+      connectStream()
+    }
   }
 }
 
