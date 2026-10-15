@@ -167,7 +167,7 @@
 - [x] 一次性集中运行：`cd backend` 后 `pytest tests/test_fx_pve_migration.py tests/test_admin_pve_fx.py tests/test_fx_pve_execution.py tests/test_fx_pve_strategies.py tests/test_fx_pve_engine.py tests/test_pve_filters.py tests/test_admin_pve.py tests/test_pve_engine.py tests/test_credit_wp6b_pve.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_audit_replay.py tests/test_fx_publication_e2e.py tests/test_fx_season_reset.py -q`。已有business reset相关用例按实际文件名追加，限新增开关和数据清理影响，不全库扩测。
 - [x] 最终新改动涉及借贷/通用现货分支时，仅追加已有 `test_fx_net_trading.py` 和 `test_fx_borrow_buy.py` 回归，检查新增默认参数没有改变原调用；不增加对应功能。
 - [x] 文档写明：创建时自定义资产、默认paused、按pair开闸、短线只到达时退出、重启热度/窗口预热、真实费用、隐藏排名的全局范围，以及暂停→清仓→退休流程。
-- [ ] 按实际变更做一次独立代码审阅，区分核心缺陷与低概率可人工处理问题；不为理论风险新增机制或反复扩大审阅。
+- [x] 按实际变更做一次独立代码审阅，区分核心缺陷与低概率可人工处理问题；不为理论风险新增机制或反复扩大审阅。
 - [x] 交付代码、迁移文件与检查结果，列明未验证项。默认所有开关仍关闭；不运行生产迁移、不创建真实bot、不实际发放资产、不部署。用户另行授权上线后再执行。
 
 ## 验证环境与交接约定
@@ -194,7 +194,7 @@ venv/bin/python -m pytest tests/test_fx_pve_migration.py tests/test_admin_pve_fx
 
 结果：**171 passed, 1 deselected in 35.12s**。沿用 pytest 项目默认筛选，未放宽或删除断言。
 前端 Task 6 已通过 `npm run type-check` 和 `npm run build`，其后无功能修改，本阶段未重复。
-`git diff --check` 通过。操作说明已补入 `docs/pve.md`。最终独立审阅仍由主 agent 完成后勾选。
+`git diff --check` 通过。操作说明已补入 `docs/pve.md`。最终独立审阅通过，规格符合性和整体代码质量均获批准，无未解决的 Critical／Important 问题。
 
 未验证 PostgreSQL 行锁调度、真实时钟下调度器停机时序和浏览器交互；未运行全库测试、
 新建 E2E 环境或追加研究模拟。没有检查或写入运行库，没有复制 `.env`，没有运行生产迁移、
