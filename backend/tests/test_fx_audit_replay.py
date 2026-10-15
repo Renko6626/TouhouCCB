@@ -115,3 +115,27 @@ async def test_fx_replay_detects_event_and_live_tampering(fx_db, monkeypatch):
     assert any(m.entity == f"fx_pair:{pair_id}" and m.field == "treasury.foreign" for m in live)
     assert any(m.entity == f"fx_wallet:{user_id}:{pair_id}" and m.field == "foreign_amount" for m in live)
     assert any(m.entity == f"user:{user_id}" and m.field == "cash" for m in live)
+
+
+@pytest.mark.asyncio
+async def test_fx_initial_allocation_replays_without_pool_mutation(fx_db, monkeypatch):
+    from app.schemas.pve_fx import FxPveGenerateRequest
+    from app.services.credit import ownership
+    from app.services.pve_fx import accounts
+
+    monkeypatch.setattr(accounts, 'OWNERSHIP', ownership.OWNERSHIP)
+    pair, _ = await add_pair(fx_db, code='ALLOCATION', gold='10000', foreign='5000')
+    bots = await accounts.generate_fx_bots(fx_db, FxPveGenerateRequest(
+        pair_id=pair.id, items=[{'template':'inventory', 'count':1}],
+        initial_cash='1234', initial_foreign='600'), 1)
+    await fx_db.commit()
+    events = await audit_replay.load_events(fx_db)
+    snap, errors = audit_replay.fold(events, check=True)
+    assert errors == []
+    assert snap.fx_wallets[(bots[0].user_id, pair.id)] == Decimal('600')
+    assert snap.users[bots[0].user_id].cash == Decimal('1234')
+    assert await audit_replay.compare_with_live(fx_db, snap) == []
+    allocation = next(e for e in events if e.event_type == 'pve_fx_initial_allocation')
+    allocation.payload = {**allocation.payload, 'foreign_amount':'601'}
+    _, errors = audit_replay.fold(events, check=True)
+    assert any(e.entity == f'fx_wallet:{bots[0].user_id}:{pair.id}' for e in errors)

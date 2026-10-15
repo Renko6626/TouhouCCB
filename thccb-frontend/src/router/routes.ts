@@ -213,6 +213,11 @@ export const routes: RouteRecordRaw[] = [
         path: 'admin/pve',
         name: 'admin-pve',
         component: () => import('@/pages/admin/PveManage.vue'),
+        redirect: '/admin/pve/lmsr',
+        children: [
+          { path: 'lmsr', name: 'admin-pve-lmsr', component: () => import('@/pages/admin/pve/LmsrBotManage.vue'), meta: { title: 'LMSR 机器人', requiresAuth: true, requiresAdmin: true } },
+          { path: 'fx', name: 'admin-pve-fx', component: () => import('@/pages/admin/pve/FxBotManage.vue'), meta: { title: 'FX 机器人', requiresAuth: true, requiresAdmin: true } },
+        ],
         meta: { title: 'PvE 机器人', requiresAuth: true, requiresAdmin: true },
       },
       {

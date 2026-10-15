@@ -46,7 +46,7 @@ FK_FIELDS = {
     "title_code": {("batch_id", "title_code_batch", "id"), ("used_by_user_id", "user", "id")},
     "siteconfig": {("updated_by", "user", "id")},
 }
-GATES = ("fx_enabled", "fx_short_enabled", "loan_enabled", "liquidation_enabled", "pve_enabled")
+GATES = ("fx_enabled", "fx_short_enabled", "loan_enabled", "liquidation_enabled", "pve_enabled", "fx_pve_enabled")
 POLICY = {"cash": "source_initial_balance", "debt": "0", "version": "old+1", "titles": list(TITLES), "closed_gates": list(GATES), "credit_new_risk_frozen": True}
 MAX_VERSION = 2**31 - 1
 
@@ -137,6 +137,7 @@ def _configs(rows):
     balance = _amount(raw["initial_balance"]["value"])
     for k in GATES:
         values[k] = {"key": k, "value": "false", "value_type": "bool"}
+    values["fx_pve_pair_configs"] = {"key": "fx_pve_pair_configs", "value": "{}", "value_type": "string"}
     values["credit_new_risk_frozen"] = {"key": "credit_new_risk_frozen", "value": "true", "value_type": "bool"}
     return balance, [values[k] for k in sorted(values)]
 

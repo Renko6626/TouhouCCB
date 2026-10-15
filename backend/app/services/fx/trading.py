@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 
 from fastapi import HTTPException
 from sqlalchemy import and_, bindparam, case, func, select
@@ -43,7 +43,7 @@ from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
-from app.services.fx.amm import quote_buy, quote_sell, marginal_price
+from app.services.fx.amm import quote_buy, quote_sell, quote_buy_exact_out, amount_down, marginal_price
 from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
@@ -266,11 +266,45 @@ def notify_market_data_committed(pair_id: int) -> None:
         _logger.debug("fx market-data notify failed for pair %s", pair_id, exc_info=True)
 
 
+async def _validate_bot(db, user, pair_id, profile_id, purpose, operator_id=None):
+    """Internal spot admission; called after pair/user/wallet/treasury locks."""
+    from app.models.bot import BotProfile
+    from app.services.pve_fx.config import load_fx_config
+    profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
+               .with_for_update().execution_options(populate_existing=True))).scalars().first()
+    if (not user.is_active or not user.is_bot or profile is None
+            or profile.user_id != user.id or profile.market_kind != 'fx'
+            or profile.fx_pair_id != pair_id):
+        raise HTTPException(status_code=403, detail='invalid FX bot binding')
+    if purpose == 'scheduled':
+        config = await load_fx_config(db)
+        if (profile.status != 'active' or not config.enabled
+                or pair_id not in config.pair_configs or not config.pair_configs[pair_id].enabled):
+            raise HTTPException(status_code=403, detail='FX bot scheduling is disabled')
+    elif purpose == 'admin_liquidate':
+        operator = await db.get(User, operator_id) if operator_id is not None else None
+        if profile.status != 'paused' or operator is None or not operator.is_active or not operator.is_superuser:
+            raise HTTPException(status_code=403, detail='paused bot and superuser required')
+    else:
+        raise TradeRejected('invalid bot purpose')
+    debt = (await db.execute(select(FxShortPosition.id).where(
+        FxShortPosition.user_id == user.id,
+        (FxShortPosition.principal_foreign > 0) | (FxShortPosition.interest_foreign > 0)))).first()
+    if user.debt > 0 or debt is not None:
+        raise HTTPException(status_code=403, detail='FX bot has outstanding debt')
+    return profile
+
+
 async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int, side: str,
                                    amount: Decimal, min_out: Decimal,
                                    idempotency_key: str, *,
                                    credit_deps: Optional[DependencySet] = None,
-                                   borrow_amount: Optional[Decimal] = None) -> FxTradeExecution:
+                                   borrow_amount: Optional[Decimal] = None,
+                                   amount_mode: str = 'input',
+                                   bot_profile_id: int | None = None,
+                                   bot_purpose: str = 'scheduled',
+                                   bot_operator_id: int | None = None,
+                                   bot_reference_price: Decimal | None = None) -> FxTradeExecution:
     """Execute one player FX trade inside the caller's transaction.
 
     Unified callers must acquire the target exclusive gate and every collateral
@@ -294,6 +328,10 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         raise TradeRejected("idempotency_key prefix is reserved")
 
     normalized = str(side).lower()
+    if amount_mode not in ('input', 'foreign_out') or (amount_mode == 'foreign_out' and normalized != 'buy'):
+        raise TradeRejected('invalid amount mode')
+    if bot_profile_id is not None and borrow_amount is not None:
+        raise TradeRejected('bot financing is forbidden')
     financed = borrow_amount is not None
     if financed:
         from app.services.fx.borrow_buy import validate_funding
@@ -325,10 +363,21 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         old = (await db.execute(select(FxTrade).where(
             FxTrade.user_id == user_id, FxTrade.idempotency_key == idempotency_key,
         ))).scalars().first()
+    bot_wallet = None
+    if bot_profile_id is not None:
+        bot_wallet = await _wallet_lock(db, user_id, pair_id, create=False)
+        await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id).with_for_update())
+        await _validate_bot(db, user, pair_id, bot_profile_id, bot_purpose, bot_operator_id)
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="account is disabled")
+    if user.is_bot and bot_profile_id is None:
+        raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
     if old is not None:
         purpose = 'borrow_buy' if financed else 'spot'
         if (old.purpose != purpose or old.pair_id != pair_id or old.side != normalized
-                or old.input_amount != amount or old.min_out != min_out
+                or (old.requested_foreign_amount != amount if amount_mode == 'foreign_out'
+                    else old.requested_foreign_amount is not None or old.input_amount != amount)
+                or old.min_out != min_out
                 or old.borrow_amount != borrow_amount):
             raise HTTPException(status_code=409, detail='idempotency key parameter mismatch')
         return FxTradeExecution(trade=old, public=FxTradePublic.model_validate(old), replay=True)
@@ -371,9 +420,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         detail = ("FX pair is not trading" if fully_halted or not bool(pair.reduce_only)
                   else "FX pair is reduce-only")
         raise HTTPException(status_code=403, detail=detail)
-    if user.is_bot:
-        raise HTTPException(status_code=403, detail="bot accounts cannot trade FX")
-    if user.tos_accepted_at is None:
+    if bot_profile_id is None and user.tos_accepted_at is None:
         raise HTTPException(status_code=403, detail="TOS acceptance required")
     if same_pair_short:
         # 同 pair 单方向：有欠币时普通买入不得建立多头，须走回补入口（spec §1/§9）。
@@ -384,7 +431,31 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         )
 
     try:
-        q = _math(pair, normalized, amount)
+        actual = amount
+        cash = await available_cash(db, user)
+        if bot_profile_id is not None:
+            from app.services.pve_fx.config import load_pair_config
+            config = await load_pair_config(db, pair_id)
+            cap = amount_down(pair.foreign_reserve * config.max_pool_fraction)
+            if normalized == 'sell':
+                actual = min(amount, cap, bot_wallet.foreign_amount if bot_wallet else Decimal('0'))
+            elif amount_mode == 'foreign_out':
+                actual = min(amount, cap)
+                # Budget quote only determines affordability; execution remains exact-out.
+                if cash <= 0:
+                    raise TradeRejected('insufficient cash')
+                actual = min(actual, quote_buy(cash, pair.gold_reserve, pair.foreign_reserve,
+                                               pair.buy_fee_rate).output_amount)
+            else:
+                # Inventory intent is a fixed-reference-price gold budget.
+                if bot_reference_price is None or bot_reference_price <= 0:
+                    raise TradeRejected('bot budget buy requires tick reference price')
+                actual = min(amount, cash, amount_down(cap * bot_reference_price))
+                max_gold = quote_buy_exact_out(cap, pair.gold_reserve, pair.foreign_reserve,
+                                               pair.buy_fee_rate).input_amount
+                actual = min(actual, max_gold)
+        q = (quote_buy_exact_out(actual, pair.gold_reserve, pair.foreign_reserve, pair.buy_fee_rate)
+             if amount_mode == 'foreign_out' else _math(pair, normalized, actual))
     except (TypeError, ValueError, ArithmeticError) as exc:
         raise TradeRejected(str(exc)) from exc
     if q.output_amount < min_out:
@@ -439,12 +510,14 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                 user_after=audit_service.user_snapshot(user))
     return await _write_spot_ledger(db, user=user, pair=pair, wallet=wallet,
         normalized=normalized, q=q, min_out=min_out, idempotency_key=idempotency_key,
-        financed=financed, borrow_amount=borrow_amount, trade_now=trade_now)
+        financed=financed, borrow_amount=borrow_amount, trade_now=trade_now,
+        requested_foreign_amount=amount if amount_mode == 'foreign_out' else None)
 
 
 async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
                              idempotency_key, financed=False, borrow_amount=None,
-                             trade_now, treasury=None, execution_id=None, execution_leg=None):
+                             trade_now, treasury=None, execution_id=None, execution_leg=None,
+                             requested_foreign_amount=None):
     """Post a validated spot leg; caller owns guards, risk and transaction."""
     user_id, pair_id = int(user.id), int(pair.id)
     _require_writes()
@@ -480,6 +553,7 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
     trade = FxTrade(pair_id=pair_id, user_id=user_id, side=normalized,
                     execution_id=execution_id, execution_leg=execution_leg,
                     purpose='borrow_buy' if financed else 'spot', borrow_amount=borrow_amount,
+                    requested_foreign_amount=requested_foreign_amount,
                     input_amount=q.input_amount, output_amount=q.output_amount,
                     min_out=min_out,
                     fee_amount=q.fee_amount, pre_gold_reserve=pre_gold,
@@ -511,7 +585,11 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
 
 async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                         amount: Decimal, min_out: Decimal,
-                        idempotency_key: str) -> FxTradePublic:
+                        idempotency_key: str, *, amount_mode: str = 'input',
+                        bot_profile_id: int | None = None, bot_purpose: str = 'scheduled',
+                        bot_operator_id: int | None = None,
+                        bot_reference_price: Decimal | None = None,
+                        before_commit: Callable[[AsyncSession, FxTradeExecution], Awaitable[None]] | None = None) -> FxTradePublic:
     """Request-path wrapper: owns the transaction boundary and publication.
 
     Commits a fresh execution (or rolls back an idempotent replay to release
@@ -535,10 +613,14 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                 try:
                     execution = await execute_trade_in_session(
                         db, user_id, pair_id, side, amount, min_out,
-                        idempotency_key, credit_deps=deps)
+                        idempotency_key, credit_deps=deps, amount_mode=amount_mode,
+                        bot_profile_id=bot_profile_id, bot_purpose=bot_purpose,
+                        bot_operator_id=bot_operator_id, bot_reference_price=bot_reference_price)
                     if execution.replay:
                         await db.rollback()
                         return execution.public
+                    if before_commit is not None:
+                        await before_commit(db, execution)
                     _require_writes()
                     account_hints = capture_accounts(db)
                     await db.commit()
