@@ -107,10 +107,14 @@ async def stream(pair_id: int, request: Request):
             while time.monotonic() - started < MAX_SSE_DURATION:
                 get_task = asyncio.create_task(sub.q.get())
                 kicked_task = asyncio.create_task(sub.kicked.wait())
-                done, pending = await asyncio.wait({get_task, kicked_task}, timeout=25,
-                                                   return_when=asyncio.FIRST_COMPLETED)
-                for task in pending:
-                    task.cancel()
+                try:
+                    done, _ = await asyncio.wait({get_task, kicked_task}, timeout=25,
+                                                 return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for task in (get_task, kicked_task):
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(get_task, kicked_task, return_exceptions=True)
                 if kicked_task in done:
                     break
                 if get_task in done:
@@ -122,4 +126,5 @@ async def stream(pair_id: int, request: Request):
                 await BROKER.unsubscribe(topic, sub)
             await IP_LIMITER.release(topic, ip)
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
