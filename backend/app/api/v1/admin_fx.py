@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.services.trading_prices import notify_pricing_changed
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -19,8 +20,8 @@ from app.core.users import current_superuser
 from app.models.base import User
 from app.models.audit import AuditEvent
 from app.services.fx.pool_events import append_pool_event
-from app.models.fx import FxTriggerOrder, FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
-from app.schemas.fx import FxPairAdmin, FxPairAdminDetail
+from app.models.fx import FxAnnouncement, FxTriggerOrder, FxPoolEvent, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition
+from app.schemas.fx import FxAnnouncementCreate, FxAnnouncementRead, FxPairAdmin, FxPairAdminDetail
 from app.services import audit_service, site_config
 from app.services.fx import liquidity, admin_reads
 from app.schemas.fx import FxAdminOverview, FxLiquidityPreviewRequest, FxLiquidityPreview, FxLiquidityHistory
@@ -28,8 +29,10 @@ from app.services.credit import flags as credit_flags
 from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
+from app.services.realtime import BROKER
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # ── F8：同时 trading 的 FX pair 上限 ─────────────────────────────────────────
 # 这只是**管理端运营限制**：数据模型、估值与执行接口都不写死品种数，
@@ -45,6 +48,27 @@ _TRADING_CAPACITY_LOCK_KEY = 0x46585F5452414445  # "FX_TRADE" 的固定 64-bit k
 
 def _require_writes():
     OWNERSHIP.require_writes()
+
+
+@router.post("/announcements", response_model=FxAnnouncementRead, status_code=201)
+async def append_announcement(
+    req: FxAnnouncementCreate,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    _require_writes()
+    row = FxAnnouncement(content=req.content, created_by=admin.id)
+    db.add(row)
+    pair_ids = (await db.execute(select(FxPair.id))).scalars().all()
+    await db.commit()
+    # A notice is global: wake viewers of paused pairs too. Publication is a
+    # post-commit hint; GET remains the source of truth on entry/reconnect.
+    for pair_id in pair_ids:
+        try:
+            await BROKER.publish(f"fx:{pair_id}", "fx_announcement", {"id": row.id})
+        except Exception:
+            logger.exception("FX announcement %s committed; notification failed for pair %s", row.id, pair_id)
+    return row
 
 
 @asynccontextmanager

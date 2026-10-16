@@ -1,4 +1,5 @@
 from decimal import Decimal
+import json
 
 import pytest
 import pytest_asyncio
@@ -48,6 +49,62 @@ async def ctx(fx_db, monkeypatch):
 
 PAIR = {"currency_code": "USD", "currency_name": "Dollar", "status": "trading",
         "gold_reserve": "100", "foreign_reserve": "100", "initial_price": "1", }
+
+
+@pytest.mark.asyncio
+async def test_announcement_append_latest_and_live_update(ctx, monkeypatch):
+    from app.api.v1 import admin_fx
+    from app.services.realtime import MarketEventBroker
+    from tests.fx_test_helpers import add_pair
+
+    client, db, _, admin, _ = ctx
+    broker = MarketEventBroker()
+    monkeypatch.setattr(admin_fx, "BROKER", broker, raising=False)
+    first_pair, _ = await add_pair(db, code="ANN1")
+    second_pair, _ = await add_pair(db, code="ANN2")
+    second_pair.status = "paused"
+    await db.commit()
+    first_sub, _ = await broker.subscribe(f"fx:{first_pair.id}")
+    second_sub, _ = await broker.subscribe(f"fx:{second_pair.id}")
+    try:
+        empty = await client.get("/api/v1/fx/announcements/latest")
+        assert empty.status_code == 200 and empty.json() is None
+        first = await client.post("/api/v1/admin/fx/announcements", json={"content": "  决赛结束后\n公布注资结果。  "})
+        assert first.status_code == 201, first.text
+        assert first.json()["content"] == "决赛结束后 公布注资结果。"
+        assert set(first.json()) == {"id", "content", "created_at"}
+        for sub in (first_sub, second_sub):
+            event = json.loads(sub.q.get_nowait().decode().split("data: ", 1)[1])
+            assert event["type"] == "fx_announcement"
+            assert event["data"]["id"] == first.json()["id"]
+        second = await client.post("/api/v1/admin/fx/announcements", json={"content": "已向卡牌池注入 100,000 金圆券。"})
+        assert second.status_code == 201, second.text
+        assert second.json()["id"] > first.json()["id"]
+        assert (await client.get("/api/v1/fx/announcements/latest")).json() == second.json()
+        from app.models.fx import FxAnnouncement
+        rows = (await db.execute(select(FxAnnouncement).order_by(FxAnnouncement.id))).scalars().all()
+        assert [r.content for r in rows] == [first.json()["content"], second.json()["content"]]
+        assert all(r.created_by == admin.id for r in rows)
+    finally:
+        await broker.unsubscribe(f"fx:{first_pair.id}", first_sub)
+        await broker.unsubscribe(f"fx:{second_pair.id}", second_sub)
+
+
+@pytest.mark.asyncio
+async def test_only_admin_can_append_announcements(ctx):
+    client, _, app, _, normal = ctx
+    app.state.current_user = normal
+    assert (await client.post("/api/v1/admin/fx/announcements", json={"content": "预告"})).status_code == 403
+    # Reading the latest announcement is public, even without an admin session.
+    assert (await client.get("/api/v1/fx/announcements/latest")).status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{"content": " \n\t "}, {"content": "字" * 281}, {"content": "预告", "title": "标题"}])
+async def test_announcement_content_validation(ctx, payload):
+    client, _, _, _, _ = ctx
+    assert (await client.post("/api/v1/admin/fx/announcements", json=payload)).status_code == 422
+    assert (await client.get("/api/v1/fx/announcements/latest")).json() is None
 
 
 @pytest.mark.asyncio

@@ -26,6 +26,16 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class FxAnnouncement(SQLModel, table=True):
+    """Append-only FX-wide notices; only the newest row is displayed."""
+    __tablename__ = "fx_announcement"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    content: str = Field(max_length=280, nullable=False)
+    created_by: int = Field(foreign_key="user.id", nullable=False)
+    created_at: datetime = Field(default_factory=_utcnow, sa_type=DateTime(timezone=True), nullable=False)
+
+
 class FxPair(SQLModel, table=True):
     __tablename__ = "fx_pair"
     __table_args__ = (

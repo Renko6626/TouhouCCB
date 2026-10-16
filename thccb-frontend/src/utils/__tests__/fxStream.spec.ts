@@ -17,6 +17,27 @@ class MockSource {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); MockSource.instances = [] })
 
 describe('FX 实时连接', () => {
+  it('订阅完成和公告更新时提醒刷新公告，不把公告交给行情监听器', () => {
+    vi.stubGlobal('EventSource', MockSource)
+    const stream = new FxStream()
+    const changed = vi.fn(), onFrame = vi.fn()
+    stream.onAnnouncementChanged(changed)
+    stream.onFrame(onFrame)
+    stream.connect(1)
+    const first = MockSource.instances[0]!
+    first.emit('snapshot', { price: '1.2' })
+    expect(changed).toHaveBeenCalledTimes(1)
+    first.emit('fx_announcement', { data: { id: 1 } })
+    expect(changed).toHaveBeenCalledTimes(2)
+    expect(onFrame).toHaveBeenCalledTimes(1)
+    stream.connect(2)
+    first.emit('fx_announcement', { data: { id: 2 } })
+    expect(changed).toHaveBeenCalledTimes(2)
+    MockSource.instances[1]!.emit('snapshot', { price: '2' })
+    expect(changed).toHaveBeenCalledTimes(3)
+    stream.disconnect()
+  })
+
   it('接收首连 / 重连 snapshot，同时忽略已切换币种的迟到帧和错误', () => {
     vi.stubGlobal('EventSource', MockSource)
     const stream = new FxStream()

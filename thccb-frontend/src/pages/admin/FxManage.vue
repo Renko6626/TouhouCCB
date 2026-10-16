@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, provide } from 'vue'
 import { useMessage } from 'naive-ui'
 import { fxAdminApi, mapFxError } from '@/api/fx'
+import FxAnnouncementPublish from '@/components/admin/FxAnnouncementPublish.vue'
 const config = ref<Record<string, string> | null>(null)
 const loading = ref(true), busy = ref(false), error = ref('')
 const shortDraft = ref('')
@@ -37,6 +38,7 @@ onMounted(loadConfig)
       </template>
     </section>
     <nav class="fx-admin-tabs" aria-label="FX 管理页面"><RouterLink to="/admin/fx/markets">市场登记</RouterLink><RouterLink to="/admin/fx/operations">央行操作</RouterLink></nav>
+    <FxAnnouncementPublish />
     <RouterView />
   </div>
 </template>

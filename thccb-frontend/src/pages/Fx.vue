@@ -73,6 +73,8 @@ import type {
 } from '@/types/fx'
 import FxCandleChart from '@/components/chart/FxCandleChart.vue'
 import MobileTradeDock from '@/components/market/MobileTradeDock.vue'
+import FxAnnouncementBanner from '@/components/market/FxAnnouncementBanner.vue'
+import { useFxAnnouncement } from '@/composables/useFxAnnouncement'
 import { useMobileTradeEntry } from '@/composables/useMobileTradeEntry'
 
 defineOptions({ name: 'FxPage' })
@@ -83,6 +85,8 @@ const displayAmount = (value: Parameters<typeof formatFxAmount>[0], digits = 2) 
 const msg = useMessage()
 const route = useRoute()
 const authStore = useAuthStore()
+const announcement = useFxAnnouncement(() => authStore.user?.id)
+const { latest: latestAnnouncement, visible: announcementVisible, failed: announcementFailed } = announcement
 const tradingSession = useTradingSessionStore()
 let tradingLease: number | undefined
 const tradingPreferences = useTradingPreferencesStore()
@@ -740,6 +744,18 @@ const orderHeading = computed(() =>
         ? '买入'
         : '卖出',
 )
+const orderScaleDisplay = computed(() => {
+  const gold = tradeMode.value === 'short'
+    ? shortAction.value === 'cover'
+      ? shortQuote.value?.input_amount
+      : shortSizeUnit.value === 'foreign'
+        ? multiplyFxAmount(shortAmount.value, localReferencePrice.value ?? '')
+        : shortGoldAmount.value
+    : side.value === 'buy' ? amount.value : sellGoldAmount.value
+  const ratio = gold != null && /^\d+(?:\.\d{0,6})?$/.test(gold.trim())
+    ? divideFxAmount(gold, orderPrincipal.value, 6) : null
+  return ratio == null ? '—' : Number(ratio).toFixed(2)
+})
 const accountRisk = computed(() =>
   resolveCreditRiskStatus({
     authoritativeStatus:
@@ -1115,6 +1131,7 @@ function connectStream() {
       streamConnected.value = false
     })
     stream.onEnvelope(onEnvelope)
+    stream.onAnnouncementChanged(announcement.refresh)
   }
   stream.connect(pid)
 }
@@ -1160,6 +1177,7 @@ async function selectPair(id: number) {
 
 async function refreshMarket() {
   if (snapshotLoading.value || submitting.value) return
+  void announcement.refresh()
   await refreshAll()
   chartReloadToken.value += 1
   if (!streamConnected.value) {
@@ -1363,6 +1381,7 @@ const statusLabel = computed(() => {
 })
 
 onMounted(() => {
+  void announcement.refresh()
   window.addEventListener('resize', resizeWorkbench)
   void load().then(() => {
     // A cover deep link already initialized cover_all; only locate its form.
@@ -1375,6 +1394,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  announcement.reset()
   window.removeEventListener('resize', resizeWorkbench)
   workbenchObserver?.disconnect()
   if (tradingLease !== undefined) tradingSession.stop(tradingLease)
@@ -1475,6 +1495,15 @@ onUnmounted(() => {
       </button>
     </div>
 
+    <FxAnnouncementBanner
+      :announcement="latestAnnouncement"
+      :visible="announcementVisible"
+      :failed="announcementFailed"
+      @dismiss="announcement.dismiss"
+      @show="announcement.show"
+      @retry="announcement.refresh"
+    />
+
     <section v-if="pendingRisk" class="fx-receipt" role="status">
       <p v-if="netStorageBlocked || borrowStorageBlocked || shortStorageBlocked" class="fx-error">
         本地订单记录无法读取、保存或清除，请核对记录后再尝试清除。浏览器存储仍不可用时，请恢复存储并刷新页面。
@@ -1547,9 +1576,9 @@ onUnmounted(() => {
       >
         <div class="fx-market-column">
           <section class="fx-chart-panel" aria-label="价格走势">
-            <div class="fx-panel-head">
+            <div class="fx-panel-head fx-chart-head">
               <h2>价格走势</h2>
-              <div class="fx-intervals">
+              <div class="fx-intervals" role="group" aria-label="K 线周期">
                 <button
                   v-for="iv in intervals"
                   :key="iv"
@@ -1580,9 +1609,6 @@ onUnmounted(() => {
                   @waiting-change="waitingOrders = $event"
                 />
               </div>
-            </div>
-            <div class="fx-chart-footer">
-              <span>上涨有利于多头，下跌有利于空头</span><span>金圆券 / {{ currencyName }}</span>
             </div>
           </section>
         </div>
@@ -1683,6 +1709,9 @@ onUnmounted(() => {
               <h2 class="fx-trade-heading">
                 {{ orderHeading }}
               </h2>
+              <div class="fx-order-scale">
+                <span>本次规模</span><strong>{{ orderScaleDisplay }}<small> 倍本金</small></strong>
+              </div>
               <label v-if="(tradeMode === 'spot' && side === 'sell' && !closeOnly) || (tradeMode === 'short' && shortAction === 'open')" class="fx-short-unit"
                 >输入方式
                 <select
@@ -1707,12 +1736,13 @@ onUnmounted(() => {
               :limit="orderMultiplierLimit"
               tone="long"
               label="买入金额（含费）"
+              hide-summary
               :disabled="!tradable || submitting || pendingRisk"
             />
             <FxOrderSize
               v-if="tradeMode === 'spot' && side === 'sell' && !closeOnly && sellSizeUnit === 'gold'"
               :model-value="sellGoldAmount" :principal="orderPrincipal" :limit="orderMultiplierLimit"
-              tone="short" label="卖出参考金额"
+              tone="short" label="卖出参考金额" hide-summary
               :disabled="!tradable || !tradingSession.ready || submitting || pendingRisk"
               @update:model-value="updateSellGoldAmount"
             />
@@ -1723,6 +1753,7 @@ onUnmounted(() => {
               :limit="orderMultiplierLimit"
               tone="short"
               label="做空参考金额"
+              hide-summary
               :disabled="
                 !canFillShortOpen ||
                 hasSpotHolding ||
@@ -2578,15 +2609,6 @@ onUnmounted(() => {
   min-height: 32px;
   padding: 4px 8px;
 }
-.fx-chart-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  color: #888;
-  font-size: 11px;
-  padding-top: 10px;
-}
-
 .fx-trade-panel {
   min-width: 0;
   min-height: 0;
@@ -2600,11 +2622,36 @@ onUnmounted(() => {
   background: #fff;
 }
 .fx-order-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
   margin-bottom: 8px;
-  gap: 12px;
+  gap: 4px 10px;
+}
+.fx-order-heading .fx-trade-heading {
+  white-space: nowrap;
+}
+.fx-order-heading .fx-short-unit {
+  grid-column: 1 / -1;
+  justify-self: end;
+}
+.fx-order-scale {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  white-space: nowrap;
+}
+.fx-order-scale > span {
+  color: #777;
+  font-size: 11px;
+}
+.fx-order-scale > strong {
+  font-size: 18px;
+}
+.fx-order-scale small {
+  font-size: 11px;
+  font-weight: 400;
 }
 .fx-trade-anchor {
   position: absolute;
@@ -3159,8 +3206,11 @@ onUnmounted(() => {
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 6px 10px;
     padding: 7px 8px;
+    margin-bottom: 4px;
   }
   .fx-topbar-id {
+    grid-column: 1;
+    grid-row: 1;
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
@@ -3178,7 +3228,17 @@ onUnmounted(() => {
     gap: 4px;
     margin-left: 0;
   }
-  .fx-topbar .fx-connection { grid-column: 2; justify-self: end; }
+  .fx-topbar .fx-connection {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: end;
+    align-self: start;
+    white-space: nowrap;
+  }
+  .fx-topbar-id .fx-title {
+    align-self: stretch;
+    padding-right: 76px;
+  }
   .fx-title small { display: none; }
   .fx-topbar .fx-price { font-size: 22px; }
   .fx-market-volume { font-size: 10px; }
@@ -3263,9 +3323,6 @@ onUnmounted(() => {
     min-height: 38px;
     padding: 5px 8px;
   }
-  .fx-chart-footer > span:first-child {
-    display: none;
-  }
   .fx-panel-head > .fx-hint {
     display: none;
   }
@@ -3275,8 +3332,146 @@ onUnmounted(() => {
   .fx-pending-short {
     flex-wrap: wrap;
   }
+}
+@media (max-width: 768px) {
+  /* Let the chart reach both screen edges without clipping in app-main. */
+  :global(#app:has(.fx-page)) {
+    padding-inline: 0;
+  }
+  .fx-chart-panel {
+    width: 100vw;
+    margin-inline: calc((100% - 100vw) / 2);
+    border: 0;
+    padding: 0;
+  }
+  .fx-chart-head {
+    display: block;
+    margin-bottom: 0;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  .fx-chart-head h2 {
+    display: none;
+  }
+  .fx-chart-head .fx-intervals {
+    width: 100%;
+    gap: 0;
+  }
+  .fx-chart-head .fx-interval {
+    flex: 1;
+    min-height: 42px;
+    padding: 6px 0;
+    border-bottom: 2px solid transparent;
+    font-size: 13px !important;
+  }
+  .fx-chart-head .fx-interval.active {
+    color: #000;
+    background: transparent;
+    border-bottom-color: #000;
+    font-weight: 700 !important;
+  }
+  .fx-freshness-bar {
+    gap: 2px 10px;
+    padding-bottom: 2px;
+  }
+  .fx-freshness-bar > button {
+    margin-left: 0;
+  }
   .fx-freshness-bar .fx-text-button {
+    min-height: 24px;
+    padding-block: 0;
+  }
+  .fx-trade-panel {
+    --trade-panel-gap: 5px;
+    padding: 8px;
+    border-width: 1px;
+  }
+  .fx-trade-panel .fx-direction-picker {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 0;
+    border: 0;
+    border-bottom: 1px solid #ddd;
+  }
+  .fx-trade-panel .fx-direction-picker > button {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+    min-height: 40px;
+    padding: 4px 2px;
+    border: 0;
+  }
+  .fx-trade-panel .fx-direction-picker strong {
+    font-size: 12px;
+  }
+  .fx-trade-panel .fx-account-actions {
+    margin: 5px 0;
+  }
+  .fx-trade-panel .fx-loan-entry {
+    border: 0;
+    padding: 3px 0;
+    text-decoration: underline;
+  }
+  .fx-current-position {
+    margin-bottom: 5px;
+  }
+  .fx-position-details {
+    margin-bottom: 5px;
+  }
+  .fx-order-heading {
+    margin-bottom: 4px;
+  }
+  .fx-trade-panel :deep(.position-card) {
+    padding: 6px 8px;
+  }
+  .fx-trade-panel :deep(.position-card .heading) {
+    margin-bottom: 4px;
+  }
+  .fx-trade-panel :deep(.position-card .metrics) {
+    gap: 6px;
+  }
+  .fx-trade-panel :deep(.position-card .metrics dd),
+  .fx-trade-panel :deep(.position-card .amount > strong) {
+    font-size: 13px;
+  }
+  .fx-trade-panel :deep(.position-card .amount) {
+    margin-top: 4px;
+  }
+  .fx-trade-panel :deep(.position-card .footer) {
+    margin-top: 4px;
+    padding-top: 4px;
+  }
+  .fx-trade-panel :deep(.position-card .pnl > strong) {
+    font-size: 18px;
+  }
+  .fx-trade-panel :deep(.position-card button) {
     min-height: 32px;
+    padding: 4px 6px;
+  }
+  .fx-trade-panel :deep(.order-size) {
+    gap: 4px;
+  }
+  .fx-trade-panel :deep(.order-size .size-range) {
+    margin: 8px 0 4px;
+  }
+  .fx-trade-panel :deep(.order-size .presets button) {
+    min-height: 32px;
+    padding-block: 3px;
+  }
+  .fx-trade-panel :deep(.order-size .amount) {
+    gap: 3px;
+  }
+  .fx-trade-panel :deep(.order-size .amount input) {
+    min-height: 40px;
+    font-size: 16px;
+  }
+  .fx-trade-panel .fx-actions {
+    margin-top: 4px;
+  }
+  .fx-trade-panel .fx-order-details {
+    margin-top: 7px;
+    padding-top: 5px;
   }
 }
 </style>

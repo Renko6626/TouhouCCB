@@ -10,6 +10,7 @@ const props = defineProps<{
   disabled: boolean
   label: string
   tone: 'long' | 'short'
+  hideSummary?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 // More space for small orders. Only slider coordinates use floating point;
@@ -64,7 +65,7 @@ function onInput(event: Event) {
 
 <template>
   <div class="order-size" :class="tone">
-    <div class="size-heading">
+    <div v-if="!hideSummary" class="size-heading">
       <div class="multiplier">
         <span>本次规模</span><strong>{{ displayedMultiplier ?? '—' }}<small> 倍本金</small></strong>
       </div>

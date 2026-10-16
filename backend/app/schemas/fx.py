@@ -20,6 +20,28 @@ def _finite_six(value: Decimal, *, positive: bool = False) -> Decimal:
     return value
 
 
+class FxAnnouncementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: str = Field(min_length=1, max_length=280)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def single_line(cls, value):
+        return " ".join(value.split()) if isinstance(value, str) else value
+
+
+class FxAnnouncementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    content: str
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def utc_timestamp(cls, value: datetime) -> datetime:
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
 class FxPairPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

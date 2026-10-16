@@ -888,6 +888,7 @@ export class FxStream {
   private readonly frameListeners = new Set<FxFrameListener>()
   private readonly envelopeListeners = new Set<FxEnvelopeListener>()
   private readonly openListeners = new Set<FxVoidListener>()
+  private readonly announcementListeners = new Set<FxVoidListener>()
   private readonly errorListeners = new Set<FxErrorListener>()
 
   connect(pairId: number): void {
@@ -928,7 +929,15 @@ export class FxStream {
         }
       }
       source.addEventListener('fx', receive)
-      source.addEventListener('snapshot', receive)
+      source.addEventListener('snapshot', (event) => {
+        receive(event as MessageEvent)
+        // The server subscribes before sending snapshot. Read the latest
+        // announcement here so entry/reconnect cannot miss the subscribe gap.
+        if (current()) this.announcementListeners.forEach((cb) => cb())
+      })
+      source.addEventListener('fx_announcement', () => {
+        if (current()) this.announcementListeners.forEach((cb) => cb())
+      })
       source.onopen = () => {
         if (!current()) return
         this.reconnectAttempts = 0
@@ -989,6 +998,14 @@ export class FxStream {
 
   offOpen(cb: FxVoidListener): void {
     this.openListeners.delete(cb)
+  }
+
+  onAnnouncementChanged(cb: FxVoidListener): void {
+    this.announcementListeners.add(cb)
+  }
+
+  offAnnouncementChanged(cb: FxVoidListener): void {
+    this.announcementListeners.delete(cb)
   }
 
   onError(cb: FxErrorListener): void {

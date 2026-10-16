@@ -11,8 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_session
 from app.core.users import current_active_user
 from app.models.base import User
-from app.models.fx import FxPair, FxTrade, FxWallet
+from app.models.fx import FxAnnouncement, FxPair, FxTrade, FxWallet
 from app.schemas.fx import (
+    FxAnnouncementRead,
     FxBorrowBuyQuote, FxBorrowBuyQuoteRequest, FxBorrowBuyRequest, FxBorrowBuyResponse,
     FxNetQuote, FxNetQuoteRequest, FxNetTradeRequest, FxNetTradeResponse,
     FxPairPublic, FxTriggerOrderCreate, FxTriggerOrderRead,
@@ -33,6 +34,13 @@ from app.schemas.fx import (
 from app.services.fx import borrow_buy, net_trading, orders, shorts, trading
 
 router = APIRouter()
+
+
+@router.get("/announcements/latest", response_model=FxAnnouncementRead | None)
+async def latest_announcement(db: AsyncSession = Depends(get_async_session)):
+    return (await db.execute(
+        select(FxAnnouncement).order_by(FxAnnouncement.id.desc()).limit(1)
+    )).scalars().first()
 
 
 async def _complete_boundary_execution(db, rows, user_id, limit):
