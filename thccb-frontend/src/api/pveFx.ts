@@ -27,6 +27,14 @@ export interface Config {
   enabled: boolean
   pair_configs: Record<string, Record<string, unknown>>
 }
+export interface Preset {
+  id: string
+  label: string
+  items: { template: string; count: number }[]
+  initial_cash: string
+  initial_foreign: string
+  pair_config: Record<string, unknown>
+}
 export interface Overview {
   templates: {
     template: string
@@ -35,11 +43,8 @@ export interface Overview {
     params_schema: { properties: Record<string, Field> }
   }[]
   pair_config_schema: { properties: Record<string, Field> }
-  preset: {
-    items: { template: string; count: number }[]
-    initial_cash: string
-    initial_foreign: string
-  }
+  preset: Preset
+  presets: Preset[]
   pairs: { id: number; code: string; price: string; status: string; archived: boolean }[]
   engine: Record<string, unknown>
 }

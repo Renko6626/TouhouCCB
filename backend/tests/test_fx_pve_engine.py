@@ -61,7 +61,7 @@ async def test_no_arrival_episode_noise_and_wallet_only_death():
     now = datetime.now(timezone.utc)
     result = await engine._tick_pair(pid, cfg, now)
     assert result['bots'] == 1 and result['dead'] == 0 and result['trade'] == 0
-    assert mark.normal_calls == 1 and arrival.rates == [pytest.approx(.75 / 20)]
+    assert mark.normal_calls == 1 and arrival.rates == [pytest.approx(.675 / 20)]
     assert await engine._tick_pair(pid, cfg, now) == {'skipped': 'same_tick'}
     assert mark.normal_calls == 1
     async with async_session_maker() as db:
@@ -112,9 +112,9 @@ async def test_fixed_prepared_inventory_fresh_views_and_same_tick_limits():
         assert trades[1].input_amount != trades[0].input_amount
         profile = await db.get(BotProfile, inventory_bot.profile_id)
         assert profile.strategy_state['last_action_tick'] == int(now.timestamp()) // 5
-        # At the initial fixed price/history the target is zero: sell half the
+        # At the initial fixed price/history the target is zero: sell one eighth of the
         # 100 excess even though preceding buys changed the current pool price.
-        assert trades[2].input_amount == D('50')
+        assert trades[2].input_amount == D('12.5')
         episode = (await db.get(BotProfile, episode_bot.profile_id)).strategy_state['episode']
         assert episode['entry_tick'] == int(now.timestamp()) // 5
         pair = await db.get(FxPair, pid)
@@ -141,10 +141,10 @@ async def test_restart_continues_persisted_episode_and_pause_stops_events():
     assert (await first._tick_pair(pid, cfg, now))['trade'] == 1
     async with async_session_maker() as db:
         profile = await db.get(BotProfile, bot.profile_id)
-        assert profile.strategy_state['episode']['remaining'] == '200.000000'
+        assert profile.strategy_state['episode']['remaining'] == '342.000000'
         # A real pool price change makes the long profitable.
         pair = await db.get(FxPair, pid)
-        pair.gold_reserve *= D('1.02')
+        pair.gold_reserve *= D('1.05')
         await db.commit()
     restarted = FxPveEngine()
     restarted._mark_rngs[bot.profile_id] = Draws()
@@ -159,3 +159,34 @@ async def test_restart_continues_persisted_episode_and_pause_stops_events():
     assert (await restarted._tick_pair(pid, cfg, now + timedelta(seconds=10)))['bots'] == 0
     assert len(restarted.pairs[pid].closes) == 3  # only real samples since restart
     assert len(restarted.get_log(bot.profile_id)) == 2
+
+
+def test_inventory_ema_half_life_and_shared_tick_updates():
+    from app.services.pve_fx.engine import PairRuntime
+    rt = PairRuntime()
+    rt.inventory_reference(600, math.log(5), 0)
+    for tick in range(1, 121):
+        value = rt.inventory_reference(600, math.log(10), tick)
+        assert rt.inventory_reference(600, math.log(10), tick) == value
+    assert math.exp(value) == pytest.approx(math.sqrt(50))
+
+
+@pytest.mark.asyncio
+async def test_inventory_ema_updates_without_arrivals_or_price_history():
+    pid, cfg, bots = await seed([{'template': 'inventory', 'count': 2}])
+    engine = FxPveEngine()
+    for bot in bots:
+        engine._arrival_rngs[bot.profile_id] = Draws(arrivals=0)
+    now = datetime.now(timezone.utc)
+    await engine._tick_pair(pid, cfg, now)
+    async with async_session_maker() as db:
+        pair = await db.get(FxPair, pid)
+        pair.gold_reserve *= 2
+        await db.commit()
+    await engine._tick_pair(pid, cfg, now + timedelta(seconds=5))
+    result = await engine._tick_pair(pid, cfg, now + timedelta(seconds=10))
+    rt = engine.pairs[pid]
+    reference = math.exp(rt.inventory_ema[600][0])
+    assert 5 < reference < 10
+    assert result['arrivals'] == result['trade'] == result['error'] == 0
+    assert len(rt.closes) == rt.closes.maxlen == 1

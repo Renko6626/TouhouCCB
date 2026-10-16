@@ -11,8 +11,8 @@
 export type FxSide = 'buy' | 'sell'
 export type FxPairStatus = 'draft' | 'trading' | 'paused' | 'closed'
 /** 图表周期：仅玩家页使用，与后端 `/chart` 的 interval 参数一致。 */
-export type FxChartInterval = '1m' | '15m' | '1h'
-/** 历史/RING 周期：与后端 `RING_SPEC` 的四个档位一致（含 UI 暂未开放的 10s）。 */
+export type FxChartInterval = '10s' | '1m' | '15m' | '1h'
+/** 历史/RING 周期：与后端 `RING_SPEC` 的四个档位一致。 */
 export type FxHistoryInterval = '10s' | '1m' | '15m' | '1h'
 
 // ── 玩家公开 schema（与 FxPairPublic / FxQuote / FxSnapshot / FxTradePublic 对齐） ──

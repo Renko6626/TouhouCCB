@@ -18,7 +18,7 @@ from app.services.fx.amm import marginal_price, quote_sell
 from app.services.ledger_service import record_entry
 from app.services.pve.naming import generate_usernames
 from app.services.pve.service import BotOpError, fund_bot, destroy_bot
-from .presets import SHORT_EPISODE_PROFILES
+from .presets import PRESETS
 from .registry import get_strategy, validate_strategy_params
 from .types import FxBotValues
 
@@ -86,14 +86,16 @@ async def generate_fx_bots(db: AsyncSession, request: FxPveGenerateRequest, oper
         raise BotOpError(400, '初始外币成本超过钱包存储上限')
     basis = raw_basis.quantize(Q6, rounding=ROUND_DOWN)
     # Validate every template before inserting any account.
+    preset = PRESETS[request.preset]
+    episode_profiles = preset["episode_profiles"]
     params_list = []
     episode_index = 0
     for item in request.items:
         get_strategy(item.template)
         for _ in range(item.count):
-            params = {'inventory_baseline_foreign': str(request.initial_foreign)}
+            params = {**preset['strategy_params'][item.template], 'inventory_baseline_foreign': str(request.initial_foreign)}
             if item.template == 'episode':
-                params.update(SHORT_EPISODE_PROFILES[episode_index % len(SHORT_EPISODE_PROFILES)])
+                params.update(episode_profiles[episode_index % len(episode_profiles)])
                 episode_index += 1
             params_list.append((item.template, validate_strategy_params(item.template, params)))
     taken = set((await db.execute(select(User.username))).scalars().all())

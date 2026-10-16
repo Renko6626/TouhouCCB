@@ -1,0 +1,39 @@
+{
+  "preset": "pve-mixed-20-warmup-v1",
+  "seeds": [
+    20261029,
+    20261030,
+    20261031,
+    20261102
+  ],
+  "hours": 24,
+  "modes": [
+    [
+      "baseline",
+      null
+    ],
+    [
+      "ema5",
+      5
+    ],
+    [
+      "ema10",
+      10
+    ],
+    [
+      "ema30",
+      30
+    ]
+  ],
+  "excluded_startup_minutes": 30,
+  "wave_reversal": 0.015,
+  "source_sha256": {
+    "research/fx/warmup/CONFIG.json": "3f35270e77ce7fd2c9fd22e7b10b1049a6b24df05c16e1b0243e5bd48f2f4dc3",
+    "research/fx/intraday_6_8h/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c",
+    "research/fx/reversion/inventory.py": "6209426f61b13119280ba292df9384c353000a2cf3c6e613d52fd5aaa6eb2735",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/inventory_ema/run.py": "366e95aa16baf3af02e6959099ed9f1d3ea65bd7389eee0f6da101e0d1344427"
+  },
+  "definition": "EMA of log prices, initialized at opening price; updates every tick using only prior close. Baseline is original 600min rolling log mean. No players, shocks, fees, borrowing or replenishment."
+}

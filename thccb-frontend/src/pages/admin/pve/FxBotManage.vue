@@ -43,7 +43,8 @@ const pairId = ref<number | null>(null),
 const cash = ref('5000'),
   foreign = ref('1000'),
   naming = ref('lowkey'),
-  counts = ref<Record<string, number>>({ random: 10, inventory: 5, episode: 5 }),
+  presetId = ref('warmup'),
+  counts = ref<Record<string, number>>({ random: 10, inventory: 3, episode: 7 }),
   fund = ref('100'),
   minOut = ref('0'),
   shared = ref<Record<string, boolean>>({})
@@ -60,7 +61,8 @@ const labels: Record<string, string> = {
   death_floor_gold: '死亡水位（现金）',
   inventory_baseline_foreign: '实际初始外币基准（只读）',
   order_sigma_foreign: '订单标准差（外币）',
-  inventory_window_seconds: '库存窗口（秒）',
+  inventory_ema_half_life_seconds: '库存EMA半衰期（秒，默认600）',
+  inventory_window_seconds: '旧版滚动窗口（秒，仅EMA留空时使用）',
   inventory_position_cap: '净库存上限（外币）',
   inventory_sensitivity: '库存敏感度',
   inventory_adjustment: '库存调整比例',
@@ -178,11 +180,14 @@ watch(pairId, () => {
 })
 watch([filter, status], () => (selected.value = []))
 function preset() {
-  if (!ov.value) return
-  cash.value = ov.value.preset.initial_cash
-  foreign.value = ov.value.preset.initial_foreign
-  counts.value = Object.fromEntries(ov.value.preset.items.map((i) => [i.template, i.count]))
+  const selectedPreset = ov.value?.presets.find((p) => p.id === presetId.value)
+  if (!selectedPreset) return
+  cash.value = selectedPreset.initial_cash
+  foreign.value = selectedPreset.initial_foreign
+  counts.value = Object.fromEntries(selectedPreset.items.map((i) => [i.template, i.count]))
+  if (draft.value) Object.assign(draft.value, selectedPreset.pair_config)
 }
+
 function open(b: Bot) {
   edit.value = b
   strategy.value = b.template
@@ -414,9 +419,17 @@ onMounted(load)
         <section class="panel">
           <div class="section-head">
             <h2>创建账户</h2>
-            <NButton size="small" :disabled="busy" @click="preset">填入冻结研究预设</NButton>
+            <NButton size="small" :disabled="busy" @click="preset">填入预设</NButton>
           </div>
-          <p class="hint">预设可修改，新账户保持暂停。库存基准采用实际初始外币量。</p>
+          <NSelect
+            v-model:value="presetId"
+            :disabled="busy"
+            :options="ov.presets.map((p) => ({ label: p.label, value: p.id }))"
+            @update:value="preset"
+          />
+          <p class="hint">
+            默认预热期。10个随机、3个库存、3个回归、4个趋势。填入后需保存运行设置；新账户保持暂停，已有账户参数保持原值。
+          </p>
           <div class="row creation-fields">
             <label v-for="t in ov.templates" :key="t.template"
               ><span class="field-label">{{ labels[t.template] }}人数</span
@@ -461,6 +474,7 @@ onMounted(load)
                 () =>
                   api.generate({
                     pair_id: pairId,
+                    preset: presetId,
                     items: Object.entries(counts)
                       .filter(([, c]) => c > 0)
                       .map(([template, count]) => ({ template, count })),

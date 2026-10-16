@@ -16,7 +16,7 @@ from app.services.pve_fx import accounts
 from app.services.pve_fx.config import load_fx_config, save_fx_config
 from app.services.pve_fx.engine import get_fx_pve_engine
 from app.services.pve_fx.executor import liquidate_fx_bot
-from app.services.pve_fx.presets import FROZEN_PRESET
+from app.services.pve_fx.presets import FROZEN_PRESET, PRESETS
 from app.services.pve_fx.registry import strategy_metadata
 from app.services.fx.amm import marginal_price
 
@@ -41,9 +41,7 @@ def error(exc):
 @router.get('/overview')
 async def overview(db: AsyncSession = Depends(get_async_session)):
     pairs = (await db.execute(select(FxPair).order_by(FxPair.id))).scalars().all()
-    # Registry uses the production template name, while the research snapshot retains its source label.
-    preset = {**FROZEN_PRESET, 'items': [dict(i, template='episode' if i['template'] == 'short_episode' else i['template']) for i in FROZEN_PRESET['items']]}
-    return {'templates': strategy_metadata(), 'preset': preset,
+    return {'templates': strategy_metadata(), 'preset': FROZEN_PRESET, 'presets': list(PRESETS.values()),
             'pair_config_schema': FxPairBotConfig.model_json_schema(),
             'engine': get_fx_pve_engine().snapshot(),
             'pairs': [{'id': p.id, 'code': p.currency_code, 'name': p.currency_name,

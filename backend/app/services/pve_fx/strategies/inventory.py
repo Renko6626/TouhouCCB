@@ -8,9 +8,13 @@ from . import decimal, state_copy
 class InventoryStrategy:
     @staticmethod
     def prepare_tick(bot, frame, rng):
-        width = int(bot.params['inventory_window_seconds']) // TICK_SECONDS
-        logs = [math.log(float(p)) for p in frame.closes[-width:]]
-        gap = sum(logs) / len(logs) - logs[-1] if logs else 0.
+        if bot.params['inventory_ema_half_life_seconds'] is not None:
+            reference = frame.signals['inventory_log_reference']
+            gap = reference - math.log(float(frame.closes[-1]))
+        else:
+            width = int(bot.params['inventory_window_seconds']) // TICK_SECONDS
+            logs = [math.log(float(p)) for p in frame.closes[-width:]]
+            gap = sum(logs) / len(logs) - logs[-1] if logs else 0.
         target = decimal(bot.params['inventory_position_cap']) * decimal(
             math.tanh(float(bot.params['inventory_sensitivity']) * gap))
         return FxPreparedSignal(frame.reference_price, values={'target': target, 'tick_id': frame.tick_id})

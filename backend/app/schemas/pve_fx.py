@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveInt
 class FxPairBotConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     enabled: bool = False
-    activity_b: float = Field(0.25, ge=0, le=1)
-    tau_seconds: float = Field(2700, gt=0)
-    mean_arrivals_per_20: float = Field(1, ge=0)
-    psi: float = Field(0.0008, gt=0)
+    activity_b: float = Field(0.1, ge=0, le=1)
+    tau_seconds: float = Field(54000.0, gt=0)
+    mean_arrivals_per_20: float = Field(0.75, ge=0)
+    psi: float = Field(0.000967322076663197, gt=0)
     max_pool_fraction: Decimal = Field(Decimal("0.005"), gt=0, le=Decimal("0.005"))
     death_floor_gold: Decimal = Field(Decimal("3"), ge=0)
 
@@ -33,6 +33,7 @@ class FxPveGenerateItem(BaseModel):
 class FxPveGenerateRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     pair_id: PositiveInt
+    preset: Literal['warmup', 'activity'] = 'warmup'
     items: list[FxPveGenerateItem] = Field(min_length=1)
     initial_cash: Decimal = Field(ge=0, le=100000, decimal_places=6)
     initial_foreign: Decimal = Field(ge=0, le=FX_AMOUNT_MAX, decimal_places=6)

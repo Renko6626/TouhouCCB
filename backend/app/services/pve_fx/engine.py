@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -28,12 +28,22 @@ logger = logging.getLogger('thccb.pve_fx')
 
 @dataclass
 class PairRuntime:
-    closes: deque = field(default_factory=lambda: deque(maxlen=360))
+    closes: deque = field(default_factory=lambda: deque(maxlen=600))
+    inventory_ema: dict[int, tuple[float, int]] = field(default_factory=dict)
     z: float = 0.0
     last_tick_id: int | None = None
     scheduled_bots: int = 0
     last_tick: dict = field(default_factory=dict)
     shuffle_rng: object = field(default_factory=np.random.default_rng)
+
+
+    def inventory_reference(self, half_life_seconds: int, log_price: float, tick_id: int) -> float:
+        reference, previous_tick = self.inventory_ema.get(half_life_seconds, (log_price, -1))
+        if previous_tick != tick_id:
+            alpha = -math.expm1(-math.log(2) * TICK_SECONDS / half_life_seconds)
+            reference += alpha * (log_price - reference)
+            self.inventory_ema[half_life_seconds] = (reference, tick_id)
+        return reference
 
 
 class FxPveEngine:
@@ -151,20 +161,40 @@ class FxPveEngine:
         if rt.last_tick_id == tick_id:
             return {'skipped': 'same_tick'}
         rt.last_tick_id = tick_id
-        if not rt.closes:
-            rt.closes.append(price)
-        frame = FxTickFrame(tick_id, pair_id, now, tuple(rt.closes), price)
         profiles, dead = await self._active_profiles(pair_id, cfg.death_floor_gold)
-        prepared = {}
-        # Prepare everyone before any arrival; episode noise advances even for
-        # accounts that receive zero arrivals this tick.
+        loaded_bots = {}
         for profile_id in profiles:
             try:
                 loaded = await self._load_bot(profile_id, pair_id)
-                if loaded is None:
-                    continue
-                bot, _ = loaded
-                signal = get_strategy(bot.template).prepare_tick(bot, frame,
+                if loaded is not None:
+                    loaded_bots[profile_id] = loaded[0]
+            except Exception as exc:
+                logger.exception('fx_pve_prepare_failed profile=%s', profile_id)
+                self._log(profile_id, 'error', str(exc))
+        # EMA inventory needs a scalar reference, not an inventory price history.
+        # Retain only the active short windows / legacy rolling inventory windows.
+        widths = []
+        for bot in loaded_bots.values():
+            if bot.template == 'episode':
+                widths.append(max(bot.params['trend_window_seconds'], bot.params['mean_window_seconds']) // TICK_SECONDS)
+            elif bot.template == 'inventory' and bot.params['inventory_ema_half_life_seconds'] is None:
+                widths.append(bot.params['inventory_window_seconds'] // TICK_SECONDS)
+        history_length = max(widths, default=1)
+        if loaded_bots and rt.closes.maxlen != history_length:
+            rt.closes = deque(rt.closes, maxlen=history_length)
+        if not rt.closes:
+            rt.closes.append(price)
+        frame = FxTickFrame(tick_id, pair_id, now, tuple(rt.closes), price)
+        prepared = {}
+        # Prepare everyone even without arrivals; EMA and episode noise advance per tick.
+        for profile_id, bot in loaded_bots.items():
+            try:
+                bot_frame = frame
+                half_life = bot.params.get('inventory_ema_half_life_seconds')
+                if bot.template == 'inventory' and half_life is not None:
+                    reference = rt.inventory_reference(half_life, math.log(float(rt.closes[-1])), tick_id)
+                    bot_frame = replace(frame, signals={'inventory_log_reference': reference})
+                signal = get_strategy(bot.template).prepare_tick(bot, bot_frame,
                     self._mark_rngs.setdefault(profile_id, np.random.default_rng()))
                 signal.values['max_pool_fraction'] = cfg.max_pool_fraction
                 prepared[profile_id] = (bot.template, bot.params, signal)

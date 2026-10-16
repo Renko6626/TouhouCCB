@@ -30,12 +30,12 @@ const props = withDefaults(defineProps<{
   height: '400px',
 })
 
-// 各 interval 默认 lookback；高频档拉更多历史K线
+// 每档约 480 根历史 K 线，首屏仍显示最近 80 根。
 const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
-  '10s': 500,
+  '10s': 80,
   '1m':  480,
-  '15m': 1200,
-  '1h':  4800,
+  '15m': 7200,
+  '1h':  28800,
 }
 const lookbackMinutes = computed(() => LOOKBACK_MINUTES_MAP[props.interval])
 const DEFAULT_VISIBLE_CANDLE_COUNT = 80

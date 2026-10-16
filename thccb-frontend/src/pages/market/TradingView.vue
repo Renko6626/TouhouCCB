@@ -50,7 +50,7 @@ const shares = ref(1)
 // 最大滑点：默认 1%（100 bps）；服务端 hardcap=1000 bps
 const maxSlippageBps = ref(100)
 const activeChartType = ref<'price' | 'candle'>('candle')
-const candleInterval = ref<ChartInterval>('1m')
+const candleInterval = ref<ChartInterval>('15m')
 const candleIntervalOptions = [
   { label: '10秒', value: '10s' },
   { label: '1分钟', value: '1m' },

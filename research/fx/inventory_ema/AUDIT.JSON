@@ -1,0 +1,11 @@
+{
+  "paths": 16,
+  "baseline_exactly_matches_saved_traces": true,
+  "conserved_assets": true,
+  "nonnegative_wallets": true,
+  "finite_series": true,
+  "no_shocks": true,
+  "independent_ema_reference_checks": true,
+  "source_hashes_unchanged": true,
+  "aggregation": "Equal-weight mean of per-seed statistics; cycle and gain are means of seed medians."
+}

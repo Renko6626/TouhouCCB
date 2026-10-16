@@ -75,7 +75,7 @@ async def test_invalid_allocation_rejected_before_any_account(fx_db):
 @pytest.mark.asyncio
 async def test_strategy_patches_baseline_and_frozen_episode_profiles(fx_db):
     pair, _ = await add_pair(fx_db)
-    items = await accounts.generate_fx_bots(fx_db, request(pair.id, items=[{'template':'episode', 'count':6}]), 1)
+    items = await accounts.generate_fx_bots(fx_db, request(pair.id, items=[{'template':'episode', 'count':len(SHORT_EPISODE_PROFILES) + 1}]), 1)
     assert [i.params['trend'] for i in items] == [p['trend'] for p in SHORT_EPISODE_PROFILES] + [SHORT_EPISODE_PROFILES[0]['trend']]
     item = items[0]
     with pytest.raises(BotOpError, match='只读'):
@@ -260,3 +260,20 @@ async def test_fx_api_paused_liquidation_then_retirement():
             profile=await db.get(BotProfile,pid)
             user=await db.get(User,item['user_id'])
             assert profile.status=='retired' and not user.is_active and user.cash==0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('preset,window,quantity,noise', [
+    ('warmup', 3000, '342.0', 68.4),
+    ('activity', 375, '180', 108),
+])
+async def test_generation_applies_selected_preset(fx_db, preset, window, quantity, noise):
+    pair, _ = await add_pair(fx_db)
+    items = await accounts.generate_fx_bots(fx_db, request(pair.id, preset=preset, items=[
+        {'template': 'random', 'count': 1}, {'template': 'episode', 'count': 7},
+    ]), 1)
+    assert items[0].params['order_sigma_foreign'] == pytest.approx(noise)
+    assert all(i.params['trend_window_seconds'] == window for i in items[1:])
+    assert all(Decimal(i.params['entry_quantity']) == Decimal(quantity) for i in items[1:])
+    # Three mean-reversion accounts followed by four trend accounts.
+    assert [i.params['reversion'] > .4 for i in items[1:]] == [True]*3 + [False]*4

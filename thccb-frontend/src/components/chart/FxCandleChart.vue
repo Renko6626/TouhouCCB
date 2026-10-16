@@ -12,10 +12,7 @@
 // 成交量不重复、不漏记。快照尾段只在「同一帧携带的覆盖游标 + 尚未应用更新成交」
 // 时用于加载；一旦有实时成交超过尾段游标，就改用 `/chart` 的 body+游标同源回退。
 //
-// 价格精度：右轴 `localization.priceFormatter` 使用 `formatFxPrice`
-// （按数量级动态小数位）。
-// lightweight-charts 只接受 number，所以在 `toCandleData` 适配层一次性转换，
-// 展示时再由同一 formatter 还原字符串。
+// 右轴使用5位有效数字压缩标签；悬浮详情和交易数值保留完整展示精度。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   CandlestickSeries,
@@ -88,8 +85,8 @@ const props = withDefaults(
   },
 )
 
-const LOOKBACK_MINUTES: Record<FxChartInterval, number> = { '1m': 480, '15m': 1200, '1h': 4800 }
-const INTERVAL_SECONDS: Record<FxChartInterval, number> = { '1m': 60, '15m': 900, '1h': 3600 }
+const LOOKBACK_MINUTES: Record<FxChartInterval, number> = { '10s': 80, '1m': 480, '15m': 7200, '1h': 28800 }
+const INTERVAL_SECONDS: Record<FxChartInterval, number> = { '10s': 10, '1m': 60, '15m': 900, '1h': 3600 }
 const MA_COLORS: Record<number, string> = { 10: '#f59e0b', 20: '#2563eb' }
 /** 加载/补尾期间允许缓冲的实时成交上限；超过则放弃缓冲并请求补尾段，绝不伪造零成交。 */
 const FX_MAX_PENDING_EVENTS = 5000
@@ -586,6 +583,7 @@ const initChart = () => {
     layout: {
       background: { type: ColorType.Solid, color: '#ffffff' },
       textColor: '#333',
+      fontSize: 11,
     },
     grid: {
       vertLines: { color: '#e0e0e0', style: 1 },
@@ -595,10 +593,10 @@ const initChart = () => {
       borderColor: '#000',
       scaleMargins: { top: 0.12, bottom: 0.26 },
     },
-    timeScale: { borderColor: '#000', timeVisible: true, secondsVisible: false },
+    timeScale: { borderColor: '#000', timeVisible: true, secondsVisible: props.interval === '10s' },
     crosshair: { mode: 1 },
-    // 右轴使用动态小数位，不固定 2 位
-    localization: { priceFormatter: (price: number) => formatFxPrice(price) },
+    // 右轴缩短标签，避免在手机屏幕占用过宽。
+    localization: { priceFormatter: (price: number) => Number(price.toPrecision(5)).toString() },
     width: chartRef.value.clientWidth,
     height: chartRef.value.clientHeight || 420,
   })
@@ -717,6 +715,7 @@ watch(orderLines, syncOrderLines, { flush: 'sync' })
 watch(
   () => [props.pairId, props.interval],
   () => {
+    chartInstance?.applyOptions({ timeScale: { secondsVisible: props.interval === '10s' } })
     // 新 pair/周期：旧图与旧覆盖同步作废，避免切换失败时仍显示上一个 pair 的 K 线。
     snapshotTail = null
     attemptedKey = null

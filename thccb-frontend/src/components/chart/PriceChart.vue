@@ -25,12 +25,12 @@ const props = withDefaults(defineProps<{
   height: '400px',
 })
 
-// 跟 CandleChart 同款 LOOKBACK_MAP；高频档拉更多历史点
+// 与 CandleChart 使用相同历史窗口，每档约 480 个点。
 const LOOKBACK_MINUTES_MAP: Record<ChartInterval, number> = {
-  '10s': 500,
+  '10s': 80,
   '1m':  480,
-  '15m': 1200,
-  '1h':  4800,
+  '15m': 7200,
+  '1h':  28800,
 }
 
 // inject realtime —— 必须在 useMarketRealtime provider 下使用（TradingView 提供）

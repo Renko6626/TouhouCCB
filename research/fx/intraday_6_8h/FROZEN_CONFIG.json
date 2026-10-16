@@ -1,0 +1,327 @@
+{
+  "name": "pve-mixed-20-intraday-6-8h-v2",
+  "frozen_on": "2026-10-16",
+  "status": "user_frozen_simulation_preset_not_applied_to_production",
+  "purpose": "当天6至8小时活动窗口的FX背景机器人模拟参数",
+  "simulation_window": {
+    "min_hours": 6,
+    "default_hours": 7,
+    "max_hours": 8,
+    "ticks_by_hours": {
+      "6": 4320,
+      "7": 5040,
+      "8": 5760
+    },
+    "tick_seconds": 5,
+    "cold_start": true,
+    "analysis_exclude_first_minutes": 30,
+    "schedule_enforced": false,
+    "end_of_window_forced_liquidation": false
+  },
+  "tick_seconds": 5,
+  "policy": "weak_trend",
+  "trend_multiplier": 0.5,
+  "activity_b": 0.1,
+  "roles": {
+    "random": 10,
+    "inventory": 3,
+    "short_reversion": 3,
+    "short_trend": 4
+  },
+  "account_groups": {
+    "random": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "inventory": [
+      10,
+      11,
+      12
+    ],
+    "reversion": [
+      13,
+      14,
+      15
+    ],
+    "trend": [
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "parameters": {
+    "ticks": 5040,
+    "burn_in": 0,
+    "tau": 1350.0,
+    "mean_arrivals": 0.6,
+    "psi": 0.0010182337649086285,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 500000,
+    "pool_foreign": 100000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 108.0,
+    "max_pool_fraction": 0.005,
+    "trend_window": 75,
+    "mean_window": 75,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "entry_quantity": 180.0,
+    "take_profit": 0.007200000000000001,
+    "stop_loss": 0.009000000000000001,
+    "trail_arm": 0.0036000000000000003,
+    "trail_drawdown": 0.0036000000000000003,
+    "inventory_window": 900,
+    "inventory_position_cap": 450.0,
+    "inventory_sensitivity": 55.55555555555556,
+    "inventory_adjustment": 0.5
+  },
+  "profiles": [
+    {
+      "account": 0,
+      "type": 0,
+      "trend": 8.234798779592532,
+      "reversion": 0.07221097016963142,
+      "sigma": 0.0010300585254746292,
+      "role": "random"
+    },
+    {
+      "account": 1,
+      "type": 1,
+      "trend": 15.005368378038067,
+      "reversion": 1.6883369734719593,
+      "sigma": 2.6889646378092905e-05,
+      "role": "random"
+    },
+    {
+      "account": 2,
+      "type": 0,
+      "trend": 6.79995310461484,
+      "reversion": 0.07920520238553225,
+      "sigma": 0.000591393436978078,
+      "role": "random"
+    },
+    {
+      "account": 3,
+      "type": 1,
+      "trend": 0.8657880891564456,
+      "reversion": 0.10417254493557616,
+      "sigma": 0.0003409695461170608,
+      "role": "random"
+    },
+    {
+      "account": 4,
+      "type": 0,
+      "trend": 28.36597797510169,
+      "reversion": 0.3771040721500271,
+      "sigma": 0.000249310880590749,
+      "role": "random"
+    },
+    {
+      "account": 5,
+      "type": 1,
+      "trend": 1.4621688708570875,
+      "reversion": 0.6098561166438483,
+      "sigma": 0.00022857858799379767,
+      "role": "random"
+    },
+    {
+      "account": 6,
+      "type": 0,
+      "trend": 8.803766283866109,
+      "reversion": 0.06423763352406367,
+      "sigma": 0.0005059586476535526,
+      "role": "random"
+    },
+    {
+      "account": 7,
+      "type": 1,
+      "trend": 2.235854914897627,
+      "reversion": 1.3105014977672633,
+      "sigma": 0.0002907197367242031,
+      "role": "random"
+    },
+    {
+      "account": 8,
+      "type": 0,
+      "trend": 7.5057178855417535,
+      "reversion": 0.020718870102194403,
+      "sigma": 0.00036699556947610316,
+      "role": "random"
+    },
+    {
+      "account": 9,
+      "type": 1,
+      "trend": 1.119087671989566,
+      "reversion": 3.2303856455559545,
+      "sigma": 0.0006196153255108193,
+      "role": "random"
+    },
+    {
+      "account": 10,
+      "type": 0,
+      "trend": 26.685047948752352,
+      "reversion": 0.030174373721599736,
+      "sigma": 0.0008749848164506162,
+      "role": "inventory"
+    },
+    {
+      "account": 11,
+      "type": 1,
+      "trend": 0.3773534601285534,
+      "reversion": 0.4343296420180767,
+      "sigma": 0.0023044129524469963,
+      "role": "inventory"
+    },
+    {
+      "account": 12,
+      "type": 0,
+      "trend": 103.17142786061851,
+      "reversion": 0.011038996907307351,
+      "sigma": 0.0004890690092187521,
+      "role": "inventory"
+    },
+    {
+      "account": 13,
+      "type": 1,
+      "trend": 2.5189933783708245,
+      "reversion": 0.5644146005950922,
+      "sigma": 0.0008851832546337986,
+      "role": "reversion"
+    },
+    {
+      "account": 14,
+      "type": 1,
+      "trend": 4.797793852721078,
+      "reversion": 0.4998790835121927,
+      "sigma": 0.00040731890863024526,
+      "role": "reversion"
+    },
+    {
+      "account": 15,
+      "type": 1,
+      "trend": 2.5189933783708245,
+      "reversion": 0.5644146005950922,
+      "sigma": 0.0008851832546337986,
+      "role": "reversion"
+    },
+    {
+      "account": 16,
+      "type": 0,
+      "trend": 61.1653174518216,
+      "reversion": 0.006878739586751304,
+      "sigma": 0.0017251641109375638,
+      "role": "trend"
+    },
+    {
+      "account": 17,
+      "type": 0,
+      "trend": 46.83198243991382,
+      "reversion": 0.3065589009950954,
+      "sigma": 0.0008845640363075581,
+      "role": "trend"
+    },
+    {
+      "account": 18,
+      "type": 0,
+      "trend": 61.1653174518216,
+      "reversion": 0.006878739586751304,
+      "sigma": 0.0017251641109375638,
+      "role": "trend"
+    },
+    {
+      "account": 19,
+      "type": 0,
+      "trend": 46.83198243991382,
+      "reversion": 0.3065589009950954,
+      "sigma": 0.0008845640363075581,
+      "role": "trend"
+    }
+  ],
+  "field_units": {
+    "tau": "ticks; multiply by5 for seconds",
+    "trend_window": "ticks",
+    "mean_window": "ticks",
+    "inventory_window": "ticks",
+    "mean_arrivals": "background arrival intensity parameter for20 accounts, per5-second tick; not fills per minute",
+    "take_profit": "relative executable return",
+    "stop_loss": "positive magnitude of relative executable loss",
+    "trail_arm": "relative executable return",
+    "trail_drawdown": "return difference",
+    "order_sigma_foreign": "foreign units",
+    "entry_quantity": "foreign units",
+    "inventory_position_cap": "foreign units relative to initial inventory"
+  },
+  "effective_times_seconds": {
+    "tick": 5,
+    "trend_window": 375,
+    "mean_window": 375,
+    "inventory_window": 4500,
+    "activity_tau": 6750
+  },
+  "execution": {
+    "episode_start": 13,
+    "inventory_count": 3,
+    "same_tick_trade_limit": {
+      "random": "unrestricted arrivals subject to wallet",
+      "inventory": 1,
+      "short_episode": 1
+    },
+    "signal_noise": "fixed individual profiles, independent account streams, one draw per5s tick",
+    "wallet_policy": "finite balances; no borrowing, replenishment or reset",
+    "default_shocks": {}
+  },
+  "inherited_inactive_fields": [
+    "factor_mix",
+    "noise_sigma",
+    "sensitivity",
+    "position_cap",
+    "adjustment"
+  ],
+  "evidence": {
+    "selection_source": "output/fx-arrivals-0.6-20261016/config.json",
+    "validation_seeds": [
+      20261029,
+      20261030,
+      20261031
+    ],
+    "prior_full_run_hours": 13.88888888888889,
+    "prior_full_run_metrics": "output/fx-arrivals-0.6-20261016/averages.json",
+    "uptrend_metrics": "output/fx-arrivals-0.6-20261016/uptrend-timescale.json",
+    "shock_warning": "Earlier shock experiment used mean_arrivals=1/3; its measured response is not validation of this frozen0.6 preset."
+  },
+  "provenance_sha256": {
+    "output/fx-arrivals-0.6-20261016/config.json": "5e7a66c7d9b7074e4bc940f8bb9f559f8822e8142123c9bde99abd72dec1cf5c",
+    "research/fx/intraday_6_8h/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c"
+  },
+  "notes": [
+    "6-8h defines the simulation session length; no runtime trading-hours gate is implemented.",
+    "Target order frequency is a measured average, not a per-minute guarantee.",
+    "Reversion and trend are profile biases; all short profiles retain individual signal noise.",
+    "Seeds are experiment inputs and are not strategy parameters.",
+    "Zero fee/no-player baseline; historical freeze remains available separately."
+  ]
+}

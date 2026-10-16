@@ -45,8 +45,8 @@ const PAIR_STATUS_LABELS: Record<string, string> = {
 const pairForm = ref({
   currency_code: 'CCB',
   currency_name: '幻想币',
-  gold_reserve: '1000',
-  foreign_reserve: '1000',
+  gold_reserve: '500000',
+  foreign_reserve: '100000',
   initial_price: '1',
   buy_fee_rate: '0.002',
   sell_fee_rate: '0.002',

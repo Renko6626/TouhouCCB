@@ -139,7 +139,7 @@ const chartReloadToken = ref(0)
 const chartEnvelope = ref<FxPublicEnvelope | null>(null)
 const priceDirection = ref<'up' | 'down' | 'neutral'>('neutral')
 
-const intervals: FxChartInterval[] = ['1m', '15m', '1h']
+const intervals: FxChartInterval[] = ['10s', '1m', '15m', '1h']
 const interval = ref<FxChartInterval>('1m')
 
 const tradeMode = ref<'spot' | 'short'>(route.query.action === 'cover' ? 'short' : 'spot')
@@ -1558,7 +1558,7 @@ onUnmounted(() => {
                   :aria-pressed="interval === iv"
                   @click="setChartInterval(iv)"
                 >
-                  {{ iv === '1m' ? '1 分钟' : iv === '15m' ? '15 分钟' : '1 小时' }}
+                  {{ iv === '10s' ? '10 秒' : iv === '1m' ? '1 分钟' : iv === '15m' ? '15 分钟' : '1 小时' }}
                 </button>
               </div>
             </div>
@@ -3155,9 +3155,34 @@ onUnmounted(() => {
     padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0px));
   }
   .fx-topbar {
-    gap: 12px;
-    padding-bottom: 13px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+    padding: 7px 8px;
   }
+  .fx-topbar-id {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .fx-topbar .fx-topbar-price {
+    grid-column: 2;
+    grid-row: 1;
+    gap: 2px;
+  }
+  .fx-topbar .fx-pair-select { max-width: min(130px, 34vw); }
+  .fx-topbar .fx-account-bar { grid-column: 1 / -1; }
+  .fx-topbar .fx-market-volume {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
+    margin-left: 0;
+  }
+  .fx-topbar .fx-connection { grid-column: 2; justify-self: end; }
+  .fx-title small { display: none; }
+  .fx-topbar .fx-price { font-size: 22px; }
+  .fx-market-volume { font-size: 10px; }
+  .fx-market-volume strong { font-size: 12px; }
   .fx-title {
     font-size: 13px;
   }
@@ -3187,13 +3212,22 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
     box-sizing: border-box;
-    gap: 12px 18px;
-    padding: 10px;
-    margin-bottom: 18px;
+    gap: 4px 12px;
+    padding: 4px 0;
+    margin-bottom: 0;
   }
   .fx-account-bar > span {
     display: none;
   }
+  .fx-account-bar > div {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 5px;
+  }
+  .fx-account-bar > .fx-account-margin > strong,
+  .fx-account-bar > .fx-account-maintenance > strong { font-size: 14px; }
+  .fx-account-bar > .fx-account-maintenance > span { display: none; }
   .fx-account-bar strong {
     margin-left: 4px;
   }

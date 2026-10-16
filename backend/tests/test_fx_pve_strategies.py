@@ -39,7 +39,7 @@ def fill(action, cash_before, cash_after, foreign_before, foreign_after):
 
 def test_random_draws_for_each_arrival_and_short_noise_draws_without_arrival():
     random = get_strategy('random')
-    b = bot('random')
+    b = bot('random', order_sigma_foreign=120)
     rng = Noise([1, -2])
     prepared = random.prepare_tick(b, frame(), rng)
     assert rng.calls == 0
@@ -54,7 +54,7 @@ def test_random_draws_for_each_arrival_and_short_noise_draws_without_arrival():
 
 def test_inventory_uses_actual_initial_baseline_and_budget_semantics():
     strategy = get_strategy('inventory')
-    b = bot('inventory', inventory_baseline_foreign='600')
+    b = bot('inventory', inventory_baseline_foreign='600', inventory_adjustment=.5, inventory_window_seconds=150)
     b = replace(b, foreign_amount=D('500'))
     prepared = strategy.prepare_tick(b, frame((D('2'),)), None)
     decision = strategy.decide(b, prepared, view())
@@ -65,7 +65,7 @@ def test_inventory_uses_actual_initial_baseline_and_budget_semantics():
 
 
 def test_short_history_boundary_retains_frozen_divisor_and_mean():
-    strategy, b = get_strategy('episode'), bot('episode')
+    strategy, b = get_strategy('episode'), bot('episode', trend_window_seconds=150, mean_window_seconds=150)
     closes = tuple(D(str(math.exp(i / 1000))) for i in range(30))
     cold = strategy.prepare_tick(b, frame(closes[:29]), Noise([0]))
     ready = strategy.prepare_tick(b, frame(closes), Noise([0]))
@@ -110,3 +110,14 @@ def test_negative_episode_never_requests_borrowed_inventory_and_open_uses_actual
     after = strategy.on_fill(decision.state, fill('sell_foreign', '5000', '5009', '12', '2'))
     assert after['episode']['remaining'] == '10'
     assert after['episode']['basis'] == '9'
+
+
+def test_ema_inventory_target_uses_supplied_log_reference():
+    strategy = get_strategy('inventory')
+    b = bot('inventory', inventory_baseline_foreign='600', inventory_position_cap=100,
+            inventory_sensitivity=1, inventory_adjustment=.5)
+    observed = replace(frame(), signals={'inventory_log_reference': math.log(2)})
+    prepared = strategy.prepare_tick(b, observed, None)
+    # tanh(log(2)) = 3/5, so 100 foreign of cap gives a target of 60.
+    assert float(prepared.values['target']) == pytest.approx(60)
+    assert b.params['inventory_ema_half_life_seconds'] == 600
