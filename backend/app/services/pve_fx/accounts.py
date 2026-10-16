@@ -36,6 +36,19 @@ async def _profile(db, profile_id: int, *, lock=False) -> BotProfile:
     return profile
 
 
+def fx_bot_value(cash: Decimal, amount: Decimal, pair: FxPair) -> FxBotValues:
+    cash, amount = Decimal(cash), Decimal(amount)
+    mtm = amount * marginal_price(pair.gold_reserve, pair.foreign_reserve)
+    proceeds = ZERO
+    if amount > ZERO:
+        try:
+            proceeds = quote_sell(amount, pair.gold_reserve, pair.foreign_reserve, pair.sell_fee_rate).output_amount
+        except ValueError:
+            # Dust or fees consuming the input have no executable proceeds.
+            pass
+    return FxBotValues(cash=cash, wallet=amount, mtm=mtm, liquidation_cash=proceeds)
+
+
 async def read_fx_bot_values(db: AsyncSession, profile_ids: list[int]) -> dict[int, FxBotValues]:
     rows = (await db.execute(
         select(BotProfile, User, FxPair).join(User, User.id == BotProfile.user_id)
@@ -46,20 +59,8 @@ async def read_fx_bot_values(db: AsyncSession, profile_ids: list[int]) -> dict[i
         FxWallet.user_id.in_([u.id for _, u, _ in rows])
     ))).scalars().all()
     balances = {(w.user_id, w.pair_id): w.foreign_amount for w in wallets}
-    values = {}
-    for profile, user, pair in rows:
-        amount = Decimal(balances.get((user.id, pair.id), ZERO))
-        cash = Decimal(user.cash)
-        mtm = amount * marginal_price(pair.gold_reserve, pair.foreign_reserve)
-        proceeds = ZERO
-        if amount > ZERO:
-            try:
-                proceeds = quote_sell(amount, pair.gold_reserve, pair.foreign_reserve, pair.sell_fee_rate).output_amount
-            except ValueError:
-                # Dust or fees consuming the input have no executable proceeds.
-                pass
-        values[profile.id] = FxBotValues(cash=cash, wallet=amount, mtm=mtm, liquidation_cash=proceeds)
-    return values
+    return {profile.id: fx_bot_value(user.cash, balances.get((user.id, pair.id), ZERO), pair)
+            for profile, user, pair in rows}
 
 
 async def fx_bot_item(db: AsyncSession, profile: BotProfile) -> FxPveBotItem:

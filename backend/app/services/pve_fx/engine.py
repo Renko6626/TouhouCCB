@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import and_, select
 
 from app.core.database import async_session_maker
 from app.models.base import User
@@ -17,7 +17,7 @@ from app.models.bot import BotProfile
 from app.models.fx import FxPair, FxWallet
 from app.services.market_locks import lock_user
 from app.services.credit.ownership import OWNERSHIP
-from app.services.pve_fx.accounts import read_fx_bot_values
+from app.services.pve_fx.accounts import fx_bot_value, read_fx_bot_values
 from app.services.pve_fx.config import TICK_SECONDS, load_fx_config
 from app.services.pve_fx.executor import execute_bot_order, save_observation_state
 from app.services.pve_fx.registry import get_strategy, validate_strategy_params
@@ -121,32 +121,47 @@ class FxPveEngine:
                                    pair.buy_fee_rate, pair.sell_fee_rate)
             return bot, view
 
-    async def _active_profiles(self, pair_id, death_floor):
+    async def _active_profiles(self, pair, death_floor):
+        """Read idle bots together; only suspected deaths need locked revaluation."""
         async with async_session_maker() as db:
-            rows = (await db.execute(select(BotProfile.id, BotProfile.user_id)
+            rows = (await db.execute(select(BotProfile, User, FxWallet)
                 .join(User, User.id == BotProfile.user_id)
-                .where(BotProfile.market_kind == 'fx', BotProfile.fx_pair_id == pair_id,
+                .outerjoin(FxWallet, and_(FxWallet.user_id == User.id,
+                                         FxWallet.pair_id == BotProfile.fx_pair_id))
+                .where(BotProfile.market_kind == 'fx', BotProfile.fx_pair_id == pair.id,
                        BotProfile.status == 'active', User.is_active.is_(True),
                        User.is_bot.is_(True)))).all()
-        alive, dead = [], 0
-        for profile_id, user_id in rows:
-            # Match account management's user -> profile lock order. Revalue after
-            # locking so a concurrent funding/pause cannot be overwritten.
-            async with async_session_maker() as db:
-                user = await lock_user(db, user_id)
-                profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
-                    .with_for_update().execution_options(populate_existing=True))).scalars().first()
-                if profile is None or profile.status != 'active' or not user.is_active:
-                    continue
-                value = (await read_fx_bot_values(db, [profile_id])).get(profile_id)
-                if value is not None and value.cash + value.liquidation_cash < death_floor:
-                    profile.status = 'dead'
-                    await db.commit()
-                    dead += 1
-                    self._log(profile_id, 'lifecycle', '资产低于死亡水位')
-                else:
-                    alive.append(profile_id)
-        return alive, dead
+        alive, loaded_bots, dead = [], {}, 0
+        for profile, user, wallet in rows:
+            profile_id = profile.id
+            value = fx_bot_value(user.cash, wallet.foreign_amount if wallet else Decimal(0), pair)
+            if value.cash + value.liquidation_cash < death_floor:
+                # Preserve user -> profile lock order and revalue after locking,
+                # so concurrent funding/pause cannot be overwritten by this snapshot.
+                async with async_session_maker() as db:
+                    user = await lock_user(db, user.id)
+                    profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
+                        .with_for_update().execution_options(populate_existing=True))).scalars().first()
+                    if profile is None or profile.status != 'active' or not user.is_active:
+                        continue
+                    value = (await read_fx_bot_values(db, [profile_id])).get(profile_id)
+                    if value is None:
+                        continue
+                    if value.cash + value.liquidation_cash < death_floor:
+                        profile.status = 'dead'
+                        await db.commit()
+                        dead += 1
+                        self._log(profile_id, 'lifecycle', '资产低于死亡水位')
+                        continue
+            alive.append(profile_id)
+            try:
+                loaded_bots[profile_id] = FxBotSnapshot(profile_id, user.id, pair.id, profile.template,
+                    validate_strategy_params(profile.template, profile.params), value.cash,
+                    value.wallet, dict(profile.strategy_state or {}))
+            except Exception as exc:
+                logger.exception('fx_pve_prepare_failed profile=%s', profile_id)
+                self._log(profile_id, 'error', str(exc))
+        return alive, loaded_bots, dead
 
     async def _tick_pair(self, pair_id, cfg, now):
         tick_id = int(now.timestamp()) // TICK_SECONDS
@@ -161,16 +176,7 @@ class FxPveEngine:
         if rt.last_tick_id == tick_id:
             return {'skipped': 'same_tick'}
         rt.last_tick_id = tick_id
-        profiles, dead = await self._active_profiles(pair_id, cfg.death_floor_gold)
-        loaded_bots = {}
-        for profile_id in profiles:
-            try:
-                loaded = await self._load_bot(profile_id, pair_id)
-                if loaded is not None:
-                    loaded_bots[profile_id] = loaded[0]
-            except Exception as exc:
-                logger.exception('fx_pve_prepare_failed profile=%s', profile_id)
-                self._log(profile_id, 'error', str(exc))
+        profiles, loaded_bots, dead = await self._active_profiles(pair, cfg.death_floor_gold)
         # EMA inventory needs a scalar reference, not an inventory price history.
         # Retain only the active short windows / legacy rolling inventory windows.
         widths = []

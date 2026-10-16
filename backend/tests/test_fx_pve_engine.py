@@ -51,6 +51,57 @@ async def seed(items, cash='5000', foreign='1000'):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('count', [1, 20])
+async def test_idle_tick_uses_bounded_queries(count):
+    from sqlalchemy import event
+    from app.core.database import engine as db_engine
+
+    pid, cfg, bots = await seed([{'template': 'random', 'count': count}])
+    engine = FxPveEngine()
+    for bot in bots:
+        engine._arrival_rngs[bot.profile_id] = Draws(arrivals=0)
+    queries = []
+
+    def record_query(conn, cursor, statement, parameters, context, executemany):
+        queries.append(statement)
+
+    event.listen(db_engine.sync_engine, 'before_cursor_execute', record_query)
+    try:
+        result = await engine._tick_pair(pid, cfg, datetime.now(timezone.utc))
+    finally:
+        event.remove(db_engine.sync_engine, 'before_cursor_execute', record_query)
+    assert result['bots'] == count
+    assert result['arrivals'] == result['dead'] == result['error'] == 0
+    assert len(queries) <= 4
+
+
+@pytest.mark.asyncio
+async def test_death_recheck_keeps_newly_funded_bot_alive(monkeypatch):
+    from app.services.pve_fx import engine as engine_module
+
+    pid, cfg, bots = await seed([{'template': 'random', 'count': 1}], cash='0', foreign='0')
+    bot = bots[0]
+    original_lock = engine_module.lock_user
+
+    async def fund_before_lock(db, user_id):
+        # An administrator's funding commits after the batch read, before the lock.
+        async with async_session_maker() as funding_db:
+            user = await funding_db.get(User, user_id)
+            user.cash = D('5000')
+            await funding_db.commit()
+        return await original_lock(db, user_id)
+
+    monkeypatch.setattr(engine_module, 'lock_user', fund_before_lock)
+    engine = FxPveEngine()
+    engine._arrival_rngs[bot.profile_id] = Draws(arrivals=0)
+    result = await engine._tick_pair(pid, cfg, datetime.now(timezone.utc))
+    assert result['bots'] == 1 and result['dead'] == result['error'] == 0
+    async with async_session_maker() as db:
+        assert (await db.get(BotProfile, bot.profile_id)).status == 'active'
+        assert (await db.get(User, bot.user_id)).cash == D('5000')
+
+
+@pytest.mark.asyncio
 async def test_no_arrival_episode_noise_and_wallet_only_death():
     pid, cfg, bots = await seed([{'template': 'episode', 'count': 1}], cash='0')
     bot = bots[0]
