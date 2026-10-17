@@ -38,10 +38,10 @@ if [ "$action" = configure ]; then
   docker compose exec -T backend python -c 'from app.services.realtime import *; print("Backend import OK")'
   docker stats --no-stream --format '{{json .}}' thccb-backend thccb-postgres
 elif [ "$action" = observe ]; then
-  # Fixed 25-minute sample window. Contains aggregate counters, no identities or query text.
+  # Fixed 5-minute sample window. Contains aggregate counters, no identities or query text.
   output="backups/fx-loadtest/$tag/server-metrics.jsonl"
   : > "$output"
-  for i in $(seq 1 150); do
+  for i in $(seq 1 30); do
     date -u +'{"sample_at":"%Y-%m-%dT%H:%M:%SZ"}' >> "$output"
     docker stats --no-stream --format '{{json .}}' thccb-backend thccb-postgres >> "$output"
     docker compose exec -T postgres psql -U thccb -d thccb -Atc "select json_build_object('connections',count(*),'active',count(*) filter(where state='active'),'waiting',count(*) filter(where wait_event_type='Lock')) from pg_stat_activity where datname='thccb';" >> "$output"
