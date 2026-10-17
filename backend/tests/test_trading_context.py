@@ -7,7 +7,7 @@ from app.models.base import User, Market, Outcome, Position
 from app.models.fx import FxPair, FxWallet, FxShortPosition
 from app.schemas.trading_context import GroupKey
 from app.services.trading_prices import PricingRegistry
-from app.services.credit.trading_context import read_trading_context, read_trading_versions, read_trading_prices
+from app.services.credit.trading_context import read_trading_context, read_trading_versions, read_trading_prices, read_dependencies
 from app.services.credit import flags
 
 @pytest.mark.asyncio
@@ -36,6 +36,8 @@ async def test_complete_private_basis_and_missing_identity():
         assert result.account.fx_shorts[0].proceeds_basis_gold == '6.000000'
         assert [(g.product, g.id) for g in result.groups] == [('fx', p.id) for p in pairs] + [('lmsr', market.id)]
         assert result.missing_groups == [current]
+        expected_dependencies = [GroupKey(product='fx', id=p.id) for p in pairs] + [GroupKey(product='lmsr', id=market.id)]
+        assert await read_dependencies(db, user.id, current) == expected_dependencies + [current]
         lmsr = next(g for g in result.groups if g.product=='lmsr')
         assert lmsr.q_dec == ['3.000000','7.000000'] and lmsr.b=='1.234567890123'
         assert next(g for g in result.groups if g.product=='fx').buy_fee_rate=='0.12345678'
@@ -49,6 +51,7 @@ async def test_complete_private_basis_and_missing_identity():
         broken=await read_trading_context(db,user.id,registry=registry)
         assert broken.account.lmsr_positions[0].market_id is None
         assert GroupKey(product='fx',id=pairs[0].id) in broken.missing_groups
+        assert await read_dependencies(db, user.id) == expected_dependencies
 
 @pytest.mark.asyncio
 async def test_effective_rules_and_complete_revision():
