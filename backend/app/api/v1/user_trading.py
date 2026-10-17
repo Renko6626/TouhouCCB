@@ -1,9 +1,10 @@
 """Authenticated aggregate account and pricing read endpoints."""
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_async_session
-from app.core.users import current_active_user
+from app.core.database import async_session_maker, get_async_session
+from app.core.users import get_current_user
 from app.models.base import User
 from app.schemas.trading_context import GroupKey, TradingContext, TradingVersionCheck, TradingPrices
 from app.services.credit.trading_context import read_trading_context, read_trading_versions, read_trading_prices, missing_keys
@@ -13,21 +14,27 @@ router = APIRouter()
 # Task 2 registers authenticated fetch-SSE here; no generator owns a DB session.
 stream_router = APIRouter()
 
+async def trading_user_id(credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer())) -> int:
+    # Aggregate readers own their sessions; release authentication's connection first.
+    async with async_session_maker() as db:
+        user = await get_current_user(credentials, db)
+        return int(user.id)
+
 def current_group(current_product: Literal['fx', 'lmsr'] | None = None, current_id: int | None = Query(None, gt=0)):
     if (current_product is None) != (current_id is None):
         raise HTTPException(422, 'current_group_requires_product_and_id')
     return GroupKey(product=current_product, id=current_id) if current_product else None
 
 @router.get('/trading-context', response_model=TradingContext)
-async def context(user: User = Depends(current_active_user), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
-    return await read_trading_context(db, user.id, group)
+async def context(user_id: int = Depends(trading_user_id), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
+    return await read_trading_context(db, user_id, group)
 
 @router.get('/trading-versions', response_model=TradingVersionCheck)
-async def versions(user: User = Depends(current_active_user), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
-    return await read_trading_versions(db, user.id, group)
+async def versions(user_id: int = Depends(trading_user_id), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
+    return await read_trading_versions(db, user_id, group)
 
 @router.get('/trading-prices', response_model=TradingPrices)
-async def prices(key: list[str] = Query(default=[]), user: User = Depends(current_active_user), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
+async def prices(key: list[str] = Query(default=[]), user_id: int = Depends(trading_user_id), db: AsyncSession = Depends(get_async_session), group=Depends(current_group)):
     if len(key) > 200:
         raise HTTPException(422, 'too_many_groups')
     try:
@@ -36,7 +43,7 @@ async def prices(key: list[str] = Query(default=[]), user: User = Depends(curren
             raise ValueError()
     except ValueError:
         raise HTTPException(422, 'invalid_group_key')
-    groups = await read_trading_prices(db, user.id, keys, group)
+    groups = await read_trading_prices(db, user_id, keys, group)
     return TradingPrices(groups=groups, missing_groups=missing_keys(keys, groups), server_time=now_string())
 
 import asyncio
@@ -45,10 +52,7 @@ import time
 import jwt
 from fastapi import Request
 from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.core.config import settings
-from app.core.database import async_session_maker
-from app.core.users import get_current_user
 from app.services.account_events import EVENTS
 from app.services.trading_prices import REGISTRY, PUBLISHER
 from app.services.credit.trading_context import read_dependencies, read_rules, authoritative_version

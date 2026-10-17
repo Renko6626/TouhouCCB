@@ -1,0 +1,15 @@
+{
+  "python": "3.13.2 | packaged by Anaconda, Inc. | (main, Feb  6 2025, 18:56:02) [GCC 11.2.0]",
+  "fastapi": "0.127.0",
+  "sqlalchemy": "2.0.45",
+  "asyncpg": "0.30.0",
+  "httpx": "0.28.1",
+  "platform": "Linux-6.8.0-111-generic-x86_64-with-glibc2.35",
+  "logical_cpus": 112,
+  "base_code": "bde43b0",
+  "backend_patch": "app/api/v1/user_trading.py",
+  "patch_sha256": "d657145e112dd2e122ef454bc23aee5c068369e7a6049b206c5f982106721593",
+  "postgresql": "14",
+  "workers": 1,
+  "topology": "driver and backend and PostgreSQL on same host; loopback HTTP; unix socket DB"
+}

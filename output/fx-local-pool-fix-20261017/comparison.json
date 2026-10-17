@@ -1,0 +1,277 @@
+{
+  "runs": {
+    "50": {
+      "abort": null,
+      "errors": {},
+      "coverage": {
+        "chart_sse_tail_reused": 730,
+        "cash_buy": 235,
+        "cash_sell": 189,
+        "financed_buy": 65,
+        "sell_repay": 64,
+        "cross_zero": 14,
+        "short_cover": 61,
+        "short_open": 47
+      },
+      "cycle_results": {
+        "stress": {
+          "quote_blocked": 7
+        }
+      },
+      "pool_peak": 15,
+      "cpu_peak_percent_one_core": 99.89,
+      "max_app_rss_mb": 155.75,
+      "resource_samples": 207,
+      "pool_error_mentions": 0,
+      "traceback_mentions": 0
+    },
+    "100": {
+      "abort": "30s window: successful trade P99 exceeds 2000ms",
+      "errors": {
+        "timeout": 27,
+        "version_conflict": 22
+      },
+      "coverage": {
+        "chart_sse_tail_reused": 1720,
+        "cash_buy": 538,
+        "cash_sell": 476,
+        "financed_buy": 161,
+        "sell_repay": 151,
+        "cross_zero": 30,
+        "short_cover": 142,
+        "short_open": 112
+      },
+      "cycle_results": {
+        "normal": {
+          "quote_blocked": 1
+        },
+        "active": {
+          "quote_blocked": 5
+        },
+        "stress": {
+          "quote_blocked": 13
+        }
+      },
+      "pool_peak": 18,
+      "cpu_peak_percent_one_core": 100.1,
+      "max_app_rss_mb": 171.39,
+      "resource_samples": 584,
+      "pool_error_mentions": 0,
+      "traceback_mentions": 0
+    }
+  },
+  "stages": [
+    {
+      "users": 50,
+      "phase": "smoke",
+      "duration_s": 11.003,
+      "nominal_trade_cycles_per_s": null,
+      "trade_cycles": 8,
+      "successful_trades": 8,
+      "successful_trades_per_s": 0.727,
+      "trade_latency": {
+        "count": 8,
+        "p50_ms": 38.958,
+        "p95_ms": 91.242,
+        "p99_ms": 91.242
+      },
+      "http_results": {
+        "ok": 41
+      },
+      "public_sse": 1,
+      "private_sse": 1
+    },
+    {
+      "users": 50,
+      "phase": "readonly",
+      "duration_s": 31.003,
+      "nominal_trade_cycles_per_s": 0,
+      "trade_cycles": 0,
+      "successful_trades": 0,
+      "successful_trades_per_s": 0.0,
+      "trade_latency": {},
+      "http_results": {
+        "ok": 100
+      },
+      "public_sse": 50,
+      "private_sse": 50
+    },
+    {
+      "users": 50,
+      "phase": "normal",
+      "duration_s": 61.004,
+      "nominal_trade_cycles_per_s": 1.25,
+      "trade_cycles": 74,
+      "successful_trades": 74,
+      "successful_trades_per_s": 1.213,
+      "trade_latency": {
+        "count": 74,
+        "p50_ms": 36.137,
+        "p95_ms": 78.914,
+        "p99_ms": 151.931
+      },
+      "http_results": {
+        "ok": 571
+      },
+      "public_sse": 50,
+      "private_sse": 50
+    },
+    {
+      "users": 50,
+      "phase": "active",
+      "duration_s": 31.003,
+      "nominal_trade_cycles_per_s": 3.75,
+      "trade_cycles": 114,
+      "successful_trades": 114,
+      "successful_trades_per_s": 3.677,
+      "trade_latency": {
+        "count": 114,
+        "p50_ms": 39.153,
+        "p95_ms": 123.02,
+        "p99_ms": 224.786
+      },
+      "http_results": {
+        "ok": 672
+      },
+      "public_sse": 50,
+      "private_sse": 50
+    },
+    {
+      "users": 50,
+      "phase": "stress",
+      "duration_s": 31.323,
+      "nominal_trade_cycles_per_s": 12.5,
+      "trade_cycles": 373,
+      "successful_trades": 366,
+      "successful_trades_per_s": 11.685,
+      "trade_latency": {
+        "count": 366,
+        "p50_ms": 357.07,
+        "p95_ms": 901.833,
+        "p99_ms": 1078.321
+      },
+      "http_results": {
+        "ok": 1948
+      },
+      "public_sse": 50,
+      "private_sse": 50
+    },
+    {
+      "users": 50,
+      "phase": "burst",
+      "duration_s": 11.003,
+      "nominal_trade_cycles_per_s": null,
+      "trade_cycles": 50,
+      "successful_trades": 50,
+      "successful_trades_per_s": 4.544,
+      "trade_latency": {
+        "count": 50,
+        "p50_ms": 757.423,
+        "p95_ms": 1474.652,
+        "p99_ms": 1904.586
+      },
+      "http_results": {
+        "ok": 232
+      },
+      "public_sse": 50,
+      "private_sse": 50
+    },
+    {
+      "users": 100,
+      "phase": "smoke",
+      "duration_s": 11.001,
+      "nominal_trade_cycles_per_s": null,
+      "trade_cycles": 8,
+      "successful_trades": 8,
+      "successful_trades_per_s": 0.727,
+      "trade_latency": {
+        "count": 8,
+        "p50_ms": 39.038,
+        "p95_ms": 94.288,
+        "p99_ms": 94.288
+      },
+      "http_results": {
+        "ok": 41
+      },
+      "public_sse": 1,
+      "private_sse": 1
+    },
+    {
+      "users": 100,
+      "phase": "readonly",
+      "duration_s": 121.004,
+      "nominal_trade_cycles_per_s": 0,
+      "trade_cycles": 0,
+      "successful_trades": 0,
+      "successful_trades_per_s": 0.0,
+      "trade_latency": {},
+      "http_results": {
+        "ok": 798
+      },
+      "public_sse": 100,
+      "private_sse": 100
+    },
+    {
+      "users": 100,
+      "phase": "normal",
+      "duration_s": 301.006,
+      "nominal_trade_cycles_per_s": 2.5,
+      "trade_cycles": 749,
+      "successful_trades": 748,
+      "successful_trades_per_s": 2.485,
+      "trade_latency": {
+        "count": 748,
+        "p50_ms": 39.568,
+        "p95_ms": 126.724,
+        "p99_ms": 213.285
+      },
+      "http_results": {
+        "ok": 5762
+      },
+      "public_sse": 100,
+      "private_sse": 100
+    },
+    {
+      "users": 100,
+      "phase": "active",
+      "duration_s": 61.015,
+      "nominal_trade_cycles_per_s": 7.5,
+      "trade_cycles": 452,
+      "successful_trades": 447,
+      "successful_trades_per_s": 7.326,
+      "trade_latency": {
+        "count": 447,
+        "p50_ms": 142.798,
+        "p95_ms": 855.684,
+        "p99_ms": 1266.516
+      },
+      "http_results": {
+        "ok": 2708
+      },
+      "public_sse": 100,
+      "private_sse": 100
+    },
+    {
+      "users": 100,
+      "phase": "stress",
+      "duration_s": 34.331,
+      "nominal_trade_cycles_per_s": 25.0,
+      "trade_cycles": 384,
+      "successful_trades": 322,
+      "successful_trades_per_s": 9.379,
+      "trade_latency": {
+        "count": 322,
+        "p50_ms": 6842.973,
+        "p95_ms": 13094.433,
+        "p99_ms": 14630.755
+      },
+      "http_results": {
+        "ok": 1986,
+        "timeout": 27,
+        "version_conflict": 22
+      },
+      "public_sse": 0,
+      "private_sse": 0
+    }
+  ]
+}

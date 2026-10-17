@@ -41,6 +41,14 @@ async def read_dependencies(db, user_id, current_group=None):
         keys.add((current_group.product, current_group.id))
     return [GroupKey(product=p, id=i) for p, i in sorted(keys)]
 
+def _dependencies_from_basis(basis: AccountBasis, current_group=None):
+    keys = {('lmsr', p.market_id) for p in basis.lmsr_positions if p.market_id is not None}
+    keys.update(('fx', w.pair_id) for w in basis.fx_wallets)
+    keys.update(('fx', s.pair_id) for s in basis.fx_shorts)
+    if current_group:
+        keys.add((current_group.product, current_group.id))
+    return [GroupKey(product=p, id=i) for p, i in sorted(keys)]
+
 async def read_basis(db, user_id):
     names = ('auto_repay', 'cash', 'debt', 'debt_last_accrued_at', 'credit_frozen', 'is_active', 'is_bot', 'tos_accepted_at', 'last_liquidated_at', 'economic_version')
     row = (await db.execute(select(*(getattr(User, n) for n in names)).where(User.id == user_id))).one()
@@ -72,7 +80,7 @@ async def read_trading_context(session, user_id, current_group=None, *, registry
         async with factory() as db:
             before = await authoritative_version(db, user_id)
             basis = await read_basis(db, user_id)
-            keys = await read_dependencies(db, user_id, current_group)
+            keys = _dependencies_from_basis(basis, current_group)
             rules = await read_rules(db)
         groups = await registry.refresh_groups(keys)
         async with factory() as db:

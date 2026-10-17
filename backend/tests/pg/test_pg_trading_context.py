@@ -51,3 +51,44 @@ async def test_serial_refresh_old_response(pg_sessionmaker):
     assert old[0].gold_reserve=='1.000000' and new[0].gold_reserve=='2.000000'
     assert int(new[0].stamp.revision)>int(old[0].stamp.revision)
     assert (await registry.refresh_groups([key]))[0].stamp==new[0].stamp
+
+@pytest.mark.parametrize('route', ['trading-context', 'trading-versions', 'trading-prices'])
+async def test_authenticated_reads_release_connection_before_business_read(pg_engine, pg_sessionmaker, monkeypatch, route):
+    from fastapi import FastAPI
+    from httpx import ASGITransport, AsyncClient
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.api.v1 import user_trading
+    from app.core import database
+    from app.core.users import create_access_token
+    from app.services.credit import trading_context
+
+    async with pg_sessionmaker() as db:
+        user = User(username='pooled-reader')
+        pair = FxPair(currency_code='POOL', currency_name='Pool')
+        db.add_all([user, pair])
+        await db.commit()
+        user_id, pair_id = user.id, pair.id
+
+    # One connection exposes nested checkout without timing many requests.
+    engine = create_async_engine(pg_engine.url, pool_size=1, max_overflow=0, pool_timeout=.2)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(database, 'async_session_maker', factory)
+    monkeypatch.setattr(user_trading, 'async_session_maker', factory)
+    monkeypatch.setattr(trading_context, 'REGISTRY', PricingRegistry(factory))
+    app = FastAPI()
+    app.include_router(user_trading.router)
+    params = {'current_product': 'fx', 'current_id': pair_id}
+    if route == 'trading-prices':
+        params['key'] = f'fx:{pair_id}'
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+            response = await client.get(f'/{route}', params=params,
+                headers={'Authorization': f'Bearer {create_access_token(user_id)}'})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        if route == 'trading-context':
+            assert body['account']['user_id'] == user_id
+        groups = body['group_stamps'] if route == 'trading-versions' else body['groups']
+        assert [(group['product'], group['id']) for group in groups] == [('fx', pair_id)]
+    finally:
+        await engine.dispose()

@@ -1,0 +1,7 @@
+{"case": "sqlite_equivalence", "comparisons": 8, "rich_keys": [["fx", 1], ["fx", 2], ["fx", 3], ["lmsr", 1], ["lmsr", 2]], "zero_rows_retained": true, "other_user_excluded": true}
+{"case": "sqlite_missing_entities", "same_keys": true, "missing_outcome_record_preserved": true, "missing_fx_group_reported": true}
+{"case": "pg_isolation", "isolation": "read committed"}
+{"case": "postgresql_equivalence", "comparisons": 8, "rich_keys": [["fx", 1], ["fx", 2], ["fx", 3], ["lmsr", 1], ["lmsr", 2]], "zero_rows_retained": true, "other_user_excluded": true}
+{"case": "pg_concurrent_add", "reads": 2, "attempt_keys": [[], [["fx", 1]]], "returned_version": "1", "returned_groups": [["fx", 1]]}
+{"case": "pg_concurrent_remove", "reads": 2, "attempt_keys": [[["fx", 1]], []], "returned_version": "1", "returned_groups": []}
+{"case": "pg_continuous_updates", "reads": 3, "status": 409}
