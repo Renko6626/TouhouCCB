@@ -61,6 +61,8 @@ backend/venv/bin/python loadtest/fx_credentials.py request \
 - FX 报价/成交嵌套路由及挂单使用现有 `api_trade_user`，10 r/s，burst 20。
 - 保留管理、登录/OAuth/refresh 的现有限流；保留两类 SSE 的关闭缓冲与长连接设置。不要给压测机加白名单。
 
+`configure` Action 可在现有站点副本上应用 `deploy/fx_loadtest_nginx.patch`，先备份、校验再 reload；域名和证书不替换。它需要对实际 `/etc/nginx/sites-available/thccb.conf` 的写权限，仅允许 `nginx -t`/reload 的 sudo 规则不足以安装配置。权限不足会退出，不能把模板已同步误认为线上限流已生效。
+
 服务器执行配置校验与 reload，然后按正常流程重启/部署后端：
 
 ```bash
@@ -81,7 +83,7 @@ bash deploy/fx_loadtest.sh prepare fx100_20261017 8
 # 输入 PREPARE
 ```
 
-脚本先检查镜像中工具存在，确认后停止 backend、备份、运行一次性维护容器，再恢复原先运行的 backend。已有同 run 或其他压测账户时拒绝覆盖。stdout 只显示市场 ID、人数和 manifest 路径。
+维护命令复用当前 `thccb-backend` 的运行镜像；临时容器使用操作者 UID/GID，避免 0700 凭证目录的属主差异。脚本先检查镜像中工具存在，确认后停止 backend、备份、运行一次性维护容器，再恢复原先运行的 backend。已有同 run 或其他压测账户时拒绝覆盖。stdout 只显示市场 ID、人数和 manifest 路径。
 
 ```bash
 docker compose ps
@@ -168,7 +170,7 @@ full 先跑单人冒烟，再以约 0.6 秒间隔让其余账户入场。每账�
 
 SSE 报告有合法首帧耗时、帧间隔、事件年龄和异常断连；不自动重连。关联到成交 ID 时，另报从请求开始到第一个固定观察者收到该成交的时间；它包含成交处理时间，只代表该观察者，不代表全部 100 人。未匹配事件单列。事件年龄依赖服务器和开发机时钟，不能当精确网络延迟。
 
-本套件没有服务器 CPU/内存/数据库锁数据；如有现成监控可同时查看。不使用该域名 `/health` 的 200 判断后端存活，因为本次检查该路径返回前端 HTML。
+服务器聚合资源采样可通过 `gh workflow run fx-loadtest.yml -R Renko6626/TouhouCCB --ref main -f action=observe -f run_id=<本轮ID>` 执行。每轮 30 组 Docker CPU/内存及 PostgreSQL 连接、活跃、锁等待数量，约 5 分钟加命令开销；artifact 名为 `fx-loadtest-<本轮ID>-server-metrics`。需要更长观察可分窗执行；它与维护/部署共用互斥，清理前应让采样结束或取消。清理前另保存不含查询文字和账户信息的连接池错误摘要。不使用该域名 `/health` 的 200 判断后端存活，因为本次检查该路径返回前端 HTML。
 
 ## 6. 服务器收尾
 
@@ -191,3 +193,9 @@ rm "$HOME/.local/share/thccb-loadtest/fx100_20261017-tokens.json"
 ```
 
 不要使用旧 `loadtest/cleanup/cleanup.sql` 清 FX，不使用全库恢复撤销正常业务。只有服务器脚本输出与恢复后的接口结果都核对过，才算完成服务器收尾。
+
+## 2026-10-17 实机结果
+
+本轮 Action 建号、加密下载、HTTP 压测和定向清理均实际执行。100 人/200 SSE 的两分钟只读通过；进入名义 2.5 次成交尝试/s 的正常阶段后，274 个 HTTP 请求中 184 个超时，成功成交 10 笔，最慢约 4.42 秒，自动中止。服务器记录 `QueuePool limit of size 10 overflow 20 reached`。活跃、加压、集中下单和条件单尚未运行。测试数据已清理，原市场恢复。
+
+本轮没有部署实际 Nginx 限流修改，原因是站点写权限不足；请求中未观测到 429。详细结果在开发机 `output/fx-live-20261017/report.md`，应先定位应用池连接占用，再完成限流发布并复测。

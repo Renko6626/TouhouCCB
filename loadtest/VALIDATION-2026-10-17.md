@@ -56,3 +56,11 @@ Python 使用已有 `/data/sunyunbo/www/TouhouCCB/backend/venv/bin/python`，无
 - 完成后停止本轮 Uvicorn；用真实 CLI 清理了 173 条成交、155 条执行、12 张条件单、35 条账本记录及相关池子/行情/持仓，10 个测试账户全部删除。数据库查询确认原 ORIGINAL 市场仍为 trading，保留原用户 retained。随后停止本轮 PostgreSQL，删除网络测试 token 和本地接收私钥。
 
 扩展日志与报告位于 `/tmp/sunyunbo/fx-lt-expanded/`，相关检查位于 `/tmp/sunyunbo/fx-lt-work/expanded-final-related.log`。正式操作及负载参数见 [FX 操作说明](FX_README.md)。
+
+## 实机执行补记
+
+用户随后授权完整实机流程，已发布后端 ce09c41，维护脚本最终修正至 9a1acb1。服务器实际执行验证补齐了运行镜像固定、Compose 参数兼容、标准输入隔离及临时维护容器 UID/GID；本地 Docker 未演练的边界如实保留在前述记录。
+
+真实目标 thccb.secret-sealing.club：100 个普通账户、200 SSE 入场及 121 秒只读通过。正常阶段名义 2.5 次尝试/s，实际 75 个循环、10 个成功成交，274 个 HTTP 结果中 184 个超时，因滚动错误率超过 5% 自动中止；后续高压和条件单阶段未执行。服务端明确记录 size10+overflow20 连接池超时。Nginx 站点写权限不足，限流补丁未安装，线上配置未改变。
+
+Action cleanup 成功删除 100 个本轮账户、117 条成交及依赖，恢复原市场 ID8 trading；公开 FX 和 market/list 都返回有效 JSON 200，复核耗时 175.4ms / 84.4ms。开发机 token 与接收私钥已删除；备份/manifest 留存。完整采样、诊断、Actions 链接及性能表在开发机 output/fx-live-20261017/report.md。本轮未修复业务性能问题，连接具体被哪条调用链占用仍待诊断。
