@@ -36,9 +36,23 @@ Python 使用已有 `/data/sunyunbo/www/TouhouCCB/backend/venv/bin/python`，无
 
 新增一条直接调用真实 `Runner.stage` 的回归，用 60ms 串行服务和 10ms 节奏验证延迟至少 30ms且最大在途为 1。恢复原调度写法时观察到失败（最大约 1ms），修正后通过。审阅指出的过时 Action 计划和匿名限流注释同时修正；未追加复审轮次。
 
-## 收尾及边界
+## 初版收尾及边界
 
 - 已停本轮临时 Nginx、Uvicorn、PostgreSQL，并删除用于网络验证的临时 token 文件；保留不含凭证的日志、manifest 和报告于 `/tmp/sunyunbo/fx-lt-work`、`/tmp/sunyunbo/fx-lt-http` 等本轮目录。
 - 本地真实成交后的 CLI 清理覆盖 132 条成交及执行回执、行情记录、钱包等依赖；恢复原 SOURCE 市场，100 个本轮账户均删除。
 - 当前机器没有可用 Docker daemon，服务器 `deploy/fx_loadtest.sh` 未经过实际 Docker Compose 停服/备份/维护/恢复演练，仅完成语法检查；底层 Python CLI 已通过上述 PG 与本机命令入口验证。
-- 实机百人正常频率与集中下单、线上真实 Nginx/CDN 行为、服务器资源指标、融资/做空/挂单、百人同时登录及刷新不在已完成证据中。实际操作见 [FX 操作说明](FX_README.md)。
+- 初版未验证实机百人正常频率与集中下单、线上真实 Nginx/CDN 行为、服务器资源指标、融资/做空/挂单、百人同时登录及刷新。实际操作见 [FX 操作说明](FX_README.md)。
+
+## 扩展版验证：混合角色与加密凭证
+
+扩展沿用上述隔离分支与本机临时 PostgreSQL，未部署、未触发真实 Action，也未向目标域名发压测流量。
+
+- 相关检查实际命令：`<python> -m pytest -q tests/test_fx_loadtest_driver.py tests/test_fx_loadtest_credentials.py tests/test_realtime_broker.py tests/test_realtime_namespace.py tests/test_fx_stream.py tests/test_api_stream_namespace.py`，结果 **37 passed，5.54 秒**。新增行为覆盖真实融资/还款、跨零/回补与成交后刷新；SSE 较新版本覆盖旧版本查询，避免多余修复请求；加密导出删除服务器明文、错误私钥及被修改的密文解密失败。
+- 管理 CLI 的既有 PostgreSQL 检查再次执行：`TEST_PG_DATABASE_URL=postgresql+asyncpg://sunyunbo@127.0.0.1:55569/fx_loadtest_test <python> -m pytest -q -m pg tests/pg/test_fx_loadtest.py`，**2 passed，1.66 秒**。
+- Python 编译、`bash -n deploy/fx_loadtest.sh`、`git diff --check` 和 actionlint 1.7.12 检查 `.github/workflows/fx-loadtest.yml` 均通过。扩展只改工具、工作流和文档，未再次运行后端全量检查；上文全量结果属于初版。
+- 使用真实 FastAPI lifespan、PostgreSQL 和 loopback HTTP，10 个账户按 6 现金/2 融资/2 空头运行缩短版 full。报告覆盖现金买卖、6 次融资、6 次卖出还款、2 次跨零、4 次回补、2 次开空；6 张条件单中 3 张撤销、3 张实际成交，收到 3 条私人订单结果事件。报告无 abort，10 条公开与 10 条私人 SSE 均保持连接。这验证路径及采样，不能推断百人容量。
+- 修正后单独复跑突发恢复：10 笔写请求全部成功，实际提交窗口 **2.001 秒**；突发阶段 11 次版本查询，最后一次在最后成交约 **13.55 秒后**完成，20 条 SSE 保持连接，证明恢复观察期仍有轻量 HTTP 请求。缩短阶段不能拿名义稳态速率做性能结论。
+- 本地 CLI keygen、服务器 export 及本地解密实际通过，10 个测试账户凭证可还原且 export 删除明文。仅查询 GitHub secret 名称确认既有 DEPLOY_HOST/USER/KEY 存在，没有读取其值。真实 SSH、Docker Compose 维护、Actions artifact 上传/下载尚未执行；须先合入 main 并正常部署 fx-loadtest-2。
+- 完成后停止本轮 Uvicorn；用真实 CLI 清理了 173 条成交、155 条执行、12 张条件单、35 条账本记录及相关池子/行情/持仓，10 个测试账户全部删除。数据库查询确认原 ORIGINAL 市场仍为 trading，保留原用户 retained。随后停止本轮 PostgreSQL，删除网络测试 token 和本地接收私钥。
+
+扩展日志与报告位于 `/tmp/sunyunbo/fx-lt-expanded/`，相关检查位于 `/tmp/sunyunbo/fx-lt-work/expanded-final-related.log`。正式操作及负载参数见 [FX 操作说明](FX_README.md)。

@@ -6,7 +6,7 @@
 
 | 文件 | 用途与读写范围 | 停写要求 | 当前调用方式 |
 | --- | --- | --- | --- |
-| [fx_loadtest.py](fx_loadtest.py) | FX 压测普通账户、专用市场、短期 token 与按轮清理；不调用 Casdoor、不新增 HTTP 接口 | prepare/实际 cleanup 必须停全部经济写入；mint/inspect 只读数据库 | 手工 `deploy/fx_loadtest.sh`，见 [FX 操作说明](../../loadtest/FX_README.md) |
+| [fx_loadtest.py](fx_loadtest.py) | FX 压测普通账户、专用市场、短期 token、加密导出与按轮清理；不调用 Casdoor、不新增 HTTP 接口 | prepare/实际 cleanup 必须停全部经济写入；mint/inspect 只读数据库 | 手工 `deploy/fx_loadtest.sh` 或 `fx-loadtest.yml` Action，见 [FX 操作说明](../../loadtest/FX_README.md) |
 | [audit_export.py](audit_export.py) | 导出审计事件及后状态 CSV，或折叠指定时刻快照；数据库只读，导出模式写本地文件 | 无强制停写要求；优先使用只读副本或备份恢复库 | 手工 CLI |
 | [audit_verify.py](audit_verify.py) | 折叠事件流、检查内部一致性并比对当前业务表；只读，差异退出码为 1 | 部署及重置后的验收在停写时运行；`--no-live` 仅检查事件流 | 手工 CLI；`deploy/deploy.sh`、`deploy/season_reset.sh`、`deploy/business_reset.sh` 自动调用 |
 | [backfill_market_prices_post.py](backfill_market_prices_post.py) | 重放 LMSR，补齐交易中为空的 `market_prices_post`；执行时更新数据库 | 执行回填前应停止相关市场写入；脚本无停写门禁 | 手工 CLI；已有测试调用回填函数 |

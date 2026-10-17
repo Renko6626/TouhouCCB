@@ -165,6 +165,18 @@ async def mint(db, data: dict, output: Path) -> None:
                           "expires_at": expiry.isoformat(), "users": tokens})
 
 
+def export_credentials(root: Path, tag: str, public_key: Path) -> Path:
+    from scripts.fx_loadtest_credentials import encrypt
+    token_file = root / "tokens.json"
+    plaintext = token_file.read_bytes()
+    if json.loads(plaintext)["run_id"] != tag:
+        raise ValueError("token file belongs to another test run")
+    output = root / "credentials.enc.json"
+    private_json(output, encrypt(plaintext, public_key.read_bytes()))
+    token_file.unlink()
+    return output
+
+
 async def cleanup_scope(db, data: dict):
     rows, pair = await checked_run(db, data)
     ids = [u.id for u in rows]
@@ -245,7 +257,10 @@ async def main(args) -> None:
                 data = json.loads(manifest.read_text())
                 if data["run_id"] != args.run_id:
                     raise ValueError("manifest run ID mismatch")
-                if args.action == "mint":
+                if args.action == "export":
+                    output = export_credentials(root, args.run_id, Path(args.recipient_public_key))
+                    print(f"Encrypted test credentials: {output}; plaintext token file removed.")
+                elif args.action == "mint":
                     await mint(db, data, root / "tokens.json")
                     print(f"Ordinary-user credentials written privately to {root / 'tokens.json'}; expire in 60 minutes")
                 else:
@@ -259,7 +274,8 @@ async def main(args) -> None:
 
 def cli():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "mint", "inspect", "cleanup"])
+    parser.add_argument("--version", action="version", version="fx-loadtest-2")
+    parser.add_argument("action", choices=["prepare", "mint", "inspect", "cleanup", "export"])
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--output-dir", default="/app/backups/fx-loadtest")
     parser.add_argument("--source-pair", type=int)
@@ -267,11 +283,14 @@ def cli():
     parser.add_argument("--initial-cash", default="100000")
     parser.add_argument("--confirm-stopped", action="store_true")
     parser.add_argument("--execute", action="store_true", help="cleanup only: delete this run's data")
+    parser.add_argument("--recipient-public-key", help="export only: PEM public-key path, never a private key")
     args = parser.parse_args()
     if args.action == "prepare" and args.source_pair is None:
         parser.error("prepare requires --source-pair")
     if args.execute and args.action != "cleanup":
         parser.error("--execute is only for cleanup")
+    if args.action == "export" and not args.recipient_public_key:
+        parser.error("export requires --recipient-public-key")
     async def run():
         try:
             await main(args)

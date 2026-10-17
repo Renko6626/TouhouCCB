@@ -1,0 +1,145 @@
+name: FX load-test accounts
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [inspect, prepare, mint, cleanup]
+        default: inspect
+        required: true
+      run_id:
+        description: Test run ID (letters, digits, underscore or hyphen)
+        type: string
+        required: true
+      source_pair:
+        description: Active FX pair ID, required for prepare
+        type: string
+        default: ''
+      recipient_public_key:
+        description: RSA 3072+ PUBLIC key PEM for encrypted credentials (prepare/mint)
+        type: string
+        default: ''
+      confirmation:
+        description: PREPARE for prepare, CLEANUP for cleanup
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thccb-production
+  cancel-in-progress: false
+
+jobs:
+  accounts:
+    if: github.repository_owner == 'Renko6626' && github.actor == 'Renko6626' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LT_ACTION: ${{ inputs.action }}
+      LT_RUN_ID: ${{ inputs.run_id }}
+      LT_SOURCE: ${{ inputs.source_pair }}
+      LT_CONFIRM: ${{ inputs.confirmation }}
+      LT_PUBLIC_KEY: ${{ inputs.recipient_public_key }}
+      LT_JOB: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate maintenance request
+        run: |
+          python - <<'PY'
+          import os, re
+          action = os.environ['LT_ACTION']
+          if action not in {'inspect','prepare','mint','cleanup'}:
+              raise SystemExit('Invalid action')
+          if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,39}', os.environ['LT_RUN_ID']):
+              raise SystemExit('Invalid test run ID')
+          if action == 'prepare' and (not re.fullmatch(r'[1-9][0-9]{0,9}', os.environ['LT_SOURCE']) or os.environ['LT_CONFIRM'] != 'PREPARE'):
+              raise SystemExit('prepare requires source_pair and confirmation PREPARE')
+          if action == 'cleanup' and os.environ['LT_CONFIRM'] != 'CLEANUP':
+              raise SystemExit('cleanup requires confirmation CLEANUP')
+          if action in {'prepare','mint'} and not 200 < len(os.environ['LT_PUBLIC_KEY']) < 3000:
+              raise SystemExit('prepare/mint requires a recipient public key')
+          PY
+
+      - name: Validate recipient public key
+        if: inputs.action == 'prepare' || inputs.action == 'mint'
+        run: |
+          python -m pip install --quiet cryptography==46.0.3
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'backend')
+          from scripts.fx_loadtest_credentials import recipient_key
+          pem = os.environ['LT_PUBLIC_KEY'].encode()
+          recipient_key(pem)
+          path = Path(os.environ['RUNNER_TEMP']) / 'fx-recipient.pem'
+          path.write_bytes(pem)
+          path.chmod(0o600)
+          PY
+
+      - name: Prepare SSH channel using existing deployment secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/fx-ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/fx-ssh/key"
+          ssh-keyscan -H "$DEPLOY_HOST" > "$RUNNER_TEMP/fx-ssh/known_hosts"
+          test -s "$RUNNER_TEMP/fx-ssh/known_hosts"
+
+      - name: Run server maintenance and encrypt credentials
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          set -euo pipefail
+          ssh_args=(-i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes)
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          if [ "$LT_ACTION" = prepare ] || [ "$LT_ACTION" = mint ]; then
+            ssh "${ssh_args[@]}" "$target" "umask 077; mkdir -p /home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID; chmod 700 /home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID"
+            scp "${ssh_args[@]}" "$RUNNER_TEMP/fx-recipient.pem" "$target:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/recipient-$LT_JOB.pem"
+          fi
+          source_id=0
+          if [ "$LT_ACTION" = prepare ]; then source_id="$LT_SOURCE"; fi
+          ssh "${ssh_args[@]}" "$target" "bash -s -- '$LT_ACTION' '$LT_RUN_ID' '$source_id' '$LT_JOB'" <<'REMOTE'
+          set -euo pipefail
+          cd /home/deploy/TouhouCCB
+          version=$(docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest --version)
+          test "$version" = fx-loadtest-2
+          action=$1 tag=$2 source_id=$3 job=$4
+          case "$action" in
+            prepare) printf 'PREPARE\n' | bash deploy/fx_loadtest.sh prepare "$tag" "$source_id" ;;
+            cleanup) printf 'CLEANUP\n' | bash deploy/fx_loadtest.sh cleanup "$tag" ;;
+            inspect|mint) bash deploy/fx_loadtest.sh "$action" "$tag" ;;
+            *) exit 1 ;;
+          esac
+          if [ "$action" = prepare ]; then bash deploy/fx_loadtest.sh mint "$tag"; fi
+          if [ "$action" = prepare ] || [ "$action" = mint ]; then
+            docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest export \
+              --run-id "$tag" --recipient-public-key "/app/backups/fx-loadtest/$tag/recipient-$job.pem"
+            rm "backups/fx-loadtest/$tag/recipient-$job.pem"
+          fi
+          REMOTE
+          if [ "$LT_ACTION" = prepare ] || [ "$LT_ACTION" = mint ]; then
+            mkdir -m 700 "$RUNNER_TEMP/fx-artifact"
+            scp "${ssh_args[@]}" "$target:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/credentials.enc.json" "$RUNNER_TEMP/fx-artifact/credentials.enc.json"
+          fi
+
+      - name: Upload encrypted credentials only
+        if: inputs.action == 'prepare' || inputs.action == 'mint'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fx-loadtest-${{ inputs.run_id }}-credentials
+          path: ${{ runner.temp }}/fx-artifact/credentials.enc.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Remove runner SSH key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/fx-ssh/key" "$RUNNER_TEMP/fx-recipient.pem"

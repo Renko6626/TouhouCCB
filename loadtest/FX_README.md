@@ -1,14 +1,55 @@
 # FX 百人实机压测
 
-服务器手动准备和清理数据，开发机通过网站 HTTPS 入口运行压测。无需向压测机提供服务器密钥、数据库密码或 JWT 签名密钥。
+服务器通过手动脚本或 GitHub Action 准备和清理数据，开发机通过网站 HTTPS 入口运行压测。无需向压测机提供服务器密钥、数据库密码或 JWT 签名密钥。
 
-本套件测普通资金买卖、报价、账户读取和两类 SSE。融资、跨零开空、回补、挂单和百人同时登录尚未覆盖。HTTP 结果也不代表现场手机渲染和 Wi-Fi 性能。
+本套件覆盖页面初始读取、成交后刷新、图表历史/补尾、现金买卖、融资还款、开空回补、少量跨零、挂单及两类 SSE。百人同时登录、系统干预、PvE 混合和强平不在本轮默认场景内。HTTP 结果也不代表现场手机渲染和 Wi-Fi 性能。
+
+## 通过 Action 建号并下载加密凭证（推荐）
+
+先将本分支合入 main 并完成正常部署。新 workflow 必须存在于 main；服务器镜像的 `python -m scripts.fx_loadtest --version` 必须返回 `fx-loadtest-2`，并已有 `deploy/fx_loadtest.sh`。Action 不会替你部署应用或修改 Nginx。
+
+工作流复用 `DEPLOY_HOST`、`DEPLOY_USER`、`DEPLOY_KEY`，仅仓库 owner Renko6626 在 main 手动触发，与部署共用生产互斥。开发机需有已登录的 `gh` 和现有 backend Python 环境。先完成后面第 1 节的限流发布，再执行：
+
+```bash
+# 在开发机仓库根目录；私钥目录必须在仓库之外。
+backend/venv/bin/python loadtest/fx_credentials.py keygen \
+  --directory "$HOME/.local/share/thccb-loadtest"
+
+# 确认实际 active pair ID。下面仍以 8 为例；run ID 每轮换一个。
+backend/venv/bin/python loadtest/fx_credentials.py request \
+  --directory "$HOME/.local/share/thccb-loadtest" \
+  --operation prepare --run-id fx100_20261017b --source-pair 8 --confirm PREPARE
+
+gh run list -R Renko6626/TouhouCCB --workflow fx-loadtest.yml --limit 5
+```
+
+Action 在服务器备份、停写并准备 100 个账户和专用市场，恢复原先运行的服务后签发 60 分钟 token，用你的 RSA 公钥和 AES-GCM 加密，再删除服务器明文 token 文件。artifact 仅包含 `credentials.enc.json`，保留 1 天；私钥始终留在开发机，日志不打印 token 或签名密钥。
+
+运行成功后把 `GITHUB_RUN_ID` 换成刚才的 Actions run ID：
+
+```bash
+backend/venv/bin/python loadtest/fx_credentials.py download \
+  --directory "$HOME/.local/share/thccb-loadtest" \
+  --run-id fx100_20261017b --github-run GITHUB_RUN_ID
+```
+
+命令会打印解密后的私有 token 文件路径，第 4 节 `--tokens` 使用该路径。目录 0700、文件 0600。artifact 可公开下载也无法在没有私钥时还原凭证；不要把私钥提交 Git。错过 60 分钟后用同一个目录/公钥请求 `--operation mint --run-id fx100_20261017b`，下载新 run 的 artifact，不重新建号。
+
+只看服务器数据用 `--operation inspect`；结束后用下面命令清理（会备份、停写，并只删除该轮数据）：
+
+```bash
+backend/venv/bin/python loadtest/fx_credentials.py request \
+  --directory "$HOME/.local/share/thccb-loadtest" \
+  --operation cleanup --run-id fx100_20261017b --confirm CLEANUP
+```
+
+成功下载不代表已测容量；Action 只管理账户，下面的 HTTP 压测仍由开发机运行。失败时先查看该 workflow 日志和数据 preview，不自动重试或清空现场。以下第 2、3、6 节保留手动服务器操作方式，与 Action 二选一；同一轮不要重复 prepare。
 
 ## 1. 部署本版本和限流调整
 
 先按现有部署流程发布包含下列文件的后端镜像及服务器脚本：
 
-- `backend/scripts/fx_loadtest.py`
+- `backend/scripts/fx_loadtest.py` 和 `backend/scripts/fx_loadtest_credentials.py`
 - `backend/app/services/realtime.py`：同 IP、同公开市场最多 200 条 SSE，市场总上限仍为 500。
 - `deploy/fx_loadtest.sh`：放在服务器实际项目的 `deploy/` 下。
 
@@ -93,19 +134,35 @@ backend/venv/bin/python loadtest/fx_http.py \
   --mode full --users 100
 ```
 
-full 自带单人冒烟，通过后以约 0.3 秒间隔接入其余用户。每个账户维持 1 条公开 FX SSE 和 1 条私人 SSE；接着进行 10/30/100 人交易各 60 秒、100 人稳态 300 秒，最后 100 人在约 2 秒内各发起一轮报价和买入并观察恢复 60 秒。这里 2 秒是交易循环起始窗口，实际提交时间还受 context 和 quote 延迟影响，样本时间与排队延迟会记录；不声称所有写请求必定在 2 秒内抵达服务端。
+full 先跑单人冒烟，再以约 0.6 秒间隔让其余账户入场。每账户维持公开行情和私人账户各一条 SSE。默认角色为 60% 现金、20% 融资、20% 开空/回补，空头角色每四人选一人覆盖跨零；先用真实成交验证角色可用，准备单单列。
 
-每账户最多一笔在途成交，默认每 5–10 秒循环一次，买入预算 10、下一次卖出真实余额；账户版本用真实报价结果，每笔请求编号唯一，没有自动重试。默认 100 人平均约 13.3 次成交循环/秒，报告同时列实际值。每次循环调用 context 和服务器 quote，当前 UI 可本地报价，因此该场景对 HTTP 读取施加了额外负载。
+| 阶段 | 100 人安排 | 名义成交尝试/s | 时长 |
+| --- | --- | ---: | ---: |
+| readonly | 全员看行情及账户版本 | 0 | 120s |
+| normal | 40 人每 15–25s 一笔、30 人每 45–75s 一笔 | 2.5 | 300s |
+| active | 70 人每 8–12s 一笔、20 人每 30–50s 一笔 | 7.5 | 300s |
+| stress | 全员每 3–5s 一笔 | 25 | 120s |
+| burst | 准备真实卖出持仓并预取报价，买卖各一半在目标 2 秒内提交 | 短时 50 | 再观察 60s |
+| orders | 最多 20 个现金账户各建一张单，一半撤销、一半等待真实扫描执行 | 独立报告 | 120s |
 
-`--amount` 可调整买入预算。只在隔离环境调试时缩短 `--smoke-seconds`、`--ramp-seconds`、`--steady-seconds` 和 `--burst-observe-seconds`；正式测试保留默认观察时长。Ctrl-C 可停测并保留已收集报告。
+人数少于 100 时按比例缩放。每账户最多一笔在途，不追赶补发，服务变慢时实际频率可能低于目标。burst 报告实际客户端提交窗口；预取报价和准备持仓不计入窗口。
 
-稳态滚动 30 秒内 429/5xx/网络错误/超时超过 5%，或成功成交 P99 超过 2 秒，会停止增加请求并排空。401/403 立即停测；行情订阅断开也停止升压。集中下单单独报告，不套用稳态延迟中止阈值。失败不会触发自动删除测试数据。
+`--amount` 默认 10，每次随机采用 1–5 倍买入预算（10–50 金圆券），融资借入其中一半；卖出和回补使用真实持仓/债务。每笔真实 quote 返回账户版本，请求编号唯一，没有自动重试。混合场景要求现有 `loan_enabled` 和 `fx_short_enabled` 已打开，不会替你修改开关或杠杆；若只想明确测现货基线，使用 `--cash-only`，报告会标明缺少融资/空头角色。
+
+成功成交后调用 context、snapshot 和个人成交记录刷新；私人账户事件在 200ms 窗口合并，价格流已覆盖的版本不重复取价格修复。图表先读封存段、复用有效 SSE 尾段，需要时请求 `/chart` 补尾；少量用户在 active 前切换一次周期。新市场历史较浅，不能据此宣称成熟大历史容量通过。每笔仍多一次服务端 quote，主报告注明相比本地报价页面增加的 HTTP 负载。
+
+需要时设置 `--orders-seconds 0` 明确跳过挂单；挂单扫描间隔维持服务器原配置，观察期内没有实际触发会在 coverage 中标记未覆盖，不算成测试通过。初始挂单列表和结果刷新同样测量，创建/撤销不算成交吞吐。
+
+只在隔离调试时缩短 `--smoke-seconds`、`--readonly-seconds`、`--normal-seconds`、`--active-seconds`、`--stress-seconds`、`--burst-observe-seconds`、`--orders-seconds`；正式保留默认观察时长。`--min-interval`/`--max-interval` 仅调整单人冒烟节奏。Ctrl-C 停测会保存已有结果。
+
+稳态滚动 30 秒内 429/5xx/网络错误/超时超过 5%，或成功成交 P99 超过 2 秒，会停止增加请求并排空。401/403 立即停测；行情订阅断开也停止升压。集中下单单独报告，不套用稳态延迟中止阈值。失败不自动删除测试数据。先检查普通/活跃阶段通过再解释加压结果；加压失败不等于正常人数不能使用。
 
 ## 5. 查看结果
 
 默认输出在 `loadtest/results/<run-id>_<时间戳>/`，可用 `--output <新目录>` 指定：
 
-- `summary.json`：阶段、实际活跃人数、连接数、成功成交/s、实际循环/s、HTTP 完成/s、节奏延迟及请求 P50/P95/P99；成功和各类失败分开。
+- `summary.md`：便于直接查看的阶段吞吐与各交易类型 P95/P99 表。
+- `summary.json`：完整阶段、角色、实际活跃人数、连接数、SSE 帧数/负载字节、成功成交/s、实际循环/s、HTTP 完成/s、节奏延迟和 P50/P95/P99；成功、失败、实际覆盖与未覆盖分开。
 - `requests.jsonl`：请求完成时间、阶段、耗时和分类，不含 token、Authorization 或账户响应体。
 - 控制台每 5 秒给出当前阶段、连接数和近 30 秒请求数。
 
