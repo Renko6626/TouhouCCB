@@ -1,0 +1,1236 @@
+{
+  "before": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 22,
+    "queue_peak": 100,
+    "stages": [
+      {
+        "name": "readonly",
+        "duration_s": 31.003,
+        "cycles": 0,
+        "successes": 0,
+        "successes_per_s": 0.0,
+        "nominal_trade_cycles_per_s": 0,
+        "http_results": {
+          "ok": 200
+        },
+        "trade_results": {},
+        "trade_latency": {},
+        "gate_wait": null,
+        "gate_held": null,
+        "queue_peak": 0,
+        "pool_peak_sampled": 2,
+        "cpu_mean": 18.365666666666666,
+        "trade_sql": 0,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {},
+        "http_requests_per_s": 6.451,
+        "http_requests": 200,
+        "sql_executions": 2498,
+        "dependency_executions": 1224
+      },
+      {
+        "name": "normal",
+        "duration_s": 61.003,
+        "cycles": 150,
+        "successes": 150,
+        "successes_per_s": 2.459,
+        "nominal_trade_cycles_per_s": 2.5,
+        "http_results": {
+          "ok": 1153
+        },
+        "trade_results": {
+          "ok": 150
+        },
+        "trade_latency": {
+          "count": 150,
+          "p50_ms": 50.367,
+          "p95_ms": 160.944,
+          "p99_ms": 212.687
+        },
+        "gate_wait": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 167,
+          "mean_ms": 2.9315544058105902,
+          "p50_ms": 0.041468068957328796,
+          "p95_ms": 15.386372804641724,
+          "p99_ms": 46.355115249753,
+          "max_ms": 93.53206865489483
+        },
+        "gate_held": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 167,
+          "mean_ms": 33.111485312441864,
+          "p50_ms": 25.37560649216175,
+          "p95_ms": 81.69857412576675,
+          "p99_ms": 103.40744815766811,
+          "max_ms": 184.22266095876694
+        },
+        "queue_peak": 0,
+        "pool_peak_sampled": 7,
+        "cpu_mean": 44.998000000000005,
+        "trade_sql": 3112,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {},
+        "http_requests_per_s": 18.901,
+        "http_requests": 1153,
+        "sql_executions": 13437,
+        "dependency_executions": 2966
+      },
+      {
+        "name": "active",
+        "duration_s": 46.159,
+        "cycles": 339,
+        "successes": 337,
+        "successes_per_s": 7.301,
+        "nominal_trade_cycles_per_s": 7.5,
+        "http_results": {
+          "ok": 2032
+        },
+        "trade_results": {
+          "ok": 337
+        },
+        "trade_latency": {
+          "count": 337,
+          "p50_ms": 104.116,
+          "p95_ms": 456.658,
+          "p99_ms": 583.834
+        },
+        "gate_wait": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 374,
+          "mean_ms": 51.50148020509411,
+          "p50_ms": 0.06777048110961914,
+          "p95_ms": 243.5960229486227,
+          "p99_ms": 341.1422036588192,
+          "max_ms": 431.19886331260204
+        },
+        "gate_held": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 374,
+          "mean_ms": 54.34363265646333,
+          "p50_ms": 44.77684199810028,
+          "p95_ms": 125.73368474841118,
+          "p99_ms": 158.2971177995205,
+          "max_ms": 273.28350208699703
+        },
+        "queue_peak": 3,
+        "pool_peak_sampled": 10,
+        "cpu_mean": 82.54422222222223,
+        "trade_sql": 6794,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {
+          "quote_blocked": 2
+        },
+        "http_requests_per_s": 44.022,
+        "http_requests": 2032,
+        "sql_executions": 22846,
+        "dependency_executions": 3126
+      },
+      {
+        "name": "stress",
+        "duration_s": 34.089,
+        "cycles": 412,
+        "successes": 361,
+        "successes_per_s": 10.59,
+        "nominal_trade_cycles_per_s": 25.0,
+        "http_results": {
+          "ok": 2154,
+          "timeout": 21,
+          "version_conflict": 18
+        },
+        "trade_results": {
+          "ok": 361,
+          "timeout": 21,
+          "version_conflict": 18
+        },
+        "trade_latency": {
+          "count": 361,
+          "p50_ms": 7032.233,
+          "p95_ms": 10767.783,
+          "p99_ms": 14178.185
+        },
+        "gate_wait": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 438,
+          "mean_ms": 5841.472871950296,
+          "p50_ms": 6772.412361577153,
+          "p95_ms": 8277.406333014369,
+          "p99_ms": 8512.878764420748,
+          "max_ms": 8626.085793599486
+        },
+        "gate_held": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 438,
+          "mean_ms": 69.48363600664487,
+          "p50_ms": 68.49302537739277,
+          "p95_ms": 139.6099105477333,
+          "p99_ms": 226.7671823501587,
+          "max_ms": 254.21248003840446
+        },
+        "queue_peak": 100,
+        "pool_peak_sampled": 10,
+        "cpu_mean": 97.90151515151516,
+        "trade_sql": 7449,
+        "sse_public": 0,
+        "sse_private": 0,
+        "cycle_results": {
+          "quote_blocked": 12
+        },
+        "http_requests_per_s": 64.331,
+        "http_requests": 2193,
+        "sql_executions": 23007,
+        "dependency_executions": 2439
+      }
+    ],
+    "pool_errors": 0,
+    "tracebacks": 0,
+    "cancelled_mentions": 0,
+    "deterministic": {
+      "deterministic_versions_warmup": {
+        "requests": 100,
+        "concurrency": 10,
+        "duration_s": 0.7262209001928568,
+        "requests_per_s": 137.6991490790802,
+        "statuses": {
+          "200": 100
+        },
+        "latency_ms": {
+          "mean": 70.82801155745983,
+          "p50": 61.552513390779495,
+          "p95": 162.42367587983608,
+          "p99": 188.90524841845036
+        },
+        "sql_executions": 714,
+        "sql_per_request": 7.14,
+        "app_cpu_seconds_approx": 0.40104999999999996,
+        "app_cpu_seconds_per_request_approx": 0.004010499999999999,
+        "dependency_executions": {
+          "dependency_market": 100,
+          "dependency_wallet": 100,
+          "dependency_short": 100
+        }
+      },
+      "deterministic_versions_measured": {
+        "requests": 1000,
+        "concurrency": 10,
+        "duration_s": 6.307164216414094,
+        "requests_per_s": 158.54985944357492,
+        "statuses": {
+          "200": 1000
+        },
+        "latency_ms": {
+          "mean": 62.87852017022669,
+          "p50": 59.81625057756901,
+          "p95": 80.20021207630634,
+          "p99": 100.47175362706184
+        },
+        "sql_executions": 7000,
+        "sql_per_request": 7.0,
+        "app_cpu_seconds_approx": 6.373392314791679,
+        "app_cpu_seconds_per_request_approx": 0.006373392314791679,
+        "dependency_executions": {
+          "dependency_market": 1000,
+          "dependency_wallet": 1000,
+          "dependency_short": 1000
+        }
+      },
+      "deterministic_prices_warmup": {
+        "requests": 100,
+        "concurrency": 10,
+        "duration_s": 0.5951883364468813,
+        "requests_per_s": 168.01404509532873,
+        "statuses": {
+          "200": 100
+        },
+        "latency_ms": {
+          "mean": 58.36782943457365,
+          "p50": 51.284849643707275,
+          "p95": 115.27052335441113,
+          "p99": 146.77386730909348
+        },
+        "sql_executions": 500,
+        "sql_per_request": 5.0,
+        "app_cpu_seconds_approx": 0.39270000000000005,
+        "app_cpu_seconds_per_request_approx": 0.003927000000000001,
+        "dependency_executions": {
+          "dependency_market": 100,
+          "dependency_wallet": 100,
+          "dependency_short": 100
+        }
+      },
+      "deterministic_prices_measured": {
+        "requests": 1000,
+        "concurrency": 10,
+        "duration_s": 5.379476573318243,
+        "requests_per_s": 185.89169157458866,
+        "statuses": {
+          "200": 1000
+        },
+        "latency_ms": {
+          "mean": 53.5885339025408,
+          "p50": 51.313916221261024,
+          "p95": 71.10633701086044,
+          "p99": 81.11788891255856
+        },
+        "sql_executions": 5000,
+        "sql_per_request": 5.0,
+        "app_cpu_seconds_approx": 5.543525493621826,
+        "app_cpu_seconds_per_request_approx": 0.005543525493621826,
+        "dependency_executions": {
+          "dependency_market": 1000,
+          "dependency_wallet": 1000,
+          "dependency_short": 1000
+        }
+      }
+    },
+    "dependency_sql": [
+      {
+        "phase": "deterministic_versions_warmup",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_versions_warmup",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_versions_warmup",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_versions_measured",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_versions_measured",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_versions_measured",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_prices_warmup",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_market",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_prices_warmup",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_wallet",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_prices_warmup",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_short",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_prices_measured",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_market",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_prices_measured",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_wallet",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_prices_measured",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_short",
+        "executions": 1000
+      },
+      {
+        "phase": "connect",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 216
+      },
+      {
+        "phase": "connect",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 216
+      },
+      {
+        "phase": "connect",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 216
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 8
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 8
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 8
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 1
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 1
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 1
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 40
+      },
+      {
+        "phase": "role_prepare",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 160
+      },
+      {
+        "phase": "role_prepare",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 160
+      },
+      {
+        "phase": "role_prepare",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 160
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 40
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 20
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 208
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 208
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 208
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 200
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 200
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 200
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 558
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 558
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 558
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 399
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 399
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 399
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 37
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 37
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_market",
+        "executions": 4
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_wallet",
+        "executions": 4
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_short",
+        "executions": 4
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 9
+      },
+      {
+        "phase": "chart_switch",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 5
+      },
+      {
+        "phase": "chart_switch",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 5
+      },
+      {
+        "phase": "chart_switch",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 5
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 296
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 296
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 296
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 646
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 646
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 646
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 64
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 62
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 27
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_market",
+        "executions": 49
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_wallet",
+        "executions": 49
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_short",
+        "executions": 49
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_market",
+        "executions": 506
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_wallet",
+        "executions": 506
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_short",
+        "executions": 506
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_market",
+        "executions": 197
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_wallet",
+        "executions": 197
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 73
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_short",
+        "executions": 197
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 25
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 55
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_market",
+        "executions": 59
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_wallet",
+        "executions": 59
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_short",
+        "executions": 59
+      }
+    ],
+    "missing_stages": [
+      "burst"
+    ],
+    "protection_stopped_phase": "stress",
+    "incomplete_stages": []
+  },
+  "after": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 21,
+    "queue_peak": 100,
+    "stages": [
+      {
+        "name": "readonly",
+        "duration_s": 31.003,
+        "cycles": 0,
+        "successes": 0,
+        "successes_per_s": 0.0,
+        "nominal_trade_cycles_per_s": 0,
+        "http_results": {
+          "ok": 200
+        },
+        "trade_results": {},
+        "trade_latency": {},
+        "gate_wait": null,
+        "gate_held": null,
+        "queue_peak": 0,
+        "pool_peak_sampled": 1,
+        "cpu_mean": 17.127096774193546,
+        "trade_sql": 0,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {},
+        "http_requests_per_s": 6.451,
+        "http_requests": 200,
+        "sql_executions": 1682,
+        "dependency_executions": 408
+      },
+      {
+        "name": "normal",
+        "duration_s": 61.003,
+        "cycles": 152,
+        "successes": 151,
+        "successes_per_s": 2.475,
+        "nominal_trade_cycles_per_s": 2.5,
+        "http_results": {
+          "ok": 1163
+        },
+        "trade_results": {
+          "ok": 151
+        },
+        "trade_latency": {
+          "count": 151,
+          "p50_ms": 43.738,
+          "p95_ms": 126.429,
+          "p99_ms": 278.394
+        },
+        "gate_wait": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 168,
+          "mean_ms": 3.569477570376226,
+          "p50_ms": 0.038255006074905396,
+          "p95_ms": 19.54292505979538,
+          "p99_ms": 71.18154689669609,
+          "max_ms": 113.73285204172134
+        },
+        "gate_held": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 168,
+          "mean_ms": 29.224938458009134,
+          "p50_ms": 23.34914728999138,
+          "p95_ms": 72.64424487948418,
+          "p99_ms": 96.41998633742332,
+          "max_ms": 118.08394454419613
+        },
+        "queue_peak": 1,
+        "pool_peak_sampled": 7,
+        "cpu_mean": 42.34983333333333,
+        "trade_sql": 3110,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {
+          "quote_blocked": 1
+        },
+        "http_requests_per_s": 19.065,
+        "http_requests": 1163,
+        "sql_executions": 11573,
+        "dependency_executions": 1048
+      },
+      {
+        "name": "active",
+        "duration_s": 46.301,
+        "cycles": 345,
+        "successes": 337,
+        "successes_per_s": 7.279,
+        "nominal_trade_cycles_per_s": 7.5,
+        "http_results": {
+          "ok": 2045
+        },
+        "trade_results": {
+          "ok": 337
+        },
+        "trade_latency": {
+          "count": 337,
+          "p50_ms": 118.888,
+          "p95_ms": 662.438,
+          "p99_ms": 967.788
+        },
+        "gate_wait": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 368,
+          "mean_ms": 78.0961117454116,
+          "p50_ms": 4.5327115803956985,
+          "p95_ms": 390.903702005744,
+          "p99_ms": 579.0610034018755,
+          "max_ms": 672.5560538470745
+        },
+        "gate_held": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 368,
+          "mean_ms": 57.56620401719018,
+          "p50_ms": 48.52471128106117,
+          "p95_ms": 124.646270647645,
+          "p99_ms": 196.50455191731453,
+          "max_ms": 261.59936375916004
+        },
+        "queue_peak": 6,
+        "pool_peak_sampled": 10,
+        "cpu_mean": 81.22804347826087,
+        "trade_sql": 6703,
+        "sse_public": 100,
+        "sse_private": 100,
+        "cycle_results": {
+          "quote_blocked": 8
+        },
+        "http_requests_per_s": 44.168,
+        "http_requests": 2045,
+        "sql_executions": 20953,
+        "dependency_executions": 1160
+      },
+      {
+        "name": "stress",
+        "duration_s": 34.202,
+        "cycles": 388,
+        "successes": 327,
+        "successes_per_s": 9.561,
+        "nominal_trade_cycles_per_s": 25.0,
+        "http_results": {
+          "ok": 2012,
+          "timeout": 28,
+          "version_conflict": 19
+        },
+        "trade_results": {
+          "ok": 327,
+          "timeout": 28,
+          "version_conflict": 19
+        },
+        "trade_latency": {
+          "count": 327,
+          "p50_ms": 7378.431,
+          "p95_ms": 9305.787,
+          "p99_ms": 13366.67
+        },
+        "gate_wait": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 414,
+          "mean_ms": 6272.230559825033,
+          "p50_ms": 7330.628165975213,
+          "p95_ms": 8991.825265809894,
+          "p99_ms": 9123.559888452291,
+          "max_ms": 9266.544615849853
+        },
+        "gate_held": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 414,
+          "mean_ms": 74.76097697635059,
+          "p50_ms": 74.38749633729458,
+          "p95_ms": 151.02765150368214,
+          "p99_ms": 221.00329771637917,
+          "max_ms": 311.4459924399853
+        },
+        "queue_peak": 100,
+        "pool_peak_sampled": 21,
+        "cpu_mean": 96.74606060606061,
+        "trade_sql": 7009,
+        "sse_public": 0,
+        "sse_private": 0,
+        "cycle_results": {
+          "quote_blocked": 14
+        },
+        "http_requests_per_s": 60.201,
+        "http_requests": 2059,
+        "sql_executions": 20046,
+        "dependency_executions": 885
+      }
+    ],
+    "pool_errors": 0,
+    "tracebacks": 0,
+    "cancelled_mentions": 0,
+    "deterministic": {
+      "deterministic_versions_warmup": {
+        "requests": 100,
+        "concurrency": 10,
+        "duration_s": 0.654123904183507,
+        "requests_per_s": 152.87623546615742,
+        "statuses": {
+          "200": 100
+        },
+        "latency_ms": {
+          "mean": 63.810365200042725,
+          "p50": 54.01097238063812,
+          "p95": 153.28708477318287,
+          "p99": 176.76003649830818
+        },
+        "sql_executions": 508,
+        "sql_per_request": 5.08,
+        "app_cpu_seconds_approx": 0.634213117814064,
+        "app_cpu_seconds_per_request_approx": 0.006342131178140639,
+        "dependency_executions": {
+          "dependency_union": 100
+        }
+      },
+      "deterministic_versions_measured": {
+        "requests": 1000,
+        "concurrency": 10,
+        "duration_s": 6.004488276317716,
+        "requests_per_s": 166.5420855169452,
+        "statuses": {
+          "200": 1000
+        },
+        "latency_ms": {
+          "mean": 59.80371345765889,
+          "p50": 55.02513609826565,
+          "p95": 79.77262511849403,
+          "p99": 98.32041896879673
+        },
+        "sql_executions": 5000,
+        "sql_per_request": 5.0,
+        "app_cpu_seconds_approx": 5.94062471075058,
+        "app_cpu_seconds_per_request_approx": 0.00594062471075058,
+        "dependency_executions": {
+          "dependency_union": 1000
+        }
+      },
+      "deterministic_prices_warmup": {
+        "requests": 100,
+        "concurrency": 10,
+        "duration_s": 0.6465433090925217,
+        "requests_per_s": 154.66867972132985,
+        "statuses": {
+          "200": 100
+        },
+        "latency_ms": {
+          "mean": 63.197532910853624,
+          "p50": 58.03034082055092,
+          "p95": 111.27058230340481,
+          "p99": 139.85028490424156
+        },
+        "sql_executions": 300,
+        "sql_per_request": 3.0,
+        "app_cpu_seconds_approx": 0.8345503800153732,
+        "app_cpu_seconds_per_request_approx": 0.008345503800153732,
+        "dependency_executions": {
+          "dependency_union": 100
+        }
+      },
+      "deterministic_prices_measured": {
+        "requests": 1000,
+        "concurrency": 10,
+        "duration_s": 5.246126716956496,
+        "requests_per_s": 190.61682150524626,
+        "statuses": {
+          "200": 1000
+        },
+        "latency_ms": {
+          "mean": 52.22987228259444,
+          "p50": 47.809578478336334,
+          "p95": 66.26180931925774,
+          "p99": 78.57098057866096
+        },
+        "sql_executions": 3000,
+        "sql_per_request": 3.0,
+        "app_cpu_seconds_approx": 5.052439391088486,
+        "app_cpu_seconds_per_request_approx": 0.005052439391088486,
+        "dependency_executions": {
+          "dependency_union": 1000
+        }
+      }
+    },
+    "dependency_sql": [
+      {
+        "phase": "deterministic_versions_warmup",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_versions_measured",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 1000
+      },
+      {
+        "phase": "deterministic_prices_warmup",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_union",
+        "executions": 100
+      },
+      {
+        "phase": "deterministic_prices_measured",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_union",
+        "executions": 1000
+      },
+      {
+        "phase": "connect",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 216
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 8
+      },
+      {
+        "phase": "smoke",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 1
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 40
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 40
+      },
+      {
+        "phase": "role_prepare",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 161
+      },
+      {
+        "phase": "role_prepare",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 20
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 200
+      },
+      {
+        "phase": "readonly",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 208
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 400
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 559
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 37
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 36
+      },
+      {
+        "phase": "normal",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_union",
+        "executions": 7
+      },
+      {
+        "phase": "normal",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 9
+      },
+      {
+        "phase": "chart_switch",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 2
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 297
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 647
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 69
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 61
+      },
+      {
+        "phase": "active",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 31
+      },
+      {
+        "phase": "active",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_union",
+        "executions": 55
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/stream/trading",
+        "kind": "dependency_union",
+        "executions": 472
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-versions",
+        "kind": "dependency_union",
+        "executions": 198
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/net/quote",
+        "kind": "dependency_short",
+        "executions": 75
+      },
+      {
+        "phase": "stress",
+        "route": "GET /api/v1/user/trading-prices",
+        "kind": "dependency_union",
+        "executions": 70
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/short/quote",
+        "kind": "dependency_short",
+        "executions": 18
+      },
+      {
+        "phase": "stress",
+        "route": "POST /api/v1/fx/pairs/:id/net/trades",
+        "kind": "dependency_short",
+        "executions": 52
+      }
+    ],
+    "missing_stages": [
+      "burst"
+    ],
+    "protection_stopped_phase": "stress",
+    "incomplete_stages": []
+  }
+}
