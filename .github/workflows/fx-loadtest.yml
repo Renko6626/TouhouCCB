@@ -98,18 +98,20 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           set -euo pipefail
-          ssh_args=(-i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes)
+          ssh_args=(-i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
           target="$DEPLOY_USER@$DEPLOY_HOST"
           if [ "$LT_ACTION" = prepare ] || [ "$LT_ACTION" = mint ]; then
             ssh "${ssh_args[@]}" "$target" "umask 077; mkdir -p /home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID; chmod 700 /home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID"
             scp "${ssh_args[@]}" "$RUNNER_TEMP/fx-recipient.pem" "$target:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/recipient-$LT_JOB.pem"
           fi
+          scp "${ssh_args[@]}" deploy/fx_loadtest.sh deploy/fx_loadtest_ops.sh deploy/fx_loadtest_nginx.patch "$target:/home/deploy/TouhouCCB/deploy/"
           source_id=0
           if [ "$LT_ACTION" = prepare ]; then source_id="$LT_SOURCE"; fi
           ssh "${ssh_args[@]}" "$target" "bash -s -- '$LT_ACTION' '$LT_RUN_ID' '$source_id' '$LT_JOB'" <<'REMOTE'
           set -euo pipefail
           cd /home/deploy/TouhouCCB
-          version=$(docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest --version)
+          export BACKEND_IMAGE="$(docker inspect --format='{{.Config.Image}}' thccb-backend)"
+          version=$(docker compose run --rm --no-deps --no-build --pull never -T backend python -m scripts.fx_loadtest --version < /dev/null)
           test "$version" = fx-loadtest-2
           action=$1 tag=$2 source_id=$3 job=$4
           case "$action" in
@@ -121,8 +123,8 @@ jobs:
           esac
           if [ "$action" = prepare ]; then bash deploy/fx_loadtest.sh mint "$tag"; fi
           if [ "$action" = prepare ] || [ "$action" = mint ]; then
-            docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest export \
-              --run-id "$tag" --recipient-public-key "/app/backups/fx-loadtest/$tag/recipient-$job.pem"
+            docker compose run --rm --no-deps --no-build --pull never -T backend python -m scripts.fx_loadtest export \
+              --run-id "$tag" --recipient-public-key "/app/backups/fx-loadtest/$tag/recipient-$job.pem" < /dev/null
             rm "backups/fx-loadtest/$tag/recipient-$job.pem"
           fi
           REMOTE
@@ -138,7 +140,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           mkdir -m 700 "$RUNNER_TEMP/fx-metrics"
-          scp -i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes \
+          scp -i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
             "$DEPLOY_USER@$DEPLOY_HOST:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/server-metrics.jsonl" "$RUNNER_TEMP/fx-metrics/server-metrics.jsonl"
 
       - name: Upload aggregate server metrics
