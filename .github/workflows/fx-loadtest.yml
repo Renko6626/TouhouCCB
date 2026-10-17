@@ -111,7 +111,7 @@ jobs:
           set -euo pipefail
           cd /home/deploy/TouhouCCB
           export BACKEND_IMAGE="$(docker inspect --format='{{.Config.Image}}' thccb-backend)"
-          version=$(docker compose run --rm --no-deps --no-build --pull never -T backend python -m scripts.fx_loadtest --version < /dev/null)
+          version=$(docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest --version < /dev/null)
           test "$version" = fx-loadtest-2
           action=$1 tag=$2 source_id=$3 job=$4
           case "$action" in
@@ -123,7 +123,7 @@ jobs:
           esac
           if [ "$action" = prepare ]; then bash deploy/fx_loadtest.sh mint "$tag"; fi
           if [ "$action" = prepare ] || [ "$action" = mint ]; then
-            docker compose run --rm --no-deps --no-build --pull never -T backend python -m scripts.fx_loadtest export \
+            docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest export \
               --run-id "$tag" --recipient-public-key "/app/backups/fx-loadtest/$tag/recipient-$job.pem" < /dev/null
             rm "backups/fx-loadtest/$tag/recipient-$job.pem"
           fi
