@@ -9,17 +9,23 @@ mkdir -p "backups/fx-loadtest/$tag"
 if [ "$action" = configure ]; then
   target=$(readlink -f /etc/nginx/sites-enabled/thccb.conf)
   [ -f "$target" ] && [[ "$target" == /etc/nginx/* ]] || { echo 'Unexpected enabled site path'; exit 1; }
+  stat -c "Site owner=%U mode=%a path=%n" "$target"
+  sudo -n -l
   sudo -n nginx -t
   candidate=$(mktemp)
   trap 'rm -f "$candidate"' EXIT
-  sudo -n cat "$target" > "$candidate"
+  cat "$target" > "$candidate"
   if ! grep -q 'zone=api_general_user:10m' "$candidate"; then
     patch --dry-run "$candidate" < deploy/fx_loadtest_nginx.patch
     patch "$candidate" < deploy/fx_loadtest_nginx.patch
     backup="backups/fx-loadtest/$tag/nginx-before-$(date -u +%Y%m%dT%H%M%SZ).conf"
     cp "$candidate" "backups/fx-loadtest/$tag/nginx-candidate.conf"
-    sudo -n cp -p "$target" "$backup"
-    sudo -n install -m 644 "$candidate" "$target"
+    cp -p "$target" "$backup"
+    if [ -w "$target" ]; then
+      install -m 644 "$candidate" "$target"
+    else
+      sudo -n install -m 644 "$candidate" "$target"
+    fi
     if ! sudo -n nginx -t; then
       sudo -n cp -p "$backup" "$target"
       sudo -n nginx -t
