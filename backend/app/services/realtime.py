@@ -155,7 +155,7 @@ class IpConcurrencyLimiter:
     限流键按产品命名空间隔离：market 5 与 pair 5 各自计数，互不占用额度。
     nginx 走 X-Forwarded-For 时，调用方负责提取真实 client IP（取首段）。
     """
-    MAX_PER_IP = 10
+    MAX_PER_IP = 200
 
     def __init__(self) -> None:
         self._counts: Dict[Tuple[str, str], int] = {}
