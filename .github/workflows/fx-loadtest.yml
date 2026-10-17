@@ -114,6 +114,9 @@ jobs:
           version=$(docker compose run --rm --no-deps --pull never --user "$(id -u):$(id -g)" -T backend python -m scripts.fx_loadtest --version < /dev/null)
           test "$version" = fx-loadtest-2
           action=$1 tag=$2 source_id=$3 job=$4
+          if [ "$action" = cleanup ]; then
+            docker logs --since 15m thccb-backend 2>&1 | python3 -c 'import sys,re,json; from collections import Counter; text=sys.stdin.read(); print(json.dumps({"pool_errors":dict(Counter(re.findall(r"QueuePool limit of size [^\n]{0,220}",text))),"timeout_error_mentions":text.count("TimeoutError"),"deadlock_mentions":text.lower().count("deadlock")}))' > "backups/fx-loadtest/$tag/backend-errors.json"
+          fi
           case "$action" in
             configure|observe) bash deploy/fx_loadtest_ops.sh "$action" "$tag" ;;
             prepare) printf 'PREPARE\n' | bash deploy/fx_loadtest.sh prepare "$tag" "$source_id" ;;
@@ -134,21 +137,25 @@ jobs:
           fi
 
       - name: Download aggregate server metrics
-        if: inputs.action == 'observe'
+        if: inputs.action == 'observe' || inputs.action == 'cleanup'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           mkdir -m 700 "$RUNNER_TEMP/fx-metrics"
-          scp -i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
-            "$DEPLOY_USER@$DEPLOY_HOST:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/server-metrics.jsonl" "$RUNNER_TEMP/fx-metrics/server-metrics.jsonl"
+          channel=(-i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=20)
+          for file in server-metrics.jsonl backend-errors.json; do
+            if ssh "${channel[@]}" "$DEPLOY_USER@$DEPLOY_HOST" "test -f /home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/$file"; then
+              scp "${channel[@]}" "$DEPLOY_USER@$DEPLOY_HOST:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/$file" "$RUNNER_TEMP/fx-metrics/$file"
+            fi
+          done
 
       - name: Upload aggregate server metrics
-        if: inputs.action == 'observe'
+        if: inputs.action == 'observe' || inputs.action == 'cleanup'
         uses: actions/upload-artifact@v4
         with:
           name: fx-loadtest-${{ inputs.run_id }}-server-metrics
-          path: ${{ runner.temp }}/fx-metrics/server-metrics.jsonl
+          path: ${{ runner.temp }}/fx-metrics/
           if-no-files-found: error
           retention-days: 3
 
