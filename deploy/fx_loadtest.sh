@@ -21,10 +21,10 @@ else
 fi
 
 # Fail before stopping anything if the deployed image lacks this tool.
-docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest --help > /dev/null < /dev/null
+docker compose run --rm --no-deps --pull never --user "$(id -u):$(id -g)" -T backend python -m scripts.fx_loadtest --help > /dev/null < /dev/null
 
 run_cli() {
-  docker compose run --rm --no-deps --pull never -T backend python -m scripts.fx_loadtest "$@" --run-id "$TAG" < /dev/null
+  docker compose run --rm --no-deps --pull never --user "$(id -u):$(id -g)" -T backend python -m scripts.fx_loadtest "$@" --run-id "$TAG" < /dev/null
 }
 
 if [ "$ACTION" = mint ] || [ "$ACTION" = inspect ]; then
@@ -96,7 +96,7 @@ if [ "$ACTION" = prepare ]; then
 else
   ARGS+=(--execute)
 fi
-docker compose run --rm --no-deps --pull never -T --name "$MAINT_NAME" backend python -m scripts.fx_loadtest "${ARGS[@]}" < /dev/null &
+docker compose run --rm --no-deps --pull never --user "$(id -u):$(id -g)" -T --name "$MAINT_NAME" backend python -m scripts.fx_loadtest "${ARGS[@]}" < /dev/null &
 MAINT_PID=$!
 wait "$MAINT_PID"
 MAINT_PID=''
