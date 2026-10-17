@@ -1,0 +1,78 @@
+diff --git a/deploy/nginx.conf b/deploy/nginx.conf
+index 922c6bb..3ad1a80 100644
+--- a/deploy/nginx.conf
++++ b/deploy/nginx.conf
+@@ -40,10 +40,16 @@ map $loadtest_ip $rate_key {
+ # $http_authorization 是 "Bearer <token>" 字符串：
+ #   * 同一用户 token 不变 → 进同一桶
+ #   * 白名单（$loadtest_ip=1）：空 key 跳过限速（保留压测兜底）
+-#   * 缺 Authorization 头（匿名调，理论上 401 不会到这里）：所有匿名挤同一空 key 桶
++#   * 缺 Authorization 头：回退真实客户端 IP，仍受限流，避免空 key 跳过限制
+ map $loadtest_ip $rate_key_user {
+     1   "";                   # 白名单：跳过
+-    0   $http_authorization;  # 按 Bearer token 区分用户
++    0   $authenticated_rate_key;
++}
++
++# 无凭证时回退 IP，避免空 key 跳过限速。这里只分桶，JWT 仍由后端校验。
++map $http_authorization $authenticated_rate_key {
++    ""       $client_ip_key;
++    default  $http_authorization;
+ }
+ 
+ # ── 速率限制区域（放在 server 块外部，或 http 块内）──
+@@ -52,6 +58,7 @@ limit_req_zone $rate_key zone=api_auth:10m    rate=5r/s;
+ limit_req_zone $rate_key zone=api_admin:10m   rate=2r/s;
+ # 交易接口（buy/sell/quote）：按用户限速，单用户 10 r/s
+ limit_req_zone $rate_key_user zone=api_trade_user:10m rate=10r/s;
++limit_req_zone $rate_key_user zone=api_general_user:10m rate=20r/s;
+ 
+ # ── /history/ 不可变历史段缓存（spec § 7.6）──
+ # 段内容 immutable：URL 含段起点，永不变化。回源次数 ≈ 段数，与在线人数无关。
+@@ -89,6 +96,17 @@ server {
+         add_header Cache-Control "public, immutable";
+     }
+ 
++    # 已登录身份查询单独分桶，百人共用 Wi-Fi 不共享认证接口的 IP 桶。
++    location = /api/v1/auth/me {
++        limit_req zone=api_general_user burst=40 nodelay;
++        limit_req_status 429;
++        proxy_pass http://127.0.0.1:8004;
++        proxy_set_header Host $host;
++        proxy_set_header X-Real-IP $remote_addr;
++        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++        proxy_set_header X-Forwarded-Proto $scheme;
++    }
++
+     # ── 认证接口（严格限速：防暴力破解）──
+     location /api/v1/auth/ {
+         limit_req zone=api_auth burst=10 nodelay;
+@@ -115,6 +133,19 @@ server {
+         client_max_body_size 1m;
+     }
+ 
++    # FX 嵌套报价/成交与玩家挂单写操作按 token 分桶；不匹配 SSE 和管理接口。
++    # 挂单列表 GET 同样进此桶，正常页面频率低于额度。
++    location ~ ^/api/v1/fx/(pairs/[0-9]+/(quote|trades|net/(quote|trades)|borrow-buy(/quote)?|short/(open|cover|quote))|orders(/[0-9]+/cancel)?)$ {
++        limit_req zone=api_trade_user burst=20 nodelay;
++        limit_req_status 429;
++        proxy_pass http://127.0.0.1:8004;
++        proxy_set_header Host $host;
++        proxy_set_header X-Real-IP $remote_addr;
++        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
++        proxy_set_header X-Forwarded-Proto $scheme;
++        client_max_body_size 1m;
++    }
++
+     # ── 管理面板（最严限速）──
+     location /api/v1/admin/ {
+         limit_req zone=api_admin burst=5 nodelay;
+@@ -142,7 +173,7 @@ server {
+ 
+     # ── 通用 API（宽松限速）──
+     location /api/v1/ {
+-        limit_req zone=api_general burst=40 nodelay;
++        limit_req zone=api_general_user burst=40 nodelay;
+         limit_req_status 429;
+ 
+         proxy_pass http://127.0.0.1:8004;

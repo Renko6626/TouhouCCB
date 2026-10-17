@@ -5,7 +5,7 @@ on:
     inputs:
       action:
         type: choice
-        options: [inspect, prepare, mint, cleanup]
+        options: [inspect, prepare, mint, cleanup, configure, observe]
         default: inspect
         required: true
       run_id:
@@ -36,7 +36,7 @@ jobs:
   accounts:
     if: github.repository_owner == 'Renko6626' && github.actor == 'Renko6626' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     env:
       LT_ACTION: ${{ inputs.action }}
       LT_RUN_ID: ${{ inputs.run_id }}
@@ -52,7 +52,7 @@ jobs:
           python - <<'PY'
           import os, re
           action = os.environ['LT_ACTION']
-          if action not in {'inspect','prepare','mint','cleanup'}:
+          if action not in {'inspect','prepare','mint','cleanup','configure','observe'}:
               raise SystemExit('Invalid action')
           if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,39}', os.environ['LT_RUN_ID']):
               raise SystemExit('Invalid test run ID')
@@ -113,6 +113,7 @@ jobs:
           test "$version" = fx-loadtest-2
           action=$1 tag=$2 source_id=$3 job=$4
           case "$action" in
+            configure|observe) bash deploy/fx_loadtest_ops.sh "$action" "$tag" ;;
             prepare) printf 'PREPARE\n' | bash deploy/fx_loadtest.sh prepare "$tag" "$source_id" ;;
             cleanup) printf 'CLEANUP\n' | bash deploy/fx_loadtest.sh cleanup "$tag" ;;
             inspect|mint) bash deploy/fx_loadtest.sh "$action" "$tag" ;;
@@ -129,6 +130,25 @@ jobs:
             mkdir -m 700 "$RUNNER_TEMP/fx-artifact"
             scp "${ssh_args[@]}" "$target:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/credentials.enc.json" "$RUNNER_TEMP/fx-artifact/credentials.enc.json"
           fi
+
+      - name: Download aggregate server metrics
+        if: inputs.action == 'observe'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          mkdir -m 700 "$RUNNER_TEMP/fx-metrics"
+          scp -i "$RUNNER_TEMP/fx-ssh/key" -o "UserKnownHostsFile=$RUNNER_TEMP/fx-ssh/known_hosts" -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$DEPLOY_USER@$DEPLOY_HOST:/home/deploy/TouhouCCB/backups/fx-loadtest/$LT_RUN_ID/server-metrics.jsonl" "$RUNNER_TEMP/fx-metrics/server-metrics.jsonl"
+
+      - name: Upload aggregate server metrics
+        if: inputs.action == 'observe'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fx-loadtest-${{ inputs.run_id }}-server-metrics
+          path: ${{ runner.temp }}/fx-metrics/server-metrics.jsonl
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload encrypted credentials only
         if: inputs.action == 'prepare' || inputs.action == 'mint'
