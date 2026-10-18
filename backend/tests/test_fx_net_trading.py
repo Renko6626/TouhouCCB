@@ -142,6 +142,17 @@ async def test_cross_zero_buy_repay_interest_and_finance_only_long(auto_repay):
         assert wallet.foreign_amount == result.legs[1].output_amount
         assert wallet.cost_basis == result.legs[1].input_amount
 
+        # A committed financed receipt survives later account/pair changes.
+        from app.models.fx import FxPair
+        user.credit_frozen = True
+        user.economic_version += 1
+        (await db.get(FxPair, pid)).status = 'paused'
+        await db.commit()
+    replay = await _net(uid, pid, 'buy', '30', borrowed='10', version=0)
+    assert replay.replay and replay.trade_ids == result.trade_ids
+    async with async_session_maker() as db:
+        assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 2
+
 
 @pytest.mark.parametrize('options,side,amount,borrowed,reason', [
     ({'wallet_foreign':'100', 'treasury_foreign':'1'}, 'sell', '140', '0', 'treasury'),

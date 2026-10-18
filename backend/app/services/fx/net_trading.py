@@ -356,7 +356,7 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
                 db.add(wallet)
             borrowed = quote.borrow_amount if leg.purpose == 'borrow_buy' else None
             if borrowed:
-                user = await loan_service.increase_debt(db, user_id, borrowed,
+                user = await loan_service.increase_debt_locked(db, user, borrowed,
                     grant_cash=True, daily_rate=simulation.daily_rate, now=now,
                     source='borrow', reason=f'fx_net:{pair_id}:{req.idempotency_key}')
             spot = await trading._write_spot_ledger(db, user=user, pair=pair,
@@ -380,11 +380,14 @@ async def execute_net_trade(db, user_id, pair_id, req):
     from app.services.fx import publisher
 
     key = GroupKey('fx', pair_id)
-    needs_discovery = False
-    for attempt in range(flags.get_flags().credit_risk_retry_limit + 2):
+    needs_discovery = req.borrow_amount > ZERO
+    # Explicit financing would always consume the first attempt discovering
+    # missing collateral gates. Skip it without increasing the retry budget.
+    first_attempt = 1 if needs_discovery else 0
+    for attempt in range(first_attempt, flags.get_flags().credit_risk_retry_limit + 2):
         try:
-            # Start with target only for cash/reductions. If locked state needs
-            # collateral gates, roll back and rediscover outside all gates.
+            # Start with target only when financing is not explicit. If locked
+            # state needs collateral gates, rediscover outside all gates.
             deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
             if db.in_transaction():
                 await db.rollback()
