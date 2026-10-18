@@ -1,7 +1,7 @@
 """WP6b：管理员资金/贷款入口的统一信贷准入（flag=unified_credit_enabled）。
 
 覆盖：扣款后 E 检查、冻结期充值放行、强制放贷的初始门槛、坏账核销显式越权、
-批量逐用户短事务与跳过、版本自增、门闩先于 user 行锁、配置非法 fail-closed，
+批量逐用户短事务与跳过、版本自增、锁内完整抵押估值、配置非法 fail-closed，
 以及 flag OFF 的旧行为逐字段不变。
 """
 import os
@@ -23,13 +23,12 @@ from app.models.ledger import LedgerEntry
 from app.services import admin_user_service as svc
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import WriteOwnership
 from app.services.credit.version import bump_economic_version, economic_version_of
 from app.services.credit.cash import available_cash
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("published_markets")]
 
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
@@ -218,36 +217,27 @@ async def test_unified_admin_write_requires_write_ownership(monkeypatch):
     assert cash == Decimal("100.000000") and version == 0
 
 
-async def test_unified_deduction_holds_collateral_gate_before_user_lock(writes_enabled, monkeypatch):
-    """门闩必须在 user 行锁之前拿到（门闩批次已持有才允许行锁）。"""
+async def test_unified_deduction_values_published_collateral(writes_enabled, monkeypatch):
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"), debt=Decimal("900"))
     key = await _seed_market_position(uid)
     credit_flags.set_flags(UNIFIED)
-
-    observed: list[frozenset] = []
-    original = svc._lock_user
-
-    async def spy(db, user_id):
-        observed.append(GATES.held_keys_by_current_task())
-        return await original(db, user_id)
-
-    monkeypatch.setattr(svc, "_lock_user", spy)
+    check = svc.check_cash_spend
+    async def observing(*args, **kwargs):
+        deps = kwargs["deps"]
+        assert sum(deps.holdings[key].values()) == Decimal("10")
+        assert deps.snapshots[key].outcomes[0].total_shares == ZERO
+        return await check(*args, **kwargs)
+    monkeypatch.setattr(svc, "check_cash_spend", observing)
     async with async_session_maker() as s:
-        with pytest.raises(svc.AdminUserError):
-            await svc.adjust_cash(s, target_id=uid, amount=Decimal("-50"), reason="gate", admin_id=admin)
-    assert observed and key in observed[0]
-    assert GATES.metrics().holders == 0  # 释放干净
+        with pytest.raises(svc.AdminUserError) as exc:
+            await svc.adjust_cash(s, target_id=uid, amount=Decimal("-50"), reason="collateral", admin_id=admin)
+    assert exc.value.status == 409 and "初始保证金" in exc.value.detail
+    assert await _state(uid) == (Decimal("100"), Decimal("900"), 0)
 
 
-async def test_unified_debit_retries_after_short_appears_post_discovery(writes_enabled, monkeypatch):
-    """Discovery missed a concurrently-opened short: release gates, rediscover, retry once.
-
-    The first discovery sees no debt and holds no gates. The injected write opens a
-    real trading short and bumps the version before the User lock; the admin path
-    must not quote the unseen pair under a missing gate — it releases everything,
-    re-discovers the full dependency, and writes exactly once.
-    """
+async def test_unified_debit_prices_short_appearing_before_user_lock(writes_enabled, monkeypatch):
+    """The locked account refresh includes a short missing from prefetch."""
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
     credit_flags.set_flags(UNIFIED)
@@ -273,9 +263,20 @@ async def test_unified_debit_retries_after_short_appears_post_discovery(writes_e
                 bumped = await s2.get(User, user_id)
                 bump_economic_version(bumped)
                 await s2.commit()
+            from tests.conftest import publish_seeded_market_records
+            await publish_seeded_market_records()
         return await original(db, user_id)
 
     monkeypatch.setattr(svc, "_lock_user", spy)
+    check = svc.check_cash_spend
+    async def observing(*args, **kwargs):
+        deps = kwargs["deps"]
+        assert deps.economic_version == 1 and len(deps.short_debts) == 1
+        pair_id, short = next(iter(deps.short_debts.items()))
+        assert short.principal_foreign == Decimal("10")
+        assert deps.snapshots[GroupKey("fx", pair_id)].pair.gold_reserve == Decimal("10000")
+        return await check(*args, **kwargs)
+    monkeypatch.setattr(svc, "check_cash_spend", observing)
     async with async_session_maker() as s:
         r = await svc.adjust_cash(s, target_id=uid, amount=Decimal("-10"),
                                   reason="retry", admin_id=admin)
@@ -288,7 +289,6 @@ async def test_unified_debit_retries_after_short_appears_post_discovery(writes_e
         )).scalars().all()
     assert len(entries) == 1
     assert entries[0].cash_delta == Decimal("-10.000000")
-    assert GATES.metrics().holders == 0
 
 
 # ────────────────────────── force_loan / forgive_debt ──────────────────────────
@@ -403,31 +403,28 @@ async def test_unified_batch_grant_applies_to_all_and_bumps(writes_enabled):
         assert cash == Decimal("125.000000") and version == 1
 
 
-async def test_unified_batch_debit_foreign_only_debt_holds_gates_and_admits_healthy_margin(
+async def test_unified_batch_debit_prices_all_foreign_debt_and_admits_healthy_margin(
     writes_enabled, monkeypatch,
 ):
-    """Foreign-only debt still holds its gates while healthy cash deductions succeed."""
+    """Both foreign liabilities are included in a healthy deduction decision."""
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("100"))
     keys = await _seed_short_pairs(uid)  # User.debt = 0
     credit_flags.set_flags(UNIFIED)
 
-    observed: list[frozenset] = []
-    original = svc._lock_user
-
-    async def spy(db, user_id):
-        observed.append(GATES.held_keys_by_current_task())
-        return await original(db, user_id)
-
-    monkeypatch.setattr(svc, "_lock_user", spy)
+    check = svc.check_cash_spend
+    async def observing(*args, **kwargs):
+        deps = kwargs["deps"]
+        assert set(keys).issubset(deps.snapshots)
+        assert set(deps.short_debts) == {key.group_id for key in keys}
+        return await check(*args, **kwargs)
+    monkeypatch.setattr(svc, "check_cash_spend", observing)
     f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
     async with async_session_maker() as s:
         r = await svc.batch_adjust_cash(
             s, f=f, amount=Decimal("-30"), reason="pull", admin_id=admin, dry_run=False,
         )
     assert r["updated_count"] == 1 and r["failed_count"] == 0
-    assert observed and set(keys).issubset(observed[0])
-    assert GATES.metrics().holders == 0
     cash, _, version = await _state(uid)
     assert cash == Decimal("70.000000") and version == 1
 
@@ -490,10 +487,10 @@ async def test_unified_amnesty_skips_user_whose_margin_breaks(writes_enabled):
     assert cash == Decimal("1000.000000") and debt == Decimal("100.000000") and version == 0
 
 
-async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
+async def test_unified_amnesty_foreign_only_debt_prices_cover(
     writes_enabled, monkeypatch,
 ):
-    """Forgiving gold debt must not forgive foreign debt: full gates + K under lock.
+    """Forgiving gold debt leaves the full foreign cover cost in the decision.
 
     ``forgive_debt=True`` with User.debt==0 and a cover cost that breaks the initial
     margin has to be refused for that concrete reason, not skipped as a version
@@ -505,14 +502,13 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
     keys = await _seed_short_pairs(uid, principal="9000")  # K >> cash
     credit_flags.set_flags(UNIFIED)
 
-    observed: list[frozenset] = []
-    original = svc._lock_user
-
-    async def spy(db, user_id):
-        observed.append(GATES.held_keys_by_current_task())
-        return await original(db, user_id)
-
-    monkeypatch.setattr(svc, "_lock_user", spy)
+    check = svc.check_new_risk
+    async def observing(*args, **kwargs):
+        deps = kwargs["deps"]
+        assert set(keys).issubset(deps.snapshots)
+        assert set(deps.short_debts) == {key.group_id for key in keys}
+        return await check(*args, **kwargs)
+    monkeypatch.setattr(svc, "check_new_risk", observing)
     f = svc.UserFilter(user_id_min=uid, user_id_max=uid)
     async with async_session_maker() as s:
         r = await svc.amnesty(
@@ -521,8 +517,6 @@ async def test_unified_amnesty_foreign_only_debt_holds_gates_and_prices_cover(
         )
     assert r["updated_count"] == 0 and r["failed_count"] == 1
     assert "初始保证金" in r["failed"][0]["reason"]
-    assert observed and set(keys).issubset(observed[0])
-    assert GATES.metrics().holders == 0
     cash, debt, version = await _state(uid)
     assert cash == Decimal("100.000000") and debt == ZERO and version == 0
 
@@ -546,7 +540,6 @@ async def test_unified_amnesty_foreign_only_writeoff_does_not_bypass_freeze(
         )
     assert r["updated_count"] == 0 and r["failed_count"] == 1
     assert "冻结" in r["failed"][0]["reason"]
-    assert GATES.metrics().holders == 0
     cash, debt, version = await _state(uid)
     assert cash == Decimal("100.000000") and debt == Decimal(gold_debt) and version == 0
     assert await _short_state(uid) == short_before
@@ -584,34 +577,20 @@ async def test_unified_admin_writes_keep_audit_replay_consistent(writes_enabled)
     assert cash == Decimal("1250.000000") and debt == Decimal("150.000000") and version == 4
 
 
-async def test_owner_loss_while_waiting_for_gate_rejects_deduction(writes_enabled, monkeypatch):
-    import asyncio
-    from contextlib import asynccontextmanager
+async def test_owner_loss_before_user_lock_rejects_deduction(writes_enabled, monkeypatch):
     from app.services.credit.ownership import EconomicWritesDisabled
     admin = await _seed_admin()
     uid = await _seed_user(cash=Decimal("1000"), debt=Decimal("10"))
-    key = await _seed_market_position(uid)
+    await _seed_market_position(uid)
     credit_flags.set_flags(UNIFIED)
-    arrived = asyncio.Event()
-    original = GATES.hold
-
-    @asynccontextmanager
-    async def observed_hold(**kwargs):
-        arrived.set()
-        async with original(**kwargs):
-            yield
-
-    async def request():
-        async with async_session_maker() as s:
-            return await svc.adjust_cash(s, target_id=uid, amount=Decimal("-1"), reason="race", admin_id=admin)
-
-    async with original(exclusive=[key]):
-        monkeypatch.setattr(GATES, "hold", observed_hold)
-        task = asyncio.create_task(request())
-        await asyncio.wait_for(arrived.wait(), 2)
+    original = svc._lock_user
+    async def lost_owner(db, user_id):
         writes_enabled.mark_read_only()
-    with pytest.raises(EconomicWritesDisabled):
-        await task
+        return await original(db, user_id)
+    monkeypatch.setattr(svc, "_lock_user", lost_owner)
+    async with async_session_maker() as s:
+        with pytest.raises(EconomicWritesDisabled):
+            await svc.adjust_cash(s, target_id=uid, amount=Decimal("-1"), reason="race", admin_id=admin)
     assert await _state(uid) == (Decimal("1000.000000"), Decimal("10.000000"), 0)
 
 @pytest_asyncio.fixture
