@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import inspect as sa_inspect, select
+from sqlalchemy import bindparam, inspect as sa_inspect, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Outcome, Position, SiteConfig, User
@@ -41,6 +41,25 @@ Q6 = Decimal("0.000001")
 
 LOAN_DAILY_RATE_KEY = "loan_daily_rate"
 SELL_FEE_RATE_KEY = "sell_fee_rate"
+
+# Cache only immutable SQL structure, never account data or configuration values.
+# Parameters and authoritative rows are read anew within every transaction.
+_USER_AUTHORITY = select(User).where(User.id == bindparam("risk_user_id")).execution_options(
+    populate_existing=True)
+_POSITIVE_ASSETS = union_all(
+    select(literal("lmsr"), Outcome.market_id, Position.outcome_id, Position.amount)
+    .join(Outcome, Outcome.id == Position.outcome_id)
+    .where(Position.user_id == bindparam("risk_user_id"), Position.amount > ZERO),
+    select(literal("fx"), FxWallet.pair_id, FxWallet.pair_id, FxWallet.foreign_amount)
+    .where(FxWallet.user_id == bindparam("risk_user_id"), FxWallet.foreign_amount > ZERO),
+)
+_SHORT_DEBTS = select(
+    FxShortPosition.pair_id, FxShortPosition.principal_foreign,
+    FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
+).where(FxShortPosition.user_id == bindparam("risk_user_id"),
+        (FxShortPosition.principal_foreign > ZERO) | (FxShortPosition.interest_foreign > ZERO))
+_CURRENT_RATES = select(SiteConfig.key, SiteConfig.value).where(SiteConfig.key.in_(
+    [LOAN_DAILY_RATE_KEY, SELL_FEE_RATE_KEY, credit_flags.KEY_CREDIT_NEW_RISK_FROZEN]))
 
 #: 版本化组值缓存上界（按 (user, version, symbol, symbol_version) 一条）。
 DEFAULT_CACHE_SIZE = 4096
@@ -327,12 +346,7 @@ async def _refresh_user_authority(session: AsyncSession, user_id: int) -> User:
     ``select(User)`` 原样返回（不覆盖已加载属性）。经济版本、cash/debt、
     ``credit_frozen`` 必须取数据库当前行，否则外部会话抽现金/冻结后会被旧值放行。
     """
-    stmt = (
-        select(User)
-        .where(User.id == int(user_id))
-        .execution_options(populate_existing=True)
-    )
-    row = (await session.execute(stmt)).scalars().first()
+    row = (await session.execute(_USER_AUTHORITY, {"risk_user_id": int(user_id)})).scalars().first()
     if row is None:
         raise ValueError(f"user not found: {user_id}")
     return row
@@ -521,25 +535,14 @@ async def discover_dependencies(
     if (locked_user is not None or locked_short_rows is not None) and not account_locked:
         raise ValueError("locked account inputs require account_locked=True")
     user = locked_user if locked_user is not None else await _refresh_user_authority(session, uid)
-    pos_rows = (await session.execute(select(
-        Position.outcome_id, Position.amount, Outcome.market_id,
-    ).join(Outcome, Outcome.id == Position.outcome_id).where(
-        Position.user_id == uid, Position.amount > ZERO))).all()
+    # Preserve both complete asset sets, including product-qualified IDs. One
+    # round trip does not change which holdings authorize the locked account.
+    asset_rows = (await session.execute(_POSITIVE_ASSETS, {"risk_user_id": uid})).all()
     holdings = {}
-    for oid, amount, mid in pos_rows:
-        holdings.setdefault(GroupKey("lmsr", int(mid)), {})[int(oid)] = Decimal(amount)
-    wallet_rows = (await session.execute(select(
-        FxWallet.pair_id, FxWallet.foreign_amount,
-    ).where(FxWallet.user_id == uid, FxWallet.foreign_amount > ZERO))).all()
-    for pid, amount in wallet_rows:
-        holdings[GroupKey("fx", int(pid))] = {int(pid): Decimal(amount)}
+    for product, group_id, asset_id, amount in asset_rows:
+        holdings.setdefault(GroupKey(product, int(group_id)), {})[int(asset_id)] = Decimal(amount)
     if locked_short_rows is None:
-        rows = (await session.execute(select(
-            FxShortPosition.pair_id, FxShortPosition.principal_foreign,
-            FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
-        ).where(FxShortPosition.user_id == uid,
-            (FxShortPosition.principal_foreign > ZERO)
-            | (FxShortPosition.interest_foreign > ZERO)))).all()
+        rows = (await session.execute(_SHORT_DEBTS, {"risk_user_id": uid})).all()
     else:
         rows = [(p.pair_id, p.principal_foreign, p.interest_foreign, p.interest_last_accrued_at)
                 for p in locked_short_rows
@@ -720,9 +723,7 @@ def _rebase_post(
 
 async def _current_rates(session: AsyncSession, deps: DependencySet) -> DependencySet:
     # Column reads bypass both the TTL cache and ORM identity-map snapshots.
-    rows = (await session.execute(select(SiteConfig.key, SiteConfig.value).where(
-        SiteConfig.key.in_([LOAN_DAILY_RATE_KEY, SELL_FEE_RATE_KEY, credit_flags.KEY_CREDIT_NEW_RISK_FROZEN])
-    ))).all()
+    rows = (await session.execute(_CURRENT_RATES)).all()
     raw = dict(rows)
     credit_flags.set_new_risk_frozen(
         str(raw.get(credit_flags.KEY_CREDIT_NEW_RISK_FROZEN, "false")).strip().lower()

@@ -18,10 +18,14 @@ from __future__ import annotations
 from typing import List
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import bindparam, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Market, Outcome, User
+
+
+_USER_LOCK = select(User).where(User.id == bindparam("locked_user_id")).with_for_update().execution_options(
+    populate_existing=True)
 
 
 async def lock_market(db: AsyncSession, market_id: int) -> Market:
@@ -38,7 +42,7 @@ async def lock_market(db: AsyncSession, market_id: int) -> Market:
 async def lock_user(db: AsyncSession, user_id: int) -> User:
     """SELECT FOR UPDATE 用户行。404 if not exists。"""
     res = await db.execute(
-        select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
+        _USER_LOCK, {"locked_user_id": user_id}
     )
     user = res.scalars().first()
     if not user:
