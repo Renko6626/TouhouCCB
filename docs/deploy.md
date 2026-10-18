@@ -222,7 +222,7 @@ sudo mkdir -p /var/cache/nginx/thccb && sudo chown www-data:www-data /var/cache/
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-仓库里 nginx 配置有改动时，重复上面五行即可（幂等）。
+以上用于首次安装。已有站点更新前应备份生效配置，并保留线上域名、证书、日志和其他定制；本次同出口多人访问的局部更新见 [3.5.1](#351-已有站点同步多人访问与-fx-sse-配置)。
 
 ### 3.3 HTTPS
 
@@ -266,10 +266,118 @@ sudo nginx -t && sudo systemctl reload nginx
 
 | 区域 | 限速 | 保护目标 |
 |------|------|---------|
-| `api_auth` | 5 r/s | `/api/v1/auth/*` — 防暴力登录 |
-| `api_trade` | 10 r/s | `/api/v1/market/buy\|sell\|quote` — 防刷单 |
-| `api_admin` | 2 r/s | `/api/v1/admin/*` — 防爆破 |
-| `api_general` | 20 r/s | 其余 API — 通用保护 |
+| `api_auth` | 每 IP 5 r/s | `/api/v1/auth/*`，但 `/auth/me` 单独按 token 分桶 |
+| `api_trade_user` | 每 token 10 r/s | LMSR 买卖/报价、FX 报价/交易及玩家挂单接口 |
+| `api_admin` | 每 IP 2 r/s | `/api/v1/admin/*` |
+| `api_general_user` | 每 token 20 r/s | `/api/v1/auth/me` 与其他普通 API |
+
+无 Authorization 时，用户桶回退到客户端 IP。Nginx 只按 token 字符串分桶，身份仍由后端校验。两个 SSE 专用 location 不挂 Nginx 请求限流；后端公开行情 SSE 保留同 IP、同市场最多 200 条连接的限制。该连接数上限不代表已验证百人活动的吞吐能力。真实登录仍受每 IP 5 r/s 限制，活动可提前登录。
+
+### 3.5.1 已有站点同步多人访问与 FX SSE 配置
+
+适用于旧站点仍按 IP 限制普通 API、缺少 `/auth/me` 和 FX 专用配置的情况。先确认 GitHub Actions 的 Deploy 成功：CI 失败会阻止模板同步；部署成功也只更新 `/home/deploy/TouhouCCB/deploy/nginx.conf`，不会自动覆盖 `/etc/nginx` 的生效配置。
+
+在生产服务器复制执行下面整段。脚本从服务器上的新模板同步指定配置块，保留其他线上设置，自动备份；`nginx -t` 失败会恢复原文件，检查通过才重载。支持重复执行，也支持已完成部分更新的配置；模板过旧、配置重复或无法识别时会停止，不会重复插入。
+
+```bash
+sudo python3 - <<'PY'
+from pathlib import Path
+from datetime import datetime
+import shutil
+import subprocess
+
+target = Path("/etc/nginx/sites-enabled/thccb.conf").resolve()
+template = Path("/home/deploy/TouhouCCB/deploy/nginx.conf").read_text()
+original = target.read_text()
+config = original
+
+def block(text, header, end):
+    assert text.count(header) == 1, f"配置缺失或重复：{header}"
+    start = text.index(header)
+    stop = text.index(end, start) + len(end)
+    return text[start:stop]
+
+def replace_once(old, new):
+    global config
+    assert config.count(old) == 1, f"配置与预期不同，停止：{old[:80]}"
+    config = config.replace(old, new, 1)
+
+# 已登录请求按 token 分桶；无 token 时回退 IP。
+header = "map $loadtest_ip $rate_key_user {"
+new_map = block(template, header, "\n}")
+fallback = block(template, "map $http_authorization $authenticated_rate_key {", "\n}")
+assert "$authenticated_rate_key" in new_map, "服务器模板过旧：用户桶缺少 IP 回退"
+replace_once(block(config, header, "\n}"), new_map)
+fallback_header = "map $http_authorization $authenticated_rate_key {"
+if fallback_header in config:
+    replace_once(block(config, fallback_header, "\n}"), fallback)
+else:
+    replace_once(new_map, new_map + "\n\n" + fallback)
+
+# 添加普通已登录请求的独立限流区域。
+zone = "limit_req_zone $rate_key_user zone=api_general_user:10m rate=20r/s;"
+assert zone in template, "服务器模板过旧：缺少 api_general_user 区域"
+if "zone=api_general_user:" in config:
+    assert config.count("zone=api_general_user:") == 1 and config.count(zone) == 1, \
+        "现有 api_general_user 定义不同或重复，请先核对该行"
+else:
+    anchor = "limit_req_zone $rate_key_user zone=api_trade_user:10m rate=10r/s;"
+    replace_once(anchor, anchor + "\n" + zone)
+
+# 同步普通 API 配置。
+header = "    location /api/v1/ {"
+replace_once(block(config, header, "\n    }"),
+             block(template, header, "\n    }"))
+
+# 添加身份查询、FX 交易和 FX SSE 的专用配置。
+additions = [
+    ("    location = /api/v1/auth/me {",
+     "    location /api/v1/auth/ {"),
+    ("    location ~ ^/api/v1/fx/",
+     "    location /api/v1/admin/ {"),
+    ("    location /api/v1/fx/stream/ {",
+     "    location /docs {"),
+]
+for header, anchor in additions:
+    desired = block(template, header, "\n    }")
+    if header in config:
+        replace_once(block(config, header, "\n    }"), desired)
+    else:
+        replace_once(anchor, desired + "\n\n" + anchor)
+
+backup = Path("/var/backups") / (
+    "thccb-nginx-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".conf"
+)
+shutil.copy2(target, backup)
+print(f"备份：{backup}", flush=True)
+target.write_text(config)
+
+check = subprocess.run(["nginx", "-t"])
+if check.returncode:
+    target.write_text(original)
+    raise SystemExit("检查失败，已恢复原配置，未重载。")
+
+subprocess.run(["systemctl", "reload", "nginx"], check=True)
+print("配置检查通过，Nginx 已重载。")
+PY
+```
+
+执行成功后，检查生效配置和后端 SSE 限额：
+
+```bash
+sudo nginx -T 2>&1 | grep -nE 'authenticated_rate_key|api_general_user|location = /api/v1/auth/me|location .*api/v1/fx/'
+docker exec thccb-backend python -c \
+"from app.services.realtime import IpConcurrencyLimiter; print(IpConcurrencyLimiter.MAX_PER_IP)"
+```
+
+第一条应显示用户分桶、身份查询和 FX 专用 location，第二条应输出 `200`。这些检查确认配置，不代替活动压测。
+
+需要回滚时，把下面的备份路径替换为脚本打印的实际路径，再执行：
+
+```bash
+sudo cp /var/backups/thccb-nginx-实际时间.conf /etc/nginx/sites-enabled/thccb.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
 
 ---
 
