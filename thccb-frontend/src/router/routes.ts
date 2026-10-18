@@ -8,6 +8,13 @@ import NotFound from '@/pages/NotFound.vue'
  * 顶层用 layout 组件作为 component，子路由通过 layout 内部的 <router-view /> 渲染。
  */
 export const routes: RouteRecordRaw[] = [
+  // FX 独立播放页：公开行情，不使用主布局，也不添加导航入口。
+  {
+    path: '/fx/play',
+    name: 'fx-play',
+    component: () => import('@/pages/FxPlayback.vue'),
+    meta: { title: 'FX 行情播放', requiresAuth: false },
+  },
   // FX 交互样稿：仅使用页面内存中的示例数据，不连接交易 API。
   {
     path: '/fx-preview',
