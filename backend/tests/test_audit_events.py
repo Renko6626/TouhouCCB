@@ -134,6 +134,7 @@ async def _scenario(client):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures('published_markets')
 async def test_full_scenario_emits_events_and_replays_consistently(client):
     admin_uid, alice_uid, mid, oids = await _scenario(client)
 

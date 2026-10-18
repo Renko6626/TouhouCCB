@@ -42,6 +42,13 @@ class AsyncCompatSession:
     @property
     def deleted(self): return self._session.deleted
     def in_transaction(self): return self._session.in_transaction()
+    def expire_all(self): self._session.expire_all()
+
+    @asynccontextmanager
+    async def begin(self):
+        with self._session.begin():
+            yield self
+
     class _AsyncNested:
         def __init__(self, session): self.session = session; self.transaction = None
         async def __aenter__(self):

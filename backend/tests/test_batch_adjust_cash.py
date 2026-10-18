@@ -14,6 +14,8 @@ from app.core.users import create_access_token
 from app.models.base import User
 from app.models.fx import FxPair, FxShortPosition
 
+pytestmark = pytest.mark.usefixtures('published_markets')
+
 
 async def _seed_user(
     cash: Decimal = Decimal("100"),

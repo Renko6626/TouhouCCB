@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
+import pytest_asyncio
 from pydantic import ValidationError
 from sqlalchemy import func, select
 
@@ -163,15 +164,36 @@ async def test_retirement_rejects_independent_foreign_debt(fx_db):
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from app.api.v1 import admin_pve_fx
-from app.core.database import async_session_maker
+from app.core import database
 from app.core.users import current_superuser, current_active_user
-from app.models.base import SiteConfig
 from app.models.fx import FxPair, FxTreasury
 
 P = '/api/v1/admin/pve/fx'
 
+
+@pytest_asyncio.fixture
+async def fx_api_runtime(fx_db, monkeypatch):
+    from app.services import trading_prices
+    from app.services.fx import writer as fx_writer
+    from app.services.pve_fx import executor
+
+    # Match the lifespan without replacing the existing isolated owner/factory.
+    registry = trading_prices.PricingRegistry(database.async_session_maker)
+    registry.configure(memory_products=frozenset({'fx'}))
+    monkeypatch.setattr(trading_prices, 'OWNERSHIP', ownership.OWNERSHIP)
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    monkeypatch.setattr(executor, 'async_session_maker', database.async_session_maker)
+    writer = fx_writer.FxWriter()
+    monkeypatch.setattr(fx_writer, 'FX_WRITER', writer)
+    try:
+        await writer.start()
+        yield
+    finally:
+        await writer.stop()
+
+
 async def api_seed():
-    async with async_session_maker() as db:
+    async with database.async_session_maker() as db:
         admin = User(username='fx-admin', is_superuser=True, is_active=True)
         pair = FxPair(currency_code='API', currency_name='API', status='trading',
                       gold_reserve=Decimal('10000'), foreign_reserve=Decimal('10000'))
@@ -179,9 +201,12 @@ async def api_seed():
         db.add(pair)
         await db.flush()
         db.add(FxTreasury(pair_id=pair.id, gold_balance=Decimal('10000'), foreign_balance=Decimal('10000')))
-        db.add(SiteConfig(key='fx_enabled', value='true', value_type='bool'))
         await db.commit()
-        return admin, pair.id
+        pair_id = pair.id
+    # The test seeds directly instead of using admin pair creation.
+    from app.services.fx.writer import FX_WRITER
+    await FX_WRITER.register_pair(pair_id)
+    return admin, pair_id
 
 def management_app(admin=None):
     app = FastAPI()
@@ -207,7 +232,7 @@ async def test_fx_management_requires_superuser():
         assert (await client.post(P+'/bots/batch', json={'profile_ids':[1],'patch':{'status':'active'}})).status_code == 403
 
 @pytest.mark.asyncio
-async def test_fx_api_batch_real_params_and_atomic_validation():
+async def test_fx_api_batch_real_params_and_atomic_validation(fx_api_runtime):
     admin,pair_id = await api_seed()
     async with AsyncClient(transport=ASGITransport(app=management_app(admin)), base_url='http://test') as client:
         result = await client.post(P+'/bots/generate',json={
@@ -228,7 +253,7 @@ async def test_fx_api_batch_real_params_and_atomic_validation():
         result=await client.post(P+'/bots/batch',json={'profile_ids':ids,'patch':{'params':{'inventory_baseline_foreign':'99'}}})
         assert result.status_code==400
         assert (await client.get(P+'/overview')).json()['preset']['items'][-1]['template']=='episode'
-        async with async_session_maker() as db:
+        async with database.async_session_maker() as db:
             second = await db.get(BotProfile, ids[1])
             second.status = 'retired'
             await db.commit()
@@ -238,7 +263,7 @@ async def test_fx_api_batch_real_params_and_atomic_validation():
         assert persisted[0]['params']['order_sigma_foreign'] == 37
 
 @pytest.mark.asyncio
-async def test_fx_api_paused_liquidation_then_retirement():
+async def test_fx_api_paused_liquidation_then_retirement(fx_api_runtime):
     admin,pair_id=await api_seed()
     async with AsyncClient(transport=ASGITransport(app=management_app(admin)), base_url='http://test') as client:
         result=await client.post(P+'/bots/generate',json={
@@ -256,7 +281,7 @@ async def test_fx_api_paused_liquidation_then_retirement():
         result=await client.delete(f'{P}/bots/{pid}')
         assert result.status_code==200,result.text
         assert result.json()['mode']=='retired'
-        async with async_session_maker() as db:
+        async with database.async_session_maker() as db:
             profile=await db.get(BotProfile,pid)
             user=await db.get(User,item['user_id'])
             assert profile.status=='retired' and not user.is_active and user.cash==0

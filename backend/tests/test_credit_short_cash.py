@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from sqlalchemy import select
+from tests.conftest import publish_seeded_market_records
 
 from app.core.database import async_session_maker
 from app.models.base import SiteConfig, User
@@ -14,7 +15,7 @@ from app.services import admin_user_service as admin, danmuku, loan_service, red
 from app.services.credit import flags
 from app.services.credit.flags import CreditFlags
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 D = Decimal
 
 
@@ -115,6 +116,7 @@ async def test_open_proceeds_buy_another_pair_subject_to_initial_margin(buy_fee,
 
     flags.set_flags(CreditFlags(credit_leverage=D("4"), credit_maintenance_ratio=D("0.1")))
     uid, short_pid = await _seed(cash="50")
+    await publish_seeded_market_records()
     await _open(uid, short_pid, "100")
     async with async_session_maker() as s:
         pair = FxPair(currency_code=uuid.uuid4().hex[:16], currency_name="Other",
@@ -125,6 +127,7 @@ async def test_open_proceeds_buy_another_pair_subject_to_initial_margin(buy_fee,
         s.add(FxTreasury(pair_id=pair.id, gold_balance=D("10000"), foreign_balance=D("10000")))
         await s.commit()
         pid = pair.id
+    await publish_seeded_market_records()
     before = await state(uid)
     assert before[0] > D("100")
     async with async_session_maker() as s:
