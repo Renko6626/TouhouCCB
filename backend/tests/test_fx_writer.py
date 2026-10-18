@@ -124,3 +124,94 @@ async def test_timeout_can_commit_started_command_but_skips_abandoned_queue(monk
     finally:
         release.set()
         await writer.stop()
+
+
+async def test_liquidity_delete_and_pending_trade_share_one_queue(monkeypatch):
+    """Deletion commits after funding and rejects every old queued waiter."""
+    from app.models.audit import AuditEvent
+    from app.services.fx import liquidity
+    from app.services.fx.writer_ops import AdminPair, Liquidity
+    uid, pid = await seed()
+    writer = FxWriter()
+    await writer.start()
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = liquidity._fund_pair_impl
+    installed_versions = []
+
+    async def fund(*args):
+        entered.set()
+        await release.wait()
+        return await original(*args)
+
+    def hints(pair):
+        installed_versions.append(writer.get_state(pid).snapshot.pool_version)
+
+    monkeypatch.setattr(liquidity, '_fund_pair_impl', fund)
+    monkeypatch.setattr(liquidity, '_publish_liquidity', hints)
+    try:
+        funding = asyncio.create_task(writer.submit(Liquidity(pid, D('3'), D('2'), uid, False)))
+        await entered.wait()
+        deleting = asyncio.create_task(writer.submit(AdminPair(pid, uid, 'delete', '{}')))
+        pending = asyncio.create_task(writer.submit(buy(uid, pid, 'after-delete')))
+        reload = asyncio.create_task(writer.reload_state(pid))
+        await asyncio.sleep(0)
+        assert not deleting.done() and not pending.done() and not reload.done()
+        release.set()
+        funded, deleted, trade_error, reload_error = await asyncio.gather(
+            funding, deleting, pending, reload, return_exceptions=True)
+        assert funded.pool_version == 2 and funded.gold_reserve == D('10003')
+        assert deleted is None and installed_versions == [2]
+        assert all(isinstance(error, HTTPException) and error.status_code == 404
+                   for error in (trade_error, reload_error))
+        assert writer.get_state(pid).deleted and writer.get_state(pid).unavailable
+        with pytest.raises(HTTPException) as rejected:
+            await writer.register_pair(pid)
+        assert rejected.value.status_code == 404
+        async with async_session_maker() as db:
+            assert await db.get(FxPair, pid) is None
+            assert (await db.get(User, uid)).cash == D('100')
+            assert await db.scalar(select(func.count()).select_from(FxTrade)) == 0
+            assert set((await db.execute(select(AuditEvent.event_type))).scalars()) == {
+                'fx_fund', 'fx_pair_delete'}
+    finally:
+        release.set()
+        await writer.stop()
+
+
+async def test_queued_cancel_precedes_trigger_without_financial_mutation(monkeypatch):
+    from app.models.fx import FxTriggerOrder
+    from app.schemas.fx import FxTriggerOrderCreate
+    from app.services.fx import liquidity
+    from app.services.fx.writer_ops import AttemptOrder, CancelOrder, CreateOrder, Liquidity
+    uid, pid = await seed()
+    writer = FxWriter()
+    await writer.start()
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = liquidity._fund_pair_impl
+
+    async def fund(*args):
+        entered.set()
+        await release.wait()
+        return await original(*args)
+
+    monkeypatch.setattr(liquidity, '_fund_pair_impl', fund)
+    try:
+        req = FxTriggerOrderCreate(pair_id=pid, action='buy', amount=D('10'),
+                                   comparison='lte', trigger_price=D('2'))
+        order = await writer.submit(CreateOrder(pid, uid, req.model_dump_json()))
+        funding = asyncio.create_task(writer.submit(Liquidity(pid, D('1'), D('1'), uid, False)))
+        await entered.wait()
+        cancelling = asyncio.create_task(writer.submit(CancelOrder(pid, uid, order.id)))
+        attempt = asyncio.create_task(writer.submit(AttemptOrder(pid, order.id, D('1'))))
+        await asyncio.sleep(0)
+        assert not cancelling.done() and not attempt.done()
+        release.set()
+        _, cancelled, result = await asyncio.gather(funding, cancelling, attempt)
+        assert cancelled.status == 'cancelled' and result is None
+        async with async_session_maker() as db:
+            assert (await db.get(FxTriggerOrder, order.id)).status == 'cancelled'
+            assert (await db.get(User, uid)).cash == D('100')
+            assert await db.scalar(select(func.count()).select_from(FxTrade)) == 0
+    finally:
+        release.set()
+        await writer.stop()

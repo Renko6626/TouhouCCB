@@ -1,5 +1,4 @@
 """Private trigger order storage; no funds are reserved here."""
-from app.services.market_read_state import commit_fx_changes
 from datetime import datetime, timezone
 from decimal import Decimal
 import logging
@@ -13,7 +12,7 @@ from app.schemas.fx import FxOrderResult, FxTradeInstruction, FxTriggerOrderCrea
 from app.services.market_locks import lock_user
 
 
-async def create_order(db: AsyncSession, user_id: int, req: FxTriggerOrderCreate) -> FxTriggerOrderRead:
+async def create_order_in_session(db: AsyncSession, user_id: int, req: FxTriggerOrderCreate) -> FxTriggerOrderRead:
     # Pair precedes User, matching trading/admin lock ordering.
     pair = (await db.execute(select(FxPair).where(FxPair.id == req.pair_id)
         .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
@@ -32,7 +31,6 @@ async def create_order(db: AsyncSession, user_id: int, req: FxTriggerOrderCreate
     db.add(order)
     await db.flush()
     result = FxTriggerOrderRead.model_validate(order)
-    await db.commit()
     return result
 
 
@@ -60,7 +58,7 @@ async def _check_no_receipt(db, order):
         raise RuntimeError('FX order/receipt mismatch; manual check required')
 
 
-async def _record_failure(db, user_id, order_id, price, reason):
+async def _record_failure(writer, db, user_id, order_id, price, reason):
     # The money transaction has already rolled back. Cancellation wins if it
     # committed while these locks were released.
     await lock_user(db, user_id)
@@ -75,11 +73,12 @@ async def _record_failure(db, user_id, order_id, price, reason):
     order.finished_at = datetime.now(timezone.utc)
     await db.flush()
     result = FxTriggerOrderRead.model_validate(order)
-    await db.commit()
+    from app.services.fx.writer_ops import commit_and_install
+    await commit_and_install(writer, db)
     return result
 
 
-async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrderRead | None:
+async def _attempt_order_owned(writer, order_id: int, observed_price: Decimal) -> FxTriggerOrderRead | None:
     """Try a price candidate once; money and terminal outcome commit together.
 
     Infrastructure/commit errors propagate and stop the scan. A subsequent
@@ -162,14 +161,15 @@ async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrde
                         result = FxTriggerOrderRead.model_validate(order)
                         post_price = execution.post_price
                         hints = capture_accounts(db)
-                        await commit_fx_changes(db)
+                        from app.services.fx.writer_ops import commit_and_install
+                        await commit_and_install(writer, db)
                     except BaseException:
                         await db.rollback()
                         raise
-                publish_accounts(hints, 'fx_orders')
-                trading.notify_market_data_committed(pair_id)
-                publisher.enqueue_publication(pair_id=pair_id, post_price=post_price, trade_id=trade_id)
-                return result
+                    publish_accounts(hints, 'fx_orders')
+                    trading.notify_market_data_committed(pair_id)
+                    publisher.enqueue_publication(pair_id=pair_id, post_price=post_price, trade_id=trade_id)
+                    return result
             except (trading._RetryCredit, shorts.ShortRetryCredit):
                 needs_discovery = True
                 if attempt == flags.get_flags().credit_risk_retry_limit + 1:
@@ -181,35 +181,30 @@ async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrde
                 raise
             if failure is not None:
                 await db.rollback()
-                return await _record_failure(db, user_id, order_id, observed_price, failure)
+                async with GATES.hold(exclusive=[key]):
+                    return await _record_failure(writer, db, user_id, order_id, observed_price, failure)
         raise RuntimeError('FX order retry loop exhausted')
 
 
-async def fail_unavailable_order(order_id: int) -> FxTriggerOrderRead | None:
+async def fail_unavailable_in_session(db, order_id: int) -> FxTriggerOrderRead | None:
     """End a permanently unavailable pair's order, rechecking under locks."""
-    from app.core.database import async_session_maker
-    from app.services.credit.ownership import OWNERSHIP
-    OWNERSHIP.require_writes()
-    async with async_session_maker() as db:
-        candidate = await db.get(FxTriggerOrder, order_id)
-        if candidate is None or candidate.status != 'waiting':
-            return None
-        user_id, pair_id = candidate.user_id, candidate.pair_id
-        await db.rollback()
-        pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
-            .with_for_update().execution_options(populate_existing=True))).scalar_one()
-        await lock_user(db, user_id)
-        order = await _locked_order(db, order_id)
-        if order is None or order.status != 'waiting' or not (pair.archived or pair.status == 'closed'):
-            return None
-        await _check_no_receipt(db, order)
-        order.status = 'failed'
-        order.failure_reason = 'FX pair is permanently unavailable'
-        order.finished_at = datetime.now(timezone.utc)
-        await db.flush()
-        result = FxTriggerOrderRead.model_validate(order)
-        await db.commit()
-        return result
+    candidate = await db.get(FxTriggerOrder, order_id)
+    if candidate is None or candidate.status != 'waiting':
+        return None
+    user_id, pair_id = candidate.user_id, candidate.pair_id
+    pair = (await db.execute(select(FxPair).where(FxPair.id == pair_id)
+        .with_for_update().execution_options(populate_existing=True))).scalar_one()
+    await lock_user(db, user_id)
+    order = await _locked_order(db, order_id)
+    if order is None or order.status != 'waiting' or not (pair.archived or pair.status == 'closed'):
+        return None
+    await _check_no_receipt(db, order)
+    order.status = 'failed'
+    order.failure_reason = 'FX pair is permanently unavailable'
+    order.finished_at = datetime.now(timezone.utc)
+    await db.flush()
+    result = FxTriggerOrderRead.model_validate(order)
+    return result
 
 
 async def result_for_order(db: AsyncSession, order: FxTriggerOrderRead) -> FxOrderResult:
@@ -255,7 +250,7 @@ async def list_orders(db: AsyncSession, user_id: int, *, status: str | None = No
     return [FxTriggerOrderRead.model_validate(row) for row in rows]
 
 
-async def cancel_order(db: AsyncSession, user_id: int, order_id: int) -> FxTriggerOrderRead:
+async def cancel_order_in_session(db: AsyncSession, user_id: int, order_id: int) -> FxTriggerOrderRead:
     await lock_user(db, user_id)
     order = (await db.execute(select(FxTriggerOrder).where(
         FxTriggerOrder.id == order_id, FxTriggerOrder.user_id == user_id)
@@ -269,5 +264,50 @@ async def cancel_order(db: AsyncSession, user_id: int, order_id: int) -> FxTrigg
         order.finished_at = datetime.now(timezone.utc)
         await db.flush()
     result = FxTriggerOrderRead.model_validate(order)
-    await db.commit()
     return result
+
+
+async def create_order(db, user_id, req):
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import CreateOrder
+    command = CreateOrder(int(req.pair_id), int(user_id), req.model_dump_json())
+    await db.close()
+    return await FX_WRITER.submit(command)
+
+
+async def _order_pair(db, order_id, user_id=None):
+    stmt = select(FxTriggerOrder.pair_id).where(FxTriggerOrder.id == order_id)
+    if user_id is not None:
+        stmt = stmt.where(FxTriggerOrder.user_id == user_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def cancel_order(db, user_id, order_id):
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import CancelOrder
+    pair_id = await _order_pair(db, order_id, user_id)
+    await db.close()
+    if pair_id is None:
+        raise HTTPException(404, 'Order not found')
+    return await FX_WRITER.submit(CancelOrder(int(pair_id), int(user_id), int(order_id)))
+
+
+async def _submit_order(order_id, observed_price=None, *, unavailable=False):
+    from app.core.database import async_session_maker
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import AttemptOrder, FailOrder
+    async with async_session_maker() as db:
+        pair_id = await _order_pair(db, order_id)
+    if pair_id is None:
+        return None
+    command = (FailOrder(int(pair_id), int(order_id)) if unavailable else
+               AttemptOrder(int(pair_id), int(order_id), Decimal(observed_price)))
+    return await FX_WRITER.submit(command)
+
+
+async def attempt_order(order_id, observed_price):
+    return await _submit_order(order_id, observed_price)
+
+
+async def fail_unavailable_order(order_id):
+    return await _submit_order(order_id, unavailable=True)

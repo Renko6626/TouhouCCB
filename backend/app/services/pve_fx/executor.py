@@ -11,8 +11,6 @@ from app.core.database import async_session_maker
 from app.models.base import User
 from app.models.bot import BotProfile
 from app.models.fx import FxTreasury, FxWallet
-from app.services.credit.gates import GATES
-from app.services.credit.keys import GroupKey
 from app.services.fx import trading
 from app.services.fx.amm import amount_down
 from app.services.market_locks import lock_user
@@ -41,31 +39,37 @@ async def save_observation_state(profile_id: int, decision: FxDecision, frame: F
     orders. Never copies pending intents or fill-dependent quantity/cost. A stale
     decision cannot restore a completed episode or overwrite a pause.
     """
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import ObserveBot
     async with async_session_maker() as db:
         profile = await _profile(db, profile_id)
-        uid, pid = profile.user_id, profile.fx_pair_id
-        await db.rollback()
-        async with GATES.hold(exclusive=[GroupKey('fx', pid)]):
-            await trading._pair(db, pid, lock=True)
-            await lock_user(db, uid)
-            await trading._wallet_lock(db, uid, pid, create=False)
-            await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid).with_for_update())
-            profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
-                       .with_for_update().execution_options(populate_existing=True))).scalars().one()
-            state = deepcopy(profile.strategy_state)
-            observed = decision.state.get('episode')
-            current = state.get('episode')
-            if (pid == frame.pair_id and profile.status == 'active' and current and observed
-                    and _same_episode(current, observed)):
-                peak = observed.get('peak_return')
-                if peak is not None:
-                    current['peak_return'] = max(peak, current['peak_return']) if current.get('peak_return') is not None else peak
-                if current.get('closing_reason') is None and observed.get('closing_reason') is not None:
-                    current['closing_reason'] = observed['closing_reason']
-                profile.strategy_state = state
-            trading._require_writes()
-            await db.commit()
-            return state
+        command = ObserveBot(int(profile.fx_pair_id), int(profile_id), int(profile.user_id),
+                             int(frame.pair_id), json.dumps(decision.state))
+    return await FX_WRITER.submit(command)
+
+
+async def observe_in_session(db, command):
+    pid, uid, profile_id = command.pair_id, command.user_id, command.profile_id
+    observed_state = json.loads(command.state_json)
+    await trading._pair(db, pid, lock=True)
+    await lock_user(db, uid)
+    await trading._wallet_lock(db, uid, pid, create=False)
+    await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid).with_for_update())
+    profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
+               .with_for_update().execution_options(populate_existing=True))).scalars().one()
+    state = deepcopy(profile.strategy_state)
+    observed = observed_state.get('episode')
+    current = state.get('episode')
+    if (pid == command.frame_pair_id and profile.status == 'active' and current and observed
+            and _same_episode(current, observed)):
+        peak = observed.get('peak_return')
+        if peak is not None:
+            current['peak_return'] = max(peak, current['peak_return']) if current.get('peak_return') is not None else peak
+        if current.get('closing_reason') is None and observed.get('closing_reason') is not None:
+            current['closing_reason'] = observed['closing_reason']
+        profile.strategy_state = state
+    trading._require_writes()
+    return state
 
 
 def _fill(execution, action, requested, user, wallet):

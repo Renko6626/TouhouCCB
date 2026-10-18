@@ -35,7 +35,11 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 async def writer(pg_engine, monkeypatch):
     owner = ownership.WriteOwnership(url=os.environ['TEST_PG_DATABASE_URL'])
     assert await owner.acquire(required=True)
-    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku):
+    from app.services.fx import writer as fx_writer
+    from app.services import admin_user_service, trading_prices
+    from app.services.credit import execution
+    for module in (ownership, shorts, trading, loan, admin_fx, loan_sweep, danmuku,
+                   fx_writer, execution, admin_user_service, trading_prices):
         monkeypatch.setattr(module, 'OWNERSHIP', owner)
     flags.set_flags(flags.CreditFlags(
                     credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))

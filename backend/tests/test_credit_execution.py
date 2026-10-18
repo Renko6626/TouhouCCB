@@ -254,3 +254,54 @@ async def test_finite_version_conflicts_exhaust_without_mutation_then_resume(mon
         assert (await s.execute(select(FxWallet))).scalar_one().foreign_amount == 0
         assert (await s.get(User, uid)).debt < 200
         assert (await s.execute(select(LiquidationAction))).scalar_one().kind == 'sell_group'
+
+
+@pytest.mark.asyncio
+async def test_fx_round_preparation_and_funding_share_pair_queue(monkeypatch):
+    import asyncio
+    from app.models.fx import FxPoolEvent, FxTrade
+    from app.services.credit import execution
+    from app.services.fx import liquidity
+    from app.services.fx.writer import FX_WRITER
+    uid = await seed(debt='97', fx=['500'])
+    async with async_session_maker() as db:
+        pid = (await db.execute(select(FxPair.id))).scalar_one()
+    entered, release = asyncio.Event(), asyncio.Event()
+    prepare = execution.prepare_locked
+
+    async def pause_preparation(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return await prepare(*args, **kwargs)
+
+    monkeypatch.setattr(execution, 'prepare_locked', pause_preparation)
+    round_task = asyncio.create_task(execute(uid))
+    funding = None
+    try:
+        await entered.wait()
+        # No account/Pair transaction survives while this producer waits.
+        async with async_session_maker() as producer:
+            funding = asyncio.create_task(liquidity.fund_pair(producer, pid, D('1'), D('1'), uid))
+            await asyncio.sleep(0)
+            assert not funding.done()
+            assert FX_WRITER.get_state(pid).snapshot.pool_version == 1
+            release.set()
+            status, funded = await asyncio.gather(round_task, funding)
+        assert status == 'triggered' and funded.pool_version == 3
+        async with async_session_maker() as db:
+            user = await db.get(User, uid)
+            action = (await db.execute(select(LiquidationAction))).scalar_one()
+            assert action.kind == 'sell_group' and action.repaid > 0
+            assert action.debt_after == user.debt and action.cash_after == user.cash
+            assert action.economic_version_after == user.economic_version
+            assert (await db.execute(select(FxWallet))).scalar_one().foreign_amount == D('450')
+            assert len(list((await db.execute(select(FxTrade))).scalars())) == 1
+            events = list((await db.execute(select(FxPoolEvent).order_by(FxPoolEvent.id))).scalars())
+            assert [event.kind for event in events] == ['trade', 'fund']
+            assert (events[0].post_gold_reserve, events[0].post_foreign_reserve) == (
+                events[1].pre_gold_reserve, events[1].pre_foreign_reserve)
+            assert funded.gold_reserve == events[1].post_gold_reserve
+    finally:
+        release.set()
+        await asyncio.gather(*(task for task in (round_task, funding) if task is not None),
+                             return_exceptions=True)

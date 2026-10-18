@@ -75,12 +75,18 @@ async def pg_engine():
         pytest.skip(f"PostgreSQL 测试库不可达: {type(exc).__name__}: {exc}")
     assert dialect == "postgresql", f"pg fixture 只跑 PostgreSQL，实际 {dialect}"
 
+    from app.services.fx.writer import FX_WRITER
+    from app.services.trading_prices import REGISTRY
+    await FX_WRITER.stop()
+    REGISTRY.reset()
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     try:
         yield engine
     finally:
+        await FX_WRITER.stop()
+        REGISTRY.reset()
         await engine.dispose()
 
 

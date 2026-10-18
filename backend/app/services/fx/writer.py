@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class FxWriterState:
     snapshot: FxReadState
     unavailable: bool = False
+    deleted: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,17 @@ class FxWriter:
             state.snapshot = snapshot
             state.unavailable = False
 
+    def mark_deleted(self, pair_id):
+        """Consumer-only deletion: retire this ID and complete every queued waiter."""
+        self._states[pair_id].unavailable = True
+        self._states[pair_id].deleted = True
+        self._invalidate(pair_id)
+        queue = self._queues[pair_id]
+        while not queue.empty():
+            _, future = queue.get_nowait()
+            if not future.done():
+                future.set_exception(HTTPException(404, "FX pair was deleted"))
+
     async def _load_direct(self, pair_id):
         """Bootstrap/recovery only: never enqueue from this consumer into itself."""
         async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
@@ -159,6 +171,8 @@ class FxWriter:
             raise HTTPException(503, "FX writer is unavailable")
         if queue is None or state is None:
             raise HTTPException(404, "FX pair is not registered")
+        if state.deleted:
+            raise HTTPException(404, "FX pair was deleted")
         if state.unavailable and not isinstance(command, ReloadPair):
             raise HTTPException(503, "FX pair state is unavailable; retry later")
         future = asyncio.get_running_loop().create_future()
@@ -196,9 +210,10 @@ class FxWriter:
                 # Expected business rejections preserve their public exception/DTO.
                 # Unexpected failures can follow a durable commit: reload before
                 # executing the next command, and reject while recovery is broken.
+                from app.services.admin_user_service import AdminUserError
                 from app.services.fx.trading import TradeRejected
                 from app.services.fx.shorts import ShortRejected
-                if not isinstance(exc, (HTTPException, TradeRejected, ShortRejected)):
+                if not isinstance(exc, (HTTPException, TradeRejected, ShortRejected, AdminUserError)):
                     self._states[pair_id].unavailable = True
                     self._invalidate(pair_id)
                     logger.exception("FX writer command failed: pair=%s", pair_id)

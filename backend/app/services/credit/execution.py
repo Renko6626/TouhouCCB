@@ -784,10 +784,93 @@ async def _liquidation_transaction(session):
         raise
 
 
-async def execute_user(user_id, *, rate, pct, source):
+async def _execute_locked_round(session, user_id, deps, guess, *, rate, pct, source,
+                                attempt, log_retry):
+    """One complete financial round; caller owns transaction and target serialization."""
     from app.services.fx.trading import execute_liquidation_sell_in_session
-    from app.services.market_writer import WRITER
     from app.services.writer_ops import LiquidateGroupCmd
+    command = publication = None
+    # FX product rows precede User, for both sell and cover.
+    ids = ([guess.target.group_id]
+           if guess and guess.target.product == 'fx' else [])
+    if ids:
+        await session.execute(
+            select(FxPair).where(FxPair.id.in_(ids))
+            .order_by(FxPair.id).with_for_update())
+    user = await lock_user(session, user_id)
+    if user.economic_version != deps.economic_version:
+        log_retry('economic_version_drift', attempt)
+        return 'retry', None, None
+    fresh = await discover_dependencies(session, user_id)
+    if set(fresh.groups) != set(deps.groups):
+        log_retry('dependency_selection_drift', attempt)
+        return 'retry', None, None
+    current = await value_user_detailed(session, user_id, daily_rate=rate)
+    now = datetime.now(timezone.utc)
+    current_choice = await choose_liquidation_action(
+        session, current, fresh, pct=pct, daily_rate=rate, now=now)
+    if not _same_choice(guess, current_choice):
+        log_retry('selection_drift', attempt)
+        return 'retry', None, None
+    plan = await prepare_locked(
+        session, user, fresh, rate=rate, pct=pct, source=source,
+        pre=current, choice=current_choice)
+
+    if plan.status == 'cover':
+        publication, status = await _execute_cover_locked(
+            session, user, plan, fresh, rate=rate, source=source)
+        if status != 'triggered':
+            return status, None, None
+    elif plan.status == 'sell' and plan.target.product == 'lmsr':
+        command = LiquidateGroupCmd(
+            market_id=plan.target.group_id, user_id=user_id,
+            run_id=plan.run.id, round_no=plan.run.next_round,
+            mode=plan.mode, partial_pct=pct,
+            fee_rate=fresh.lmsr_fee_rate, daily_rate=rate,
+            trigger_source=source, revalidate_account=True)
+    elif plan.status == 'sell':
+        round_no = plan.run.next_round
+        if await find_action_for_round(session, run=plan.run,
+                                       round_no=round_no):
+            return 'replayed', None, None
+        result = await execute_liquidation_sell_in_session(
+            session, user_id=user_id, pair_id=plan.target.group_id,
+            run_id=plan.run.id, round_no=round_no,
+            mode=plan.mode, partial_pct=pct)
+        if result.blocked_reason or result.replay:
+            raise RuntimeError(
+                'FX execution diverged from locked preparation')
+        if plan.defer_repay:
+            # Reserve every unit of the proceeds for next-round
+            # cover; only advance the gold interest clock.
+            repaid = ZERO
+            await accrue_gold_only(session, user, rate, source)
+        else:
+            repaid = await repay(session, user, rate, source)
+        quote = result.quote
+        action = await record_action(
+            session, run=plan.run, round_no=round_no, kind='sell_group',
+            product='fx', group_id=plan.target.group_id, mode=plan.mode,
+            proceeds=quote.gold_out, fee=quote.fee_foreign,
+            fee_currency='foreign', repaid=repaid,
+            debt_after=user.debt, cash_after=user.cash,
+            economic_version_after=user.economic_version,
+            executed={'foreign_in': str(quote.foreign_in),
+                      'sold_count': 1})
+        public_event(session, user, plan.run, plan.pre, product='fx',
+                     mode=plan.mode, sold=1, proceeds=quote.gold_out,
+                     repaid=repaid, source=source)
+        await finish_locked(session, user, plan.run, rate)
+        action.economic_version_after = user.economic_version
+        publication = (result.public.pair_id, result.public.post_price,
+                       result.public.id)
+    else:
+        return plan.status, None, None
+    return 'triggered', command, publication
+
+
+async def execute_user(user_id, *, rate, pct, source):
+    from app.services.market_writer import WRITER
 
     retries = get_flags().credit_risk_retry_limit + 1
     def log_retry(reason, attempt):
@@ -804,87 +887,30 @@ async def execute_user(user_id, *, rate, pct, source):
                 now=datetime.now(timezone.utc))
         command = None
         publication = None
+        if guess is not None and guess.target.product == 'fx':
+            from app.services.fx.writer import FX_WRITER
+            from app.services.fx.writer_ops import LiquidateRound
+            result = await FX_WRITER.submit(LiquidateRound(
+                pair_id=int(guess.target.group_id), user_id=int(user_id), rate=rate,
+                pct=pct, source=source, expected_version=int(deps.economic_version),
+                expected_groups=tuple((g.product, int(g.group_id)) for g in deps.groups),
+                role=guess.role))
+            if result.status == 'retry':
+                log_retry(result.retry_reason, attempt)
+                continue
+            return result.status
         try:
-            async with GATES.hold(exclusive=[guess.target] if guess else (),
-                                  shared=deps.groups):
+            async with GATES.hold(exclusive=[guess.target] if guess else (), shared=deps.groups):
                 async with async_session_maker() as session:
                     async with _liquidation_transaction(session):
-                        # FX product rows precede User, for both sell and cover.
-                        ids = ([guess.target.group_id]
-                               if guess and guess.target.product == 'fx' else [])
-                        if ids:
-                            await session.execute(
-                                select(FxPair).where(FxPair.id.in_(ids))
-                                .order_by(FxPair.id).with_for_update())
-                        user = await lock_user(session, user_id)
-                        if user.economic_version != deps.economic_version:
-                            log_retry('economic_version_drift', attempt)
+                        status, command, publication = await _execute_locked_round(
+                            session, user_id, deps, guess, rate=rate, pct=pct,
+                            source=source, attempt=attempt, log_retry=log_retry)
+                        if status == 'retry':
                             continue
-                        fresh = await discover_dependencies(session, user_id)
-                        if set(fresh.groups) != set(deps.groups):
-                            log_retry('dependency_selection_drift', attempt)
-                            continue
-                        current = await value_user_detailed(session, user_id, daily_rate=rate)
-                        now = datetime.now(timezone.utc)
-                        current_choice = await choose_liquidation_action(
-                            session, current, fresh, pct=pct, daily_rate=rate, now=now)
-                        if not _same_choice(guess, current_choice):
-                            log_retry('selection_drift', attempt)
-                            continue
-                        plan = await prepare_locked(
-                            session, user, fresh, rate=rate, pct=pct, source=source,
-                            pre=current, choice=current_choice)
+                        if status != 'triggered' or (command is None and publication is None):
+                            return status
 
-                        if plan.status == 'cover':
-                            publication, status = await _execute_cover_locked(
-                                session, user, plan, fresh, rate=rate, source=source)
-                            if status != 'triggered':
-                                return status
-                        elif plan.status == 'sell' and plan.target.product == 'lmsr':
-                            command = LiquidateGroupCmd(
-                                market_id=plan.target.group_id, user_id=user_id,
-                                run_id=plan.run.id, round_no=plan.run.next_round,
-                                mode=plan.mode, partial_pct=pct,
-                                fee_rate=fresh.lmsr_fee_rate, daily_rate=rate,
-                                trigger_source=source, revalidate_account=True)
-                        elif plan.status == 'sell':
-                            round_no = plan.run.next_round
-                            if await find_action_for_round(session, run=plan.run,
-                                                           round_no=round_no):
-                                return 'replayed'
-                            result = await execute_liquidation_sell_in_session(
-                                session, user_id=user_id, pair_id=plan.target.group_id,
-                                run_id=plan.run.id, round_no=round_no,
-                                mode=plan.mode, partial_pct=pct)
-                            if result.blocked_reason or result.replay:
-                                raise RuntimeError(
-                                    'FX execution diverged from locked preparation')
-                            if plan.defer_repay:
-                                # Reserve every unit of the proceeds for next-round
-                                # cover; only advance the gold interest clock.
-                                repaid = ZERO
-                                await accrue_gold_only(session, user, rate, source)
-                            else:
-                                repaid = await repay(session, user, rate, source)
-                            quote = result.quote
-                            action = await record_action(
-                                session, run=plan.run, round_no=round_no, kind='sell_group',
-                                product='fx', group_id=plan.target.group_id, mode=plan.mode,
-                                proceeds=quote.gold_out, fee=quote.fee_foreign,
-                                fee_currency='foreign', repaid=repaid,
-                                debt_after=user.debt, cash_after=user.cash,
-                                economic_version_after=user.economic_version,
-                                executed={'foreign_in': str(quote.foreign_in),
-                                          'sold_count': 1})
-                            public_event(session, user, plan.run, plan.pre, product='fx',
-                                         mode=plan.mode, sold=1, proceeds=quote.gold_out,
-                                         repaid=repaid, source=source)
-                            await finish_locked(session, user, plan.run, rate)
-                            action.economic_version_after = user.economic_version
-                            publication = (result.public.pair_id, result.public.post_price,
-                                           result.public.id)
-                        else:
-                            return plan.status
         except ShortRetryCredit as exc:
             # Covers: version/economic drift or a rollback-required post-settlement
             # mismatch. The whole transaction is already rolled back; rediscover.

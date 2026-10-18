@@ -225,6 +225,7 @@ async def _fx_writer_for_directly_seeded_pairs(monkeypatch):
     import asyncio
     from app.services.fx.writer import FX_WRITER
     original_submit = FX_WRITER.submit
+    original_register = FX_WRITER.register_pair
     bootstrap_lock = asyncio.Lock()
 
     async def submit_seeded(command):
@@ -232,9 +233,17 @@ async def _fx_writer_for_directly_seeded_pairs(monkeypatch):
             if not FX_WRITER.enabled:
                 await FX_WRITER.start()
             elif FX_WRITER.get_state(command.pair_id) is None:
-                await FX_WRITER.register_pair(command.pair_id)
+                await original_register(command.pair_id)
         return await original_submit(command)
 
+    async def register_created(pair_id):
+        async with bootstrap_lock:
+            if not FX_WRITER.enabled:
+                await FX_WRITER.start()
+                return
+        return await original_register(pair_id)
+
+    monkeypatch.setattr(FX_WRITER, 'register_pair', register_created)
     monkeypatch.setattr(FX_WRITER, 'submit', submit_seeded)
     yield
     await FX_WRITER.stop()

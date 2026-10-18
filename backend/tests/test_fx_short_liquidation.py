@@ -1497,7 +1497,7 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         original_version = pair.pool_version
         await liquidity.fund_pair(s, pair_id, D('10'), D('20'), uid)
         await liquidity.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
-        await s.refresh(pair)
+        pair = await s.get(FxPair, pair_id)
         assert pair.pool_version == original_version + 2
         assert pair.gold_reserve == D('1010') and pair.foreign_reserve == D('900')
         treasury = (await s.execute(select(FxTreasury))).scalar_one()

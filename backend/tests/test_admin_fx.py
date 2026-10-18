@@ -142,7 +142,8 @@ async def test_initial_issuance_fund_withdraw_and_audit(ctx, committed_fx_regist
     withdrawn = await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/withdraw", json={"gold_amount": "1", "foreign_amount": "1"})
     assert withdrawn.status_code == 200, withdrawn.text
     await assert_committed_fx(committed_fx_registry, db, pair_id)
-    await db.refresh(pair); await db.refresh(treasury)
+    pair = await db.get(FxPair, pair_id)
+    treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalars().one()
     assert pair.gold_reserve + treasury.gold_balance == before_gold + Decimal("4")
     assert pair.foreign_reserve + treasury.foreign_balance == before_foreign + Decimal("2")
     assert (await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/withdraw", json={"gold_amount": "10000", "foreign_amount": "0"})).status_code == 409
@@ -363,12 +364,13 @@ async def test_cleanup_holds_unified_gate_until_commit(ctx, action, monkeypatch)
     settings = flags.parse_flags({'unified_credit_enabled': 'true', 'credit_leverage': '20',
                                   'credit_maintenance_ratio': '0.04'})
     monkeypatch.setattr(flags, 'get_flags', lambda: settings)
-    commit = db.commit
+    from tests.fx_test_helpers import AsyncCompatSession
+    commit = AsyncCompatSession.commit
     gates_at_commit = []
-    async def checked_commit():
+    async def checked_commit(session):
         gates_at_commit.append(GroupKey('fx', pair_id) in GATES.held_keys_by_current_task())
-        await commit()
-    monkeypatch.setattr(db, 'commit', checked_commit)
+        await commit(session)
+    monkeypatch.setattr(AsyncCompatSession, 'commit', checked_commit)
     url = f'/api/v1/admin/fx/pairs/{pair_id}'
     response = await client.post(url + '/archive') if action == 'archive' else await client.delete(url)
     assert response.status_code == (200 if action == 'archive' else 204), response.text
@@ -525,6 +527,7 @@ async def test_admin_overview_preview_and_keyset_history(ctx):
     unknown = (await client.get(base + "/liquidity-history?limit=1")).json()["items"][0]
     assert unknown["gold_amount"] is unknown["pool_before"] is unknown["price_change_pct"] is None
     assert unknown["pool_after"] == {"gold": None, "foreign": None}
+    pair = await db.get(FxPair, pair_id)
     pair.archived = True
     await db.commit()
     assert not (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": "1"})).json()["executable"]
