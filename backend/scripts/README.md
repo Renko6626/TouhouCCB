@@ -1,11 +1,12 @@
 # 后端脚本
 
-当前有 9 个功能工具，另有包标记 `__init__.py`。历史工具已移入[归档索引](../../docs/archive/database-pre-baseline-2026-10-13/README.md)，不在运行或部署路径。
+工具清单如下，另有包标记 `__init__.py`。历史工具已移入[归档索引](../../docs/archive/database-pre-baseline-2026-10-13/README.md)，不在运行或部署路径。
 
 命令在 `backend/` 下运行。数据库工具读取当前配置，操作前核对目标；停写包括后端、经济 writer、机器人及调度器。开发工具不连接生产库。
 
 | 文件 | 用途与读写范围 | 停写要求 | 当前调用方式 |
 | --- | --- | --- | --- |
+| [fx_loadtest.py](fx_loadtest.py) | FX 压测普通账户、专用市场、短期 token、加密导出与按轮清理；不调用 Casdoor、不新增 HTTP 接口 | prepare/实际 cleanup 必须停全部经济写入；mint/inspect 只读数据库 | 手工 `deploy/fx_loadtest.sh` 或 `fx-loadtest.yml` Action，见 [FX 操作说明](../../loadtest/FX_README.md) |
 | [audit_export.py](audit_export.py) | 导出审计事件及后状态 CSV，或折叠指定时刻快照；数据库只读，导出模式写本地文件 | 无强制停写要求；优先使用只读副本或备份恢复库 | 手工 CLI |
 | [audit_verify.py](audit_verify.py) | 折叠事件流、检查内部一致性并比对当前业务表；只读，差异退出码为 1 | 部署及重置后的验收在停写时运行；`--no-live` 仅检查事件流 | 手工 CLI；`deploy/deploy.sh`、`deploy/season_reset.sh`、`deploy/business_reset.sh` 自动调用 |
 | [backfill_market_prices_post.py](backfill_market_prices_post.py) | 重放 LMSR，补齐交易中为空的 `market_prices_post`；执行时更新数据库 | 执行回填前应停止相关市场写入；脚本无停写门禁 | 手工 CLI；已有测试调用回填函数 |

@@ -108,4 +108,7 @@ quant/.pytest_cache/
 /texput.log
 loadtest/*.json
 loadtest/results/
+loadtest/**/tokens*.json
+loadtest/**/manifest.json
+loadtest/tokens.txt
 backend/data/
