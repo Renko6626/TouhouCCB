@@ -658,34 +658,26 @@ async def quote_trade(
             return cached_resp
         _QUOTE_CACHE.pop(cache_key, None)
 
-    # ── 取市场状态：写实例使用内存权威 q/b/status；只读实例和历史市场读取 DB ──
-    from app.services.market_writer import WRITER
-    ids: List[int]; labels: List[str]; old_q: List[float]
-    st = None
-    if WRITER.enabled:
-        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
-        st = WRITER.get_state(mid) if mid is not None else None
-    if st is not None and not st.unavailable:
-        if not market_is_open(st.status, st.closes_at):
-            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
-        ids, labels, old_q, b = st.outcome_ids, st.outcome_labels, list(st.q), st.b
-    else:
-        outcome = await db.get(Outcome, req.outcome_id)
-        if not outcome:
-            raise HTTPException(status_code=404, detail="选项不存在")
-        market = await db.get(Market, outcome.market_id)
-        if not market:
-            raise HTTPException(status_code=404, detail="市场不存在")
-        # 与 buy/sell 同源：status + closes_at 一起判（审计 L8）
-        if not market_is_open(market.status, market.closes_at):
-            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
-        outcomes = (await db.execute(
-            select(Outcome).where(Outcome.market_id == market.id).order_by(Outcome.id)
-        )).scalars().all()
-        ids = [int(o.id) for o in outcomes]
-        labels = [o.label for o in outcomes]
-        old_q = _shares_to_floats(outcomes)
-        b = float(market.liquidity_b)
+    # Pricing inputs come from one complete committed record. SQL supplies only
+    # identities/labels; a writer's mutable in-flight q is never a quote source.
+    from app.services.trading_prices import REGISTRY
+    market_id = (await db.execute(
+        select(Outcome.market_id).where(Outcome.id == req.outcome_id)
+    )).scalar_one_or_none()
+    if market_id is None:
+        raise HTTPException(status_code=404, detail="选项不存在")
+    labels_by_id = dict((await db.execute(
+        select(Outcome.id, Outcome.label).where(Outcome.market_id == market_id)
+    )).all())
+    # A response-only registry fallback owns a separate short session.
+    await db.close()
+    state = await REGISTRY.read_lmsr(market_id)
+    if not market_is_open(state.status, state.closes_at):
+        raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
+    ids = state.outcome_ids
+    labels = [labels_by_id[oid] for oid in ids]
+    old_q = [float(q) for q in state.q_dec]
+    b = state.b
 
     idx = next((i for i, oid in enumerate(ids) if oid == int(req.outcome_id)), None)
     if idx is None:

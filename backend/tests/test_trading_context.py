@@ -82,8 +82,8 @@ async def test_lmsr_read_only_process_keeps_authoritative_database_reads(monkeyp
         registry = PricingRegistry(async_session_maker)
         registry.configure(memory_products=frozenset({'lmsr'}))
         key = GroupKey(product='lmsr', id=market.id)
-        assert (await registry.read_groups([key]))[0].q_dec == ['1.123456']
         monkeypatch.setenv(flags.READ_ONLY_ENV, 'true')
+        assert (await registry.read_groups([key]))[0].q_dec == ['1.123456']
         await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('2.654321')))
         await db.commit()
         assert (await registry.read_groups([key]))[0].q_dec == ['2.654321']

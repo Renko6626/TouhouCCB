@@ -2,6 +2,7 @@
 import asyncio
 from dataclasses import FrozenInstanceError, asdict, replace
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -82,6 +83,8 @@ async def test_lmsr_decimal_inputs_and_returned_lists_are_isolated():
         await db.commit()
     registry, calls = memory_registry()
     key = GroupKey(product='lmsr', id=market.id)
+    async with async_session_maker() as db:
+        registry.install_committed(await registry._snapshot(db, key))
     first = (await registry.read_groups([key]))[0]
     assert first.b == '1.234567890123'
     assert first.q_dec == ['3.123456', '7.654321']
@@ -92,11 +95,11 @@ async def test_lmsr_decimal_inputs_and_returned_lists_are_isolated():
     assert second.q_dec == ['3.123456', '7.654321']
     assert len(second.outcome_ids) == 2
     assert second.stamp.input_hash != 'corrupted'
-    assert len(calls) == 1
+    assert calls == []
 
 
 @pytest.mark.asyncio
-async def test_public_warm_read_passes_writer_and_covered_read_waits_for_install():
+async def test_all_warm_reads_pass_writer_with_last_complete_publication():
     state = await create_pair()
     registry, calls = memory_registry()
     registry.install_committed(state)
@@ -111,16 +114,20 @@ async def test_public_warm_read_passes_writer_and_covered_read_waits_for_install
 
     writing = asyncio.create_task(writer())
     await held.wait()
-    covered = asyncio.create_task(registry.read_groups([key]))
     try:
         public = await asyncio.wait_for(registry.read_groups([key], require_coverage=False), 0.5)
         direct = await asyncio.wait_for(registry.read_fx(state.id), 0.5)
+        ordinary = await asyncio.wait_for(registry.read_groups([key]), 0.5)
+        refreshed = await asyncio.wait_for(registry.refresh_groups([key]), 0.5)
         assert public[0].pool_version == '1' and direct.pool_version == 1
-        assert not covered.done()
+        assert ordinary[0] == refreshed[0] == public[0]
+        captured = registry.capture_committed_records([key])
+        assert captured[('fx', state.id)].state == state
     finally:
         release.set()
         await writing
-    assert (await covered)[0].pool_version == '2'
+    assert (await registry.read_groups([key]))[0].pool_version == '2'
+    assert captured[('fx', state.id)].state == state
     assert calls == []
     async with GATES.hold(shared=[GateKey('fx', state.id)]):
         assert (await registry.read_groups_locked([key]))[0].pool_version == '2'
@@ -149,14 +156,16 @@ async def test_database_mode_missing_and_recreated_identity_advance_revision():
 
 
 @pytest.mark.asyncio
-async def test_invalidation_reload_and_owner_or_readonly_database_fallback(monkeypatch):
+async def test_active_invalidation_denies_reads_and_nonowner_or_readonly_falls_back(monkeypatch):
     state = await create_pair()
     registry, calls = memory_registry()
     key = GroupKey(product='fx', id=state.id)
     registry.install_committed(state)
     registry.invalidate(key)
-    reloaded = await registry.read_fx(state.id)
-    assert reloaded.gold_reserve == Decimal('123.456789')
+    with pytest.raises(HTTPException) as exc:
+        await registry.read_fx(state.id)
+    assert exc.value.status_code == 503
+    assert registry.capture_committed_records([key]) == {}
     assert len(calls) == 1
     async with async_session_maker() as db:
         await db.execute(update(FxPair).where(FxPair.id == state.id).values(pool_version=7))
@@ -169,6 +178,106 @@ async def test_invalidation_reload_and_owner_or_readonly_database_fallback(monke
     assert registry.peek_fx(state.id) is None
     assert (await registry.read_fx(state.id)).pool_version == 7
     assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_terminal_cold_fallback_does_not_publish_or_make_risk_record():
+    state = await create_pair()
+    async with async_session_maker() as db:
+        await db.execute(update(FxPair).where(FxPair.id == state.id).values(status='closed'))
+        await db.commit()
+    registry, calls = memory_registry()
+    key = GroupKey(product='fx', id=state.id)
+    assert (await registry.read_fx(state.id)).status == 'closed'
+    assert registry.capture_committed_records([key]) == {}
+    assert registry.peek_fx(state.id) is None
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_late_cold_sql_prefers_new_committed_record():
+    state = await create_pair()
+    registry = PricingRegistry(async_session_maker)
+    queried, proceed = asyncio.Event(), asyncio.Event()
+    snapshot = registry._snapshot
+
+    async def delayed_snapshot(db, key):
+        result = await snapshot(db, key)
+        queried.set()
+        await proceed.wait()
+        return result
+
+    registry._snapshot = delayed_snapshot
+    reading = asyncio.create_task(registry.read_fx(state.id))
+    await queried.wait()
+    registry.configure(memory_products=frozenset({'fx'}))
+    committed = replace(state, pool_version=2, gold_reserve=Decimal('999'))
+    registry.install_committed(committed)
+    proceed.set()
+    assert await reading == committed
+    assert registry.peek_fx(state.id) == committed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('deleted', [False, True])
+async def test_late_cold_sql_cannot_reverse_actor_unavailability(monkeypatch, deleted):
+    from app.services.fx.writer import FX_WRITER, FxWriterState
+    state = await create_pair()
+    registry = PricingRegistry(async_session_maker)
+    queried, proceed = asyncio.Event(), asyncio.Event()
+    snapshot = registry._snapshot
+
+    async def delayed_snapshot(db, key):
+        result = await snapshot(db, key)
+        queried.set()
+        await proceed.wait()
+        return result
+
+    registry._snapshot = delayed_snapshot
+    reading = asyncio.create_task(registry.read_fx(state.id))
+    await queried.wait()
+    if deleted:
+        async with async_session_maker() as db:
+            await db.execute(delete(FxPair).where(FxPair.id == state.id))
+            await db.commit()
+    monkeypatch.setitem(FX_WRITER._states, state.id, FxWriterState(state, unavailable=True))
+    registry.configure(memory_products=frozenset({'fx'}))
+    proceed.set()
+    with pytest.raises(HTTPException) as exc:
+        await reading
+    assert exc.value.status_code == 503
+    assert registry.peek_fx(state.id) is None
+
+
+@pytest.mark.asyncio
+async def test_lmsr_quote_uses_published_q_while_writer_q_is_in_flight(monkeypatch):
+    from app.api.v1 import market as market_api
+    from app.schemas.market import QuoteRequest
+    from app.services import trading_prices
+    from app.services.market_read_state import LmsrReadState
+    from app.services.market_writer import WRITER
+
+    async with async_session_maker() as db:
+        market = Market(title='Quote', liquidity_b=100)
+        db.add(market)
+        await db.flush()
+        outcomes = [Outcome(market_id=market.id, label=label, total_shares=Decimal('100')) for label in ('A', 'B')]
+        db.add_all(outcomes)
+        await db.commit()
+        ids = tuple(o.id for o in outcomes)
+        registry, _ = memory_registry()
+        registry.install_committed(LmsrReadState(market.id, 100, ids, (Decimal('0'), Decimal('0')), 'trading', None))
+        monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+        monkeypatch.setattr(WRITER, '_enabled', True)
+        monkeypatch.setattr(WRITER, 'market_id_for_outcome', lambda _: market.id)
+        monkeypatch.setattr(WRITER, 'get_state', lambda _: SimpleNamespace(
+            unavailable=False, status='trading', closes_at=None, outcome_ids=ids,
+            outcome_labels=['A', 'B'], q=[900.0, 800.0], b=100))
+        market_api._QUOTE_CACHE.clear()
+        result = await market_api.quote_trade(QuoteRequest(outcome_id=ids[0], shares=Decimal('10'), side='buy'), user=None, db=db)
+        assert [row.shares for row in result.after_prices] == [10.0, 0.0]
+        assert Decimal('5') < result.gross < Decimal('6')
+        market_api._QUOTE_CACHE.clear()
 
 
 @pytest.mark.asyncio

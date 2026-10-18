@@ -73,6 +73,8 @@ def missing_keys(keys, groups):
     return [k for k in keys if (k.product, k.id) not in found]
 
 def coverage(groups):
+    # Floors describe only the included prices. Account economic_version is
+    # checked separately; a market's commit-to-publication gap is permitted.
     return [GroupCoverage(product=g.product, id=g.id, stamp=g.stamp) for g in groups]
 
 async def read_trading_context(session, user_id, current_group=None, *, registry=None, session_factory=None):

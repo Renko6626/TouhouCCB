@@ -140,12 +140,14 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
         pg_engine, pg_sessionmaker, monkeypatch, consumer):
     import json
     import os
+    from contextlib import asynccontextmanager
     from types import SimpleNamespace
     from app.api.v1 import fx_stream
     from app.core import database
     from app.services import trading_prices
     from app.services.credit import flags, ownership
     from app.services.fx import trading
+    from app.services.fx import writer as fx_writer
     from app.services.fx.market_data import publish_pair_frame
     from app.services.realtime import IpConcurrencyLimiter, MarketEventBroker
     from tests.pg.test_pg_fx_short_concurrency import seed
@@ -154,6 +156,7 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
     assert await owner.acquire(required=True)
     monkeypatch.setattr(trading, 'OWNERSHIP', owner)
     monkeypatch.setattr(trading_prices, 'OWNERSHIP', owner)
+    monkeypatch.setattr(fx_writer, 'OWNERSHIP', owner)
     registry = trading_prices.PricingRegistry(pg_sessionmaker)
     registry.configure(memory_products=frozenset({'fx'}))
     monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
@@ -169,9 +172,11 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
     response = sub = None
     try:
         uid, pid = await seed(pg_sessionmaker)
+        await fx_writer.FX_WRITER.start()
         old = await registry.read_fx(pid)
 
-        async def write():
+        @asynccontextmanager
+        async def execution_session():
             async with pg_sessionmaker() as db:
                 original = db.commit
                 async def held_commit():
@@ -181,6 +186,12 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
                     committed.set()
                     await release_install.wait()
                 monkeypatch.setattr(db, 'commit', held_commit)
+                yield db
+
+        monkeypatch.setattr(database, 'async_session_maker', execution_session)
+
+        async def write():
+            async with pg_sessionmaker() as db:
                 return await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'),
                                                    Decimal('0'), 'public-commit-gap')
 
@@ -232,6 +243,7 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
         if sub is not None:
             await broker.unsubscribe(f'fx:{pid}', sub)
         flags.clear_flags()
+        await fx_writer.FX_WRITER.stop()
         await owner.release()
 
 

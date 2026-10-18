@@ -109,13 +109,18 @@ def market_registry(pg_sessionmaker, monkeypatch):
     return registry
 
 
-async def test_context_waits_between_real_commit_and_snapshot_install(pg_sessionmaker, market_registry, monkeypatch):
+async def test_context_returns_fresh_account_before_snapshot_install(pg_sessionmaker, market_registry, monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.core import database
     from app.services.fx import trading
+    from app.services.fx.writer import FX_WRITER
     uid, pid = await seed(pg_sessionmaker)
-    await market_registry.read_fx(pid)
-    committed, release, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    await FX_WRITER.start()
+    old = await market_registry.read_fx(pid)
+    committed, release = asyncio.Event(), asyncio.Event()
 
-    async def write():
+    @asynccontextmanager
+    async def execution_session():
         async with pg_sessionmaker() as db:
             original = db.commit
             async def held_commit():
@@ -123,37 +128,46 @@ async def test_context_waits_between_real_commit_and_snapshot_install(pg_session
                 committed.set()
                 await release.wait()
             monkeypatch.setattr(db, 'commit', held_commit)
+            yield db
+
+    monkeypatch.setattr(database, 'async_session_maker', execution_session)
+
+    async def write():
+        async with pg_sessionmaker() as db:
             return await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'context-gap')
 
     async def context():
         async with pg_sessionmaker() as db:
-            reading.set()
             return await read_trading_context(db, uid, registry=market_registry,
                                                session_factory=pg_sessionmaker)
 
     writing = asyncio.create_task(write())
     await asyncio.wait_for(committed.wait(), 5)
-    result = asyncio.create_task(context())
     try:
-        await reading.wait()
-        await asyncio.sleep(.05)
-        assert not result.done()
-        assert market_registry.peek_fx(pid).pool_version == 1
+        snapshot = await asyncio.wait_for(context(), 5)
+        assert market_registry.peek_fx(pid) is old
+        assert snapshot.account.cash == '990.000000'
+        assert snapshot.account.economic_version == '1'
+        assert snapshot.account.fx_wallets[0].foreign_amount != '0.000000'
+        assert snapshot.groups[0].gold_reserve == format(old.gold_reserve, 'f')
+        assert snapshot.groups[0].pool_version == '1'
+        assert snapshot.minimum_group_stamps[0].stamp == snapshot.groups[0].stamp
     finally:
         release.set()
     await asyncio.wait_for(writing, 5)
-    snapshot = await asyncio.wait_for(result, 5)
-    assert snapshot.account.cash == '990.000000'
-    assert snapshot.account.economic_version == '1'
+    published = await context()
     async with pg_sessionmaker() as db:
         pair = await db.get(FxPair, pid)
-        assert snapshot.groups[0].gold_reserve == format(pair.gold_reserve, 'f')
-        assert snapshot.groups[0].pool_version == str(pair.pool_version)
+        assert published.groups[0].gold_reserve == format(pair.gold_reserve, 'f')
+        assert published.groups[0].pool_version == str(pair.pool_version)
+        wallet = (await db.execute(select(FxWallet).where(FxWallet.user_id == uid))).scalar_one()
+        assert snapshot.account.fx_wallets[0].foreign_amount == format(wallet.foreign_amount, 'f')
         await assert_committed_fx(market_registry, db, pid)
 
 
 async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market_registry):
     from app.services.fx import trading
+    from app.services.fx.writer import FX_WRITER
     uid, pid = await seed(pg_sessionmaker)
     queried, release = asyncio.Event(), asyncio.Event()
     snapshot = market_registry._snapshot
@@ -168,14 +182,14 @@ async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market
     async def trade():
         async with pg_sessionmaker() as db:
             await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'after-cold')
-    writing = asyncio.create_task(trade())
     try:
-        await asyncio.sleep(.05)
-        assert not writing.done()
+        await FX_WRITER.start()
+        await asyncio.wait_for(trade(), 5)
+        assert not cold.done()
+        assert market_registry.peek_fx(pid).pool_version == 2
     finally:
         release.set()
-    assert (await cold).pool_version == 1
-    await asyncio.wait_for(writing, 5)
+    assert (await asyncio.wait_for(cold, 5)).pool_version == 2
     assert (await market_registry.read_fx(pid)).pool_version == 2
     async with pg_sessionmaker() as db:
         await assert_committed_fx(market_registry, db, pid)
@@ -183,6 +197,8 @@ async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market
 
 async def test_admin_fee_snapshot_uses_postgres_stored_precision(pg_sessionmaker, market_registry):
     from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
+    from app.services.fx.writer import FX_WRITER
+    await FX_WRITER.start()
     async with pg_sessionmaker() as db:
         admin = User(username='precision-admin', is_superuser=True)
         db.add(admin)

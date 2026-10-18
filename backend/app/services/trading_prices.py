@@ -1,4 +1,4 @@
-"""Committed pricing inputs, serialized refresh and process-local coverage stamps."""
+"""Committed pricing inputs and independent process-local pricing stamps."""
 import asyncio
 import hashlib
 import json
@@ -97,10 +97,41 @@ class PricingRegistry:
 
     def peek_fx(self, pair_id: int) -> FxReadState | None:
         """Synchronous locked-row callers must also compare pool_version themselves."""
-        if not self._can_reuse('fx'):
-            return None
-        record = self._entries.get(('fx', pair_id))
+        record = self.capture_committed_records([GroupKey(product='fx', id=pair_id)]).get(('fx', pair_id))
         return record.state if record is not None else None
+
+    @staticmethod
+    def _writer_unavailable(key) -> bool:
+        # Inspect lifecycle only, never mutable execution q/reserves. Writers
+        # invalidate records on failed reload/install and on deletion.
+        if key.product == 'fx':
+            from app.services.fx.writer import FX_WRITER
+            state = FX_WRITER.get_state(key.id)
+        else:
+            from app.services.market_writer import WRITER
+            state = WRITER.get_state(key.id)
+        return state is not None and state.unavailable
+
+    def capture_committed_records(self, keys: Sequence[GroupKey]) -> dict[tuple[str, int], PricingRecord]:
+        """Capture available immutable references once, synchronously and without I/O.
+
+        Only the current writable owner may reuse its published records. Missing
+        or unhealthy entries are omitted; execution risk must reject them rather
+        than supplement this capture with SQL or a later registry read.
+        """
+        return {(key.product, key.id): record for key in self._keys(keys)
+                if self._can_reuse(key.product) and not self._writer_unavailable(key)
+                and (record := self._entries.get((key.product, key.id))) is not None}
+
+    @staticmethod
+    def _active(state) -> bool:
+        if isinstance(state, FxReadState):
+            return not state.archived and state.status != 'closed'
+        return state.status in ('trading', 'halt')
+
+    @staticmethod
+    def _unavailable():
+        return HTTPException(503, 'Market pricing state is unavailable; retry later')
 
     async def _snapshot(self, db, key):
         if key.product == 'fx':
@@ -114,30 +145,33 @@ class PricingRegistry:
                              q_dec=tuple(r[4] for r in rows))
 
     async def _record_locked(self, key):
-        """Caller holds the batch GATE; only then take a per-key loading lock."""
+        """Serialize response-only cold reads, independently of market writers."""
         identity = (key.product, key.id)
         lock = self._locks.setdefault(identity, asyncio.Lock())
         async with lock:
-            previous = self._entries.get(identity)
-            if self._can_reuse(key.product) and previous is not None:
-                return previous
-            try:
-                async with self.session_factory() as db:
-                    state = await self._snapshot(db, key)
-            except Exception:
-                self.invalidate(key)
-                raise
+            current = self.capture_committed_records([key]).get(identity)
+            if current is not None:
+                return current
+            if self._can_reuse(key.product) and self._writer_unavailable(key):
+                raise self._unavailable()
+            async with self.session_factory() as db:
+                state = await self._snapshot(db, key)
+            # Bootstrap/publication can finish while SQL is in flight. Prefer
+            # its healthy record, and never reverse unavailable/deleted actors.
+            current = self.capture_committed_records([key]).get(identity)
+            if current is not None:
+                return current
+            if self._can_reuse(key.product) and self._writer_unavailable(key):
+                raise self._unavailable()
+            if state is not None and self._can_reuse(key.product) and self._active(state):
+                raise self._unavailable()
             if state is None:
-                # A creation commits/installs without a key GATE. Its new snapshot
-                # must survive an older cold SELECT that observed no row.
-                current = self._entries.get(identity)
-                if current is not previous and current is not None:
-                    return current if self._can_reuse(key.product) else None
-                self._entries.pop(identity, None)
+                # Preserve absence/recreation stamp transitions without changing
+                # the writer-owned projection.
                 self._stamp(identity, input_hash(None))
                 return None
-            self.install_committed(state)
-            return self._entries[identity]
+            digest = input_hash(self._pricing_data(state))
+            return PricingRecord(state, self._stamp(identity, digest), now_string())
 
     @staticmethod
     def _keys(keys):
@@ -148,14 +182,13 @@ class PricingRegistry:
 
     async def _read_records(self, keys, *, require_coverage):
         keys = self._keys(keys)
-        if not require_coverage:
-            records = [self._entries.get((key.product, key.id))
-                       if self._can_reuse(key.product) else None for key in keys]
-            if all(record is not None for record in records):
-                return records
-        # No session is opened while waiting. Declare the entire batch once.
-        async with GATES.hold(shared=[GateKey(k.product, k.id) for k in keys]):
-            return await self._records_locked(keys)
+        # Compatibility argument: pricing floors describe this response's
+        # records, not causal coverage of an independently read account.
+        captured = self.capture_committed_records(keys)
+        records = [captured.get((key.product, key.id)) for key in keys]
+        if all(record is not None for record in records):
+            return records
+        return await self._records_locked(keys)
 
     def _groups(self, records):
         groups = []
@@ -186,8 +219,14 @@ class PricingRegistry:
             raise HTTPException(status_code=404, detail='FX pair not found')
         return records[0].state
 
+    async def read_lmsr(self, market_id: int) -> LmsrReadState:
+        records = await self._read_records([GroupKey(product='lmsr', id=market_id)], require_coverage=False)
+        if records[0] is None:
+            raise HTTPException(status_code=404, detail='Market not found')
+        return records[0].state
+
     async def refresh_groups(self, keys):
-        """Compatibility name for covered reads of committed market state."""
+        """Compatibility name for independently observed committed prices."""
         return await self.read_groups(keys)
 
     async def warm_fx(self) -> None:
