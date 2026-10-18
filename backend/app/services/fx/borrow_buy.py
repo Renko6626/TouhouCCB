@@ -1,10 +1,8 @@
 """Atomic financed FX buys and their read-only advisory quotes.
 
-The spot executor owns product math/rows; this wrapper owns one transaction.
+The spot executor owns product math/rows; the pair writer owns one transaction.
 Quotes and writes share credit.check_new_risk's full valuation projection.
 """
-from app.services.market_read_state import commit_fx_changes
-from app.services.account_events import capture_accounts, publish_accounts
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
@@ -20,11 +18,10 @@ from app.services import loan_service, site_config
 from app.services.credit import flags
 from app.services.credit.account_read import classify_account_risk
 from app.services.credit.cash import available_cash
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.risk import PostTradeState, check_new_risk, discover_dependencies
 from app.services.credit.version import economic_version_of
-from app.services.fx import publisher, trading
+from app.services.fx import trading
 
 MAX_GOLD = Decimal('9999999999.999999')
 
@@ -60,40 +57,15 @@ def response(execution):
 async def execute_borrow_buy(db: AsyncSession, user_id: int, pair_id: int,
                              amount: Decimal, borrow_amount: Decimal,
                              min_out: Decimal, idempotency_key: str) -> FxBorrowBuyResponse:
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import BorrowBuy
     amount, borrow_amount = validate_funding(amount, borrow_amount)
     trading._require_writes()
-    key = GroupKey('fx', pair_id)
-    for attempt in range(flags.get_flags().credit_risk_retry_limit + 1):
-        try:
-            deps = await discover_dependencies(db, user_id, extra_groups=[key])
-            await db.rollback()  # Never hold a connection while waiting for gates.
-            async with GATES.hold(exclusive=[key], shared=deps.groups):
-                try:
-                    execution = await trading.execute_trade_in_session(
-                        db, user_id, pair_id, 'buy', amount, min_out, idempotency_key,
-                        credit_deps=deps, borrow_amount=borrow_amount)
-                    result = response(execution)
-                    if execution.replay:
-                        await db.rollback()
-                        return result
-                    trading._require_writes()
-                    account_hints = capture_accounts(db)
-                    await commit_fx_changes(db)
-                    publish_accounts(account_hints, "borrow_buy")
-                    trading.notify_market_data_committed(pair_id)
-                except BaseException:
-                    await trading._rollback_quietly(db)
-                    raise
-            # Already materialized: no post-commit ORM refresh or risk reads.
-            publisher.enqueue_publication(pair_id=pair_id, post_price=result.post_price,
-                                          trade_id=result.trade_id)
-            return result
-        except trading._RetryCredit:
-            if attempt == flags.get_flags().credit_risk_retry_limit:
-                raise HTTPException(status_code=409, detail='version_conflict; retry') from None
-        except BaseException:
-            await trading._rollback_quietly(db)
-            raise
+    command = BorrowBuy(int(pair_id), int(user_id), amount, borrow_amount,
+                        Decimal(min_out), idempotency_key)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 async def quote_borrow_buy(db: AsyncSession, user_id: int, pair_id: int,

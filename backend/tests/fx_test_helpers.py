@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -30,6 +31,8 @@ class AsyncCompatSession:
     async def get(self, model, key): return self._session.get(model, key)
     @property
     def sync_session(self): return self._session
+    @property
+    def info(self): return self._session.info
     def get_bind(self): return self._session.get_bind()
     async def close(self): self._session.close()
     @property
@@ -65,13 +68,18 @@ async def fx_db(monkeypatch):
     owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
     await owner.acquire()
     for module in ("app.api.v1.admin_fx", "app.services.fx.liquidity", "app.services.fx.trading",
-                   "app.services.credit.ownership"):
+                   "app.services.credit.ownership", "app.services.fx.writer"):
         monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine)
+    @asynccontextmanager
+    async def writer_session_maker():
+        with Session(engine, expire_on_commit=False) as writer_raw:
+            yield AsyncCompatSession(writer_raw)
+    monkeypatch.setattr('app.core.database.async_session_maker', writer_session_maker)
     try:
         with Session(engine, expire_on_commit=False) as raw:
             db = AsyncCompatSession(raw)

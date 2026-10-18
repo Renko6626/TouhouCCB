@@ -129,6 +129,7 @@ async def test_healthy_debt_user_can_buy_and_sell_repays_debt(fx_db, monkeypatch
                                         Decimal("1"), Decimal("0"), "debt-buy")
     assert bought.input_amount == Decimal("1")
     before = await fx_db.get(User, user.id)
+    await fx_db.refresh(before)  # Funds were committed in the writer's session.
     cash_before, debt_before = before.cash, before.debt
 
     async def _no_broadcast(_trade):
@@ -138,6 +139,7 @@ async def test_healthy_debt_user_can_buy_and_sell_repays_debt(fx_db, monkeypatch
                                        Decimal("1"), Decimal("0"), "debt-sell")
     assert sold.output_amount > 0
     after = await fx_db.get(User, user.id)
+    await fx_db.refresh(after)
     repaid = min(sold.output_amount, debt_before)
     assert after.debt == debt_before - repaid
     assert after.cash == cash_before + sold.output_amount - repaid

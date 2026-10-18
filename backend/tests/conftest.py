@@ -154,6 +154,8 @@ async def setup_db():
     # Drop previous state before replacing the schema. The client loads markets
     # seeded by each test before its first LMSR request.
     await WRITER.stop()
+    from app.services.fx.writer import FX_WRITER
+    await FX_WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
     # The FX market-data singleton owns a background consumer and a bounded ring;
     # stop it (best effort) and drop all local state before the schema is dropped.
@@ -211,3 +213,28 @@ async def _dispose_engine_after_session():
     """
     yield
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _fx_writer_for_directly_seeded_pairs(monkeypatch):
+    """Tests seed pairs outside creation services; bootstrap them explicitly.
+
+    Production submit never creates actors. Preserve that rule while allowing
+    existing service fixtures to populate their own isolated databases.
+    """
+    import asyncio
+    from app.services.fx.writer import FX_WRITER
+    original_submit = FX_WRITER.submit
+    bootstrap_lock = asyncio.Lock()
+
+    async def submit_seeded(command):
+        async with bootstrap_lock:
+            if not FX_WRITER.enabled:
+                await FX_WRITER.start()
+            elif FX_WRITER.get_state(command.pair_id) is None:
+                await FX_WRITER.register_pair(command.pair_id)
+        return await original_submit(command)
+
+    monkeypatch.setattr(FX_WRITER, 'submit', submit_seeded)
+    yield
+    await FX_WRITER.stop()

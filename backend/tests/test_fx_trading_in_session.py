@@ -1,11 +1,10 @@
 """WP4a focused tests: FX transaction boundary, parity and lock order.
 
-Runs standalone (``pytest --noconftest``) on isolated in-memory SQLite, using
-an async-shaped adapter over a real synchronous SQLAlchemy transaction so the
-commit/rollback boundary of ``execute_trade`` / ``execute_trade_in_session``
-is observable.
+Uses isolated in-memory SQLite and async-shaped adapters over real synchronous
+SQLAlchemy transactions. The writer opens a fresh adapter session against the
+same database; commit/rollback boundaries remain observable through stored rows.
 """
-from contextlib import contextmanager, nullcontext
+from contextlib import asynccontextmanager, contextmanager, nullcontext
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -33,6 +32,11 @@ class AsyncCompatSession:
     def __init__(self, session):
         self._session = session
 
+    @property
+    def sync_session(self): return self._session
+    @property
+    def info(self): return self._session.info
+
     def add(self, value): self._session.add(value)
     def add_all(self, values): self._session.add_all(values)
     async def execute(self, statement, params=None): return self._session.execute(statement, params)
@@ -45,12 +49,17 @@ class AsyncCompatSession:
 
 
 @pytest_asyncio.fixture
-async def db_session():
+async def db_session(monkeypatch):
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine)
+    @asynccontextmanager
+    async def isolated_session_maker():
+        with ModelSession(engine) as writer_raw:
+            yield AsyncCompatSession(writer_raw)
+    monkeypatch.setattr("app.core.database.async_session_maker", isolated_session_maker)
     with ModelSession(engine) as raw:
         session = AsyncCompatSession(raw)
         session.add(SiteConfig(key="fx_enabled", value="true", value_type="bool"))
@@ -378,10 +387,13 @@ async def test_sell_path_keeps_lock_order_and_conserves_value(db_session):
 
 @pytest.mark.asyncio
 async def test_wrapper_does_not_wait_for_publication(db_session, monkeypatch):
+    import asyncio
     uid, pid = await seed(db_session)
     published = []
+    release = asyncio.Event()
 
     async def hook(publication):
+        await release.wait()
         published.append((publication.pair_id, publication.post_price,
                           publication.trade_id))
 
@@ -393,10 +405,12 @@ async def test_wrapper_does_not_wait_for_publication(db_session, monkeypatch):
                                              Decimal("0"), "pub-1")
         # The response never waits for the public frame.
         assert published == []
+        release.set()
         await instance.drain(2)
         assert published == [(pid, public.post_price, public.id)]
         assert instance.stats()["published"] == 1
     finally:
+        release.set()
         await instance.stop()
 
 

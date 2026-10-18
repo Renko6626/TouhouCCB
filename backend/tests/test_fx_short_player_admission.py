@@ -231,6 +231,8 @@ async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkey
         return await real_check(*args, **kwargs)
 
     monkeypatch.setattr(trading, "discover_dependencies", stale_first_discovery)
+    from app.services.fx import writer_ops
+    monkeypatch.setattr(writer_ops, "discover_dependencies", stale_first_discovery)
     monkeypatch.setattr(trading, "check_new_risk", recording_check)
 
     async with async_session_maker() as db:

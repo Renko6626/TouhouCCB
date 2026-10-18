@@ -85,5 +85,13 @@ async def pg_engine():
 
 
 @pytest_asyncio.fixture
-async def pg_sessionmaker(pg_engine):
-    return async_sessionmaker(pg_engine, expire_on_commit=False)
+async def pg_sessionmaker(pg_engine, monkeypatch):
+    # FX consumers open their own sessions instead of using the producer's.
+    # Keep those transactions on this same disposable PostgreSQL database.
+    from app.core import database
+    from app.services.credit import ownership
+    from app.services.fx import writer
+    factory = async_sessionmaker(pg_engine, expire_on_commit=False)
+    monkeypatch.setattr(database, 'async_session_maker', factory)
+    monkeypatch.setattr(writer, 'OWNERSHIP', ownership.OWNERSHIP)
+    return factory

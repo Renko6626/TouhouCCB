@@ -3,8 +3,6 @@
 AMM math and physical ledgers belong to the existing FX primitives. This
 module owns whole-request classification, funding, risk and identity.
 """
-from app.services.market_read_state import commit_fx_changes
-from app.services.account_events import capture_accounts, publish_accounts
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
@@ -376,48 +374,16 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
 
 
 async def execute_net_trade(db, user_id, pair_id, req):
-    from app.services.credit.gates import GATES
-    from app.services.market_locks import lock_user
-    from app.services.fx import publisher
-
-    key = GroupKey('fx', pair_id)
-    needs_discovery = req.borrow_amount > ZERO
-    # Explicit financing would always consume the first attempt discovering
-    # missing collateral gates. Skip it without increasing the retry budget.
-    first_attempt = 1 if needs_discovery else 0
-    for attempt in range(first_attempt, flags.get_flags().credit_risk_retry_limit + 2):
-        try:
-            # Start with target only when financing is not explicit. If locked
-            # state needs collateral gates, rediscover outside all gates.
-            deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
-            if db.in_transaction():
-                await db.rollback()
-            async with GATES.hold(exclusive=[key], shared=deps.groups if deps else ()):
-                try:
-                    result = await execute_net_trade_in_session(
-                        db, user_id=user_id, pair_id=pair_id, req=req, credit_deps=deps)
-                    if result.replay:
-                        await db.rollback()
-                        return result
-                    account_hints = capture_accounts(db)
-                    await commit_fx_changes(db)
-                    publish_accounts(account_hints, "net_trading")
-                    trading.notify_market_data_committed(pair_id)
-                except BaseException:
-                    await trading._rollback_quietly(db)
-                    raise
-            publisher.enqueue_publication(pair_id=pair_id, post_price=result.post_price, trade_id=result.trade_ids[-1])
-            return result
-        except trading._RetryCredit:
-            needs_discovery = True
-            if attempt == flags.get_flags().credit_risk_retry_limit + 1:
-                raise HTTPException(status_code=409, detail='version_conflict; retry') from None
-        except (ValueError, ArithmeticError) as exc:
-            await trading._rollback_quietly(db)
-            raise trading.TradeRejected(str(exc)) from exc
-        except BaseException:
-            await trading._rollback_quietly(db)
-            raise
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import NetTrade
+    trading._require_writes()
+    command = NetTrade(pair_id=int(pair_id), user_id=int(user_id), side=req.side,
+        amount=req.amount, borrow_amount=req.borrow_amount, allow_growth=req.allow_growth,
+        min_out=req.min_out, idempotency_key=req.idempotency_key,
+        expected_economic_version=req.expected_economic_version)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 def _instruction_payload(pair_id, instruction):

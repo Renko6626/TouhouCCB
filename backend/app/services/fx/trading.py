@@ -12,10 +12,9 @@ Transaction contract (WP4a/WP4b):
   ``services.credit.fx_quote`` interface, moves wallet/cash/pool/treasury in
   the same transaction and leaves debt repayment and the commit to the
   orchestration caller.  It is idempotent per ``(run_id, round_no)``.
-- ``execute_trade`` is the request-path wrapper: it owns commit (or the
-  idempotent-replay rollback) and hands the committed trade to the bounded
-  post-commit publisher, which never blocks the response on the public frame
-  or on the 24h volume aggregation.
+- ``execute_trade`` releases the request transaction and submits a typed
+  command to the pair writer. The writer owns commit, snapshot installation
+  and post-commit hints, including idempotent replay rollback.
 
 Lock order is always ``pair -> user -> wallet -> treasury`` in all three
 execution paths.  Player order acceptance follows the F9 double-axis product
@@ -23,14 +22,13 @@ state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
 documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
-from app.services.market_read_state import FxReadState, stage_fx_pair, commit_fx_changes
-from app.services.account_events import capture_accounts, publish_accounts
+from app.services.market_read_state import FxReadState, stage_fx_pair
 
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional, Callable, Awaitable
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import and_, bindparam, case, func, select
@@ -623,64 +621,20 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                         idempotency_key: str, *, amount_mode: str = 'input',
                         bot_profile_id: int | None = None, bot_purpose: str = 'scheduled',
                         bot_operator_id: int | None = None,
-                        bot_reference_price: Decimal | None = None,
-                        before_commit: Callable[[AsyncSession, FxTradeExecution], Awaitable[None]] | None = None) -> FxTradePublic:
-    """Request-path wrapper: owns the transaction boundary and publication.
-
-    Commits a fresh execution (or rolls back an idempotent replay to release
-    the pair/user locks) and enqueues the committed trade on the bounded
-    publisher.  Enqueueing never blocks: the response does not wait for the
-    public frame or its 24h volume aggregation.
-    """
+                        bot_reference_price: Decimal | None = None) -> FxTradePublic:
+    """Release the producer transaction, then submit immutable request values."""
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import SpotTrade
     _require_writes()
-    flags = credit_flags.get_flags()
-    needs_discovery = False
-    for attempt in range(flags.credit_risk_retry_limit + 2):
-        try:
-            # Optimistically take only the target gate. If the locked user
-            # has debt, release everything and discover the complete set.
-            deps = (await discover_dependencies(db, user_id, extra_groups=[GroupKey("fx", pair_id)])
-                    if needs_discovery else None)
-            if db.in_transaction():
-                await db.rollback()
-            async with GATES.hold(exclusive=[GroupKey("fx", pair_id)],
-                                  shared=deps.groups if deps else ()):
-                try:
-                    execution = await execute_trade_in_session(
-                        db, user_id, pair_id, side, amount, min_out,
-                        idempotency_key, credit_deps=deps, amount_mode=amount_mode,
-                        bot_profile_id=bot_profile_id, bot_purpose=bot_purpose,
-                        bot_operator_id=bot_operator_id, bot_reference_price=bot_reference_price)
-                    if execution.replay:
-                        await db.rollback()
-                        return execution.public
-                    if before_commit is not None:
-                        await before_commit(db, execution)
-                    _require_writes()
-                    account_hints = capture_accounts(db)
-                    await commit_fx_changes(db)
-                    publish_accounts(account_hints, "trading")
-                except BaseException:
-                    await _rollback_quietly(db)
-                    raise
-            # Gate released and the fresh commit is durable: now hint the
-            # incremental market-data runtime (a replay returned above).
-            notify_market_data_committed(pair_id)
-            break
-        except _RetryCredit:
-            needs_discovery = True
-            if attempt == flags.credit_risk_retry_limit + 1:
-                raise HTTPException(status_code=409, detail="version_conflict; retry")
-        except BaseException:
-            await _rollback_quietly(db)
-            raise
-    # Pool version is committed before gates release; publication is bounded
-    # and cannot extend the transaction or hold unrelated symbols.
-    await db.refresh(execution.trade)
-    public = FxTradePublic.model_validate(execution.trade)
-    publisher.enqueue_publication(pair_id=public.pair_id, post_price=public.post_price,
-                                  trade_id=public.id)
-    return public
+    command = SpotTrade(pair_id=int(pair_id), user_id=int(user_id), side=side,
+        amount=_positive(amount, 'amount'), min_out=_nonnegative(min_out, 'min_out'),
+        idempotency_key=idempotency_key,
+        amount_mode=amount_mode, bot_profile_id=bot_profile_id,
+        bot_purpose=bot_purpose, bot_operator_id=bot_operator_id,
+        bot_reference_price=bot_reference_price)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 def liquidation_idempotency_key(run_id: int, round_no: int) -> str:

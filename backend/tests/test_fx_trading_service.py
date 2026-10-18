@@ -68,7 +68,8 @@ async def db_session(isolated_db, monkeypatch):
         session = AsyncCompatSession(raw)
         @asynccontextmanager
         async def isolated_session_maker():
-            yield session
+            with Session(isolated_db) as writer_raw:
+                yield AsyncCompatSession(writer_raw)
         monkeypatch.setattr("app.core.database.async_session_maker", isolated_session_maker)
         yield session
 
