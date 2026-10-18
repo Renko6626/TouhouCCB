@@ -90,3 +90,70 @@ async def test_lmsr_read_only_process_keeps_authoritative_database_reads(monkeyp
         await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('3.987654')))
         await db.commit()
         assert (await registry.read_groups([key]))[0].q_dec == ['3.987654']
+
+
+@pytest.mark.asyncio
+async def test_pricing_publisher_shares_serialization_and_filters_dependencies(monkeypatch):
+    import asyncio
+    from dataclasses import replace
+    from sqlalchemy import event
+    from app.core.database import engine
+    from app.schemas.trading_context import FxPricingGroup
+    from app.services import trading_prices
+    from app.services.account_events import Subscription
+    from app.services.market_read_state import FxReadState
+
+    async with async_session_maker() as db:
+        pairs = [FxPair(currency_code=str(i), currency_name=str(i)) for i in (1, 2)]
+        db.add_all(pairs)
+        await db.commit()
+        for pair in pairs:
+            await db.refresh(pair)
+        states = [FxReadState.from_pair(pair) for pair in pairs]
+    registry = PricingRegistry(async_session_maker)
+    registry.configure(memory_products=frozenset({'fx'}))
+    for state in states:
+        registry.install_committed(state)
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    keys = [GroupKey(product='fx', id=state.id) for state in states]
+    before = await registry.read_groups(keys, require_coverage=False)
+    again = await registry.read_groups(keys, require_coverage=False)
+    assert [(g.stamp, g.as_of) for g in before] == [(g.stamp, g.as_of) for g in again]
+    dumps, statements = [], []
+    original = FxPricingGroup.model_dump
+    def dumped(group, *args, **kwargs):
+        dumps.append(group.id)
+        return original(group, *args, **kwargs)
+    def observed(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    monkeypatch.setattr(FxPricingGroup, 'model_dump', dumped)
+    event.listen(engine.sync_engine, 'before_cursor_execute', observed)
+    publisher = trading_prices.PricingPublisher()
+    all_groups, first_only, second_only = [Subscription(i) for i in (11, 22, 33)]
+    publisher.subscribe(all_groups, keys)
+    publisher.subscribe(first_only, keys[:1])
+    publisher.subscribe(second_only, keys[1:])
+    publisher.start()
+    publisher.wake.set()
+    try:
+        _, both = await asyncio.wait_for(all_groups.queue.get(), 2)
+        _, first = await asyncio.wait_for(first_only.queue.get(), 2)
+        _, second = await asyncio.wait_for(second_only.queue.get(), 2)
+        assert [g['id'] for g in first['groups']] == [states[0].id]
+        assert [g['id'] for g in second['groups']] == [states[1].id]
+        assert both['groups'][0] is first['groups'][0]
+        assert both['groups'][1] is second['groups'][0]
+        assert sorted(dumps) == sorted(state.id for state in states)
+        registry.install_committed(replace(states[0], gold_reserve=Decimal('2'), pool_version=2))
+        publisher.wake.set()
+        _, changed = await asyncio.wait_for(all_groups.queue.get(), 2)
+        _, changed_first = await asyncio.wait_for(first_only.queue.get(), 2)
+        assert changed['groups'][0]['gold_reserve'] == '2'
+        assert changed['groups'][0]['stamp'] != first['groups'][0]['stamp']
+        assert changed['groups'][0] is changed_first['groups'][0]
+        assert second_only.queue.empty()
+        assert dumps.count(states[0].id) == 2 and dumps.count(states[1].id) == 1
+        assert statements == []
+    finally:
+        await publisher.stop()
+        event.remove(engine.sync_engine, 'before_cursor_execute', observed)

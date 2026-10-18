@@ -317,3 +317,45 @@ async def test_event_history_materialization_rotates_generation_and_rejects_stal
                     db, pair_id=pair_id, expected_event_id=cutoff,
                     through_event_id=cutoff, rows=[],
                     history_version=first_version, history_ready=None)
+
+
+@pytest.mark.asyncio
+async def test_warm_public_quotes_share_committed_inputs_without_pair_sql(monkeypatch):
+    from dataclasses import replace
+    from sqlalchemy import event
+    from app.core.database import engine
+    from app.services import trading_prices
+    from app.services.market_read_state import FxReadState
+
+    async with async_session_maker() as db:
+        pair = FxPair(currency_code='WARM', currency_name='Warm',
+                      gold_reserve=Decimal('100'), foreign_reserve=Decimal('100'))
+        db.add(pair)
+        await db.commit()
+        await db.refresh(pair)
+        state = FxReadState.from_pair(pair)
+    registry = trading_prices.PricingRegistry(async_session_maker)
+    registry.configure(memory_products=frozenset({'fx'}))
+    registry.install_committed(state)
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    statements = []
+    def observed(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+    event.listen(engine.sync_engine, 'before_cursor_execute', observed)
+    try:
+        # Separate requests/users use one committed input; history may query DB.
+        quotes, snapshots = [], []
+        for user in (11, 22):
+            async with async_session_maker() as db:
+                quotes.append(await trading.quote(db, state.id, 'buy', Decimal('1'), user))
+                snapshots.append(await trading.get_public_snapshot(db, state.id))
+        assert quotes[0].output_amount == quotes[1].output_amount
+        assert snapshots[0].pair.pool_version == snapshots[1].pair.pool_version == state.pool_version
+        assert all('fx_pair.' not in statement.lower() for statement in statements)
+        assert not {'gold_reserve', 'buy_fee_rate'} & snapshots[0].pair.model_dump().keys()
+        registry.install_committed(replace(state, gold_reserve=Decimal('200'), pool_version=2))
+        async with async_session_maker() as db:
+            updated = await trading.get_public_snapshot(db, state.id)
+        assert updated.price == Decimal('2') and updated.pair.pool_version == 2
+    finally:
+        event.remove(engine.sync_engine, 'before_cursor_execute', observed)

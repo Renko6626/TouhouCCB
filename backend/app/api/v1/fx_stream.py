@@ -9,12 +9,12 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import async_session_maker, get_async_session
 from app.models.fx import FxPair
+from app.services.market_read_state import FxReadState
 from app.services.credit.keys import symbol_namespace
 from app.services.fx import market_data, trading
 from app.services.fx.market_reads import read_fx_chart_with_meta, read_fx_stream_history
@@ -77,17 +77,17 @@ async def stream(pair_id: int, request: Request):
                 # tail and cursor name one committed prefix and generation.
                 locked = True
                 try:
-                    await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
-                                     .with_for_update(read=True))
+                    pair_state = await trading.read_public_pair_state(db, pair_id)
                 except SQLAlchemyError:
                     # A true read-only connection cannot prove the locked
                     # event prefix. Keep quotes available without claiming it.
                     await db.rollback()
                     locked = False
+                    pair_state = FxReadState.from_pair(await trading._pair(db, pair_id))
                 # The lock may have waited across a bucket boundary. Capture
                 # tail time only after its committed prefix is established.
                 now = datetime.now(timezone.utc)
-                snapshot = await trading.get_public_snapshot(db, pair_id)
+                snapshot = await trading.get_public_snapshot(db, pair_id, pair_state=pair_state)
                 try:
                     if not locked:
                         raise HTTPException(status_code=503, detail="FX history consistency lock is unavailable")

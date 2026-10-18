@@ -23,7 +23,7 @@ state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
 documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
-from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+from app.services.market_read_state import FxReadState, stage_fx_pair, commit_fx_changes
 from app.services.account_events import capture_accounts, publish_accounts
 
 import logging
@@ -44,6 +44,7 @@ from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
+from app.services import trading_prices
 from app.services.fx.amm import quote_buy, quote_sell, quote_buy_exact_out, amount_down, marginal_price
 from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
@@ -181,16 +182,48 @@ def _player_side_allowed(status: str, reduce_only: bool, side: str) -> bool:
     return False
 
 
-async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False) -> FxPair:
+async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False,
+                fresh: bool = False) -> FxPair:
+    statement = _PAIR_LOCK if lock else _PAIR_READ
+    if fresh:
+        statement = statement.execution_options(populate_existing=True)
     pair = (await db.execute(
-        _PAIR_LOCK if lock else _PAIR_READ, {'fx_pair_id': pair_id}
+        statement, {'fx_pair_id': pair_id}
     )).scalars().first()
     if pair is None:
         raise HTTPException(status_code=404, detail="FX pair not found")
     return pair
 
 
-def _math(pair: FxPair, side: str, amount: Decimal):
+async def _read_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
+    state = trading_prices.REGISTRY.peek_fx(pair_id)
+    if state is not None:
+        return state
+    # Caller-owned transactions (including isolated test sessions) cannot wait
+    # on a market GATE. Uncovered/read-only processes also retain that session.
+    session = getattr(db, "sync_session", getattr(db, "_session", db))
+    if trading_prices.REGISTRY._can_reuse("fx") and not session.in_transaction():
+        return await trading_prices.REGISTRY.read_fx(pair_id)
+    return FxReadState.from_pair(await _pair(db, pair_id))
+
+
+async def read_public_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
+    """Reuse memory only when the existing history row lock proves its version.
+
+    A committed writer may still be installing memory. In that interval use
+    this locked session's fresh row without installing it or acquiring GATES.
+    """
+    version = (await db.execute(select(FxPair.pool_version).where(
+        FxPair.id == pair_id).with_for_update(read=True))).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    state = trading_prices.REGISTRY.peek_fx(pair_id)
+    if state is not None and state.pool_version == version:
+        return state
+    return FxReadState.from_pair(await _pair(db, pair_id, fresh=True))
+
+
+def _math(pair: FxPair | FxReadState, side: str, amount: Decimal):
     side = str(side).lower()
     if side == "buy":
         return quote_buy(amount, pair.gold_reserve, pair.foreign_reserve, pair.buy_fee_rate)
@@ -199,7 +232,7 @@ def _math(pair: FxPair, side: str, amount: Decimal):
     raise TradeRejected("side must be buy or sell")
 
 
-def _gold_per_foreign(pair: FxPair, side: str) -> Decimal:
+def _gold_per_foreign(pair: FxPair | FxReadState, side: str) -> Decimal:
     """Effective quote normalized to **gold per foreign** (8dp).
 
     A player ``buy`` spends gold for foreign, so its effective price is
@@ -217,7 +250,7 @@ def _gold_per_foreign(pair: FxPair, side: str) -> Decimal:
 async def quote(db: AsyncSession, pair_id: int, side: str, amount: Decimal,
                 user_id: Optional[int] = None) -> FxQuote:
     amount = _positive(amount, "amount")
-    pair = await _pair(db, pair_id)
+    pair = await _read_pair_state(db, pair_id)
     try:
         q = _math(pair, side, amount)
     except (TypeError, ValueError, ArithmeticError) as exc:
@@ -820,8 +853,9 @@ async def publish_public_event(trade: FxTrade) -> None:
         pair_id=trade.pair_id, post_price=trade.post_price, trade_id=trade.id)
 
 
-async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
-    pair = await _pair(db, pair_id)
+async def get_public_snapshot(db: AsyncSession, pair_id: int, *,
+                              pair_state: FxReadState | None = None) -> FxSnapshot:
+    pair = pair_state if pair_state is not None else await _read_pair_state(db, pair_id)
     # Stored pairs make the market readable.  If an operator persisted a
     # pathological configuration (fee rate == 1, reserves too small to round a
     # single unit), the AMM math rejects it; surface an actionable 422 for the

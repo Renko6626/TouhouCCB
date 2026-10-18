@@ -243,11 +243,8 @@ async def publish_pair_frame(pair_id: int, post_price: Any,
             }
 
     async with async_session_maker() as db:
-        from sqlalchemy import select
-        from app.models.fx import FxPair
-        await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
-                         .with_for_update(read=True))
-        snapshot = await trading.get_public_snapshot(db, pair_id)
+        pair_state = await trading.read_public_pair_state(db, pair_id)
+        snapshot = await trading.get_public_snapshot(db, pair_id, pair_state=pair_state)
         snapshot_version = (snapshot.get("history_version") if isinstance(snapshot, dict)
                             else getattr(snapshot, "history_version", None))
         if history is not None and snapshot_version is not None and snapshot_version != history["history_version"]:
