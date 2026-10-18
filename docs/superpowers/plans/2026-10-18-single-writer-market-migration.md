@@ -1,6 +1,6 @@
 # 每市场唯一 writer 与已提交快照迁移方案
 
-> **状态：用户已确认，2026-10-18 开始隔离分支实施。** 后续执行使用 `superpowers:subagent-driven-development`，沿用用户指定的 sol 子代理；逐项交付、审阅。项目 AGENTS.md 的范围与测试约定优先于技能模板。
+> **状态：功能迁移、独立审阅、固定提交性能对照与主工作区集成已完成，尚未推送或部署。** 后续执行使用 `superpowers:subagent-driven-development`，沿用用户指定的 sol 子代理；逐项交付、审阅。项目 AGENTS.md 的范围与测试约定优先于技能模板。
 
 **Goal：** 消除普通行情、账户附带行情和跨市场估值对交易队列的等待，同时让同市场经济写入严格按唯一 writer 的顺序提交并发布。
 
@@ -128,28 +128,28 @@ PvE observation 和成交保留当前两次事务的业务时序，提交两条�
 
 ### 阶段一：FX 唯一写入归属
 
-- [ ] 建立 FxWriter 及生命周期，先迁移普通交易、融资净指令与开平空，复用现有内核；迁移期间保留原 GATE 作为过渡保护。
-- [ ] 收拢条件单、强平、注撤资、PvE 和管理写入；拆开自提交 helper，记录每个 commit 的实际归属。
-- [ ] 统一 writer 的 commit → 同步 install → 通知顺序；投影失败沿用 unavailable/从 DB 重载方式，禁止提交成功后继续用未更新状态处理下一笔。
-- [ ] 核对生产调用图，确认活跃 pair 经济写入没有绕过 writer，再做阶段性提交。
+- [x] 建立 FxWriter 及生命周期，先迁移普通交易、融资净指令与开平空，复用现有内核；迁移期间保留原 GATE 作为过渡保护。
+- [x] 收拢条件单、强平、注撤资、PvE 和管理写入；拆开自提交 helper，记录每个 commit 的实际归属。
+- [x] 统一 writer 的 commit → 同步 install → 通知顺序；投影失败沿用 unavailable/从 DB 重载方式，禁止提交成功后继续用未更新状态处理下一笔。
+- [x] 核对生产调用图，确认活跃 pair 经济写入没有绕过 writer，再做阶段性提交。
 
 验收重点：同市场命令实际串行；借款和成交仍同事务；两市场同用户现金/债务不丢失；异常不发布未提交快照；删除/重载不能与成交交错；没有持锁等待队列和 consumer 自 submit。
 
 ### 阶段二：LMSR 补齐生命周期与通知顺序
 
-- [ ] 新 ID bootstrap 后公开 actor；已有 ID 的 register/reload 入原队列，恢复在 consumer 内直接执行。
-- [ ] 将 op 内 commit 后的账户通知材料交回 consumer，在 apply/install 后发出；tick 与 future 完成顺序一并核查。
-- [ ] 保留 OWNERSHIP、unavailable、幂等强平、User/Position 事务保护，阶段性提交。
+- [x] 新 ID bootstrap 后公开 actor；已有 ID 的 register/reload 入原队列，恢复在 consumer 内直接执行。
+- [x] 将 op 内 commit 后的账户通知材料交回 consumer，在 apply/install 后发出；tick 与 future 完成顺序一并核查。
+- [x] 保留 OWNERSHIP、unavailable、幂等强平、User/Position 事务保护，阶段性提交。
 
 验收重点：已有市场重载不覆盖较新 q；恢复不等待自己；买卖、结算、强平原有资金与历史断言保持。
 
 ### 阶段三：切换快照读取与风险口径，移除 GATE
 
-- [ ] 普通 context/versions/prices/私人 SSE 与 quote 使用不可变已发布快照；移除读 GATE 和冷读全局安装。
-- [ ] 风险在锁定账户后取得本次已发布跨市场输入；本账户与实际执行目标仍重验，移除外市场冻结与相应 held_keys 前提。
-- [ ] 保留公共历史组合路径的真实前缀保护，更新账户附带价格的协议说明与旧等待语义测试。
-- [ ] 审计剩余 GATE 调用归属，确认各项替代已落地再删除通用 GATE；不能只靠搜索无引用判定资金正确。
-- [ ] 更新交易指南与迁移记录，说明旧图失效位置；阶段性提交。
+- [x] 普通 context/versions/prices/私人 SSE 与 quote 使用不可变已发布快照；移除读 GATE 和冷读全局安装。
+- [x] 风险在锁定账户后取得本次已发布跨市场输入；本账户与实际执行目标仍重验，移除外市场冻结与相应 held_keys 前提。
+- [x] 保留公共历史组合路径的真实前缀保护，更新账户附带价格的协议说明与旧等待语义测试。
+- [x] 审计剩余 GATE 调用归属，确认各项替代已落地再删除通用 GATE；不能只靠搜索无引用判定资金正确。
+- [x] 更新交易指南与迁移记录，说明旧图失效位置；阶段性提交。
 
 验收重点：市场写执行中普通读可完成并返回上一份完整投影；抵押市场写执行中借款不等其队列；本人并发借贷仍串行；冷 SQL 迟到不覆盖/复活；历史完整性不放宽。
 
@@ -157,10 +157,10 @@ PvE observation 和成交保留当前两次事务的业务时序，提交两条�
 
 ### 阶段四：集中审阅与同口径性能对照
 
-- [ ] sol 独立审阅实际产物与入口覆盖，修复具体资金/顺序错误，不扩展新机制。
-- [ ] 集中运行下面相关检查；局部修复只补跑受影响检查。
-- [ ] 使用同机器、相同初始化数据、100 用户/200 SSE 与原请求密度，依次比较固定 `330f4e6` 和最终提交；复用原读取型、活跃交易及压力阶梯与保护停止条件。
-- [ ] 分别报告成功吞吐、错误率、行情/context P95/P99、市场队列等待/执行时间、User/DB 锁等待、SQL/CPU；不把取消/失败请求算成功吞吐。
+- [x] sol 独立审阅实际产物与入口覆盖，修复具体资金/顺序错误，不扩展新机制。
+- [x] 集中运行下面相关检查；局部修复只补跑受影响检查。
+- [x] 使用同机器、相同初始化数据、100 用户/200 SSE 与原请求密度，依次比较固定 `330f4e6` 和最终提交；复用原读取型、活跃交易及压力阶梯与保护停止条件。
+- [x] 分别报告成功吞吐、错误率、行情/context P95/P99、市场队列等待/执行时间、User/DB 锁等待、SQL/CPU；不把取消/失败请求算成功吞吐。
 
 单市场实验主要验证普通读解耦；另用小规模真实双市场并发用例验证借款不冻结抵押市场，不为了这点搭建新压测平台。A/B 数据目录与之前结果分开，不把中间草稿测试当作最终验证。
 
@@ -169,7 +169,7 @@ PvE observation 和成交保留当前两次事务的业务时序，提交两条�
 已有测试优先复用：
 
 ```bash
-# cwd: backend；使用项目 venv。仅在实施完成后执行，本次方案没有运行这些检查。
+# cwd: backend；使用项目 venv。下列为验证范围示例，实际分批命令/局部重跑及结果见交付验证记录。
 venv/bin/python -m pytest -q tests/test_market_read_state.py tests/test_trading_context.py tests/test_trading_stream.py tests/test_market_writer_loop.py tests/test_market_writer_state.py tests/test_writer_buy.py tests/test_writer_sell.py tests/test_writer_admin_ops.py tests/test_writer_e2e.py tests/test_credit_risk.py tests/test_credit_short_risk.py tests/test_credit_execution.py tests/test_credit_liquidate_group.py tests/test_fx_trading_service.py tests/test_fx_trading_in_session.py tests/test_fx_borrow_buy.py tests/test_fx_net_trading.py tests/test_fx_short_trading.py tests/test_fx_short_liquidation.py tests/test_fx_trigger_orders.py tests/test_fx_pve_execution.py tests/test_admin_fx.py tests/test_admin_fx_multi_pair.py
 
 # TEST_PG_DATABASE_URL 必须明确指向一次性本机测试库，缺配置/skip 不算通过。
@@ -191,3 +191,13 @@ venv/bin/python -m pytest -q -m pg tests/pg/test_pg_trading_context.py tests/pg/
 不在本轮实施：全内存撮合/账本、入队即保证授信、跨市场原子事务、新风控预留系统、历史协议重做、跨进程报价广播或新恢复框架。若业务实际需要这些能力，再单独提交方案。
 
 用户已确认执行检查时间点、历史取舍与现有 User 行锁方案；实施进展及实际验证记入本计划的 SDD ledger。草稿 6526700 仍仅作参考，不直接整批合并。
+
+## 8. 实施记录
+
+功能候选固定为 `6c7675722cda265bd205dced6ce0f939ae7ac769`；最终整体及限定文档修正复审均批准，无 Critical/Important。分阶段提交保留在 `perf/single-writer-markets-20261018`。
+
+实际证据保存在 `output/fx-single-writer-ab-20261018/validation.md` 和该目录的 `validation/`，包括集中执行中的初始失败、夹具修正后的局部重跑；不把分批证据表述为最终全仓命令一次通过。
+
+保留既有强平排序与3次选择重试，去冻结后100人混合并发首轮允许有限重试耗尽；对这些用户在波次结束后各做一次既有调用补扫，最终资金/唯一事件/账户断言保持。暂缓停机恰逢异常恢复的活动请求等待原有10秒超时 Minor。普通行情免排队，精确历史公共组合包仍可能等待数据库 `FOR SHARE`。
+
+性能对照已执行：两边均在 stress 触发原有成功交易 P99>2秒保护，均未执行 burst。此次普通读取解耦显著降低高压 context/versions 延迟，成交容量仍未达到名义合计25cycles/s；完整数据和限制见 `output/fx-single-writer-ab-20261018/report.md`。主工作区集成后7模块115项检查通过，未执行全仓或浏览器交互测试。
