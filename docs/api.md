@@ -626,6 +626,8 @@ pair 的隐藏参数。
 
 金额、仓位、储备、费率、债务及数学参数为十进制字符串；economic_version、pool_version、revision 为整数串。rule_version、input_hash 和 epoch 是身份，不能按大小比较。组 stamp 为 `{epoch,revision,input_hash}`；账户版本和定价版本独立，broker seq 不代表定价覆盖。FX 包含完整储备、双向费率及状态；LMSR 包含排序 outcome_ids/q_dec、b、状态与 closes_at。缺失组和可空 market_id 明确保留未知性。
 
+本轮已确认的读取协议中，账户版本稳定检查覆盖账户本身；附带价格取各市场最近完整发布的已提交记录，两者不承诺共同提交截面。`minimum_group_stamps` 仅是本响应所含价格的版本下限，不代表账户变更已被行情因果覆盖。普通行情、上述账户接口和私人 SSE 初始价格不等待市场 writer；带精确历史前缀的公共 FX SSE 仍保留数据库 `FOR SHARE`，可能等待数据库写入。执行风控时，先取得本人 User 行锁并重读现金、债务、持仓和账户版本，再复制所需外市场已发布行情；不以入队前额度或行情投影替代本人新账本，也不冻结外市场。
+
 `GET /api/v1/stream/trading` 使用 fetch SSE 和 Authorization header，当前组参数同上；长期 bearer 不放 URL。单流事件包括 sync、pricing、account_changed、rules、heartbeat。account_changed 含 event_id、economic_version、reason、occurred_at，可选 operation_ref；事件是同步提示，不能确认未知订单成功。首包重读账户版本并补齐依赖。连接在凭证过期／最多1h、封禁、队列溢出或客户端退出时关闭；有界队列64项，约15s检查身份／规则并心跳，持续流量也不能饿死检查。恢复通过首包和轻量版本校对，事件无持久重放保证。
 
 旧成交、summary、图表和历史接口保留。真实资金、价格保护、幂等回执和准入仍由原服务端事务决定。具体验证范围见[实施验证记录](browser-local-trading-validation-2026-10-12.md)。
