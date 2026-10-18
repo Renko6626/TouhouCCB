@@ -46,6 +46,7 @@ def _clear_sweep_state():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures('published_markets')
 async def test_full_liquidation_sweep_e2e(client):
     """
     场景：
