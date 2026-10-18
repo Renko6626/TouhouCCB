@@ -600,12 +600,13 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
             session, pre, deps, pct=pct, daily_rate=rate, now=datetime.now(timezone.utc))
         if choice is not None and not _same_choice(choice, overflow_choice):
             # Interest may move a boundary between revalidation and planning;
-            # never switch the exclusive target while holding the old GATE.
+            # retry rather than switch the target selected under the User lock.
             raise ShortRetryCredit()
         choice = overflow_choice
         if choice is not None:
             # Unknown E never authorizes asset sales, gold repayment or a full
-            # batch. The target was selected and revalidated under its GATE.
+            # batch. Selection uses the fixed committed capture under the User
+            # lock; the target writer serializes execution.
             return LockedPlan(run, pre, choice.target, 'short_cover', 'partial',
                               choice.planned, choice.budget, 'cover', defer_repay=True)
         await _record_blocked_once(session, user, run,

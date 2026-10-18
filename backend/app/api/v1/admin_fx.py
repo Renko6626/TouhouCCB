@@ -367,8 +367,8 @@ async def _has_trade_history(db: AsyncSession, pair_id: int) -> bool:
 
 
 async def _ensure_no_short_obligations(db: AsyncSession, pair_id: int) -> None:
-    # Called only after the pair gate and authoritative row lock. Opening and
-    # repayment share that gate, so obligations cannot appear during cleanup.
+    # Called by the pair writer after the authoritative Pair row lock. Opening
+    # and repayment use the same writer, so obligations cannot appear during cleanup.
     outstanding = (await db.execute(select(FxShortPosition.id).where(
         FxShortPosition.pair_id == pair_id,
         (FxShortPosition.principal_foreign > 0)

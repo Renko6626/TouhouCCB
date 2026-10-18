@@ -619,9 +619,10 @@ async def _collateral_value(
 
     返回 ``(value, complete)``：``value`` 是已完成部分的清算价值。``cache_only=True``
     时**不做任何报价**（无债快路径），只命中缓存，``complete=False`` 表示有组缺缓存
-    或缺快照。``cache_only=False`` 时缺快照现补现算，只有**补不到快照**（品种被删/
-    未迁移）才 ``complete=False``；此时 ``value`` 是缺该组的下界，调用方若需要完整
-    净值必须把整本书标为未知，不得把下界当完整估值（spec §5.2）。
+    或缺快照。``cache_only=False`` 时只用本次检查固定捕获的已提交快照报价，不重新
+    捕获或从 SQL 补齐；缺少所需快照即 ``complete=False``。此时 ``value`` 是缺该组
+    的下界，调用方若需要完整净值必须把整本书标为未知，不得把下界当完整估值
+    （spec §5.2）。
     """
     needed = _needed_groups(deps, post)
     snapshots = dict(deps.snapshots) if cache_only else await _ensure_snapshots(session, deps, needed)

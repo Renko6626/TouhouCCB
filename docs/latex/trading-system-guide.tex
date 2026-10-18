@@ -364,11 +364,11 @@ PvE 账户生成、充值、启停和退休等不改 AMM 的管理继续独立�
 \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}X@{}}
 \toprule
 要核对的问题 & 模块索引（相对 \texttt{backend/app/}）\\\midrule
-FX 谁排序和提交 & \texttt{services/fx/writer.py}、\texttt{services/fx/writer\_ops.py}；交易内核见 \texttt{fx/trading.py}、\texttt{net\_trading.py}、\texttt{borrow\_buy.py}、\texttt{shorts.py}\\
+FX 谁排序和提交 & \texttt{services/fx/writer.py}、\texttt{services/fx/writer\_ops.py}；交易内核见 \texttt{services/fx/trading.py}、\texttt{services/fx/net\_trading.py}、\texttt{services/fx/borrow\_buy.py}、\texttt{services/fx/shorts.py}\\
 LMSR 谁推进与发布 & \texttt{services/market\_writer.py}、\texttt{services/writer\_ops.py}\\
 谁保存不可变行情 & \texttt{services/market\_read\_state.py}、\texttt{services/trading\_prices.py}\\
 账户与风控如何读取 & \texttt{services/credit/}；账户写入口还须核对 User 锁与新账本读取\\
-条件单、注撤资与 PvE & \texttt{services/fx/orders.py}、\texttt{liquidity.py}、\texttt{services/pve\_fx/}\\
+条件单、注撤资与 PvE & \texttt{services/fx/orders.py}、\texttt{services/fx/liquidity.py}、\texttt{services/pve\_fx/}\\
 公共历史、私人 SSE & \texttt{services/fx/market\_data.py}、\texttt{api/v1/fx\_stream.py}、\texttt{api/v1/user\_trading.py}\\
 协议与前端版本合并 & \texttt{schemas/trading\_context.py}；前端 \texttt{src/stores/tradingSession.ts}\\
 \bottomrule

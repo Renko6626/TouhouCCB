@@ -259,7 +259,10 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
                                        req: FxNetTradeRequest, credit_deps: DependencySet | None = None,
                                        _instruction: FxTradeInstruction | None = None,
                                        _now=None) -> FxNetTradeResponse:
-    """Execute under caller-owned gates and transaction; never publish or commit."""
+    """Execute in the target writer's transaction; never publish or commit.
+
+    Lock Pair then User, and capture committed risk prices after the User lock.
+    """
     from app.schemas.fx import FxNetTradeResponse
     from app.services.market_locks import lock_user
     key = GroupKey('fx', pair_id)
