@@ -149,7 +149,7 @@ async def test_resolve_idempotent_second_call():
 
 
 @pytest.mark.asyncio
-async def test_account_hint_context_waits_for_writer_projection(private_events):
+async def test_account_hint_follows_writer_projection(private_events):
     from app.services.credit.trading_context import read_trading_context
     from app.services.writer_ops import op_buy
     mid, oids = await _seed_market(shares=('0', '0'))
@@ -157,45 +157,41 @@ async def test_account_hint_context_waits_for_writer_projection(private_events):
     await WRITER.start()
     key = GroupKey(product='lmsr', id=mid)
     queue = private_events(uid)
-    committed, proceed, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
-    refresh = trading_prices.REGISTRY.refresh_groups
-    async def tracked_refresh(keys):
-        reading.set()
-        return await refresh(keys)
-    trading_prices.REGISTRY.refresh_groups = tracked_refresh
+    committed, proceed = asyncio.Event(), asyncio.Event()
     async def delayed_apply(state, cmd):
-        outcome = await op_buy(state, cmd)  # Original commit and account publication.
+        outcome = await op_buy(state, cmd)  # Committed, but projection is still old.
         committed.set()
         await proceed.wait()
         return outcome
     WRITER.register_op(BuyCmd, delayed_apply)
     writing = asyncio.create_task(WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True)))
     await committed.wait()
-    assert queue.get_nowait()[1]['reason'] == 'lmsr'
+    assert queue.empty()
     async def context():
         async with async_session_maker() as db:
             return await read_trading_context(db, uid, key, registry=trading_prices.REGISTRY)
-    covered = asyncio.create_task(context())
     try:
         public = await trading_prices.REGISTRY.read_groups([key], require_coverage=False)
         assert public[0].q_dec[0] == '0.000000'
-        await reading.wait()
-        assert not covered.done()
+        assert queue.empty()
     finally:
         proceed.set()
         await writing
-    result = await covered
+    assert queue.get_nowait()[1]['reason'] == 'lmsr'
+    assert queue.empty()
+    result = await context()
     assert result.account.economic_version == '1'
     assert result.account.lmsr_positions[0].amount == '1.000000'
     assert result.groups[0].q_dec[0] == '1.000000'
 
 
 @pytest.mark.asyncio
-async def test_committed_install_failure_invalidates_before_failed_reload(monkeypatch, caplog):
+async def test_committed_install_failure_invalidates_before_failed_reload(monkeypatch, caplog, private_events):
     mid, oids = await _seed_market(shares=('0', '0'))
     uid = await _seed_user()
     await WRITER.start()
     registry = trading_prices.REGISTRY
+    queue = private_events(uid)
     retried = asyncio.Event()
     attempts = 0
     def fail_install(state):
@@ -211,9 +207,60 @@ async def test_committed_install_failure_invalidates_before_failed_reload(monkey
         assert exc.value.status_code == 500
         await retried.wait()
     assert WRITER.get_state(mid).unavailable
+    assert queue.empty()
     assert 'LMSR database committed; snapshot installation failed' in caplog.text
     async with async_session_maker() as db:
         assert (await db.get(Outcome, oids[0])).total_shares == Decimal('1.000000')
     # The previous zero-shares snapshot cannot be used after failed recovery.
     group = (await registry.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
     assert group.q_dec == ['1.000000', '0.000000']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('lifecycle', ['register_market', 'reload_state'])
+async def test_existing_market_lifecycle_serializes_between_trades(monkeypatch, lifecycle):
+    from app.services import market_writer
+    from app.services.writer_ops import op_buy
+    mid, oids = await _seed_market(shares=('0', '0'))
+    uid = await _seed_user()
+    await WRITER.start()
+    committed, apply_allowed = asyncio.Event(), asyncio.Event()
+    loading, load_allowed = asyncio.Event(), asyncio.Event()
+    original_load = market_writer._load_one
+    calls = 0
+
+    async def delayed_buy(state, cmd):
+        nonlocal calls
+        calls += 1
+        outcome = await op_buy(state, cmd)
+        if calls == 1:
+            committed.set()
+            await apply_allowed.wait()
+        return outcome
+
+    async def delayed_load(session, market):
+        loading.set()
+        await load_allowed.wait()
+        return await original_load(session, market)
+
+    WRITER.register_op(BuyCmd, delayed_buy)
+    monkeypatch.setattr(market_writer, '_load_one', delayed_load)
+    first = asyncio.create_task(WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True)))
+    await committed.wait()
+    maintenance = asyncio.create_task(getattr(WRITER, lifecycle)(mid))
+    await asyncio.sleep(0)  # Enqueue maintenance before the next trade.
+    second = asyncio.create_task(WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True)))
+    try:
+        assert not loading.is_set()
+        apply_allowed.set()
+        await loading.wait()
+        assert not second.done()
+    finally:
+        apply_allowed.set()
+        load_allowed.set()
+        await asyncio.gather(first, maintenance, second)
+    assert WRITER.get_state(mid).q_dec[0] == Decimal('2.000000')
+    key = GroupKey(product='lmsr', id=mid)
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '2.000000'
+    async with async_session_maker() as db:
+        assert (await db.get(Outcome, oids[0])).total_shares == Decimal('2.000000')

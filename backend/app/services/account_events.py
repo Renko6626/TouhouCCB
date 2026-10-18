@@ -85,13 +85,18 @@ def publish_accounts(changes, reason):
 from contextlib import asynccontextmanager
 
 @asynccontextmanager
-async def notifying_transaction(session, transaction, reason):
-    """Owner opts in around its existing commit boundary; no financial behavior."""
+async def notifying_transaction(session, transaction, reason, *, defer_publication=False):
+    """Yield committed account descriptors; writers can publish after installing prices."""
+    # Returned outcomes may hold this list even on an early return from the body.
+    # Populate it only after the transaction context has committed successfully.
+    committed_changes = []
     try:
         async with transaction:
-            yield
+            yield committed_changes
             changes = capture_accounts(session)
-        publish_accounts(changes, reason)
+        committed_changes.extend(changes)
+        if not defer_publication:
+            publish_accounts(committed_changes, reason)
     except BaseException:
         session.info.pop('trading_account_changes', None)
         raise

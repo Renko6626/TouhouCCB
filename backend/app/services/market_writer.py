@@ -110,6 +110,12 @@ class OpOutcome:
     candle_rows: list[dict] = field(default_factory=list)
     tick_trade: Optional[dict] = None        # 本笔成交 payload，投喂 tick 帧
     tick_settlement: Optional[dict] = None   # 仅 resolve：{"winning_outcome_id", "settled_at"}
+    account_changes: Optional[list[tuple[int, int]]] = None
+
+
+@dataclass(frozen=True)
+class _ReloadCmd:
+    market_id: int
 
 
 class MarketWriter:
@@ -191,28 +197,32 @@ class MarketWriter:
     async def register_market(self, market_id: int) -> None:
         from app.services.credit.gates import GATES
         from app.services.credit.keys import GroupKey
-        # Creation has committed and closed its transaction before registering.
-        # Serialize the DB load with cold readers and existing-market writes.
+        if market_id in self._queues:
+            await self.reload_state(market_id)
+            return
+        # Creation has committed and closed its transaction before bootstrap.
+        # Recheck under the transitional gate in case another registration won.
         async with GATES.hold(exclusive=[GroupKey("lmsr", market_id)]):
-            self._invalidate_read_state(market_id)
-            existing = self._states.get(market_id)
-            if existing is not None:
-                existing.unavailable = True
-            try:
-                async with async_session_maker() as s:
-                    m = await s.get(Market, market_id)
-                    if m is None:
-                        return
-                    st = await _load_one(s, m)
-                self._install(st)
-            except BaseException:
-                st = self._states.get(market_id)
-                if st is not None:
-                    st.unavailable = True
+            if market_id not in self._queues:
                 self._invalidate_read_state(market_id)
-                raise
+                try:
+                    async with async_session_maker() as s:
+                        m = await s.get(Market, market_id)
+                        if m is None:
+                            return
+                        st = await _load_one(s, m)
+                    self._install(st)
+                except BaseException:
+                    self._invalidate_read_state(market_id)
+                    raise
+                return
+        await self.reload_state(market_id)
 
     async def reload_state(self, market_id: int) -> None:
+        """Serialize external reloads with every command for this market."""
+        await self.submit(_ReloadCmd(market_id))
+
+    async def _reload_state(self, market_id: int) -> None:
         """Reload the whole committed pricing source; failure discards old reads."""
         from app.services.credit.gates import GATES
         from app.services.credit.keys import GroupKey
@@ -284,7 +294,7 @@ class MarketWriter:
         st = self._states.get(market_id)
         if q is None or st is None:
             raise HTTPException(status_code=400, detail="市场当前不可交易")
-        if st.unavailable:
+        if st.unavailable and not isinstance(cmd, _ReloadCmd):
             raise HTTPException(status_code=503, detail="市场状态异常，暂停服务，请稍后重试")
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         try:
@@ -308,10 +318,20 @@ class MarketWriter:
                 continue
             st = self._states[market_id]
             try:
+                if isinstance(cmd, _ReloadCmd):
+                    # Maintenance must remain available when economic writes are
+                    # blocked. Recovery calls the same private loader directly.
+                    await self._reload_state(market_id)
+                    if not fut.done():
+                        fut.set_result(None)
+                    continue
                 if st.unavailable:
                     raise HTTPException(status_code=503, detail="市场状态异常，暂停服务")
                 op = self._ops[type(cmd)]
                 outcome: OpOutcome = await self._execute_gated(st, cmd, op)
+                if outcome.account_changes is not None:
+                    from app.services.account_events import publish_accounts
+                    publish_accounts(outcome.account_changes, "lmsr")
                 # ── tick 帧投喂（spec § 5.1）──
                 prices_8dp = [float(quantize_price(p)) for p in st.prices]
                 if outcome.tick_trade is not None:
@@ -342,7 +362,7 @@ class MarketWriter:
                 if not fut.done():
                     fut.set_exception(HTTPException(
                         status_code=500, detail="交易处理异常，结果未知，请刷新后确认"))
-                await self.reload_state(market_id)
+                await self._reload_state(market_id)
 
     async def _execute_gated(self, st, cmd, op):
         from app.services.credit.gates import GATES
@@ -405,8 +425,7 @@ class MarketWriter:
             if outcome.tick_trade is not None:
                 st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
 
-        # Account notifications remain inside the op; covered readers wait on
-        # this still-held GATE until the complete committed projection is ready.
+        # The consumer publishes account hints only after this complete install.
         self._install_read_state(st)
 
     def _merge_candles(self, rows: list[dict]) -> None:

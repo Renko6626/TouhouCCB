@@ -134,8 +134,12 @@ async def test_reload_installs_complete_source_and_failure_discards_old_projecti
         await db.commit()
     async def fail_load(*args):
         raise RuntimeError('unavailable reload')
-    monkeypatch.setattr(market_writer, '_load_one', fail_load)
-    await WRITER.reload_state(mid)
-    assert state.unavailable
+    with monkeypatch.context() as patch:
+        patch.setattr(market_writer, '_load_one', fail_load)
+        await WRITER.reload_state(mid)
+        assert state.unavailable
     # Cold fallback may recover from DB, never from the writer's old q.
     assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '7.654321'
+    # External maintenance can recover an actor that rejects economic commands.
+    await WRITER.reload_state(mid)
+    assert not state.unavailable and state.q_dec[0] == Decimal('7.654321')
