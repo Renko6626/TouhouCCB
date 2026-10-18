@@ -1,0 +1,86 @@
+
+> thccb-frontend@0.0.0 lint
+> eslint . --fix --no-fix
+
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/fx-unified-panel-preview.vue
+   6:41   error  'formatFxPrice' is defined but never used    @typescript-eslint/no-unused-vars
+  12:7    error  'signed' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  30:34   error  Filters are deprecated                       vue/no-deprecated-filter
+  32:137  error  Filters are deprecated                       vue/no-deprecated-filter
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/api/chart.ts
+  14:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/api/index.ts
+  171:13  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:14  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  177:13  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  177:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  180:16  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/api/stream.ts
+   16:45  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  144:30  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  148:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  161:41  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/components/chart/FxCandleChart.vue
+  34:10  error  'formatFxPrice' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/components/home/Movers.vue
+  1:1  error  Component name "Movers" should always be multi-word  vue/multi-word-component-names
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/auth/Callback.vue
+   1:1   error  Component name "Callback" should always be multi-word  vue/multi-word-component-names
+  36:17  error  Unexpected any. Specify a different type               @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/auth/Login.vue
+  1:1  error  Component name "Login" should always be multi-word  vue/multi-word-component-names
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/auth/Register.vue
+  1:1  error  Component name "Register" should always be multi-word  vue/multi-word-component-names
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/market/Leaderboard.vue
+  1:1  error  Component name "Leaderboard" should always be multi-word  vue/multi-word-component-names
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/market/MarketList.vue
+  36:32  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/pages/market/TradingView.vue
+    8:41  error  'NTag' is defined but never used                         @typescript-eslint/no-unused-vars
+  222:7   error  'realtimeStatusType' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  235:54  error  Unexpected any. Specify a different type                 @typescript-eslint/no-explicit-any
+  355:17  error  Unexpected any. Specify a different type                 @typescript-eslint/no-explicit-any
+  364:56  error  Unexpected any. Specify a different type                 @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/router/routes.ts
+  316:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/stores/auth.ts
+  51:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/stores/market.ts
+   29:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   42:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   55:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  116:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  140:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  156:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  195:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  216:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  237:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/types/common.ts
+  9:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/tonrac/code/TouhouCCB/repository/thccb-frontend/src/types/stream.ts
+  7:9  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 45 problems (45 errors, 0 warnings)
+

@@ -1,0 +1,4 @@
+
+> thccb-frontend@0.0.0 type-check
+> vue-tsc --noEmit -p tsconfig.app.json
+
