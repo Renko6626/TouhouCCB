@@ -1,9 +1,8 @@
 """Typed FX commands and writer-owned transaction boundaries.
 
-Commands retain only immutable request values. Discovery is repeated in a fresh
-session on credit conflicts; Pair/User locks and the existing financial kernels
-remain responsible for validating execution state. The transitional GATE stays
-held through commit and synchronous installation.
+Commands retain only immutable request values. Handlers lock Pair then User,
+prepare the complete own ledger, and capture committed prices before simulation.
+The consumer owns commit, synchronous installation and subsequent notifications.
 """
 from __future__ import annotations
 
@@ -16,10 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core import database
 from app.schemas.fx import FxNetTradeRequest, FxTradePublic
 from app.services.account_events import capture_accounts, publish_accounts
-from app.services.credit import flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
-from app.services.credit.risk import discover_dependencies
 from app.services.fx import borrow_buy, net_trading, publisher, shorts, trading
 from app.services.market_read_state import capture_fx_changes, invalidate_fx_changes
 
@@ -153,59 +149,44 @@ async def _execute_in_session(db, cmd, deps):
 async def execute_command(writer, cmd):
     """Commit, install, then emit hints before allowing the next pair command."""
     trading._require_writes()
-    target = GroupKey('fx', cmd.pair_id)
-    needs_discovery = isinstance(cmd, (BorrowBuy, ShortOpen, ShortCover)) or (
-        isinstance(cmd, NetTrade) and cmd.borrow_amount > 0)
-    retry_limit = max(0, int(flags.get_flags().credit_risk_retry_limit))
-    # Spot/net optimistically start with only the target. This extra attempt
-    # preserves their pre-writer credit retry budget.
-    attempts = retry_limit + (1 if needs_discovery else 2)
-    for attempt in range(attempts):
-        async with database.async_session_maker() as db:
+    async with database.async_session_maker() as db:
+        try:
+            execution = await _execute_in_session(db, cmd, None)
+            if execution.replay:
+                await db.rollback()
+                return execution.response
+            trading._require_writes()
+            await db.flush()
+            changes = capture_fx_changes(db)
+            account_hints = capture_accounts(db)
             try:
-                deps = (await discover_dependencies(db, cmd.user_id, extra_groups=[target])
-                        if needs_discovery else None)
-                if db.in_transaction():
-                    await db.rollback()
-                async with GATES.hold(exclusive=[target], shared=deps.groups if deps else ()):
-                    execution = await _execute_in_session(db, cmd, deps)
-                    if execution.replay:
-                        await db.rollback()
-                        return execution.response
-                    trading._require_writes()
-                    await db.flush()
-                    changes = capture_fx_changes(db)
-                    account_hints = capture_accounts(db)
-                    try:
-                        await db.commit()
-                    except BaseException:
-                        invalidate_fx_changes(changes)
-                        raise
-                    for snapshot in changes:
-                        writer.install_committed(snapshot)
-                    publish_accounts(account_hints, execution.reason)
-                    trading.notify_market_data_committed(cmd.pair_id)
-                    publisher.enqueue_publication(pair_id=cmd.pair_id,
-                        post_price=execution.post_price, trade_id=execution.trade_id)
-                    return execution.response
-            except (trading._RetryCredit, shorts.ShortRetryCredit):
-                await trading._rollback_quietly(db)
-                needs_discovery = True
-                if attempt == attempts - 1:
-                    raise HTTPException(409, 'version_conflict; retry') from None
-            except IntegrityError as exc:
-                await trading._rollback_quietly(db)
-                if isinstance(cmd, (ShortOpen, ShortCover)) and shorts._is_fx_trade_idempotency_conflict(exc):
-                    raise HTTPException(409, 'idempotency key conflict; retry') from None
-                raise
-            except (ValueError, ArithmeticError) as exc:
-                await trading._rollback_quietly(db)
-                if isinstance(cmd, NetTrade):
-                    raise trading.TradeRejected(str(exc)) from exc
-                raise
+                await db.commit()
             except BaseException:
-                await trading._rollback_quietly(db)
+                invalidate_fx_changes(changes)
                 raise
+            for snapshot in changes:
+                writer.install_committed(snapshot)
+            publish_accounts(account_hints, execution.reason)
+            trading.notify_market_data_committed(cmd.pair_id)
+            publisher.enqueue_publication(pair_id=cmd.pair_id,
+                post_price=execution.post_price, trade_id=execution.trade_id)
+            return execution.response
+        except (trading._RetryCredit, shorts.ShortRetryCredit):
+            await trading._rollback_quietly(db)
+            raise HTTPException(409, 'version_conflict; retry') from None
+        except IntegrityError as exc:
+            await trading._rollback_quietly(db)
+            if isinstance(cmd, (ShortOpen, ShortCover)) and shorts._is_fx_trade_idempotency_conflict(exc):
+                raise HTTPException(409, 'idempotency key conflict; retry') from None
+            raise
+        except (ValueError, ArithmeticError) as exc:
+            await trading._rollback_quietly(db)
+            if isinstance(cmd, NetTrade):
+                raise trading.TradeRejected(str(exc)) from exc
+            raise
+        except BaseException:
+            await trading._rollback_quietly(db)
+            raise
 
 
 def register_all_ops(writer):
@@ -314,37 +295,36 @@ async def execute_control(writer, cmd):
     if isinstance(cmd, AdminPair):
         return await execute_admin(writer, cmd)
     async with database.async_session_maker() as db:
-        async with GATES.hold(exclusive=[GroupKey('fx', cmd.pair_id)]):
-            if isinstance(cmd, FailOrder):
-                response = await orders.fail_unavailable_in_session(db, cmd.order_id)
-            elif isinstance(cmd, CreateOrder):
-                response = await orders.create_order_in_session(
-                    db, cmd.user_id, FxTriggerOrderCreate.model_validate_json(cmd.request_json))
-            elif isinstance(cmd, CancelOrder):
-                response = await orders.cancel_order_in_session(db, cmd.user_id, cmd.order_id)
-            elif isinstance(cmd, Liquidity):
-                kernel = liquidity._withdraw_pair_impl if cmd.withdraw else liquidity._fund_pair_impl
-                response = await kernel(db, cmd.pair_id, cmd.gold_amount,
-                                        cmd.foreign_amount, cmd.operator_user_id)
-            elif isinstance(cmd, ObserveBot):
-                from app.services.pve_fx.executor import observe_in_session
-                response = await observe_in_session(db, cmd)
-            elif isinstance(cmd, WriteoffShort):
-                from app.services.admin_user_service import writeoff_fx_short_in_session
-                response = await writeoff_fx_short_in_session(db, target_id=cmd.target_id,
-                    pair_id=cmd.pair_id, reason=cmd.reason, admin_id=cmd.admin_id,
-                    idempotency_key=cmd.idempotency_key)
-            else:
-                raise TypeError(type(cmd).__name__)
-            await db.flush()
-            hints = capture_accounts(db)
-            await commit_and_install(writer, db)
-            if hints or isinstance(cmd, WriteoffShort):
-                publish_accounts(hints, 'admin_account' if isinstance(cmd, WriteoffShort) else 'fx_control')
-            if isinstance(cmd, Liquidity):
-                notify_pricing_changed(())
-                liquidity._publish_liquidity(response)
-            return response
+        if isinstance(cmd, FailOrder):
+            response = await orders.fail_unavailable_in_session(db, cmd.order_id)
+        elif isinstance(cmd, CreateOrder):
+            response = await orders.create_order_in_session(
+                db, cmd.user_id, FxTriggerOrderCreate.model_validate_json(cmd.request_json))
+        elif isinstance(cmd, CancelOrder):
+            response = await orders.cancel_order_in_session(db, cmd.user_id, cmd.order_id)
+        elif isinstance(cmd, Liquidity):
+            kernel = liquidity._withdraw_pair_impl if cmd.withdraw else liquidity._fund_pair_impl
+            response = await kernel(db, cmd.pair_id, cmd.gold_amount,
+                                    cmd.foreign_amount, cmd.operator_user_id)
+        elif isinstance(cmd, ObserveBot):
+            from app.services.pve_fx.executor import observe_in_session
+            response = await observe_in_session(db, cmd)
+        elif isinstance(cmd, WriteoffShort):
+            from app.services.admin_user_service import writeoff_fx_short_in_session
+            response = await writeoff_fx_short_in_session(db, target_id=cmd.target_id,
+                pair_id=cmd.pair_id, reason=cmd.reason, admin_id=cmd.admin_id,
+                idempotency_key=cmd.idempotency_key)
+        else:
+            raise TypeError(type(cmd).__name__)
+        await db.flush()
+        hints = capture_accounts(db)
+        await commit_and_install(writer, db)
+        if hints or isinstance(cmd, WriteoffShort):
+            publish_accounts(hints, 'admin_account' if isinstance(cmd, WriteoffShort) else 'fx_control')
+        if isinstance(cmd, Liquidity):
+            notify_pricing_changed(())
+            liquidity._publish_liquidity(response)
+        return response
 
 
 async def execute_admin(writer, cmd):
@@ -354,21 +334,20 @@ async def execute_admin(writer, cmd):
     async with admin_fx._TRADING_MUTATION_LOCK:
         async with database.async_session_maker() as db:
             await admin_fx._lock_trading_capacity(db)
-            async with GATES.hold(exclusive=[GroupKey('fx', cmd.pair_id)]):
-                if cmd.action == 'patch':
-                    response = await admin_fx._update_pair_in_session(db, cmd.pair_id,
-                        cmd.admin_id, admin_fx.PairPatch.model_validate_json(cmd.request_json))
-                elif cmd.action == 'archive':
-                    response = await admin_fx._archive_pair_in_session(db, cmd.pair_id, cmd.admin_id)
-                elif cmd.action == 'delete':
-                    response = await admin_fx._delete_pair_in_session(db, cmd.pair_id, cmd.admin_id)
-                else:
-                    raise ValueError('Unknown FX admin action')
-                await commit_and_install(writer, db)
-                if cmd.action == 'delete':
-                    writer.mark_deleted(cmd.pair_id)
-                notify_pricing_changed(())
-                return response
+            if cmd.action == 'patch':
+                response = await admin_fx._update_pair_in_session(db, cmd.pair_id,
+                    cmd.admin_id, admin_fx.PairPatch.model_validate_json(cmd.request_json))
+            elif cmd.action == 'archive':
+                response = await admin_fx._archive_pair_in_session(db, cmd.pair_id, cmd.admin_id)
+            elif cmd.action == 'delete':
+                response = await admin_fx._delete_pair_in_session(db, cmd.pair_id, cmd.admin_id)
+            else:
+                raise ValueError('Unknown FX admin action')
+            await commit_and_install(writer, db)
+            if cmd.action == 'delete':
+                writer.mark_deleted(cmd.pair_id)
+            notify_pricing_changed(())
+            return response
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,29 +368,28 @@ async def execute_liquidation_round(writer, cmd):
         await db.rollback()
         target = GroupKey('fx', cmd.pair_id)
         guess = execution.Choice(target=target, role=cmd.role, mode='partial')
-        async with GATES.hold(exclusive=[target], shared=deps.groups):
-            try:
-                retry_reasons = []
-                status, nested, publication = await execution._execute_locked_round(
-                    db, cmd.user_id, deps, guess, rate=cmd.rate, pct=cmd.pct,
-                    source=cmd.source, attempt=1,
-                    log_retry=lambda reason, _: retry_reasons.append(reason))
-                if status == 'retry':
-                    await db.rollback()
-                    return LiquidationResult(status, retry_reasons[-1])
-                if nested is not None:
-                    # Selection changes belong to the producer's bounded rediscovery loop.
-                    await db.rollback()
-                    return LiquidationResult('retry', 'selection_drift')
-                await db.flush()
-                hints = capture_accounts(db)
-                await commit_and_install(writer, db)
-                execution.publish_accounts(hints, 'liquidation')
-                if publication is not None:
-                    trading.notify_market_data_committed(int(publication[0]))
-                    publisher.enqueue_publication(pair_id=publication[0], post_price=publication[1],
-                                                  trade_id=publication[2])
-                return LiquidationResult(status)
-            except ShortRetryCredit:
+        try:
+            retry_reasons = []
+            status, nested, publication = await execution._execute_locked_round(
+                db, cmd.user_id, deps, guess, rate=cmd.rate, pct=cmd.pct,
+                source=cmd.source, attempt=1,
+                log_retry=lambda reason, _: retry_reasons.append(reason))
+            if status == 'retry':
                 await db.rollback()
-                return LiquidationResult('retry', 'ShortRetryCredit')
+                return LiquidationResult(status, retry_reasons[-1])
+            if nested is not None:
+                # Selection changes belong to the producer's bounded rediscovery loop.
+                await db.rollback()
+                return LiquidationResult('retry', 'selection_drift')
+            await db.flush()
+            hints = capture_accounts(db)
+            await commit_and_install(writer, db)
+            execution.publish_accounts(hints, 'liquidation')
+            if publication is not None:
+                trading.notify_market_data_committed(int(publication[0]))
+                publisher.enqueue_publication(pair_id=publication[0], post_price=publication[1],
+                                              trade_id=publication[2])
+            return LiquidationResult(status)
+        except ShortRetryCredit:
+            await db.rollback()
+            return LiquidationResult('retry', 'ShortRetryCredit')

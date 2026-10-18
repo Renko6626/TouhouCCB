@@ -1,37 +1,8 @@
-"""统一风险检查（计划 §3.2 冻结签名；spec §4 / §6.2）。
+"""Unified risk using a fresh own ledger and one immutable published price capture.
 
-调用约定：
-
-- 调用方**已持**相关品种门闩（``credit/gates.py``），并在 DB 事务内、用户行锁之后调用。
-- ``deps`` 是锁外 ``discover_dependencies`` 的快照；``check_*`` 内用
-  ``user.economic_version`` 复检，不一致时有界重试重新发现依赖，并把调用方给的
-  交易后态按**增量** rebase（``cash/debt/post_holdings`` 重放同样的 delta），
-  超限返回 ``version_conflict`` 拒绝——绝不用旧快照放行（spec §6.2 第 4 条）。
-- 本模块不写库、不 commit、不发 writer 命令、不持全局锁、不做定时调度；
-  强平只由 WP7 的定时扫描触发。
-- **权威读取（复审 R1）**：``discover_dependencies`` 与 ``check_*`` 用
-  ``populate_existing`` 刷新 User 行，版本 / cash / debt / ``credit_frozen`` 一律取
-  数据库当前值——同 session 里先前锁行或加载的旧实例不会让外部并发改动被忽略。
-  代价是该实例上的**未提交内存修改会被丢弃**，所以调用方必须在应用变更**之前**
-  调用 ``check_*``（计划 WP6 的顺序本来就是先检查后落库）。
-- **价格/状态版本（复审 R3）**：锁内重读本次模拟涉及的品种快照；调用方声明的
-  ``base_versions`` 或 deps 快照版本被推进即 ``version_conflict`` 拒绝，**不要求
-  user 版本也变化**。纯抵押品种只刷新快照重估，不拒绝。
-
-判定（spec §4）：
-
-    D_after == 0                  → 直接放行（无债快路径，不做保证金比较，不报价）
-    D_after > 0                   → E_after >= R_initial × D_after 才放行
-    E_after = cash_after + Σ L_group(post_holdings) − D_after_effective
-
-``L_group`` 是两个产品共用的**整组清算价值**（LMSR 滚动 q + FX AMM，含滑点与手续费，
-不可执行组 L=0）；不是瞬时价 × 数量，也不是 MTM。``D_after`` 用
-``loan_service.pending_debt``（与计息同源，含未落库利息）。
-
-``credit_frozen``（用户级）与 ``credit_new_risk_frozen``（运营热闸）都拒绝**增险**：
-这两个函数只被"增险"路径调用；还款 / 减仓 / 强平不经过这里。
-版本化缓存只缓存**未变组的 L 值**，键含用户经济版本与品种价格/状态/费率版本，
-不缓存 effective debt / equity，也不依赖 TTL 猜新鲜度（spec §6.3）。
+Execution callers hold User FOR UPDATE through commit, discover the full account
+before constructing their post-state, and pass account_locked=True. Market prices
+never require a foreign market lock, SQL fallback, or a writer request.
 """
 from __future__ import annotations
 
@@ -45,9 +16,8 @@ from typing import Mapping, Optional, Sequence
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import Market, Outcome, Position, SiteConfig, User
-from app.models.fx import FxPair, FxShortPosition, FxWallet
-from app.services import site_config
+from app.models.base import Outcome, Position, SiteConfig, User
+from app.models.fx import FxShortPosition, FxWallet
 from app.services.credit import flags as credit_flags
 from app.services.credit.fx_quote import (
     BLOCKED_SHORT_QUOTE_FAILED,
@@ -87,10 +57,6 @@ REASON_INVALID_SHORT_DEBT = "invalid_short_debt"
 REASON_INCOMPLETE_ASSET_VALUATION = "incomplete_asset_valuation"
 
 
-class _StalePostState(Exception):
-    """调用方模拟的交易后价格/状态基于已过期的品种版本（R3）：安全拒绝。"""
-
-
 # ────────────────────────────── 数据结构 ──────────────────────────────
 
 @dataclass(frozen=True)
@@ -113,7 +79,7 @@ class GroupSnapshot:
     FX 组同时携带正资产快照（``pair``，卖出费率）与空头快照
     （``short_pair``，买入费率 + pool_version）以及该 pair 的持久欠币
     （``short_debt``）。版本元组包含储备、两侧费率、状态、pool_version 与欠币
-    时点，锁内重读即能发现影响 K 的任何并发写。
+    时点；A/K 复用同一次捕获的市场输入和最新本人欠币。
     """
 
     key: GroupKey
@@ -129,7 +95,7 @@ class GroupSnapshot:
 
 @dataclass(frozen=True)
 class DependencySet:
-    """锁外发现的用户经济状态 + 全组合品种快照。
+    """用户经济账本及一次已提交行情捕获，执行前须在 User 锁下构造。
 
     - ``debt`` 是**持久值**（不是含息值）；含息值在 check 内按 ``now`` 用
       ``debt_last_accrued_at`` + ``daily_rate`` 计算，保证增量 rebase 精确。
@@ -151,6 +117,8 @@ class DependencySet:
     daily_rate: Decimal = ZERO
     lmsr_fee_rate: Decimal = ZERO
     snapshots: Mapping[GroupKey, GroupSnapshot] = field(default_factory=dict)
+    short_debts: Mapping[int, ShortDebtSnapshot] = field(default_factory=dict)
+    account_locked: bool = False
 
 
 @dataclass(frozen=True)
@@ -167,8 +135,8 @@ class PostTradeState:
       K 必须按它报价。``base_versions`` / ``fee_rates`` / ``statuses`` /
       ``closes_at`` 是交易后版本与费率。
     - ``base_versions`` 可选：调用方模拟所基于的品种版本（``deps.snapshots[key].version``）。
-      提供时，若锁内重发现发现版本已变 → 直接 ``version_conflict``，不拿旧价格态放行
-      （空头 pair 尤其重要：绝不用过期 K 放行）。
+      锁外模拟的目标版本已变时返回 ``version_conflict``；执行 handler 在锁下
+      构造实际目标后态，外市场后续发布不触发重试。
     """
 
     cash: Decimal
@@ -447,12 +415,6 @@ def _positions_after(
 
 # ────────────────────────────── 发现依赖 ──────────────────────────────
 
-def _writer_state(market_id: int):
-    from app.services.market_writer import WRITER
-
-    return WRITER.get_state(market_id)
-
-
 def _iso(value: Optional[datetime]) -> Optional[str]:
     return None if value is None else value.isoformat()
 
@@ -498,317 +460,88 @@ def _fx_group_snapshot(
     )
 
 
-async def _load_snapshots(
-    session: AsyncSession,
-    keys: Sequence[GroupKey],
-    *,
-    lmsr_fee_rate: Decimal,
-    lmsr_meta: Optional[Mapping[int, tuple[str, Optional[datetime], Decimal]]] = None,
-    fx_meta: Optional[Mapping[int, FxPairSnapshot]] = None,
-    fx_short_meta: Optional[Mapping[int, FxShortPairSnapshot]] = None,
-    short_debt_meta: Optional[Mapping[int, ShortDebtSnapshot]] = None,
-    fx_pool_versions: Optional[Mapping[int, int]] = None,
-) -> dict[GroupKey, GroupSnapshot]:
-    """批量加载组快照（LMSR：market + 全 outcomes；FX：pair + 空头元数据）。
+def _captured_snapshots(keys, *, lmsr_fee_rate, short_debts):
+    from app.schemas.trading_context import GroupKey as PricingKey
+    from app.services.trading_prices import REGISTRY
 
-    已由 position/wallet/short 查询带出的 meta 直接复用，避免重复 SELECT。
-    找不到的品种不产出快照（调用方按不可估值 → L=0 保守处理）。
-    """
-    lmsr_ids = sorted({k.group_id for k in keys if k.product == "lmsr"})
-    fx_ids = sorted({k.group_id for k in keys if k.product == "fx"})
-    markets: dict[int, tuple[str, Optional[datetime], Decimal]] = dict(lmsr_meta or {})
-    pairs: dict[int, FxPairSnapshot] = dict(fx_meta or {})
-    short_pairs: dict[int, FxShortPairSnapshot] = dict(fx_short_meta or {})
-    short_debts: dict[int, ShortDebtSnapshot] = dict(short_debt_meta or {})
-    pool_versions: dict[int, int] = dict(fx_pool_versions or {})
-
-    missing_markets = [mid for mid in lmsr_ids if mid not in markets]
-    if missing_markets:
-        rows = (await session.execute(
-            select(Market.id, Market.status, Market.closes_at, Market.liquidity_b)
-            .where(Market.id.in_(missing_markets))
-        )).all()
-        for market_id, status, closes_at, liquidity_b in rows:
-            markets[int(market_id)] = (status, closes_at, Decimal(liquidity_b))
-
-    outcomes_by_market: dict[int, list[tuple[int, Decimal]]] = {}
-    if lmsr_ids:
-        rows = (await session.execute(
-            select(Outcome.id, Outcome.market_id, Outcome.total_shares)
-            .where(Outcome.market_id.in_(lmsr_ids))
-            .order_by(Outcome.market_id, Outcome.id)
-        )).all()
-        for outcome_id, market_id, total_shares in rows:
-            outcomes_by_market.setdefault(int(market_id), []).append(
-                (int(outcome_id), Decimal(total_shares)),
-            )
-
-    # 缺少正资产快照或空头快照时都补一条 pair 查询，一次构建两侧元数据。
-    missing_pairs = [pid for pid in fx_ids if pid not in pairs or pid not in short_pairs]
-    if missing_pairs:
-        rows = (await session.execute(
-            select(
-                FxPair.id, FxPair.status, FxPair.reduce_only, FxPair.gold_reserve,
-                FxPair.foreign_reserve, FxPair.sell_fee_rate, FxPair.buy_fee_rate,
-                FxPair.pool_version,
-            ).where(FxPair.id.in_(missing_pairs))
-        )).all()
-        for (pair_id, status, reduce_only, gold_reserve, foreign_reserve,
-             sell_fee_rate, buy_fee_rate, pool_version) in rows:
-            pid = int(pair_id)
-            pairs.setdefault(pid, FxPairSnapshot(
-                pair_id=pid, status=status, reduce_only=bool(reduce_only),
-                gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-                sell_fee_rate=Decimal(sell_fee_rate),
-            ))
-            short_pairs.setdefault(pid, FxShortPairSnapshot(
-                pair_id=pid, status=status, reduce_only=bool(reduce_only),
-                gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-                buy_fee_rate=Decimal(buy_fee_rate), sell_fee_rate=Decimal(sell_fee_rate),
-                pool_version=int(pool_version),
-            ))
-            pool_versions[pid] = int(pool_version)
-
-    result: dict[GroupKey, GroupSnapshot] = {}
-    for key in sorted(set(keys)):
+    records = REGISTRY.capture_committed_records(
+        [PricingKey(product=k.product, id=k.group_id) for k in keys])
+    snapshots = {}
+    for key in keys:
+        record = records.get((key.product, key.group_id))
+        if record is None:
+            continue
+        state = record.state
         if key.product == "lmsr":
-            meta = markets.get(key.group_id)
-            if meta is None:
-                logger.warning("risk: market %s 不存在，组快照缺失（按 L=0 保守处理）", key.group_id)
-                continue
-            status, closes_at, liquidity_b = meta
-            outcomes = tuple(
-                OutcomeSnapshot(
-                    outcome_id=outcome_id, total_shares=shares,
-                    status=status, closes_at=closes_at,
-                )
-                for outcome_id, shares in outcomes_by_market.get(key.group_id, [])
-            )
-            q = tuple(item.total_shares for item in outcomes)
-            mirror = None
-            state = _writer_state(key.group_id)
-            if state is not None:
-                # 镜像 q（6dp）纳入版本：commit 后镜像推进也要让缓存失效
-                mirror = (
-                    tuple(Decimal(item) for item in state.q_dec),
-                    str(state.status),
-                    _iso(state.closes_at),
-                )
-            version = (
-                q, str(liquidity_b), str(status), _iso(closes_at),
-                str(lmsr_fee_rate), mirror,
-            )
-            result[key] = GroupSnapshot(
-                key=key, version=version, fee_rate=lmsr_fee_rate,
-                outcomes=outcomes, b=Decimal(liquidity_b),
+            snapshots[key] = GroupSnapshot(
+                key=key, version=(record.stamp, str(lmsr_fee_rate)),
+                fee_rate=lmsr_fee_rate, b=Decimal(str(state.b)),
+                outcomes=tuple(OutcomeSnapshot(outcome_id=oid, total_shares=q,
+                    status=state.status, closes_at=state.closes_at)
+                    for oid, q in zip(state.outcome_ids, state.q_dec)),
             )
         else:
-            pair = pairs.get(key.group_id)
-            if pair is None:
-                logger.warning("risk: fx pair %s 不存在，组快照缺失（按 L=0 保守处理）", key.group_id)
-                continue
-            result[key] = _fx_group_snapshot(
-                key,
-                pair=pair,
-                pool_version=int(pool_versions.get(key.group_id, 0)),
-                short_pair=short_pairs.get(key.group_id),
-                short_debt=short_debts.get(key.group_id),
-            )
-    return result
+            pair = FxPairSnapshot(pair_id=state.id, status=state.status,
+                reduce_only=state.reduce_only, gold_reserve=state.gold_reserve,
+                foreign_reserve=state.foreign_reserve, sell_fee_rate=state.sell_fee_rate)
+            short_pair = FxShortPairSnapshot(pair_id=state.id, status=state.status,
+                reduce_only=state.reduce_only, gold_reserve=state.gold_reserve,
+                foreign_reserve=state.foreign_reserve, buy_fee_rate=state.buy_fee_rate,
+                sell_fee_rate=state.sell_fee_rate, pool_version=state.pool_version)
+            snapshot = _fx_group_snapshot(key, pair=pair,
+                pool_version=state.pool_version, short_pair=short_pair,
+                short_debt=short_debts.get(state.id))
+            snapshots[key] = replace(snapshot, version=(record.stamp, *snapshot.version))
+    return snapshots
 
 
-async def _load_short_snapshots(
-    session: AsyncSession,
-    user_id: int,
-    pair_ids: Sequence[int],
-) -> dict[int, tuple[FxShortPairSnapshot, ShortDebtSnapshot]]:
-    """锁内重读指定用户、指定 pair 的持久欠币与 pair 元数据（含买入费率）。
-
-    K 对储备、买入费率和欠币时点都敏感；刷新模拟态前必须用这份权威读覆盖
-    discovery 快照里的空头字段，否则会用旧 K 放行（spec §11）。
-    已清仓的零欠币行与 discovery 一样忽略，避免将无义务的历史行误判为版本变化。
-    """
-    ids = sorted({int(pid) for pid in pair_ids})
-    if not ids:
-        return {}
-    rows = (await session.execute(
-        select(
-            FxShortPosition.pair_id,
-            FxShortPosition.principal_foreign,
-            FxShortPosition.interest_foreign,
-            FxShortPosition.interest_last_accrued_at,
-            FxPair.status, FxPair.reduce_only, FxPair.gold_reserve,
-            FxPair.foreign_reserve, FxPair.buy_fee_rate, FxPair.sell_fee_rate,
-            FxPair.pool_version,
-        )
-        .join(FxPair, FxPair.id == FxShortPosition.pair_id)
-        .where(FxShortPosition.user_id == int(user_id),
-               FxShortPosition.pair_id.in_(ids),
-               (FxShortPosition.principal_foreign > ZERO)
-               | (FxShortPosition.interest_foreign > ZERO))
-    )).all()
-    result: dict[int, tuple[FxShortPairSnapshot, ShortDebtSnapshot]] = {}
-    for (pair_id, principal, interest, accrued,
-         status, reduce_only, gold_reserve, foreign_reserve,
-         buy_fee_rate, sell_fee_rate, pool_version) in rows:
-        pid = int(pair_id)
-        result[pid] = (
-            FxShortPairSnapshot(
-                pair_id=pid, status=status, reduce_only=bool(reduce_only),
-                gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-                buy_fee_rate=Decimal(buy_fee_rate), sell_fee_rate=Decimal(sell_fee_rate),
-                pool_version=int(pool_version),
-            ),
-            ShortDebtSnapshot(
-                principal_foreign=Decimal(principal),
-                interest_foreign=Decimal(interest),
-                interest_last_accrued_at=accrued,
-            ),
-        )
-    return result
-
-
-async def _ensure_snapshots(
-    session: AsyncSession,
-    deps: DependencySet,
-    needed: Sequence[GroupKey],
-) -> dict[GroupKey, GroupSnapshot]:
-    """补齐 deps 里没有的组快照（例如本次买入的新 market）。"""
-    missing = [key for key in needed if key not in deps.snapshots]
-    merged = dict(deps.snapshots)
-    if missing:
-        merged.update(await _load_snapshots(
-            session, missing, lmsr_fee_rate=deps.lmsr_fee_rate,
-        ))
-    return merged
+async def _ensure_snapshots(session, deps, needed):
+    # A missing record stays missing for this check; never recapture or SQL-fill.
+    return dict(deps.snapshots)
 
 
 async def discover_dependencies(
-    session: AsyncSession,
-    user_id: int,
-    *,
-    extra_groups: Sequence[GroupKey] = (),
+    session: AsyncSession, user_id: int, *,
+    extra_groups: Sequence[GroupKey] = (), account_locked: bool = False,
 ) -> DependencySet:
-    """锁外批量读取用户经济状态 + 全组合品种快照（固定 4 条 SELECT + site_config）。
+    """Read the complete own ledger, then synchronously capture its prices once.
 
-    ``extra_groups`` 可预取本次交易涉及、但用户当前无持仓的品种快照（可选优化；
-    ``check_*`` 在缺快照时也会自行补齐）。
+    Execution passes account_locked only after obtaining User FOR UPDATE. A
+    discovery made before that lock is prefetch, never execution authorization.
+    SQL is used for account amounts and identifiers, never market quote inputs.
     """
     uid = int(user_id)
-    # R1：必须 populate_existing，否则返回同 session identity map 里的旧 User，
-    # 外部并发改动（抽现金/冻结/bump 版本）会被忽略。
     user = await _refresh_user_authority(session, uid)
-
-    pos_rows = (await session.execute(
-        select(
-            Position.outcome_id, Position.amount, Outcome.market_id,
-            Market.status, Market.closes_at, Market.liquidity_b,
-        )
-        .join(Outcome, Outcome.id == Position.outcome_id)
-        .join(Market, Market.id == Outcome.market_id)
-        .where(Position.user_id == uid, Position.amount > ZERO)
-    )).all()
-
-    holdings: dict[GroupKey, dict[int, Decimal]] = {}
-    lmsr_meta: dict[int, tuple[str, Optional[datetime], Decimal]] = {}
-    for outcome_id, amount, market_id, status, closes_at, liquidity_b in pos_rows:
-        key = GroupKey("lmsr", int(market_id))
-        holdings.setdefault(key, {})[int(outcome_id)] = Decimal(amount)
-        lmsr_meta[int(market_id)] = (status, closes_at, Decimal(liquidity_b))
-
-    wallet_rows = (await session.execute(
-        select(
-            FxWallet.pair_id, FxWallet.foreign_amount, FxPair.status, FxPair.reduce_only,
-            FxPair.gold_reserve, FxPair.foreign_reserve, FxPair.sell_fee_rate,
-            FxPair.buy_fee_rate, FxPair.pool_version,
-        )
-        .join(FxPair, FxPair.id == FxWallet.pair_id)
-        .where(FxWallet.user_id == uid, FxWallet.foreign_amount > ZERO)
-    )).all()
-    fx_meta: dict[int, FxPairSnapshot] = {}
-    fx_short_meta: dict[int, FxShortPairSnapshot] = {}
-    fx_pool_versions: dict[int, int] = {}
-    for (pair_id, amount, status, reduce_only, gold_reserve, foreign_reserve,
-         sell_fee_rate, buy_fee_rate, pool_version) in wallet_rows:
-        pid = int(pair_id)
-        key = GroupKey("fx", pid)
-        holdings.setdefault(key, {})[pid] = Decimal(amount)
-        fx_meta[pid] = FxPairSnapshot(
-            pair_id=pid, status=status, reduce_only=bool(reduce_only),
-            gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-            sell_fee_rate=Decimal(sell_fee_rate),
-        )
-        fx_short_meta[pid] = FxShortPairSnapshot(
-            pair_id=pid, status=status, reduce_only=bool(reduce_only),
-            gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-            buy_fee_rate=Decimal(buy_fee_rate), sell_fee_rate=Decimal(sell_fee_rate),
-            pool_version=int(pool_version),
-        )
-        fx_pool_versions[pid] = int(pool_version)
-
-    # 空头欠币也是依赖：即使 User.debt==0 且没有正钱包，pair 仍要进 groups。
-    short_rows = (await session.execute(
-        select(
-            FxShortPosition.pair_id,
-            FxShortPosition.principal_foreign,
-            FxShortPosition.interest_foreign,
-            FxShortPosition.interest_last_accrued_at,
-            FxPair.status, FxPair.reduce_only, FxPair.gold_reserve,
-            FxPair.foreign_reserve, FxPair.buy_fee_rate, FxPair.sell_fee_rate,
-            FxPair.pool_version,
-        )
-        .join(FxPair, FxPair.id == FxShortPosition.pair_id)
-        .where(FxShortPosition.user_id == uid,
-               (FxShortPosition.principal_foreign > ZERO)
-               | (FxShortPosition.interest_foreign > ZERO))
-    )).all()
-    short_debt_meta: dict[int, ShortDebtSnapshot] = {}
-    for (pair_id, principal, interest, accrued,
-         status, reduce_only, gold_reserve, foreign_reserve,
-         buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
-        pid = int(pair_id)
-        short_pair = FxShortPairSnapshot(
-            pair_id=pid, status=status, reduce_only=bool(reduce_only),
-            gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-            buy_fee_rate=Decimal(buy_fee_rate), sell_fee_rate=Decimal(sell_fee_rate),
-            pool_version=int(pool_version),
-        )
-        fx_short_meta[pid] = short_pair
-        fx_meta.setdefault(pid, FxPairSnapshot(
-            pair_id=pid, status=status, reduce_only=bool(reduce_only),
-            gold_reserve=Decimal(gold_reserve), foreign_reserve=Decimal(foreign_reserve),
-            sell_fee_rate=Decimal(sell_fee_rate),
-        ))
-        fx_pool_versions[pid] = int(pool_version)
-        short_debt_meta[pid] = ShortDebtSnapshot(
-            principal_foreign=Decimal(principal),
-            interest_foreign=Decimal(interest),
-            interest_last_accrued_at=accrued,
-        )
-
-    raw = await site_config.get_many(session, [LOAN_DAILY_RATE_KEY, SELL_FEE_RATE_KEY])
-    daily_rate = _parse_decimal_or(raw.get(LOAN_DAILY_RATE_KEY), ZERO)
-    lmsr_fee_rate = _parse_decimal_or(raw.get(SELL_FEE_RATE_KEY), ZERO)
-
-    groups = tuple(sorted(set(holdings) | {GroupKey("fx", pid) for pid in short_debt_meta}))
-    extra = tuple(sorted(set(extra_groups) - set(groups)))
-    snapshots = await _load_snapshots(
-        session, list(groups) + list(extra),
-        lmsr_fee_rate=lmsr_fee_rate, lmsr_meta=lmsr_meta, fx_meta=fx_meta,
-        fx_short_meta=fx_short_meta, short_debt_meta=short_debt_meta,
-        fx_pool_versions=fx_pool_versions,
-    )
-    return DependencySet(
-        economic_version=economic_version_of(user),
-        cash=Decimal(user.cash),
-        debt=Decimal(user.debt),
+    pos_rows = (await session.execute(select(
+        Position.outcome_id, Position.amount, Outcome.market_id,
+    ).join(Outcome, Outcome.id == Position.outcome_id).where(
+        Position.user_id == uid, Position.amount > ZERO))).all()
+    holdings = {}
+    for oid, amount, mid in pos_rows:
+        holdings.setdefault(GroupKey("lmsr", int(mid)), {})[int(oid)] = Decimal(amount)
+    wallet_rows = (await session.execute(select(
+        FxWallet.pair_id, FxWallet.foreign_amount,
+    ).where(FxWallet.user_id == uid, FxWallet.foreign_amount > ZERO))).all()
+    for pid, amount in wallet_rows:
+        holdings[GroupKey("fx", int(pid))] = {int(pid): Decimal(amount)}
+    rows = (await session.execute(select(
+        FxShortPosition.pair_id, FxShortPosition.principal_foreign,
+        FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
+    ).where(FxShortPosition.user_id == uid,
+        (FxShortPosition.principal_foreign > ZERO)
+        | (FxShortPosition.interest_foreign > ZERO)))).all()
+    short_debts = {int(pid): ShortDebtSnapshot(Decimal(principal), Decimal(interest), accrued)
+                   for pid, principal, interest, accrued in rows}
+    deps = DependencySet(economic_version=economic_version_of(user),
+        cash=Decimal(user.cash), debt=Decimal(user.debt),
         debt_last_accrued_at=user.debt_last_accrued_at,
-        groups=groups,
-        holdings={key: dict(value) for key, value in holdings.items()},
-        daily_rate=daily_rate,
-        lmsr_fee_rate=lmsr_fee_rate,
-        snapshots=snapshots,
-    )
+        groups=tuple(sorted(set(holdings) | {GroupKey("fx", pid) for pid in short_debts})),
+        holdings=holdings, short_debts=short_debts, account_locked=account_locked)
+    # These are existing maintenance-frozen global rules, separate from markets.
+    deps = await _current_rates(session, deps)
+    keys = tuple(sorted(set(deps.groups) | set(extra_groups)))
+    return replace(deps, snapshots=_captured_snapshots(keys,
+        lmsr_fee_rate=deps.lmsr_fee_rate, short_debts=short_debts))
 
 
 # ────────────────────────────── 组估值 ──────────────────────────────
@@ -895,6 +628,8 @@ async def _collateral_value(
     total = ZERO
     complete = True
     for key in needed:
+        if not _positions_after(key, deps, post):
+            continue
         snapshot = snapshots.get(key)
         if snapshot is None:
             complete = False
@@ -925,7 +660,10 @@ def _post_state_stale(
     old: DependencySet, new: DependencySet, post: PostTradeState,
 ) -> bool:
     """调用方模拟所基于的价格/状态版本是否已被并发写推进。"""
+    simulated = _market_changed_keys(post) | set(post.statuses) | set(post.closes_at)
     for key, version in post.base_versions.items():
+        if key not in simulated:
+            continue
         snapshot = new.snapshots.get(key)
         if snapshot is not None and version is not None and snapshot.version != version:
             return True
@@ -980,167 +718,24 @@ async def _current_rates(session: AsyncSession, deps: DependencySet) -> Dependen
         lmsr_fee_rate=_parse_decimal_or(raw.get(SELL_FEE_RATE_KEY), ZERO))
 
 
-def _short_refresh_ids(deps: DependencySet, post: Optional[PostTradeState] = None) -> set[int]:
-    """需要锁内重读持久欠币的 pair（已有欠币或本次模拟的 touched pair）。"""
-    ids: set[int] = set()
-    for key in deps.groups:
-        if key.product != "fx":
-            continue
-        snapshot = deps.snapshots.get(key)
-        if snapshot is not None and snapshot.short_debt is not None:
-            ids.add(key.group_id)
-    if post is not None:
-        ids |= {int(pid) for pid in post.short_debt}
-        ids |= {int(pid) for pid in post.short_reserves}
-    return ids
-
-
-async def _refresh_group_snapshots(
-    session: AsyncSession,
-    *,
-    user_id: int,
-    deps: DependencySet,
-    keys: Sequence[GroupKey],
-    short_ids: set[int],
-) -> dict[GroupKey, GroupSnapshot]:
-    """批量重读组快照，并用该用户的权威空头行覆盖空头字段。
-
-    单靠 ``_load_snapshots`` 只能重建 pair/买入费率，拿不到欠币行；若不覆盖，
-    已有欠币会在刷新后变成 ``short_debt=None``，把 K 错算成 0（wrong-allow）。
-    """
-    fresh = await _load_snapshots(
-        session, sorted(set(keys)), lmsr_fee_rate=deps.lmsr_fee_rate,
-    )
-    if short_ids:
-        rows = await _load_short_snapshots(session, user_id, sorted(short_ids))
-        for pid, (short_pair, short_debt) in rows.items():
-            key = GroupKey("fx", pid)
-            base = fresh.get(key)
-            if base is None or base.pair is None:
-                continue
-            fresh[key] = _fx_group_snapshot(
-                key, pair=base.pair,
-                pool_version=int(base.pool_version or 0),
-                short_pair=short_pair, short_debt=short_debt,
-            )
-    return fresh
-
-
-async def _guard_and_refresh_prices(
-    session: AsyncSession, *, user_id: int, deps: DependencySet, post: PostTradeState,
-) -> DependencySet:
-    """R3：锁内重读受影响品种快照，拒绝基于过期价格的模拟后态。
-
-    - 调用方**模拟过价格/状态**的品种（``lmsr_q`` / ``fx_reserves`` /
-      ``short_reserves`` / ``short_debt`` / ``statuses`` / ``closes_at``）：
-      与 deps 快照或声明的 ``base_versions`` 比对，版本前进即抛
-      ``_StalePostState``（不能拿旧价 / 旧 K 模拟放行，即使 user 版本没变）。
-    - 纯抵押 / 费率类品种：直接刷新快照后重估，不拒绝（持仓数量不依赖价格）。
-    """
-    # 自有抵押组即使 post 完全没提到也要刷新：外部成交可能已经改了它的 q/储备，
-    # 旧引用价会算大/算小 L（复审：wrong-allow）。这类键不在 simulated 集合里，
-    # 只做"刷新后重估"，不触发 version_conflict。
-    affected = set(deps.groups)
-    affected |= set(_market_changed_keys(post)) | set(post.base_versions)
-    affected |= set(post.statuses) | set(post.closes_at) | set(post.fee_rates)
-    if not affected:
-        return deps
-    short_ids = _short_refresh_ids(deps, post)
-    fresh = await _refresh_group_snapshots(
-        session, user_id=user_id, deps=deps, keys=sorted(affected),
-        short_ids=short_ids,
-    )
-    simulated = set(_market_changed_keys(post)) | set(post.statuses) | set(post.closes_at)
-    for key in sorted(simulated):
-        old_snapshot = deps.snapshots.get(key)
-        new_snapshot = fresh.get(key)
-        if (old_snapshot is not None and new_snapshot is not None
-                and old_snapshot.version != new_snapshot.version):
-            raise _StalePostState(f"{key.product}:{key.group_id} 价格/状态已变")
-        base = post.base_versions.get(key)
-        if (base is not None and new_snapshot is not None
-                and tuple(base) != tuple(new_snapshot.version)):
-            raise _StalePostState(f"{key.product}:{key.group_id} base_version 已过期")
-    merged = dict(deps.snapshots)
-    merged.update(fresh)
-    return replace(deps, snapshots=merged)
-
-
-async def _refresh_with_stale_guard(
-    session: AsyncSession, *, user_id: int, deps: DependencySet, post: PostTradeState,
-) -> Optional[DependencySet]:
-    """``_guard_and_refresh_prices`` 的拒绝语义包装：过期模拟价 → None（安全拒绝）。"""
-    try:
-        return await _guard_and_refresh_prices(
-            session, user_id=user_id, deps=deps, post=post,
-        )
-    except _StalePostState as exc:
-        logger.warning("risk: 拒绝过期模拟价格（%s）", exc)
+async def _prepare_post(session, *, user_id, deps, post):
+    if deps.account_locked:
+        return deps, post
+    fresh = await discover_dependencies(session, user_id,
+        extra_groups=_needed_groups(deps, post), account_locked=True)
+    if _post_state_stale(deps, fresh, post):
         return None
-
-
-async def _refresh_collateral_snapshots(
-    session: AsyncSession, *, user_id: int, deps: DependencySet,
-) -> DependencySet:
-    """消费/转出路径：重读全部持仓组快照，避免拿旧抵押价做保证金判断。"""
-    if not deps.groups:
-        return deps
-    fresh = await _refresh_group_snapshots(
-        session, user_id=user_id, deps=deps, keys=deps.groups,
-        short_ids=_short_refresh_ids(deps),
-    )
-    merged = dict(deps.snapshots)
-    merged.update(fresh)
-    return replace(deps, snapshots=merged)
-
-
-async def _revalidate_post(
-    session: AsyncSession,
-    *,
-    user: User,
-    user_id: int,
-    deps: DependencySet,
-    post: PostTradeState,
-) -> Optional[tuple[DependencySet, PostTradeState]]:
-    """版本复检 + 有界重试；失败返回 None（调用方安全拒绝）。"""
-    limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
-    attempts = 0
-    authoritative = economic_version_of(user)
-    while authoritative != deps.economic_version:
-        if attempts >= limit:
-            return None
-        attempts += 1
-        fresh = await discover_dependencies(session, user_id)
-        if fresh.economic_version == deps.economic_version:
-            # 版本没有前进：重试无法收敛（user 行版本与库内快照不一致）
-            return None
-        if _post_state_stale(deps, fresh, post):
+    if (fresh.economic_version != deps.economic_version or fresh.cash != deps.cash
+            or fresh.debt != deps.debt or fresh.holdings != deps.holdings
+            or fresh.short_debts != deps.short_debts):
+        # An absolute short simulation cannot be rebased from an old obligation.
+        if post.short_debt:
             return None
         post = _rebase_post(deps, fresh, post)
-        deps = fresh
-    return deps, post
-
-
-async def _revalidate_cash(
-    session: AsyncSession,
-    *,
-    user: User,
-    user_id: int,
-    deps: DependencySet,
-) -> Optional[DependencySet]:
-    """消费路径的版本复检 + 有界重试；失败返回 None。"""
-    limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
-    attempts = 0
-    authoritative = economic_version_of(user)
-    while authoritative != deps.economic_version:
-        if attempts >= limit:
-            return None
-        attempts += 1
-        fresh = await discover_dependencies(session, user_id)
-        if fresh.economic_version == deps.economic_version:
-            return None
-        deps = fresh
-    return deps
+    else:
+        # Honor callers which have already normalized effective gold debt at T.
+        fresh = replace(fresh, debt_last_accrued_at=deps.debt_last_accrued_at)
+    return fresh, post
 
 
 # ────────────────────────────── 对外检查 ──────────────────────────────
@@ -1178,14 +773,11 @@ def _has_short_obligation(deps: DependencySet, post: PostTradeState) -> bool:
         except ValueError:
             # 非法模拟欠币：视为有义务，让后续 _short_risk_after 明确 blocked。
             return True
-    for key in deps.groups:
-        if key.product != "fx":
-            continue
-        snapshot = deps.snapshots.get(key)
-        if snapshot is None or snapshot.short_debt is None:
-            continue
-        debt = snapshot.short_debt
-        if post.short_debt.get(key.group_id) == ZERO:
+    debts = dict(deps.short_debts)
+    debts.update({k.group_id: v.short_debt for k, v in deps.snapshots.items()
+                  if k.product == "fx" and v.short_debt is not None})
+    for pid, debt in debts.items():
+        if post.short_debt.get(pid) == ZERO:
             continue
         if debt.principal_foreign > ZERO or debt.interest_foreign > ZERO:
             return True
@@ -1193,7 +785,7 @@ def _has_short_obligation(deps: DependencySet, post: PostTradeState) -> bool:
 
 
 def _short_pair_ids(deps: DependencySet, post: PostTradeState) -> tuple[int, ...]:
-    ids = {int(pid) for pid in post.short_debt}
+    ids = set(deps.short_debts) | {int(pid) for pid in post.short_debt}
     ids |= {int(pid) for pid in post.short_reserves}
     for key in deps.groups:
         if key.product != "fx":
@@ -1202,41 +794,6 @@ def _short_pair_ids(deps: DependencySet, post: PostTradeState) -> tuple[int, ...
         if snapshot is not None and snapshot.short_debt is not None:
             ids.add(key.group_id)
     return tuple(sorted(ids))
-
-
-async def _persisted_short_pair_ids(
-    session: AsyncSession, user_id: int,
-) -> set[int]:
-    """锁内按索引重读该用户仍有外币本金/利息的 pair 集合（spec §11）。
-
-    无金债不再等于无风险：即使 discovery 快照里没有欠币，锁内也要用索引确认，
-    不能依赖可能漂移的内存标记。
-    """
-    rows = (await session.execute(
-        select(FxShortPosition.pair_id).where(
-            FxShortPosition.user_id == int(user_id),
-            (FxShortPosition.principal_foreign > ZERO)
-            | (FxShortPosition.interest_foreign > ZERO),
-        )
-    )).all()
-    return {int(row[0]) for row in rows}
-
-
-def _known_short_pair_ids(deps: DependencySet) -> set[int]:
-    """deps 快照里已读到持久欠币的 pair。"""
-    ids: set[int] = set()
-    for key in deps.groups:
-        if key.product != "fx":
-            continue
-        snapshot = deps.snapshots.get(key)
-        if snapshot is not None and snapshot.short_debt is not None:
-            ids.add(key.group_id)
-    return ids
-
-
-def _accounted_short_pair_ids(deps: DependencySet, post: PostTradeState) -> set[int]:
-    """已纳入本次判定的 pair：deps 读到欠币的，或调用方显式模拟的（含清零）。"""
-    return _known_short_pair_ids(deps) | {int(pid) for pid in post.short_debt}
 
 
 def _short_risk_after(
@@ -1359,7 +916,7 @@ async def check_new_risk(
     """交易后风险检查（借款 / 买入 / 开仓等增险路径）。
 
     - 冻结（用户级 / 运营闸）→ 拒绝增险；
-    - 版本冲突 → 有界重试 + rebase，超限 `version_conflict`；
+    - 锁外预取须重读本人账本，陈旧目标模拟返回 `version_conflict`；
     - `D_after == 0` **且无外币欠币** → 直接放行（不报价，旧快路径）；
     - 否则按**全组合**整组清算价值 + 各空头 pair 的整仓回补成本检查。
 
@@ -1368,62 +925,17 @@ async def check_new_risk(
     """
     pct = _as_decimal(partial_pct, "partial_pct")
     uid = _user_id_of(user)
-    current = await _current_rates(session, deps)
-    # 利率影响金债与外币欠币两条计息腿：任一存在时改率都必须拒绝重试。
-    if (post.debt > ZERO or _has_short_obligation(deps, post)) \
-            and current.daily_rate != deps.daily_rate:
+    prepared = await _prepare_post(session, user_id=uid, deps=deps, post=post)
+    if prepared is None:
         return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=post.debt)
-    deps = current
-    # R1：版本/冻结/现金一律以数据库权威行为准（刷新 identity map）
-    authority = await _refresh_user_authority(session, uid)
-    # 调用方已持 GATE 的组：discovery 组 + extra_groups 预取快照 + 本次声明的交易后组。
-    # 重发现若引入此外的新组，说明门闩集不完整，保守退出重试（spec §11）。
-    gated_groups = set(deps.snapshots) | set(_needed_groups(deps, post))
-    # 锁内索引确认外币义务：发现 discovery 未含的持久空头 pair 时，绝不能在 User
-    # 锁下补拿 pair GATE 再报价；退出并让调用方释放锁、重新发现完整依赖后有限重试。
-    persisted_short = await _persisted_short_pair_ids(session, uid)
-    if persisted_short - _accounted_short_pair_ids(deps, post):
+    deps, post = prepared
+    authority = user
+    if economic_version_of(authority) != deps.economic_version:
         return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=post.debt)
-    has_short = _has_short_obligation(deps, post)
-    # 无债快路径只对"无金债且无欠币"成立（spec §11）。
-    pre_debt = _effective_debt(
-        post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-    )
-    refreshed = False
-    if pre_debt > ZERO or has_short:
-        # R3：锁内重读受影响 + 自有抵押品种快照；模拟价格/欠币过期直接拒绝
-        guarded = await _refresh_with_stale_guard(
-            session, user_id=uid, deps=deps, post=post,
-        )
-        if guarded is None:
-            return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=pre_debt)
-        deps = guarded
-        refreshed = True
-
-    revalidated = await _revalidate_post(
-        session, user=authority, user_id=uid, deps=deps, post=post,
-    )
-    if revalidated is None:
-        debt_after = _effective_debt(
-            post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-        )
-        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
-    deps, post = revalidated
-    debt_after = _effective_debt(
-        post.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-    )
-
-    # 重发现引入了未 GATE 的新组（新持仓/钱包/持久空头）：不得缺门闩报价。
-    if set(_needed_groups(deps, post)) - gated_groups:
-        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
-
+    debt_after = _effective_debt(post.debt, deps.debt_last_accrued_at, deps.daily_rate, now)
     reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     if reason is not None:
         return _deny(reason, cash=post.cash, debt_after=debt_after)
-
-    # 锁内索引确认：任何重发现后仍未纳入的持久外币义务都保守拒绝。
-    if persisted_short - _accounted_short_pair_ids(deps, post):
-        return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
 
     has_short = _has_short_obligation(deps, post)
     if debt_after <= ZERO and not has_short:
@@ -1436,18 +948,10 @@ async def check_new_risk(
         max_borrow = thresholds.max_borrow(equity, ZERO) if complete else None
         return RiskDecision(True, None, equity, ZERO, max_borrow)
 
-    if not refreshed:
-        # 重发现后债务/欠币才出现（并发新增）：此时才刷新全组合 + 过期检查
-        guarded = await _refresh_with_stale_guard(
-            session, user_id=uid, deps=deps, post=post,
-        )
-        if guarded is None:
-            return _deny(REASON_VERSION_CONFLICT, cash=post.cash, debt_after=debt_after)
-        deps = guarded
     holdings_value, complete = await _collateral_value(
         session, user_id=uid, deps=deps, post=post, partial_pct=pct,
     )
-    if include_valuation and not complete:
+    if not complete:
         return RiskDecision(False, REASON_INCOMPLETE_ASSET_VALUATION, None, debt_after, ZERO)
 
     if not has_short:
@@ -1562,58 +1066,15 @@ async def check_cash_spend(
         raise ValueError(f"spend 不能为负: {amount!r}")
     pct = _as_decimal(partial_pct, "partial_pct")
     uid = _user_id_of(user)
-    deps = await _current_rates(session, deps)
-    # R1：权威 user 行；R3 同族：重读全部持仓组快照，避免旧抵押价/旧 K
-    authority = await _refresh_user_authority(session, uid)
-    # 调用方已持 GATE 的组集合（消费路径的 deps 可能因金债为零而只含最小集）。
-    gated_groups = set(deps.groups) | set(deps.snapshots)
-    # 锁内索引确认外币义务：发现 discovery 未含的持久空头 pair 时，绝不能在 User
-    # 锁下补拿 pair GATE 再报价；退出并让调用方释放锁、重新发现完整依赖后有限重试。
-    persisted_short = await _persisted_short_pair_ids(session, uid)
-    if persisted_short - _known_short_pair_ids(deps):
-        return _deny(
-            REASON_VERSION_CONFLICT, cash=deps.cash - amount,
-            debt_after=_effective_debt(
-                deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-            ),
-        )
-    has_short = _has_short_obligation(
-        deps, PostTradeState(cash=deps.cash, debt=deps.debt),
-    )
-    # 无债快路径只对"无金债且无欠币"成立
-    pre_debt = _effective_debt(
-        deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-    )
-    refreshed = False
-    if pre_debt > ZERO or has_short:
-        deps = await _refresh_collateral_snapshots(session, user_id=uid, deps=deps)
-        refreshed = True
-
-    fresh = await _revalidate_cash(session, user=authority, user_id=uid, deps=deps)
-    debt_after = _effective_debt(
-        deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-    )
+    if not deps.account_locked:
+        deps = await discover_dependencies(session, uid, account_locked=True)
+    authority = user
+    debt_after = _effective_debt(deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now)
     cash_after = deps.cash - amount
-    if fresh is None:
-        return _deny(REASON_VERSION_CONFLICT, cash=cash_after, debt_after=debt_after)
-    deps = fresh
-    debt_after = _effective_debt(
-        deps.debt, deps.debt_last_accrued_at, deps.daily_rate, now,
-    )
-    cash_after = deps.cash - amount
-
-    # 重发现引入了未 GATE 的新组：不得缺门闩报价，保守重试。
-    if set(deps.groups) - gated_groups:
-        return _deny(REASON_VERSION_CONFLICT, cash=cash_after, debt_after=debt_after)
-
     reason = _freeze_reason(authority, credit_flags.new_risk_frozen())
     if reason is not None:
         return _deny(reason, cash=cash_after, debt_after=debt_after)
-
     post = PostTradeState(cash=cash_after, debt=deps.debt)
-    # 锁内索引确认：重发现后仍未纳入的持久外币义务保守拒绝（重试发现）。
-    if persisted_short - _known_short_pair_ids(deps):
-        return _deny(REASON_VERSION_CONFLICT, cash=cash_after, debt_after=debt_after)
 
     has_short = _has_short_obligation(deps, post)
     if debt_after <= ZERO and not has_short:
@@ -1624,12 +1085,11 @@ async def check_cash_spend(
         max_borrow = thresholds.max_borrow(equity, ZERO) if complete else None
         return RiskDecision(True, None, equity, ZERO, max_borrow)
 
-    if not refreshed:
-        # 重发现后债务/欠币才出现：此时才刷新抵押快照再判保证金
-        deps = await _refresh_collateral_snapshots(session, user_id=uid, deps=deps)
-    holdings_value, _ = await _collateral_value(
+    holdings_value, complete = await _collateral_value(
         session, user_id=uid, deps=deps, post=post, partial_pct=pct,
     )
+    if not complete:
+        return RiskDecision(False, REASON_INCOMPLETE_ASSET_VALUATION, None, debt_after, ZERO)
 
     if not has_short:
         equity = _q6(cash_after + holdings_value - debt_after)

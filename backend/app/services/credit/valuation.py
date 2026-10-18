@@ -140,6 +140,8 @@ async def _account_valuations(
     daily_rate: Decimal,
     now: datetime,
     lock: bool,
+    snapshots=None,
+    lmsr_fee_rate: Decimal = ZERO,
 ) -> dict[int, AccountValuation]:
     ids = list(dict.fromkeys(int(uid) for uid in user_ids))
     if not ids:
@@ -152,124 +154,169 @@ async def _account_valuations(
     if not users:
         return {}
 
-    # User → Position+Outcome+Market（显式 join，避免 raise_on_sql 关系触发懒加载）
-    pos_rows = (await session.execute(
-        select(
-            Position.user_id,
-            Position.outcome_id,
-            Position.amount,
-            Outcome.market_id,
-            Market.status,
-            Market.closes_at,
-            Market.liquidity_b,
-        )
-        .join(Outcome, Outcome.id == Position.outcome_id)
-        .join(Market, Market.id == Outcome.market_id)
-        .where(Position.user_id.in_(ids), Position.amount > ZERO)
-    )).all()
-
-    market_meta: dict[int, tuple[str, datetime | None, float]] = {}
-    positions_by_user: dict[int, list[tuple[int, int, Decimal]]] = {}
-    for uid, outcome_id, amount, market_id, status, closes_at, liquidity_b in pos_rows:
-        uid, outcome_id, market_id = int(uid), int(outcome_id), int(market_id)
-        market_meta[market_id] = (status, closes_at, float(liquidity_b))
-        positions_by_user.setdefault(uid, []).append(
-            (market_id, outcome_id, Decimal(amount)),
-        )
-
-    outcomes_by_market: dict[int, list[tuple[int, Decimal]]] = {}
-    if market_meta:
-        outcome_rows = (await session.execute(
-            select(Outcome.id, Outcome.market_id, Outcome.total_shares)
-            .where(Outcome.market_id.in_(list(market_meta)))
-            .order_by(Outcome.market_id, Outcome.id)
+    missing_assets = set()
+    if snapshots is None:
+        # User → Position+Outcome+Market（显式 join，避免 raise_on_sql 关系触发懒加载）
+        pos_rows = (await session.execute(
+            select(
+                Position.user_id,
+                Position.outcome_id,
+                Position.amount,
+                Outcome.market_id,
+                Market.status,
+                Market.closes_at,
+                Market.liquidity_b,
+            )
+            .join(Outcome, Outcome.id == Position.outcome_id)
+            .join(Market, Market.id == Outcome.market_id)
+            .where(Position.user_id.in_(ids), Position.amount > ZERO)
         )).all()
-        for outcome_id, market_id, total_shares in outcome_rows:
-            outcomes_by_market.setdefault(int(market_id), []).append(
-                (int(outcome_id), Decimal(total_shares)),
+
+        market_meta: dict[int, tuple[str, datetime | None, float]] = {}
+        positions_by_user: dict[int, list[tuple[int, int, Decimal]]] = {}
+        for uid, outcome_id, amount, market_id, status, closes_at, liquidity_b in pos_rows:
+            uid, outcome_id, market_id = int(uid), int(outcome_id), int(market_id)
+            market_meta[market_id] = (status, closes_at, float(liquidity_b))
+            positions_by_user.setdefault(uid, []).append(
+                (market_id, outcome_id, Decimal(amount)),
             )
 
-    wallet_rows = (await session.execute(
-        select(
-            FxWallet.user_id,
-            FxWallet.pair_id,
-            FxWallet.foreign_amount,
-            FxPair.status,
-            FxPair.reduce_only,
-            FxPair.gold_reserve,
-            FxPair.foreign_reserve,
-            FxPair.sell_fee_rate,
-        )
-        .join(FxPair, FxPair.id == FxWallet.pair_id)
-        .where(FxWallet.user_id.in_(ids), FxWallet.foreign_amount > ZERO)
-    )).all()
-    wallets_by_user: dict[int, list[tuple[FxPairSnapshot, Decimal]]] = {}
-    for (uid, pair_id, foreign_amount, status, reduce_only,
-         gold_reserve, foreign_reserve, sell_fee_rate) in wallet_rows:
-        wallets_by_user.setdefault(int(uid), []).append((
-            FxPairSnapshot(
-                pair_id=int(pair_id),
-                status=status,
-                reduce_only=bool(reduce_only),
-                gold_reserve=Decimal(gold_reserve),
-                foreign_reserve=Decimal(foreign_reserve),
-                sell_fee_rate=Decimal(sell_fee_rate),
-            ),
-            Decimal(foreign_amount),
-        ))
+        outcomes_by_market: dict[int, list[tuple[int, Decimal]]] = {}
+        if market_meta:
+            outcome_rows = (await session.execute(
+                select(Outcome.id, Outcome.market_id, Outcome.total_shares)
+                .where(Outcome.market_id.in_(list(market_meta)))
+                .order_by(Outcome.market_id, Outcome.id)
+            )).all()
+            for outcome_id, market_id, total_shares in outcome_rows:
+                outcomes_by_market.setdefault(int(market_id), []).append(
+                    (int(outcome_id), Decimal(total_shares)),
+                )
 
-    # 空头（含息欠币 + 收益基准）一次批量读取；不逐用户逐 pair 查公共行情。
-    short_rows = (await session.execute(
-        select(
-            FxShortPosition.user_id,
-            FxShortPosition.pair_id,
-            FxShortPosition.principal_foreign,
-            FxShortPosition.interest_foreign,
-            FxShortPosition.interest_last_accrued_at,
-            FxShortPosition.proceeds_basis_gold,
-            FxPair.currency_code,
-            FxPair.status,
-            FxPair.reduce_only,
-            FxPair.gold_reserve,
-            FxPair.foreign_reserve,
-            FxPair.buy_fee_rate,
-            FxPair.sell_fee_rate,
-            FxPair.pool_version,
-        )
-        .join(FxPair, FxPair.id == FxShortPosition.pair_id)
-        .where(FxShortPosition.user_id.in_(ids))
-        .order_by(FxShortPosition.user_id, FxShortPosition.pair_id)
-    )).all()
-    shorts_by_user: dict[int, list[tuple[FxShortPairSnapshot, object]]] = {}
-    for (uid, pair_id, principal, interest, accrued, basis, code,
-         status, reduce_only, gold_reserve, foreign_reserve,
-         buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
-        uid = int(uid)
-        shorts_by_user.setdefault(uid, []).append((
-            FxShortPairSnapshot(
-                pair_id=int(pair_id),
-                status=status,
-                reduce_only=bool(reduce_only),
-                gold_reserve=Decimal(gold_reserve),
-                foreign_reserve=Decimal(foreign_reserve),
-                buy_fee_rate=Decimal(buy_fee_rate),
-                sell_fee_rate=Decimal(sell_fee_rate),
-                pool_version=int(pool_version),
-            ),
-            SimpleNamespace(
-                currency_code=code,
-                proceeds_basis_gold=Decimal(basis),
-                principal_foreign=Decimal(principal),
-                interest_foreign=Decimal(interest),
-                interest_last_accrued_at=accrued,
-            ),
-        ))
+        wallet_rows = (await session.execute(
+            select(
+                FxWallet.user_id,
+                FxWallet.pair_id,
+                FxWallet.foreign_amount,
+                FxPair.status,
+                FxPair.reduce_only,
+                FxPair.gold_reserve,
+                FxPair.foreign_reserve,
+                FxPair.sell_fee_rate,
+            )
+            .join(FxPair, FxPair.id == FxWallet.pair_id)
+            .where(FxWallet.user_id.in_(ids), FxWallet.foreign_amount > ZERO)
+        )).all()
+        wallets_by_user: dict[int, list[tuple[FxPairSnapshot, Decimal]]] = {}
+        for (uid, pair_id, foreign_amount, status, reduce_only,
+             gold_reserve, foreign_reserve, sell_fee_rate) in wallet_rows:
+            wallets_by_user.setdefault(int(uid), []).append((
+                FxPairSnapshot(
+                    pair_id=int(pair_id),
+                    status=status,
+                    reduce_only=bool(reduce_only),
+                    gold_reserve=Decimal(gold_reserve),
+                    foreign_reserve=Decimal(foreign_reserve),
+                    sell_fee_rate=Decimal(sell_fee_rate),
+                ),
+                Decimal(foreign_amount),
+            ))
 
-    lmsr_fee_rate = ZERO
-    if market_meta:
-        lmsr_fee_rate = await site_config.get_decimal_or(
-            session, SELL_FEE_RATE_KEY, ZERO,
-        )
+        # 空头（含息欠币 + 收益基准）一次批量读取；不逐用户逐 pair 查公共行情。
+        short_rows = (await session.execute(
+            select(
+                FxShortPosition.user_id,
+                FxShortPosition.pair_id,
+                FxShortPosition.principal_foreign,
+                FxShortPosition.interest_foreign,
+                FxShortPosition.interest_last_accrued_at,
+                FxShortPosition.proceeds_basis_gold,
+                FxPair.currency_code,
+                FxPair.status,
+                FxPair.reduce_only,
+                FxPair.gold_reserve,
+                FxPair.foreign_reserve,
+                FxPair.buy_fee_rate,
+                FxPair.sell_fee_rate,
+                FxPair.pool_version,
+            )
+            .join(FxPair, FxPair.id == FxShortPosition.pair_id)
+            .where(FxShortPosition.user_id.in_(ids))
+            .order_by(FxShortPosition.user_id, FxShortPosition.pair_id)
+        )).all()
+        shorts_by_user: dict[int, list[tuple[FxShortPairSnapshot, object]]] = {}
+        for (uid, pair_id, principal, interest, accrued, basis, code,
+             status, reduce_only, gold_reserve, foreign_reserve,
+             buy_fee_rate, sell_fee_rate, pool_version) in short_rows:
+            uid = int(uid)
+            shorts_by_user.setdefault(uid, []).append((
+                FxShortPairSnapshot(
+                    pair_id=int(pair_id),
+                    status=status,
+                    reduce_only=bool(reduce_only),
+                    gold_reserve=Decimal(gold_reserve),
+                    foreign_reserve=Decimal(foreign_reserve),
+                    buy_fee_rate=Decimal(buy_fee_rate),
+                    sell_fee_rate=Decimal(sell_fee_rate),
+                    pool_version=int(pool_version),
+                ),
+                SimpleNamespace(
+                    currency_code=code,
+                    proceeds_basis_gold=Decimal(basis),
+                    principal_foreign=Decimal(principal),
+                    interest_foreign=Decimal(interest),
+                    interest_last_accrued_at=accrued,
+                ),
+            ))
+
+        lmsr_fee_rate = ZERO
+        if market_meta:
+            lmsr_fee_rate = await site_config.get_decimal_or(
+                session, SELL_FEE_RATE_KEY, ZERO,
+            )
+
+    else:
+        # Execution supplies its one committed capture. SQL reads only the
+        # account ledger and static identifiers; foreign quote fields come
+        # exclusively from that fixed set, including both FX quote directions.
+        pos_rows = (await session.execute(select(Position.user_id, Position.outcome_id,
+            Position.amount, Outcome.market_id).join(Outcome, Outcome.id == Position.outcome_id)
+            .where(Position.user_id.in_(ids), Position.amount > ZERO))).all()
+        positions_by_user, market_meta, outcomes_by_market = {}, {}, {}
+        for uid, oid, amount, mid in pos_rows:
+            positions_by_user.setdefault(int(uid), []).append((int(mid), int(oid), Decimal(amount)))
+            snap = snapshots.get(GroupKey("lmsr", int(mid)))
+            if snap is None:
+                missing_assets.add(int(uid))
+                market_meta[int(mid)] = ("unavailable", None, 1.0)
+                continue
+            first = snap.outcomes[0] if snap.outcomes else None
+            market_meta[int(mid)] = (first.status if first else "unavailable",
+                first.closes_at if first else None, float(snap.b))
+            outcomes_by_market[int(mid)] = [(o.outcome_id, o.total_shares) for o in snap.outcomes]
+        rows = (await session.execute(select(FxWallet.user_id, FxWallet.pair_id,
+            FxWallet.foreign_amount).where(FxWallet.user_id.in_(ids), FxWallet.foreign_amount > ZERO))).all()
+        wallets_by_user = {}
+        for uid, pid, amount in rows:
+            snap = snapshots.get(GroupKey("fx", int(pid)))
+            if snap is None or snap.pair is None:
+                missing_assets.add(int(uid))
+                continue
+            wallets_by_user.setdefault(int(uid), []).append((snap.pair, Decimal(amount)))
+        rows = (await session.execute(select(FxShortPosition, FxPair.currency_code)
+            .join(FxPair, FxPair.id == FxShortPosition.pair_id)
+            .where(FxShortPosition.user_id.in_(ids))
+            .execution_options(populate_existing=True))).all()
+        shorts_by_user = {}
+        for row, code in rows:
+            snap = snapshots.get(GroupKey("fx", int(row.pair_id)))
+            position = SimpleNamespace(pair_id=int(row.pair_id), currency_code=code,
+                proceeds_basis_gold=Decimal(row.proceeds_basis_gold),
+                principal_foreign=Decimal(row.principal_foreign),
+                interest_foreign=Decimal(row.interest_foreign),
+                interest_last_accrued_at=row.interest_last_accrued_at)
+            shorts_by_user.setdefault(int(row.user_id), []).append((
+                snap.short_pair if snap is not None else None, position))
 
     thresholds = credit_flags.get_flags().thresholds
 
@@ -363,11 +410,19 @@ async def _account_valuations(
             if not any((position.principal_foreign, position.interest_foreign,
                         position.proceeds_basis_gold)):
                 continue
-            fields = dict(pair_id=snapshot.pair_id, currency_code=position.currency_code,
+            fields = dict(pair_id=(snapshot.pair_id if snapshot is not None else position.pair_id), currency_code=position.currency_code,
                           principal_foreign=position.principal_foreign,
                           interest_foreign=position.interest_foreign,
                           interest_last_accrued_at=position.interest_last_accrued_at,
                           proceeds_basis_gold=position.proceeds_basis_gold)
+            if snapshot is None:
+                unknown_reasons.append("short_snapshot_missing")
+                marginal_incomplete = True
+                groups.append(GroupLiquidation(GroupKey("fx", position.pair_id), None,
+                    False, "short_snapshot_missing", "short_cover"))
+                short_positions.append(ShortPositionValuation(**fields,
+                    pending_short_debt=None, quote=None, blocked_reason="short_snapshot_missing"))
+                continue
             try:
                 foreign_debt = pending_short_debt(position, daily_rate, now)
             except (ValueError, ArithmeticError):
@@ -412,8 +467,10 @@ async def _account_valuations(
             None if marginal_incomplete else short_marginal
         )
         blocked_reasons = list(unknown_reasons)
+        if uid in missing_assets:
+            blocked_reasons.append("incomplete_asset_valuation")
         risk_status = RISK_STATUS_BLOCKED if blocked_reasons else RISK_STATUS_OK
-        equity_unknown = short_cover_cost is None
+        equity_unknown = short_cover_cost is None or uid in missing_assets
 
         if equity_unknown:
             liquidation_equity: Decimal | None = None
@@ -434,7 +491,7 @@ async def _account_valuations(
 
         # 任一正空头缺少有来源的边际估计时，整本书的展示净值都不可信：绝不把
         # 未知负债当作 0 只扣已知部分（spec §5.2）。
-        if short_marginal_debt is None:
+        if short_marginal_debt is None or uid in missing_assets:
             display_equity: Decimal | None = None
         else:
             display_equity = (
@@ -486,6 +543,8 @@ async def value_user_detailed(
     *,
     daily_rate: Decimal,
     lock: bool = False,
+    snapshots=None,
+    lmsr_fee_rate: Decimal = ZERO,
 ) -> AccountValuation:
     """单用户估值；``lock=True`` 时对 user 行 ``FOR UPDATE``（调用方持有事务）。"""
     uid = int(user_id)
@@ -493,7 +552,7 @@ async def value_user_detailed(
         session, [uid],
         daily_rate=_as_decimal(daily_rate, "daily_rate"),
         now=datetime.now(timezone.utc),
-        lock=lock,
+        lock=lock, snapshots=snapshots, lmsr_fee_rate=lmsr_fee_rate,
     )
     if uid not in result:
         raise ValueError(f"user not found: {uid}")

@@ -10,7 +10,6 @@ from sqlalchemy import select
 
 from app.core import database
 from app.models.fx import FxPair
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.market_read_state import FxReadState
@@ -121,21 +120,20 @@ class FxWriter:
 
     async def _load_direct(self, pair_id):
         """Bootstrap/recovery only: never enqueue from this consumer into itself."""
-        async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-            try:
-                async with database.async_session_maker() as db:
-                    pair = await db.get(FxPair, pair_id)
-                    if pair is None:
-                        raise HTTPException(404, "FX pair not found")
-                    snapshot = FxReadState.from_pair(pair)
-                self.install_committed(snapshot)
-                return snapshot
-            except BaseException:
-                state = self._states.get(pair_id)
-                if state is not None:
-                    state.unavailable = True
-                self._invalidate(pair_id)
-                raise
+        try:
+            async with database.async_session_maker() as db:
+                pair = await db.get(FxPair, pair_id)
+                if pair is None:
+                    raise HTTPException(404, "FX pair not found")
+                snapshot = FxReadState.from_pair(pair)
+            self.install_committed(snapshot)
+            return snapshot
+        except BaseException:
+            state = self._states.get(pair_id)
+            if state is not None:
+                state.unavailable = True
+            self._invalidate(pair_id)
+            raise
 
     async def _bootstrap(self, pair_id):
         snapshot = await self._load_direct(pair_id)
@@ -149,8 +147,6 @@ class FxWriter:
         OWNERSHIP.require_writes()
         if not self._enabled:
             raise HTTPException(503, "FX writer is unavailable")
-        if GATES.held_keys_by_current_task():
-            raise RuntimeError("Release all symbol gates before registering an FX pair")
         async with self._bootstrap_lock:
             if pair_id not in self._queues:
                 await self._bootstrap(pair_id)
@@ -162,8 +158,6 @@ class FxWriter:
 
     async def submit(self, command):
         OWNERSHIP.require_writes()
-        if GATES.held_keys_by_current_task():
-            raise RuntimeError("Release all symbol gates before awaiting an FX writer command")
         pair_id = command.pair_id
         queue = self._queues.get(pair_id)
         state = self._states.get(pair_id)

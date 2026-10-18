@@ -261,11 +261,8 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
                                        _now=None) -> FxNetTradeResponse:
     """Execute under caller-owned gates and transaction; never publish or commit."""
     from app.schemas.fx import FxNetTradeResponse
-    from app.services.credit.gates import GATES
     from app.services.market_locks import lock_user
     key = GroupKey('fx', pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError('net-trade caller must hold target pair gate')
     deps = credit_deps
     payload = (_instruction_payload(pair_id, _instruction) if _instruction
                else _canonical_request(pair_id, req))
@@ -282,20 +279,13 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
     trading._require_writes()
     if economic_version_of(user) != req.expected_economic_version:
         raise HTTPException(status_code=409, detail='economic_version_changed; requote')
-    if deps and (deps.economic_version != economic_version_of(user)
-                 or not set(deps.groups).issubset(GATES.held_keys_by_current_task())):
-        raise trading._RetryCredit()
     wallet = await trading._wallet_lock(db, user_id, pair_id, create=False)
     positions = await shorts._lock_short_rows(db, user_id)
     requires_deps = bool(req.borrow_amount or (_instruction and _instruction.auto_borrow) or user.debt or any(
         p.principal_foreign or p.interest_foreign for p in positions)
         or (req.side == 'sell' and req.amount > (wallet.foreign_amount if wallet else 0)))
-    if requires_deps and deps is None:
-        raise trading._RetryCredit()
-    if deps:
-        deps = await discover_dependencies(db, user_id, extra_groups=[key])
-        if not set(deps.groups).issubset(GATES.held_keys_by_current_task()):
-            raise trading._RetryCredit()
+    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
+            if requires_deps else None)
     treasury = await shorts._lock_treasury(db, pair_id)
     now = _now or trading.utcnow()
     simulation = await _simulate(db, user, pair, wallet, positions, treasury, req, now=now, deps=deps, instruction=_instruction)
@@ -400,11 +390,8 @@ async def execute_fx_instruction_in_session(db: AsyncSession, *, user_id: int, p
                                            ) -> FxNetTradeResponse | shorts.FxShortExecution:
     """Resolve authorized amounts at one locked UTC T and reuse money cores."""
     from app.schemas.fx import FxNetTradeRequest, FxNetTradeResponse
-    from app.services.credit.gates import GATES
     from app.services.market_locks import lock_user
     key = GroupKey('fx', pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError('instruction caller must hold target pair gate')
     pair = await trading._pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
     payload = _instruction_payload(pair_id, instruction)

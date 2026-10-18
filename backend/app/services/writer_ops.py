@@ -8,7 +8,6 @@ from __future__ import annotations
 from app.services.account_events import notifying_transaction
 
 import logging
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -50,35 +49,22 @@ Q6 = Decimal("0.000001")
 
 
 
-# Set only by the consumer/API gate owner. Discovery and retries run with no locks.
-CREDIT_DEPS = ContextVar("lmsr_credit_dependencies", default=None)
-
-
-class CreditRetry(Exception):
-    """Release the transaction and every gate, rediscover, and recompute."""
-
-
 async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, new_q):
     from app.services.credit import flags, risk
     from app.services.credit.keys import GroupKey
-    from app.services.credit.gates import GATES
-    # 无金债不再等于无风险（spec §6.3/§11）：锁内按索引确认外币欠币。金债>0 时
-    # 短路，不额外查询外币表。乐观首试 deps 为 None 时会 CreditRetry，由外层
-    # 释放门闩、重新发现完整依赖后再带 GATES 重试。
+    # Debt-free buying needs no collateral valuation. Own foreign obligations
+    # still require the complete locked ledger and its committed price capture.
     if user.debt <= ZERO and not await has_foreign_debt(session, user.id):
         return
-    deps = CREDIT_DEPS.get()
-    if deps is None or deps.economic_version != user.economic_version:
-        raise CreditRetry()
     target = GroupKey("lmsr", int(market_id))
-    if not (set(deps.groups) | {target}) <= GATES.held_keys_by_current_task():
-        raise CreditRetry()
+    deps = await risk.discover_dependencies(session, user.id,
+        extra_groups=[target], account_locked=True)
     holdings = dict(deps.holdings.get(target, {}))
     holdings[int(outcome_id)] = holdings.get(int(outcome_id), ZERO) + shares
     post = risk.PostTradeState(
         cash=user.cash-pay, debt=user.debt,
         lmsr_q={int(market_id): tuple(new_q)}, post_holdings={target: holdings},
-        base_versions={target: deps.snapshots[target].version},
+        base_versions=({target: deps.snapshots[target].version} if target in deps.snapshots else {}),
     )
     thresholds = flags.get_flags().thresholds
     if thresholds is None:
@@ -88,7 +74,7 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
         partial_pct=Decimal("0.1"), now=datetime.now(timezone.utc),
     )
     if decision.reason == "version_conflict":
-        raise CreditRetry()
+        raise HTTPException(409, "version_conflict")
     if not decision.allowed:
         raise HTTPException(400, decision.reason)
 
@@ -899,15 +885,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 from app.services.credit.execution import prepare_locked
                 from app.services.credit.risk import discover_dependencies
                 from app.services.credit.keys import GroupKey
-                deps = CREDIT_DEPS.get()
-                from app.services.credit.gates import GATES
-                if (deps is None or deps.economic_version != locked_user.economic_version
-                        or not (set(deps.groups) | {GroupKey("lmsr", market_id)})
-                        <= GATES.held_keys_by_current_task()):
-                    raise CreditRetry()
-                fresh = await discover_dependencies(session, cmd.user_id)
-                if set(fresh.groups) != set(deps.groups):
-                    raise CreditRetry()
+                fresh = await discover_dependencies(session, cmd.user_id, account_locked=True)
                 plan = await prepare_locked(
                     session, locked_user, fresh, rate=cmd.daily_rate, pct=partial_pct,
                     source=trigger_source, run_id=cmd.run_id, round_no=cmd.round_no)
@@ -1141,7 +1119,8 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 public_event(session, locked_user, run, account_pre, product="lmsr",
                     mode=mode, sold=len(quote.legs), proceeds=quote.net,
                     repaid=repaid, source=trigger_source)
-                await finish_locked(session, locked_user, run, cmd.daily_rate)
+                await finish_locked(session, locked_user, run, cmd.daily_rate,
+                                    deps=fresh, target=GroupKey("lmsr", market_id))
                 action.economic_version_after = locked_user.economic_version
 
             audit_service.record(

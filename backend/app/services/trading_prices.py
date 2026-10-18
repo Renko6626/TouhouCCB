@@ -12,8 +12,6 @@ from app.core.database import async_session_maker
 from app.models.base import Market, Outcome
 from app.models.fx import FxPair
 from app.services.market_read_state import FxReadState, LmsrReadState, PricingRecord, PricingStamp
-from app.services.credit.gates import GATES
-from app.services.credit.keys import GroupKey as GateKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit import flags
 from app.schemas.trading_context import GroupKey, GroupStamp, FxPricingGroup, LmsrPricingGroup
@@ -82,10 +80,9 @@ class PricingRegistry:
         return PricingStamp(self.epoch, str(self._revisions[key]), digest)
 
     def install_committed(self, state: FxReadState | LmsrReadState) -> None:
-        """No IO/await: existing-market writers call before releasing their GATE.
+        """No IO/await: writers install after commit, before their next command.
 
-        Startup prewarming and post-commit installation of a newly created key
-        are the explicit exceptions to the caller-held write GATE requirement.
+        Startup and a newly created key may bootstrap before accepting commands.
         """
         key = (state.product, state.id)
         digest = input_hash(self._pricing_data(state))
@@ -205,13 +202,6 @@ class PricingRegistry:
 
     async def read_groups(self, keys: Sequence[GroupKey], *, require_coverage: bool = True) -> list[FxPricingGroup | LmsrPricingGroup]:
         return self._groups(await self._read_records(keys, require_coverage=require_coverage))
-
-    async def read_groups_locked(self, keys: Sequence[GroupKey]) -> list[FxPricingGroup | LmsrPricingGroup]:
-        """Internal integration helper: caller already holds every requested GATE."""
-        keys = self._keys(keys)
-        if not {GateKey(k.product, k.id) for k in keys}.issubset(GATES.held_keys_by_current_task()):
-            raise RuntimeError('read_groups_locked requires all market GATES')
-        return self._groups(await self._records_locked(keys))
 
     async def read_fx(self, pair_id: int) -> FxReadState:
         records = await self._read_records([GroupKey(product='fx', id=pair_id)], require_coverage=False)

@@ -27,7 +27,6 @@ from app.models.redemption import (
     BatchStatus, CodeStatus,
 )
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import (
     REASON_CREDIT_FROZEN,
@@ -155,8 +154,8 @@ async def purchase_code(
     """单事务原子购买：行锁 user → 校验 → SKIP LOCKED 抢一个码 → 扣款 → 标记码。
     不在这里 commit，由调用方负责。
 
-    统一信贷 ON：先锁外发现依赖 + 门闩，再进 `_purchase_code_impl` 锁行；
-    版本复检与冻结 / 保证金判定在 `check_cash_spend` 内完成。
+    `_purchase_code_impl` 锁 User 后重读完整账本；
+    `check_cash_spend` 使用一次已提交行情捕获完成冻结 / 保证金判定。
     """
     thresholds = _unified_thresholds()
     OWNERSHIP.require_writes()
@@ -164,11 +163,10 @@ async def purchase_code(
         raise RuntimeError("purchase_code requires a clean session before risk admission")
     deps = await _deps_for_spend(session, user_id)
     await session.commit()
-    async with GATES.hold(shared=() if deps is None else deps.groups):
-        async with notifying_transaction(session, managed_transaction(session), "redemption"):
-            return await _purchase_code_impl(
-                session, user_id=user_id, batch_id=batch_id, deps=deps, thresholds=thresholds,
-            )
+    async with notifying_transaction(session, managed_transaction(session), "redemption"):
+        return await _purchase_code_impl(
+            session, user_id=user_id, batch_id=batch_id, deps=deps, thresholds=thresholds,
+        )
 
 
 async def _purchase_code_impl(

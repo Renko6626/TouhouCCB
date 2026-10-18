@@ -6,11 +6,9 @@ Transaction contract (spec §7.1–7.3 / §11):
 - ``execute_short_open_in_session`` performs every validation, lock and balance
   mutation for opening or adding to a short **inside the caller's transaction**.
   It never commits, never rolls back and never publishes, so one outer caller
-  can hold the complete GATE set, run the whole borrow/sell/risk bundle and
-  commit once.  The caller owns lock order and gates; a stale dependency set or
-  a concurrently changed price raises :class:`ShortRetryCredit` so the caller
-  releases every lock and re-discovers rather than taking a missing pair GATE
-  while holding the User lock (spec §11).
+  runs the whole borrow/sell/risk bundle and commits once. The target writer
+  owns ordering, and the User lock guards the complete own ledger through
+  commit. Foreign prices come from one committed capture before simulation.
 - ``execute_short_cover_in_session`` is the risk-reducing twin: it settles the
   debt at one UTC T, buys exactly q foreign through the AMM using account cash
   and repays interest then principal.  It is
@@ -44,7 +42,6 @@ from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.version import bump_economic_version, economic_version_of
@@ -302,8 +299,7 @@ async def execute_short_open_in_session(
 ) -> FxShortExecution:
     """Borrow real foreign, sell it into the AMM and lock the proceeds.
 
-    The caller must hold the target pair's exclusive gate and every dependency
-    shared gate, and owns the single transaction (commit/rollback/SSE).  This
+    The target writer owns the single transaction (commit/rollback/SSE). This
     function validates every §7.1 precondition under the lock order
     ``pair -> User -> wallet/short rows -> treasury``, runs the shared
     post-sell ``check_new_risk`` and returns the committed-in-transaction trade
@@ -311,8 +307,6 @@ async def execute_short_open_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("short-open caller must hold the target pair gate through commit")
 
     amount = _positive_six(foreign_amount, "foreign_amount")
     min_out = _nonnegative_six(min_gold_out, "min_gold_out")
@@ -344,14 +338,13 @@ async def execute_short_open_in_session(
             post_price=Decimal(old.post_price), trade_id=int(old.id),
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
     snapshot = credit_deps.snapshots.get(target_key)
     if snapshot is None:
-        raise ShortRetryCredit()
+        raise HTTPException(503, "market_pricing_unavailable")
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(status_code=403, detail="FX trading is disabled")
@@ -784,8 +777,6 @@ async def execute_short_cover_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("short-cover caller must hold the target pair gate through commit")
 
     is_cover_all = bool(cover_all)
     if is_cover_all and foreign_amount is not None:
@@ -825,13 +816,13 @@ async def execute_short_cover_in_session(
             post_price=Decimal(old.post_price), trade_id=int(old.id),
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
-    if credit_deps.snapshots.get(target_key) is None:
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
+    snapshot = credit_deps.snapshots.get(target_key)
+    if snapshot is None:
+        raise HTTPException(503, "market_pricing_unavailable")
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(status_code=403, detail="FX trading is disabled")
@@ -1062,9 +1053,8 @@ async def execute_liquidation_cover_in_session(
     """Buy back foreign debt with a hard gold budget inside the caller's txn.
 
     Forced-liquidation twin of :func:`execute_short_cover_in_session` (spec
-    §7.3/§8.1–8.2).  The caller (WP4c) already holds the target pair's
-    exclusive GATE plus every dependency shared GATE and owns the single
-    transaction; this function never commits, rolls back, publishes or creates a
+    §7.3/§8.1–8.2). The target writer owns the single transaction and retains
+    its Pair/User row locks; this function never commits, rolls back, publishes or creates a
     ``LiquidationAction``.
 
     - Player business gates are deliberately ignored: ``fx_enabled``, the loan gate,
@@ -1106,9 +1096,6 @@ async def execute_liquidation_cover_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError(
-            "liquidation-cover caller must hold the target pair gate through commit")
 
     # Imported lazily: ``fx.trading`` imports ``credit.risk`` which imports this
     # module at load time, so a module-level import would be a cycle.
@@ -1147,13 +1134,13 @@ async def execute_liquidation_cover_in_session(
             **metadata,
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
-    if credit_deps.snapshots.get(target_key) is None:
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
+    snapshot = credit_deps.snapshots.get(target_key)
+    if snapshot is None:
+        raise HTTPException(503, "market_pricing_unavailable")
 
     status = str(pair.status or "").strip().lower()
     coverable = (

@@ -47,7 +47,6 @@ from app.services.fx.amm import quote_buy, quote_sell, quote_buy_exact_out, amou
 from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import DependencySet, PostTradeState, discover_dependencies, check_new_risk
@@ -339,10 +338,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                                    bot_reference_price: Decimal | None = None) -> FxTradeExecution:
     """Execute one player FX trade inside the caller's transaction.
 
-    Unified callers must acquire the target exclusive gate and every collateral
-    shared gate before opening this transaction, pass ``credit_deps`` for debt
-    buys, and retain gates through commit. ``_RetryCredit`` requires rollback,
-    release of all gates and fresh discovery; never retry inside existing gates.
+    The target writer owns this transaction. Credit buys rediscover the complete
+    own ledger after locking User and capture committed prices before simulation.
     Acquires product locks
     in ``pair -> user -> wallet -> treasury`` order and flushes its writes, but
     deliberately does **not** commit, roll back or publish.  On error the
@@ -350,8 +347,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     """
     _require_writes()
     key = GroupKey("fx", pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("unified FX caller must hold target exclusive gate through commit")
     amount = _positive(amount, "amount")
     min_out = _nonnegative(min_out, "min_out")
     if not idempotency_key or len(idempotency_key) > 128:
@@ -420,19 +415,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     requires_credit = normalized == "buy" and (financed or user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
-        if (credit_deps is None
-                or economic_version_of(user) != credit_deps.economic_version
-                or not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task())):
-            raise _RetryCredit()
-        # Price snapshots from discovery can age while waiting for gates. Refresh
-        # inside the complete gate set before simulating this transaction.
-        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key])
-        # 锁内重发现若引入当前 GATE 集合之外的新依赖组（例如并发新增的外币空头/
-        # 资产 pair，即使 User economic_version 未变），其快照没有门闩保护，绝不能用
-        # 于风险报价：退出让外层释放锁与 GATES 后重新发现并一次性取全有序门闩。
-        # 禁止在持 User 锁时补拿新的 pair GATE（spec §11）。
-        if not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task()):
-            raise _RetryCredit()
+        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
         # 同一 pair 已欠币时普通现货买入不得建立多头（spec §1/§9），必须走回补
         # 入口；判定放在幂等回放之后，保证重试返回原成交而不是被新规则误拒。
         snapshot = credit_deps.snapshots.get(key)

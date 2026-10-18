@@ -1,4 +1,4 @@
-"""One scheduled liquidation batch. Queue/gate waits never retain DB resources.
+"""One scheduled liquidation batch. Queue waits never retain DB resources.
 
 WP4c 在 WP4a 的候选发现/WP4b 的预算受限回补内核之上补齐已知完整估值的资金
 顺序（spec §8.1）：
@@ -32,7 +32,6 @@ from app.models.fx import FxPair, FxShortPosition, FxTreasury
 from app.services import audit_service, loan_service
 from app.services.credit.flags import get_flags
 from app.services.credit.fx_quote import BLOCKED_SHORT_QUOTE_FAILED, quote_fx_group
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.lmsr_quote import quote_lmsr_group
 from app.services.credit.ownership import OWNERSHIP
@@ -158,7 +157,7 @@ async def _seed_run_snapshot(session, run, pre):
         if pre.liquidation_equity is not None and pre.risk_basis is not None
         and pre.risk_basis > ZERO else None
     )
-    # The User lock and full dependency GATES already guard these rows. This
+    # The User lock already guards this account ledger. This
     # read adds no row locks and preserves pair → User → short/treasury order.
     positions = (await session.execute(select(FxShortPosition).where(
         FxShortPosition.user_id == run.user_id).order_by(FxShortPosition.pair_id)
@@ -410,9 +409,8 @@ async def _cover_treasury_balances(session, pre):
     if not pair_ids:
         return {}
     # Columns bypass the ORM identity cache: locked revalidation must see current
-    # inventory. Discovery is optimistic; execute_user repeats this read under
-    # all dependency GATES before checking the selected exclusive target. This
-    # read takes no additional pair gate or row lock.
+    # inventory. Discovery is optimistic; the target handler repeats this read
+    # under User lock. It takes no foreign pair lock or writer request.
     rows = (await session.execute(select(
         FxTreasury.pair_id, FxTreasury.gold_balance, FxTreasury.foreign_balance,
     ).where(FxTreasury.pair_id.in_(pair_ids)))).all()
@@ -530,9 +528,41 @@ def _same_choice(guess, current) -> bool:
     return guess.target == current.target and guess.role == current.role
 
 
+async def _value_captured(session, user_id, deps, *, rate, target=None):
+    from dataclasses import replace
+    from app.models.base import Market, Outcome
+    from app.services.credit.risk import _fx_group_snapshot
+    snapshots = dict(deps.snapshots)
+    if target is not None and target in snapshots:
+        base = snapshots[target]
+        if target.product == "fx":
+            pair = (await session.execute(select(FxPair).where(FxPair.id == target.group_id)
+                .execution_options(populate_existing=True))).scalar_one()
+            snapshots[target] = _fx_group_snapshot(target,
+                pair=replace(base.pair, gold_reserve=pair.gold_reserve,
+                    foreign_reserve=pair.foreign_reserve, status=pair.status,
+                    reduce_only=pair.reduce_only, sell_fee_rate=pair.sell_fee_rate),
+                short_pair=replace(base.short_pair, gold_reserve=pair.gold_reserve,
+                    foreign_reserve=pair.foreign_reserve, status=pair.status,
+                    reduce_only=pair.reduce_only, buy_fee_rate=pair.buy_fee_rate,
+                    sell_fee_rate=pair.sell_fee_rate, pool_version=pair.pool_version),
+                pool_version=pair.pool_version, short_debt=base.short_debt)
+        else:
+            rows = (await session.execute(select(Outcome.id, Outcome.total_shares,
+                Market.status, Market.closes_at, Market.liquidity_b)
+                .join(Market, Market.id == Outcome.market_id)
+                .where(Market.id == target.group_id).order_by(Outcome.id))).all()
+            snapshots[target] = replace(base, b=Decimal(str(rows[0].liquidity_b)),
+                outcomes=tuple(replace(outcome, total_shares=row.total_shares,
+                    status=row.status, closes_at=row.closes_at)
+                    for outcome, row in zip(base.outcomes, rows)))
+    return await value_user_detailed(session, user_id, daily_rate=rate,
+        snapshots=snapshots, lmsr_fee_rate=deps.lmsr_fee_rate)
+
+
 async def prepare_locked(session, user, deps, *, rate, pct, source,
                          run_id=None, round_no=None, pre=None, choice=None):
-    """Fresh, fully gated account check.
+    """Fresh account check using the prepared committed price capture.
 
     Returns a :class:`LockedPlan`: ``status`` is ``sell`` (an asset group was
     selected), ``cover`` (a short-cover group was selected), ``triggered``
@@ -542,7 +572,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
     """
     OWNERSHIP.require_writes()
     if pre is None:
-        pre = await value_user_detailed(session, user.id, daily_rate=rate)
+        pre = await _value_captured(session, user.id, deps, rate=rate)
     run = (await session.execute(select(LiquidationRun).where(
         LiquidationRun.user_id == user.id, LiquidationRun.status == 'active')
         .with_for_update().execution_options(populate_existing=True))).scalars().first()
@@ -637,7 +667,7 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
     if (not defer_repay) and (cash_recovers or choice is None):
         paid = await repay(session, user, rate, source)
         await session.flush()
-        after = await value_user_detailed(session, user.id, daily_rate=rate)
+        after = await _value_captured(session, user.id, deps, rate=rate)
         cash_recovers = _recovered(thresholds, after, has_short)
         if (not has_short and not cash_recovers
                 and pre.liquidation_equity is not None and pre.liquidation_equity <= 0):
@@ -679,9 +709,11 @@ async def prepare_locked(session, user, deps, *, rate, pct, source,
                       blocked_reason=reason)
 
 
-async def finish_locked(session, user, run, rate):
+async def finish_locked(session, user, run, rate, *, deps=None, target=None):
     await session.flush()
-    post = await value_user_detailed(session, user.id, daily_rate=rate)
+    if deps is None:
+        deps = await discover_dependencies(session, user.id, account_locked=True)
+    post = await _value_captured(session, user.id, deps, rate=rate, target=target)
     thresholds = get_flags().thresholds
     has_short = _has_foreign_obligation(post)
     if _recovered(thresholds, post, has_short):
@@ -761,7 +793,7 @@ async def _execute_cover_locked(session, user, plan, fresh, *, rate, source):
     public_event(session, user, run, plan.pre, product='fx', mode=plan.mode,
                  sold=0, proceeds=ZERO, repaid=ZERO, source=source,
                  foreign_repaid=execution.repaid_foreign)
-    await finish_locked(session, user, run, rate)
+    await finish_locked(session, user, run, rate, deps=fresh, target=plan.target)
     action.economic_version_after = user.economic_version
     return (plan.target.group_id, execution.post_price, execution.trade_id), 'triggered'
 
@@ -801,11 +833,11 @@ async def _execute_locked_round(session, user_id, deps, guess, *, rate, pct, sou
     if user.economic_version != deps.economic_version:
         log_retry('economic_version_drift', attempt)
         return 'retry', None, None
-    fresh = await discover_dependencies(session, user_id)
+    fresh = await discover_dependencies(session, user_id, account_locked=True)
     if set(fresh.groups) != set(deps.groups):
         log_retry('dependency_selection_drift', attempt)
         return 'retry', None, None
-    current = await value_user_detailed(session, user_id, daily_rate=rate)
+    current = await _value_captured(session, user_id, fresh, rate=rate)
     now = datetime.now(timezone.utc)
     current_choice = await choose_liquidation_action(
         session, current, fresh, pct=pct, daily_rate=rate, now=now)
@@ -860,7 +892,7 @@ async def _execute_locked_round(session, user_id, deps, guess, *, rate, pct, sou
         public_event(session, user, plan.run, plan.pre, product='fx',
                      mode=plan.mode, sold=1, proceeds=quote.gold_out,
                      repaid=repaid, source=source)
-        await finish_locked(session, user, plan.run, rate)
+        await finish_locked(session, user, plan.run, rate, deps=fresh, target=plan.target)
         action.economic_version_after = user.economic_version
         publication = (result.public.pair_id, result.public.post_price,
                        result.public.id)
@@ -881,7 +913,7 @@ async def execute_user(user_id, *, rate, pct, source):
     for attempt in range(1, retries + 1):
         async with async_session_maker() as session:
             deps = await discover_dependencies(session, user_id)
-            preliminary = await value_user_detailed(session, user_id, daily_rate=rate)
+            preliminary = await _value_captured(session, user_id, deps, rate=rate)
             guess = await choose_liquidation_action(
                 session, preliminary, deps, pct=pct, daily_rate=rate,
                 now=datetime.now(timezone.utc))
@@ -900,16 +932,15 @@ async def execute_user(user_id, *, rate, pct, source):
                 continue
             return result.status
         try:
-            async with GATES.hold(exclusive=[guess.target] if guess else (), shared=deps.groups):
-                async with async_session_maker() as session:
-                    async with _liquidation_transaction(session):
-                        status, command, publication = await _execute_locked_round(
-                            session, user_id, deps, guess, rate=rate, pct=pct,
-                            source=source, attempt=attempt, log_retry=log_retry)
-                        if status == 'retry':
-                            continue
-                        if status != 'triggered' or (command is None and publication is None):
-                            return status
+            async with async_session_maker() as session:
+                async with _liquidation_transaction(session):
+                    status, command, publication = await _execute_locked_round(
+                        session, user_id, deps, guess, rate=rate, pct=pct,
+                        source=source, attempt=attempt, log_retry=log_retry)
+                    if status == 'retry':
+                        continue
+                    if status != 'triggered' or (command is None and publication is None):
+                        return status
 
         except ShortRetryCredit as exc:
             # Covers: version/economic drift or a rollback-required post-settlement
@@ -926,7 +957,7 @@ async def execute_user(user_id, *, rate, pct, source):
             enqueue_publication(pair_id=publication[0], post_price=publication[1],
                                 trade_id=publication[2])
             return 'triggered'
-        # Absolutely no gates, session, or row locks survive queue submission.
+        # No session or row locks survive queue submission.
         if command:
             if not WRITER.enabled:
                 raise RuntimeError('unified LMSR liquidation requires market writer')

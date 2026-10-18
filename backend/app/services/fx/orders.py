@@ -89,7 +89,6 @@ async def _attempt_order_owned(writer, order_id: int, observed_price: Decimal) -
     from app.services import site_config
     from app.services.account_events import capture_accounts, publish_accounts
     from app.services.credit import flags
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
     from app.services.credit.risk import discover_dependencies
     from app.services.fx import net_trading, publisher, shorts, trading
@@ -123,53 +122,52 @@ async def _attempt_order_owned(writer, order_id: int, observed_price: Decimal) -
                 deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
                 if db.in_transaction():
                     await db.rollback()
-                async with GATES.hold(exclusive=[key], shared=deps.groups if deps else ()):
-                    try:
-                        pair = await trading._pair(db, pair_id, lock=True)
-                        user = await lock_user(db, user_id)
-                        order = await _locked_order(db, order_id)
-                        if order is None or order.status != 'waiting':
-                            await db.rollback()
-                            return None
-                        await _check_no_receipt(db, order)
-                        if not user.is_active:
-                            raise HTTPException(403, 'User is inactive')
-                        if pair.archived or pair.status != 'trading':
-                            raise HTTPException(400, 'FX pair is not trading')
-                        if not await site_config.get_bool_or(db, 'fx_enabled', False):
-                            raise HTTPException(400, 'FX trading is disabled')
-                        instruction = FxTradeInstruction.model_validate({
-                            name: getattr(order, name) for name in FxTradeInstruction.model_fields})
-                        try:
-                            execution = await net_trading.execute_fx_instruction_in_session(db,
-                                user_id=user_id, pair_id=pair_id, instruction=instruction,
-                                request_key=order_request_key(order_id), credit_deps=deps)
-                        except (ValueError, ArithmeticError) as exc:
-                            raise trading.TradeRejected(str(exc)) from exc
-                        if execution.replay:
-                            raise RuntimeError('FX order/receipt mismatch; manual check required')
-                        order.status = 'succeeded'
-                        order.finished_at = datetime.now(timezone.utc)
-                        order.observed_trigger_price = observed_price
-                        if isinstance(execution, shorts.FxShortExecution):
-                            order.trade_id = execution.trade_id
-                            trade_id = execution.trade_id
-                        else:
-                            order.execution_id = execution.execution_id
-                            trade_id = execution.trade_ids[-1]
-                        await db.flush()
-                        result = FxTriggerOrderRead.model_validate(order)
-                        post_price = execution.post_price
-                        hints = capture_accounts(db)
-                        from app.services.fx.writer_ops import commit_and_install
-                        await commit_and_install(writer, db)
-                    except BaseException:
+                try:
+                    pair = await trading._pair(db, pair_id, lock=True)
+                    user = await lock_user(db, user_id)
+                    order = await _locked_order(db, order_id)
+                    if order is None or order.status != 'waiting':
                         await db.rollback()
-                        raise
-                    publish_accounts(hints, 'fx_orders')
-                    trading.notify_market_data_committed(pair_id)
-                    publisher.enqueue_publication(pair_id=pair_id, post_price=post_price, trade_id=trade_id)
-                    return result
+                        return None
+                    await _check_no_receipt(db, order)
+                    if not user.is_active:
+                        raise HTTPException(403, 'User is inactive')
+                    if pair.archived or pair.status != 'trading':
+                        raise HTTPException(400, 'FX pair is not trading')
+                    if not await site_config.get_bool_or(db, 'fx_enabled', False):
+                        raise HTTPException(400, 'FX trading is disabled')
+                    instruction = FxTradeInstruction.model_validate({
+                        name: getattr(order, name) for name in FxTradeInstruction.model_fields})
+                    try:
+                        execution = await net_trading.execute_fx_instruction_in_session(db,
+                            user_id=user_id, pair_id=pair_id, instruction=instruction,
+                            request_key=order_request_key(order_id), credit_deps=deps)
+                    except (ValueError, ArithmeticError) as exc:
+                        raise trading.TradeRejected(str(exc)) from exc
+                    if execution.replay:
+                        raise RuntimeError('FX order/receipt mismatch; manual check required')
+                    order.status = 'succeeded'
+                    order.finished_at = datetime.now(timezone.utc)
+                    order.observed_trigger_price = observed_price
+                    if isinstance(execution, shorts.FxShortExecution):
+                        order.trade_id = execution.trade_id
+                        trade_id = execution.trade_id
+                    else:
+                        order.execution_id = execution.execution_id
+                        trade_id = execution.trade_ids[-1]
+                    await db.flush()
+                    result = FxTriggerOrderRead.model_validate(order)
+                    post_price = execution.post_price
+                    hints = capture_accounts(db)
+                    from app.services.fx.writer_ops import commit_and_install
+                    await commit_and_install(writer, db)
+                except BaseException:
+                    await db.rollback()
+                    raise
+                publish_accounts(hints, 'fx_orders')
+                trading.notify_market_data_committed(pair_id)
+                publisher.enqueue_publication(pair_id=pair_id, post_price=post_price, trade_id=trade_id)
+                return result
             except (trading._RetryCredit, shorts.ShortRetryCredit):
                 needs_discovery = True
                 if attempt == flags.get_flags().credit_risk_retry_limit + 1:
@@ -181,8 +179,7 @@ async def _attempt_order_owned(writer, order_id: int, observed_price: Decimal) -
                 raise
             if failure is not None:
                 await db.rollback()
-                async with GATES.hold(exclusive=[key]):
-                    return await _record_failure(writer, db, user_id, order_id, observed_price, failure)
+                return await _record_failure(writer, db, user_id, order_id, observed_price, failure)
         raise RuntimeError('FX order retry loop exhausted')
 
 
