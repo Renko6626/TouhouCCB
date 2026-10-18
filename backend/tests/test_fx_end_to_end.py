@@ -2,9 +2,10 @@
 
 These tests are deliberately self-contained: they run with ``--noconftest`` and
 do not depend on the repository-wide module-scoped client fixture.  Every test
-builds a real FastAPI ASGI application, overrides only ``get_async_session`` so
-requests read/write one isolated in-memory SQLite database, and uses *real* JWT
-access tokens so the production ``current_active_user`` / ``current_superuser``
+builds a real FastAPI ASGI application and explicitly starts its FX writer.
+Requests and writer transactions use separate sessions on one isolated
+in-memory SQLite database. Authentication uses *real* JWT access tokens so the
+production ``current_active_user`` / ``current_superuser``
 dependencies execute unchanged.
 
 No assertion here reads source text or a helper's return value.  The evidence is
@@ -34,7 +35,6 @@ from app.models.base import SiteConfig, User
 from app.models.fx import FxPair, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxPairPublic, FxQuote, FxSnapshot, FxWalletPublic
 from app.services import site_config
-from app.services.credit.ownership import WriteOwnership
 from app.services.fx import market_data
 from app.services.realtime import MarketEventBroker
 from tests.fx_test_helpers import backfill_fx_history, fx_db  # noqa: F401  (imported fixture)
@@ -71,14 +71,20 @@ def _decimal(payload: dict, key: str) -> Decimal:
 
 @pytest_asyncio.fixture
 async def ctx(fx_db, monkeypatch):
-    """Real ASGI app over one isolated SQLite session with production auth."""
-    # --noconftest omits setup_db's ownership lifecycle. Use a disposable
-    # SQLite owner rather than touching the configured database/global owner.
-    owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
-    await owner.acquire()
-    for module in ("app.api.v1.admin_fx", "app.services.fx.trading",
-                   "app.services.fx.liquidity"):
-        monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
+    """Real ASGI app and writer over fx_db's isolated SQLite database."""
+    from app.core import database
+    from app.services import trading_prices
+    from app.services.fx import writer as fx_writer
+
+    # fx_db already supplies one SQLite owner and fresh transaction sessions.
+    # This app has no lifespan: explicitly start its matching isolated writer
+    # and projection before an admin request registers the first pair.
+    registry = trading_prices.PricingRegistry(database.async_session_maker)
+    registry.configure(memory_products=frozenset({'fx'}))
+    monkeypatch.setattr(trading_prices, 'OWNERSHIP', fx_writer.OWNERSHIP)
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    writer = fx_writer.FxWriter()
+    monkeypatch.setattr(fx_writer, 'FX_WRITER', writer)
     now = _utcnow()
     admin = User(username="fx-admin", casdoor_id="fx-admin", is_superuser=True,
                  cash=Decimal("0"), tos_accepted_at=now)
@@ -100,22 +106,21 @@ async def ctx(fx_db, monkeypatch):
     application.include_router(admin_fx_router, prefix="/api/v1/admin/fx")
 
     async def session_override():
-        yield fx_db
+        # Request close/release must not detach the test's observer objects.
+        async with database.async_session_maker() as db:
+            yield db
 
     application.dependency_overrides[get_async_session] = session_override
 
-    # Post-commit SSE publication reads its own session from app.core.database;
-    # point it at the isolated database so a real trade emits a real frame.
-    monkeypatch.setattr("app.core.database.async_session_maker", lambda: fx_db)
-
     try:
+        await writer.start()
         async with AsyncClient(transport=ASGITransport(app=application),
                                base_url="http://fx.test") as client:
             yield SimpleNamespace(client=client, db=fx_db, app=application, admin=admin,
                                   normal=normal, trader=trader, bot=bot, no_tos=no_tos,
-                                  debtor=debtor)
+                                  debtor=debtor, writer=writer)
     finally:
-        await owner.release()
+        await writer.stop()
 
 
 @pytest.mark.asyncio
@@ -219,13 +224,16 @@ async def test_tos_bot_and_debt_guards_are_enforced_over_http(ctx):
     wallet.foreign_amount = Decimal("5")
     wallet.cost_basis = Decimal("5")
     await db.commit()
-    before_cash = (await db.get(User, ctx.debtor.id)).cash
+    # The writer committed through its own session; refresh this observer.
+    await db.refresh(ctx.debtor)
+    before_cash = ctx.debtor.cash
     before_debt = ctx.debtor.debt
     debt_sell = await attempt(ctx.debtor, "sell", "1", "debt-sell")
     assert debt_sell.status_code == 200, debt_sell.text
     await db.refresh(ctx.debtor)
     wallet = (await db.execute(select(FxWallet).where(
         FxWallet.user_id == ctx.debtor.id, FxWallet.pair_id == pair_id))).scalars().one()
+    await db.refresh(wallet)
     assert ctx.debtor.cash == before_cash
     assert ctx.debtor.debt < before_debt
     assert wallet.foreign_amount == Decimal("4")
@@ -434,6 +442,8 @@ async def test_stored_fee_rate_one_returns_actionable_http_not_500(ctx):
     pair.buy_fee_rate = Decimal("1")
     pair.sell_fee_rate = Decimal("1")
     await db.commit()
+    # Direct corruption bypasses the writer; publish that committed state too.
+    await ctx.writer.reload_state(pair_id)
 
     # raise_app_exceptions=False so a regression to 500 is observable as HTTP.
     transport = ASGITransport(app=ctx.app, raise_app_exceptions=False)
