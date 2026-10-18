@@ -101,8 +101,7 @@ async def lifespan(app: FastAPI):
     """
     try:
         await _startup(app)
-        from app.services.trading_prices import PUBLISHER, REGISTRY
-        REGISTRY.reset()
+        from app.services.trading_prices import PUBLISHER
         PUBLISHER.start()
         yield
     finally:
@@ -172,6 +171,12 @@ async def _startup(app: FastAPI) -> None:
             "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
             "直写 API", read_only, owner,
         )
+    # Reset/prewarm before any economic producer starts. Enable products only
+    # after every supported write path installs its committed snapshot.
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.reset()
+    REGISTRY.configure(memory_products=frozenset())
+    await REGISTRY.warm_fx()
     # ── FX 增量行情 runtime（计划 Task 3）──
     # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生
     # FX 成交的经济调度器；只读/非 owner 实例只预热持久状态，绝不创建派生数据。
