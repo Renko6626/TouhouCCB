@@ -1,0 +1,175 @@
+{
+  "assumptions": "Frozen closed zero-fee AMM, no issuance/withdrawals, nonnegative wallets, conservative six-place quote rounding; saved closes checked, no new simulation.",
+  "total_gold": "1100000",
+  "total_foreign": "220000",
+  "initial_product": "200000000000",
+  "price_lower_bound": "4.132231404958677685950413223",
+  "price_upper_bound": "6.05",
+  "a": 0.999000499833375,
+  "C": 111.74752046094024,
+  "log_price_range": 0.3812407192172994,
+  "z_absolute_bound": 42.602705071278734,
+  "intensity_bound_b025": 454.4976198475897,
+  "paths": [
+    {
+      "path": "results/reference/amm-b0-seed41/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.745618953580939,
+      "price_max": 5.352794024447274,
+      "ema_identity_max_absolute_error": 9.884593143993925e-13
+    },
+    {
+      "path": "results/reference/amm-b0-seed42/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.783309955427185,
+      "price_max": 5.270066750385444,
+      "ema_identity_max_absolute_error": 9.125894484540709e-13
+    },
+    {
+      "path": "results/reference/amm-b0-seed43/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.723712214412063,
+      "price_max": 5.19499913767959,
+      "ema_identity_max_absolute_error": 1.0234035840994693e-12
+    },
+    {
+      "path": "results/reference/amm-b0.25-seed41/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.744572552784383,
+      "price_max": 5.35105613043834,
+      "ema_identity_max_absolute_error": 1.2034262475424384e-12
+    },
+    {
+      "path": "results/reference/amm-b0.25-seed42/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.763543926575314,
+      "price_max": 5.290529184624035,
+      "ema_identity_max_absolute_error": 1.063066301654203e-12
+    },
+    {
+      "path": "results/reference/amm-b0.25-seed43/series.npz",
+      "ticks": 100000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.7190980591875,
+      "price_max": 5.211033372560185,
+      "ema_identity_max_absolute_error": 1.0428463648182174e-12
+    },
+    {
+      "path": "results/robustness/amm-b0-seed101/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.714783980224251,
+      "price_max": 5.382450916621133,
+      "ema_identity_max_absolute_error": 1.1246559239452836e-12
+    },
+    {
+      "path": "results/robustness/amm-b0-seed102/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.656860399010803,
+      "price_max": 5.361251079534013,
+      "ema_identity_max_absolute_error": 1.1559260493232415e-12
+    },
+    {
+      "path": "results/robustness/amm-b0-seed103/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.593948654711564,
+      "price_max": 5.402668745568443,
+      "ema_identity_max_absolute_error": 1.0822454044046026e-12
+    },
+    {
+      "path": "results/robustness/amm-b0-seed104/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.674221726135044,
+      "price_max": 5.483086137627186,
+      "ema_identity_max_absolute_error": 1.2951861805277076e-12
+    },
+    {
+      "path": "results/robustness/amm-b0-seed105/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.701293833424219,
+      "price_max": 5.419459798027002,
+      "ema_identity_max_absolute_error": 1.1576295477766507e-12
+    },
+    {
+      "path": "results/robustness/amm-b0.25-seed101/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.72921308983369,
+      "price_max": 5.401572517937694,
+      "ema_identity_max_absolute_error": 1.2996270726262082e-12
+    },
+    {
+      "path": "results/robustness/amm-b0.25-seed102/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.667835495462285,
+      "price_max": 5.372851110619594,
+      "ema_identity_max_absolute_error": 1.1853157344532406e-12
+    },
+    {
+      "path": "results/robustness/amm-b0.25-seed103/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.627989171571591,
+      "price_max": 5.410948913998704,
+      "ema_identity_max_absolute_error": 1.13420384195706e-12
+    },
+    {
+      "path": "results/robustness/amm-b0.25-seed104/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.713985767701398,
+      "price_max": 5.449645899335774,
+      "ema_identity_max_absolute_error": 1.2975176488794204e-12
+    },
+    {
+      "path": "results/robustness/amm-b0.25-seed105/series.npz",
+      "ticks": 500000,
+      "k_non_decreasing_at_every_saved_close": true,
+      "k_above_initial": true,
+      "minimum_k_increment_micro_units_squared": "0",
+      "price_min": 4.640080397210738,
+      "price_max": 5.387451995668046,
+      "ema_identity_max_absolute_error": 1.2449312414286595e-12
+    }
+  ]
+}

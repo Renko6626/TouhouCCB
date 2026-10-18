@@ -1,0 +1,50 @@
+[
+  {
+    "pool": "baseline",
+    "gold_in": 500,
+    "post_price_change": 0.0010002499950550587,
+    "average_execution_price_deviation": 0.0005000098849400977
+  },
+  {
+    "pool": "half_pool",
+    "gold_in": 500,
+    "post_price_change": 0.002000999990971971,
+    "average_execution_price_deviation": 0.0010000090190100813
+  },
+  {
+    "pool": "baseline",
+    "gold_in": 1500,
+    "post_price_change": 0.003002249995032631,
+    "average_execution_price_deviation": 0.0015000033066191775
+  },
+  {
+    "pool": "half_pool",
+    "gold_in": 1500,
+    "post_price_change": 0.006008999990674296,
+    "average_execution_price_deviation": 0.0030000030992700095
+  },
+  {
+    "pool": "baseline",
+    "gold_in": 2500,
+    "post_price_change": 0.005006249998957306,
+    "average_execution_price_deviation": 0.0025000004160375
+  },
+  {
+    "pool": "half_pool",
+    "gold_in": 2500,
+    "post_price_change": 0.010024999991768296,
+    "average_execution_price_deviation": 0.005000001638150003
+  },
+  {
+    "pool": "baseline",
+    "gold_in": 5000,
+    "post_price_change": 0.010024999996843672,
+    "average_execution_price_deviation": 0.005000000628125
+  },
+  {
+    "pool": "half_pool",
+    "gold_in": 5000,
+    "post_price_change": 0.02009999999071709,
+    "average_execution_price_deviation": 0.010000000919100001
+  }
+]

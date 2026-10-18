@@ -1,0 +1,52 @@
+{
+  "defaults": {
+    "strategy": "position",
+    "ticks": 100000,
+    "burn_in": 2000,
+    "bots": 20,
+    "rate": 0.05,
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "window": 30,
+    "trend_strength": 30,
+    "reversion_strength": 0.1,
+    "noise_sigma": 0.005
+  },
+  "cases": [
+    {
+      "bots": 5,
+      "position_cap": 2000.0,
+      "rate": 0.2
+    },
+    {
+      "bots": 20,
+      "position_cap": 500.0,
+      "rate": 0.05
+    },
+    {
+      "bots": 80,
+      "position_cap": 125.0,
+      "rate": 0.0125
+    },
+    {
+      "bots": 5,
+      "position_cap": 500,
+      "rate": 0.05
+    },
+    {
+      "bots": 20,
+      "position_cap": 500,
+      "rate": 0.05
+    },
+    {
+      "bots": 80,
+      "position_cap": 500,
+      "rate": 0.05
+    }
+  ],
+  "seeds": [
+    11,
+    12,
+    13
+  ]
+}

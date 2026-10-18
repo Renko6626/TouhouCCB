@@ -1,0 +1,8 @@
+{
+  "defaults": {"ticks":1000000,"burn_in":10000,"bots":20,"rate":0.05,"order_size":200},
+  "cases": [
+    {"trend_strength":30,"reversion_strength":0.1,"noise_sigma":0.005,"window":30},
+    {"trend_strength":30,"reversion_strength":0.1,"noise_sigma":0.005,"window":1000}
+  ],
+  "seeds":[5,6,7]
+}

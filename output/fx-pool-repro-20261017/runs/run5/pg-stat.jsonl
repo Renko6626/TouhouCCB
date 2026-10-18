@@ -1,0 +1,60 @@
+{"t": 2.02, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 2.54, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 3.06, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 3.58, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 4.1, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 4.63, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 5.15, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 5.67, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 6.19, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 6.7, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 7.22, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 7.74, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 8.26, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 8.78, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 9.31, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 9.82, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 10.34, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 10.85, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 11.37, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 11.89, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 12.41, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 12.94, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 13.45, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 13.97, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 14.48, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 15.0, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 15.51, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 16.03, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 16.55, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 17.07, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 17.6, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 18.12, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 18.64, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 19.16, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 19.68, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 20.2, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 20.73, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 21.25, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 21.77, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 22.28, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 22.8, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 23.31, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 23.83, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 24.36, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 24.87, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 25.4, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 25.92, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 26.44, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 26.96, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 27.47, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 27.99, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 28.52, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 29.04, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 29.55, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 30.07, "rows": [["idle in transaction", "Client", "ClientRead", 30], ["idle", "Client", "ClientRead", 1]]}
+{"t": 30.93, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 31.45, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 31.97, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 32.48, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 33.0, "rows": [["idle", "Client", "ClientRead", 11]]}

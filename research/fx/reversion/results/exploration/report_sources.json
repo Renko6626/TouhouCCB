@@ -1,0 +1,10 @@
+{
+  "research/fx/reversion/report.py": "c1e14e5613e7b8ac69ad4145558db9599079b3b594fec52b1ce6dd17a1e3c91d",
+  "research/fx/reversion/audit.py": "52764549605e734efe5d6fb12d5bcb49eae4e26bc762e992adffbacfd586a7d2",
+  "research/fx/reversion/results/exploration/summary.json": "8605cc2972520f1c20bc9f588cf8e2c30450361f6facb579f9e04fb48c0f2ee5",
+  "research/fx/reversion/results/exploration/audit.json": "c11a33f13eed09211f4554f41fc82ba6ae497ccb5569bedb68deff73d5da0b4c",
+  "research/fx/reversion/results/exploration/normal.csv": "81f059288a6938f84de2daaa91477d5ea1e437d5d77b07bdab45c1aeff8106db",
+  "research/fx/reversion/results/exploration/responses.csv": "7aee645b68d32f9279efe9750c0287d1e88e26170fd068dcad281c10b9de8aa9",
+  "research/fx/reversion/results/exploration/ranges30.csv": "30d2b2aa920e90ed67828e0ce0c93b7a28bb23136a316eb26fc4475f12e0677f",
+  "research/fx/reversion/results/exploration/report.md": "34d50edd3e40b8baaeb11d055abbd235d7b3c29c1a250f719acb40912bd24d51"
+}

@@ -1,0 +1,8 @@
+{
+  "research/fx/episodes/report.py": "43e8e8314d4d7683c507a50b384494029cfd71cb6480abc03ceb6c58fd28228c",
+  "research/fx/episodes/audit.py": "b29509174ce086b28ed44683acde844f1a31c7ad00686a2500b33ea3f27ac001",
+  "research/fx/episodes/results/exploration/summary.json": "12d391b39496fd64f00583cc60d8d96d49bea16bf133e874318fa320c7b589e4",
+  "research/fx/episodes/results/exploration/audit.json": "0b21b4b20c255537fbd9a324423f69b9b4ef1b16c75ab797b9eb041067c5d5d3",
+  "research/fx/episodes/results/exploration/controls.json": "9d16f38307afdc117e92d8756bbcec840438f2d4be219b18f9ed0746b8e19e7e",
+  "research/fx/episodes/results/exploration/preexisting_sha256.json": "960288c99ab6cce3231803874b1db659dde512abc88d95c0551366c698d488f6"
+}

@@ -1,0 +1,13 @@
+{
+  "coefficients_u_0_to_3": [
+    3.420973385682094e-07,
+    0.00023552194511998722,
+    0.022499874706355342,
+    1.0014917658546458
+  ],
+  "q6": 1.0014917658546458,
+  "q6_closed_form": 1.0014917658546458,
+  "positive_lower_coefficients": true,
+  "mean_intensity_neff_stationary_approx": 71.23216821389293,
+  "mean_intensity_neff_stationary_finite": 71.735702388523
+}

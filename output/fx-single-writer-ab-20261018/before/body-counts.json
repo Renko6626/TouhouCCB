@@ -1,0 +1,1034 @@
+[
+  {
+    "phase": "startup",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "startup",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "bytes",
+    "count": 424
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "bytes",
+    "count": 424
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 405
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 146192
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "frames",
+    "count": 400
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "bytes",
+    "count": 84800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/announcements/latest",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/announcements/latest",
+    "kind": "bytes",
+    "count": 400
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 42678
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "kind": "frames",
+    "count": 400
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "kind": "bytes",
+    "count": 400
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 214
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 100850
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 148
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 154882
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792278000.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792278000.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792281600.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792281600.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792285200.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792285200.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792288800.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792288800.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792292400.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792292400.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792296000.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792296000.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792299600.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792299600.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792303200.json",
+    "kind": "frames",
+    "count": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792303200.json",
+    "kind": "bytes",
+    "count": 10800
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 17
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 6105
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 6350
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 7078
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 3472
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 12300
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 4632
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 12204
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 368
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 132
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 54645
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 8501
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 5033208
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 130
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 59901
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 8661
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 4464145
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 37098
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 50876
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 134826
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 11080
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 6260
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 660
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 501902
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 60
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 26997
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 3430
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 1609810
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 600
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 110933
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 3000
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 1781400
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 660
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 146850
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 60
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 22989
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "frames",
+    "count": 600
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "bytes",
+    "count": 150533
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 58
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 23372
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 15600
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 400
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 74000
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 100
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 800
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 290
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 117494
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 288
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 130356
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 16164
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 8248170
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 798
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 147648
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 15400
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 9206000
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 312
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 192771
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 312
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 69420
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 312
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 242815
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 24
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 6664
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 24
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 3768
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791849600.json",
+    "kind": "frames",
+    "count": 20
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791849600.json",
+    "kind": "bytes",
+    "count": 1090
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791936000.json",
+    "kind": "frames",
+    "count": 20
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791936000.json",
+    "kind": "bytes",
+    "count": 1090
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792022400.json",
+    "kind": "frames",
+    "count": 20
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792022400.json",
+    "kind": "bytes",
+    "count": 1090
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792108800.json",
+    "kind": "frames",
+    "count": 20
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792108800.json",
+    "kind": "bytes",
+    "count": 1090
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792195200.json",
+    "kind": "frames",
+    "count": 20
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792195200.json",
+    "kind": "bytes",
+    "count": 1090
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 150
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 33033
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 17090437
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 610
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 249249
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 586
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 266192
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 600
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 111048
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 30900
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 18706900
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 648
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 689416
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 648
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 144460
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 648
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 504584
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 62
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 17216
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 62
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 9734
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "frames",
+    "count": 2
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "bytes",
+    "count": 502
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 656
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 267528
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 630
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 285388
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 30301
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 15659051
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 27400
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 16630900
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 682
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 996003
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 682
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 152086
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 330
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 61120
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 52
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 14438
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 682
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 530058
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 52
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 8164
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "frames",
+    "count": 48
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "bytes",
+    "count": 12048
+  }
+]

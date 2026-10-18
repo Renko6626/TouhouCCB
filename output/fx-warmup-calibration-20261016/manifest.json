@@ -1,0 +1,74 @@
+{
+  "source_candidate": "mixed20-cycle20-candidate",
+  "choices": {
+    "time2": {
+      "time": 2,
+      "arrival": 0.75,
+      "slow_inventory": true
+    },
+    "time25": {
+      "time": 2.5,
+      "arrival": 0.75,
+      "slow_inventory": true
+    },
+    "time3": {
+      "time": 3,
+      "arrival": 0.75,
+      "slow_inventory": true
+    },
+    "time25_fast_inventory": {
+      "time": 2.5,
+      "arrival": 0.75,
+      "slow_inventory": false
+    },
+    "time3_amp17": {
+      "time": 3,
+      "arrival": 0.75,
+      "slow_inventory": true,
+      "amplitude": 1.7
+    },
+    "time3_amp17_fast_inventory": {
+      "time": 3,
+      "arrival": 0.75,
+      "slow_inventory": false,
+      "amplitude": 1.7
+    },
+    "time35_amp17_fast_inventory": {
+      "time": 3.5,
+      "arrival": 0.75,
+      "slow_inventory": false,
+      "amplitude": 1.7
+    },
+    "time4_amp19": {
+      "time": 4,
+      "arrival": 0.75,
+      "slow_inventory": true,
+      "amplitude": 1.9
+    }
+  },
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "hours": 12,
+  "amplitude_target_multiplier": 1.5,
+  "target": {
+    "full_cycle_minutes": [
+      40,
+      60
+    ],
+    "one_way_minutes": [
+      20,
+      30
+    ],
+    "up_gain": 0.027,
+    "trades_per_minute": 5
+  },
+  "definitions": "Primary waves1.5% reversal to match1.5x amplitude; fixed1% waves also reported. Exclude first30min, later-than6h sensitivity included.",
+  "scope": "Offline warmup candidate only; original activity-day frozen preset untouched; no player, fee, shock, auto reset or schedule switching.",
+  "source_sha256": {
+    "output/fx-cycle20-20261016/candidate.json": "d5726eb90e03b5e845cdc10ba1719fcd455ff30d36032741e05d67708d7cfb14",
+    "research/fx/intraday_6_8h/FROZEN_CONFIG.json": "98c71d9be31b438e6dfd8ca44b649f16a3be185ee8b9378d86198a5d23d46e57"
+  }
+}

@@ -1,4 +1,5 @@
 """Controlled real spot execution. No borrowing or separate monetary ledger."""
+import json
 from copy import deepcopy
 from decimal import Decimal
 from uuid import uuid4
@@ -10,8 +11,6 @@ from app.core.database import async_session_maker
 from app.models.base import User
 from app.models.bot import BotProfile
 from app.models.fx import FxTreasury, FxWallet
-from app.services.credit.gates import GATES
-from app.services.credit.keys import GroupKey
 from app.services.fx import trading
 from app.services.fx.amm import amount_down
 from app.services.market_locks import lock_user
@@ -40,31 +39,37 @@ async def save_observation_state(profile_id: int, decision: FxDecision, frame: F
     orders. Never copies pending intents or fill-dependent quantity/cost. A stale
     decision cannot restore a completed episode or overwrite a pause.
     """
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import ObserveBot
     async with async_session_maker() as db:
         profile = await _profile(db, profile_id)
-        uid, pid = profile.user_id, profile.fx_pair_id
-        await db.rollback()
-        async with GATES.hold(exclusive=[GroupKey('fx', pid)]):
-            await trading._pair(db, pid, lock=True)
-            await lock_user(db, uid)
-            await trading._wallet_lock(db, uid, pid, create=False)
-            await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid).with_for_update())
-            profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
-                       .with_for_update().execution_options(populate_existing=True))).scalars().one()
-            state = deepcopy(profile.strategy_state)
-            observed = decision.state.get('episode')
-            current = state.get('episode')
-            if (pid == frame.pair_id and profile.status == 'active' and current and observed
-                    and _same_episode(current, observed)):
-                peak = observed.get('peak_return')
-                if peak is not None:
-                    current['peak_return'] = max(peak, current['peak_return']) if current.get('peak_return') is not None else peak
-                if current.get('closing_reason') is None and observed.get('closing_reason') is not None:
-                    current['closing_reason'] = observed['closing_reason']
-                profile.strategy_state = state
-            trading._require_writes()
-            await db.commit()
-            return state
+        command = ObserveBot(int(profile.fx_pair_id), int(profile_id), int(profile.user_id),
+                             int(frame.pair_id), json.dumps(decision.state))
+    return await FX_WRITER.submit(command)
+
+
+async def observe_in_session(db, command):
+    pid, uid, profile_id = command.pair_id, command.user_id, command.profile_id
+    observed_state = json.loads(command.state_json)
+    await trading._pair(db, pid, lock=True)
+    await lock_user(db, uid)
+    await trading._wallet_lock(db, uid, pid, create=False)
+    await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid).with_for_update())
+    profile = (await db.execute(select(BotProfile).where(BotProfile.id == profile_id)
+               .with_for_update().execution_options(populate_existing=True))).scalars().one()
+    state = deepcopy(profile.strategy_state)
+    observed = observed_state.get('episode')
+    current = state.get('episode')
+    if (pid == command.frame_pair_id and profile.status == 'active' and current and observed
+            and _same_episode(current, observed)):
+        peak = observed.get('peak_return')
+        if peak is not None:
+            current['peak_return'] = max(peak, current['peak_return']) if current.get('peak_return') is not None else peak
+        if current.get('closing_reason') is None and observed.get('closing_reason') is not None:
+            current['closing_reason'] = observed['closing_reason']
+        profile.strategy_state = state
+    trading._require_writes()
+    return state
 
 
 def _fill(execution, action, requested, user, wallet):
@@ -79,9 +84,32 @@ def _fill(execution, action, requested, user, wallet):
                   foreign_after, t.created_at, requested)
 
 
+async def _apply_fill_in_session(session, execution, command):
+    """Writer-only built-in fill hook; money and profile stay in one transaction."""
+    profile = await _profile(session, command.bot_profile_id)
+    if execution.replay:
+        return FxExecutionResult(state=deepcopy(profile.strategy_state))
+    callback_state = json.loads(command.fill_state_json)
+    if not _same_episode(profile.strategy_state.get('episode'), callback_state.get('episode')):
+        raise trading.TradeRejected('episode changed since decision')
+    if profile.template != command.bot_template:
+        raise trading.TradeRejected('strategy changed since decision')
+    user = await session.get(User, command.user_id)
+    wallet = (await session.execute(select(FxWallet).where(
+        FxWallet.user_id == command.user_id, FxWallet.pair_id == command.pair_id))).scalars().one()
+    fill = _fill(execution, command.bot_action, command.requested_amount, user, wallet)
+    if command.bot_purpose == 'admin_liquidate' and not callback_state.get('episode'):
+        state = {} if wallet.foreign_amount == 0 else deepcopy(profile.strategy_state)
+    else:
+        state = get_strategy(command.bot_template).on_fill(callback_state, fill)
+    profile.strategy_state = state
+    profile.last_trade_at = fill.executed_at
+    await session.flush()
+    return FxExecutionResult(fill=fill, state=state)
+
+
 async def _execute(profile_id, decision, frame, *, purpose='scheduled', operator_id=None, min_out=Decimal('0')):
     state = {}
-    fill = None
     try:
         state = (await save_observation_state(profile_id, decision, frame)
                  if purpose == 'scheduled' else {})
@@ -114,35 +142,17 @@ async def _execute(profile_id, decision, frame, *, purpose='scheduled', operator
             else:
                 key = f'fxbot-admin:{profile_id}:{uuid4().hex}'
 
-            async def before_commit(session, execution):
-                nonlocal fill, state
-                # Admission already locked profile after the funds rows.
-                p = await _profile(session, profile_id)
-                if not _same_episode(p.strategy_state.get('episode'), callback_state.get('episode')):
-                    raise trading.TradeRejected('episode changed since decision')
-                if p.template != template:
-                    raise trading.TradeRejected('strategy changed since decision')
-                user = await session.get(User, uid)
-                wallet = (await session.execute(select(FxWallet).where(
-                    FxWallet.user_id == uid, FxWallet.pair_id == pid))).scalars().one()
-                fill = _fill(execution, intent.action, intent.amount, user, wallet)
-                if purpose == 'admin_liquidate' and not callback_state.get('episode'):
-                    state = {} if wallet.foreign_amount == 0 else deepcopy(p.strategy_state)
-                else:
-                    state = get_strategy(template).on_fill(callback_state, fill)
-                p.strategy_state = state
-                p.last_trade_at = fill.executed_at
-                await session.flush()
+            from app.services.fx.writer import FX_WRITER
+            from app.services.fx.writer_ops import BotTrade
+            command = BotTrade(pair_id=int(pid), user_id=int(uid), side=side,
+                amount=amount, min_out=min_out, idempotency_key=key,
+                amount_mode=mode, bot_profile_id=int(profile_id), bot_purpose=purpose,
+                bot_operator_id=operator_id, bot_reference_price=frame.reference_price,
+                fill_state_json=json.dumps(callback_state), bot_template=template,
+                bot_action=intent.action, requested_amount=intent.amount)
+            await db.rollback()
+        return await FX_WRITER.submit(command)
 
-            await trading.execute_trade(db, uid, pid, side, amount, min_out, key,
-                                        amount_mode=mode, bot_profile_id=profile_id,
-                                        bot_purpose=purpose, bot_operator_id=operator_id,
-                                        bot_reference_price=frame.reference_price,
-                                        before_commit=before_commit)
-            if fill is None:  # Replay: callback must never run a second time.
-                p = await _profile(db, profile_id)
-                state = deepcopy(p.strategy_state)
-            return FxExecutionResult(fill=fill, state=state)
     except (HTTPException, trading.TradeRejected, ValueError, ArithmeticError) as exc:
         return FxExecutionResult(state=state, rejection=str(exc.detail if isinstance(exc, HTTPException) else exc))
 

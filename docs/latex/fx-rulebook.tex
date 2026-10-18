@@ -1,0 +1,628 @@
+% !TEX program = xelatex
+% 东方FX天则：规则书
+% Build: xelatex fx-rulebook.tex (run twice)
+% 活动规则，2026-10-16。
+% 编写原则：正文用新手能读懂的话；公式、精度与推导放附录。
+% 章节顺序：1 玩法／2 买卖／3 价格／4 做空／5 借款与强平／6 挂单／7 消费。
+\documentclass[11pt,a4paper,twoside]{article}
+\usepackage{fxrulebook}
+\hypersetup{
+  pdftitle={东方FX天则},
+  pdfauthor={东方FX天则},
+  pdfsubject={FX模拟交易、保证金与到价挂单},
+}
+\tcbset{breakable}
+\raggedbottom
+\widowpenalty=10000
+\clubpenalty=10000
+\setcounter{tocdepth}{1}
+\fancyhead[LE]{\sffamily\small\color{soft}东方FX天则}
+\newcommand{\gold}{金圆券}
+\newcommand{\cards}{空白卡牌}
+
+\begin{document}
+
+\begin{titlepage}
+\pagecolor{paper}
+\begin{center}
+\vspace*{1.4cm}
+{\sffamily\small\color{soft}TOUHOU FX / RULEBOOK}\par
+\vspace{0.5cm}
+{\color{rule}\hrule height 1.6pt}
+\vspace{0.8cm}
+{\sffamily\bfseries\fontsize{38pt}{48pt}\selectfont 东方FX天则}\par
+\vspace{0.6cm}
+{\sffamily\bfseries\fontsize{24pt}{32pt}\selectfont 规则书}\par
+\vspace{0.7cm}
+{\color{rule}\hrule height 0.6pt}
+\vfill
+\fxcovercard\par
+\vspace{0.5cm}
+{\kai\Large 老实赚钱，很枯燥吧。}\par
+\vspace{0.25cm}
+{\kai\small\color{soft}—— 某粉毛股民妖怪}\par
+\vfill
+{\sffamily\small\color{soft}活动网站}\par
+\vspace{0.15cm}
+{\sffamily\large\href{https://thccb.secret-sealing.club}{thccb.secret-sealing.club}}\par
+\vspace{0.6cm}
+{\color{rule}\hrule height 0.6pt}
+\vspace{0.4cm}
+\begin{minipage}{0.53\linewidth}\raggedright
+  \sffamily\small\textcolor{soft}{ISSUED BY}\\[0.15em]
+  \sffamily\textbf{饭纲丸龙金融市场管理委员会}\\
+  \sffamily\small\textcolor{soft}{Iizunamaru Financial Authority}
+\end{minipage}\hfill
+\begin{minipage}{0.43\linewidth}\raggedleft
+  \sffamily\small\textcolor{soft}{DOCUMENT}\\[0.15em]
+  \sffamily\textbf{FX Rulebook}\\
+  \sffamily\small\textcolor{soft}{2026 年 10 月 / Xe\LaTeX{}}
+\end{minipage}
+\vspace{0.4cm}
+{\color{rule}\hrule height 1.6pt}
+\end{center}
+\end{titlepage}
+\nopagecolor
+
+\section*{FX，简单！}
+\markboth{阅读指南}{阅读指南}
+
+开局人手发放 \textbf{500 金圆券}启动资金。空白卡牌初始汇率为每张 \textbf{5 金圆券}，后续价格由全场玩家博弈及突发事件实时驱动。
+
+\begingroup
+\setlength{\parskip}{0pt}
+\newcommand{\introtrade}[5]{%
+\begin{tcolorbox}[colback=#1!4!white,colframe=#1!65,boxrule=0.7pt,
+  height=38mm,left=9pt,right=9pt,top=7pt,bottom=6pt,breakable=false,
+  before skip=0pt,after skip=0pt]
+{\sffamily\bfseries\large\color{#1}#2}\par\smallskip
+\centering
+{\sffamily\bfseries\Large #3}\par\smallskip
+{\small #4}\par\smallskip
+{\small\color{soft}#5}
+\end{tcolorbox}}
+\noindent
+\begin{minipage}[t]{0.485\linewidth}
+\introtrade{fxLong}{看涨？低买高卖}{5 买入\ $\longrightarrow$\ 6 卖出}
+{买入现货，等涨价抛出，\textbf{净赚 1}。}{做多：方向看错（跌）则亏损。}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.485\linewidth}
+\introtrade{fxShort}{看跌？高卖低买}{5 借卖\ $\longrightarrow$\ 4 买还}
+{借卡抛出，等跌价回补，\textbf{净赚 1}。}{做空：方向看错（涨）则亏损。}
+\end{minipage}\par
+\smallskip
+{\footnotesize\color{soft}注：以上算例忽略手续费、滑点与借贷利息；所有交易直接与底层做市池即时结算。}\par
+\medskip
+\newcommand{\introdetail}[2]{%
+\begin{tcolorbox}[colback=white,colframe=fxLine,boxrule=0.6pt,
+  height=49mm,left=7pt,right=7pt,top=6pt,bottom=6pt,breakable=false,
+  before skip=0pt,after skip=0pt]
+{\sffamily\bfseries #1}\par\smallskip
+{\small #2}
+\end{tcolorbox}}
+\noindent
+\begin{minipage}[t]{0.32\linewidth}
+\introdetail{价格怎么变？}{%
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,every node/.style={font=\small\sffamily,align=center}]
+\path[use as bounding box] (-2.05,-2.05) rectangle (2.05,1.55);
+\node at (0,1.05) {市场交易};
+\node[font=\small\sffamily\bfseries] at (0,0.45) {多头买入 $\longrightarrow$ \textcolor{fxLong}{涨}};
+\draw[fxLine] (-1.85,-0.1)--(1.85,-0.1);
+\node at (0,-0.65) {央行干预（外生事件）};
+\node[font=\small\sffamily\bfseries] at (0,-1.65) {注入金圆券 $\rightarrow$ \textcolor{fxLong}{涨}};
+\end{tikzpicture}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}
+\introdetail{保证金警戒线}{%
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,every node/.style={font=\small\sffamily,align=center}]
+\path[use as bounding box] (-2.05,-2.05) rectangle (2.05,1.55);
+\node[text=fxShort,font=\normalsize] at (0,0.65)
+  {$\displaystyle\frac{\text{清算净值}}{\text{风险基数}}$};
+\node at (0,-0.65) {跌破维持线};
+\node[text=lossRed,font=\large] at (0,-1.12) {$\Downarrow$};
+\node[text=lossRed,font=\small\sffamily\bfseries] at (0,-1.65) {负债账户可能被强平};
+\end{tikzpicture}}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.32\linewidth}
+\introdetail{条件单自动挂机}{%
+\centering
+\begin{tikzpicture}[x=1cm,y=1cm,every node/.style={font=\small\sffamily,align=center}]
+\path[use as bounding box] (-2.05,-2.05) rectangle (2.05,1.55);
+\draw[fxLine,dashed] (-1.6,0.5)--(1.6,0.5);
+\draw[fxLong,thick,->] (-1.6,1.2)--(-0.9,1)--(-0.5,1.1)--(0.3,0.5)--(1.1,0.2);
+\fill[fxLong] (0.3,0.5) circle (2pt);
+\node[font=\scriptsize,anchor=south east,text=soft] at (1.6,0.55) {目标价位};
+\node at (0,-0.65) {盘面触达预设点位};
+\node[text=fxLong,font=\large] at (0,-1.12) {$\Downarrow$};
+\node[text=fxLong,font=\small\sffamily\bfseries] at (0,-1.65) {触发即时市价下单};
+\end{tikzpicture}}
+\end{minipage}\par
+\endgroup
+
+{\small 胜负以消费总榜定胜负：\textbf{唯有无债状态下花掉的打赏金圆券才算分}，账户内未变现资产不计入战绩。交易截盘早于消费截止，平仓变现与买卡还债请务必赶在停盘前完成（详见第 7 节）。}
+
+{\footnotesize\color{soft}注：金圆券与空白卡牌均为活动内虚拟游戏道具，不支持任何现金充值与提现，仅供本场娱乐竞技。}
+
+\medskip
+{\sffamily\bfseries\Large 目\quad 录}\par
+\vspace{0.2em}
+{\color{rule}\hrule height 1pt}
+\vspace{0.4em}
+\begingroup
+  \setlength{\parskip}{0pt}
+  \renewcommand{\contentsname}{}
+  \tableofcontents
+\endgroup
+
+\clearpage
+
+\section{这场活动怎么玩}
+
+核心玩法是用\gold{}低买高卖\cards{}，赚取差价：判断价格将涨，就先买入建仓，待涨价后抛出获利。买卖直接与系统交易池（自动做市商）结算，即时成交，无须等待对手方撮合。
+
+赚到的利润可以继续加仓滚雪球，也能兑换活动弹幕礼物或发送付费弹幕（SC）。\textbf{只要账户中存在任何未结清的欠款或利息，就无法进行任何消费}；但只要无债在身，你无需卖光手中持仓，初始本金与利润均可自由消费计分。累计消费规则详见第 7 节。
+
+\begin{fxworkflow}{第一笔交易}
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+\fxstep{1\quad 填写买入}{打开卡牌交易页，选择买入，输入计划投入的\gold{}数量。} &
+\fxstep{2\quad 确认报价}{核对预计获得的卡牌数量、成交均价及手续费，确认下单。} &
+\fxstep{3\quad 监控与退出}{在持仓区查看仓位与可用现金；离场时点击“平多”，卖出部分或全部卡牌。} \\
+\end{tabularx}
+\par\medskip
+行情实时变动且存在网络延迟，页面参考价不代表最终成交均价，一切以成交记录为准。
+\end{fxworkflow}
+
+活动设有预热盘供大家熟悉系统。预热结束后，余额、持仓、债务及消费积分将全部清零；正式开盘时重新发放初始本金。
+
+\subsection*{故事背景}
+
+\begin{lorebox}[title={开市前的会议纪要},coltitle=white]
+
+几个月前，饭纲丸龙通过发行“胜券”（见《东方炒炒币》）大赚一笔。随着金圆券在幻想乡广泛流通，妖怪山交易所渐掌握了全乡贸易清算，饭纲丸龙的影响力水涨船高，几乎控制了幻想乡的经济命脉。
+
+集市的繁荣本应增强市场之神的力量，如今却不断巩固着天狗的货币霸权。千亦决定将货币发行权收回自己手中。在贤者的默许下，天弓千亦开始以“交易能力卡牌”作为锚定物，在集市发行新的货币——“空白卡牌”。
+
+饭纲丸龙随即宣布，金圆券与空白卡牌可以自由兑换，并准备了充足的资金维持兑换。她相信，只要商户日常仍用金圆券记账，新货币的生意最终也会被天狗的资本操控和吞并。
+千亦则鼓励集市直接用空白卡牌，摆脱天狗的结算。双方都将这一安排称为促进贸易的合作，私下却都盼着对方先行崩溃，让出手中的生意。
+
+为了争夺商户和流动性，双方开始借助央行向市场直接干预汇率，投放多少、何时投放，都成了这场金融战中的筹码。投资者也开始紧盯双方的政策消息，猜测下一笔资金会从哪边进场。
+
+消息传开，嫌老实赚钱太慢的人类和妖怪纷纷进场，抓住多么好的机会，借钱加起了杠杆。畜生界也看好这轮行情，提前扩建了灵长园的宿舍。
+
+风声一出，嫌老实打工来钱太慢的人类与妖怪们蜂拥而至，纷纷借贷拉满杠杆。畜生界亦极度看好这轮超级行情，未雨绸缪地扩建了灵长园的宿舍（与天台）。
+
+幻想乡首个外汇杠杆市场就此揭幕，这场席卷全乡的金融风暴，被后世的人里史官称作“\textbf{东方FX天则}”。
+
+\end{lorebox}
+
+\Needspace{5\baselineskip}
+\section{买入和卖出}
+
+假设手头有 500 本金，判断单价为 5 的卡牌仍会升值，投入 100 \gold{}买入 20 张。交易完成后，账户剩余 400 现金并持有 20 张卡牌，界面持仓显示为 $+20$。随后卡牌的涨跌，将直接决定这 20 张卡牌能折算多少现金。
+
+看涨并买入的行为称为\term{做多}；卖出已有卡牌变现、了结仓位的操作称为\term{平仓}。界面上对应的退出按钮为“平多”。
+
+\begin{exbox}[title={例：同一笔买入，两种结果},breakable=false,colbacktitle=fxLong!9!white,borderline west={2pt}{0pt}{fxLong}]
+本例忽略手续费和滑点，假设按标价理想成交。
+\par\smallskip
+\begin{tabularx}{\linewidth}{@{}l XX@{}}
+\toprule
+\rowcolor{lightGray}
+卖出时价格 & 卖出 20 张所得 & 平仓后的现金 \\
+\midrule
+每张 6 & 120 \gold{} & $400+120=520$，\up{赚 20} \\
+每张 4 & 80 \gold{} & $400+80=480$，\down{亏 20} \\
+\bottomrule
+\end{tabularx}
+\par\smallskip
+
+卖完后持仓回到零，此后卡牌继续涨跌，都不再影响这笔已经结束的交易。
+\end{exbox}
+
+你也可以只卖一部分，剩下的继续持有。页面上的持仓卡会跟着更新，已经卖掉的部分不会再算进你的仓位。若要借\gold{}买更多卡牌，需要你明确授权，并通过第 5 节的保证金检查——\textbf{借来的钱和利息都要还}。
+
+\begin{lorebox}
+《文文。新闻》快讯：一位参与者首次盈利后表示：“FX，简单！”截稿前，她联系本报，询问能否撤稿。
+\end{lorebox}
+
+\subsection{参考价、成交均价和滑点}
+
+下单前看到单价为 5，直觉上会认为“投入 500 能刚好买到 100 张”。但由于买入动作本身会抽走池中卡牌并抬高价格，\textbf{整笔订单的实际买入均价必然高于下单前的参考价}——这种价格偏移称为\term{滑点}。卖出同理，抛售数量越大，后续成交的实际单价越低。
+
+以池内初始储备 1,000,000 \gold{}与 200,000 张\cards{}为例（暂不计手续费），在同一基准下不同买单的表现如下：
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}l XXX@{}}
+\toprule
+\rowcolor{lightGray}
+\gold{}投入 & 卡牌所得 & 成交均价 & 成交后参考价 \\
+\midrule
+500 & 约 99.95 张 & 约 5.003 & 约 5.005 \\
+5,000 & 约 995 张 & 约 5.025 & 约 5.050 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+第二笔订单投入翻了十倍，建仓均价也被显著抬高。注：表中 5,000 仅作量级对比演示，\textbf{不代表 500 初始本金在任何情况下都能成功下出该规模的订单}。
+
+\subsection{手续费与预计平仓结果}
+
+手续费从投入的本金中直接扣除，净额才进入流动性池参与兑换：\textbf{买入时扣除\gold{}，卖出时扣除\cards{}}。手续费率以界面公示为准。滑点与手续费属于两项独立成本——\textbf{即便盘面价格毫无波动，立即买进并卖出仍会产生实际亏损}。
+
+持仓卡上的两个均价分别表示：
+
+\begin{itemize}
+  \item \textbf{持仓均价}：当前持仓平均的买入成本。
+  \item \textbf{预计平仓均价}：如果此刻把这个仓位整个卖出，最后的平均成交价。
+\end{itemize}
+
+多头的预计盈亏，是现在卖掉剩余卡牌能收到的钱，减去这些卡牌当初建仓的成本。如果你借了\gold{}，借款利息还要单独扣除；持仓卡上的多头盈亏没有包含这部分利息。
+
+卡片上的数字描述的是\textbf{整个剩余仓位}。若只打算卖出一部分，请直接以订单面板输入具体数量后算出的\textbf{实时订单报价}为准。
+
+\begin{notebox}
+评估“立刻退出能带走多少现金”，请以“预计平仓所得”为准。若简单用卡牌数量乘以盘面参考价，未考虑冲击成本与手续费，估算结果往往偏乐观。
+\end{notebox}
+
+\section{为什么价格会变}
+
+\subsection{买卖如何驱动价格}
+
+交易池内同时储备着\gold{}与\cards{}。买入卡牌即注入\gold{}并提取卡牌；卖出卡牌则是退回卡牌并提走\gold{}。
+系统采用经典的恒定乘积自动做市商（CPMM）机制，根据池中两种资产的实时比例动态输出报价，现实世界的一些虚拟币交易如Uniswap就采用了这个模式。
+
+池中\gold{}相对越多，卡牌标价越高。简言之：\textbf{买入推高单价，卖出打压单价}。文中的“价格”与“汇率”同义，均指兑换 1 张卡牌所需的\gold{}数量。
+
+例如：当池中有 1,000,000 \gold{}与 200,000 张卡牌时，即期参考单价为 5 \gold{}。交易会持续改变双方存量比例，因此大额订单无法全程保持初始参考价成交。
+
+同样投入 500 \gold{}，底池储备越深，造成的汇率波动越小；底池卡牌偏少时，微小的买盘也能引发剧烈拉升。具体公式详见附录。
+\subsection{赛事结果和央行干预}
+
+除日常玩家交易外，主办方将根据现场赛事结果，严格按预设规则向交易池单向注入\gold{}或\cards{}。\textbf{注入方向、触发条件与资金量均提前锁定并公开}。设定上，这代表双方央行在关键时间节点发起的汇率干预。
+
+\begin{itemize}
+  \item 注入\gold{}（卡牌数量不变） $\Rightarrow$ \up{参考价上扬}。
+  \item 注入\cards{}（\gold{}数量不变） $\Rightarrow$ \down{参考价承压下跌}。
+\end{itemize}
+
+\textbf{央行注资直接作用于底层交易池，绝非给各玩家账户派发现金。}活动期间的主办方补发本金属于独立事件，以临时通知为准。
+
+\begin{exbox}[title={例：同一个事件的两种干预},breakable=false]
+假设活动事先约定：某个事件满足条件，就向池子注入 100,000 \gold{}；否则注入 20,000 张\cards{}。以原来的 1,000,000 \gold{}、200,000 张\cards{}为起点，两种情形分别计算：
+\par\smallskip
+\begin{tabularx}{\linewidth}{@{}l XX@{}}
+\toprule
+\rowcolor{lightGray}
+事件结果 & 注资后的储备 & 操作后的参考价 \\
+\midrule
+\rowcolor{fxLong!5!white}
+满足条件 & 1,100,000 \gold{}、200,000 张 & 每张 5.5，上涨 10\% \\
+\rowcolor{fxShort!6!white}
+不满足条件 & 1,000,000 \gold{}、220,000 张 & 每张约 4.55，下跌约 9.1\% \\
+\bottomrule
+\end{tabularx}
+\par\smallskip
+注：\textbf{增加 10\% 的\cards{}库存，不代表价格刚好下跌 10\%}，实际变化取决于底池乘积公式。实际注入条件请以活动面板公告为准。
+\end{exbox}
+
+赛事结果落地会重塑池子结构，但随后仍将受到全场玩家交易的二次博弈。最终能否获利，取决于入场成本、杠杆倍数与平仓时机——\textbf{即便预测对了宏观方向，若杠杆拉得过满，也极可能在消息正式公布前就因盘中震荡爆仓出局}。此外，赛事落地不会替你自动平仓，账面浮盈亦无法直接转化为打赏消费成绩，仍须手动退出并结清所有欠款。
+
+
+\section{做空}
+
+卡牌价格下跌同样蕴含获利机会：先借入卡牌卖出套现，待价格走低后再买回偿还，这种操作称为\term{做空}。由于你欠下的是实物卡牌，一旦行情不跌反涨，购回卡牌的成本将大幅增加；同时，借入卡牌期间须按期支付利息。
+
+\subsection{做空的盈利逻辑}
+
+假设手头有 500 \gold{}，在单价为 5 时借入 20 张卡牌并在市场上抛售。现金瞬间增至 600，但背负了 20 张卡牌的债务，持仓记为 $-20$。后续购回卡牌以清偿债务的操作称为\term{回补}，债务完全销账后做空流程才算结束。
+
+\begin{exbox}[title={同一笔做空，涨跌后的结果},breakable=false,colbacktitle=fxShort!9!white,borderline west={2pt}{0pt}{fxShort}]
+本例忽略手续费、滑点和利息，假设能按表中价格买回全部 20 张。
+\par\smallskip
+\begin{tabularx}{\linewidth}{@{}l XX@{}}
+\toprule
+\rowcolor{lightGray}
+买回时价格 & 买回 20 张支出 & 还清后的现金 \\
+\midrule
+每张 4 & 80 \gold{} & $600-80=520$，\up{赚 20} \\
+每张 6 & 120 \gold{} & $600-120=480$，\down{亏 20} \\
+\bottomrule
+\end{tabularx}
+\par\smallskip
+卖出后增加的 100 \gold{}还要用于买卡还债，不能直接算作利润。
+\end{exbox}
+
+发起做空需满足预设门槛：系统开启借币融券通道、池内有足够的出借额度，且下单后保证金比率符合要求。\textbf{哪怕全程未借入任何金圆券现金，单凭借卡空头仓位同样面临被强制平仓的风险}（详见第 5 节）。卡牌涨幅理论上没有上限，做空导致的潜在大额亏损完全可能击穿本金。
+
+\subsection{怎样买回平仓}
+
+离场时，点击“平空”执行回补。\textbf{执行完全回补时，系统将一次性买回本金加利息所需的卡牌总量}并完成核销。实际应还张数请以界面显示的“含息欠款”为准，切勿只按最初借入的数字计算。
+
+确认下单前，请务必核对“预计回补支出”与当前“可用现金”。若现金不足，需先手动筹集资金，系统不会自动为你变卖其他资产来补足现金缺口。支持分批回补，未还清的余债将继续按秒计息，并继续承担行情波动。
+
+持仓卡上展示的空头浮动盈亏，是以\textbf{此前借卡抛售实际所得现金，减去按当前市价完全买回含息欠款所需的预计支出}计算，该数值已预扣交易滑点与手续费。若在此之外还借入了金圆券，该现金借款的利息需单独结算。
+
+融券抛售换得的现金会进入可用余额，可用于正常周转或归还金圆券债务。但\textbf{只要账户仍欠有任何卡牌，兑换礼物与发送付费弹幕功能将全面受限}；任何消费均以双向债务彻底清偿为硬性前提。
+
+\subsection{卖出超过手中数量会怎样}
+
+若当前手中持有 20 张卡牌，却在下单区输入了 30 张的卖单：系统会自动将其拆解为——先卖出手中原有的 20 张现货，剩余 10 张转为融券借入并卖出。成交后账户产生 10 张卡牌负债，持仓更新为 $-10$；此操作同样必须满足做空保证金规则。
+
+反之，在负债状态下直接点“买入”，所得卡牌将优先抵扣欠款，结余部分才会转为现货多头。\textbf{若仅希望安全退出既有仓位，请统一使用“平多”或“平空”功能}：前者至多卖完手中持仓，后者至多还清所欠负债，绝不会在平仓完成后意外建立反向新仓位。
+
+\section{杠杆与强制平仓}
+
+\subsection{使用杠杆放大盈亏}
+
+\begin{lorebox}
+“现在买入，一定爆赚！”她看了看余额，又看了看借款额度。“既然一定会赚，那买得少岂不是亏了？”
+\end{lorebox}
+
+当自有资金有限时，可授权系统借入\gold{}以放大建仓规模，即\term{加杠杆}。活动设置的名义杠杆上限为 10 倍：以 500 自有本金为例，理论上最高可撬动 5,000 规模的总头寸，其中 4,500 为借贷资金。但由于手续费、即时滑点与风控审查的存在，实际可借上限以订单确认页为准。
+
+\begin{exbox}[title={例：行情下跌的可能后果},breakable=false]
+拥有 500 \gold{}，借入 1,000 资金，合计 1,500 全款买入卡牌。暂不计手续费与利息，买入瞬间资产价值为 1,500。
+
+随后卡牌价格骤跌，手中全部资产市值缩水至 1,110。此时仍须刚性偿还借入的 1,000 \gold{}，结算后自有资金仅剩 110：资产总值缩水 390，全部由你自有本金承担，亏损幅度被急剧放大。
+\end{exbox}
+
+无论行情跌成什么样，债务本息始终分毫不减。仓位拉得越大，单位行情对自有本金的冲击就越剧烈，浮盈来得快，亏光甚至倒贴也同样在一瞬间，且存续借款每分每秒都在累加利息。
+
+金圆券借款按金圆券计息，卡牌借贷按卡牌计息。利息基于日利率折算为秒级复利，\textbf{即使用户离线退出网页，计息亦不会中断}。具体利率详见系统看板，还款金额以页面显示的含息欠债为准。
+\subsection{什么时候会被强制平仓}
+
+账户有欠款时，要留意页面上的\term{保证金比率}（也称“保证金率”）。系统会计算全部仓位现在退出、还清欠款后还能剩多少钱，再结合欠款和持仓规模计算这个比率。比率越低，越接近系统要求你减小仓位的门槛。
+
+页面会显示两个门槛：\textbf{初始门槛}决定能否继续借款加仓；更低的\textbf{维持门槛}决定有欠款的账户是否可能被强制平仓。10 倍杠杆对应的初始门槛约为 11.11\%，维持门槛看活动页面。计算方法见附录。
+
+\begin{tabularx}{\linewidth}{@{}>{\bfseries\raggedright\arraybackslash}p{0.27\linewidth} X@{}}
+\toprule
+\rowcolor{lightGray}
+比率所处位置 & 对你操作的影响 \\
+\midrule
+\rowcolor{profitGreen!5!white}
+达到初始门槛 & 可以继续加仓；新增仓位还要单独检查现金、库存、交易状态和成交后的比率。\\
+\rowcolor{goldAccent!8!white}
+低于初始门槛，但还在维持门槛之上 & \textbf{不能再借钱加仓}，但可以还款、平仓来降低风险。\\
+\rowcolor{lossRed!6!white}
+低于维持门槛，且账户有欠款 & 可能被强平。系统扫描时会按最新的账户和池子状态重新判断。\\
+\bottomrule
+\end{tabularx}
+
+
+负债不仅指借入的\gold{}，借出的卡牌负债同样受制于此风控。\textbf{哪怕从未借过任何一文金圆券，纯做空者一旦遭遇暴涨，同样会随时触发强平。}只有在无任何借贷与欠卡的前提下，才不存在被强平的风险。
+
+保证金比率时刻因币价波动、利息累加而变化。可用现金可能包含了借贷而来的本金或抛空所得，账面现金多绝不等于账户绝对安全。
+
+\subsection{接近红线时如何自救}
+
+若比率逼近警戒线，应及早操作。多头仓位应主动减仓卖出，回笼现金提前偿债；空头仓位须尽早买回卡牌归还。平仓前请先核对“预计回补支出”与“可用现金”，若现金告急，需手动处置其他现货或注资，系统绝不会替你自动变卖资产去补平空头缺口。
+
+风控引擎会定时循环扫描全场账户。一旦发现带债账户跌破维持门槛，系统可能按当前市价卖出持仓或买回欠卡，即\term{强制平仓}（俗称“爆仓”）。
+
+强平是系统的终极自保止损机制，按市价执行平仓，\textbf{即使随后几秒行情迎来绝地大反弹，爆仓事实已定，均无力回天}。
+
+界面展示的比率数据经过常规四舍五入，系统内核按实际精度判定，切勿贴线走钢丝。
+
+\begin{lorebox}
+即使价格后来真的涨回去了，但强制平仓也会让你无法翻身。
+\end{lorebox}
+
+\Needspace{7\baselineskip}
+\section{到价挂单}
+
+\subsection{挂单条件与交易方向}
+
+到价挂单的使用方式\textbf{类似限价单（limit order）}：提前设定价格，等行情满足条件后自动尝试交易。区别在于，通常的限价单只允许按指定价格或更优价格成交；本系统\textbf{到价后按市价尝试执行，不保证成交价格}。这里设定的是触发价，买入均价可能更高，卖出均价可能更低。
+
+用户提前设定价格条件和交易动作，服务器定时检查，\textbf{发现条件满足后，自动尝试下单}。挂单由服务器统一接管监控，\textbf{即使用户关机离线，监控依然生效}，非常适用于防守止损、阶段止盈或挂低单抄底。挂单长期有效，除非被触发或手动撤回。
+
+创建挂单时，首先设定“参考价 $\le$ 某值”或“参考价 $\ge$ 某值”的触发条件，并指定以下动作之一：
+\begin{tabularx}{\linewidth}{@{}>{\bfseries}l XX@{}}
+\toprule
+\rowcolor{lightGray}
+动作 & 需要填写 & 执行时会怎么处理 \\
+\midrule
+买入 & 花多少\gold{} & 先还卡牌欠款，多买的部分留在手中。\\
+卖出 & 卖多少张卡牌 & 先卖已有卡牌，超出部分借卡牌卖出。\\
+平多 & 多头仓位的百分比 & 只减多头，不会开空。\\
+平空 & 空头仓位的百分比 & 只回补含息欠款，不会做多。\\
+\bottomrule
+\end{tabularx}
+
+平仓比例严格按\textbf{挂单执行时的持仓}计算。例如挂单时手握 20 张卡牌，期间又手动买入 20 张，若触发了“100\% 平多”，系统会尝试抛售全部 40 张；若设置 50\% 则抛售 20 张。若仅为撤出原有仓位，务必使用平多或平空——\textbf{普通买卖单可能因超额而顺势反向开仓}。
+\subsection{低价买入、止盈与止损}
+设当前单价为 5，希望等行情回调时低吸，可配置：“参考价 $\le 4.5$，投入 100 \gold{}买入”。一旦系统检测到价格触及 4.5，便会自动动用这 100 \gold{}执行市价买入。\textbf{4.5 仅为点火的触发价，绝非成交价格封顶线}：由于买单自身具有价格冲击，实际成交均价完全可能高于 4.5。最终成交张数视执行时的池子深度与手续费而定。
+
+\begin{exbox}[title={例：为多头持仓配置双向防护},breakable=false]
+持仓 40 张卡牌多头，期望在行情冲高时兑现一半，在急跌时全线撤退，可分别挂出两单：
+\begin{itemize}
+  \item \textbf{止盈单：}设定参考价 $\ge 6$，执行“平多 50\%”。执行时若仓位仍为 40 张，系统市价抛出 20 张。
+  \item \textbf{止损单：}设定参考价 $\le 4.5$，执行“平多 100\%”。执行时市价斩仓全部多头。
+\end{itemize}
+两张委托单各自独立轮询。一张成交后，另一张单不会自动失效，需手动管理。\textbf{平仓指令始终以执行时的仓位体量为运算基准}。
+\end{exbox}
+
+空头逻辑完全对称：价格走低符合做空预期，可在下方挂“平空”止盈；行情逆势暴涨则在上方挂“平空”止损。切记：挂单本质只是\textbf{代你提交市价单的触发开关}，无法确保锁定绝对利润，亦无法完全隔绝超额亏损。
+
+\subsection{挂单执行规则}
+
+单账户最多支持同时保留 \textbf{3 张生效中的挂单}。挂单执行时，仍须接受全套系统风控校验（含可用余额、杠杆率限制、系统开放状态等）。涉及借款的买单，还需提前开启借款授权并预设借贷额度。
+
+服务器按固定轮询周期执行状态检查，\textbf{瞬时闪崩并迅速反弹的极端插针行情，存在被轮询漏检的可能}。触发后系统仅尝试撮合一次；若因现金余额不足、保证金超标或全盘停盘导致下单受阻，该次触发即告失败。\textbf{执行失败的挂单将直接终结并释放名额，绝不会自动等待下一次机会}；若需调整参数，请查看历史日志后撤销重建。
+
+挂单执行结果均有迹可循，请以挂单历史与成交记录为准——\textbf{切忌将未收到通知等同于委托未触发}。挂单同样不具备优先豁免权：\textbf{若止损线卡得太紧挨近强平线，可能委托单尚未完成撮合，底层账户就已先行被风控引擎强平。}
+
+\section{消费与活动结束}
+
+\subsection{消费计分}
+本活动中的“兑换”，专指在活动弹幕系统内兑换互动礼物。无论是兑换道具还是打赏付费弹幕（SC），所消耗的全部\gold{}净额均按 1:1 计入你的个人消费总榜。所有沉淀在交易环节的手续费与利息不计分；闲置在账户中的现金及现货卡牌亦不计入任何成绩。
+
+消费的前提铁律是：\textbf{账户不得背负任何\gold{}借贷、卡牌欠款及相关应计利息}。多头持仓可预先抛售部分卡牌换回现金清偿负债；空头则必须提前买回欠卡彻底销账。\textbf{只要负债彻底归零，剩余持仓卡牌可安心留在账户中，绝无为了消费而被迫割肉抛清的硬性要求。}
+
+\begin{exbox}[title={例：盈利先落袋消费，再整队出击},breakable=false]
+在妥善结清全部借款后，账户留存 650 \gold{}可用现金。此时拿出 200 \gold{}用于打赏弹幕，消费成绩便立即锁定为 200，账户结余 450 \gold{}继续进场博弈。后续哪怕这 450 \gold{}全军覆没甚至重新产生借贷，此前已锁定的 200 消费积分依然永久有效，不受波及。
+\end{exbox}
+
+\begin{notebox}
+\textbf{消费成绩采用刚性累加制：}只要成功完成礼物兑换或发送付费弹幕，积分即刻锁定生效，后期的交易爆仓或新增债务绝不倒扣历史消费成绩。但每一次发起消费动作时，账户必须处于“全额无债”状态。
+\end{notebox}
+
+无论是开局分配的初始本金，还是活动期间官方空投的额外资金，只要消费时账户清白无债，均可作为有效打赏计入榜单。
+
+请清晰区分三项指标：净资产用以评估持仓实力，保证金比率代表即时安全边界，而消费榜只衡量你\textbf{真金白银花出去了多少}。账面现金留存再多、持仓浮盈再丰厚，若未在截止日前成功消费，均视作无效成绩。
+
+\Needspace{90mm}
+\subsection{停盘与消费截止}
+
+活动结束时，\textbf{交易先截止，消费随后截止}，中间留出时间用于兑换和付费弹幕，最后确定消费榜；停盘之后消费同样要求无债。
+
+\begin{fxworkflow}{活动结束顺序}
+\begin{tabularx}{\linewidth}{@{}XXX@{}}
+\fxstep{1\quad 停止交易}{提前处理准备卖出的卡牌和需要买回的欠款。} &
+\fxstep{2\quad 继续消费}{账户无债时，仍可兑换或发送付费弹幕。} &
+\fxstep{3\quad 消费截止}{停止累计消费，按消费榜确定最终成绩。} \\
+\end{tabularx}
+\end{fxworkflow}
+
+需要卖卡牌换现金、或买回卡牌还债的，\textbf{必须在交易截止前做完}。剩下的卡牌不会统一按收盘价兑付，系统也不承诺停盘后替所有人自动平仓，\textbf{最后时刻的挂单也不保证能成功退出}。
+
+主办方可能在活动中途发放额外\gold{}，以现场公告为准。\textbf{发钱不代表统一免债，也不代表自动补足本金}；少数欠款特别多的情况，可由主办方个别处理。预热盘的余额、持仓、债务与消费成绩不带入正式活动。
+
+\clearpage
+\appendix
+\section{恒定乘积 AMM 与保证金计算}
+
+\subsection{储备、参考价和恒定乘积}
+设池内\gold{}储备为 $G$，卡牌储备为 $F$，参考价为 $P$，单位是\gold{}/张。先忽略金额舍入，手续费从投入中另行扣除，则一次普通兑换满足
+\[
+  k=GF,\qquad P=\frac{G}{F}.
+\]
+注资或撤资会改变储备及其乘积，$k$ 也会随之改变。
+
+\subsection{买入、卖出与活动参数}
+向池子净投入 $g$ \gold{}买入，新的本币储备为 $G'=G+g$，卡牌储备为 $F'=GF/(G+g)$。卡牌所得与成交后参考价分别为
+\[
+  q_{\mathrm{buy}}=\frac{Fg}{G+g},\qquad
+  P'=\frac{(G+g)^2}{GF}.
+\]
+向池子净投入 $f$ 张卡牌卖出，新的卡牌储备为 $F'=F+f$，本币储备为 $G'=GF/(F+f)$。本币所得与成交后参考价分别为
+\[
+  v_{\mathrm{sell}}=\frac{Gf}{F+f},\qquad
+  P'=\frac{GF}{(F+f)^2}.
+\]
+忽略手续费时，买入均价为 $g/q_{\mathrm{buy}}$，卖出均价为 $v_{\mathrm{sell}}/f$，表示整笔兑换的平均价格，与交易前后的参考价不同。
+
+取 $G=1{,}000{,}000$、$F=200{,}000$，花费 500 \gold{}买入，则 $q_{\mathrm{buy}}=200{,}000\times500\div1{,}000{,}500\approx99.9500$ 张，均价 $\approx5.0025$ \gold{}/张，成交后参考价 $\approx5.0050$ \gold{}/张。同样起点投入 5,000，则所得约 995.0249 张，均价约 5.0250，成交后参考价约 5.0501——投入增加十倍，整笔均价的偏离也变大。
+
+实际报价先扣手续费，再以净投入计算兑换；均价按玩家真正支付或交付的总量计算，金额再按系统精度舍入。正文中的价格已四舍五入，本节保留完整精度，两者若有差别以本节和系统报价为准。
+
+\clearpage
+\begingroup
+\small
+\setlength{\parskip}{0.3em}
+\subsection{保证金比率怎样计算}
+
+入门页的保证金比率为“清算净值／风险基数”。实际计算还要区分手中的卡牌、借来的金圆券和欠下的卡牌，不能直接把页面上的持仓金额当分母。下面各项金额都以金圆券计。
+
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+符号 & 账户里的哪笔钱 \\
+\midrule
+$C$ & 现在的现金余额。\\
+$A$ & 把手中卡牌全部卖掉，预计能收到的钱，已扣交易费用。\\
+$D$ & 需要归还的金圆券借款，包含利息。\\
+$K$ & 买回全部欠下的卡牌，预计要付的钱，包含卡牌利息及交易费用。\\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\textbf{先算还清欠款后剩多少}
+\[
+  E=\underbrace{C+A}_{\text{现金加卖卡所得}}
+    -\underbrace{(D+K)}_{\text{还钱和买卡还债的支出}}.
+\]
+这个结果叫“清算净值”。$A$ 和 $K$ 都按整笔退出的报价计算，已经考虑价格影响，不能用卡牌数量直接乘参考价代替。
+
+\textbf{再算分母，借款和持仓取较大值}
+
+设名义最高杠杆为 $L$，折算系数 $\alpha=(L-1)/L$。10 倍杠杆时，$\alpha=90\%$。系统使用的分母称为“风险基数”：
+\[
+ B=\underbrace{\max(D,\alpha A)}_{\text{借款与折算后的持仓，取较大值}}
+   +\underbrace{\alpha K}_{\text{另外计入买卡还债的金额}}.
+\]
+这里的 $\max$ 就是“取较大值”，用来同时照顾两件事：
+\begin{itemize}[nosep]
+  \item \textbf{借款不能漏算。}卡牌跌价后，欠下的金圆券并不会跟着减少；只按卡牌价值算，可能低估这笔债务。
+  \item \textbf{持仓也不能漏算。}用自己的钱买的卡牌同样会涨跌；只按借款算，这部分持仓就没有计入分母。
+\end{itemize}
+
+但借来的钱可能已经买成了卡牌，把 $D$ 和 $\alpha A$ 直接相加，会把同一笔借款买入同时按债务和持仓计两遍。因此，这一规则\textbf{取两者较大值，不把两者相加}。做空还需要买回卡牌，所以 $\alpha K$ 另外加入，也不与多头持仓互相抵消。这是本活动采用的计算规则。
+
+\textbf{最后求比率，与门槛比较}
+\[
+ R=\frac{E}{B}\quad(B>0),\qquad
+ R_{\text{初始}}=\frac{1}{L-1}.
+\]
+维持门槛由活动配置决定。有金圆券借款或卡牌欠款的账户，低于维持门槛时可能被强制平仓；两种欠款都没有时，不会仅因价格变动触发强制平仓。$B=0$ 时不做普通除法。下一节用具体金额演示取较大值的过程。
+
+\subsection{10 倍杠杆与门槛算例}
+
+当 $L=10$ 时，$\alpha=(L-1)/L=90\%$。风险基数取金圆券债务 $D$ 与正卡牌仓位净卖出所得的 $90\%$ 中较大的一项，再加上卡牌欠款回补支出的 $90\%$。
+
+以没有剩余现金、没有卡牌欠款的多头账户为例，$E=A-D$。要求 $A\le10E$，便有 $D\le9E$；借满时 $B=D=0.9A$，因此初始比率门槛为 $E/B\ge1/9\approx11.11\%$。
+
+第 5 节的例子中，刚买入时 $A=1{,}500$、$D=1{,}000$，因此 $E=500$、$B=\max(1{,}000,1{,}350)=1{,}350$，比率约为 $37.0\%$。预计卖出所得降到 1,110 后，$E=110$、$B=\max(1{,}000,999)=1{,}000$，比率为 $11\%$。这里忽略利息、手续费及金额舍入，实际账户按前述完整定义计算。
+
+\endgroup
+\clearpage
+\pagestyle{empty}
+\markboth{免责声明}{免责声明}
+\vspace*{0.1cm}
+{\sffamily\bfseries\Large 免责声明}\hfill{\sffamily\small\color{soft}DISCLAIMER}\par
+\vspace{0.25em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.88\linewidth}{1pt}}}
+\vspace{0.5em}
+
+\small
+\setlength{\parskip}{0.34em}
+\linespread{1.0}\selectfont
+
+本网站（“东方FX天则”）为一款基于同人设定的\textbf{社团趣味活动网页游戏}，核心目的为娱乐、二次创作交流，以及帮助参与者直观理解\textbf{外汇式做多做空}、\textbf{恒定乘积自动做市机制}、滑点、保证金与强平等基础概念。本文档中的金融术语仅作为学习类比和游戏规则说明使用。继续参与本活动，即视为您已阅读、理解并同意以下条款。
+
+\vspace{0.2em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.62\linewidth}{0.4pt}}}
+\vspace{0.2em}
+
+\textbf{1.\;同人性质与活动范围}\\
+本活动中出现的所有角色（饭纲丸龙、天弓千亦等）均为上海爱丽丝幻乐团（ZUN）所拥有的\textbf{东方 Project} 二次创作角色。本网站为\textbf{非官方、非营利的同人社团项目}，与官方及任何商业实体均无关联。本文档仅适用于不涉及现实价值兑换的社团内部演示与娱乐版本；若任何活动另行引入现实权益、实物奖品或商业合作，应另行制定并遵守相应合规规则，不适用本文档的默认边界。
+
+\textbf{2.\;游戏积分性质}\\
+规则书及系统界面中所提及的“\textbf{金圆券}”“\textbf{空白卡牌}”“余额”“债务”“持仓”“净值”“保证金”等，均指代本游戏内部的\textbf{虚构积分、状态数值或教学变量}，并非人民币、美元、日元等任何现实世界法定货币，也不是加密货币、代币、证券、外汇、票券、储值卡、预付卡、债权凭证或其他具有现实财产价值的资产。本系统不发行、销售、募集、托管或承兑任何现实资产；游戏积分不可充值购买、不可提现、不可转让、不可赎回、不可兑换现金或任何现实权益，也不得用于现实世界的交易、支付、清偿或结算。
+
+\textbf{3.\;不涉及真实资金、收益或奖酬}\\
+本系统不接受任何形式的真实金钱充值、押金、报名费、投资款、购买款或其他对价，不向用户支付现金、返利、利息、分红、收益、奖酬或其他现实利益，也不承诺保本、回本、升值、收益率、排行榜奖励或任何现实回报。系统中的盈亏、手续费、利息、杠杆、保证金、清算等表述均为游戏内数值变化或教学模拟，不代表现实资金损益。
+
+\textbf{4.\;不构成金融、融资或外汇交易服务}\\
+本系统不向任何用户提供证券、期货、基金、保险、外汇、贷款、支付、清算、资产管理、投资咨询、融资撮合、代币发行、虚拟货币交易或任何其他需要许可、备案或特定资质的金融服务。规则书中出现的“汇率”“买入”“卖出”“做多”“做空”“杠杆”“借款”“利息”“保证金”“强制平仓”等术语，仅用于解释恒定乘积做市机制与保证金制度的数学/机制概念，不构成现实世界中的投资建议、交易指令、产品宣传、募集说明、收益承诺或风险评级。
+
+\textbf{5.\;不构成博彩、投注或抽奖兑奖活动}\\
+本系统不以营利为目的组织、撮合或便利任何真实金钱投注，不设置可由游戏结果兑换的现金、财物、商品、服务、优惠券、积分权益或其他现实利益。用户在系统中获得或失去的任何数值均不具有现实价值。本文档中的胜负、赔率、下注等表述如有出现，均仅为规则解释或教学语境，不表示本项目提供或鼓励任何现实赌博或投注活动。
+
+\textbf{6.\;用户责任与限制}\\
+用户不得将本系统用于现实金钱结算、私下对赌、积分买卖、账号交易、奖品兑换、商业推广、融资集资、代币发行、虚拟货币交易或任何违反法律法规、公序良俗及社团规则的用途。任何人将本系统中的价格、曲线、策略示例或数学模型套用于现实世界金融交易、赌博活动或其他高风险行为，由此产生的一切后果由其自行承担。
+
+\textbf{7.\;面向人群}\\
+本系统及本文档不构成对未成年人接触真实金融市场、虚拟货币交易或博彩活动的鼓励。未成年人应在监护人或社团指导者知情并同意的前提下参与适龄的娱乐与学习内容。如您所在司法辖区对模拟交易、预测市场、同人游戏或社团活动有特殊限制，请遵循当地法律法规自行判断是否继续使用。
+
+\vspace{0.2em}
+\noindent\makebox[\linewidth][c]{\textcolor{rule}{\rule{0.62\linewidth}{0.4pt}}}
+\vspace{0.4em}
+
+\textcolor{soft}{\small —— 东方FX天则 \;/\; 幻想乡集市兑换市场}
+
+\normalsize
+\linespread{1.18}\selectfont
+
+\label{fx:lastpage}
+\end{document}

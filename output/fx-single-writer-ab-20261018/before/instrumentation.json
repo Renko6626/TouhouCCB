@@ -1,0 +1,12 @@
+{
+  "gate_present": true,
+  "gate_timing_status": "measured",
+  "fx_writer": {
+    "status": "absent_in_source",
+    "queue_wait": null,
+    "execution": null,
+    "sql_attribution": "no FX actor in this source"
+  },
+  "lock_query_elapsed_semantics": "client cursor execution elapsed includes PostgreSQL execution, possible lock wait, and transport/scheduling; NOT pure lock-wait time",
+  "pg_lock_wait_semantics": "pg_stat_activity Lock samples are observed wait states at 0.5s sampling; no exact per-query wait duration"
+}

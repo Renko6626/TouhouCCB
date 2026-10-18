@@ -1,0 +1,11 @@
+{
+  "paths": 2,
+  "wallet_marks": 400040,
+  "event_snapshots": 200,
+  "protected_files_unchanged": 2072,
+  "both_assets_conserved": true,
+  "old_control_prefix_exact": true,
+  "first_event_prefix_exact": true,
+  "exact_requested_shocks": true,
+  "terminal_event_preserved": true
+}

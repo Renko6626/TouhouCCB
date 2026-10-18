@@ -1,0 +1,65 @@
+{
+  "seed_equal_averages": {
+    "baseline": {
+      "range30": 0.014964696911413186,
+      "range60": 0.019917898675789355,
+      "abs_net30": 0.004674630984180361,
+      "cycle05": 6.916666666666667,
+      "cycle1": 25.805555555555554,
+      "amplitude05": 0.008364955135736226,
+      "trades_per_minute": 7.849792531120332,
+      "mean_intensity": 0.8227417482865099,
+      "peak_intensity": 1.6019824938875737,
+      "clipped_fraction": 0.047210714280186944,
+      "executed_quantity_fraction": 0.955923962953456,
+      "cash_saturated_arrivals": 66.66666666666667,
+      "foreign_saturated_arrivals": 86.66666666666667,
+      "holding_median": 7.8194444444444455,
+      "net_change": 0.0007814013506229159,
+      "max_abs_displacement": 0.036524319529303496,
+      "short_realized_per_account": -71.29629013333333
+    },
+    "half_pool": {
+      "range30": 0.03113487773790762,
+      "range60": 0.036198454117228766,
+      "abs_net30": 0.00725301617499328,
+      "cycle05": 1.7777777777777777,
+      "cycle1": 4.236111111111112,
+      "amplitude05": 0.010196292814756092,
+      "trades_per_minute": 9.444398340248963,
+      "mean_intensity": 0.921419358594845,
+      "peak_intensity": 4.121347898122839,
+      "clipped_fraction": 0.04512676595685019,
+      "executed_quantity_fraction": 0.9637760943571454,
+      "cash_saturated_arrivals": 80.0,
+      "foreign_saturated_arrivals": 98.0,
+      "holding_median": 3.069444444444444,
+      "net_change": 0.00042774093219962356,
+      "max_abs_displacement": 0.05897080878046782,
+      "short_realized_per_account": -273.7293209333333
+    }
+  },
+  "paired_ratios": [
+    {
+      "seed": 20261024,
+      "range30": 2.110010555576487,
+      "same_threshold_cycle05": 0.2441860465116279,
+      "doubled_threshold_amplitude": 1.990364571773084,
+      "doubled_threshold_cycle": 0.5813953488372093
+    },
+    {
+      "seed": 20261025,
+      "range30": 2.2284633370103717,
+      "same_threshold_cycle05": 0.2658227848101266,
+      "doubled_threshold_amplitude": 1.916716257752735,
+      "doubled_threshold_cycle": 0.5886075949367089
+    },
+    {
+      "seed": 20261026,
+      "range30": 1.9133998022332368,
+      "same_threshold_cycle05": 0.2619047619047619,
+      "doubled_threshold_amplitude": 1.8850214796107863,
+      "doubled_threshold_cycle": 0.6666666666666666
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "deterministic_versions_warmup": {
+    "requests": 100,
+    "concurrency": 10,
+    "duration_s": 0.654123904183507,
+    "requests_per_s": 152.87623546615742,
+    "statuses": {
+      "200": 100
+    },
+    "latency_ms": {
+      "mean": 63.810365200042725,
+      "p50": 54.01097238063812,
+      "p95": 153.28708477318287,
+      "p99": 176.76003649830818
+    }
+  },
+  "deterministic_versions_measured": {
+    "requests": 1000,
+    "concurrency": 10,
+    "duration_s": 6.004488276317716,
+    "requests_per_s": 166.5420855169452,
+    "statuses": {
+      "200": 1000
+    },
+    "latency_ms": {
+      "mean": 59.80371345765889,
+      "p50": 55.02513609826565,
+      "p95": 79.77262511849403,
+      "p99": 98.32041896879673
+    }
+  },
+  "deterministic_prices_warmup": {
+    "requests": 100,
+    "concurrency": 10,
+    "duration_s": 0.6465433090925217,
+    "requests_per_s": 154.66867972132985,
+    "statuses": {
+      "200": 100
+    },
+    "latency_ms": {
+      "mean": 63.197532910853624,
+      "p50": 58.03034082055092,
+      "p95": 111.27058230340481,
+      "p99": 139.85028490424156
+    }
+  },
+  "deterministic_prices_measured": {
+    "requests": 1000,
+    "concurrency": 10,
+    "duration_s": 5.246126716956496,
+    "requests_per_s": 190.61682150524626,
+    "statuses": {
+      "200": 1000
+    },
+    "latency_ms": {
+      "mean": 52.22987228259444,
+      "p50": 47.809578478336334,
+      "p95": 66.26180931925774,
+      "p99": 78.57098057866096
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "variants": ["fixed", "trailing"],
+  "random_counts": [0, 15],
+  "population_seed": 301,
+  "spread": 1.0,
+  "market_seeds": [81, 82, 83],
+  "b_values": [0, 0.25],
+  "normal_ticks": 100000,
+  "burn_in": 5000,
+  "shock_ticks": 11000,
+  "shock_tick": 1000,
+  "injection_gold": 100000,
+  "horizons": [30, 100, 300, 1000, 5000, 10000],
+  "terminal_window": 500,
+  "entry_quantity": 100,
+  "take_profit": 0.01,
+  "stop_loss": 0.01,
+  "trail_arm": 0.005,
+  "trail_drawdown": 0.005,
+  "workers": 6
+}

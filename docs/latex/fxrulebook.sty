@@ -1,0 +1,97 @@
+% 东方FX天则规则书的局部排版，沿用共用字体与页面尺寸。
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{fxrulebook}[2026/10/16 FX Rulebook Layout]
+\RequirePackage{touhouccb}
+\RequirePackage{needspace}
+
+\definecolor{fxLong}{HTML}{1E40AF}
+\definecolor{fxShort}{HTML}{9A6700}
+\definecolor{fxLine}{HTML}{C8C7C0}
+
+% 案例、计算、剧情各有固定的视觉语义。
+\renewtcolorbox{exbox}[1][]{
+  colback=white,colframe=fxLine,boxrule=0.6pt,
+  colbacktitle=lightGray,coltitle=ink,title={例},
+  borderline west={2pt}{0pt}{ink},
+  fonttitle=\sffamily\bfseries,
+  before skip=9pt,after skip=9pt,
+  #1
+}
+\renewtcolorbox{mathbox}[1][]{
+  colback=boxBg!55!white,colframe=goldAccent!45,boxrule=0.5pt,
+  borderline west={2pt}{0pt}{goldAccent},
+  before skip=9pt,after skip=9pt,
+  #1
+}
+\renewtcolorbox{lorebox}[1][]{
+  colback=goldAccent!4!white,colframe=goldAccent!45,boxrule=0.4pt,
+  borderline west={2pt}{0pt}{goldAccent},
+  colbacktitle=goldAccent,coltitle=white,
+  fontupper=\kai,
+  before upper={\setlength{\parskip}{0.45em}},
+  before skip=8pt,after skip=9pt,
+  #1
+}
+
+\newtcolorbox{fxposition}[2]{
+  colback=#1!3!white,colframe=#1,boxrule=0.7pt,
+  colbacktitle=#1!9!white,coltitle=#1,title={#2},
+  fonttitle=\sffamily\bfseries,
+  height=43mm,valign=center,breakable=false,
+  left=10pt,right=10pt,top=8pt,bottom=8pt,
+  before skip=0pt,after skip=0pt,
+}
+\newtcolorbox{fxworkflow}[1]{
+  colback=white,colframe=goldAccent,boxrule=0.7pt,
+  colbacktitle=goldAccent,coltitle=white,title={#1},
+  fonttitle=\sffamily\bfseries,
+  left=10pt,right=10pt,top=10pt,bottom=9pt,
+  before skip=9pt,after skip=9pt,breakable=false,
+}
+
+\newcommand{\fxstep}[2]{%
+  {\sffamily\bfseries\color{goldAccent}#1}\par\smallskip #2}
+% 封面用两种货币的轮廓对照：金色圆币与蓝色卡牌。
+\newcommand{\fxcovercard}{%
+  \begin{tikzpicture}[x=1cm,y=1cm]
+    \path[use as bounding box] (-6,-2.65) rectangle (6,2.65);
+    \begin{scope}[shift={(-3.25,0)}]
+      \fill[goldAccent!12] (0.08,-0.08) circle (2.05);
+      \draw[goldAccent,line width=1.5pt,fill=goldAccent!6] (0,0) circle (2.05);
+      \draw[goldAccent!70,line width=0.6pt] (0,0) circle (1.85);
+      \draw[goldAccent!50,densely dotted,line width=1pt] (0,0) circle (1.72);
+      \foreach \angle in {0,15,...,345} {
+        \draw[goldAccent!60] (\angle:1.93)--(\angle:2.01);
+      }
+      \node[text=goldAccent,font=\sffamily\scriptsize] at (0,1.25) {GENSOKYO};
+      \node[text=goldAccent,font=\kai\fontsize{28pt}{32pt}\selectfont] at (0,0.12) {金圆券};
+      \draw[goldAccent!60] (-0.8,-0.55)--(0.8,-0.55);
+      \node[text=goldAccent,font=\sffamily\scriptsize] at (0,-0.9) {妖怪山交易所};
+    \end{scope}
+    \node[text=soft,font=\sffamily\bfseries\Large] at (0,0.1) {VS};
+    \begin{scope}[shift={(3.25,0)}]
+      \draw[fxLong!25,fill=fxLong!4,line width=0.7pt]
+        (-1.32,-2.1) rectangle (1.68,2.25);
+      \draw[fxLong,line width=1.2pt,fill=paper]
+        (-1.55,-2.3) rectangle (1.45,2.05);
+      \draw[fxLong!35,line width=0.5pt]
+        (-1.38,-2.13) rectangle (1.28,1.88);
+      \draw[fxLong,line width=1.5pt]
+        (-1.2,1.25)--(-1.2,1.65)--(-0.8,1.65)
+        (0.7,-1.9)--(1.1,-1.9)--(1.1,-1.5);
+      \node[text=fxLong,align=center,font=\kai\fontsize{26pt}{31pt}\selectfont]
+        at (-0.05,0.1) {空白\\[0.18em]卡牌};
+      \node[text=fxLong!75,font=\sffamily\scriptsize] at (-0.05,-1.45) {月虹市场};
+    \end{scope}
+  \end{tikzpicture}}
+
+% 页眉显示本页首先出现的章节，页码同时给出总页数。
+\renewcommand{\sectionmark}[1]{%
+  \markboth{\thesection\quad #1}{\thesection\quad #1}}
+\fancyhead[LE]{\sffamily\small\color{soft}东方FX天则}
+\fancyhead[RE]{\sffamily\small\color{soft}\rightmark}
+\fancyhead[LO]{\sffamily\small\color{soft}\rightmark}
+\fancyhead[RO]{\sffamily\small\color{soft}规则书}
+\fancyfoot[C]{\sffamily\small\color{soft}\thepage\ /\ \pageref*{fx:lastpage}}
+
+\endinput

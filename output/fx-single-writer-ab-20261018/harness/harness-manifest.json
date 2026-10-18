@@ -1,0 +1,88 @@
+{
+  "status": "completed_once_both_stress_latency_protection",
+  "runtime": "/tmp/sunyunbo/fx-single-writer-ab-20261018",
+  "output": "/data/sunyunbo/www/TouhouCCB/output/fx-single-writer-ab-20261018",
+  "before_commit": "330f4e683ec5564dea6ea59983351c3c8e128d9d",
+  "after_commit": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+  "no_database_connections_during_preparation": true,
+  "baseline_byte_identical_to_prior": true,
+  "baseline_file_count": 369,
+  "unchanged_driver_components": {
+    "fx_http.py": true,
+    "compare_driver.py": true,
+    "local_server.py": true
+  },
+  "inherited_harness": {
+    "analyze.py": "c1cb7f9a75260c8b21e1f172be4b537b072ae1e3510c42ebfe2a48f50703d7d1",
+    "compare_driver.py": "0cb622ea95b4fbe5b1324c87fc1b66065523c3e8dd12f95b7bf73dd9505265a5",
+    "count_server.py": "6603bea79242fa490a75d989fff7dd83fcd179ce3685bed3e552aed905cafbf7",
+    "fx_http.py": "41ee4191ed895cc6cfd8f869a4a86a2b666d6b8bec81cb7ee2d5f318f631d038",
+    "local_server.py": "dffcc7ec94f71bb575cd8df2a23bb2eada60f2074a2466822ced63bafbf0202d",
+    "pg_monitor.py": "9a9d74673d4acacc446e4b6fcfc9e2d0fab300a84b25fd830ebbb5cf87538d4b",
+    "prepare.py": "f0f5cc19bde9bd0ec805d30c61c4ccb1cabd96f194bfd155eb6b225d3f9976bc",
+    "prior_report_template.py": "da8a526409f54fb37c551c7d13d6785bcc2d80be561b70a57fd80172fb787582",
+    "run.py": "3cde3dfa263ff489bf60bcadd0db52b0e8d71f2c8d3646852df938cf525dc9b5"
+  },
+  "harness": {
+    "PREPARED.md": "f7078d29a9a77b869b481c747cd2e1415144d293ab1481610eee266762b0dd52",
+    "analyze.py": "a2dad04f54b79d6533f5754e831a6d349ccefdfb4598eb001c6243bfd1e715cb",
+    "build_report.py": "e86c9c9ebf225fb159d06b4b88a47b6f2ca8165d0bc3b729d97a157cdb0b66a3",
+    "check_observer.py": "7da62dd6ccef19f4ac000782048fbee33772c79059ef6ca555873f89babe330b",
+    "compare_driver.py": "0cb622ea95b4fbe5b1324c87fc1b66065523c3e8dd12f95b7bf73dd9505265a5",
+    "count_server.py": "2798bcd07e24640e8dda905627c7f759ac31a062f42260372a63d8526b380abd",
+    "fx_http.py": "41ee4191ed895cc6cfd8f869a4a86a2b666d6b8bec81cb7ee2d5f318f631d038",
+    "fx_writer_observer.py": "85a9bc45c8378c02d2a36254ee8afb1e2afbfa88609c7090ad842ceceeb84e01",
+    "instrumentation-status.json": "ef227d8a5b3e036c135c65a0c0d8f0f68bfdd8a8df16a0ef3323084d25dc8171",
+    "local_server.py": "dffcc7ec94f71bb575cd8df2a23bb2eada60f2074a2466822ced63bafbf0202d",
+    "pg-correctness.log": "8d4b3a9c9483dec9d7be3e602ee395f6d138017a682463a5c780bb5b98295638",
+    "pg_monitor.py": "103adf1fb8824cf02cf121c02e22080a4e456654741df9f7158c6d057b96b4cf",
+    "prepare.py": "1219db0b94b9c19d901c1d60c03d14813d5ae5f8ce7bb9fcb5588a1cf02586fa",
+    "run.py": "7d89ecd66af2bbae8baf2a8c6caf127068aa869f66e4061bb6a32473d9d4e21e"
+  },
+  "writer_observer_reference": {
+    "commit": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+    "path": "backend/app/services/fx/writer.py",
+    "sha256": "140a786908a8d7a5e5a25a3013e4004ba2b16de95d6800d00afa4ef4aa2e84c0",
+    "validated": "check_observer.py --commit 6c7675722cda265bd205dced6ce0f939ae7ac769; committed actor/state/reload AST in-memory check passed; no DB/app import"
+  },
+  "sse_admission_boundary": {
+    "before_max_per_ip": 200,
+    "candidate_max_per_ip": 200,
+    "scope": "isolated source revisions per topic/IP; 100 loopback users, 200 SSE total",
+    "main_workspace_production_cap_to_preserve": 10,
+    "after_max_per_ip": 200
+  },
+  "load_start_authorized": true,
+  "source_manifest_hashes": {
+    "before-source.json": "02f2ca0db9167f980431a70aa2b312bb56cc4ea7f5d14859e2280e58b8b2ff45",
+    "after-source.json": "7e46c31dffe38bc507093e04d89d9f3ea43e42f7412b611dfabcab5d302fbd45",
+    "source.diff": "1225145b135d9b0fe6a73ded626bc260af60f26dcb359a184fe56997d430333c"
+  },
+  "measurement_after_commit": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+  "runner_exit_code": 0,
+  "driver_exit_codes": {
+    "before": 1,
+    "after": 1
+  },
+  "unrun_stages": {
+    "before": [
+      "burst"
+    ],
+    "after": [
+      "burst"
+    ]
+  },
+  "cleanup": {
+    "harness_processes_remaining": [],
+    "port_18543_listening": false,
+    "tokens_present": {
+      "before": false,
+      "after": false
+    },
+    "pg_lifecycle": "controller stopped after independent process confirmation"
+  },
+  "result_artifact_hashes": {
+    "analysis.json": "e8fa0eef16b1eaaf99961e588a2c9f44715ae4989d2ac90a992cb1868bef0777",
+    "report.md": "87842c6229aa43d0d4d0ace645d048db0e0487d04ffa2c5d4325bd424920aca9"
+  }
+}

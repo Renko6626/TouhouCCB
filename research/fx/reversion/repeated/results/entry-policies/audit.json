@@ -1,0 +1,10 @@
+{
+  "paths": 12,
+  "wallet_marks": 4800480,
+  "no_external_issuance": true,
+  "both_assets_conserved": true,
+  "wallets_nonnegative": true,
+  "per_account_marks_and_fills_verified": true,
+  "original_seed81_full_trace_exact": true,
+  "protected_files_unchanged": 2125
+}

@@ -75,15 +75,29 @@ async def pg_engine():
         pytest.skip(f"PostgreSQL 测试库不可达: {type(exc).__name__}: {exc}")
     assert dialect == "postgresql", f"pg fixture 只跑 PostgreSQL，实际 {dialect}"
 
+    from app.services.fx.writer import FX_WRITER
+    from app.services.trading_prices import REGISTRY
+    await FX_WRITER.stop()
+    REGISTRY.reset()
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
     try:
         yield engine
     finally:
+        await FX_WRITER.stop()
+        REGISTRY.reset()
         await engine.dispose()
 
 
 @pytest_asyncio.fixture
-async def pg_sessionmaker(pg_engine):
-    return async_sessionmaker(pg_engine, expire_on_commit=False)
+async def pg_sessionmaker(pg_engine, monkeypatch):
+    # FX consumers open their own sessions instead of using the producer's.
+    # Keep those transactions on this same disposable PostgreSQL database.
+    from app.core import database
+    from app.services.credit import ownership
+    from app.services.fx import writer
+    factory = async_sessionmaker(pg_engine, expire_on_commit=False)
+    monkeypatch.setattr(database, 'async_session_maker', factory)
+    monkeypatch.setattr(writer, 'OWNERSHIP', ownership.OWNERSHIP)
+    return factory

@@ -69,7 +69,6 @@ async def _trading_count(db) -> int:
 async def test_unified_pair_status_update_holds_gate_through_commit(monkeypatch, fx_db):
     from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
     from app.services.credit import flags
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
 
     async with fx_db as db:
@@ -81,18 +80,18 @@ async def test_unified_pair_status_update_holds_gate_through_commit(monkeypatch,
         config = flags.parse_flags({"unified_credit_enabled": "true",
                                     "credit_leverage": "20", "credit_maintenance_ratio": "0.04"})
         monkeypatch.setattr(flags, "get_flags", lambda: config)
-        commit = db.commit
+        from tests.fx_test_helpers import AsyncCompatSession
+        commit = AsyncCompatSession.commit
         held = []
 
-        async def checked_commit():
-            held.append(GroupKey("fx", pair_id) in GATES.held_keys_by_current_task())
-            await commit()
+        async def checked_commit(session):
+            held.append(__import__('asyncio').current_task().get_name() == f'fx-writer-{pair_id}')
+            await commit(session)
 
-        monkeypatch.setattr(db, "commit", checked_commit)
+        monkeypatch.setattr(AsyncCompatSession, "commit", checked_commit)
         updated = await update_pair(pair_id, PairPatch(status="paused"), admin, db)
         assert held == [True]
         assert updated.pool_version == version + 1
-        assert not GATES.held_keys_by_current_task()
 
 
 @pytest.mark.asyncio

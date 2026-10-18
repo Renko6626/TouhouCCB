@@ -1,0 +1,8 @@
+{
+  "candidate_paths": 24,
+  "assets_conserved": true,
+  "wallets_nonnegative": true,
+  "finite_series": true,
+  "wealth_and_trade_counts_verified": true,
+  "day_frozen_and_source_candidate_unchanged": true
+}

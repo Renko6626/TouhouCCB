@@ -94,7 +94,7 @@ export const marketApi = {
     })
   },
 
-  // 排行榜（mode: net_worth=按 cash-debt；spending=按 兑换消费总额-当前债务）
+  // 排行榜（mode: net_worth=按 cash-debt；spending=按累计兑换及付费弹幕消费总额）
   async getLeaderboard(
     limit: number = 20,
     mode: 'net_worth' | 'spending' = 'net_worth',

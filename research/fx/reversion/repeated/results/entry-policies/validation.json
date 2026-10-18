@@ -1,0 +1,12 @@
+{
+  "paths": 12,
+  "admission_decisions_checked": 10722,
+  "trend_confirmations_checked": 3106,
+  "independent_confirmation_and_self_exclusion": true,
+  "random_direction_stream_reproduced": true,
+  "realized_pnl_and_wealth_reconciled": true,
+  "original_and_source_hashes_unchanged": true,
+  "report_tables_and_links_verified": true,
+  "existing_and_new_tests_passed": 34,
+  "test_command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v"
+}

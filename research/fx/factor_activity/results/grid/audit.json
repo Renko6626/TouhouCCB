@@ -1,0 +1,56 @@
+{
+  "paths": 675,
+  "status_counts": {
+    "complete": 675
+  },
+  "direct_acf_and_block_checks": [
+    "screen/g072-factor_activity-seed51",
+    "screen/g072-factor_fixed-seed51",
+    "screen/g148-factor_activity-seed51",
+    "screen/g148-factor_fixed-seed51",
+    "validation/activity_v1-activity_v1-seed61",
+    "validation/activity_v1-activity_v1-seed62",
+    "validation/activity_v1-activity_v1-seed63",
+    "validation/g069-factor_activity-seed61",
+    "validation/g069-factor_activity-seed62",
+    "validation/g069-factor_activity-seed63",
+    "validation/g069-factor_fixed-seed61",
+    "validation/g069-factor_fixed-seed62",
+    "validation/g069-factor_fixed-seed63",
+    "validation/g072-factor_activity-seed61",
+    "validation/g072-factor_activity-seed62",
+    "validation/g072-factor_activity-seed63",
+    "validation/g072-factor_fixed-seed61",
+    "validation/g072-factor_fixed-seed62",
+    "validation/g072-factor_fixed-seed63",
+    "validation/g148-factor_activity-seed61",
+    "validation/g148-factor_activity-seed62",
+    "validation/g148-factor_activity-seed63",
+    "validation/g148-factor_fixed-seed61",
+    "validation/g148-factor_fixed-seed62",
+    "validation/g148-factor_fixed-seed63",
+    "validation/g154-factor_activity-seed61",
+    "validation/g154-factor_activity-seed62",
+    "validation/g154-factor_activity-seed63",
+    "validation/g154-factor_fixed-seed61",
+    "validation/g154-factor_fixed-seed62",
+    "validation/g154-factor_fixed-seed63"
+  ],
+  "all_paths_timing_conservation_wallet_checks": true,
+  "all_factor_pair_forecast_noise_exact": true,
+  "selection_reproduced_without_validation": true,
+  "validation_started_after_candidate_freeze": true,
+  "frozen_files_unchanged": 124,
+  "failed": [],
+  "unit_checks": {
+    "command": "OPENBLAS_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v",
+    "passed": 15
+  },
+  "posthoc_segments": {
+    "paths": 27,
+    "segments": 81,
+    "acf_check": "independent scipy.signal.fftconvolve",
+    "all_segment_fields_verified": true,
+    "selection_unchanged": true
+  }
+}

@@ -19,12 +19,11 @@ from app.models.fx import FxPair, FxTrade, FxTreasury
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import WriteOwnership
 from app.services.fx import liquidity
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
@@ -35,18 +34,6 @@ UNIFIED = CreditFlags(
 NOW = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
 
 
-
-
-class _RecordingGates:
-    """记录 hold 参数后委托真门闩（验证调用方拿到独占键）。"""
-
-    def __init__(self, inner):
-        self.inner = inner
-        self.calls: list[tuple[tuple, tuple]] = []
-
-    def hold(self, *, exclusive=(), shared=()):
-        self.calls.append((tuple(exclusive), tuple(shared)))
-        return self.inner.hold(exclusive=exclusive, shared=shared)
 
 
 @pytest.fixture(autouse=True)
@@ -106,14 +93,11 @@ async def _pair(pid: int) -> FxPair:
 async def test_unified_fund_and_withdraw_bump_pool_version(writes_enabled, monkeypatch):
     pid = await _seed_pair(code="FUND")
     credit_flags.set_flags(UNIFIED)
-    proxy = _RecordingGates(GATES)
-    monkeypatch.setattr(liquidity, "GATES", proxy)
     async with async_session_maker() as s:
         await liquidity.fund_pair(s, pid, Decimal("10"), Decimal("20"), operator_user_id=1)
     p = await _pair(pid)
     assert p.pool_version == 2
     assert p.gold_reserve == Decimal("110.000000") and p.foreign_reserve == Decimal("120.000000")
-    assert proxy.calls == [((GroupKey("fx", pid),), ())]  # pair 独占门闩
 
     async with async_session_maker() as s:
         await liquidity.withdraw_pair(s, pid, Decimal("10"), Decimal("20"), operator_user_id=1)
@@ -179,6 +163,7 @@ async def test_fund_pair_refreshes_retained_stale_treasury(writes_enabled):
             await other.commit()
         assert stale.gold_balance == Decimal("100")
         await liquidity.fund_pair(s, pid, Decimal("10"), Decimal("20"), 1)
+        stale = (await s.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
         assert stale.gold_balance == Decimal("50")
         assert stale.foreign_balance == Decimal("80")
     async with async_session_maker() as s:

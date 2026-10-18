@@ -3,7 +3,6 @@
 AMM math and physical ledgers belong to the existing FX primitives. This
 module owns whole-request classification, funding, risk and identity.
 """
-from app.services.account_events import capture_accounts, publish_accounts
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
@@ -260,13 +259,13 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
                                        req: FxNetTradeRequest, credit_deps: DependencySet | None = None,
                                        _instruction: FxTradeInstruction | None = None,
                                        _now=None) -> FxNetTradeResponse:
-    """Execute under caller-owned gates and transaction; never publish or commit."""
+    """Execute in the target writer's transaction; never publish or commit.
+
+    Lock Pair then User, and capture committed risk prices after the User lock.
+    """
     from app.schemas.fx import FxNetTradeResponse
-    from app.services.credit.gates import GATES
     from app.services.market_locks import lock_user
     key = GroupKey('fx', pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError('net-trade caller must hold target pair gate')
     deps = credit_deps
     payload = (_instruction_payload(pair_id, _instruction) if _instruction
                else _canonical_request(pair_id, req))
@@ -283,20 +282,14 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
     trading._require_writes()
     if economic_version_of(user) != req.expected_economic_version:
         raise HTTPException(status_code=409, detail='economic_version_changed; requote')
-    if deps and (deps.economic_version != economic_version_of(user)
-                 or not set(deps.groups).issubset(GATES.held_keys_by_current_task())):
-        raise trading._RetryCredit()
     wallet = await trading._wallet_lock(db, user_id, pair_id, create=False)
     positions = await shorts._lock_short_rows(db, user_id)
     requires_deps = bool(req.borrow_amount or (_instruction and _instruction.auto_borrow) or user.debt or any(
         p.principal_foreign or p.interest_foreign for p in positions)
         or (req.side == 'sell' and req.amount > (wallet.foreign_amount if wallet else 0)))
-    if requires_deps and deps is None:
-        raise trading._RetryCredit()
-    if deps:
-        deps = await discover_dependencies(db, user_id, extra_groups=[key])
-        if not set(deps.groups).issubset(GATES.held_keys_by_current_task()):
-            raise trading._RetryCredit()
+    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True,
+                                       locked_user=user, locked_short_rows=positions)
+            if requires_deps else None)
     treasury = await shorts._lock_treasury(db, pair_id)
     now = _now or trading.utcnow()
     simulation = await _simulate(db, user, pair, wallet, positions, treasury, req, now=now, deps=deps, instruction=_instruction)
@@ -356,7 +349,7 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
                 db.add(wallet)
             borrowed = quote.borrow_amount if leg.purpose == 'borrow_buy' else None
             if borrowed:
-                user = await loan_service.increase_debt(db, user_id, borrowed,
+                user = await loan_service.increase_debt_locked(db, user, borrowed,
                     grant_cash=True, daily_rate=simulation.daily_rate, now=now,
                     source='borrow', reason=f'fx_net:{pair_id}:{req.idempotency_key}')
             spot = await trading._write_spot_ledger(db, user=user, pair=pair,
@@ -375,45 +368,16 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
 
 
 async def execute_net_trade(db, user_id, pair_id, req):
-    from app.services.credit.gates import GATES
-    from app.services.market_locks import lock_user
-    from app.services.fx import publisher
-
-    key = GroupKey('fx', pair_id)
-    needs_discovery = False
-    for attempt in range(flags.get_flags().credit_risk_retry_limit + 2):
-        try:
-            # Start with target only for cash/reductions. If locked state needs
-            # collateral gates, roll back and rediscover outside all gates.
-            deps = await discover_dependencies(db, user_id, extra_groups=[key]) if needs_discovery else None
-            if db.in_transaction():
-                await db.rollback()
-            async with GATES.hold(exclusive=[key], shared=deps.groups if deps else ()):
-                try:
-                    result = await execute_net_trade_in_session(
-                        db, user_id=user_id, pair_id=pair_id, req=req, credit_deps=deps)
-                    if result.replay:
-                        await db.rollback()
-                        return result
-                    account_hints = capture_accounts(db)
-                    await db.commit()
-                    publish_accounts(account_hints, "net_trading")
-                    trading.notify_market_data_committed(pair_id)
-                except BaseException:
-                    await trading._rollback_quietly(db)
-                    raise
-            publisher.enqueue_publication(pair_id=pair_id, post_price=result.post_price, trade_id=result.trade_ids[-1])
-            return result
-        except trading._RetryCredit:
-            needs_discovery = True
-            if attempt == flags.get_flags().credit_risk_retry_limit + 1:
-                raise HTTPException(status_code=409, detail='version_conflict; retry') from None
-        except (ValueError, ArithmeticError) as exc:
-            await trading._rollback_quietly(db)
-            raise trading.TradeRejected(str(exc)) from exc
-        except BaseException:
-            await trading._rollback_quietly(db)
-            raise
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import NetTrade
+    trading._require_writes()
+    command = NetTrade(pair_id=int(pair_id), user_id=int(user_id), side=req.side,
+        amount=req.amount, borrow_amount=req.borrow_amount, allow_growth=req.allow_growth,
+        min_out=req.min_out, idempotency_key=req.idempotency_key,
+        expected_economic_version=req.expected_economic_version)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 def _instruction_payload(pair_id, instruction):
@@ -430,11 +394,8 @@ async def execute_fx_instruction_in_session(db: AsyncSession, *, user_id: int, p
                                            ) -> FxNetTradeResponse | shorts.FxShortExecution:
     """Resolve authorized amounts at one locked UTC T and reuse money cores."""
     from app.schemas.fx import FxNetTradeRequest, FxNetTradeResponse
-    from app.services.credit.gates import GATES
     from app.services.market_locks import lock_user
     key = GroupKey('fx', pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError('instruction caller must hold target pair gate')
     pair = await trading._pair(db, pair_id, lock=True)
     user = await lock_user(db, user_id)
     payload = _instruction_payload(pair_id, instruction)

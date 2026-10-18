@@ -1,0 +1,5240 @@
+[
+  {
+    "account": 19,
+    "tick": 27,
+    "event_index": 1,
+    "original_signal": 0.0011601959747675817,
+    "signal": 0.0011601959747675817,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      0.0,
+      0.0,
+      0.0011601959747675817
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:1"
+  },
+  {
+    "account": 17,
+    "tick": 37,
+    "event_index": 0,
+    "original_signal": -0.0021028139877366384,
+    "signal": -0.0021028139877366384,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00019438817464870198,
+      -0.0017289830163658038,
+      -0.0005682191460195368
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:1"
+  },
+  {
+    "account": 16,
+    "tick": 62,
+    "event_index": 0,
+    "original_signal": 0.0013605455420764672,
+    "signal": 0.0013605455420764672,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0013314134301743664,
+      -1.9016760011892388e-05,
+      4.8148871913993066e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:1"
+  },
+  {
+    "account": 18,
+    "tick": 73,
+    "event_index": 0,
+    "original_signal": 0.0008893409719956578,
+    "signal": 0.0008893409719956578,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00023344954294167273,
+      0.0005979572492346838,
+      0.0005248332657026467
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:1"
+  },
+  {
+    "account": 15,
+    "tick": 98,
+    "event_index": 0,
+    "original_signal": -0.0011008143009108512,
+    "signal": -0.0011008143009108512,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      1.7871379017922867e-05,
+      -0.0008854369700925504,
+      -0.00023324870983622357
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:1"
+  },
+  {
+    "account": 16,
+    "tick": 169,
+    "event_index": 0,
+    "original_signal": 0.0014024634316403414,
+    "signal": 0.0014024634316403414,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0018316040438835644,
+      -1.317197367140172e-05,
+      -0.0004159686385718214
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:2"
+  },
+  {
+    "account": 17,
+    "tick": 192,
+    "event_index": 2,
+    "original_signal": -0.0006999753595122467,
+    "signal": -0.0006999753595122467,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00022351111606254138,
+      -0.0012196293344558795,
+      0.00029614285888109146
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:2"
+  },
+  {
+    "account": 15,
+    "tick": 217,
+    "event_index": 0,
+    "original_signal": 0.0006085552863788945,
+    "signal": 0.0006085552863788945,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -3.719801192013921e-05,
+      9.73299675232883e-05,
+      0.0005484233307757455
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:2"
+  },
+  {
+    "account": 16,
+    "tick": 264,
+    "event_index": 1,
+    "original_signal": -0.0024078020575206676,
+    "signal": -0.0024078020575206676,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.002997419151341328,
+      2.2716882645038866e-05,
+      0.0005669002111756214
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:3"
+  },
+  {
+    "account": 18,
+    "tick": 314,
+    "event_index": 0,
+    "original_signal": -0.000978152093871458,
+    "signal": -0.000978152093871458,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0020178784736208243,
+      0.0004423337473570584,
+      0.0005973926323923078
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:2"
+  },
+  {
+    "account": 15,
+    "tick": 322,
+    "event_index": 0,
+    "original_signal": 0.001603712712807741,
+    "signal": 0.001603712712807741,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -8.555564144862828e-05,
+      0.0017024564577400464,
+      -1.3188103483676999e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:3"
+  },
+  {
+    "account": 17,
+    "tick": 340,
+    "event_index": 1,
+    "original_signal": 0.0002687372212561073,
+    "signal": 0.0002687372212561073,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00020603608264111763,
+      0.0009508926971176671,
+      -0.0004761193932204422
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:3"
+  },
+  {
+    "account": 19,
+    "tick": 386,
+    "event_index": 0,
+    "original_signal": 0.0009097373882191392,
+    "signal": 0.0009097373882191392,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.740887352355994e-06,
+      0.0001763500780363056,
+      0.0007361281975351897
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:2"
+  },
+  {
+    "account": 16,
+    "tick": 400,
+    "event_index": 0,
+    "original_signal": -0.0011702217902789854,
+    "signal": -0.0011702217902789854,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.00036062557177761364,
+      -8.836137672827465e-06,
+      -0.0015220112243837715
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:4"
+  },
+  {
+    "account": 16,
+    "tick": 465,
+    "event_index": 0,
+    "original_signal": 0.0033375339891912243,
+    "signal": 0.0033375339891912243,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0030760890520355882,
+      -2.76245266821046e-05,
+      0.00028906946383774077
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:5"
+  },
+  {
+    "account": 17,
+    "tick": 471,
+    "event_index": 0,
+    "original_signal": -0.0002932027629941379,
+    "signal": -0.0002932027629941379,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00019087294658239404,
+      -0.0008622759211064202,
+      0.0003782002115298882
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:4"
+  },
+  {
+    "account": 16,
+    "tick": 518,
+    "event_index": 0,
+    "original_signal": -0.003042457012765455,
+    "signal": -0.003042457012765455,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.004387473892352841,
+      2.6201977271449212e-05,
+      0.0013188149023159366
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:6"
+  },
+  {
+    "account": 15,
+    "tick": 547,
+    "event_index": 1,
+    "original_signal": -0.001334789907733738,
+    "signal": -0.001334789907733738,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -2.2969353299138717e-05,
+      -0.0009226776836524785,
+      -0.0003891428707821208
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:4"
+  },
+  {
+    "account": 19,
+    "tick": 548,
+    "event_index": 2,
+    "original_signal": 0.001029308406518619,
+    "signal": 0.001029308406518619,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      5.666871885228324e-06,
+      -0.0001859744799702147,
+      0.0012096160146036054
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:3"
+  },
+  {
+    "account": 17,
+    "tick": 557,
+    "event_index": 0,
+    "original_signal": -0.0018085608081408943,
+    "signal": -0.0018085608081408943,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0003085477325762702,
+      -0.001951944934766446,
+      -0.0001651636059507186
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:5"
+  },
+  {
+    "account": 18,
+    "tick": 557,
+    "event_index": 1,
+    "original_signal": 0.0013091661843922472,
+    "signal": 0.0013091661843922472,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.003011780505261147,
+      -0.0011970616769972323,
+      -0.0005055526438716677
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:3"
+  },
+  {
+    "account": 18,
+    "tick": 642,
+    "event_index": 1,
+    "original_signal": 0.0018262750116159465,
+    "signal": 0.0018262750116159465,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0029338511646752195,
+      -0.0007888422933672954,
+      -0.0003187338596919777
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:4"
+  },
+  {
+    "account": 15,
+    "tick": 646,
+    "event_index": 0,
+    "original_signal": -0.000533491939007536,
+    "signal": -0.000533491939007536,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00010825997304821054,
+      -0.0007298675338312503,
+      8.811562177550377e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:5"
+  },
+  {
+    "account": 16,
+    "tick": 659,
+    "event_index": 0,
+    "original_signal": -0.000969613482268807,
+    "signal": -0.000969613482268807,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.001149269643298887,
+      1.850155356317147e-05,
+      0.0001611546074669087
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:7"
+  },
+  {
+    "account": 19,
+    "tick": 669,
+    "event_index": 0,
+    "original_signal": -0.0007539351552862516,
+    "signal": -0.0007539351552862516,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.3865499052039374e-05,
+      0.00024831013774724277,
+      -0.000978379793981455
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:4"
+  },
+  {
+    "account": 17,
+    "tick": 692,
+    "event_index": 1,
+    "original_signal": -0.00026368945965847177,
+    "signal": -0.00026368945965847177,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00010181010560637707,
+      -0.0007636727803844344,
+      0.0003981732151195856
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:6"
+  },
+  {
+    "account": 15,
+    "tick": 707,
+    "event_index": 1,
+    "original_signal": 0.0006585231084654708,
+    "signal": 0.0006585231084654708,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -5.0654249152025295e-06,
+      0.0006268020548559274,
+      3.678647852474593e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:6"
+  },
+  {
+    "account": 18,
+    "tick": 806,
+    "event_index": 0,
+    "original_signal": 0.0027212088405810775,
+    "signal": 0.0027212088405810775,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.003110711423825282,
+      -0.0008751733006785787,
+      0.00048567071743437423
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:5"
+  },
+  {
+    "account": 19,
+    "tick": 831,
+    "event_index": 2,
+    "original_signal": 0.0006227962654461123,
+    "signal": 0.0006227962654461123,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.3836380478958856e-05,
+      0.0005036069962750643,
+      0.00013302564965000677
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:5"
+  },
+  {
+    "account": 17,
+    "tick": 835,
+    "event_index": 2,
+    "original_signal": -0.0006193151380891836,
+    "signal": -0.0006193151380891836,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      3.68938918611761e-05,
+      -0.0008681051791169847,
+      0.000211896149166625
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:7"
+  },
+  {
+    "account": 15,
+    "tick": 870,
+    "event_index": 0,
+    "original_signal": -0.001672994541985269,
+    "signal": -0.001672994541985269,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -8.841103115049892e-05,
+      0.0002762561062766695,
+      -0.0018608396171114396
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:7"
+  },
+  {
+    "account": 16,
+    "tick": 874,
+    "event_index": 0,
+    "original_signal": -0.001158501024257557,
+    "signal": -0.001158501024257557,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.001968145714740515,
+      5.171830678341351e-06,
+      0.0008044728598046168
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:8"
+  },
+  {
+    "account": 17,
+    "tick": 916,
+    "event_index": 0,
+    "original_signal": -0.0007220129620416866,
+    "signal": -0.0007220129620416866,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      4.07352732165098e-05,
+      -0.0006555498796205263,
+      -0.00010719835563767007
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:8"
+  },
+  {
+    "account": 18,
+    "tick": 922,
+    "event_index": 0,
+    "original_signal": -0.0013991022584553144,
+    "signal": -0.0013991022584553144,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0009706479534267025,
+      0.0006255960269770741,
+      -0.001054050332005686
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:6"
+  },
+  {
+    "account": 17,
+    "tick": 1010,
+    "event_index": 0,
+    "original_signal": 0.0005033410573647852,
+    "signal": 0.0005033410573647852,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.0001193042989485681,
+      0.0006363984808390815,
+      -1.3753124525728146e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:9"
+  },
+  {
+    "account": 19,
+    "tick": 1032,
+    "event_index": 0,
+    "original_signal": -0.0006516497435813185,
+    "signal": -0.0006516497435813185,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.506802514227074e-05,
+      -0.00036684140807871185,
+      -0.00029987636064487743
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:6"
+  },
+  {
+    "account": 15,
+    "tick": 1161,
+    "event_index": 0,
+    "original_signal": 0.0018760494453271886,
+    "signal": 0.0018760494453271886,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -5.1188257714267866e-05,
+      0.002206626480391135,
+      -0.0002793887773496788
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:8"
+  },
+  {
+    "account": 17,
+    "tick": 1279,
+    "event_index": 1,
+    "original_signal": 0.0015145845936606515,
+    "signal": 0.0015145845936606515,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -9.589425433114166e-05,
+      0.0012382977080157595,
+      0.00037218113997603366
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:10"
+  },
+  {
+    "account": 15,
+    "tick": 1352,
+    "event_index": 0,
+    "original_signal": -0.0010689918936574163,
+    "signal": -0.0010689918936574163,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      4.202969333663549e-05,
+      -0.0007075352855750935,
+      -0.0004034863014189583
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:9"
+  },
+  {
+    "account": 16,
+    "tick": 1393,
+    "event_index": 0,
+    "original_signal": -0.0010297347117356134,
+    "signal": -0.0010297347117356134,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.000844032702315731,
+      6.596813298649739e-06,
+      -0.0001922988227185322
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:9"
+  },
+  {
+    "account": 18,
+    "tick": 1455,
+    "event_index": 1,
+    "original_signal": 0.0014744490781129075,
+    "signal": 0.0014744490781129075,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0026840876979271028,
+      -0.001074505961028182,
+      -0.0001351326587860132
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:7"
+  },
+  {
+    "account": 17,
+    "tick": 1461,
+    "event_index": 0,
+    "original_signal": -0.0029608714142768527,
+    "signal": -0.0029608714142768527,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0003044948873737819,
+      -0.003050816883903053,
+      -0.00021454941774758134
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:11"
+  },
+  {
+    "account": 15,
+    "tick": 1470,
+    "event_index": 0,
+    "original_signal": -0.0022838921163516636,
+    "signal": -0.0022838921163516636,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00019319022533120992,
+      -0.002921928042697181,
+      0.00044484570101430767
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:10"
+  },
+  {
+    "account": 19,
+    "tick": 1471,
+    "event_index": 1,
+    "original_signal": 0.0012246025581171837,
+    "signal": 0.0012246025581171837,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.71507958305573e-05,
+      -0.00042853472682216035,
+      0.0016259864891087867
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:7"
+  },
+  {
+    "account": 15,
+    "tick": 1520,
+    "event_index": 0,
+    "original_signal": -0.0009227433387388251,
+    "signal": -0.0009227433387388251,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      3.6575034109717636e-05,
+      -0.0007986352185683453,
+      -0.00016068315428019748
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:11"
+  },
+  {
+    "account": 16,
+    "tick": 1545,
+    "event_index": 0,
+    "original_signal": -0.001373278157127978,
+    "signal": -0.001373278157127978,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0011623530281508684,
+      -5.219009983472818e-07,
+      -0.00021040322797876256
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:10"
+  },
+  {
+    "account": 18,
+    "tick": 1553,
+    "event_index": 1,
+    "original_signal": 0.0009020136835909484,
+    "signal": 0.0009020136835909484,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0008448979970927622,
+      -0.0001658016390825489,
+      0.000222917325580735
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:8"
+  },
+  {
+    "account": 17,
+    "tick": 1596,
+    "event_index": 0,
+    "original_signal": -0.0007231193010426956,
+    "signal": -0.0007231193010426956,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00010544772790791497,
+      -0.0009025829026581542,
+      7.401587370754364e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:12"
+  },
+  {
+    "account": 19,
+    "tick": 1634,
+    "event_index": 0,
+    "original_signal": -0.0006607979608929157,
+    "signal": -0.0006607979608929157,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.8496148054048547e-06,
+      -0.00014815419166893832,
+      -0.0005154933840293822
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:8"
+  },
+  {
+    "account": 19,
+    "tick": 1690,
+    "event_index": 0,
+    "original_signal": 0.0008470747340819933,
+    "signal": 0.0008470747340819933,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.3652706254517309e-05,
+      -2.863489000899508e-05,
+      0.0008893623303455057
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:9"
+  },
+  {
+    "account": 17,
+    "tick": 1702,
+    "event_index": 0,
+    "original_signal": -0.0017295768629612737,
+    "signal": -0.0017295768629612737,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00025285632774292983,
+      -0.0021042459328625297,
+      0.00012181274215832621
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:13"
+  },
+  {
+    "account": 15,
+    "tick": 1708,
+    "event_index": 0,
+    "original_signal": -0.0012916746457790193,
+    "signal": -0.0012916746457790193,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00012925910447550044,
+      -0.0018094307461967451,
+      0.00038849699594222545
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:12"
+  },
+  {
+    "account": 18,
+    "tick": 1715,
+    "event_index": 0,
+    "original_signal": 0.000526644571711539,
+    "signal": 0.000526644571711539,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0005628562080451526,
+      0.00036377330142439934,
+      -0.000399984937758013
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:9"
+  },
+  {
+    "account": 16,
+    "tick": 1746,
+    "event_index": 1,
+    "original_signal": 0.003987070791274994,
+    "signal": 0.003987070791274994,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0020286982455556186,
+      -2.8047426357488188e-05,
+      0.001986419972076864
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:11"
+  },
+  {
+    "account": 17,
+    "tick": 1752,
+    "event_index": 1,
+    "original_signal": -0.0006197663959801947,
+    "signal": -0.0006197663959801947,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      2.5016798117649673e-05,
+      -0.00037564722623315054,
+      -0.00026913596786469376
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:14"
+  },
+  {
+    "account": 15,
+    "tick": 1762,
+    "event_index": 3,
+    "original_signal": -0.0009673178009682957,
+    "signal": -0.0009673178009682957,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.950300281915745e-07,
+      0.00017669480141870036,
+      -0.0011449076324151876
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:13"
+  },
+  {
+    "account": 17,
+    "tick": 1778,
+    "event_index": 1,
+    "original_signal": -0.0002831917878362262,
+    "signal": -0.0002831917878362262,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00022784478025508485,
+      0.0003696199024054841,
+      -0.0004249669099866254
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:15"
+  },
+  {
+    "account": 16,
+    "tick": 1783,
+    "event_index": 1,
+    "original_signal": -0.002267396961784856,
+    "signal": -0.002267396961784856,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0028797561402323126,
+      2.4462693836954166e-05,
+      0.0005878964846105024
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:12"
+  },
+  {
+    "account": 15,
+    "tick": 1785,
+    "event_index": 0,
+    "original_signal": 0.0023222461270168467,
+    "signal": 0.0023222461270168467,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.0001602212107104449,
+      0.0028391643145501662,
+      -0.0003566969768228744
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:14"
+  },
+  {
+    "account": 16,
+    "tick": 1836,
+    "event_index": 0,
+    "original_signal": -0.002715221182899046,
+    "signal": -0.002715221182899046,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0022180518358313425,
+      2.5200759672772224e-05,
+      -0.0005223701067404758
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:13"
+  },
+  {
+    "account": 19,
+    "tick": 1844,
+    "event_index": 1,
+    "original_signal": 0.0009276568539180486,
+    "signal": 0.0009276568539180486,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.335622344208183e-05,
+      0.0006860619002029902,
+      0.0002649511771571402
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:10"
+  },
+  {
+    "account": 15,
+    "tick": 1846,
+    "event_index": 1,
+    "original_signal": 0.001891938446608989,
+    "signal": 0.001891938446608989,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -9.324128604473722e-05,
+      0.0013763543229737118,
+      0.0006088254096800144
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:15"
+  },
+  {
+    "account": 18,
+    "tick": 1877,
+    "event_index": 0,
+    "original_signal": -0.0006983289348860755,
+    "signal": -0.0006983289348860755,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0008877895783542131,
+      0.0006525703810846429,
+      -0.0004631097376165052
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:10"
+  },
+  {
+    "account": 15,
+    "tick": 1900,
+    "event_index": 0,
+    "original_signal": 0.0010045218522411062,
+    "signal": 0.0010045218522411062,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -8.38606563882796e-05,
+      0.0005186762970909027,
+      0.0005697062115384831
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:16"
+  },
+  {
+    "account": 15,
+    "tick": 1990,
+    "event_index": 0,
+    "original_signal": -0.0013306357556543684,
+    "signal": -0.0013306357556543684,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.57326218183274e-05,
+      -0.0011350081207786127,
+      -0.0002813602566940831
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:17"
+  },
+  {
+    "account": 17,
+    "tick": 2025,
+    "event_index": 1,
+    "original_signal": 0.0012414674220907584,
+    "signal": 0.0012414674220907584,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00025103102225225703,
+      0.0014512423168968871,
+      4.125612744612815e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:16"
+  },
+  {
+    "account": 18,
+    "tick": 2027,
+    "event_index": 0,
+    "original_signal": -0.0020423967040486294,
+    "signal": -0.0020423967040486294,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.001885444448175639,
+      0.0003619602283639941,
+      -0.0005189124842369848
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:11"
+  },
+  {
+    "account": 19,
+    "tick": 2051,
+    "event_index": 0,
+    "original_signal": -0.0009722316244245833,
+    "signal": -0.0009722316244245833,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.6116668462238253e-05,
+      -0.0006922746162065217,
+      -0.00029607367668029995
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:11"
+  },
+  {
+    "account": 16,
+    "tick": 2096,
+    "event_index": 1,
+    "original_signal": 0.0016583246641447848,
+    "signal": 0.0016583246641447848,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.00048351614761287757,
+      -5.170593023508442e-07,
+      0.0011753255758342582
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:14"
+  },
+  {
+    "account": 16,
+    "tick": 2170,
+    "event_index": 0,
+    "original_signal": -0.0014865189186846419,
+    "signal": -0.0014865189186846419,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0017546753148696204,
+      8.782827716552616e-06,
+      0.00025937356846842606
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:15"
+  },
+  {
+    "account": 15,
+    "tick": 2179,
+    "event_index": 0,
+    "original_signal": -0.0006728384213564628,
+    "signal": -0.0006728384213564628,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -9.40828381566821e-05,
+      -0.00041865320287818816,
+      -0.00016010238032159252
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:18"
+  },
+  {
+    "account": 17,
+    "tick": 2196,
+    "event_index": 0,
+    "original_signal": -0.000321203725345221,
+    "signal": -0.000321203725345221,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00020040377229795444,
+      -0.0003857066987422944,
+      -0.00013590079890088105
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:17"
+  },
+  {
+    "account": 19,
+    "tick": 2255,
+    "event_index": 1,
+    "original_signal": -0.001688989782980248,
+    "signal": -0.001688989782980248,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -9.100026739458076e-07,
+      -9.766525510741782e-05,
+      -0.0015904145251988844
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:12"
+  },
+  {
+    "account": 18,
+    "tick": 2258,
+    "event_index": 0,
+    "original_signal": -0.0009262171525094,
+    "signal": -0.0009262171525094,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0006300794441496488,
+      0.000546528401353718,
+      -0.0008426661097134692
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:12"
+  },
+  {
+    "account": 18,
+    "tick": 2398,
+    "event_index": 0,
+    "original_signal": 0.0008477795302669932,
+    "signal": 0.0008477795302669932,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00020174883634501296,
+      0.0005205214568804698,
+      0.0005290069097315364
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:13"
+  },
+  {
+    "account": 15,
+    "tick": 2406,
+    "event_index": 0,
+    "original_signal": -0.0005600082623315194,
+    "signal": -0.0005600082623315194,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      1.0338469131115994e-05,
+      -0.0009697292832142226,
+      0.0003993825517515871
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:19"
+  },
+  {
+    "account": 17,
+    "tick": 2411,
+    "event_index": 0,
+    "original_signal": -0.00024154835015918578,
+    "signal": -0.00024154835015918578,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      2.9931607403356723e-05,
+      -0.00045242677645156994,
+      0.00018094681888902741
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:18"
+  },
+  {
+    "account": 17,
+    "tick": 2434,
+    "event_index": 0,
+    "original_signal": 0.0003299862595804995,
+    "signal": 0.0003299862595804995,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00016741065753598565,
+      0.0004884401269320414,
+      8.956790184443713e-06
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:19"
+  },
+  {
+    "account": 16,
+    "tick": 2573,
+    "event_index": 0,
+    "original_signal": 0.0011918326225103493,
+    "signal": 0.0011918326225103493,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00016867839139354506,
+      2.4233406709361405e-06,
+      0.0013580876732329583
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:16"
+  },
+  {
+    "account": 17,
+    "tick": 2669,
+    "event_index": 1,
+    "original_signal": 0.0019219126926071804,
+    "signal": 0.0019219126926071804,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00022251320629869409,
+      0.0022129697643038185,
+      -6.854386539794421e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:20"
+  },
+  {
+    "account": 19,
+    "tick": 2677,
+    "event_index": 0,
+    "original_signal": -0.000550665010874401,
+    "signal": -0.000550665010874401,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.097361485044967e-05,
+      0.00014698927102963408,
+      -0.0006866806670535854
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:13"
+  },
+  {
+    "account": 17,
+    "tick": 2711,
+    "event_index": 0,
+    "original_signal": -0.00034777883680863587,
+    "signal": -0.00034777883680863587,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00017390522994605747,
+      -0.0005489548213452233,
+      2.727075459052999e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:21"
+  },
+  {
+    "account": 15,
+    "tick": 2726,
+    "event_index": 0,
+    "original_signal": -0.0013339150095280216,
+    "signal": -0.0013339150095280216,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      2.2261771271396032e-05,
+      -0.0005599997922564326,
+      -0.000796176988542985
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:20"
+  },
+  {
+    "account": 18,
+    "tick": 2803,
+    "event_index": 0,
+    "original_signal": -0.0012613889422756909,
+    "signal": -0.0012613889422756909,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0030050379213771394,
+      0.0014826519963994722,
+      0.0002609969827019763
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:14"
+  },
+  {
+    "account": 16,
+    "tick": 2808,
+    "event_index": 0,
+    "original_signal": -0.001416623630430552,
+    "signal": -0.001416623630430552,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0026094293694257104,
+      2.5417674436066704e-05,
+      0.0011673880645590917
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:17"
+  },
+  {
+    "account": 17,
+    "tick": 2816,
+    "event_index": 0,
+    "original_signal": 0.002158952635580015,
+    "signal": 0.002158952635580015,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00030617237283426596,
+      0.002213972120193262,
+      0.00025115288822101896
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:22"
+  },
+  {
+    "account": 19,
+    "tick": 2828,
+    "event_index": 0,
+    "original_signal": -0.0007625688391109199,
+    "signal": -0.0007625688391109199,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.676758628809719e-05,
+      -2.2907045836720307e-05,
+      -0.0007228942069861024
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:14"
+  },
+  {
+    "account": 17,
+    "tick": 2866,
+    "event_index": 2,
+    "original_signal": 0.0007811271579753068,
+    "signal": 0.0007811271579753068,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -1.2660460885717016e-06,
+      0.000913803313091141,
+      -0.00013141010902726244
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:23"
+  },
+  {
+    "account": 18,
+    "tick": 2911,
+    "event_index": 1,
+    "original_signal": -0.0007000551540035819,
+    "signal": -0.0007000551540035819,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0012195631771418653,
+      0.00048770475983857947,
+      3.180326329970398e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:15"
+  },
+  {
+    "account": 19,
+    "tick": 2927,
+    "event_index": 1,
+    "original_signal": -0.0019754090934210318,
+    "signal": -0.0019754090934210318,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -3.4123884094220498e-06,
+      -6.843484058030787e-06,
+      -0.001965153220953579
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:15"
+  },
+  {
+    "account": 16,
+    "tick": 2959,
+    "event_index": 0,
+    "original_signal": 0.0033523234565295793,
+    "signal": 0.0033523234565295793,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.003863047540558479,
+      -4.140409938283055e-05,
+      -0.00046931998464606916
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:18"
+  },
+  {
+    "account": 15,
+    "tick": 2977,
+    "event_index": 0,
+    "original_signal": 0.0014676701510343035,
+    "signal": 0.0014676701510343035,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.545844929553102e-05,
+      0.0010800591104382117,
+      0.00030215259130056085
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:21"
+  },
+  {
+    "account": 18,
+    "tick": 2981,
+    "event_index": 2,
+    "original_signal": 0.0006900408078783702,
+    "signal": 0.0006900408078783702,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.001017106841815072,
+      0.00033294840412630134,
+      -0.0006600144380630032
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:16"
+  },
+  {
+    "account": 19,
+    "tick": 2988,
+    "event_index": 1,
+    "original_signal": -0.0007080768681193072,
+    "signal": -0.0007080768681193072,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.1574997622764985e-06,
+      -7.121468895806983e-05,
+      -0.0006390196789235139
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:16"
+  },
+  {
+    "account": 16,
+    "tick": 3180,
+    "event_index": 0,
+    "original_signal": -0.0015147382199233088,
+    "signal": -0.0015147382199233088,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.002010812441162687,
+      1.8439783134258218e-05,
+      0.0004776344381051199
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:19"
+  },
+  {
+    "account": 19,
+    "tick": 3185,
+    "event_index": 2,
+    "original_signal": 0.0010854488166881608,
+    "signal": 0.0010854488166881608,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.6501148449046628e-05,
+      0.0003147619224060487,
+      0.0007871880427311588
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:17"
+  },
+  {
+    "account": 17,
+    "tick": 3217,
+    "event_index": 0,
+    "original_signal": -0.001112321938854743,
+    "signal": -0.001112321938854743,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0001569511268446843,
+      -0.00135958713747944,
+      9.031407178001259e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:24"
+  },
+  {
+    "account": 15,
+    "tick": 3270,
+    "event_index": 0,
+    "original_signal": -0.0024421796962653284,
+    "signal": -0.0024421796962653284,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00010087374727329403,
+      -0.0016335659748581619,
+      -0.0009094874686804607
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:22"
+  },
+  {
+    "account": 18,
+    "tick": 3306,
+    "event_index": 1,
+    "original_signal": -0.0010279723749639434,
+    "signal": -0.0010279723749639434,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0005202867827492557,
+      0.0002515494731789883,
+      -0.0007592350653936761
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:17"
+  },
+  {
+    "account": 15,
+    "tick": 3326,
+    "event_index": 1,
+    "original_signal": 0.0015025999644844037,
+    "signal": 0.0015025999644844037,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -5.711594556688892e-05,
+      0.0005894474012376823,
+      0.0009702685088136102
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:23"
+  },
+  {
+    "account": 19,
+    "tick": 3356,
+    "event_index": 0,
+    "original_signal": -0.0007537069680924343,
+    "signal": -0.0007537069680924343,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      3.1829822929848566e-06,
+      -5.668299231499151e-06,
+      -0.00075122165115392
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:18"
+  },
+  {
+    "account": 16,
+    "tick": 3406,
+    "event_index": 0,
+    "original_signal": 0.0021223119299986636,
+    "signal": 0.0021223119299986636,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0017287636170943838,
+      -1.223939635702639e-05,
+      0.0004057877092613061
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:20"
+  },
+  {
+    "account": 18,
+    "tick": 3423,
+    "event_index": 3,
+    "original_signal": -0.0007396389584439396,
+    "signal": -0.0007396389584439396,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00029555576989216654,
+      -0.00020713843212230142,
+      -0.0002369447564294716
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:18"
+  },
+  {
+    "account": 19,
+    "tick": 3533,
+    "event_index": 0,
+    "original_signal": -0.0009872162198661524,
+    "signal": -0.0009872162198661524,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      9.642126061710831e-06,
+      -0.00028454837545313064,
+      -0.0007123099704747326
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:19"
+  },
+  {
+    "account": 17,
+    "tick": 3535,
+    "event_index": 1,
+    "original_signal": -0.000410020849982241,
+    "signal": -0.000410020849982241,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      2.4891888120885783e-05,
+      -0.0006043717503311006,
+      0.00016945901222797385
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:25"
+  },
+  {
+    "account": 18,
+    "tick": 3636,
+    "event_index": 0,
+    "original_signal": 0.0014390214404809336,
+    "signal": 0.0014390214404809336,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0007351495587016318,
+      6.29288947772754e-05,
+      0.0006409429870020264
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:19"
+  },
+  {
+    "account": 16,
+    "tick": 3820,
+    "event_index": 0,
+    "original_signal": 0.0014362564435348238,
+    "signal": 0.0014362564435348238,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.001152407780740057,
+      -6.088164028027422e-06,
+      0.00028993682682279423
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:21"
+  },
+  {
+    "account": 18,
+    "tick": 3830,
+    "event_index": 1,
+    "original_signal": 0.0005081239756781922,
+    "signal": 0.0005081239756781922,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0008490656812884176,
+      0.0006074240948286096,
+      0.0007497655621380002
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:20"
+  },
+  {
+    "account": 16,
+    "tick": 3849,
+    "event_index": 0,
+    "original_signal": -0.00326033908967574,
+    "signal": -0.00326033908967574,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.004485436324773461,
+      3.9068397043605085e-05,
+      0.001186028838054116
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:22"
+  },
+  {
+    "account": 15,
+    "tick": 3851,
+    "event_index": 1,
+    "original_signal": 0.003763859396282001,
+    "signal": 0.003763859396282001,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.0002713670023688582,
+      0.0038718482803303546,
+      0.00016337811832050503
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:24"
+  },
+  {
+    "account": 16,
+    "tick": 3927,
+    "event_index": 1,
+    "original_signal": 0.0013444114151005986,
+    "signal": 0.0013444114151005986,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.00011617689752077848,
+      -1.039112265279762e-05,
+      0.0012386256402326177
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:23"
+  },
+  {
+    "account": 15,
+    "tick": 3928,
+    "event_index": 0,
+    "original_signal": -0.0025668859550115803,
+    "signal": -0.0025668859550115803,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      6.780650992778196e-05,
+      -0.002486351674065663,
+      -0.00014834079087369914
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:25"
+  },
+  {
+    "account": 18,
+    "tick": 4018,
+    "event_index": 0,
+    "original_signal": -0.0007689788799827416,
+    "signal": -0.0007689788799827416,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.00034338388991493715,
+      0.0002113627620653454,
+      -0.0013237255319630242
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:21"
+  },
+  {
+    "account": 17,
+    "tick": 4036,
+    "event_index": 0,
+    "original_signal": 0.0004418677602665838,
+    "signal": 0.0004418677602665838,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -8.138599403584801e-05,
+      0.0005993076916938032,
+      -7.605393739137143e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:26"
+  },
+  {
+    "account": 19,
+    "tick": 4074,
+    "event_index": 0,
+    "original_signal": 0.0010288756108163177,
+    "signal": 0.0010288756108163177,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.5317196005690607e-05,
+      0.00031765415431010273,
+      0.0007265386525119056
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:20"
+  },
+  {
+    "account": 15,
+    "tick": 4099,
+    "event_index": 1,
+    "original_signal": -0.001433493383170291,
+    "signal": -0.001433493383170291,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.817595545507091e-05,
+      -0.0014869165000244138,
+      -3.475283860094818e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:26"
+  },
+  {
+    "account": 19,
+    "tick": 4162,
+    "event_index": 1,
+    "original_signal": -0.0008977355242466346,
+    "signal": -0.0008977355242466346,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.279172289186638e-05,
+      -0.0003716547748728791,
+      -0.0005388724722656219
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:21"
+  },
+  {
+    "account": 16,
+    "tick": 4177,
+    "event_index": 1,
+    "original_signal": 0.0012001886556780447,
+    "signal": 0.0012001886556780447,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0007448998267350324,
+      -4.795653139580095e-06,
+      0.00046008448208259247
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:24"
+  },
+  {
+    "account": 15,
+    "tick": 4203,
+    "event_index": 0,
+    "original_signal": 0.0010486355214153799,
+    "signal": 0.0010486355214153799,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -1.95379567058879e-05,
+      0.0011419829994545822,
+      -7.380952133331447e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:27"
+  },
+  {
+    "account": 19,
+    "tick": 4285,
+    "event_index": 0,
+    "original_signal": -0.0007652855167620608,
+    "signal": -0.0007652855167620608,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.197478108100208e-05,
+      0.00043249917712987975,
+      -0.0011758099128109385
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:22"
+  },
+  {
+    "account": 17,
+    "tick": 4303,
+    "event_index": 0,
+    "original_signal": -0.0009177087065567109,
+    "signal": -0.0009177087065567109,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0002049737763139323,
+      -0.001146311970844539,
+      2.3629487973895775e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:27"
+  },
+  {
+    "account": 18,
+    "tick": 4311,
+    "event_index": 0,
+    "original_signal": -0.0005012847040686911,
+    "signal": -0.0005012847040686911,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0006813427722740659,
+      0.0006319909901912787,
+      -0.0004519329219859039
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:22"
+  },
+  {
+    "account": 15,
+    "tick": 4328,
+    "event_index": 1,
+    "original_signal": -0.001006712452392377,
+    "signal": -0.001006712452392377,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -7.568421109802428e-05,
+      -0.0005349009537002895,
+      -0.0003961272875940632
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:28"
+  },
+  {
+    "account": 19,
+    "tick": 4353,
+    "event_index": 0,
+    "original_signal": -0.001080779753231864,
+    "signal": -0.001080779753231864,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      9.383785724420993e-06,
+      -0.00021624651601023006,
+      -0.0008739170229460551
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:23"
+  },
+  {
+    "account": 17,
+    "tick": 4356,
+    "event_index": 1,
+    "original_signal": 0.0006606713377359182,
+    "signal": 0.0006606713377359182,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -5.87958986503769e-05,
+      0.0009075445384294103,
+      -0.0001880773020431152
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:28"
+  },
+  {
+    "account": 16,
+    "tick": 4387,
+    "event_index": 1,
+    "original_signal": -0.001894429254901704,
+    "signal": -0.001894429254901704,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0004218421114517551,
+      7.4646961006483424e-06,
+      -0.001480051839550597
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:25"
+  },
+  {
+    "account": 15,
+    "tick": 4484,
+    "event_index": 0,
+    "original_signal": -0.0014881347955542422,
+    "signal": -0.0014881347955542422,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.079726681409399e-05,
+      -0.0013960694101487732,
+      -0.0001728626522195628
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:29"
+  },
+  {
+    "account": 17,
+    "tick": 4547,
+    "event_index": 0,
+    "original_signal": -0.0005009445850619113,
+    "signal": -0.0005009445850619113,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      5.406793856749095e-05,
+      -0.0002959903497166142,
+      -0.000259022173912788
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:29"
+  },
+  {
+    "account": 15,
+    "tick": 4561,
+    "event_index": 0,
+    "original_signal": 0.0009350397261149847,
+    "signal": 0.0009350397261149847,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -1.957279389643342e-05,
+      0.0007649130612045435,
+      0.0001896994588068746
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:30"
+  },
+  {
+    "account": 16,
+    "tick": 4607,
+    "event_index": 0,
+    "original_signal": -0.00134883715548167,
+    "signal": -0.00134883715548167,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0008267803325094896,
+      1.188679630028428e-05,
+      -0.0005339436192724647
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:26"
+  },
+  {
+    "account": 18,
+    "tick": 4646,
+    "event_index": 1,
+    "original_signal": 0.0008617236370512332,
+    "signal": 0.0008617236370512332,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0021358853723615514,
+      -0.0012865711964226514,
+      1.2409461112333088e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:23"
+  },
+  {
+    "account": 19,
+    "tick": 4651,
+    "event_index": 0,
+    "original_signal": -0.0008252869720958388,
+    "signal": -0.0008252869720958388,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.84741735328986e-05,
+      -0.000585716949229223,
+      -0.0002680441963995143
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:24"
+  },
+  {
+    "account": 16,
+    "tick": 4664,
+    "event_index": 0,
+    "original_signal": 0.002271319813691307,
+    "signal": 0.002271319813691307,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.00299328045400978,
+      -8.585022764946786e-06,
+      -0.0007133756175535263
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:27"
+  },
+  {
+    "account": 17,
+    "tick": 4705,
+    "event_index": 0,
+    "original_signal": -0.0007319437381405809,
+    "signal": -0.0007319437381405809,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      4.447202849723221e-05,
+      -0.00025316182414741395,
+      -0.0005232539424903991
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:30"
+  },
+  {
+    "account": 15,
+    "tick": 4710,
+    "event_index": 0,
+    "original_signal": 0.0017282255567191364,
+    "signal": 0.0017282255567191364,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -3.922073137674098e-05,
+      0.0009959614839198942,
+      0.000771484804175983
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:31"
+  },
+  {
+    "account": 15,
+    "tick": 4749,
+    "event_index": 2,
+    "original_signal": 0.0008448233480230934,
+    "signal": 0.0008448233480230934,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -3.051124229727198e-05,
+      0.0005854349496574101,
+      0.0002898996406629552
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:32"
+  },
+  {
+    "account": 19,
+    "tick": 4764,
+    "event_index": 0,
+    "original_signal": 0.0006967611880430644,
+    "signal": 0.0006967611880430644,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.4315014059820264e-05,
+      0.00047113529258790277,
+      0.00024994090951498187
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:25"
+  },
+  {
+    "account": 18,
+    "tick": 4834,
+    "event_index": 2,
+    "original_signal": -0.0015610654935814968,
+    "signal": -0.0015610654935814968,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0015067334209044306,
+      0.0004726810493735421,
+      -0.0005270131220506083
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:24"
+  },
+  {
+    "account": 16,
+    "tick": 4841,
+    "event_index": 0,
+    "original_signal": -0.003757057054629845,
+    "signal": -0.003757057054629845,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0047830961857364416,
+      2.7491122845572024e-05,
+      0.0009985480082610237
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:28"
+  },
+  {
+    "account": 15,
+    "tick": 4841,
+    "event_index": 1,
+    "original_signal": 0.00249862565167552,
+    "signal": 0.00249862565167552,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.0001969839791883892,
+      0.0022557026509157675,
+      0.00043990697994814146
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:33"
+  },
+  {
+    "account": 18,
+    "tick": 4885,
+    "event_index": 0,
+    "original_signal": 0.0019233417655369093,
+    "signal": 0.0019233417655369093,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0027710391606682863,
+      -0.0007762041780767711,
+      -7.149321705460582e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:25"
+  },
+  {
+    "account": 16,
+    "tick": 4890,
+    "event_index": 0,
+    "original_signal": 0.0024369279099030914,
+    "signal": 0.0024369279099030914,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0013946962872669942,
+      -4.82859443531118e-06,
+      0.0010470602170714086
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:29"
+  },
+  {
+    "account": 17,
+    "tick": 4918,
+    "event_index": 0,
+    "original_signal": 0.001232900316202242,
+    "signal": 0.001232900316202242,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -8.005932641215051e-05,
+      0.0011872412359331503,
+      0.00012571840668124224
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:31"
+  },
+  {
+    "account": 19,
+    "tick": 4930,
+    "event_index": 0,
+    "original_signal": 0.0007474891786440644,
+    "signal": 0.0007474891786440644,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      3.0685166336246745e-06,
+      5.574546153024357e-05,
+      0.0006886752004801962
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:26"
+  },
+  {
+    "account": 19,
+    "tick": 5011,
+    "event_index": 0,
+    "original_signal": 0.0014454940553653046,
+    "signal": 0.0014454940553653046,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.8746310538495826e-05,
+      0.00047229764771783216,
+      0.0010019427181859684
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:27"
+  },
+  {
+    "account": 18,
+    "tick": 5014,
+    "event_index": 0,
+    "original_signal": -0.0017977433235451107,
+    "signal": -0.0017977433235451107,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0018018715829258955,
+      0.00021353579323149727,
+      -0.00020940753385071247
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:26"
+  },
+  {
+    "account": 16,
+    "tick": 5025,
+    "event_index": 0,
+    "original_signal": -0.00106066674109911,
+    "signal": -0.00106066674109911,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0005629101334123652,
+      -5.743364063977147e-06,
+      -0.0004920132436227678
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:30"
+  },
+  {
+    "account": 17,
+    "tick": 5060,
+    "event_index": 0,
+    "original_signal": -0.000549347131860014,
+    "signal": -0.000549347131860014,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      4.354864959739883e-05,
+      -0.0007230907437953101,
+      0.00013019496233789734
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:32"
+  },
+  {
+    "account": 15,
+    "tick": 5084,
+    "event_index": 0,
+    "original_signal": -0.0016803331409094959,
+    "signal": -0.0016803331409094959,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00015210200909807574,
+      -0.002252578096058282,
+      0.0004201429460507101
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:34"
+  },
+  {
+    "account": 18,
+    "tick": 5086,
+    "event_index": 1,
+    "original_signal": 0.0012861911727974963,
+    "signal": 0.0012861911727974963,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.001221733798371157,
+      -6.650462116623863e-05,
+      0.00013096199559257797
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:27"
+  },
+  {
+    "account": 19,
+    "tick": 5117,
+    "event_index": 0,
+    "original_signal": -0.0010541116402798636,
+    "signal": -0.0010541116402798636,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.7676742296334234e-05,
+      0.0001900620345235451,
+      -0.0012264969325070745
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:28"
+  },
+  {
+    "account": 16,
+    "tick": 5133,
+    "event_index": 0,
+    "original_signal": -0.0022414260716423933,
+    "signal": -0.0022414260716423933,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0019856911791324783,
+      2.8982377555683357e-06,
+      -0.000258633130265483
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:31"
+  },
+  {
+    "account": 17,
+    "tick": 5157,
+    "event_index": 1,
+    "original_signal": 0.0005923123626783658,
+    "signal": 0.0005923123626783658,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -8.793649355225957e-05,
+      0.0007280049812837901,
+      -4.775612505316478e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:33"
+  },
+  {
+    "account": 15,
+    "tick": 5196,
+    "event_index": 0,
+    "original_signal": 0.0009920293429455003,
+    "signal": 0.0009920293429455003,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -3.0136719753314743e-05,
+      0.0007894663520323801,
+      0.00023269971066643502
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:35"
+  },
+  {
+    "account": 15,
+    "tick": 5374,
+    "event_index": 1,
+    "original_signal": -0.0005957018913062707,
+    "signal": -0.0005957018913062707,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      3.959141531448331e-05,
+      -0.0002940729404266905,
+      -0.00034122036619406345
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:36"
+  },
+  {
+    "account": 18,
+    "tick": 5454,
+    "event_index": 0,
+    "original_signal": 0.0008036429721434649,
+    "signal": 0.0008036429721434649,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.003776856802577399,
+      -0.0022343236764195886,
+      -0.0007388901540143454
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:28"
+  },
+  {
+    "account": 16,
+    "tick": 5462,
+    "event_index": 0,
+    "original_signal": 0.003822282820879369,
+    "signal": 0.003822282820879369,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0040209068693208665,
+      -1.7720155107206955e-05,
+      -0.00018090389333429033
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:32"
+  },
+  {
+    "account": 15,
+    "tick": 5463,
+    "event_index": 0,
+    "original_signal": -0.0021428974181924845,
+    "signal": -0.0021428974181924845,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.0002036866228243477,
+      -0.0023896724415513,
+      4.308840053446768e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:37"
+  },
+  {
+    "account": 17,
+    "tick": 5490,
+    "event_index": 0,
+    "original_signal": -0.0003091405118519742,
+    "signal": -0.0003091405118519742,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      3.625546574887231e-05,
+      -0.00037344073260949363,
+      2.8044755008647152e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:34"
+  },
+  {
+    "account": 19,
+    "tick": 5496,
+    "event_index": 1,
+    "original_signal": 0.0006897168805520466,
+    "signal": 0.0006897168805520466,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -7.304000254438113e-06,
+      0.00047239871631749725,
+      0.00022462216448898746
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:29"
+  },
+  {
+    "account": 17,
+    "tick": 5546,
+    "event_index": 0,
+    "original_signal": -0.0009156895055905141,
+    "signal": -0.0009156895055905141,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -9.6973220387141e-06,
+      -0.0006232324534253015,
+      -0.0002827597301264986
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:35"
+  },
+  {
+    "account": 16,
+    "tick": 5548,
+    "event_index": 0,
+    "original_signal": -0.0013677278549061296,
+    "signal": -0.0013677278549061296,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0014459720808213303,
+      3.919388405709644e-06,
+      7.432483750949104e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:33"
+  },
+  {
+    "account": 19,
+    "tick": 5559,
+    "event_index": 0,
+    "original_signal": 0.000576796863849472,
+    "signal": 0.000576796863849472,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -5.369070429118087e-06,
+      9.80854711866561e-05,
+      0.0004840804630919339
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:30"
+  },
+  {
+    "account": 18,
+    "tick": 5584,
+    "event_index": 0,
+    "original_signal": 0.002202475074032814,
+    "signal": 0.002202475074032814,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0022937486510311044,
+      -0.00024729646032820056,
+      0.00015602288332990991
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:29"
+  },
+  {
+    "account": 15,
+    "tick": 5593,
+    "event_index": 1,
+    "original_signal": -0.003230723546633939,
+    "signal": -0.003230723546633939,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00015272186060704987,
+      -0.0024740703297350033,
+      -0.0009093750775059858
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:38"
+  },
+  {
+    "account": 16,
+    "tick": 5600,
+    "event_index": 2,
+    "original_signal": -0.0011842030668653086,
+    "signal": -0.0011842030668653086,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0003721844363384523,
+      5.703986151931908e-06,
+      -0.0008177226166787882
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:34"
+  },
+  {
+    "account": 19,
+    "tick": 5659,
+    "event_index": 2,
+    "original_signal": 0.0009333706445766683,
+    "signal": 0.0009333706445766683,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -6.1051089899057456e-06,
+      9.546989716580793e-05,
+      0.000844005856400766
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:31"
+  },
+  {
+    "account": 15,
+    "tick": 5675,
+    "event_index": 1,
+    "original_signal": -0.0009624919732180973,
+    "signal": -0.0009624919732180973,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      3.800904127765386e-05,
+      -0.001068012820211322,
+      6.75118057155708e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:39"
+  },
+  {
+    "account": 18,
+    "tick": 5701,
+    "event_index": 1,
+    "original_signal": -0.0007485069045292273,
+    "signal": -0.0007485069045292273,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00021267223610758966,
+      -0.0001890229629037871,
+      -0.0003468117055178505
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:30"
+  },
+  {
+    "account": 15,
+    "tick": 5858,
+    "event_index": 0,
+    "original_signal": -0.0010123312175853336,
+    "signal": -0.0010123312175853336,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      4.600272853258728e-05,
+      -0.0005964060996938562,
+      -0.00046192784642406473
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:40"
+  },
+  {
+    "account": 16,
+    "tick": 5872,
+    "event_index": 1,
+    "original_signal": 0.0010496209006245788,
+    "signal": 0.0010496209006245788,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0010072303292900197,
+      1.1679490067217948e-05,
+      0.0020451717398473806
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:35"
+  },
+  {
+    "account": 15,
+    "tick": 6065,
+    "event_index": 2,
+    "original_signal": 0.0017676136447472765,
+    "signal": 0.0017676136447472765,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -9.983651462954494e-05,
+      0.0014443444713755223,
+      0.0004231056880012992
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:41"
+  },
+  {
+    "account": 16,
+    "tick": 6070,
+    "event_index": 0,
+    "original_signal": 0.0011675532027416006,
+    "signal": 0.0011675532027416006,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0008952528060273147,
+      -1.7859932162605395e-05,
+      0.0002901603288768914
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:36"
+  },
+  {
+    "account": 18,
+    "tick": 6119,
+    "event_index": 0,
+    "original_signal": 0.000947506291752676,
+    "signal": 0.000947506291752676,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0011482296949885918,
+      -0.0004623365819633819,
+      0.00026161317872746604
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:31"
+  },
+  {
+    "account": 15,
+    "tick": 6124,
+    "event_index": 0,
+    "original_signal": -0.001551993945630177,
+    "signal": -0.001551993945630177,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      6.205133029728542e-05,
+      -0.0011376122241862471,
+      -0.0004764330517412154
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:42"
+  },
+  {
+    "account": 15,
+    "tick": 6176,
+    "event_index": 0,
+    "original_signal": 0.00205285958072056,
+    "signal": 0.00205285958072056,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.00014435654886017896,
+      0.0021323085778306105,
+      6.490755175012849e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:43"
+  },
+  {
+    "account": 19,
+    "tick": 6188,
+    "event_index": 1,
+    "original_signal": 0.0012114486293607445,
+    "signal": 0.0012114486293607445,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.683043313292336e-05,
+      0.00016800703167207484,
+      0.001060272030821593
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:32"
+  },
+  {
+    "account": 17,
+    "tick": 6188,
+    "event_index": 2,
+    "original_signal": 0.0005096710313243725,
+    "signal": 0.0005096710313243725,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.0001785263967897587,
+      0.000575559311709699,
+      0.00011263811640443222
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:36"
+  },
+  {
+    "account": 16,
+    "tick": 6190,
+    "event_index": 0,
+    "original_signal": -0.0013962603121332661,
+    "signal": -0.0013962603121332661,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0005517785595663127,
+      -1.5844844500602938e-05,
+      -0.0008286369080663506
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:37"
+  },
+  {
+    "account": 18,
+    "tick": 6216,
+    "event_index": 0,
+    "original_signal": 0.0009923561747686464,
+    "signal": 0.0009923561747686464,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      7.927409789301658e-05,
+      0.0003655256008997504,
+      0.0005475564759758793
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:32"
+  },
+  {
+    "account": 16,
+    "tick": 6268,
+    "event_index": 2,
+    "original_signal": -0.0032690259853603073,
+    "signal": -0.0032690259853603073,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.002374368136238855,
+      1.9422572616954183e-05,
+      -0.0009140804217384064
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:38"
+  },
+  {
+    "account": 19,
+    "tick": 6281,
+    "event_index": 1,
+    "original_signal": 0.0009258735873234349,
+    "signal": 0.0009258735873234349,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.7701240501500152e-05,
+      0.00048409719841315094,
+      0.0004694776294117842
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:33"
+  },
+  {
+    "account": 17,
+    "tick": 6320,
+    "event_index": 0,
+    "original_signal": 0.0027483122063051827,
+    "signal": 0.0027483122063051827,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.0004030329809435999,
+      0.0029300533617475995,
+      0.00022129182550118312
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:37"
+  },
+  {
+    "account": 15,
+    "tick": 6339,
+    "event_index": 0,
+    "original_signal": -0.0005485012818368825,
+    "signal": -0.0005485012818368825,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -1.8117446985691688e-05,
+      7.64380876765391e-05,
+      -0.0006068219225277299
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:44"
+  },
+  {
+    "account": 19,
+    "tick": 6364,
+    "event_index": 1,
+    "original_signal": 0.000879447616932467,
+    "signal": 0.000879447616932467,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.0253892779899502e-05,
+      0.0005721115534629098,
+      0.00032758995624945677
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:34"
+  },
+  {
+    "account": 16,
+    "tick": 6366,
+    "event_index": 0,
+    "original_signal": -0.0028099631722359793,
+    "signal": -0.0028099631722359793,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.001364433034727764,
+      6.58129827687283e-06,
+      -0.0014521114357850884
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:39"
+  },
+  {
+    "account": 17,
+    "tick": 6522,
+    "event_index": 0,
+    "original_signal": 0.0016344480014410783,
+    "signal": 0.0016344480014410783,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -7.561060243943416e-05,
+      0.0015263919067022437,
+      0.00018366669717826865
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:38"
+  },
+  {
+    "account": 18,
+    "tick": 6538,
+    "event_index": 0,
+    "original_signal": -0.0012931226056182334,
+    "signal": -0.0012931226056182334,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0014204580163392968,
+      0.0005877164613259144,
+      -0.00046038105060485087
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:33"
+  },
+  {
+    "account": 15,
+    "tick": 6550,
+    "event_index": 0,
+    "original_signal": 0.0010052191386624035,
+    "signal": 0.0010052191386624035,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.00010822895116446637,
+      0.0011464586754035637,
+      -3.301058557669385e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:45"
+  },
+  {
+    "account": 19,
+    "tick": 6566,
+    "event_index": 1,
+    "original_signal": -0.0005933144849188607,
+    "signal": -0.0005933144849188607,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      4.116443282722468e-06,
+      -0.0004036739339395115,
+      -0.00019375699426207163
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:35"
+  },
+  {
+    "account": 18,
+    "tick": 6584,
+    "event_index": 0,
+    "original_signal": 0.001253107446192153,
+    "signal": 0.001253107446192153,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0015992195493231326,
+      -0.0006110088725788476,
+      0.000264896769447868
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:34"
+  },
+  {
+    "account": 18,
+    "tick": 6659,
+    "event_index": 0,
+    "original_signal": -0.0008979403153924375,
+    "signal": -0.0008979403153924375,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0011567601386381638,
+      0.00043653280916726515,
+      -0.0001777129859215389
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:35"
+  },
+  {
+    "account": 16,
+    "tick": 6779,
+    "event_index": 0,
+    "original_signal": -0.002458213763822892,
+    "signal": -0.002458213763822892,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00011597696426522825,
+      1.0739674817310235e-05,
+      -0.002352976474374974
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:40"
+  },
+  {
+    "account": 18,
+    "tick": 6833,
+    "event_index": 1,
+    "original_signal": 0.0020076565657653157,
+    "signal": 0.0020076565657653157,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0023912912220378354,
+      -0.00032971047505723,
+      -5.392418121528966e-05
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:36"
+  },
+  {
+    "account": 16,
+    "tick": 6919,
+    "event_index": 0,
+    "original_signal": 0.0012004909786267276,
+    "signal": 0.0012004909786267276,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0008157764132663336,
+      -2.094273613305545e-06,
+      0.0003868088389736995
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:41"
+  },
+  {
+    "account": 17,
+    "tick": 6931,
+    "event_index": 1,
+    "original_signal": -0.00024645965089630016,
+    "signal": -0.00024645965089630016,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00014639003545786005,
+      -0.00019078408036780626,
+      -0.00020206560598635398
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:39"
+  },
+  {
+    "account": 18,
+    "tick": 6956,
+    "event_index": 0,
+    "original_signal": -0.0016736525174578009,
+    "signal": -0.0016736525174578009,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0018236603248314965,
+      0.0007664260015641641,
+      -0.0006164181941904686
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:37"
+  },
+  {
+    "account": 15,
+    "tick": 6984,
+    "event_index": 2,
+    "original_signal": -0.0023629106901901595,
+    "signal": -0.0023629106901901595,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      6.318614191407342e-05,
+      -0.0015223582858602989,
+      -0.0009037385462439342
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:46"
+  },
+  {
+    "account": 19,
+    "tick": 6994,
+    "event_index": 0,
+    "original_signal": -0.0013272452982346502,
+    "signal": -0.0013272452982346502,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.381147468524849e-05,
+      -0.0004039359341553654,
+      -0.0009371208387645333
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:36"
+  },
+  {
+    "account": 18,
+    "tick": 7025,
+    "event_index": 0,
+    "original_signal": 0.00257761887688473,
+    "signal": 0.00257761887688473,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.001914076540815045,
+      -0.00010670725040556753,
+      0.0007702495864752526
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:38"
+  },
+  {
+    "account": 17,
+    "tick": 7030,
+    "event_index": 0,
+    "original_signal": -0.0006920638881904235,
+    "signal": -0.0006920638881904235,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00017676118953171064,
+      -0.0011545506140033534,
+      0.00028572553628121943
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:40"
+  },
+  {
+    "account": 15,
+    "tick": 7045,
+    "event_index": 0,
+    "original_signal": 0.0011567071383775875,
+    "signal": 0.0011567071383775875,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -8.521459553838999e-05,
+      0.0007167397389791821,
+      0.0005251819949367954
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:47"
+  },
+  {
+    "account": 17,
+    "tick": 7063,
+    "event_index": 0,
+    "original_signal": -0.00026632856473873725,
+    "signal": -0.00026632856473873725,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      4.72667973240221e-05,
+      -3.7857462249581196e-05,
+      -0.00027573789981317814
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:41"
+  },
+  {
+    "account": 19,
+    "tick": 7072,
+    "event_index": 0,
+    "original_signal": 0.0008182881704524548,
+    "signal": 0.0008182881704524548,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.5734772241541265e-06,
+      0.00032506170078590047,
+      0.0004957999468907085
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:37"
+  },
+  {
+    "account": 15,
+    "tick": 7118,
+    "event_index": 0,
+    "original_signal": 0.0006508318697997424,
+    "signal": 0.0006508318697997424,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -3.749395222455828e-05,
+      0.0002003365543049029,
+      0.0004879892677193978
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:48"
+  },
+  {
+    "account": 17,
+    "tick": 7119,
+    "event_index": 1,
+    "original_signal": -0.0011088032066251874,
+    "signal": -0.0011088032066251874,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      2.8555366647819165e-05,
+      -0.0010605431583157485,
+      -7.681541495725804e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:42"
+  },
+  {
+    "account": 19,
+    "tick": 7177,
+    "event_index": 1,
+    "original_signal": 0.0011674339548186623,
+    "signal": 0.0011674339548186623,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      5.817752618857465e-06,
+      -0.00020122636604574215,
+      0.0013628425682455471
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:38"
+  },
+  {
+    "account": 18,
+    "tick": 7186,
+    "event_index": 0,
+    "original_signal": 0.0006662346368995395,
+    "signal": 0.0006662346368995395,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.003642478564772384,
+      -0.0024513988176525863,
+      -0.0005248451102202582
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:39"
+  },
+  {
+    "account": 15,
+    "tick": 7249,
+    "event_index": 0,
+    "original_signal": 0.0005450369337513397,
+    "signal": 0.0005450369337513397,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -6.0934022177022456e-05,
+      0.000670430564979809,
+      -6.44596090514467e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:49"
+  },
+  {
+    "account": 17,
+    "tick": 7272,
+    "event_index": 1,
+    "original_signal": 0.0004738325375249756,
+    "signal": 0.0004738325375249756,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      7.784438580918715e-05,
+      -0.00014748330101284837,
+      0.0005434714527286368
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:43"
+  },
+  {
+    "account": 15,
+    "tick": 7361,
+    "event_index": 0,
+    "original_signal": 0.0006569319489286442,
+    "signal": 0.0006569319489286442,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      2.2859657736014434e-06,
+      0.00011605756788130648,
+      0.0005385884152737363
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:50"
+  },
+  {
+    "account": 19,
+    "tick": 7421,
+    "event_index": 0,
+    "original_signal": -0.0012736066273795281,
+    "signal": -0.0012736066273795281,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -1.2198811778891845e-05,
+      0.0003341430539123649,
+      -0.0015955508695130011
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:39"
+  },
+  {
+    "account": 16,
+    "tick": 7425,
+    "event_index": 1,
+    "original_signal": -0.0030551844945267714,
+    "signal": -0.0030551844945267714,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00327720429144126,
+      3.46402848887466e-05,
+      0.00018737951202574203
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:42"
+  },
+  {
+    "account": 17,
+    "tick": 7497,
+    "event_index": 1,
+    "original_signal": -0.0026140828757429055,
+    "signal": -0.0026140828757429055,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00014717310646551504,
+      -0.0021043653671489674,
+      -0.0006568906150594533
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:44"
+  },
+  {
+    "account": 16,
+    "tick": 7506,
+    "event_index": 0,
+    "original_signal": 0.0030409618792017175,
+    "signal": 0.0030409618792017175,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0025627367483335843,
+      -2.4834207316310267e-05,
+      0.0005030593381844439
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:43"
+  },
+  {
+    "account": 18,
+    "tick": 7539,
+    "event_index": 0,
+    "original_signal": -0.0005340922919762113,
+    "signal": -0.0005340922919762113,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00167115203054814,
+      0.0001702988557752875,
+      0.000966760882796641
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:40"
+  },
+  {
+    "account": 16,
+    "tick": 7582,
+    "event_index": 0,
+    "original_signal": 0.0016721632568697572,
+    "signal": 0.0016721632568697572,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0006321777519815376,
+      2.62814275920503e-06,
+      0.0010373573621290145
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:44"
+  },
+  {
+    "account": 17,
+    "tick": 7701,
+    "event_index": 1,
+    "original_signal": -0.001037396313809388,
+    "signal": -0.001037396313809388,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00021356633421795368,
+      -0.0013846124017612375,
+      0.00013364975373389567
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:45"
+  },
+  {
+    "account": 19,
+    "tick": 7701,
+    "event_index": 2,
+    "original_signal": -0.00081893210320593,
+    "signal": -0.00081893210320593,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.0133795181738793e-05,
+      -0.0004041714118832278,
+      -0.000434894486504441
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:40"
+  },
+  {
+    "account": 18,
+    "tick": 7721,
+    "event_index": 1,
+    "original_signal": 0.0008109430067749395,
+    "signal": 0.0008109430067749395,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0002081787242428115,
+      0.00021380251856070422,
+      0.0008053192124570468
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:41"
+  },
+  {
+    "account": 16,
+    "tick": 7768,
+    "event_index": 1,
+    "original_signal": 0.0009949399253669775,
+    "signal": 0.0009949399253669775,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0018170246329968294,
+      -1.1985119025043027e-05,
+      -0.0008100995886048089
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:45"
+  },
+  {
+    "account": 16,
+    "tick": 7785,
+    "event_index": 0,
+    "original_signal": -0.0041780214636950135,
+    "signal": -0.0041780214636950135,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00321459532128242,
+      2.5943678406423224e-05,
+      -0.0009893698208190168
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:46"
+  },
+  {
+    "account": 15,
+    "tick": 7792,
+    "event_index": 0,
+    "original_signal": 0.002076674615701171,
+    "signal": 0.002076674615701171,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -4.426180312129523e-05,
+      0.0017056211636141756,
+      0.00041531525520829084
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:51"
+  },
+  {
+    "account": 15,
+    "tick": 7807,
+    "event_index": 0,
+    "original_signal": -0.0027939182697184622,
+    "signal": -0.0027939182697184622,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.734452792391813e-05,
+      -0.00334843202059821,
+      0.0004671692229558294
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:52"
+  },
+  {
+    "account": 16,
+    "tick": 7825,
+    "event_index": 0,
+    "original_signal": 0.001994980653379444,
+    "signal": 0.001994980653379444,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.001244907336359538,
+      3.7844932860699975e-06,
+      0.0007462888237338358
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:47"
+  },
+  {
+    "account": 15,
+    "tick": 7939,
+    "event_index": 0,
+    "original_signal": 0.0015833737068984752,
+    "signal": 0.0015833737068984752,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -9.035315266701315e-05,
+      0.0017975849479959425,
+      -0.00012385808843045406
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:53"
+  },
+  {
+    "account": 16,
+    "tick": 7967,
+    "event_index": 0,
+    "original_signal": 0.0010594339748105953,
+    "signal": 0.0010594339748105953,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0005252541397271999,
+      -1.787820542726746e-05,
+      0.0005520580405106629
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:48"
+  },
+  {
+    "account": 17,
+    "tick": 7972,
+    "event_index": 0,
+    "original_signal": -0.001843282508767825,
+    "signal": -0.001843282508767825,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00012017044583284468,
+      -0.002210198657138691,
+      0.00024674570253802134
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:46"
+  },
+  {
+    "account": 19,
+    "tick": 7980,
+    "event_index": 0,
+    "original_signal": -0.0009505080854153909,
+    "signal": -0.0009505080854153909,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.1957745797861369e-05,
+      -9.660143998989796e-05,
+      -0.0008658643912233543
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:41"
+  },
+  {
+    "account": 18,
+    "tick": 7987,
+    "event_index": 0,
+    "original_signal": 0.0008067254498910399,
+    "signal": 0.0008067254498910399,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0003101711602253542,
+      0.0008459457804251555,
+      -0.0003493914907594699
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:42"
+  },
+  {
+    "account": 16,
+    "tick": 8034,
+    "event_index": 0,
+    "original_signal": 0.0015868910076274531,
+    "signal": 0.0015868910076274531,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0022283344307689455,
+      -3.0051402082737898e-05,
+      -0.0006113920210587544
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:49"
+  },
+  {
+    "account": 18,
+    "tick": 8050,
+    "event_index": 0,
+    "original_signal": 0.001286612985222918,
+    "signal": 0.001286612985222918,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.002245573770081287,
+      -0.0008323506023421291,
+      -0.00012661018251623995
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:43"
+  },
+  {
+    "account": 17,
+    "tick": 8072,
+    "event_index": 0,
+    "original_signal": -0.0008791161010478989,
+    "signal": -0.0008791161010478989,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0001711297900255034,
+      -0.0009767282764316734,
+      -7.351761464172892e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:47"
+  },
+  {
+    "account": 16,
+    "tick": 8078,
+    "event_index": 1,
+    "original_signal": -0.0017606443162298529,
+    "signal": -0.0017606443162298529,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.001959935995865372,
+      2.1929457812954e-05,
+      0.000177362221822565
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:50"
+  },
+  {
+    "account": 19,
+    "tick": 8095,
+    "event_index": 0,
+    "original_signal": -0.0009728964078588368,
+    "signal": -0.0009728964078588368,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -5.721604583066677e-06,
+      -0.00020169145159084883,
+      -0.0007654833516849213
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:42"
+  },
+  {
+    "account": 17,
+    "tick": 8096,
+    "event_index": 1,
+    "original_signal": 0.0004990042678779027,
+    "signal": 0.0004990042678779027,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00013977297622285817,
+      0.00023953187915397596,
+      0.0003992453649467849
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:48"
+  },
+  {
+    "account": 15,
+    "tick": 8128,
+    "event_index": 0,
+    "original_signal": -0.000613382135304229,
+    "signal": -0.000613382135304229,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      7.369702113315346e-05,
+      -0.0013420223297426256,
+      0.000654943173305243
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:54"
+  },
+  {
+    "account": 16,
+    "tick": 8161,
+    "event_index": 1,
+    "original_signal": -0.0011636680909285688,
+    "signal": -0.0011636680909285688,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00026080890912579923,
+      -9.920845458301179e-07,
+      -0.0009018670972569394
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:51"
+  },
+  {
+    "account": 15,
+    "tick": 8179,
+    "event_index": 1,
+    "original_signal": -0.002642662415175008,
+    "signal": -0.002642662415175008,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      4.5956428733458984e-05,
+      -0.0018814263067113933,
+      -0.0008071925371970737
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:55"
+  },
+  {
+    "account": 17,
+    "tick": 8209,
+    "event_index": 0,
+    "original_signal": -0.0007554616468676893,
+    "signal": -0.0007554616468676893,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00011622708019215806,
+      -0.00038518908919999974,
+      -0.0002540454774755315
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:49"
+  },
+  {
+    "account": 18,
+    "tick": 8211,
+    "event_index": 0,
+    "original_signal": -0.0010238930855521263,
+    "signal": -0.0010238930855521263,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0015713236788935654,
+      2.4612703871713218e-05,
+      0.000522817889469726
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:44"
+  },
+  {
+    "account": 15,
+    "tick": 8214,
+    "event_index": 0,
+    "original_signal": 0.001886671291071101,
+    "signal": 0.001886671291071101,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -4.202650299740443e-05,
+      0.0008798376422126578,
+      0.0010488601518558475
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:56"
+  },
+  {
+    "account": 18,
+    "tick": 8284,
+    "event_index": 1,
+    "original_signal": -0.000859952130902029,
+    "signal": -0.000859952130902029,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0007970904789412997,
+      -0.0006561908259703749,
+      -0.0010008517838729538
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:45"
+  },
+  {
+    "account": 17,
+    "tick": 8290,
+    "event_index": 1,
+    "original_signal": -0.0004581815470860603,
+    "signal": -0.0004581815470860603,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.00010851678670887617,
+      -0.0006301950044204619,
+      6.349667062552547e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:50"
+  },
+  {
+    "account": 15,
+    "tick": 8302,
+    "event_index": 0,
+    "original_signal": 0.0008229585921273274,
+    "signal": 0.0008229585921273274,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -4.1586904880381946e-05,
+      0.0008612618486881536,
+      3.2836483195557115e-06
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:57"
+  },
+  {
+    "account": 17,
+    "tick": 8355,
+    "event_index": 0,
+    "original_signal": -0.0014043525254726437,
+    "signal": -0.0014043525254726437,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0002571014225865576,
+      -0.0016527071553877747,
+      -8.746792671426546e-06
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:51"
+  },
+  {
+    "account": 15,
+    "tick": 8417,
+    "event_index": 0,
+    "original_signal": -0.0017155588626591195,
+    "signal": -0.0017155588626591195,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      7.007334096324881e-05,
+      -0.0016244241955966304,
+      -0.00016120800802573798
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:58"
+  },
+  {
+    "account": 16,
+    "tick": 8518,
+    "event_index": 2,
+    "original_signal": -0.001069787295181908,
+    "signal": -0.001069787295181908,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0015547060501995339,
+      2.0073754745727985e-05,
+      0.00046484500027189793
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:52"
+  },
+  {
+    "account": 18,
+    "tick": 8541,
+    "event_index": 0,
+    "original_signal": -0.0013304065278969108,
+    "signal": -0.0013304065278969108,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.002414916618905489,
+      0.0001272669955633915,
+      0.0009572430954451869
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:46"
+  },
+  {
+    "account": 17,
+    "tick": 8569,
+    "event_index": 1,
+    "original_signal": 0.0004090123149496365,
+    "signal": 0.0004090123149496365,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -9.028244052656641e-06,
+      0.00033667012643042875,
+      8.137043257186437e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:52"
+  },
+  {
+    "account": 16,
+    "tick": 8616,
+    "event_index": 0,
+    "original_signal": 0.003734305848595217,
+    "signal": 0.003734305848595217,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.002749323108617918,
+      -2.812801232241689e-05,
+      0.0010131107522997158
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:53"
+  },
+  {
+    "account": 18,
+    "tick": 8651,
+    "event_index": 1,
+    "original_signal": -0.001108911447510605,
+    "signal": -0.001108911447510605,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.001388701857088804,
+      -0.00016965264374092134,
+      0.0004494430533191205
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:47"
+  },
+  {
+    "account": 17,
+    "tick": 8706,
+    "event_index": 0,
+    "original_signal": -0.0006170444629719137,
+    "signal": -0.0006170444629719137,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00010442145356879433,
+      -0.00046579419089207765,
+      -4.6828818511041625e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:53"
+  },
+  {
+    "account": 18,
+    "tick": 8750,
+    "event_index": 1,
+    "original_signal": 0.0005477318388426535,
+    "signal": 0.0005477318388426535,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.00011424986748781014,
+      0.00024048797133989445,
+      0.00019299400001494894
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:48"
+  },
+  {
+    "account": 19,
+    "tick": 8758,
+    "event_index": 0,
+    "original_signal": -0.000734494808129517,
+    "signal": -0.000734494808129517,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.3059359252351154e-05,
+      -0.0006613712823033864,
+      -8.618288507848176e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:43"
+  },
+  {
+    "account": 16,
+    "tick": 8788,
+    "event_index": 0,
+    "original_signal": -0.002408931143280969,
+    "signal": -0.002408931143280969,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0027531260819353485,
+      2.169742471313067e-05,
+      0.00032249751394124876
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:54"
+  },
+  {
+    "account": 15,
+    "tick": 8821,
+    "event_index": 0,
+    "original_signal": 0.0006100592176404136,
+    "signal": 0.0006100592176404136,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      2.240802968377376e-05,
+      0.00043413115966331033,
+      0.0001535200282933296
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:59"
+  },
+  {
+    "account": 18,
+    "tick": 8851,
+    "event_index": 2,
+    "original_signal": 0.0017038067774626485,
+    "signal": 0.0017038067774626485,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      0.0011600661258153707,
+      0.00025088161818291805,
+      0.0002928590334643597
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:49"
+  },
+  {
+    "account": 19,
+    "tick": 8885,
+    "event_index": 1,
+    "original_signal": 0.0012066886587807067,
+    "signal": 0.0012066886587807067,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -2.8060651488437442e-05,
+      0.0006252935852417194,
+      0.0006094557250274247
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:44"
+  },
+  {
+    "account": 16,
+    "tick": 8912,
+    "event_index": 0,
+    "original_signal": 0.002132725344954702,
+    "signal": 0.002132725344954702,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      0.0010594262954165795,
+      -8.075277796832344e-06,
+      0.0010813743273349551
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:55"
+  },
+  {
+    "account": 17,
+    "tick": 8936,
+    "event_index": 2,
+    "original_signal": -0.0002794282540206693,
+    "signal": -0.0002794282540206693,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0001301467583834937,
+      -0.00024046309382738638,
+      -0.00016911191857677666
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:54"
+  },
+  {
+    "account": 18,
+    "tick": 8951,
+    "event_index": 0,
+    "original_signal": 0.0007774511636373002,
+    "signal": 0.0007774511636373002,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.00014868733776626626,
+      4.9068731142698304e-05,
+      0.0008770697702608682
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:50"
+  },
+  {
+    "account": 15,
+    "tick": 9024,
+    "event_index": 0,
+    "original_signal": 0.0005724274289875992,
+    "signal": 0.0005724274289875992,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -4.338305354327825e-05,
+      0.0002590877032090453,
+      0.0003567227793218321
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:60"
+  },
+  {
+    "account": 16,
+    "tick": 9084,
+    "event_index": 0,
+    "original_signal": -0.005140146404340882,
+    "signal": -0.005140146404340882,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.003474930971950191,
+      2.943619747430423e-05,
+      -0.0016946516298649947
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:56"
+  },
+  {
+    "account": 17,
+    "tick": 9091,
+    "event_index": 1,
+    "original_signal": 0.0003607685876619878,
+    "signal": 0.0003607685876619878,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.0002849784498363828,
+      0.0005433609236023073,
+      0.0001023861138960633
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:55"
+  },
+  {
+    "account": 16,
+    "tick": 9102,
+    "event_index": 0,
+    "original_signal": -0.001011534627252122,
+    "signal": -0.001011534627252122,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.00041612139458880963,
+      -2.16453187224219e-05,
+      -0.0005737679139408903
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:57"
+  },
+  {
+    "account": 17,
+    "tick": 9125,
+    "event_index": 0,
+    "original_signal": -0.0002717297434975341,
+    "signal": -0.0002717297434975341,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00013128100948681803,
+      1.4189740369114278e-05,
+      -0.00015463847437983039
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:56"
+  },
+  {
+    "account": 15,
+    "tick": 9207,
+    "event_index": 1,
+    "original_signal": 0.0011067049088382076,
+    "signal": 0.0011067049088382076,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -7.308474553500647e-05,
+      0.0006601316589607083,
+      0.0005196579954125059
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:61"
+  },
+  {
+    "account": 19,
+    "tick": 9256,
+    "event_index": 1,
+    "original_signal": -0.0006074580692494513,
+    "signal": -0.0006074580692494513,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      1.0433127522100454e-05,
+      -3.2715890894478904e-05,
+      -0.0005851753058770729
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:45"
+  },
+  {
+    "account": 16,
+    "tick": 9289,
+    "event_index": 0,
+    "original_signal": -0.0012290967111459744,
+    "signal": -0.0012290967111459744,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0008922407075823426,
+      4.407146834240209e-06,
+      -0.0003412631503978719
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:58"
+  },
+  {
+    "account": 15,
+    "tick": 9298,
+    "event_index": 1,
+    "original_signal": -0.0012244481013621916,
+    "signal": -0.0012244481013621916,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -1.8551673867285675e-05,
+      -0.0006543331080563933,
+      -0.0005515633194385127
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:62"
+  },
+  {
+    "account": 19,
+    "tick": 9345,
+    "event_index": 0,
+    "original_signal": -0.0007073146334271056,
+    "signal": -0.0007073146334271056,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      2.2029988216015147e-06,
+      1.6269704004938092e-05,
+      -0.0007257873362536452
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:46"
+  },
+  {
+    "account": 17,
+    "tick": 9374,
+    "event_index": 0,
+    "original_signal": 0.000564198986499476,
+    "signal": 0.000564198986499476,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      -0.00018995616419282518,
+      0.0005229026373023679,
+      0.00023125251338993323
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:57"
+  },
+  {
+    "account": 17,
+    "tick": 9392,
+    "event_index": 0,
+    "original_signal": -0.002012144010566631,
+    "signal": -0.002012144010566631,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0003202663473434744,
+      -0.0023102899040947675,
+      -2.2120453815337656e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:58"
+  },
+  {
+    "account": 15,
+    "tick": 9403,
+    "event_index": 1,
+    "original_signal": 0.0007775558217531262,
+    "signal": 0.0007775558217531262,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      8.072061746198847e-05,
+      5.358046698088876e-05,
+      0.000643254737310249
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:63"
+  },
+  {
+    "account": 16,
+    "tick": 9417,
+    "event_index": 0,
+    "original_signal": -0.0016799344364922689,
+    "signal": -0.0016799344364922689,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0012325021568403039,
+      -1.1214021310042893e-07,
+      -0.00044732013943886455
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:59"
+  },
+  {
+    "account": 18,
+    "tick": 9500,
+    "event_index": 1,
+    "original_signal": -0.0012272969537369055,
+    "signal": -0.0012272969537369055,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0013649017532835475,
+      0.0006453473597171181,
+      -0.0005077425601704761
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:51"
+  },
+  {
+    "account": 17,
+    "tick": 9582,
+    "event_index": 2,
+    "original_signal": -0.0002991989926257948,
+    "signal": -0.0002991989926257948,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      3.073987349681385e-06,
+      0.0001252998601882048,
+      -0.00042757284016368095
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:59"
+  },
+  {
+    "account": 15,
+    "tick": 9654,
+    "event_index": 0,
+    "original_signal": -0.0026154052805225955,
+    "signal": -0.0026154052805225955,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      0.00014233567738777423,
+      -0.003059303244282673,
+      0.0003015622863723032
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:64"
+  },
+  {
+    "account": 17,
+    "tick": 9670,
+    "event_index": 0,
+    "original_signal": -0.0010620484656487122,
+    "signal": -0.0010620484656487122,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0002266185216865131,
+      -0.0012267480627025623,
+      -6.191892463266308e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:60"
+  },
+  {
+    "account": 18,
+    "tick": 9707,
+    "event_index": 1,
+    "original_signal": -0.0007257881988112262,
+    "signal": -0.0007257881988112262,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0017625280393774678,
+      0.0008119600003668577,
+      0.00022477984019938398
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:52"
+  },
+  {
+    "account": 16,
+    "tick": 9724,
+    "event_index": 0,
+    "original_signal": -0.002135866897330891,
+    "signal": -0.002135866897330891,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.0010499904316992215,
+      -2.167656904140225e-06,
+      -0.0010837088087275295
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:60"
+  },
+  {
+    "account": 19,
+    "tick": 9741,
+    "event_index": 0,
+    "original_signal": 0.001032152036859453,
+    "signal": 0.001032152036859453,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -5.159962449742466e-06,
+      0.00015624290312115242,
+      0.000881069096188043
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:47"
+  },
+  {
+    "account": 17,
+    "tick": 9759,
+    "event_index": 0,
+    "original_signal": -0.00022683628536660085,
+    "signal": -0.00022683628536660085,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      8.625122064255436e-05,
+      -0.00010747769099565782,
+      -0.00020560981501349738
+    ],
+    "dominant": "noise",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:61"
+  },
+  {
+    "account": 15,
+    "tick": 9762,
+    "event_index": 0,
+    "original_signal": 0.0006927083722947844,
+    "signal": 0.0006927083722947844,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -2.7151448118511622e-05,
+      0.0004875529268310092,
+      0.0002323068935822868
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:65"
+  },
+  {
+    "account": 17,
+    "tick": 9840,
+    "event_index": 0,
+    "original_signal": -0.003374867352913748,
+    "signal": -0.003374867352913748,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      0.0003246962242907053,
+      -0.003666412977984726,
+      -3.315059921972678e-05
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:62"
+  },
+  {
+    "account": 16,
+    "tick": 9872,
+    "event_index": 2,
+    "original_signal": -0.003473271555356267,
+    "signal": -0.003473271555356267,
+    "sigma": 0.0009584245060764243,
+    "terms": [
+      -0.002658199844676899,
+      1.567942209699745e-05,
+      -0.0008307511327763654
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "16:61"
+  },
+  {
+    "account": 18,
+    "tick": 9873,
+    "event_index": 0,
+    "original_signal": -0.002113153366513503,
+    "signal": -0.002113153366513503,
+    "sigma": 0.0004914244646153101,
+    "terms": [
+      -0.0036706746336227954,
+      0.001887278172084044,
+      -0.0003297569049747518
+    ],
+    "dominant": "trend",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "18:53"
+  },
+  {
+    "account": 19,
+    "tick": 9875,
+    "event_index": 0,
+    "original_signal": 0.0011891152273166038,
+    "signal": 0.0011891152273166038,
+    "sigma": 0.0005440083729149102,
+    "terms": [
+      -3.8189756567612185e-05,
+      0.0010645132159940109,
+      0.00016279176789020522
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "19:48"
+  },
+  {
+    "account": 15,
+    "tick": 9885,
+    "event_index": 0,
+    "original_signal": 0.0024544982887988887,
+    "signal": 0.0024544982887988887,
+    "sigma": 0.0004917684747965548,
+    "terms": [
+      -0.00017154742573759774,
+      0.0029068480431425525,
+      -0.00028080232860606627
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "15:66"
+  },
+  {
+    "account": 17,
+    "tick": 9989,
+    "event_index": 2,
+    "original_signal": -0.000727875393535629,
+    "signal": -0.000727875393535629,
+    "sigma": 0.00022628828257235847,
+    "terms": [
+      6.231600986958652e-05,
+      -0.0009444456314073933,
+      0.0001542542280021779
+    ],
+    "dominant": "reversion",
+    "accepted": true,
+    "confirmation": null,
+    "action": "open",
+    "episode_id": "17:63"
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "phase": "smoke",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 8
+  },
+  {
+    "phase": "connect",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 1
+  },
+  {
+    "phase": "role_prepare",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 85
+  },
+  {
+    "phase": "readheavy",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 29
+  },
+  {
+    "phase": "normal",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 155
+  },
+  {
+    "phase": "active",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 327
+  },
+  {
+    "phase": "stress",
+    "pair_id": 2,
+    "kind": "finished_future_done",
+    "count": 382
+  }
+]

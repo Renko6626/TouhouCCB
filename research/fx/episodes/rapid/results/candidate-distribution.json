@@ -1,0 +1,80 @@
+[
+  {
+    "seed": 81,
+    "hours": 6.0,
+    "completed": 122,
+    "mean_minutes": 7.47950819672131,
+    "median_minutes": 5.833333333333333,
+    "p90_minutes": 14.966666666666669,
+    "fraction_under5": 0.45081967213114754,
+    "fraction5to15": 0.45081967213114754,
+    "fraction_over15": 0.09836065573770492,
+    "unfinished_count": 2,
+    "pending_max_age_minutes": 1.8333333333333333
+  },
+  {
+    "seed": 81,
+    "hours": 24.0,
+    "completed": 488,
+    "mean_minutes": 8.205601092896174,
+    "median_minutes": 6.333333333333333,
+    "p90_minutes": 17.166666666666668,
+    "fraction_under5": 0.375,
+    "fraction5to15": 0.5,
+    "fraction_over15": 0.125,
+    "unfinished_count": 4,
+    "pending_max_age_minutes": 22.666666666666668
+  },
+  {
+    "seed": 82,
+    "hours": 6.0,
+    "completed": 117,
+    "mean_minutes": 8.413105413105413,
+    "median_minutes": 6.5,
+    "p90_minutes": 16.300000000000004,
+    "fraction_under5": 0.3418803418803419,
+    "fraction5to15": 0.5470085470085471,
+    "fraction_over15": 0.1111111111111111,
+    "unfinished_count": 1,
+    "pending_max_age_minutes": 0.16666666666666666
+  },
+  {
+    "seed": 82,
+    "hours": 24.0,
+    "completed": 473,
+    "mean_minutes": 8.18816067653277,
+    "median_minutes": 6.333333333333333,
+    "p90_minutes": 16.433333333333337,
+    "fraction_under5": 0.38054968287526425,
+    "fraction5to15": 0.4904862579281184,
+    "fraction_over15": 0.12896405919661733,
+    "unfinished_count": 4,
+    "pending_max_age_minutes": 13.333333333333334
+  },
+  {
+    "seed": 83,
+    "hours": 6.0,
+    "completed": 121,
+    "mean_minutes": 8.331955922865014,
+    "median_minutes": 6.5,
+    "p90_minutes": 15.5,
+    "fraction_under5": 0.36363636363636365,
+    "fraction5to15": 0.5289256198347108,
+    "fraction_over15": 0.10743801652892562,
+    "unfinished_count": 4,
+    "pending_max_age_minutes": 17.833333333333332
+  },
+  {
+    "seed": 83,
+    "hours": 24.0,
+    "completed": 482,
+    "mean_minutes": 8.282849239280775,
+    "median_minutes": 6.5,
+    "p90_minutes": 17.0,
+    "fraction_under5": 0.34647302904564314,
+    "fraction5to15": 0.516597510373444,
+    "fraction_over15": 0.13692946058091288,
+    "unfinished_count": 1,
+    "pending_max_age_minutes": 34.166666666666664
+  }
+]

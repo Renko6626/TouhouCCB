@@ -1,0 +1,13 @@
+{
+  "paths": 26,
+  "new_paths": 26,
+  "training_paths": 14,
+  "holdout_paths": 12,
+  "no_shocks": true,
+  "all_series_finite": true,
+  "wallets_nonnegative": true,
+  "assets_conserved_for_actual_pool_sizes": true,
+  "wallet_values_and_trade_counts_verified": true,
+  "source_hashes_unchanged": true,
+  "selected_before_holdout": true
+}

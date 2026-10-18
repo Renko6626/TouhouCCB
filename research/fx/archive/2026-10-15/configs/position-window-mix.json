@@ -1,0 +1,47 @@
+{
+  "defaults": {
+    "ticks": 100000,
+    "burn_in": 5000,
+    "bots": 20,
+    "rate": 0.05,
+    "order_size": 200,
+    "trend_strength": 30,
+    "reversion_strength": 1,
+    "noise_sigma": 0.001,
+    "sensitivity": 100,
+    "gold": 1000000,
+    "foreign": 200000,
+    "fee_rate": 0.0005,
+    "strategy": "position",
+    "position_cap": 250,
+    "adjustment": 0.2
+  },
+  "cases": [
+    {
+      "window": 10
+    },
+    {
+      "window": 30
+    },
+    {
+      "window": 100
+    },
+    {
+      "window": 300
+    },
+    {
+      "window": 30,
+      "window_mix": [
+        10,
+        30,
+        100,
+        300
+      ]
+    }
+  ],
+  "seeds": [
+    31,
+    32,
+    33
+  ]
+}

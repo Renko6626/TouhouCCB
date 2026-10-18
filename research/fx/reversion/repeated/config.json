@@ -1,0 +1,17 @@
+{
+  "ticks": 10000,
+  "tick_seconds": 10,
+  "event_interval": 1000,
+  "event_abs_return": 0.05,
+  "shock_seed": 20261015,
+  "market_seed": 81,
+  "population_seed": 301,
+  "spread": 1,
+  "inventory_count": 5,
+  "b": 0.25,
+  "order_sigma_foreign": 120,
+  "psi": 0.0012,
+  "include_no_shock_control": true,
+  "net_worth_definition": "gold + foreign * contemporaneous_pool_price",
+  "event_timing": "after ordinary trades at the event tick; next tick receives the return feedback"
+}

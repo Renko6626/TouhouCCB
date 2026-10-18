@@ -1,0 +1,67 @@
+{
+  "spec": {
+    "event_tick": 1000,
+    "event_price_jump": 0.05,
+    "shock_direction": "up_only",
+    "tick_seconds": 10,
+    "horizons": [
+      2160,
+      8640
+    ],
+    "observation_ticks": [
+      30,
+      60,
+      180
+    ],
+    "seeds": [
+      81,
+      82,
+      83
+    ],
+    "random_count": 15,
+    "b": 0.25,
+    "note": "isolated event; no calibrated event frequency or downward-event test"
+  },
+  "source_sha256": {
+    "research/fx/activity/run.py": "b32ab92102efc5dbe560e9fc032b50d1286e0475b73f071a2b5c3e20aab2f7ac",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/common/__init__.py": "2dfe33b532aba5a05b60654c1ce20caa2722a13195b1d7368bf1735334e4bf0a",
+    "research/fx/common/amm.py": "9b92fdc0fcd741a3a74ca9249c62af58e4bdfb739d12e64bd116dda3b45f40d0",
+    "research/fx/common/analysis.py": "c512e21d4254ea266fc43478edd28a6dd5f06c9c8b34ae4db43a4c960de14df8",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/common/diagnostics.py": "2db57539c108644845767de2fe4dd49bde4682a4c2ee945c179c0bfa323b4e55",
+    "research/fx/common/execution.py": "d424108e01b8202e49f05013a9f33f9de94a223f46b148f1f5b0c6f847ee331d",
+    "research/fx/common/reporting.py": "c97bfe6d13d635d304f55f965fe1dfc141bd4a137cc8a05fcd475d165fea8fcf",
+    "research/fx/common/scaling.py": "ff0eed69f28ce8c4f6422f84214af347a0bdfa89c6e616bc9aee191d7823c547",
+    "research/fx/common/series.py": "c2e6fc29baeca3c0c4defd24cf1b1089c1fa23dd5eef525415df4e6415b66f71",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008",
+    "backend/app/services/fx/quantize.py": "fc00ed13ac71d67e3d3ea8115682fe2ffcc88d7e256807b0d372ca79615074be",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/factor_activity/run.py": "dce413b29f388236ae70d7ee4968ef80414bbf900275b8b5ff987a2d6d5f6e1a",
+    "research/fx/factor_activity/config.json": "bc4e0f96135d5ece607a9f896d2cf7b7423e21ebebfbd37f094db8e5f294aa5c",
+    "research/fx/archive/2026-10-15/expectation.py": "859d462cb0d1b78a1f2baba97ec4c6eb55f19268bb7df6d270454d57207107b7",
+    "research/fx/archive/2026-10-15/position.py": "cb91b6e6962aa38ec6f17215126f8f5840362464d105418ae1d27be0b6ad8efe",
+    "research/fx/archive/2026-10-15/configs/baseline.json": "c077ea45692ed5ef54e110d89dff7ce4cc22c1401193808d1faea495230c217e",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/episodes/run.py": "a7c8cbdb2eb631d8d37271866aed0ddaa06a6669b5f6a159de7c854bb8487500",
+    "research/fx/episodes/config.json": "382ce55b8140a351820fb61a86234e78ddf8b52aa77fef8df23dc0cfd3a17ac6",
+    "research/fx/factor_activity/grid.py": "99ee95a1e83480c286d9a3b1729262e00474bf3d18ad1b039817394ba2bb9ce5",
+    "research/fx/heterogeneous/profiles.py": "1543169973c57bbbb2b3afc31691d0c61079674ca702215e7f642fc5958deb7a",
+    "research/fx/injection/run.py": "df910c124ea968acb052c2a08791d885136c4b9dd3461e3aa7607a26decb932f",
+    "research/fx/episodes/rapid/event5.py": "4a63e6de6c767fb0ccd08f8d2ade336524ac9cdf08b66bfd5845ccd09651d106"
+  },
+  "control_sha256": {
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed81/control.npz": "cc609abafc2a1bd9bc1e122ad93319fa0a3df93f557ed320e24eb44fda8ec788",
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed81/result.json": "2faee458a5539c53e7bd73041c16541eb61c994fddab7171e821d0b3c7685d79",
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed82/control.npz": "34a87df0e7edd5d019cb8c5208459cd17b143dd0f334e2f964e011b80d91cf64",
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed82/result.json": "9fcc96b794b011ab23eae5f5116888d6863199def023b53d46bff391ca3c1d2f",
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed83/control.npz": "356a647d419fbe4e9e51f5907a49afc9d1069a679ac1787e11c6c974f42e045c",
+    "research/fx/episodes/rapid/results/eighth_rate1-random15-seed83/result.json": "407479a6ec2184f962cf59f58bd6408e2f2aca3675769e287db3f95481cb4a7d",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed81/control.npz": "8e05b930435e6b61ee227f3af3e8f5224ad326b590d047b563181d26ee77f69c",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed81/result.json": "16374ea8063c752ce21fe693ec44787d0cf34abe6d29284ffbdaacd170bfcabe",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed82/control.npz": "90650911c87e9bb61ae20a4cd0b7ee101bcf7cdb35141fc308bb2106df65cec7",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed82/result.json": "c8bc2a8702e8fe7609b6c6bdd1c58dd21a7222a82ff18e1ba566d5b33cce7401",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed83/control.npz": "7a55967b22a8d21cda5cbcb085db9d467eb81699235de074ba3b428e7f641e47",
+    "research/fx/episodes/session/results/exit_quarter-random15-seed83/result.json": "c3915450f13b398a509d278c565031238d3b1b2de28997a0560ff88819340424"
+  }
+}

@@ -11,7 +11,8 @@ from sqlalchemy.engine import make_url
 from app.models.base import User
 from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
 from app.schemas.fx import FxTriggerOrderCreate
-from app.services.fx import orders, net_trading
+from app.services.fx import orders, net_trading, trading
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from tests.pg.test_pg_fx_short_concurrency import seed, writer
 
 pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
@@ -21,15 +22,22 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 def exact_disposable_database():
     # Runs before the function-scoped pg_engine's schema reset.
     url = make_url(os.environ.get('TEST_PG_DATABASE_URL', ''))
-    if (url.drivername != 'postgresql+asyncpg' or url.host != '127.0.0.1'
-            or url.port != 55547 or url.database != 'thccb_fx_orders_test'):
-        raise pytest.UsageError('Task 3 requires the approved disposable FX orders database')
+    old_orders = (url.host == '127.0.0.1' and url.port == 55547
+                  and url.database == 'thccb_fx_orders_test')
+    committed_reads = (url.query.get('host') == '/tmp/sunyunbo/fx-pool-incident-20261017/socket'
+                       and url.query.get('port') == '55489'
+                       and url.database in {'fx_market_memory_test', 'fx_single_writer_correctness_test'})
+    if url.drivername != 'postgresql+asyncpg' or not (old_orders or committed_reads):
+        raise pytest.UsageError('Requires an approved disposable FX test database')
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def order_sessions(pg_sessionmaker, monkeypatch):
+async def order_sessions(pg_sessionmaker, monkeypatch, writer):
     import app.core.database
     monkeypatch.setattr(app.core.database, 'async_session_maker', pg_sessionmaker)
+    from app.services import trading_prices
+    from app.services.credit import ownership
+    monkeypatch.setattr(trading_prices, 'OWNERSHIP', ownership.OWNERSHIP)
 
 
 def request(pid):
@@ -63,7 +71,7 @@ async def test_concurrent_creation_holds_account_limit(pg_sessionmaker):
 
 
 @pytest.mark.parametrize('winner', ['trigger', 'cancel'])
-async def test_cancel_trigger_row_lock_has_one_financial_outcome(pg_sessionmaker, monkeypatch, winner):
+async def test_cancel_trigger_row_lock_has_one_financial_outcome(pg_sessionmaker, monkeypatch, winner, committed_fx_registry):
     uid, pid = await seed(pg_sessionmaker)
     async with pg_sessionmaker() as db:
         order = await orders.create_order(db, uid, request(pid))
@@ -115,6 +123,24 @@ async def test_cancel_trigger_row_lock_has_one_financial_outcome(pg_sessionmaker
             assert final.status == 'succeeded' and final.execution_id == receipts[0].id
             assert len(receipts) == len(trades) == len(wallets) == 1
             assert user.cash == 990 and wallets[0].foreign_amount == trades[0].output_amount
+            await assert_committed_fx(committed_fx_registry, db, pid)
         else:
             assert final.status == 'cancelled' and final.execution_id is None
             assert user.cash == 1000 and receipts == trades == wallets == []
+
+
+async def test_success_rescan_and_failed_order_preserve_later_projection(pg_sessionmaker, committed_fx_registry):
+    uid, pid = await seed(pg_sessionmaker)
+    async with pg_sessionmaker() as db:
+        succeeded = await orders.create_order(db, uid, request(pid))
+        rejected = await orders.create_order(db, uid, FxTriggerOrderCreate(pair_id=pid,
+            action='buy', amount='999999', comparison='lte', trigger_price='100'))
+    assert (await orders.attempt_order(succeeded.id, 1)).status == 'succeeded'
+    async with pg_sessionmaker() as db:
+        await assert_committed_fx(committed_fx_registry, db, pid)
+        await trading.execute_trade(db, uid, pid, 'buy', 1, 0, 'later')
+    latest = committed_fx_registry.peek_fx(pid)
+    assert latest is not None
+    assert await orders.attempt_order(succeeded.id, 1) is None
+    assert (await orders.attempt_order(rejected.id, 1)).status == 'failed'
+    assert committed_fx_registry.peek_fx(pid) == latest

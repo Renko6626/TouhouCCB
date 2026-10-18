@@ -12,10 +12,9 @@ Transaction contract (WP4a/WP4b):
   ``services.credit.fx_quote`` interface, moves wallet/cash/pool/treasury in
   the same transaction and leaves debt repayment and the commit to the
   orchestration caller.  It is idempotent per ``(run_id, round_no)``.
-- ``execute_trade`` is the request-path wrapper: it owns commit (or the
-  idempotent-replay rollback) and hands the committed trade to the bounded
-  post-commit publisher, which never blocks the response on the public frame
-  or on the 24h volume aggregation.
+- ``execute_trade`` releases the request transaction and submits a typed
+  command to the pair writer. The writer owns commit, snapshot installation
+  and post-commit hints, including idempotent replay rollback.
 
 Lock order is always ``pair -> user -> wallet -> treasury`` in all three
 execution paths.  Player order acceptance follows the F9 double-axis product
@@ -23,13 +22,13 @@ state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
 documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
-from app.services.account_events import capture_accounts, publish_accounts
+from app.services.market_read_state import FxReadState, stage_fx_pair
 
 import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Optional, Callable, Awaitable
+from typing import Optional
 
 from fastapi import HTTPException
 from sqlalchemy import and_, bindparam, case, func, select
@@ -43,11 +42,11 @@ from app.schemas.fx import FxQuote, FxSnapshot, FxTradePublic, FxPairPublic
 from app.services import audit_service, site_config, loan_service, ledger_service
 from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
 from app.services.fx import publisher
+from app.services import trading_prices
 from app.services.fx.amm import quote_buy, quote_sell, quote_buy_exact_out, amount_down, marginal_price
 from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import DependencySet, PostTradeState, discover_dependencies, check_new_risk
@@ -180,16 +179,48 @@ def _player_side_allowed(status: str, reduce_only: bool, side: str) -> bool:
     return False
 
 
-async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False) -> FxPair:
+async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False,
+                fresh: bool = False) -> FxPair:
+    statement = _PAIR_LOCK if lock else _PAIR_READ
+    if fresh:
+        statement = statement.execution_options(populate_existing=True)
     pair = (await db.execute(
-        _PAIR_LOCK if lock else _PAIR_READ, {'fx_pair_id': pair_id}
+        statement, {'fx_pair_id': pair_id}
     )).scalars().first()
     if pair is None:
         raise HTTPException(status_code=404, detail="FX pair not found")
     return pair
 
 
-def _math(pair: FxPair, side: str, amount: Decimal):
+async def _read_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
+    state = trading_prices.REGISTRY.peek_fx(pair_id)
+    if state is not None:
+        return state
+    # Caller-owned transactions (including isolated test sessions) cannot wait
+    # on a market GATE. Uncovered/read-only processes also retain that session.
+    session = getattr(db, "sync_session", getattr(db, "_session", db))
+    if trading_prices.REGISTRY._can_reuse("fx") and not session.in_transaction():
+        return await trading_prices.REGISTRY.read_fx(pair_id)
+    return FxReadState.from_pair(await _pair(db, pair_id))
+
+
+async def read_public_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
+    """Reuse memory only when the existing history row lock proves its version.
+
+    A committed writer may still be installing memory. In that interval use
+    this locked session's fresh row without installing it or acquiring GATES.
+    """
+    version = (await db.execute(select(FxPair.pool_version).where(
+        FxPair.id == pair_id).with_for_update(read=True))).scalar_one_or_none()
+    if version is None:
+        raise HTTPException(status_code=404, detail="FX pair not found")
+    state = trading_prices.REGISTRY.peek_fx(pair_id)
+    if state is not None and state.pool_version == version:
+        return state
+    return FxReadState.from_pair(await _pair(db, pair_id, fresh=True))
+
+
+def _math(pair: FxPair | FxReadState, side: str, amount: Decimal):
     side = str(side).lower()
     if side == "buy":
         return quote_buy(amount, pair.gold_reserve, pair.foreign_reserve, pair.buy_fee_rate)
@@ -198,7 +229,7 @@ def _math(pair: FxPair, side: str, amount: Decimal):
     raise TradeRejected("side must be buy or sell")
 
 
-def _gold_per_foreign(pair: FxPair, side: str) -> Decimal:
+def _gold_per_foreign(pair: FxPair | FxReadState, side: str) -> Decimal:
     """Effective quote normalized to **gold per foreign** (8dp).
 
     A player ``buy`` spends gold for foreign, so its effective price is
@@ -216,7 +247,7 @@ def _gold_per_foreign(pair: FxPair, side: str) -> Decimal:
 async def quote(db: AsyncSession, pair_id: int, side: str, amount: Decimal,
                 user_id: Optional[int] = None) -> FxQuote:
     amount = _positive(amount, "amount")
-    pair = await _pair(db, pair_id)
+    pair = await _read_pair_state(db, pair_id)
     try:
         q = _math(pair, side, amount)
     except (TypeError, ValueError, ArithmeticError) as exc:
@@ -307,10 +338,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
                                    bot_reference_price: Decimal | None = None) -> FxTradeExecution:
     """Execute one player FX trade inside the caller's transaction.
 
-    Unified callers must acquire the target exclusive gate and every collateral
-    shared gate before opening this transaction, pass ``credit_deps`` for debt
-    buys, and retain gates through commit. ``_RetryCredit`` requires rollback,
-    release of all gates and fresh discovery; never retry inside existing gates.
+    The target writer owns this transaction. Credit buys rediscover the complete
+    own ledger after locking User and capture committed prices before simulation.
     Acquires product locks
     in ``pair -> user -> wallet -> treasury`` order and flushes its writes, but
     deliberately does **not** commit, roll back or publish.  On error the
@@ -318,8 +347,6 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     """
     _require_writes()
     key = GroupKey("fx", pair_id)
-    if key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("unified FX caller must hold target exclusive gate through commit")
     amount = _positive(amount, "amount")
     min_out = _nonnegative(min_out, "min_out")
     if not idempotency_key or len(idempotency_key) > 128:
@@ -388,19 +415,7 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     requires_credit = normalized == "buy" and (financed or user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
-        if (credit_deps is None
-                or economic_version_of(user) != credit_deps.economic_version
-                or not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task())):
-            raise _RetryCredit()
-        # Price snapshots from discovery can age while waiting for gates. Refresh
-        # inside the complete gate set before simulating this transaction.
-        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key])
-        # 锁内重发现若引入当前 GATE 集合之外的新依赖组（例如并发新增的外币空头/
-        # 资产 pair，即使 User economic_version 未变），其快照没有门闩保护，绝不能用
-        # 于风险报价：退出让外层释放锁与 GATES 后重新发现并一次性取全有序门闩。
-        # 禁止在持 User 锁时补拿新的 pair GATE（spec §11）。
-        if not set(credit_deps.groups).issubset(GATES.held_keys_by_current_task()):
-            raise _RetryCredit()
+        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
         # 同一 pair 已欠币时普通现货买入不得建立多头（spec §1/§9），必须走回补
         # 入口；判定放在幂等回放之后，保证重试返回原成交而不是被新规则误拒。
         snapshot = credit_deps.snapshots.get(key)
@@ -538,6 +553,7 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
     pair.gold_reserve, pair.foreign_reserve = q.post_gold_reserve, q.post_foreign_reserve
     pair.pool_version += 1
     pair.updated_at = utcnow()
+    stage_fx_pair(db, pair)
     if treasury is None:
         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
                                      .with_for_update().execution_options(populate_existing=True))).scalars().first()
@@ -588,64 +604,20 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                         idempotency_key: str, *, amount_mode: str = 'input',
                         bot_profile_id: int | None = None, bot_purpose: str = 'scheduled',
                         bot_operator_id: int | None = None,
-                        bot_reference_price: Decimal | None = None,
-                        before_commit: Callable[[AsyncSession, FxTradeExecution], Awaitable[None]] | None = None) -> FxTradePublic:
-    """Request-path wrapper: owns the transaction boundary and publication.
-
-    Commits a fresh execution (or rolls back an idempotent replay to release
-    the pair/user locks) and enqueues the committed trade on the bounded
-    publisher.  Enqueueing never blocks: the response does not wait for the
-    public frame or its 24h volume aggregation.
-    """
+                        bot_reference_price: Decimal | None = None) -> FxTradePublic:
+    """Release the producer transaction, then submit immutable request values."""
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import SpotTrade
     _require_writes()
-    flags = credit_flags.get_flags()
-    needs_discovery = False
-    for attempt in range(flags.credit_risk_retry_limit + 2):
-        try:
-            # Optimistically take only the target gate. If the locked user
-            # has debt, release everything and discover the complete set.
-            deps = (await discover_dependencies(db, user_id, extra_groups=[GroupKey("fx", pair_id)])
-                    if needs_discovery else None)
-            if db.in_transaction():
-                await db.rollback()
-            async with GATES.hold(exclusive=[GroupKey("fx", pair_id)],
-                                  shared=deps.groups if deps else ()):
-                try:
-                    execution = await execute_trade_in_session(
-                        db, user_id, pair_id, side, amount, min_out,
-                        idempotency_key, credit_deps=deps, amount_mode=amount_mode,
-                        bot_profile_id=bot_profile_id, bot_purpose=bot_purpose,
-                        bot_operator_id=bot_operator_id, bot_reference_price=bot_reference_price)
-                    if execution.replay:
-                        await db.rollback()
-                        return execution.public
-                    if before_commit is not None:
-                        await before_commit(db, execution)
-                    _require_writes()
-                    account_hints = capture_accounts(db)
-                    await db.commit()
-                    publish_accounts(account_hints, "trading")
-                except BaseException:
-                    await _rollback_quietly(db)
-                    raise
-            # Gate released and the fresh commit is durable: now hint the
-            # incremental market-data runtime (a replay returned above).
-            notify_market_data_committed(pair_id)
-            break
-        except _RetryCredit:
-            needs_discovery = True
-            if attempt == flags.credit_risk_retry_limit + 1:
-                raise HTTPException(status_code=409, detail="version_conflict; retry")
-        except BaseException:
-            await _rollback_quietly(db)
-            raise
-    # Pool version is committed before gates release; publication is bounded
-    # and cannot extend the transaction or hold unrelated symbols.
-    await db.refresh(execution.trade)
-    public = FxTradePublic.model_validate(execution.trade)
-    publisher.enqueue_publication(pair_id=public.pair_id, post_price=public.post_price,
-                                  trade_id=public.id)
-    return public
+    command = SpotTrade(pair_id=int(pair_id), user_id=int(user_id), side=side,
+        amount=_positive(amount, 'amount'), min_out=_nonnegative(min_out, 'min_out'),
+        idempotency_key=idempotency_key,
+        amount_mode=amount_mode, bot_profile_id=bot_profile_id,
+        bot_purpose=bot_purpose, bot_operator_id=bot_operator_id,
+        bot_reference_price=bot_reference_price)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 def liquidation_idempotency_key(run_id: int, round_no: int) -> str:
@@ -777,6 +749,7 @@ async def execute_liquidation_sell_in_session(
     pair.foreign_reserve = quote.post_foreign_reserve
     pair.pool_version += 1
     pair.updated_at = utcnow()
+    stage_fx_pair(db, pair)
     # Sell fees are charged in foreign inside the AMM; they accrue to treasury
     # while the pool receives the net input.
     treasury.foreign_balance += quote.fee_foreign
@@ -817,8 +790,9 @@ async def publish_public_event(trade: FxTrade) -> None:
         pair_id=trade.pair_id, post_price=trade.post_price, trade_id=trade.id)
 
 
-async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
-    pair = await _pair(db, pair_id)
+async def get_public_snapshot(db: AsyncSession, pair_id: int, *,
+                              pair_state: FxReadState | None = None) -> FxSnapshot:
+    pair = pair_state if pair_state is not None else await _read_pair_state(db, pair_id)
     # Stored pairs make the market readable.  If an operator persisted a
     # pathological configuration (fee rate == 1, reserves too small to round a
     # single unit), the AMM math rejects it; surface an actionable 422 for the

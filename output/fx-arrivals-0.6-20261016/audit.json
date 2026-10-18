@@ -1,0 +1,11 @@
+{
+  "new_paths": 3,
+  "no_shocks": true,
+  "zero_fees": true,
+  "only_mean_arrivals_changed": true,
+  "finite_series": true,
+  "nonnegative_wallets": true,
+  "assets_conserved": true,
+  "wealth_and_trade_counts_verified": true,
+  "sources_unchanged": true
+}

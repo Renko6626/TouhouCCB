@@ -1,0 +1,9 @@
+{
+  "backend/app/services/fx/net_trading.py": "da97983b64f9dcb72f5d9722d936c83572acb5a068df22f498f962ee6a3e073a",
+  "backend/app/services/fx/trading.py": "8f37ab1bb389ebcf9c9d4e7c708a40999c70005290ce5bddaea0118381db907d",
+  "backend/app/services/fx/shorts.py": "aa305d65ffd2cabc6b189eed6e2c6b358c4f5f7744a5bf5f213c3b10c12c03b6",
+  "backend/app/services/credit/risk.py": "950bfc6442a0d9a010073014ad828a8e443ef812d593d6dfb3682dbda2f9da42",
+  "backend/app/services/loan_service.py": "c2e2521cfb92f87377eff2ec7add1939cf506e790eeb252c6d2f230be5d89d20",
+  "backend/app/services/ledger_service.py": "e88788cd622894cb6e3cdab8c8b898942cad3e36b8469b618ffc298d38e8f42b",
+  "backend/app/services/market_locks.py": "f42cd58f2a245733b87dd72a3ff04a9fe66c584a3a9837cb8b34c49b0e34e71d"
+}

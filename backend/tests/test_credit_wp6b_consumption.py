@@ -27,7 +27,7 @@ from app.services.credit.flags import CreditFlags
 from app.services.credit.ownership import WriteOwnership
 from app.services.credit.version import economic_version_of
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("published_markets")]
 
 ZERO = Decimal("0")
 SQLITE_URL = "sqlite+aiosqlite:////dev/shm/credit-wp6b.db"
@@ -121,24 +121,15 @@ async def test_unified_purchase_deducts_and_bumps_version(writes_enabled):
     assert await _available_codes(batch_id) == 0
 
 
-async def test_unified_purchase_gate_covers_commit(writes_enabled, monkeypatch):
-    from contextlib import asynccontextmanager
+async def test_unified_purchase_commits_cash_and_code_together(writes_enabled):
     uid = await _seed_user(cash=Decimal("100"))
     batch_id = await _seed_batch(Decimal("10"))
     credit_flags.set_flags(UNIFIED)
-    original = redemption_svc.GATES.hold
-    observed = []
     async with async_session_maker() as s:
-        @asynccontextmanager
-        async def hold(**kwargs):
-            assert not s.in_transaction(), "read transaction must close before gate wait"
-            async with original(**kwargs):
-                yield
-                assert not s.in_transaction(), "mutation must commit before gate release"
-                observed.append(await _state(uid))
-        monkeypatch.setattr(redemption_svc.GATES, "hold", hold)
-        await redemption_svc.purchase_code(s, user_id=uid, batch_id=batch_id)
-    assert observed == [(Decimal("90.000000"), 1)]
+        result = await redemption_svc.purchase_code(s, user_id=uid, batch_id=batch_id)
+    assert result.cash_after == Decimal("90.000000")
+    assert await _state(uid) == (Decimal("90.000000"), 1)
+    assert await _available_codes(batch_id) == 0
 
 
 async def _seed_operator_frozen() -> None:

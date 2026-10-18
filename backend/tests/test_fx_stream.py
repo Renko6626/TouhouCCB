@@ -23,6 +23,10 @@ def _stub_history_reader_for_existing_wire_tests(monkeypatch):
         return tail
 
     monkeypatch.setattr(fx_stream, "read_fx_stream_history", read)
+    # These wire/queue tests stub the quote; real row-lock behavior lives in PG.
+    async def pair_state(db, pair_id):
+        return SimpleNamespace(id=pair_id)
+    monkeypatch.setattr(fx_stream.trading, "read_public_pair_state", pair_state)
 
 
 
@@ -77,7 +81,7 @@ async def test_fx_stream_snapshot_serializes_decimal_values_and_cleans_up_on_dis
         "volume_24h": Decimal("4.00"),
     }
     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         return snapshot
     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
@@ -152,7 +156,7 @@ async def test_fx_stream_subscribes_before_snapshot(monkeypatch):
             return FakeDB()
 
     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         order.append("snapshot")
         # A trade committed while the snapshot is being read must remain in
         # the subscriber queue even when the returned snapshot is stale.
@@ -189,7 +193,7 @@ async def test_publish_trade_uses_committed_snapshot_quotes_and_cumulative_volum
     class FakeMaker:
         def __call__(self): return FakeDB()
     monkeypatch.setattr(database, "async_session_maker", FakeMaker())
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         return {"price": Decimal("1.2"), "buy_price": Decimal("1.3"),
                 "sell_price": Decimal("1.1"), "spread": Decimal("0.2"),
                 "volume_24h": Decimal("9.5")}
@@ -293,7 +297,7 @@ def _patch_publish(monkeypatch, runtime):
             return False
 
     monkeypatch.setattr(database, "async_session_maker", lambda: FakeDB())
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         return {"price": Decimal("1.2"), "volume_24h": Decimal("9.5")}
     monkeypatch.setattr(trading, "get_public_snapshot", fake_snapshot)
     monkeypatch.setattr(market_state, "FX_MARKET_DATA", runtime)
@@ -394,7 +398,7 @@ async def test_fx_stream_snapshot_carries_history_tail_and_coverage_cursor(monke
     runtime = TailRuntime()
     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
     monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         return {"price": Decimal("1.10"), "spread": Decimal("0.02"),
                 "volume_24h": Decimal("4"), "target_price": Decimal("9")}
     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
@@ -456,7 +460,7 @@ async def test_fx_stream_snapshot_does_not_backfill_unknown_pair(monkeypatch):
     runtime = UnknownRuntime()
     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
     monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
-    async def fake_snapshot(db, pair_id):
+    async def fake_snapshot(db, pair_id, *, pair_state):
         return {"price": Decimal("1.10"), "volume_24h": Decimal("4")}
     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))

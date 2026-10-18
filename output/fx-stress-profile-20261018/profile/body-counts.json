@@ -1,0 +1,112 @@
+[
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 672
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 274766
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 474
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 212124
+  },
+  {
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 24353
+  },
+  {
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 12606984
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 452
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 581690
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 452
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 100796
+  },
+  {
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 22000
+  },
+  {
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 13549500
+  },
+  {
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 396
+  },
+  {
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 73327
+  },
+  {
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 518
+  },
+  {
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 402039
+  },
+  {
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "frames",
+    "count": 142
+  },
+  {
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "bytes",
+    "count": 35642
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 36
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 9998
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 32
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 5024
+  }
+]

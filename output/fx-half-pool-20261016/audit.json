@@ -1,0 +1,12 @@
+{
+  "reused_baselines": 3,
+  "new_half_pool_paths": 3,
+  "baseline_parameters_and_source_hashes_verified": true,
+  "no_shocks": true,
+  "wallets_nonnegative": true,
+  "all_series_finite": true,
+  "assets_conserved_with_actual_pool_sizes": true,
+  "wallet_values_verified": true,
+  "trade_counts_verified": true,
+  "frozen_sources_unchanged": true
+}

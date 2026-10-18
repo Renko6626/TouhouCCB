@@ -1,0 +1,772 @@
+[
+  {
+    "phase": "startup",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 60,
+    "total_ms": 41.31094738841057
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "kind": "INSERT",
+    "count": 2,
+    "total_ms": 3.0438564717769623
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "kind": "UPDATE",
+    "count": 1,
+    "total_ms": 0.39964914321899414
+  },
+  {
+    "phase": "startup",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "SELECT",
+    "count": 2,
+    "total_ms": 1.4620386064052582
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 3,
+    "total_ms": 4.407217726111412
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 11,
+    "total_ms": 12.53470592200756
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 894,
+    "total_ms": 427.5113716721535
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs",
+    "kind": "SELECT",
+    "count": 201,
+    "total_ms": 132.0995856076479
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/announcements/latest",
+    "kind": "SELECT",
+    "count": 100,
+    "total_ms": 55.18794059753418
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 300,
+    "total_ms": 190.64955785870552
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "SELECT",
+    "count": 200,
+    "total_ms": 112.89766617119312
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "kind": "SELECT",
+    "count": 400,
+    "total_ms": 197.02022522687912
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "SELECT",
+    "count": 2390,
+    "total_ms": 1535.9819028526545
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 1295,
+    "total_ms": 1482.2203554213047
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792216800.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 65.99012576043606
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792220400.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 67.7599348127842
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792224000.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 66.2770215421915
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792227600.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 65.27542881667614
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792231200.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 62.62476183474064
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792234800.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 62.54209391772747
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792238400.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 61.64192408323288
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/1m/1792242000.json",
+    "kind": "SELECT",
+    "count": 203,
+    "total_ms": 60.796843841671944
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "SELECT",
+    "count": 24,
+    "total_ms": 28.210170567035675
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "SELECT",
+    "count": 56,
+    "total_ms": 49.89354498684406
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "INSERT",
+    "count": 33,
+    "total_ms": 46.05821706354618
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "UPDATE",
+    "count": 39,
+    "total_ms": 30.588218942284584
+  },
+  {
+    "phase": "smoke",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 16,
+    "total_ms": 26.408366858959198
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 24,
+    "total_ms": 104.2544487863779
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 72,
+    "total_ms": 145.3811712563038
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 32,
+    "total_ms": 130.87345100939274
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 24,
+    "total_ms": 71.00246660411358
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "SELECT",
+    "count": 16,
+    "total_ms": 86.46263927221298
+  },
+  {
+    "phase": "smoke",
+    "route": "background:public_fx_push",
+    "kind": "SELECT",
+    "count": 40,
+    "total_ms": 87.77100034058094
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "kind": "INSERT",
+    "count": 8,
+    "total_ms": 19.05597746372223
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "kind": "UPDATE",
+    "count": 8,
+    "total_ms": 14.566391706466675
+  },
+  {
+    "phase": "smoke",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 3,
+    "total_ms": 6.117546930909157
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "SELECT",
+    "count": 7,
+    "total_ms": 3.840206190943718
+  },
+  {
+    "phase": "connect",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 48,
+    "total_ms": 32.82402642071247
+  },
+  {
+    "phase": "connect",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 20,
+    "total_ms": 85.14418266713619
+  },
+  {
+    "phase": "connect",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 30,
+    "total_ms": 21.54361456632614
+  },
+  {
+    "phase": "connect",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "SELECT",
+    "count": 17,
+    "total_ms": 13.692578300833702
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "SELECT",
+    "count": 1405,
+    "total_ms": 497.34800681471825
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 86,
+    "total_ms": 100.71999207139015
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 686,
+    "total_ms": 1351.7860658466816
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "INSERT",
+    "count": 401,
+    "total_ms": 271.31799049675465
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "UPDATE",
+    "count": 361,
+    "total_ms": 156.0446433722973
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 340,
+    "total_ms": 757.028091698885
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 255,
+    "total_ms": 491.30741506814957
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "SELECT",
+    "count": 170,
+    "total_ms": 476.5851516276598
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 765,
+    "total_ms": 1272.2324077039957
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:public_fx_push",
+    "kind": "SELECT",
+    "count": 425,
+    "total_ms": 782.7300634235144
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "kind": "INSERT",
+    "count": 85,
+    "total_ms": 119.55567263066769
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "kind": "UPDATE",
+    "count": 85,
+    "total_ms": 86.24465204775333
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "SELECT",
+    "count": 577,
+    "total_ms": 245.52648700773716
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "SELECT",
+    "count": 260,
+    "total_ms": 89.93883244693279
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "SELECT",
+    "count": 220,
+    "total_ms": 78.32859642803669
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "UPDATE",
+    "count": 80,
+    "total_ms": 37.57216967642307
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "INSERT",
+    "count": 60,
+    "total_ms": 42.021097615361214
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 3,
+    "total_ms": 9.295495226979256
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 1048,
+    "total_ms": 610.9324339777231
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "SELECT",
+    "count": 1400,
+    "total_ms": 1004.8940256237984
+  },
+  {
+    "phase": "readonly",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 30,
+    "total_ms": 28.697680681943893
+  },
+  {
+    "phase": "readonly",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 11,
+    "total_ms": 27.76765264570713
+  },
+  {
+    "phase": "readonly",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 18,
+    "total_ms": 14.266204088926315
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 2489,
+    "total_ms": 3708.34699831903
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "SELECT",
+    "count": 2797,
+    "total_ms": 4377.168254926801
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "SELECT",
+    "count": 804,
+    "total_ms": 1116.9488169252872
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "SELECT",
+    "count": 1705,
+    "total_ms": 2351.0933369398117
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "INSERT",
+    "count": 669,
+    "total_ms": 649.8246565461159
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "UPDATE",
+    "count": 702,
+    "total_ms": 539.2941758036613
+  },
+  {
+    "phase": "normal",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 177,
+    "total_ms": 352.9165852814913
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 593,
+    "total_ms": 1806.507432833314
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 1341,
+    "total_ms": 3445.402108132839
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 447,
+    "total_ms": 1777.9765706509352
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "SELECT",
+    "count": 298,
+    "total_ms": 1452.32467725873
+  },
+  {
+    "phase": "normal",
+    "route": "background:public_fx_push",
+    "kind": "SELECT",
+    "count": 748,
+    "total_ms": 2127.244235947728
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "kind": "INSERT",
+    "count": 149,
+    "total_ms": 285.75257025659084
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "kind": "UPDATE",
+    "count": 149,
+    "total_ms": 191.29743240773678
+  },
+  {
+    "phase": "normal",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 49,
+    "total_ms": 87.37902157008648
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "SELECT",
+    "count": 15,
+    "total_ms": 102.07119584083557
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "SELECT",
+    "count": 117,
+    "total_ms": 93.36370974779129
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "SELECT",
+    "count": 99,
+    "total_ms": 90.16118943691254
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "INSERT",
+    "count": 36,
+    "total_ms": 24.21921119093895
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "UPDATE",
+    "count": 36,
+    "total_ms": 19.639991223812103
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/15m/1791763200.json",
+    "kind": "SELECT",
+    "count": 23,
+    "total_ms": 13.263775035738945
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/15m/1791849600.json",
+    "kind": "SELECT",
+    "count": 23,
+    "total_ms": 13.622201979160309
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 20,
+    "total_ms": 13.60040158033371
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/15m/1791936000.json",
+    "kind": "SELECT",
+    "count": 23,
+    "total_ms": 11.915948241949081
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/15m/1792022400.json",
+    "kind": "SELECT",
+    "count": 23,
+    "total_ms": 12.545064091682434
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/084257e4-c950-4e07-89d1-1baf766f4abe/15m/1792108800.json",
+    "kind": "SELECT",
+    "count": 23,
+    "total_ms": 12.543782591819763
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "SELECT",
+    "count": 1414,
+    "total_ms": 6901.366796344519
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "SELECT",
+    "count": 1076,
+    "total_ms": 5913.589907810092
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "SELECT",
+    "count": 2491,
+    "total_ms": 15362.762119621038
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "INSERT",
+    "count": 992,
+    "total_ms": 2882.0479419082403
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "UPDATE",
+    "count": 1142,
+    "total_ms": 3162.9173699766397
+  },
+  {
+    "phase": "active",
+    "route": "background:pricing_push",
+    "kind": "SELECT",
+    "count": 227,
+    "total_ms": 1220.9981959313154
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "SELECT",
+    "count": 1703,
+    "total_ms": 7180.032085627317
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "kind": "SELECT",
+    "count": 865,
+    "total_ms": 6028.3542443066835
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "SELECT",
+    "count": 705,
+    "total_ms": 6066.582782194018
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "SELECT",
+    "count": 2115,
+    "total_ms": 10534.13519449532
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "SELECT",
+    "count": 470,
+    "total_ms": 4953.624460846186
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "kind": "SELECT",
+    "count": 1092,
+    "total_ms": 8718.737877905369
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "kind": "INSERT",
+    "count": 214,
+    "total_ms": 948.932720348239
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "kind": "UPDATE",
+    "count": 214,
+    "total_ms": 743.6101157218218
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "SELECT",
+    "count": 405,
+    "total_ms": 2577.879413962364
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "SELECT",
+    "count": 286,
+    "total_ms": 1699.0506686270237
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "SELECT",
+    "count": 242,
+    "total_ms": 1732.092371210456
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "INSERT",
+    "count": 88,
+    "total_ms": 261.0683664679527
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "UPDATE",
+    "count": 88,
+    "total_ms": 274.1489075124264
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "kind": "SELECT",
+    "count": 32,
+    "total_ms": 381.6920109093189
+  }
+]

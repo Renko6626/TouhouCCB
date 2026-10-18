@@ -1,0 +1,52 @@
+{
+  "episode": {
+    "id": "19:1",
+    "account": "19",
+    "direction": 1,
+    "entry_tick": 1,
+    "entry_quantity": "100.000000",
+    "entry_gold": "500.250126",
+    "remaining": "0.000000",
+    "basis": "0.000000",
+    "realized_profit": "0.422455",
+    "peak_return": 0.006136896005499457,
+    "closing_reason": "trailing",
+    "close_tick": 458
+  },
+  "close_fill": {
+    "account": 19,
+    "event_index": 0,
+    "action": "close",
+    "reason": "trailing",
+    "episode_id": "19:1",
+    "direction": 1,
+    "tick": 458,
+    "wanted": -100.0,
+    "actual_flow": -100.0,
+    "quantity": "100.000000",
+    "gold_change": "500.672581",
+    "fee": "0.000000",
+    "allocated_basis": "500.250126",
+    "realized_profit": "0.422455",
+    "remaining": "0.000000",
+    "basis": "0.000000",
+    "complete": true,
+    "mark_return": 0.0008444875434174303,
+    "peak_return": 0.006136896005499457,
+    "clipped": false,
+    "before_gold": "4499.749874",
+    "before_foreign": "1100.000000",
+    "after_gold": "5000.422455",
+    "after_foreign": "1000.000000",
+    "pool_before": {
+      "gold": "1000922.723064",
+      "foreign": "199815.625541"
+    },
+    "pool_after": {
+      "gold": "1000422.050483",
+      "foreign": "199915.625541"
+    }
+  },
+  "selection": "first completed trailing exit in seed81 normal trailing random15 b.25",
+  "curve": "end-of-tick hypothetical liquidation quotes; last point is actual completed PnL"
+}

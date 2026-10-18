@@ -1,0 +1,20 @@
+{
+  "expected_candles": 10080,
+  "actual_candles": 10080,
+  "timestamps_complete_unique_and_ordered": true,
+  "ohlc_finite_positive_and_consistent": true,
+  "raw_sha256": "387e4db933c6925cc04e63e441c6bd7d827603c31537acf736ccea68ec9d9e4d",
+  "request_urls": [
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791504000000&endTime=1791563999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791564000000&endTime=1791623999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791624000000&endTime=1791683999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791684000000&endTime=1791743999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791744000000&endTime=1791803999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791804000000&endTime=1791863999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791864000000&endTime=1791923999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791924000000&endTime=1791983999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1791984000000&endTime=1792043999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1792044000000&endTime=1792103999999&limit=1000",
+    "https://data-api.binance.vision/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=1792104000000&endTime=1792108799999&limit=1000"
+  ]
+}

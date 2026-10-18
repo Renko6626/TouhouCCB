@@ -1,0 +1,17 @@
+{
+  "paths": 72,
+  "episodes": 9506,
+  "behavior_fills": 18120,
+  "entry_signal_checks": 9506,
+  "acf_windows": 96,
+  "response_checks": 312,
+  "old_files_unchanged": 2059,
+  "per_tick_issued_asset_conservation": true,
+  "inventory_basis_and_cash_reconciled": true,
+  "real_quote_fills_replayed": true,
+  "constant_acf_preserved_undefined": true,
+  "normal_control_prefixes_exact": true,
+  "shock_prefixes_exact": true,
+  "future_free_entry_signals": true,
+  "source_hashes": true
+}

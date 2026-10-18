@@ -1,0 +1,238 @@
+{
+  "before": {
+    "micro_requests": 600,
+    "micro_elapsed_s": 5.9580823834985495,
+    "micro_rps": 100.70354207618118,
+    "micro_mean_ms": 98.1642465883245,
+    "micro_p95_range_ms": [
+      129.31576557457447,
+      144.8531076312065
+    ],
+    "micro_rps_range": [
+      89.53316054848548,
+      107.9322388093035
+    ],
+    "micro_sql": {
+      "micro_warmup": 1205,
+      "micro_1": 2400,
+      "micro_2": 2400,
+      "micro_3": 2400
+    },
+    "micro_sql_per_request": [
+      12.0,
+      12.0,
+      12.0
+    ],
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 25,
+    "stages": [
+      {
+        "name": "normal",
+        "duration_s": 61.005,
+        "cycles": 153,
+        "successful_trades": 153,
+        "trades_per_s": 2.508,
+        "trade_results": {
+          "ok": 153
+        },
+        "trade_latency": {
+          "count": 153,
+          "p50_ms": 49.371,
+          "p95_ms": 175.013,
+          "p99_ms": 377.38
+        },
+        "context_latency": {
+          "count": 153,
+          "p50_ms": 111.684,
+          "p95_ms": 188.243,
+          "p99_ms": 217.31
+        },
+        "http_results": {
+          "ok": 1169
+        },
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "active",
+        "duration_s": 46.471,
+        "cycles": 339,
+        "successful_trades": 334,
+        "trades_per_s": 7.187,
+        "trade_results": {
+          "ok": 334
+        },
+        "trade_latency": {
+          "count": 334,
+          "p50_ms": 208.831,
+          "p95_ms": 712.404,
+          "p99_ms": 1241.967
+        },
+        "context_latency": {
+          "count": 334,
+          "p50_ms": 144.228,
+          "p95_ms": 280.142,
+          "p99_ms": 337.036
+        },
+        "http_results": {
+          "ok": 2022
+        },
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "stress",
+        "duration_s": 35.179,
+        "cycles": 379,
+        "successful_trades": 332,
+        "trades_per_s": 9.437,
+        "trade_results": {
+          "ok": 332,
+          "timeout": 23,
+          "version_conflict": 20
+        },
+        "trade_latency": {
+          "count": 332,
+          "p50_ms": 7960.405,
+          "p95_ms": 12930.086,
+          "p99_ms": 14641.81
+        },
+        "context_latency": {
+          "count": 332,
+          "p50_ms": 152.519,
+          "p95_ms": 287.475,
+          "p99_ms": 371.076
+        },
+        "http_results": {
+          "ok": 1995,
+          "timeout": 23,
+          "version_conflict": 20
+        },
+        "sse_public": 0,
+        "sse_private": 0
+      }
+    ],
+    "pool_error_mentions": 0,
+    "traceback_mentions": 0
+  },
+  "after": {
+    "micro_requests": 600,
+    "micro_elapsed_s": 5.322665318846703,
+    "micro_rps": 112.7254794464526,
+    "micro_mean_ms": 87.59611092507839,
+    "micro_p95_range_ms": [
+      104.2813565582037,
+      115.71038328111172
+    ],
+    "micro_rps_range": [
+      106.12047489732208,
+      122.2595197850885
+    ],
+    "micro_sql": {
+      "micro_warmup": 905,
+      "micro_1": 1800,
+      "micro_2": 1800,
+      "micro_3": 1800
+    },
+    "micro_sql_per_request": [
+      9.0,
+      9.0,
+      9.0
+    ],
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 20,
+    "stages": [
+      {
+        "name": "normal",
+        "duration_s": 61.003,
+        "cycles": 150,
+        "successful_trades": 150,
+        "trades_per_s": 2.459,
+        "trade_results": {
+          "ok": 150
+        },
+        "trade_latency": {
+          "count": 150,
+          "p50_ms": 50.065,
+          "p95_ms": 191.882,
+          "p99_ms": 298.956
+        },
+        "context_latency": {
+          "count": 150,
+          "p50_ms": 112.451,
+          "p95_ms": 193.284,
+          "p99_ms": 289.307
+        },
+        "http_results": {
+          "ok": 1157
+        },
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "active",
+        "duration_s": 46.344,
+        "cycles": 343,
+        "successful_trades": 339,
+        "trades_per_s": 7.315,
+        "trade_results": {
+          "ok": 339
+        },
+        "trade_latency": {
+          "count": 339,
+          "p50_ms": 113.547,
+          "p95_ms": 547.787,
+          "p99_ms": 767.395
+        },
+        "context_latency": {
+          "count": 339,
+          "p50_ms": 125.74,
+          "p95_ms": 276.492,
+          "p99_ms": 331.578
+        },
+        "http_results": {
+          "ok": 2039
+        },
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "stress",
+        "duration_s": 35.071,
+        "cycles": 389,
+        "successful_trades": 341,
+        "trades_per_s": 9.723,
+        "trade_results": {
+          "ok": 341,
+          "timeout": 23,
+          "version_conflict": 16
+        },
+        "trade_latency": {
+          "count": 341,
+          "p50_ms": 7521.705,
+          "p95_ms": 13147.753,
+          "p99_ms": 14641.2
+        },
+        "context_latency": {
+          "count": 341,
+          "p50_ms": 139.38,
+          "p95_ms": 269.325,
+          "p99_ms": 383.466
+        },
+        "http_results": {
+          "ok": 2053,
+          "timeout": 23,
+          "version_conflict": 16
+        },
+        "sse_public": 0,
+        "sse_private": 0
+      }
+    ],
+    "pool_error_mentions": 0,
+    "traceback_mentions": 1
+  },
+  "change": {
+    "micro_throughput_percent": 11.937948876889504,
+    "micro_mean_latency_percent": -10.7657686281301
+  }
+}

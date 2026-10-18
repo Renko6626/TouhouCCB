@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "range30": 0.022498072883715827,
+    "range60": 0.02711389953690883,
+    "trades_per_minute": 3.9099585062240663,
+    "efficiency5_median": 0.13793908204536184,
+    "completed_holding_minutes": 15.513888888888891,
+    "net_change": -0.011395812598141227,
+    "swing0.005_amplitude": 0.009492835886478238,
+    "swing0.005_cycles_minutes": 5.361111111111111,
+    "swing0.01_amplitude": 0.01605519654255035,
+    "swing0.01_cycles_minutes": 15.569444444444443
+  },
+  "candidate": {
+    "range30": 0.02712503053019327,
+    "range60": 0.03727580175163684,
+    "trades_per_minute": 3.8692946058091287,
+    "efficiency5_median": 0.16416514272911686,
+    "completed_holding_minutes": 11.444444444444443,
+    "net_change": 0.0076055261701586385,
+    "swing0.005_amplitude": 0.010181169626900669,
+    "swing0.005_cycles_minutes": 4.597222222222222,
+    "swing0.01_amplitude": 0.01788151304133871,
+    "swing0.01_cycles_minutes": 13.5
+  }
+}

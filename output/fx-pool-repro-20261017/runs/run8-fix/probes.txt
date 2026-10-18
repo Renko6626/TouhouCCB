@@ -1,0 +1,5 @@
+FIXED build (main workspace user_trading.py copied into isolated worktree), same isolated PG:
+trading-versions  40 concurrent: 40/40 200, wall 0.46s, p50 403.9ms, p95 440.4ms
+trading-context   40 concurrent: 40/40 200, wall 0.60s, p50 500.3ms, p95 580.7ms
+trading-prices    40 concurrent: 40/40 200, wall 0.42s, p50 358.1ms, p95 404.0ms
+server log: QueuePool limit mentions = 0; max checked out = 30 (drained immediately)

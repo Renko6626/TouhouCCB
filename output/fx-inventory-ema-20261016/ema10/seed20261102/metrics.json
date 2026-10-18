@@ -1,0 +1,23 @@
+{
+  "fills_per_minute": 5.258156028368794,
+  "cycle_minutes": 49.95833333333333,
+  "cycle_n": 48,
+  "up_minutes": 22.333333333333332,
+  "up_gain": 0.02757607856997435,
+  "cycle1pct_minutes": 21.0,
+  "range30": 0.019901082487139822,
+  "return10m_std": 0.00885498039830821,
+  "gap_rms": 0.00666260410577972,
+  "mean_abs_target": 124.0059939154424,
+  "inventory_fills_per_minute": 1.1624113475177305,
+  "inventory_volume_share": 0.05666335154680638,
+  "volume_per_minute": 262.4369109617021,
+  "clipped_fraction": 0.030693595535477014,
+  "final_return": -0.029097168268848117,
+  "role_volume_per_minute": {
+    "random": 214.09401559148938,
+    "inventory": 14.870554944680851,
+    "short": 33.47234042553192
+  },
+  "inventory_final_net": 153.673905
+}

@@ -1,0 +1,728 @@
+{
+  "before": {
+    "cases": [
+      {
+        "name": "cash_new_wallet",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            1
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cash_existing",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            2
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cash_sell",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            3
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1004.925618",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "financed_buy",
+        "sql": 40,
+        "locked_sql": 35,
+        "gate_entries": 2,
+        "flushes": 5,
+        "result": {
+          "legs": [
+            "borrow_buy"
+          ],
+          "replay": false,
+          "trade_ids": [
+            4
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "10.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "debt_cash_buy",
+        "sql": 35,
+        "locked_sql": 30,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            5
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "10.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "short_open",
+        "sql": 35,
+        "locked_sql": 30,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "short_open"
+          ],
+          "replay": false,
+          "trade_ids": [
+            6
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1004.925618",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "short_cover",
+        "sql": 28,
+        "locked_sql": 24,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "short_cover"
+          ],
+          "replay": false,
+          "trade_ids": [
+            7
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "995.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cross_zero_sell",
+        "sql": 40,
+        "locked_sql": 36,
+        "gate_entries": 2,
+        "flushes": 4,
+        "result": {
+          "legs": [
+            "spot",
+            "short_open"
+          ],
+          "replay": false,
+          "trade_ids": [
+            8,
+            9
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1014.632703",
+          "debt": "0.000000",
+          "trades": 2,
+          "receipts": 1,
+          "pool_events": 2
+        }
+      },
+      {
+        "name": "cross_zero_buy",
+        "sql": 45,
+        "locked_sql": 41,
+        "gate_entries": 2,
+        "flushes": 6,
+        "result": {
+          "legs": [
+            "short_cover",
+            "borrow_buy"
+          ],
+          "replay": false,
+          "trade_ids": [
+            10,
+            11
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "980.000000",
+          "debt": "10.000000",
+          "trades": 2,
+          "receipts": 1,
+          "pool_events": 2
+        }
+      },
+      {
+        "name": "debt_repay_sell",
+        "sql": 33,
+        "locked_sql": 29,
+        "gate_entries": 2,
+        "flushes": 4,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            12
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1000.000000",
+          "debt": "5.174382",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      }
+    ],
+    "timing": {
+      "cash": {
+        "sql_count": {
+          "mean": 15,
+          "median": 15.0,
+          "min": 15,
+          "max": 15
+        },
+        "sql_ms": {
+          "mean": 4.602272529155016,
+          "median": 4.2402492836117744,
+          "min": 3.3320486545562744,
+          "max": 6.525671109557152
+        },
+        "gate_held_ms": {
+          "mean": 10.7529372908175,
+          "median": 10.223149321973324,
+          "min": 9.14032943546772,
+          "max": 12.6308873295784
+        },
+        "commit_driver_ms": {
+          "mean": 0.7020320743322372,
+          "median": 0.6262883543968201,
+          "min": 0.4765558987855911,
+          "max": 1.760212704539299
+        }
+      },
+      "finance": {
+        "sql_count": {
+          "mean": 40,
+          "median": 40.0,
+          "min": 40,
+          "max": 40
+        },
+        "sql_ms": {
+          "mean": 9.799590148031712,
+          "median": 10.035368613898754,
+          "min": 7.217422127723694,
+          "max": 12.025367468595505
+        },
+        "gate_held_ms": {
+          "mean": 26.974046230316162,
+          "median": 26.261023245751858,
+          "min": 23.00257980823517,
+          "max": 41.6537169367075
+        },
+        "commit_driver_ms": {
+          "mean": 0.6793186068534851,
+          "median": 0.6816927343606949,
+          "min": 0.4217159003019333,
+          "max": 0.9501520544290543
+        }
+      },
+      "short": {
+        "sql_count": {
+          "mean": 35,
+          "median": 35.0,
+          "min": 35,
+          "max": 35
+        },
+        "sql_ms": {
+          "mean": 9.168742503970861,
+          "median": 9.170593693852425,
+          "min": 7.621875032782555,
+          "max": 10.511010885238647
+        },
+        "gate_held_ms": {
+          "mean": 24.799701664596796,
+          "median": 23.641635663807392,
+          "min": 21.61962538957596,
+          "max": 30.086981132626534
+        },
+        "commit_driver_ms": {
+          "mean": 0.6849642843008041,
+          "median": 0.668882392346859,
+          "min": 0.5175657570362091,
+          "max": 1.1741667985916138
+        }
+      },
+      "cover": {
+        "sql_count": {
+          "mean": 28,
+          "median": 28.0,
+          "min": 28,
+          "max": 28
+        },
+        "sql_ms": {
+          "mean": 6.89039621502161,
+          "median": 7.136795669794083,
+          "min": 5.222521722316742,
+          "max": 8.712952956557274
+        },
+        "gate_held_ms": {
+          "mean": 16.248881723731756,
+          "median": 15.872507356107235,
+          "min": 14.821045100688934,
+          "max": 19.00308020412922
+        },
+        "commit_driver_ms": {
+          "mean": 0.6440903060138226,
+          "median": 0.6510745733976364,
+          "min": 0.4836060106754303,
+          "max": 0.7854923605918884
+        }
+      }
+    },
+    "durability": {
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "wal_level": "replica"
+    }
+  },
+  "after": {
+    "cases": [
+      {
+        "name": "cash_new_wallet",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            1
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cash_existing",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            2
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cash_sell",
+        "sql": 15,
+        "locked_sql": 15,
+        "gate_entries": 1,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            3
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1004.925618",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "financed_buy",
+        "sql": 34,
+        "locked_sql": 29,
+        "gate_entries": 1,
+        "flushes": 4,
+        "result": {
+          "legs": [
+            "borrow_buy"
+          ],
+          "replay": false,
+          "trade_ids": [
+            4
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "10.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "debt_cash_buy",
+        "sql": 35,
+        "locked_sql": 30,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            5
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "990.000000",
+          "debt": "10.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "short_open",
+        "sql": 35,
+        "locked_sql": 30,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "short_open"
+          ],
+          "replay": false,
+          "trade_ids": [
+            6
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1004.925618",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "short_cover",
+        "sql": 28,
+        "locked_sql": 24,
+        "gate_entries": 2,
+        "flushes": 3,
+        "result": {
+          "legs": [
+            "short_cover"
+          ],
+          "replay": false,
+          "trade_ids": [
+            7
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "995.000000",
+          "debt": "0.000000",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      },
+      {
+        "name": "cross_zero_sell",
+        "sql": 40,
+        "locked_sql": 36,
+        "gate_entries": 2,
+        "flushes": 4,
+        "result": {
+          "legs": [
+            "spot",
+            "short_open"
+          ],
+          "replay": false,
+          "trade_ids": [
+            8,
+            9
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1014.632703",
+          "debt": "0.000000",
+          "trades": 2,
+          "receipts": 1,
+          "pool_events": 2
+        }
+      },
+      {
+        "name": "cross_zero_buy",
+        "sql": 39,
+        "locked_sql": 35,
+        "gate_entries": 1,
+        "flushes": 5,
+        "result": {
+          "legs": [
+            "short_cover",
+            "borrow_buy"
+          ],
+          "replay": false,
+          "trade_ids": [
+            10,
+            11
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "980.000000",
+          "debt": "10.000000",
+          "trades": 2,
+          "receipts": 1,
+          "pool_events": 2
+        }
+      },
+      {
+        "name": "debt_repay_sell",
+        "sql": 33,
+        "locked_sql": 29,
+        "gate_entries": 2,
+        "flushes": 4,
+        "result": {
+          "legs": [
+            "spot"
+          ],
+          "replay": false,
+          "trade_ids": [
+            12
+          ],
+          "economic_version": 0
+        },
+        "persisted": {
+          "cash": "1000.000000",
+          "debt": "5.174382",
+          "trades": 1,
+          "receipts": 1,
+          "pool_events": 1
+        }
+      }
+    ],
+    "timing": {
+      "cash": {
+        "sql_count": {
+          "mean": 15,
+          "median": 15.0,
+          "min": 15,
+          "max": 15
+        },
+        "sql_ms": {
+          "mean": 4.414418339729309,
+          "median": 4.10502590239048,
+          "min": 2.6275143027305603,
+          "max": 6.776001304388046
+        },
+        "gate_held_ms": {
+          "mean": 10.129896365106106,
+          "median": 9.750834666192532,
+          "min": 8.089818060398102,
+          "max": 12.76404969394207
+        },
+        "commit_driver_ms": {
+          "mean": 0.6401602178812027,
+          "median": 0.6417334079742432,
+          "min": 0.45898184180259705,
+          "max": 0.790771096944809
+        }
+      },
+      "finance": {
+        "sql_count": {
+          "mean": 34,
+          "median": 34.0,
+          "min": 34,
+          "max": 34
+        },
+        "sql_ms": {
+          "mean": 7.45464451611042,
+          "median": 7.268482819199562,
+          "min": 5.265882238745689,
+          "max": 11.849232017993927
+        },
+        "gate_held_ms": {
+          "mean": 19.727705139666796,
+          "median": 18.335756845772266,
+          "min": 15.558775514364243,
+          "max": 29.68125231564045
+        },
+        "commit_driver_ms": {
+          "mean": 0.6579727865755558,
+          "median": 0.6157336756587029,
+          "min": 0.4197601228952408,
+          "max": 1.500047743320465
+        }
+      },
+      "short": {
+        "sql_count": {
+          "mean": 35,
+          "median": 35.0,
+          "min": 35,
+          "max": 35
+        },
+        "sql_ms": {
+          "mean": 7.809900678694248,
+          "median": 7.673989050090313,
+          "min": 5.534445866942406,
+          "max": 9.143514558672905
+        },
+        "gate_held_ms": {
+          "mean": 19.987970124930143,
+          "median": 19.645508378744125,
+          "min": 16.60681515932083,
+          "max": 23.06031435728073
+        },
+        "commit_driver_ms": {
+          "mean": 0.661951769143343,
+          "median": 0.6710635498166084,
+          "min": 0.4629436880350113,
+          "max": 0.8231643587350845
+        }
+      },
+      "cover": {
+        "sql_count": {
+          "mean": 28,
+          "median": 28.0,
+          "min": 28,
+          "max": 28
+        },
+        "sql_ms": {
+          "mean": 7.590328063815832,
+          "median": 7.556701079010963,
+          "min": 5.038371309638023,
+          "max": 10.403145104646683
+        },
+        "gate_held_ms": {
+          "mean": 18.58811816200614,
+          "median": 18.56265217065811,
+          "min": 14.318350702524185,
+          "max": 26.398777961730957
+        },
+        "commit_driver_ms": {
+          "mean": 0.6486261263489723,
+          "median": 0.6571980193257332,
+          "min": 0.4979148507118225,
+          "max": 0.8081104606389999
+        }
+      }
+    },
+    "durability": {
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "full_page_writes": "on",
+      "wal_level": "replica"
+    }
+  },
+  "source_sha256": {
+    "backend/app/services/fx/net_trading.py": "44b85dcb3994b73ee786089fc2e19fd27faf37eebb09643657e77d6a5511c120",
+    "backend/app/services/loan_service.py": "f54c00b19b4855896ae7934496ce4df4c35939e31f29ce1e2780bc30747cd1ed",
+    "backend/tests/test_ledger_loan_service.py": "1cdc13772945f5d390230dbd336a97aecd0364f6ba14fad908a7e34c7b32a4bf",
+    "backend/tests/test_fx_net_trading.py": "fd190faff182b785dfc8815b6137ffc34041294a1e2c5423ec7a712cce97f1dd"
+  }
+}

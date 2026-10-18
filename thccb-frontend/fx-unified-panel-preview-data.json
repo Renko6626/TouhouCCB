@@ -1,0 +1,553 @@
+{
+  "pricing": {
+    "product": "fx",
+    "id": 1,
+    "stamp": {
+      "epoch": "sample",
+      "revision": "1",
+      "input_hash": "sample"
+    },
+    "as_of": "2026-10-13T00:00:00Z",
+    "gold_reserve": "100000",
+    "foreign_reserve": "50000",
+    "buy_fee_rate": "0.001",
+    "sell_fee_rate": "0.001",
+    "pool_version": "1",
+    "status": "trading",
+    "archived": false,
+    "reduce_only": false
+  },
+  "rules": {
+    "rule_version": "sample",
+    "loan_daily_rate": "0.001",
+    "lmsr_sell_fee_rate": "0.001",
+    "fx_enabled": true,
+    "fx_short_enabled": true,
+    "loan_enabled": true,
+    "unified_credit_enabled": true,
+    "credit_new_risk_frozen": false,
+    "risk_engine_ready": true,
+    "leverage": "3.5",
+    "initial_ratio": "0.4",
+    "maintenance_ratio": "0.2"
+  },
+  "reference": "2.000000",
+  "long": {
+    "account": {
+      "user_id": 1,
+      "economic_version": "1",
+      "cash": "600",
+      "debt": "0",
+      "debt_last_accrued_at": null,
+      "credit_frozen": false,
+      "is_active": true,
+      "is_bot": false,
+      "tos_accepted_at": "2026-10-13T00:00:00Z",
+      "last_liquidated_at": null,
+      "lmsr_positions": [],
+      "fx_wallets": [
+        {
+          "pair_id": 1,
+          "foreign_amount": "300",
+          "cost_basis": "500"
+        }
+      ],
+      "fx_shorts": []
+    },
+    "current": {
+      "has_debt": false,
+      "valuation_cache": {
+        "lmsr": {},
+        "fx": {
+          "1": {
+            "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"100000\",\"foreign_reserve\":\"50000\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"300\"]",
+            "mtm": {
+              "n": "30000000000000000000",
+              "d": "50000000000000000"
+            },
+            "liquidation": {
+              "n": "595828603",
+              "d": "1000000"
+            }
+          }
+        },
+        "shorts": {}
+      },
+      "display_equity": "1200.000000",
+      "liquidation_equity": "1195.828603",
+      "available_cash": "600.000000",
+      "positive_assets": "595.828603",
+      "short_cover_cost": "0.000000",
+      "gold_debt": "0.000000",
+      "E": {
+        "n": "1195828603000000",
+        "d": "1000000000000"
+      },
+      "W": null,
+      "risk_basis": null,
+      "initial_condition": "satisfied",
+      "maintenance_condition": "satisfied",
+      "risk_status": "ok",
+      "error_status": "exact",
+      "unknown_reasons": [],
+      "group_values": {
+        "fx:1": {
+          "mtm": "600.000000",
+          "liquidation": "595.828603"
+        }
+      }
+    },
+    "quantity": "300",
+    "basis": "500",
+    "basisAverage": "1.666666666666",
+    "close": {
+      "input_amount": "300.000000",
+      "output_amount": "595.828603",
+      "fee_amount": "0.300000",
+      "net_input": "299.700000",
+      "post_gold_reserve": "99404.171397",
+      "post_foreign_reserve": "50299.700000"
+    },
+    "closeAverage": "1.986095343333",
+    "pnl": "95.828603",
+    "order": {
+      "input": "1200",
+      "borrow": "600",
+      "scaleGold": "1200",
+      "scale": "1.003488",
+      "preview": {
+        "output_amount": "592.299513",
+        "fee_amount": "1.200000",
+        "wallet_after": "892.299513",
+        "foreign_debt_after": "0.000000",
+        "cash_delta": "-600.000000",
+        "gold_debt_delta": "600.000000",
+        "restricted_gold_delta": "0.000000",
+        "repaid_gold": "0",
+        "final_direction": "long",
+        "interest_uncertainty": {
+          "gold": "0.000000",
+          "shorts": {}
+        },
+        "legs": [
+          {
+            "input_amount": "1200.000000",
+            "output_amount": "592.299513",
+            "fee_amount": "1.200000",
+            "net_input": "1198.800000",
+            "post_gold_reserve": "101198.800000",
+            "post_foreign_reserve": "49407.700487",
+            "purpose": "borrow_buy",
+            "side": "buy"
+          }
+        ],
+        "account_after": {
+          "user_id": 1,
+          "economic_version": "1",
+          "cash": "0.000000",
+          "debt": "600.000000",
+          "debt_last_accrued_at": "2026-10-13T00:00:00.000Z",
+          "credit_frozen": false,
+          "is_active": true,
+          "is_bot": false,
+          "tos_accepted_at": "2026-10-13T00:00:00Z",
+          "last_liquidated_at": null,
+          "lmsr_positions": [],
+          "fx_wallets": [
+            {
+              "pair_id": 1,
+              "foreign_amount": "892.299513",
+              "cost_basis": "1700.000000"
+            }
+          ],
+          "fx_shorts": [
+            {
+              "pair_id": 1,
+              "principal_foreign": "0.000000",
+              "interest_foreign": "0.000000",
+              "restricted_gold": "0.000000",
+              "proceeds_basis_gold": "0.000000",
+              "interest_last_accrued_at": null
+            }
+          ]
+        },
+        "pricing_after": {
+          "product": "fx",
+          "id": 1,
+          "stamp": {
+            "epoch": "sample",
+            "revision": "1",
+            "input_hash": "sample"
+          },
+          "as_of": "2026-10-13T00:00:00Z",
+          "gold_reserve": "101198.800000",
+          "foreign_reserve": "49407.700487",
+          "buy_fee_rate": "0.001",
+          "sell_fee_rate": "0.001",
+          "pool_version": "1",
+          "status": "trading",
+          "archived": false,
+          "reduce_only": false
+        },
+        "growth_amount": "592.299513",
+        "condition": "satisfied",
+        "rejected_reasons": [],
+        "unchecked_reasons": [
+          "treasury_inventory",
+          "lending_cap",
+          "submission_version_and_price_protection"
+        ],
+        "error_status": "exact",
+        "account_preview": {
+          "has_debt": true,
+          "valuation_cache": {
+            "lmsr": {},
+            "fx": {
+              "1": {
+                "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"101198.800000\",\"foreign_reserve\":\"49407.700487\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"892.299513\"]",
+                "mtm": {
+                  "n": "90299639956184400000",
+                  "d": "49407700487000000"
+                },
+                "liquidation": {
+                  "n": "1793458063",
+                  "d": "1000000"
+                }
+              }
+            },
+            "shorts": {}
+          },
+          "display_equity": "1227.643041",
+          "liquidation_equity": "1193.458063",
+          "available_cash": "0.000000",
+          "positive_assets": "1793.458063",
+          "short_cover_cost": "0.000000",
+          "gold_debt": "600.000000",
+          "E": {
+            "n": "1193458063000000000000",
+            "d": "1000000000000000000"
+          },
+          "W": {
+            "n": "448364515750",
+            "d": "100000000"
+          },
+          "risk_basis": "1281.041474",
+          "initial_condition": "satisfied",
+          "maintenance_condition": "satisfied",
+          "risk_status": "ok",
+          "error_status": "exact",
+          "unknown_reasons": [],
+          "group_values": {
+            "fx:1": {
+              "mtm": "1827.643041",
+              "liquidation": "1793.458063"
+            }
+          }
+        }
+      },
+      "post": {
+        "has_debt": true,
+        "valuation_cache": {
+          "lmsr": {},
+          "fx": {
+            "1": {
+              "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"101198.800000\",\"foreign_reserve\":\"49407.700487\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"892.299513\"]",
+              "mtm": {
+                "n": "90299639956184400000",
+                "d": "49407700487000000"
+              },
+              "liquidation": {
+                "n": "1793458063",
+                "d": "1000000"
+              }
+            }
+          },
+          "shorts": {}
+        },
+        "display_equity": "1227.643041",
+        "liquidation_equity": "1193.458063",
+        "available_cash": "0.000000",
+        "positive_assets": "1793.458063",
+        "short_cover_cost": "0.000000",
+        "gold_debt": "600.000000",
+        "E": {
+          "n": "1193458063000000000000",
+          "d": "1000000000000000000"
+        },
+        "W": {
+          "n": "448364515750",
+          "d": "100000000"
+        },
+        "risk_basis": "1281.041474",
+        "initial_condition": "satisfied",
+        "maintenance_condition": "satisfied",
+        "risk_status": "ok",
+        "error_status": "exact",
+        "unknown_reasons": [],
+        "group_values": {
+          "fx:1": {
+            "mtm": "1827.643041",
+            "liquidation": "1793.458063"
+          }
+        }
+      },
+      "average": "2.026002003482",
+      "deviation": 130.0100174100005,
+      "margin": "0.9316310886278144"
+    },
+    "kind": "long",
+    "title": "已有多头，准备加仓",
+    "percent": "19.1657206"
+  },
+  "short": {
+    "account": {
+      "user_id": 1,
+      "economic_version": "1",
+      "cash": "900",
+      "debt": "0",
+      "debt_last_accrued_at": null,
+      "credit_frozen": false,
+      "is_active": true,
+      "is_bot": false,
+      "tos_accepted_at": "2026-10-13T00:00:00Z",
+      "last_liquidated_at": null,
+      "lmsr_positions": [],
+      "fx_wallets": [],
+      "fx_shorts": [
+        {
+          "pair_id": 1,
+          "principal_foreign": "300",
+          "interest_foreign": "3",
+          "interest_last_accrued_at": "2026-10-13T00:00:00Z",
+          "restricted_gold": "600",
+          "proceeds_basis_gold": "600"
+        }
+      ]
+    },
+    "current": {
+      "has_debt": true,
+      "valuation_cache": {
+        "lmsr": {},
+        "fx": {},
+        "shorts": {
+          "1": {
+            "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"100000\",\"foreign_reserve\":\"50000\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"303.000000\"]",
+            "marginal": {
+              "n": "606000000",
+              "d": "1000000"
+            },
+            "input": "610.305057"
+          }
+        }
+      },
+      "display_equity": "294.000000",
+      "liquidation_equity": "289.694943",
+      "available_cash": "300.000000",
+      "positive_assets": "0.000000",
+      "short_cover_cost": "610.305057",
+      "gold_debt": "0.000000",
+      "E": {
+        "n": "289694943000000",
+        "d": "1000000000000"
+      },
+      "W": {
+        "n": "152576264250000000",
+        "d": "100000000000000"
+      },
+      "risk_basis": "435.932184",
+      "initial_condition": "satisfied",
+      "maintenance_condition": "satisfied",
+      "risk_status": "ok",
+      "error_status": "exact",
+      "unknown_reasons": [],
+      "group_values": {}
+    },
+    "quantity": "303",
+    "basis": "600",
+    "basisAverage": "1.980198019801",
+    "close": {
+      "input_amount": "610.305057",
+      "output_amount": "303.000000",
+      "fee_amount": "0.610306",
+      "net_input": "609.694751",
+      "post_gold_reserve": "100609.694751",
+      "post_foreign_reserve": "49697.000000"
+    },
+    "closeAverage": "2.014208108910",
+    "pnl": "-10.305057",
+    "order": {
+      "input": "100",
+      "borrow": "0",
+      "scaleGold": "200",
+      "scale": "0.690381",
+      "preview": {
+        "output_amount": "199.401595",
+        "fee_amount": "0.100000",
+        "wallet_after": "0.000000",
+        "foreign_debt_after": "403.000000",
+        "cash_delta": "199.401595",
+        "gold_debt_delta": "0.000000",
+        "restricted_gold_delta": "199.401595",
+        "repaid_gold": "0",
+        "final_direction": "short",
+        "interest_uncertainty": {
+          "gold": "0.000000",
+          "shorts": {
+            "1": "0.000000"
+          }
+        },
+        "legs": [
+          {
+            "input_amount": "100.000000",
+            "output_amount": "199.401595",
+            "fee_amount": "0.100000",
+            "net_input": "99.900000",
+            "post_gold_reserve": "99800.598405",
+            "post_foreign_reserve": "50099.900000",
+            "purpose": "short_open",
+            "side": "sell"
+          }
+        ],
+        "account_after": {
+          "user_id": 1,
+          "economic_version": "1",
+          "cash": "1099.401595",
+          "debt": "0.000000",
+          "debt_last_accrued_at": null,
+          "credit_frozen": false,
+          "is_active": true,
+          "is_bot": false,
+          "tos_accepted_at": "2026-10-13T00:00:00Z",
+          "last_liquidated_at": null,
+          "lmsr_positions": [],
+          "fx_wallets": [
+            {
+              "pair_id": 1,
+              "foreign_amount": "0.000000",
+              "cost_basis": "0.000000"
+            }
+          ],
+          "fx_shorts": [
+            {
+              "pair_id": 1,
+              "principal_foreign": "400.000000",
+              "interest_foreign": "3.000000",
+              "interest_last_accrued_at": "2026-10-13T00:00:00.000Z",
+              "restricted_gold": "799.401595",
+              "proceeds_basis_gold": "799.401595"
+            }
+          ]
+        },
+        "pricing_after": {
+          "product": "fx",
+          "id": 1,
+          "stamp": {
+            "epoch": "sample",
+            "revision": "1",
+            "input_hash": "sample"
+          },
+          "as_of": "2026-10-13T00:00:00Z",
+          "gold_reserve": "99800.598405",
+          "foreign_reserve": "50099.900000",
+          "buy_fee_rate": "0.001",
+          "sell_fee_rate": "0.001",
+          "pool_version": "1",
+          "status": "trading",
+          "archived": false,
+          "reduce_only": false
+        },
+        "growth_amount": "100.000000",
+        "condition": "satisfied",
+        "rejected_reasons": [],
+        "unchecked_reasons": [
+          "treasury_inventory",
+          "lending_cap",
+          "submission_version_and_price_protection"
+        ],
+        "error_status": "exact",
+        "account_preview": {
+          "has_debt": true,
+          "valuation_cache": {
+            "lmsr": {},
+            "fx": {},
+            "shorts": {
+              "1": {
+                "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"99800.598405\",\"foreign_reserve\":\"50099.900000\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"403.000000\"]",
+                "marginal": {
+                  "n": "802788851",
+                  "d": "1000000"
+                },
+                "input": "810.108902"
+              }
+            }
+          },
+          "display_equity": "296.612744",
+          "liquidation_equity": "289.292693",
+          "available_cash": "300.000000",
+          "positive_assets": "0.000000",
+          "short_cover_cost": "810.108902",
+          "gold_debt": "0.000000",
+          "E": {
+            "n": "289292693000000000000",
+            "d": "1000000000000000000"
+          },
+          "W": {
+            "n": "202527225500000000",
+            "d": "100000000000000"
+          },
+          "risk_basis": "578.649216",
+          "initial_condition": "satisfied",
+          "maintenance_condition": "satisfied",
+          "risk_status": "ok",
+          "error_status": "exact",
+          "unknown_reasons": [],
+          "group_values": {}
+        }
+      },
+      "post": {
+        "has_debt": true,
+        "valuation_cache": {
+          "lmsr": {},
+          "fx": {},
+          "shorts": {
+            "1": {
+              "key": "[{\"product\":\"fx\",\"id\":1,\"stamp\":{\"epoch\":\"sample\",\"revision\":\"1\",\"input_hash\":\"sample\"},\"as_of\":\"2026-10-13T00:00:00Z\",\"gold_reserve\":\"99800.598405\",\"foreign_reserve\":\"50099.900000\",\"buy_fee_rate\":\"0.001\",\"sell_fee_rate\":\"0.001\",\"pool_version\":\"1\",\"status\":\"trading\",\"archived\":false,\"reduce_only\":false},\"403.000000\"]",
+              "marginal": {
+                "n": "802788851",
+                "d": "1000000"
+              },
+              "input": "810.108902"
+            }
+          }
+        },
+        "display_equity": "296.612744",
+        "liquidation_equity": "289.292693",
+        "available_cash": "300.000000",
+        "positive_assets": "0.000000",
+        "short_cover_cost": "810.108902",
+        "gold_debt": "0.000000",
+        "E": {
+          "n": "289292693000000000000",
+          "d": "1000000000000000000"
+        },
+        "W": {
+          "n": "202527225500000000",
+          "d": "100000000000000"
+        },
+        "risk_basis": "578.649216",
+        "initial_condition": "satisfied",
+        "maintenance_condition": "satisfied",
+        "risk_status": "ok",
+        "error_status": "exact",
+        "unknown_reasons": [],
+        "group_values": {}
+      },
+      "average": "1.994015950000",
+      "deviation": 29.920249999999537,
+      "margin": "0.4999448456869593"
+    },
+    "kind": "short",
+    "title": "已有空头，准备加仓",
+    "percent": "-1.7175094999999998"
+  }
+}

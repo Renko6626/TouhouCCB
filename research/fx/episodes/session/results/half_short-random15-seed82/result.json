@@ -1,0 +1,587 @@
+{
+  "name": "half_short-random15-seed82",
+  "cell": {
+    "id": "half_short",
+    "label": "阈值减半＋30分钟记忆",
+    "tau": 180,
+    "take_profit": 0.005,
+    "stop_loss": 0.005,
+    "trail_arm": 0.0025,
+    "trail_drawdown": 0.0025
+  },
+  "random_count": 15,
+  "seed": 82,
+  "config": {
+    "ticks": 8640,
+    "burn_in": 0,
+    "seeds": [
+      81,
+      82,
+      83
+    ],
+    "tau": 180,
+    "mean_arrivals": 1,
+    "psi": 0.0004,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 1000000,
+    "pool_foreign": 200000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 40,
+    "max_pool_fraction": 0.005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "entry_quantity": 100,
+    "take_profit": 0.005,
+    "stop_loss": 0.005,
+    "trail_arm": 0.0025,
+    "trail_drawdown": 0.0025
+  },
+  "control_summary": {
+    "seed": 82,
+    "b": 0.25,
+    "random_count": 15,
+    "variant": "trailing",
+    "ticks": 8640,
+    "issue": {
+      "tick": 1000,
+      "amount": 0,
+      "pre_price": "5.005859097417182100441179169",
+      "pre_gold": "1000585.738361",
+      "pre_foreign": "199882.920971",
+      "pre_k": "200000000065.521446068531",
+      "post_price": "5.005859097417182100441179169",
+      "post_gold": "1000585.738361",
+      "post_foreign": "199882.920971",
+      "post_k": "200000000065.521446068531"
+    },
+    "peak_intensity": 2.545421864556851,
+    "final_z": 0.9643235541052708,
+    "conserved_with_issue": true,
+    "pool_gold": "990948.843607",
+    "pool_foreign": "201826.766248",
+    "accounts": [
+      {
+        "name": "0",
+        "policy": "random",
+        "gold": "4018.419773",
+        "foreign": "1202.399613"
+      },
+      {
+        "name": "1",
+        "policy": "random",
+        "gold": "5399.481964",
+        "foreign": "899.482399"
+      },
+      {
+        "name": "2",
+        "policy": "random",
+        "gold": "2852.560643",
+        "foreign": "1439.286382"
+      },
+      {
+        "name": "3",
+        "policy": "random",
+        "gold": "8977.360402",
+        "foreign": "198.406694"
+      },
+      {
+        "name": "4",
+        "policy": "random",
+        "gold": "7443.621487",
+        "foreign": "501.450938"
+      },
+      {
+        "name": "5",
+        "policy": "random",
+        "gold": "3805.837493",
+        "foreign": "1260.760221"
+      },
+      {
+        "name": "6",
+        "policy": "random",
+        "gold": "9910.206028",
+        "foreign": "0.000000"
+      },
+      {
+        "name": "7",
+        "policy": "random",
+        "gold": "7913.885640",
+        "foreign": "413.839895"
+      },
+      {
+        "name": "8",
+        "policy": "random",
+        "gold": "8652.866903",
+        "foreign": "258.540044"
+      },
+      {
+        "name": "9",
+        "policy": "random",
+        "gold": "4473.886980",
+        "foreign": "1099.038313"
+      },
+      {
+        "name": "10",
+        "policy": "random",
+        "gold": "6083.897454",
+        "foreign": "790.373593"
+      },
+      {
+        "name": "11",
+        "policy": "random",
+        "gold": "885.745346",
+        "foreign": "1831.534739"
+      },
+      {
+        "name": "12",
+        "policy": "random",
+        "gold": "4795.326191",
+        "foreign": "1059.652373"
+      },
+      {
+        "name": "13",
+        "policy": "random",
+        "gold": "2366.927776",
+        "foreign": "1535.332291"
+      },
+      {
+        "name": "14",
+        "policy": "random",
+        "gold": "7038.801060",
+        "foreign": "583.136257"
+      },
+      {
+        "name": "15",
+        "policy": "episode",
+        "gold": "4511.931695",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "16",
+        "policy": "episode",
+        "gold": "5449.360037",
+        "foreign": "900.000000"
+      },
+      {
+        "name": "17",
+        "policy": "episode",
+        "gold": "4511.660162",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "18",
+        "policy": "episode",
+        "gold": "4490.925352",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "19",
+        "policy": "episode",
+        "gold": "5468.454007",
+        "foreign": "900.000000"
+      }
+    ],
+    "behavior": {
+      "opened": 164,
+      "completed": 159,
+      "unfinished": 5,
+      "unfinished_fraction": 0.03048780487804878,
+      "long_opened": 82,
+      "short_opened": 82,
+      "exits": {
+        "take_profit": 42,
+        "stop_loss": 68,
+        "trailing": 49
+      },
+      "mean_completed_holding": 229.23270440251574,
+      "median_completed_holding": 163.0,
+      "max_completed_holding": 857,
+      "realized_pnl": "-78.185616",
+      "unrealized_pnl": "0.290426",
+      "post_burn_entries": 164,
+      "carry_in": 0,
+      "post_burn_completions": 159,
+      "longest_no_trade_ticks": 14,
+      "post_burn_longest_no_trade_ticks": 14,
+      "last_trade_tick": 8640,
+      "last_behavior_trade_tick": 8640
+    },
+    "unfinished_episodes": [
+      {
+        "id": "18:33",
+        "account": "18",
+        "direction": 1,
+        "entry_tick": 8277,
+        "entry_quantity": "100.000000",
+        "entry_gold": "488.906687",
+        "remaining": "100.000000",
+        "basis": "488.906687",
+        "realized_profit": "0",
+        "peak_return": 0.004664986306476925,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 363,
+        "unrealized_pnl": "1.839964",
+        "liquidation_return": 0.0037634257189041067,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "19:27",
+        "account": "19",
+        "direction": -1,
+        "entry_tick": 8287,
+        "entry_quantity": "100.000000",
+        "entry_gold": "488.576516",
+        "remaining": "100.000000",
+        "basis": "488.576516",
+        "realized_profit": "0",
+        "peak_return": 1.567819931811868e-06,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 353,
+        "unrealized_pnl": "-2.656682",
+        "liquidation_return": -0.0054375965954122935,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "15:31",
+        "account": "15",
+        "direction": 1,
+        "entry_tick": 8341,
+        "entry_quantity": "100.000000",
+        "entry_gold": "489.152959",
+        "remaining": "100.000000",
+        "basis": "489.152959",
+        "realized_profit": "0",
+        "peak_return": 0.0045260873092254975,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 299,
+        "unrealized_pnl": "1.593692",
+        "liquidation_return": 0.0032580647232678807,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "16:34",
+        "account": "16",
+        "direction": -1,
+        "entry_tick": 8639,
+        "entry_quantity": "100.000000",
+        "entry_gold": "490.746651",
+        "remaining": "100.000000",
+        "basis": "490.746651",
+        "realized_profit": "0",
+        "peak_return": null,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 1,
+        "unrealized_pnl": "-0.486547",
+        "liquidation_return": -0.0009914423236685522,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "17:39",
+        "account": "17",
+        "direction": 1,
+        "entry_tick": 8640,
+        "entry_quantity": "100.000000",
+        "entry_gold": "490.746652",
+        "remaining": "100.000000",
+        "basis": "490.746652",
+        "realized_profit": "0",
+        "peak_return": null,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 0,
+        "unrealized_pnl": "-0.000001",
+        "liquidation_return": -2.0377113036320826e-09,
+        "full_rebuy_affordable": true
+      }
+    ]
+  },
+  "shock_summary": {
+    "seed": 82,
+    "b": 0.25,
+    "random_count": 15,
+    "variant": "trailing",
+    "ticks": 8640,
+    "issue": {
+      "tick": 1000,
+      "amount": 100000,
+      "pre_price": "5.005859097417182100441179169",
+      "pre_gold": "1000585.738361",
+      "pre_foreign": "199882.920971",
+      "pre_k": "200000000065.521446068531",
+      "post_price": "5.506151966433782539262470022",
+      "post_gold": "1100585.738361",
+      "post_foreign": "199882.920971",
+      "post_k": "219988292162.621446068531"
+    },
+    "peak_intensity": 154.29286627833056,
+    "final_z": 0.42589408892775593,
+    "conserved_with_issue": true,
+    "pool_gold": "1101194.519178",
+    "pool_foreign": "199772.419338",
+    "accounts": [
+      {
+        "name": "0",
+        "policy": "random",
+        "gold": "5734.348186",
+        "foreign": "876.752758"
+      },
+      {
+        "name": "1",
+        "policy": "random",
+        "gold": "2799.824349",
+        "foreign": "1414.316698"
+      },
+      {
+        "name": "2",
+        "policy": "random",
+        "gold": "1781.911861",
+        "foreign": "1603.182175"
+      },
+      {
+        "name": "3",
+        "policy": "random",
+        "gold": "9331.192788",
+        "foreign": "218.215576"
+      },
+      {
+        "name": "4",
+        "policy": "random",
+        "gold": "7410.239689",
+        "foreign": "507.715350"
+      },
+      {
+        "name": "5",
+        "policy": "random",
+        "gold": "937.171035",
+        "foreign": "1722.287257"
+      },
+      {
+        "name": "6",
+        "policy": "random",
+        "gold": "9003.078965",
+        "foreign": "258.453445"
+      },
+      {
+        "name": "7",
+        "policy": "random",
+        "gold": "3338.553621",
+        "foreign": "1284.195241"
+      },
+      {
+        "name": "8",
+        "policy": "random",
+        "gold": "5969.914594",
+        "foreign": "815.547247"
+      },
+      {
+        "name": "9",
+        "policy": "random",
+        "gold": "10292.278897",
+        "foreign": "58.471878"
+      },
+      {
+        "name": "10",
+        "policy": "random",
+        "gold": "2941.572580",
+        "foreign": "1360.634542"
+      },
+      {
+        "name": "11",
+        "policy": "random",
+        "gold": "7447.274767",
+        "foreign": "590.631683"
+      },
+      {
+        "name": "12",
+        "policy": "random",
+        "gold": "5054.896013",
+        "foreign": "978.537942"
+      },
+      {
+        "name": "13",
+        "policy": "random",
+        "gold": "1432.533450",
+        "foreign": "1676.081385"
+      },
+      {
+        "name": "14",
+        "policy": "random",
+        "gold": "788.460412",
+        "foreign": "1762.557485"
+      },
+      {
+        "name": "15",
+        "policy": "episode",
+        "gold": "5642.980959",
+        "foreign": "900.000000"
+      },
+      {
+        "name": "16",
+        "policy": "episode",
+        "gold": "4349.390665",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "17",
+        "policy": "episode",
+        "gold": "4539.094732",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "18",
+        "policy": "episode",
+        "gold": "4354.698212",
+        "foreign": "1100.000000"
+      },
+      {
+        "name": "19",
+        "policy": "episode",
+        "gold": "5656.065047",
+        "foreign": "900.000000"
+      }
+    ],
+    "behavior": {
+      "opened": 287,
+      "completed": 282,
+      "unfinished": 5,
+      "unfinished_fraction": 0.017421602787456445,
+      "long_opened": 129,
+      "short_opened": 158,
+      "exits": {
+        "take_profit": 108,
+        "stop_loss": 96,
+        "trailing": 78
+      },
+      "mean_completed_holding": 129.95744680851064,
+      "median_completed_holding": 64.0,
+      "max_completed_holding": 986,
+      "realized_pnl": "95.907764",
+      "unrealized_pnl": "-3.833146",
+      "post_burn_entries": 287,
+      "carry_in": 0,
+      "post_burn_completions": 282,
+      "longest_no_trade_ticks": 15,
+      "post_burn_longest_no_trade_ticks": 15,
+      "last_trade_tick": 8640,
+      "last_behavior_trade_tick": 8574
+    },
+    "unfinished_episodes": [
+      {
+        "id": "15:58",
+        "account": "15",
+        "direction": -1,
+        "entry_tick": 8536,
+        "entry_quantity": "100.000000",
+        "entry_gold": "552.057740",
+        "remaining": "100.000000",
+        "basis": "552.057740",
+        "realized_profit": "0",
+        "peak_return": 8.816106807958167e-06,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 104,
+        "unrealized_pnl": "0.557175",
+        "liquidation_return": 0.001009269428955022,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "17:64",
+        "account": "17",
+        "direction": 1,
+        "entry_tick": 8548,
+        "entry_quantity": "100.000000",
+        "entry_gold": "551.379993",
+        "remaining": "100.000000",
+        "basis": "551.379993",
+        "realized_profit": "0",
+        "peak_return": 0.0019587634910793726,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 92,
+        "unrealized_pnl": "-0.431282",
+        "liquidation_return": -0.0007821865237681919,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "19:54",
+        "account": "19",
+        "direction": -1,
+        "entry_tick": 8554,
+        "entry_quantity": "100.000000",
+        "entry_gold": "551.790857",
+        "remaining": "100.000000",
+        "basis": "551.790857",
+        "realized_profit": "0",
+        "peak_return": -0.0020764479611520637,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 86,
+        "unrealized_pnl": "0.290292",
+        "liquidation_return": 0.0005260906307478016,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "16:55",
+        "account": "16",
+        "direction": 1,
+        "entry_tick": 8570,
+        "entry_quantity": "100.000000",
+        "entry_gold": "552.713879",
+        "remaining": "100.000000",
+        "basis": "552.713879",
+        "realized_profit": "0",
+        "peak_return": 0.0013292971787306972,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 70,
+        "unrealized_pnl": "-1.765168",
+        "liquidation_return": -0.003193637914780859,
+        "full_rebuy_affordable": true
+      },
+      {
+        "id": "18:56",
+        "account": "18",
+        "direction": 1,
+        "entry_tick": 8574,
+        "entry_quantity": "100.000000",
+        "entry_gold": "553.432874",
+        "remaining": "100.000000",
+        "basis": "553.432874",
+        "realized_profit": "0",
+        "peak_return": -0.001757860881968497,
+        "closing_reason": null,
+        "close_tick": null,
+        "age": 66,
+        "unrealized_pnl": "-2.484163",
+        "liquidation_return": -0.00448864373026023,
+        "full_rebuy_affordable": true
+      }
+    ]
+  },
+  "seconds": 2.6904843039810658,
+  "status": "complete",
+  "prefix_exact": true,
+  "conservation_checked": true,
+  "original_prefix_exact": false
+}

@@ -1,0 +1,53 @@
+{
+  "train_seeds": [
+    20261022,
+    20261023
+  ],
+  "holdout_seeds": [
+    20261024,
+    20261025,
+    20261026
+  ],
+  "candidates": {
+    "a1.8_t1.5": [
+      1.8,
+      1.5
+    ],
+    "a1.8_t2": [
+      1.8,
+      2
+    ],
+    "a1.8_t3": [
+      1.8,
+      3
+    ],
+    "a2.2_t1.5": [
+      2.2,
+      1.5
+    ],
+    "a2.2_t2": [
+      2.2,
+      2
+    ],
+    "a2.2_t3": [
+      2.2,
+      3
+    ]
+  },
+  "target_amplitude_ratio": 2,
+  "target_wave_duration_ratio": 2,
+  "tick_seconds": 5,
+  "ticks": 10000,
+  "training_score": "Mean absolute log-ratio error to 2 for median leg amplitude, cycle duration, 30m->60m range; average seeds.",
+  "selection": "Top two training candidates by score; holdout seeds never used for further parameter changes.",
+  "primary_sample": "ticks 360..10000, 5s closes; initial 30m excluded for all configs.",
+  "caveats": "No stationarity claim; longer reference/heat windows warm up during sample. Wallet clipping is reported, not hidden.",
+  "protected_sha256": {
+    "research/fx/reversion/repeated/FROZEN_CONFIG.json": "b834898530f3f1fd69ab3b65bc713f0fac784f3d70cae5bbc10c0284bf54d3b0",
+    "research/fx/reversion/repeated/entry_model.py": "4ddc65ee8aa06cff24e39c2c264240ef7492781e0cc59049d92b38813580a5c0",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/reversion/inventory.py": "6209426f61b13119280ba292df9384c353000a2cf3c6e613d52fd5aaa6eb2735",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb"
+  }
+}

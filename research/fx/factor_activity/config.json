@@ -1,0 +1,11 @@
+{
+  "ticks": 100000, "burn_in": 5000, "seeds": [41, 42, 43],
+  "tau": 1000, "mean_arrivals": 1, "psi": 0.0004, "initial_z": 0,
+  "accounts": 20, "initial_gold": 5000, "initial_foreign": 1000,
+  "pool_gold": 1000000, "pool_foreign": 200000, "fee_rate": 0,
+  "order_sigma_foreign": 40, "max_pool_fraction": 0.005,
+  "trend_window": 30, "mean_window": 30,
+  "factor_mix": [[30, 0.1], [3, 1]],
+  "noise_sigma": 0.0005, "sensitivity": 100,
+  "position_cap": 500, "adjustment": 0.2
+}

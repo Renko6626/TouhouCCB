@@ -1,0 +1,13 @@
+{
+  "status": "performance_complete",
+  "before_commit": "a820157e2555e2143d37864962accf74a8f006a0",
+  "after_extracted": true,
+  "started_pg": false,
+  "started_http": true,
+  "ran_load": true,
+  "syntax_check": "python -m py_compile prepare.py compare_driver.py count_server.py run.py pg_monitor.py passed",
+  "cluster_owner": "main agent: started isolated PG for implementation tests after harness preparation",
+  "may_stop_cluster": false,
+  "after_commit": "330f4e683ec5564dea6ea59983351c3c8e128d9d",
+  "correctness_tests_rerun": false
+}

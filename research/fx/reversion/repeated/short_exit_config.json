@@ -1,0 +1,15 @@
+{
+  "accounts": 20,
+  "tick_seconds": 5,
+  "ticks": 10000,
+  "market_seeds": [81, 82, 83],
+  "policy": "weak_trend",
+  "trend_multiplier": 0.25,
+  "target_normal_holding_minutes": [7, 8],
+  "variants": {
+    "baseline": {},
+    "profit04": {"take_profit": 0.004},
+    "profit_trail04": {"take_profit": 0.004, "trail_arm": 0.002, "trail_drawdown": 0.002},
+    "symmetric04": {"take_profit": 0.004, "stop_loss": 0.004, "trail_arm": 0.002, "trail_drawdown": 0.002}
+  }
+}

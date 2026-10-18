@@ -1,0 +1,20 @@
+[
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 58
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 1
+  }
+]

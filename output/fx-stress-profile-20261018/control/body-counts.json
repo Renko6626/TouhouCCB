@@ -1,0 +1,202 @@
+[
+  {
+    "route": "GET /api/v1/stream/trading",
+    "kind": "frames",
+    "count": 28185
+  },
+  {
+    "route": "GET /api/v1/stream/trading",
+    "kind": "bytes",
+    "count": 14607857
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "frames",
+    "count": 744
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "bytes",
+    "count": 303898
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "frames",
+    "count": 530
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "bytes",
+    "count": 238693
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "frames",
+    "count": 524
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "kind": "bytes",
+    "count": 116852
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "frames",
+    "count": 524
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "kind": "bytes",
+    "count": 705642
+  },
+  {
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "frames",
+    "count": 24900
+  },
+  {
+    "route": "GET /api/v1/fx/stream/:id",
+    "kind": "bytes",
+    "count": 15348300
+  },
+  {
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "frames",
+    "count": 392
+  },
+  {
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "bytes",
+    "count": 72590
+  },
+  {
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "frames",
+    "count": 574
+  },
+  {
+    "route": "GET /api/v1/user/trading-context",
+    "kind": "bytes",
+    "count": 445489
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/chart",
+    "kind": "frames",
+    "count": 454
+  },
+  {
+    "route": "GET /api/v1/fx/pairs/:id/chart",
+    "kind": "bytes",
+    "count": 80152
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "frames",
+    "count": 42
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "bytes",
+    "count": 11673
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792267200.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792267200.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792270800.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792270800.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "frames",
+    "count": 138
+  },
+  {
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "bytes",
+    "count": 34638
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792274400.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792274400.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792278000.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792278000.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792281600.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792281600.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792285200.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792285200.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "frames",
+    "count": 40
+  },
+  {
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "bytes",
+    "count": 6280
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792288800.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792288800.json",
+    "kind": "bytes",
+    "count": 972
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792292400.json",
+    "kind": "frames",
+    "count": 18
+  },
+  {
+    "route": "GET /history/fx/:id/1a6b3c13-97d5-4c10-a029-0326147f744d/1m/1792292400.json",
+    "kind": "bytes",
+    "count": 2682
+  }
+]

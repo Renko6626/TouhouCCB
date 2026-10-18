@@ -1,10 +1,10 @@
 """Superuser-only FX operations."""
 from __future__ import annotations
+from app.services.market_read_state import stage_fx_pair
 from app.services.trading_prices import notify_pricing_changed
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -25,9 +25,6 @@ from app.schemas.fx import FxAnnouncementCreate, FxAnnouncementRead, FxPairAdmin
 from app.services import audit_service, site_config
 from app.services.fx import liquidity, admin_reads
 from app.schemas.fx import FxAdminOverview, FxLiquidityPreviewRequest, FxLiquidityPreview, FxLiquidityHistory
-from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
-from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.realtime import BROKER
 
@@ -71,15 +68,11 @@ async def append_announcement(
     return row
 
 
-@asynccontextmanager
-async def _pair_update_gate(db: AsyncSession, pair_id: int):
+async def _release_pair_request(db):
     _require_writes()
     if db.new or db.dirty or db.deleted:
         raise RuntimeError("FX pair update requires a clean request session")
     await db.close()
-    async with GATES.hold(exclusive=[GroupKey("fx", pair_id)]):
-        _require_writes()
-        yield
 
 
 def _dialect_name(db: AsyncSession) -> str:
@@ -301,72 +294,81 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
         append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=pair.created_at,
                           pre_reserves=None, post_reserves=(pair.gold_reserve, pair.foreign_reserve),
                           gold_volume=Decimal("0"), audit_id=audit.id)
+        stage_fx_pair(db, pair)
+        await db.flush()
+        await db.refresh(pair)
+        result = FxPairAdmin.model_validate(pair)
         await db.commit()
-        notify_pricing_changed(())
-    await db.refresh(pair)
-    return pair
+        pair_id = int(pair.id)
+    await db.close()
+    from app.services.fx.writer import FX_WRITER
+    await FX_WRITER.register_pair(pair_id)
+    notify_pricing_changed(())
+    return result
 
 
 @router.patch("/pairs/{pair_id}", response_model=FxPairAdmin)
 async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    pair = await db.get(FxPair, pair_id)
-    if pair is None: raise HTTPException(404, "FX pair not found")
-    if pair.status != "draft" and req.currency_code is not None:
-        raise HTTPException(409, "currency cannot be changed after opening")
-    values = req.model_dump(exclude_unset=True)
-    async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
-        await _lock_trading_capacity(db)
-        # 锁内重读同一行（populate_existing 覆盖身份映射里的旧值）：并发 PATCH
-        # 不能拿临界区之外读到的 stale status/reduce_only 做计数与审计 before。
-        pair = (await db.execute(
-            select(FxPair).where(FxPair.id == pair_id)
-            .with_for_update().execution_options(populate_existing=True)
-        )).scalars().first()
-        if pair is None:
-            raise HTTPException(404, "FX pair not found")
-        if pair.archived:
-            raise HTTPException(409, "FX pair is archived")
-        if req.currency_code is not None and (pair.status != "draft" or await _has_trade_history(db, pair_id)):
-            raise HTTPException(409, "currency cannot be changed after opening")
-        if any(value is None for value in values.values()):
-            raise HTTPException(422, "pair fields cannot be null")
-        if values.get("status") == "draft" and pair.status != "draft":
-            raise HTTPException(409, "opened FX pair cannot return to draft")
-        if values.get("status") in {"closed", "draft"}:
-            await _ensure_no_short_obligations(db, pair_id)
-        if values.get("status") == "trading":
-            await _ensure_trading_capacity(db, exclude_pair_id=pair_id)
-        _require_writes()
-        before = {key: str(getattr(pair, key)) for key in values}
-        for key, value in values.items(): setattr(pair, key, value)
-        # 借出上限直接影响开空准入，属于 pair 版本输入：改动必须 bump 版本，
-        # 使锁内重验的依赖快照失效（spec §11）。统一信贷下所有 PATCH 已 bump。
-        pair.pool_version += 1
-        pair.updated_at = datetime.now(timezone.utc)
-        # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
-        # status 变更（含切到 paused）绝不隐式改它。
-        action = None
-        if "reduce_only" in values and str(before["reduce_only"]) != str(pair.reduce_only):
-            action = "reduce_only_toggle"
-        _admin_audit(db, "fx_pair_update", admin.id, "fx_pair", pair.id, before,
-                     {key: str(value) for key, value in values.items()}, action=action)
-        try:
-            await db.commit()
-            notify_pricing_changed(())
-        except IntegrityError:
-            await db.rollback()
-            raise HTTPException(409, "currency code already exists") from None
-    await db.refresh(pair)
-    return pair
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import AdminPair
+    command = AdminPair(int(pair_id), int(admin.id), 'patch', req.model_dump_json(exclude_unset=True))
+    await _release_pair_request(db)
+    result = await FX_WRITER.submit(command)
+    return result
 
+
+async def _update_pair_in_session(db, pair_id, admin_id, req):
+    values = req.model_dump(exclude_unset=True)
+    # 锁内重读同一行（populate_existing 覆盖身份映射里的旧值）：并发 PATCH
+    # 不能拿临界区之外读到的 stale status/reduce_only 做计数与审计 before。
+    pair = (await db.execute(
+        select(FxPair).where(FxPair.id == pair_id)
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalars().first()
+    if pair is None:
+        raise HTTPException(404, "FX pair not found")
+    if pair.archived:
+        raise HTTPException(409, "FX pair is archived")
+    if req.currency_code is not None and (pair.status != "draft" or await _has_trade_history(db, pair_id)):
+        raise HTTPException(409, "currency cannot be changed after opening")
+    if any(value is None for value in values.values()):
+        raise HTTPException(422, "pair fields cannot be null")
+    if values.get("status") == "draft" and pair.status != "draft":
+        raise HTTPException(409, "opened FX pair cannot return to draft")
+    if values.get("status") in {"closed", "draft"}:
+        await _ensure_no_short_obligations(db, pair_id)
+    if values.get("status") == "trading":
+        await _ensure_trading_capacity(db, exclude_pair_id=pair_id)
+    _require_writes()
+    before = {key: str(getattr(pair, key)) for key in values}
+    for key, value in values.items(): setattr(pair, key, value)
+    # 借出上限直接影响开空准入，属于 pair 版本输入：改动必须 bump 版本，
+    # 使锁内重验的依赖快照失效（spec §11）。统一信贷下所有 PATCH 已 bump。
+    pair.pool_version += 1
+    pair.updated_at = datetime.now(timezone.utc)
+    # reduce_only 是显式运营开关：只在真正翻转时给审计打 action 标记，
+    # status 变更（含切到 paused）绝不隐式改它。
+    action = None
+    if "reduce_only" in values and str(before["reduce_only"]) != str(pair.reduce_only):
+        action = "reduce_only_toggle"
+    _admin_audit(db, "fx_pair_update", admin_id, "fx_pair", pair.id, before,
+                 {key: str(value) for key, value in values.items()}, action=action)
+    stage_fx_pair(db, pair)
+    try:
+        await db.flush()
+        await db.refresh(pair)
+        return FxPairAdmin.model_validate(pair)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(409, "currency code already exists") from None
 
 async def _has_trade_history(db: AsyncSession, pair_id: int) -> bool:
     return (await db.execute(select(FxTrade.id).where(FxTrade.pair_id == pair_id).limit(1))).first() is not None
 
 
 async def _ensure_no_short_obligations(db: AsyncSession, pair_id: int) -> None:
-    # Called only after the pair gate and authoritative row lock. Opening and
-    # repayment share that gate, so obligations cannot appear during cleanup.
+    # Called by the pair writer after the authoritative Pair row lock. Opening
+    # and repayment use the same writer, so obligations cannot appear during cleanup.
     outstanding = (await db.execute(select(FxShortPosition.id).where(
         FxShortPosition.pair_id == pair_id,
         (FxShortPosition.principal_foreign > 0)
@@ -395,41 +397,53 @@ async def _cleanup_pair(db: AsyncSession, pair_id: int) -> FxPair:
 
 @router.post("/pairs/{pair_id}/archive", response_model=FxPairAdmin)
 async def archive_pair(pair_id: int, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
-        await _lock_trading_capacity(db)
-        pair = await _cleanup_pair(db, pair_id)
-        if not pair.archived:
-            _require_writes()
-            before = {"currency_code": pair.currency_code, "status": pair.status, "archived": False}
-            pair.archived, pair.status = True, "closed"
-            pair.pool_version += 1
-            pair.updated_at = datetime.now(timezone.utc)
-            _admin_audit(db, "fx_pair_archive", admin.id, "fx_pair", pair_id, before,
-                         {"status": "closed", "archived": True})
-        await db.commit()
-        notify_pricing_changed(())
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import AdminPair
+    command = AdminPair(int(pair_id), int(admin.id), 'archive', '{}')
+    await _release_pair_request(db)
+    result = await FX_WRITER.submit(command)
+    return result
+
+
+async def _archive_pair_in_session(db, pair_id, admin_id):
+    pair = await _cleanup_pair(db, pair_id)
+    if not pair.archived:
+        _require_writes()
+        before = {"currency_code": pair.currency_code, "status": pair.status, "archived": False}
+        pair.archived, pair.status = True, "closed"
+        pair.pool_version += 1
+        pair.updated_at = datetime.now(timezone.utc)
+        _admin_audit(db, "fx_pair_archive", admin_id, "fx_pair", pair_id, before,
+                     {"status": "closed", "archived": True})
+    stage_fx_pair(db, pair)
+    await db.flush()
     await db.refresh(pair)
-    return pair
+    return FxPairAdmin.model_validate(pair)
 
 
 @router.delete("/pairs/{pair_id}", status_code=204)
 async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db: AsyncSession = Depends(get_async_session)):
-    async with _pair_update_gate(db, pair_id), _TRADING_MUTATION_LOCK:
-        await _lock_trading_capacity(db)
-        pair = await _cleanup_pair(db, pair_id)
-        if await _has_trade_history(db, pair_id) or (await db.execute(
-            select(FxTriggerOrder.id).where(FxTriggerOrder.pair_id == pair_id).limit(1)
-        )).first() is not None:
-            raise HTTPException(409, "FX pair has history; archive it instead")
-        _require_writes()
-        before = FxPairAdmin.model_validate(pair).model_dump(mode="json")
-        _admin_audit(db, "fx_pair_delete", admin.id, "fx_pair", pair_id, before, {})
-        for model in (FxPoolEvent, FxCandle, FxMarketDataState, FxWallet, FxShortPosition, FxTreasury):
-            await db.execute(delete(model).where(model.pair_id == pair_id))
-        await db.execute(delete(FxPair).where(FxPair.id == pair_id))
-        await db.commit()
-        notify_pricing_changed(())
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import AdminPair
+    command = AdminPair(int(pair_id), int(admin.id), 'delete', '{}')
+    await _release_pair_request(db)
+    await FX_WRITER.submit(command)
     return Response(status_code=204)
+
+
+async def _delete_pair_in_session(db, pair_id, admin_id):
+    pair = await _cleanup_pair(db, pair_id)
+    if await _has_trade_history(db, pair_id) or (await db.execute(
+        select(FxTriggerOrder.id).where(FxTriggerOrder.pair_id == pair_id).limit(1)
+    )).first() is not None:
+        raise HTTPException(409, "FX pair has history; archive it instead")
+    _require_writes()
+    before = FxPairAdmin.model_validate(pair).model_dump(mode="json")
+    _admin_audit(db, "fx_pair_delete", admin_id, "fx_pair", pair_id, before, {})
+    for model in (FxPoolEvent, FxCandle, FxMarketDataState, FxWallet, FxShortPosition, FxTreasury):
+        await db.execute(delete(model).where(model.pair_id == pair_id))
+    await db.execute(delete(FxPair).where(FxPair.id == pair_id))
+    return None
 
 
 @router.post("/pairs/{pair_id}/fund", response_model=FxPairAdmin)

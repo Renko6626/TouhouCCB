@@ -1,0 +1,9 @@
+{
+  "no_shocks": true,
+  "finite_series": true,
+  "nonnegative_wallets": true,
+  "both_assets_conserved": true,
+  "wallet_valuation_verified": true,
+  "trade_counts_verified": true,
+  "simulator_elapsed_seconds": 4.387501738965511
+}

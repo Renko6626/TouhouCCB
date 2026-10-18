@@ -1,0 +1,11 @@
+{
+  "new_shock_paths": 6,
+  "reused_normal_paths": 3,
+  "pre_shock_prefix_exact": true,
+  "jump_sizes_verified": true,
+  "finite_series": true,
+  "wallets_nonnegative": true,
+  "assets_conserved_with_injections": true,
+  "trade_counts_verified": true,
+  "sources_unchanged": true
+}

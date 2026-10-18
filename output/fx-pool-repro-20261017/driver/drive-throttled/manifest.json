@@ -1,0 +1,522 @@
+{
+  "schema_version": 1,
+  "run_id": "repro100",
+  "created_at": "2026-10-17T12:19:54.047674+00:00",
+  "pair_id": 2,
+  "currency_code": "LT60678A5BF324",
+  "source_pair_id": 1,
+  "restore_status": "trading",
+  "initial_cash": "100000",
+  "users": [
+    {
+      "uid": 1,
+      "username": "lt_60678A5B_001",
+      "casdoor_id": "loadtest:repro100:001"
+    },
+    {
+      "uid": 2,
+      "username": "lt_60678A5B_002",
+      "casdoor_id": "loadtest:repro100:002"
+    },
+    {
+      "uid": 3,
+      "username": "lt_60678A5B_003",
+      "casdoor_id": "loadtest:repro100:003"
+    },
+    {
+      "uid": 4,
+      "username": "lt_60678A5B_004",
+      "casdoor_id": "loadtest:repro100:004"
+    },
+    {
+      "uid": 5,
+      "username": "lt_60678A5B_005",
+      "casdoor_id": "loadtest:repro100:005"
+    },
+    {
+      "uid": 6,
+      "username": "lt_60678A5B_006",
+      "casdoor_id": "loadtest:repro100:006"
+    },
+    {
+      "uid": 7,
+      "username": "lt_60678A5B_007",
+      "casdoor_id": "loadtest:repro100:007"
+    },
+    {
+      "uid": 8,
+      "username": "lt_60678A5B_008",
+      "casdoor_id": "loadtest:repro100:008"
+    },
+    {
+      "uid": 9,
+      "username": "lt_60678A5B_009",
+      "casdoor_id": "loadtest:repro100:009"
+    },
+    {
+      "uid": 10,
+      "username": "lt_60678A5B_010",
+      "casdoor_id": "loadtest:repro100:010"
+    },
+    {
+      "uid": 11,
+      "username": "lt_60678A5B_011",
+      "casdoor_id": "loadtest:repro100:011"
+    },
+    {
+      "uid": 12,
+      "username": "lt_60678A5B_012",
+      "casdoor_id": "loadtest:repro100:012"
+    },
+    {
+      "uid": 13,
+      "username": "lt_60678A5B_013",
+      "casdoor_id": "loadtest:repro100:013"
+    },
+    {
+      "uid": 14,
+      "username": "lt_60678A5B_014",
+      "casdoor_id": "loadtest:repro100:014"
+    },
+    {
+      "uid": 15,
+      "username": "lt_60678A5B_015",
+      "casdoor_id": "loadtest:repro100:015"
+    },
+    {
+      "uid": 16,
+      "username": "lt_60678A5B_016",
+      "casdoor_id": "loadtest:repro100:016"
+    },
+    {
+      "uid": 17,
+      "username": "lt_60678A5B_017",
+      "casdoor_id": "loadtest:repro100:017"
+    },
+    {
+      "uid": 18,
+      "username": "lt_60678A5B_018",
+      "casdoor_id": "loadtest:repro100:018"
+    },
+    {
+      "uid": 19,
+      "username": "lt_60678A5B_019",
+      "casdoor_id": "loadtest:repro100:019"
+    },
+    {
+      "uid": 20,
+      "username": "lt_60678A5B_020",
+      "casdoor_id": "loadtest:repro100:020"
+    },
+    {
+      "uid": 21,
+      "username": "lt_60678A5B_021",
+      "casdoor_id": "loadtest:repro100:021"
+    },
+    {
+      "uid": 22,
+      "username": "lt_60678A5B_022",
+      "casdoor_id": "loadtest:repro100:022"
+    },
+    {
+      "uid": 23,
+      "username": "lt_60678A5B_023",
+      "casdoor_id": "loadtest:repro100:023"
+    },
+    {
+      "uid": 24,
+      "username": "lt_60678A5B_024",
+      "casdoor_id": "loadtest:repro100:024"
+    },
+    {
+      "uid": 25,
+      "username": "lt_60678A5B_025",
+      "casdoor_id": "loadtest:repro100:025"
+    },
+    {
+      "uid": 26,
+      "username": "lt_60678A5B_026",
+      "casdoor_id": "loadtest:repro100:026"
+    },
+    {
+      "uid": 27,
+      "username": "lt_60678A5B_027",
+      "casdoor_id": "loadtest:repro100:027"
+    },
+    {
+      "uid": 28,
+      "username": "lt_60678A5B_028",
+      "casdoor_id": "loadtest:repro100:028"
+    },
+    {
+      "uid": 29,
+      "username": "lt_60678A5B_029",
+      "casdoor_id": "loadtest:repro100:029"
+    },
+    {
+      "uid": 30,
+      "username": "lt_60678A5B_030",
+      "casdoor_id": "loadtest:repro100:030"
+    },
+    {
+      "uid": 31,
+      "username": "lt_60678A5B_031",
+      "casdoor_id": "loadtest:repro100:031"
+    },
+    {
+      "uid": 32,
+      "username": "lt_60678A5B_032",
+      "casdoor_id": "loadtest:repro100:032"
+    },
+    {
+      "uid": 33,
+      "username": "lt_60678A5B_033",
+      "casdoor_id": "loadtest:repro100:033"
+    },
+    {
+      "uid": 34,
+      "username": "lt_60678A5B_034",
+      "casdoor_id": "loadtest:repro100:034"
+    },
+    {
+      "uid": 35,
+      "username": "lt_60678A5B_035",
+      "casdoor_id": "loadtest:repro100:035"
+    },
+    {
+      "uid": 36,
+      "username": "lt_60678A5B_036",
+      "casdoor_id": "loadtest:repro100:036"
+    },
+    {
+      "uid": 37,
+      "username": "lt_60678A5B_037",
+      "casdoor_id": "loadtest:repro100:037"
+    },
+    {
+      "uid": 38,
+      "username": "lt_60678A5B_038",
+      "casdoor_id": "loadtest:repro100:038"
+    },
+    {
+      "uid": 39,
+      "username": "lt_60678A5B_039",
+      "casdoor_id": "loadtest:repro100:039"
+    },
+    {
+      "uid": 40,
+      "username": "lt_60678A5B_040",
+      "casdoor_id": "loadtest:repro100:040"
+    },
+    {
+      "uid": 41,
+      "username": "lt_60678A5B_041",
+      "casdoor_id": "loadtest:repro100:041"
+    },
+    {
+      "uid": 42,
+      "username": "lt_60678A5B_042",
+      "casdoor_id": "loadtest:repro100:042"
+    },
+    {
+      "uid": 43,
+      "username": "lt_60678A5B_043",
+      "casdoor_id": "loadtest:repro100:043"
+    },
+    {
+      "uid": 44,
+      "username": "lt_60678A5B_044",
+      "casdoor_id": "loadtest:repro100:044"
+    },
+    {
+      "uid": 45,
+      "username": "lt_60678A5B_045",
+      "casdoor_id": "loadtest:repro100:045"
+    },
+    {
+      "uid": 46,
+      "username": "lt_60678A5B_046",
+      "casdoor_id": "loadtest:repro100:046"
+    },
+    {
+      "uid": 47,
+      "username": "lt_60678A5B_047",
+      "casdoor_id": "loadtest:repro100:047"
+    },
+    {
+      "uid": 48,
+      "username": "lt_60678A5B_048",
+      "casdoor_id": "loadtest:repro100:048"
+    },
+    {
+      "uid": 49,
+      "username": "lt_60678A5B_049",
+      "casdoor_id": "loadtest:repro100:049"
+    },
+    {
+      "uid": 50,
+      "username": "lt_60678A5B_050",
+      "casdoor_id": "loadtest:repro100:050"
+    },
+    {
+      "uid": 51,
+      "username": "lt_60678A5B_051",
+      "casdoor_id": "loadtest:repro100:051"
+    },
+    {
+      "uid": 52,
+      "username": "lt_60678A5B_052",
+      "casdoor_id": "loadtest:repro100:052"
+    },
+    {
+      "uid": 53,
+      "username": "lt_60678A5B_053",
+      "casdoor_id": "loadtest:repro100:053"
+    },
+    {
+      "uid": 54,
+      "username": "lt_60678A5B_054",
+      "casdoor_id": "loadtest:repro100:054"
+    },
+    {
+      "uid": 55,
+      "username": "lt_60678A5B_055",
+      "casdoor_id": "loadtest:repro100:055"
+    },
+    {
+      "uid": 56,
+      "username": "lt_60678A5B_056",
+      "casdoor_id": "loadtest:repro100:056"
+    },
+    {
+      "uid": 57,
+      "username": "lt_60678A5B_057",
+      "casdoor_id": "loadtest:repro100:057"
+    },
+    {
+      "uid": 58,
+      "username": "lt_60678A5B_058",
+      "casdoor_id": "loadtest:repro100:058"
+    },
+    {
+      "uid": 59,
+      "username": "lt_60678A5B_059",
+      "casdoor_id": "loadtest:repro100:059"
+    },
+    {
+      "uid": 60,
+      "username": "lt_60678A5B_060",
+      "casdoor_id": "loadtest:repro100:060"
+    },
+    {
+      "uid": 61,
+      "username": "lt_60678A5B_061",
+      "casdoor_id": "loadtest:repro100:061"
+    },
+    {
+      "uid": 62,
+      "username": "lt_60678A5B_062",
+      "casdoor_id": "loadtest:repro100:062"
+    },
+    {
+      "uid": 63,
+      "username": "lt_60678A5B_063",
+      "casdoor_id": "loadtest:repro100:063"
+    },
+    {
+      "uid": 64,
+      "username": "lt_60678A5B_064",
+      "casdoor_id": "loadtest:repro100:064"
+    },
+    {
+      "uid": 65,
+      "username": "lt_60678A5B_065",
+      "casdoor_id": "loadtest:repro100:065"
+    },
+    {
+      "uid": 66,
+      "username": "lt_60678A5B_066",
+      "casdoor_id": "loadtest:repro100:066"
+    },
+    {
+      "uid": 67,
+      "username": "lt_60678A5B_067",
+      "casdoor_id": "loadtest:repro100:067"
+    },
+    {
+      "uid": 68,
+      "username": "lt_60678A5B_068",
+      "casdoor_id": "loadtest:repro100:068"
+    },
+    {
+      "uid": 69,
+      "username": "lt_60678A5B_069",
+      "casdoor_id": "loadtest:repro100:069"
+    },
+    {
+      "uid": 70,
+      "username": "lt_60678A5B_070",
+      "casdoor_id": "loadtest:repro100:070"
+    },
+    {
+      "uid": 71,
+      "username": "lt_60678A5B_071",
+      "casdoor_id": "loadtest:repro100:071"
+    },
+    {
+      "uid": 72,
+      "username": "lt_60678A5B_072",
+      "casdoor_id": "loadtest:repro100:072"
+    },
+    {
+      "uid": 73,
+      "username": "lt_60678A5B_073",
+      "casdoor_id": "loadtest:repro100:073"
+    },
+    {
+      "uid": 74,
+      "username": "lt_60678A5B_074",
+      "casdoor_id": "loadtest:repro100:074"
+    },
+    {
+      "uid": 75,
+      "username": "lt_60678A5B_075",
+      "casdoor_id": "loadtest:repro100:075"
+    },
+    {
+      "uid": 76,
+      "username": "lt_60678A5B_076",
+      "casdoor_id": "loadtest:repro100:076"
+    },
+    {
+      "uid": 77,
+      "username": "lt_60678A5B_077",
+      "casdoor_id": "loadtest:repro100:077"
+    },
+    {
+      "uid": 78,
+      "username": "lt_60678A5B_078",
+      "casdoor_id": "loadtest:repro100:078"
+    },
+    {
+      "uid": 79,
+      "username": "lt_60678A5B_079",
+      "casdoor_id": "loadtest:repro100:079"
+    },
+    {
+      "uid": 80,
+      "username": "lt_60678A5B_080",
+      "casdoor_id": "loadtest:repro100:080"
+    },
+    {
+      "uid": 81,
+      "username": "lt_60678A5B_081",
+      "casdoor_id": "loadtest:repro100:081"
+    },
+    {
+      "uid": 82,
+      "username": "lt_60678A5B_082",
+      "casdoor_id": "loadtest:repro100:082"
+    },
+    {
+      "uid": 83,
+      "username": "lt_60678A5B_083",
+      "casdoor_id": "loadtest:repro100:083"
+    },
+    {
+      "uid": 84,
+      "username": "lt_60678A5B_084",
+      "casdoor_id": "loadtest:repro100:084"
+    },
+    {
+      "uid": 85,
+      "username": "lt_60678A5B_085",
+      "casdoor_id": "loadtest:repro100:085"
+    },
+    {
+      "uid": 86,
+      "username": "lt_60678A5B_086",
+      "casdoor_id": "loadtest:repro100:086"
+    },
+    {
+      "uid": 87,
+      "username": "lt_60678A5B_087",
+      "casdoor_id": "loadtest:repro100:087"
+    },
+    {
+      "uid": 88,
+      "username": "lt_60678A5B_088",
+      "casdoor_id": "loadtest:repro100:088"
+    },
+    {
+      "uid": 89,
+      "username": "lt_60678A5B_089",
+      "casdoor_id": "loadtest:repro100:089"
+    },
+    {
+      "uid": 90,
+      "username": "lt_60678A5B_090",
+      "casdoor_id": "loadtest:repro100:090"
+    },
+    {
+      "uid": 91,
+      "username": "lt_60678A5B_091",
+      "casdoor_id": "loadtest:repro100:091"
+    },
+    {
+      "uid": 92,
+      "username": "lt_60678A5B_092",
+      "casdoor_id": "loadtest:repro100:092"
+    },
+    {
+      "uid": 93,
+      "username": "lt_60678A5B_093",
+      "casdoor_id": "loadtest:repro100:093"
+    },
+    {
+      "uid": 94,
+      "username": "lt_60678A5B_094",
+      "casdoor_id": "loadtest:repro100:094"
+    },
+    {
+      "uid": 95,
+      "username": "lt_60678A5B_095",
+      "casdoor_id": "loadtest:repro100:095"
+    },
+    {
+      "uid": 96,
+      "username": "lt_60678A5B_096",
+      "casdoor_id": "loadtest:repro100:096"
+    },
+    {
+      "uid": 97,
+      "username": "lt_60678A5B_097",
+      "casdoor_id": "loadtest:repro100:097"
+    },
+    {
+      "uid": 98,
+      "username": "lt_60678A5B_098",
+      "casdoor_id": "loadtest:repro100:098"
+    },
+    {
+      "uid": 99,
+      "username": "lt_60678A5B_099",
+      "casdoor_id": "loadtest:repro100:099"
+    },
+    {
+      "uid": 100,
+      "username": "lt_60678A5B_100",
+      "casdoor_id": "loadtest:repro100:100"
+    }
+  ],
+  "pair_baseline": {
+    "gold_reserve": "1000000.000000",
+    "foreign_reserve": "200000.000000",
+    "buy_fee_rate": "0.00300000",
+    "sell_fee_rate": "0.00300000"
+  },
+  "fx_config_at_prepare": {
+    "fx_enabled": "true",
+    "fx_short_enabled": "true"
+  }
+}

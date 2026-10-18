@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from tests.conftest import publish_seeded_market_records
 from sqlalchemy import select
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -37,7 +38,7 @@ from app.services.credit.thresholds import derive_thresholds
 from app.services.fx.amm import quote_buy_exact_out
 from app.services.fx.shorts import pending_short_debt
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -171,7 +172,7 @@ async def _short_row(uid: int, pid: int) -> tuple:
                 row.interest_last_accrued_at)
 
 
-async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
+async def test_cash_spend_with_minimal_deps_reads_fresh_persisted_short():
     """A minimal deps set (gold debt 0) must not hide a foreign obligation."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -199,12 +200,11 @@ async def test_cash_spend_with_minimal_deps_rejects_ungated_persisted_short():
             s, user=row, deps=minimal, spend=Decimal("1"),
             thresholds=TH4, partial_pct=ONE, now=NOW,
         )
-    for decision in (big, small):
-        assert decision.allowed is False
-        assert decision.reason == REASON_VERSION_CONFLICT
-        # Never a K from an ungated added pair.
-        assert decision.short_cover_cost is None
-        assert decision.max_borrow is None
+    k = quote_buy_exact_out(Decimal("10"), Decimal("1000"), Decimal("1000"), ZERO).input_amount
+    assert not big.allowed and big.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
+    assert small.allowed
+    assert big.short_cover_cost == small.short_cover_cost == k
+    assert small.equity_after == (Decimal("4999") - k).quantize(Q6)
     assert await _user_money(uid) == (Decimal("5000"), Decimal("0"))
     assert await _short_row(uid, pid) == before
 
@@ -348,6 +348,7 @@ async def test_stale_post_order_short_reserve_is_not_used():
             row = (await s.execute(select(FxPair).where(FxPair.id == pid))).scalars().one()
             row.gold_reserve = Decimal("800")
 
+    await publish_seeded_market_records()
     decision = await _check(uid, deps=deps, post=PostTradeState(
         cash=deps.cash, debt=deps.debt,
         short_reserves={pid: (Decimal("1200"), Decimal("1000"))},
@@ -357,7 +358,7 @@ async def test_stale_post_order_short_reserve_is_not_used():
     assert decision.reason == REASON_VERSION_CONFLICT
 
 
-async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
+async def test_concurrent_new_short_set_is_priced_from_fresh_ledger():
     """A persisted short that appeared after discovery must not be priced under."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -382,10 +383,11 @@ async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
     decision = await _check(uid, deps=deps, post=PostTradeState(
         cash=deps.cash, debt=deps.debt,
     ))
-    assert decision.allowed is False
-    assert decision.reason == REASON_VERSION_CONFLICT
-    assert decision.short_cover_cost is None
-    assert decision.max_borrow is None
+    assert decision.allowed
+    k = quote_buy_exact_out(Decimal("10"), Decimal("1000"), Decimal("1000"), ZERO).input_amount
+    assert decision.short_cover_cost == k
+    assert decision.short_debt_after == Decimal("10")
+    assert decision.equity_after == (Decimal("100000") - k).quantize(Q6)
     # No money changed and the concurrently opened short row is untouched.
     assert await _user_money(uid) == (Decimal("100000"), Decimal("0"))
     principal, interest, accrued = await _short_row(uid, pid)
@@ -393,7 +395,7 @@ async def test_concurrent_new_short_set_returns_conflict_not_ungated_quote():
     assert accrued is not None
 
 
-async def test_revalidation_new_asset_group_is_rejected_not_priced():
+async def test_revalidation_new_asset_group_is_priced():
     """If version revalidation discovers a new holding group, the caller's gate."""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -429,6 +431,69 @@ async def test_revalidation_new_asset_group_is_rejected_not_priced():
             post=PostTradeState(cash=deps.cash, debt=deps.debt),
             thresholds=TH10, partial_pct=ONE, now=NOW,
         )
-        assert decision.allowed is False
-        assert decision.reason == REASON_VERSION_CONFLICT
-        assert decision.short_cover_cost is None
+        assert decision.allowed
+        # Both equally-sized holding groups count in the fresh portfolio.
+        one = risk.quote_lmsr_group((await _deps(uid)).snapshots[other_key].outcomes,
+            market_id=other_key.group_id, b=100.0, positions={other_outcome: Decimal("40")},
+            fee_rate=ZERO, mode="full", partial_pct=ONE).net
+        assert decision.equity_after == (Decimal("4900") + 2 * one).quantize(Q6)
+
+
+async def test_fx_asset_and_cover_reuse_one_published_record(monkeypatch):
+    """SQL price drift and a later publication cannot split A and K inputs."""
+    from dataclasses import replace
+    from app.models.fx import FxWallet
+    from app.schemas.trading_context import GroupKey as PricingKey
+    from app.services.fx.amm import quote_sell
+    from app.services.market_locks import lock_user
+    from app.services.trading_prices import REGISTRY
+    async with async_session_maker() as session:
+        user = await _user(session, 'fixed-capture', cash='1000')
+        pair = await _pair(session, 'fixed-capture', gold='1000', foreign='1000')
+        await _short(session, user, pair, principal='10')
+        session.add(FxWallet(user_id=user.id, pair_id=pair.id, foreign_amount=Decimal('100')))
+        await session.commit()
+        uid, pid = user.id, pair.id
+        # Committed SQL can be ahead of publication; the price record remains old.
+        pair.gold_reserve = Decimal('9000')
+        await session.commit()
+    key = PricingKey(product='fx', id=pid)
+    old = REGISTRY.capture_committed_records([key])[('fx', pid)].state
+    capture, quote = REGISTRY.capture_committed_records, risk.quote_fx_group
+    captures = []
+    def counted(keys):
+        records = capture(keys)
+        captures.append(records)
+        return records
+    def publish_during_asset_quote(*args, **kwargs):
+        REGISTRY.install_committed(replace(old, gold_reserve=Decimal('9000'),
+                                           buy_fee_rate=Decimal('.2'), pool_version=2))
+        return quote(*args, **kwargs)
+    monkeypatch.setattr(REGISTRY, 'capture_committed_records', counted)
+    monkeypatch.setattr(risk, 'quote_fx_group', publish_during_asset_quote)
+    async with async_session_maker() as session:
+        user = await lock_user(session, uid)
+        deps = await discover_dependencies(session, uid, account_locked=True)
+        decision = await check_new_risk(session, user=user, deps=deps,
+            post=PostTradeState(cash=deps.cash, debt=deps.debt),
+            thresholds=TH4, partial_pct=ONE, now=NOW)
+    asset = quote_sell(Decimal('100'), Decimal('1000'), Decimal('1000'), ZERO).output_amount
+    cover = quote_buy_exact_out(Decimal('10'), Decimal('1000'), Decimal('1000'), ZERO).input_amount
+    assert decision.allowed and decision.short_cover_cost == cover
+    assert decision.equity_after == (Decimal('1000') + asset - cover).quantize(Q6)
+    assert len(captures) == 1
+
+
+async def test_missing_published_short_market_does_not_fall_back_to_sql():
+    from app.schemas.trading_context import GroupKey as PricingKey
+    from app.services.trading_prices import REGISTRY
+    async with async_session_maker() as session:
+        user = await _user(session, 'missing-published', cash='100000')
+        pair = await _pair(session, 'missing-published')
+        await _short(session, user, pair, principal='10')
+        uid, pid = user.id, pair.id
+    REGISTRY.invalidate(PricingKey(product='fx', id=pid))
+    decision = await _check(uid)
+    assert not decision.allowed and decision.reason == 'short_snapshot_missing'
+    assert decision.equity_after is None and decision.short_cover_cost is None
+    assert await _user_money(uid) == (Decimal('100000'), ZERO)

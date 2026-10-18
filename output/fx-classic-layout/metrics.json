@@ -1,0 +1,345 @@
+[
+  {
+    "name": "desktop-long",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panelHeight": 709,
+      "chartHeight": 616,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 852,
+        "height": 709,
+        "top": 274.390625,
+        "right": 944,
+        "bottom": 983.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 968,
+        "y": 274.390625,
+        "width": 380,
+        "height": 709,
+        "top": 274.390625,
+        "right": 1348,
+        "bottom": 983.390625,
+        "left": 968
+      },
+      "scroll": {
+        "client": 601,
+        "height": 655
+      },
+      "primary": {
+        "x": 982,
+        "y": 932.390625,
+        "width": 290,
+        "height": 37,
+        "top": 932.390625,
+        "right": 1272,
+        "bottom": 969.390625,
+        "left": 982
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "desktop-short",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panelHeight": 709,
+      "chartHeight": 616,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 852,
+        "height": 709,
+        "top": 274.390625,
+        "right": 944,
+        "bottom": 983.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 968,
+        "y": 274.390625,
+        "width": 380,
+        "height": 709,
+        "top": 274.390625,
+        "right": 1348,
+        "bottom": 983.390625,
+        "left": 968
+      },
+      "scroll": {
+        "client": 601,
+        "height": 601
+      },
+      "primary": {
+        "x": 982,
+        "y": 882.171875,
+        "width": 290,
+        "height": 37,
+        "top": 882.171875,
+        "right": 1272,
+        "bottom": 919.171875,
+        "left": 982
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": false,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "desktop-cover",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panelHeight": 709,
+      "chartHeight": 616,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 852,
+        "height": 709,
+        "top": 274.390625,
+        "right": 944,
+        "bottom": 983.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 968,
+        "y": 274.390625,
+        "width": 380,
+        "height": 709,
+        "top": 274.390625,
+        "right": 1348,
+        "bottom": 983.390625,
+        "left": 968
+      },
+      "scroll": {
+        "client": 601,
+        "height": 709
+      },
+      "primary": {
+        "x": 982,
+        "y": 932.390625,
+        "width": 290,
+        "height": 37,
+        "top": 932.390625,
+        "right": 1272,
+        "bottom": 969.390625,
+        "left": 982
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "mobile-long",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 390,
+      "scrollWidth": 390,
+      "panelHeight": 812.578125,
+      "chartHeight": 270,
+      "chartPanel": {
+        "x": 22,
+        "y": -367,
+        "width": 346,
+        "height": 374.5,
+        "top": -367,
+        "right": 368,
+        "bottom": 7.5,
+        "left": 22
+      },
+      "panel": {
+        "x": 22,
+        "y": 31.5,
+        "width": 346,
+        "height": 812.578125,
+        "top": 31.5,
+        "right": 368,
+        "bottom": 844.078125,
+        "left": 22
+      },
+      "scroll": {
+        "client": 683,
+        "height": 683
+      },
+      "primary": {
+        "x": 36,
+        "y": 748.578125,
+        "width": 266,
+        "height": 44,
+        "top": 748.578125,
+        "right": 302,
+        "bottom": 792.578125,
+        "left": 36
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "desktop-long-900",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panelHeight": 609,
+      "chartHeight": 516,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 852,
+        "height": 609,
+        "top": 274.390625,
+        "right": 944,
+        "bottom": 883.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 968,
+        "y": 274.390625,
+        "width": 380,
+        "height": 609,
+        "top": 274.390625,
+        "right": 1348,
+        "bottom": 883.390625,
+        "left": 968
+      },
+      "scroll": {
+        "client": 501,
+        "height": 655
+      },
+      "primary": {
+        "x": 982,
+        "y": 832.390625,
+        "width": 290,
+        "height": 37,
+        "top": 832.390625,
+        "right": 1272,
+        "bottom": 869.390625,
+        "left": 982
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "desktop-cover-900",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "panelHeight": 609,
+      "chartHeight": 516,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 852,
+        "height": 609,
+        "top": 274.390625,
+        "right": 944,
+        "bottom": 883.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 968,
+        "y": 274.390625,
+        "width": 380,
+        "height": 609,
+        "top": 274.390625,
+        "right": 1348,
+        "bottom": 883.390625,
+        "left": 968
+      },
+      "scroll": {
+        "client": 501,
+        "height": 709
+      },
+      "primary": {
+        "x": 982,
+        "y": 832.390625,
+        "width": 290,
+        "height": 37,
+        "top": 832.390625,
+        "right": 1272,
+        "bottom": 869.390625,
+        "left": 982
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  },
+  {
+    "name": "desktop-long-768",
+    "errors": [],
+    "writes": [],
+    "layout": {
+      "width": 1366,
+      "scrollWidth": 1366,
+      "panelHeight": 477,
+      "chartHeight": 384,
+      "chartPanel": {
+        "x": 92,
+        "y": 274.390625,
+        "width": 778,
+        "height": 477,
+        "top": 274.390625,
+        "right": 870,
+        "bottom": 751.390625,
+        "left": 92
+      },
+      "panel": {
+        "x": 894,
+        "y": 274.390625,
+        "width": 380,
+        "height": 477,
+        "top": 274.390625,
+        "right": 1274,
+        "bottom": 751.390625,
+        "left": 894
+      },
+      "scroll": {
+        "client": 369,
+        "height": 655
+      },
+      "primary": {
+        "x": 908,
+        "y": 700.390625,
+        "width": 290,
+        "height": 37,
+        "top": 700.390625,
+        "right": 1198,
+        "bottom": 737.390625,
+        "left": 908
+      },
+      "positionInPanel": true,
+      "holdingsInAccountBar": false,
+      "holdingsInTradePanel": true,
+      "leftHoldings": false
+    }
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "t": 1792296490.311394,
+  "http_port_listening": false,
+  "pg_postmaster_pid_exists": false,
+  "tokens_files": [],
+  "output_jwt_matching_files": [],
+  "native_exit_status": 0
+}

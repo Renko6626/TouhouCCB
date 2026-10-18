@@ -82,6 +82,38 @@ async def test_leaderboard_no_equipped_returns_null(client):
 
 
 @pytest.mark.asyncio
+async def test_spending_rank_preserves_consumption_after_new_debt():
+    """重新借款不能扣减已完成消费的成绩或改变消费排名。"""
+    from app.api.v1.market import _leaderboard_uncached
+    from app.models.redemption import RedemptionTransaction, DanmukuExchange
+
+    async with async_session_maker() as s:
+        first = User(username="spent200", email="spent200@x.com", casdoor_id="spent200")
+        second = User(username="spent150", email="spent150@x.com", casdoor_id="spent150")
+        s.add_all([first, second])
+        await s.flush()
+        s.add_all([
+            RedemptionTransaction(user_id=first.id, amount=Decimal("120")),
+            DanmukuExchange(user_id=first.id, qq_user_id="1", room_id="test",
+                            yuan=Decimal("80"), huo=Decimal("0"),
+                            amount=Decimal("80"), code_string="test"),
+            RedemptionTransaction(user_id=second.id, amount=Decimal("150")),
+        ])
+        await s.flush()
+        before = await _leaderboard_uncached(20, "spending", s)
+        first.debt = Decimal("100")
+        s.add(first)
+        await s.flush()
+        after = await _leaderboard_uncached(20, "spending", s)
+
+        expected = [(first.id, Decimal("200")), (second.id, Decimal("150"))]
+        assert [(row.user_id, row.net_worth) for row in before] == expected
+        assert [(row.user_id, row.net_worth) for row in after] == expected
+        assert after[0].spent_total == Decimal("200")
+        assert after[0].debt == Decimal("100")
+
+
+@pytest.mark.asyncio
 async def test_recent_liquidations_includes_equipped_title(client):
     """强平事件主用户装备了 title 时，列表行返回 equipped_title chip。"""
     uid, tid, sfx = await _mk_user_with_equipped_title("liqtop")

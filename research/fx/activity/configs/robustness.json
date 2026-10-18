@@ -1,0 +1,18 @@
+{
+  "ticks": 500000,
+  "burn_in": 5000,
+  "seeds": [101, 102, 103, 104, 105],
+  "b_values": [0, 0.25],
+  "tau": 1000,
+  "mean_arrivals": 1,
+  "psi": 0.0004,
+  "initial_z": 0,
+  "accounts": 20,
+  "initial_gold": 5000,
+  "initial_foreign": 1000,
+  "pool_gold": 1000000,
+  "pool_foreign": 200000,
+  "fee_rate": 0,
+  "order_sigma_foreign": 40,
+  "max_pool_fraction": 0.005
+}

@@ -1,0 +1,15 @@
+{
+  "run_id": "fx100_20261017_live",
+  "target": "https://thccb.secret-sealing.club",
+  "source_pair_id": 8,
+  "deployed_commit": "ce09c41a021b50908a80bd7ab6ded8e47f289657",
+  "deployment_run": 39019130379,
+  "status": "stopped_on_pool_exhaustion_and_cleaned",
+  "scope": "100 ordinary accounts; 60 cash, 20 financed, 20 short; 200 SSE",
+  "maintenance_commit": "9a1acb1",
+  "prepare_run": 39020090750,
+  "cleanup_run": 39020834251,
+  "nginx_changed": false,
+  "test_accounts_deleted": 100,
+  "original_pair_restored": true
+}

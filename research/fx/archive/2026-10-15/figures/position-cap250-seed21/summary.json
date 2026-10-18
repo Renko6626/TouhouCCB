@@ -1,0 +1,296 @@
+{
+  "source": "research/fx/results/position-grid-confirmation/971b40e3667f012a",
+  "source_sha256": "083b3c89927963b61e333719fef05831ae05948f9051c72da77ff784cd9c2f7c",
+  "config": {
+    "ticks": 300000,
+    "burn_in": 5000,
+    "seed": 21,
+    "bots": 20,
+    "rate": 0.05,
+    "order_size": 200,
+    "trend_window": 30,
+    "mean_window": 30,
+    "trend_strength": 30,
+    "reversion_strength": 0.1,
+    "noise_sigma": 0.005,
+    "sensitivity": 100,
+    "gold": 1000000,
+    "foreign": 200000,
+    "fee_rate": 0.0005,
+    "strategy": "position",
+    "position_cap": 250,
+    "adjustment": 0.2
+  },
+  "selection": "Fixed seed 21 within cap250 candidate; zoom is the first 4000 ticks after burn-in, not a selected extreme.",
+  "zoom": {
+    "start": 5000,
+    "stop": 9000,
+    "min_price": 4.901857514224761,
+    "max_price": 5.084102569062286,
+    "price_range_pct": 3.7178774435745243,
+    "block_std_50_min_pct": 0.015549819194624791,
+    "block_std_50_max_pct": 0.049814384347966124
+  },
+  "normalized_spectral_peak_period_ticks": 248.24242424242425,
+  "normalized_spectral_three_bin_share": 0.11821420455216186,
+  "metrics": {
+    "excess_kurtosis": 3.693252590408596,
+    "normalized_kurtosis": 3.6958231595657995,
+    "std": 0.0003289603457865194,
+    "zero_fraction": 0.36750169491525425,
+    "return_acf1": 0.308746627270819,
+    "abs_acf1": 0.06450678093503026,
+    "normalized_abs_acf1": 0.06454794545938747,
+    "normalized_abs_acf100_1000": 0.0032637210389652987,
+    "normalized_rs_q20": 0.6684625025496116,
+    "shuffled_rs_q20": 0.5317979681631275,
+    "shuffled_rs_q20_mean": 0.539003864855558,
+    "shuffled_rs_q20_reference_range": [
+      0.5248955889924439,
+      0.5611255897880425
+    ],
+    "tail_beta": 7.059981009837824,
+    "tail_decades": 0.2863169913800062,
+    "tail_status": "reject_continuous_iid_null",
+    "tail_p_iid": 0.03482587064676617
+  },
+  "simulation": {
+    "trades": 300227,
+    "buy_trades": 150444,
+    "model_valid": true,
+    "rejected_orders": 0,
+    "first_rejection": null,
+    "initial_price": 5.0,
+    "final_price": 5.032582105686582,
+    "min_price": 4.901857514224761,
+    "max_price": 5.185142081319345,
+    "range_pct": 5.779126918163513,
+    "expected_orders_per_tick": 1.0,
+    "expected_nominal_gold_per_tick": null,
+    "max_foreign_step_per_arrival": 100.0,
+    "actual_gold_volume": 34331311.965638004,
+    "net_pool_gold_flow": 3253.1467760000305,
+    "arrivals": 300227,
+    "gross_foreign_turnover": "6807488.427379",
+    "net_foreign_position": "-1053.780993",
+    "max_abs_foreign_position": "206.223437",
+    "max_abs_total_foreign_position": "2284.625749",
+    "fees_gold": "8585.862776",
+    "fees_foreign": "1702.210426",
+    "pool_foreign_final": "199351.570567",
+    "accounts": [
+      {
+        "actor": "0",
+        "gold": "999999999496.876447",
+        "foreign": "199999999924.091569",
+        "gold_change": "-503.123553",
+        "foreign_change": "-75.908431",
+        "min_foreign_change": "-176.022029",
+        "max_foreign_change": "176.203190"
+      },
+      {
+        "actor": "1",
+        "gold": "999999999230.086295",
+        "foreign": "199999999972.100040",
+        "gold_change": "-769.913705",
+        "foreign_change": "-27.899960",
+        "min_foreign_change": "-190.537875",
+        "max_foreign_change": "164.236072"
+      },
+      {
+        "actor": "2",
+        "gold": "999999999390.559557",
+        "foreign": "199999999948.821124",
+        "gold_change": "-609.440443",
+        "foreign_change": "-51.178876",
+        "min_foreign_change": "-180.341384",
+        "max_foreign_change": "186.522281"
+      },
+      {
+        "actor": "3",
+        "gold": "999999999269.264264",
+        "foreign": "199999999984.048744",
+        "gold_change": "-730.735736",
+        "foreign_change": "-15.951256",
+        "min_foreign_change": "-182.958252",
+        "max_foreign_change": "177.822301"
+      },
+      {
+        "actor": "4",
+        "gold": "999999999068.906246",
+        "foreign": "199999999984.538116",
+        "gold_change": "-931.093754",
+        "foreign_change": "-15.461884",
+        "min_foreign_change": "-197.703251",
+        "max_foreign_change": "173.813585"
+      },
+      {
+        "actor": "5",
+        "gold": "999999999195.711752",
+        "foreign": "199999999950.762997",
+        "gold_change": "-804.288248",
+        "foreign_change": "-49.237003",
+        "min_foreign_change": "-166.911430",
+        "max_foreign_change": "186.570453"
+      },
+      {
+        "actor": "6",
+        "gold": "999999999433.603134",
+        "foreign": "199999999929.613777",
+        "gold_change": "-566.396866",
+        "foreign_change": "-70.386223",
+        "min_foreign_change": "-186.252178",
+        "max_foreign_change": "185.653146"
+      },
+      {
+        "actor": "7",
+        "gold": "999999999536.367031",
+        "foreign": "199999999913.383959",
+        "gold_change": "-463.632969",
+        "foreign_change": "-86.616041",
+        "min_foreign_change": "-174.120589",
+        "max_foreign_change": "180.927975"
+      },
+      {
+        "actor": "8",
+        "gold": "999999999607.916646",
+        "foreign": "199999999928.494664",
+        "gold_change": "-392.083354",
+        "foreign_change": "-71.505336",
+        "min_foreign_change": "-183.016256",
+        "max_foreign_change": "183.204829"
+      },
+      {
+        "actor": "9",
+        "gold": "999999999799.172482",
+        "foreign": "199999999891.180883",
+        "gold_change": "-200.827518",
+        "foreign_change": "-108.819117",
+        "min_foreign_change": "-160.497793",
+        "max_foreign_change": "183.765435"
+      },
+      {
+        "actor": "10",
+        "gold": "999999999613.441043",
+        "foreign": "199999999917.206298",
+        "gold_change": "-386.558957",
+        "foreign_change": "-82.793702",
+        "min_foreign_change": "-164.562726",
+        "max_foreign_change": "174.744028"
+      },
+      {
+        "actor": "11",
+        "gold": "999999999521.479939",
+        "foreign": "199999999963.641671",
+        "gold_change": "-478.520061",
+        "foreign_change": "-36.358329",
+        "min_foreign_change": "-177.503458",
+        "max_foreign_change": "175.095361"
+      },
+      {
+        "actor": "12",
+        "gold": "999999999710.401636",
+        "foreign": "199999999893.614854",
+        "gold_change": "-289.598364",
+        "foreign_change": "-106.385146",
+        "min_foreign_change": "-206.223437",
+        "max_foreign_change": "188.291465"
+      },
+      {
+        "actor": "13",
+        "gold": "999999998958.948593",
+        "foreign": "200000000024.634291",
+        "gold_change": "-1041.051407",
+        "foreign_change": "24.634291",
+        "min_foreign_change": "-183.501608",
+        "max_foreign_change": "177.812712"
+      },
+      {
+        "actor": "14",
+        "gold": "999999998866.215193",
+        "foreign": "200000000014.179474",
+        "gold_change": "-1133.784807",
+        "foreign_change": "14.179474",
+        "min_foreign_change": "-174.249324",
+        "max_foreign_change": "165.200510"
+      },
+      {
+        "actor": "15",
+        "gold": "999999998978.106553",
+        "foreign": "200000000014.381048",
+        "gold_change": "-1021.893447",
+        "foreign_change": "14.381048",
+        "min_foreign_change": "-188.837929",
+        "max_foreign_change": "165.935666"
+      },
+      {
+        "actor": "16",
+        "gold": "999999999633.314545",
+        "foreign": "199999999932.239720",
+        "gold_change": "-366.685455",
+        "foreign_change": "-67.760280",
+        "min_foreign_change": "-183.559122",
+        "max_foreign_change": "197.873074"
+      },
+      {
+        "actor": "17",
+        "gold": "999999999339.435931",
+        "foreign": "199999999941.017772",
+        "gold_change": "-660.564069",
+        "foreign_change": "-58.982228",
+        "min_foreign_change": "-164.855534",
+        "max_foreign_change": "173.351329"
+      },
+      {
+        "actor": "18",
+        "gold": "999999999778.416316",
+        "foreign": "199999999891.618839",
+        "gold_change": "-221.583684",
+        "foreign_change": "-108.381161",
+        "min_foreign_change": "-178.800940",
+        "max_foreign_change": "175.995057"
+      },
+      {
+        "actor": "19",
+        "gold": "999999999732.766845",
+        "foreign": "199999999926.649167",
+        "gold_change": "-267.233155",
+        "foreign_change": "-73.350833",
+        "min_foreign_change": "-180.350019",
+        "max_foreign_change": "169.361740"
+      }
+    ],
+    "first_rejection_snapshot": null,
+    "factors": {
+      "all_updates": {
+        "trend": {
+          "mean": 1.3146143698167668e-06,
+          "std": 0.0054712441315933604
+        },
+        "reversion": {
+          "mean": -8.147193877233837e-08,
+          "std": 0.0002830266358164076
+        },
+        "noise": {
+          "mean": -2.145451904792676e-06,
+          "std": 0.0050008880445901556
+        }
+      },
+      "submitted_orders": {
+        "trend": {
+          "mean": 1.8553639030887264e-06,
+          "std": 0.005472813598225031
+        },
+        "reversion": {
+          "mean": -1.4639086754987232e-07,
+          "std": 0.0002831747637052581
+        },
+        "noise": {
+          "mean": -5.334530769381165e-06,
+          "std": 0.004995077146887391
+        }
+      }
+    },
+    "conservation": "both currencies including fees verified"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "legacy_execution": [
+    {
+      "seed": 41,
+      "ticks": 1000,
+      "all_six_saved_fields_identical": true,
+      "both_assets_conserved": true
+    },
+    {
+      "seed": 42,
+      "ticks": 1000,
+      "all_six_saved_fields_identical": true,
+      "both_assets_conserved": true
+    },
+    {
+      "seed": 43,
+      "ticks": 1000,
+      "all_six_saved_fields_identical": true,
+      "both_assets_conserved": true
+    }
+  ],
+  "return_diagnostics": {
+    "seed": 41,
+    "n": 95000,
+    "all_saved_metrics_equal": true,
+    "rtol": 1e-12,
+    "atol": 1e-12
+  },
+  "state_diagnostics": {
+    "n": 95000,
+    "curve_and_blocks_equal": true,
+    "constant_state_not_fabricated": true
+  },
+  "original_amm_and_diagnostics_identical": true,
+  "checked_source_sha256": {
+    "__init__.py": "2dfe33b532aba5a05b60654c1ce20caa2722a13195b1d7368bf1735334e4bf0a",
+    "amm.py": "9b92fdc0fcd741a3a74ca9249c62af58e4bdfb739d12e64bd116dda3b45f40d0",
+    "analysis.py": "c512e21d4254ea266fc43478edd28a6dd5f06c9c8b34ae4db43a4c960de14df8",
+    "clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "diagnostics.py": "2db57539c108644845767de2fe4dd49bde4682a4c2ee945c179c0bfa323b4e55",
+    "execution.py": "d424108e01b8202e49f05013a9f33f9de94a223f46b148f1f5b0c6f847ee331d",
+    "reporting.py": "c97bfe6d13d635d304f55f965fe1dfc141bd4a137cc8a05fcd475d165fea8fcf",
+    "scaling.py": "ff0eed69f28ce8c4f6422f84214af347a0bdfa89c6e616bc9aee191d7823c547",
+    "series.py": "c2e6fc29baeca3c0c4defd24cf1b1089c1fa23dd5eef525415df4e6415b66f71"
+  },
+  "legacy_archive": "archive/mr-2026-10-15"
+}

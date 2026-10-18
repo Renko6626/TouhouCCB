@@ -1,0 +1,18 @@
+{
+  "defaults": {"ticks":100000,"burn_in":2000,"bots":20,"rate":0.05,"order_size":200},
+  "grid": {
+    "trend_strength":[45,50,60],
+    "reversion_strength":[0,0.1],
+    "noise_sigma":[0.001,0.005,0.02],
+    "window":[30,100,300]
+  },
+  "cases": [
+    {"trend_strength":45,"reversion_strength":1,"noise_sigma":0.005,"window":300},
+    {"trend_strength":50,"reversion_strength":1,"noise_sigma":0.005,"window":300},
+    {"trend_strength":60,"reversion_strength":1,"noise_sigma":0.005,"window":300},
+    {"trend_strength":60,"reversion_strength":0.1,"noise_sigma":0.001,"window":1000},
+    {"trend_strength":60,"reversion_strength":0.1,"noise_sigma":0.005,"window":1000},
+    {"trend_strength":60,"reversion_strength":0.1,"noise_sigma":0.02,"window":1000}
+  ],
+  "seeds":[1]
+}

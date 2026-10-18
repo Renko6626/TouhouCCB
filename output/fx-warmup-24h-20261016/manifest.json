@@ -1,0 +1,28 @@
+{
+  "preset": "pve-mixed-20-warmup-v1",
+  "hours": 24,
+  "seeds": [
+    20261029,
+    20261030,
+    20261031,
+    20261101
+  ],
+  "source_sha256": {
+    "research/fx/warmup/CONFIG.json": "c753b95887a875a29c8c71ba0b667c3d2f2a498a1f0f2dd25768ed3bca781551",
+    "research/fx/warmup/run.py": "e95522291dc4f0c16b47dcc62a2e36586d9c697a9471321037e7e1c4486a3310",
+    "research/fx/intraday_6_8h/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c",
+    "research/fx/intraday_6_8h/run.py": "a4baa85449821507ef05e466bd8c33fe32b63a4ee994b37460a0c21f15245101",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008"
+  },
+  "primary_wave_reversal": 0.015,
+  "fixed_wave_reversal": 0.01,
+  "selection_seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "additional_seed_selected_before_check": 20261101,
+  "source_day_sha256": "98c71d9be31b438e6dfd8ca44b649f16a3be185ee8b9378d86198a5d23d46e57"
+}

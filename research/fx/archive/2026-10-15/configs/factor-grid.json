@@ -1,0 +1,10 @@
+{
+  "defaults": {"ticks": 100000, "burn_in": 2000, "bots": 20, "rate": 0.05, "order_size": 200},
+  "grid": {
+    "trend_strength": [0, 30, 100],
+    "reversion_strength": [0, 0.1, 1],
+    "noise_sigma": [0.001, 0.005, 0.02],
+    "window": [30, 100, 300]
+  },
+  "seeds": [1]
+}

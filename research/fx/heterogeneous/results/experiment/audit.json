@@ -1,0 +1,19 @@
+{
+  "paths": 45,
+  "segments": 135,
+  "status": "passed",
+  "personal_moments_preserved": true,
+  "population_profiles_frozen_before_runs": true,
+  "all_paths_assets_wallets_and_feedback_timing": true,
+  "all_paths_independent_acf_and_blocks": true,
+  "personal_forecast_and_noise_reconstructed": true,
+  "feedback_pairs_forecast_noise_exact": true,
+  "zero_spread_old_real_simulation_exact": true,
+  "all_segments_independent_convolution_acf": true,
+  "frozen_files_unchanged": 124,
+  "prior_grid_source_hashes_unchanged": 21,
+  "unit_checks": {
+    "command": "OPENBLAS_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v",
+    "passed": 17
+  }
+}

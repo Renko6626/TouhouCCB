@@ -85,7 +85,10 @@ const props = withDefaults(
   },
 )
 
-const LOOKBACK_MINUTES: Record<FxChartInterval, number> = { '10s': 80, '1m': 480, '15m': 7200, '1h': 28800 }
+// 每档约 480 根历史 K 线，首屏仍显示最近 80 根。
+const LOOKBACK_MINUTES: Record<FxChartInterval, number> = {
+  '10s': 80, '1m': 480, '15m': 7200, '1h': 28800,
+}
 const INTERVAL_SECONDS: Record<FxChartInterval, number> = { '10s': 10, '1m': 60, '15m': 900, '1h': 3600 }
 const MA_COLORS: Record<number, string> = { 10: '#f59e0b', 20: '#2563eb' }
 /** 加载/补尾期间允许缓冲的实时成交上限；超过则放弃缓冲并请求补尾段，绝不伪造零成交。 */

@@ -1,0 +1,116 @@
+[
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 217
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 1
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 155
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 1
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 431
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 300
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 299
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 206
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 200
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 567
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 399
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 3
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 636
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 300
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 2
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 441
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 198
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 3
+  }
+]

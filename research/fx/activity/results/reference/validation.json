@@ -1,0 +1,246 @@
+{
+  "archived_full_path_exact_match": {
+    "41": {
+      "prices": true,
+      "gold": true,
+      "arrivals": true,
+      "raw_demand": true,
+      "trades": true,
+      "gold_volume": true
+    },
+    "42": {
+      "prices": true,
+      "gold": true,
+      "arrivals": true,
+      "raw_demand": true,
+      "trades": true,
+      "gold_volume": true
+    },
+    "43": {
+      "prices": true,
+      "gold": true,
+      "arrivals": true,
+      "raw_demand": true,
+      "trades": true,
+      "gold_volume": true
+    }
+  },
+  "full_trace_checks": {
+    "amm-b0-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "amm-b0-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "amm-b0-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "amm-b0.25-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "amm-b0.25-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "amm-b0.25-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": true
+    },
+    "linear-b0-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    },
+    "linear-b0-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    },
+    "linear-b0-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    },
+    "linear-b0.25-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    },
+    "linear-b0.25-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    },
+    "linear-b0.25-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "all_saved_fields_finite": true,
+      "pre_state_and_intensity_aligned": true,
+      "return_equation_verified": true,
+      "direct_acf_lags": [
+        1,
+        30,
+        301,
+        1000,
+        5000
+      ],
+      "independent_block_correlations": true,
+      "amm_assets_conserved": null
+    }
+  },
+  "fixed_rate_linear_amm_inputs_exact": {
+    "41": true,
+    "42": true,
+    "43": true
+  },
+  "common_compatible_sources_unchanged": true,
+  "numerical_tolerance": {
+    "rtol": 1e-12,
+    "atol": 1e-12,
+    "price_return_atol": 1e-15,
+    "pool_flow_atol": 1e-09
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "paths_analyzed": 9,
+  "new_simulations": 0,
+  "source_traces_unchanged": true,
+  "finite_positive_prices": true,
+  "net_returns_independently_checked_from_endpoints": true,
+  "realized_variance_partition_identity_verified": true
+}

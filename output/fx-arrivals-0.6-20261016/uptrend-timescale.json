@@ -1,0 +1,26 @@
+{
+  "definition": "Positive confirmed swing legs after tick360, 5s ticks. Durations use retrospective trough-to-peak extrema timestamps; not consecutive positive ticks. Three exploratory seeds pooled.",
+  "thresholds": {
+    "0.005": {
+      "n": 585,
+      "median_minutes": 1.6666666666666667,
+      "p10_minutes": 0.4166666666666667,
+      "p90_minutes": 4.416666666666667,
+      "median_gain": 0.010734602006328808
+    },
+    "0.01": {
+      "n": 240,
+      "median_minutes": 3.9166666666666665,
+      "p10_minutes": 1.3333333333333333,
+      "p90_minutes": 10.258333333333333,
+      "median_gain": 0.0185341178736127
+    },
+    "0.02": {
+      "n": 76,
+      "median_minutes": 13.083333333333334,
+      "p10_minutes": 4.791666666666667,
+      "p90_minutes": 31.541666666666664,
+      "median_gain": 0.029044996712701665
+    }
+  }
+}

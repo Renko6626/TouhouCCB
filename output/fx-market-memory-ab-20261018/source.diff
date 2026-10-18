@@ -1,0 +1,2203 @@
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/admin_fx.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/admin_fx.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/admin_fx.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/admin_fx.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,5 +1,6 @@
+ """Superuser-only FX operations."""
+ from __future__ import annotations
++from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+ from app.services.trading_prices import notify_pricing_changed
+ 
+ import asyncio
+@@ -301,9 +302,11 @@
+         append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=pair.created_at,
+                           pre_reserves=None, post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                           gold_volume=Decimal("0"), audit_id=audit.id)
+-        await db.commit()
++        stage_fx_pair(db, pair)
++        await db.flush()
++        await db.refresh(pair)
++        await commit_fx_changes(db)
+         notify_pricing_changed(())
+-    await db.refresh(pair)
+     return pair
+ 
+ 
+@@ -350,13 +353,15 @@
+             action = "reduce_only_toggle"
+         _admin_audit(db, "fx_pair_update", admin.id, "fx_pair", pair.id, before,
+                      {key: str(value) for key, value in values.items()}, action=action)
++        stage_fx_pair(db, pair)
+         try:
+-            await db.commit()
++            await db.flush()
++            await db.refresh(pair)
++            await commit_fx_changes(db)
+             notify_pricing_changed(())
+         except IntegrityError:
+             await db.rollback()
+             raise HTTPException(409, "currency code already exists") from None
+-    await db.refresh(pair)
+     return pair
+ 
+ 
+@@ -406,9 +411,11 @@
+             pair.updated_at = datetime.now(timezone.utc)
+             _admin_audit(db, "fx_pair_archive", admin.id, "fx_pair", pair_id, before,
+                          {"status": "closed", "archived": True})
+-        await db.commit()
++        stage_fx_pair(db, pair)
++        await db.flush()
++        await db.refresh(pair)
++        await commit_fx_changes(db)
+         notify_pricing_changed(())
+-    await db.refresh(pair)
+     return pair
+ 
+ 
+@@ -427,7 +434,12 @@
+         for model in (FxPoolEvent, FxCandle, FxMarketDataState, FxWallet, FxShortPosition, FxTreasury):
+             await db.execute(delete(model).where(model.pair_id == pair_id))
+         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
+-        await db.commit()
++        try:
++            await db.commit()
++        finally:
++            from app.schemas.trading_context import GroupKey as ReadKey
++            from app.services.trading_prices import REGISTRY
++            REGISTRY.invalidate(ReadKey(product='fx', id=pair_id))
+         notify_pricing_changed(())
+     return Response(status_code=204)
+ 
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/fx_stream.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/fx_stream.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/fx_stream.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/fx_stream.py	2026-10-18 13:01:35.000000000 +0800
+@@ -9,12 +9,12 @@
+ 
+ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+ from fastapi.responses import StreamingResponse
+-from sqlalchemy import select
+ from sqlalchemy.ext.asyncio import AsyncSession
+ from sqlalchemy.exc import SQLAlchemyError
+ 
+ from app.core.database import async_session_maker, get_async_session
+ from app.models.fx import FxPair
++from app.services.market_read_state import FxReadState
+ from app.services.credit.keys import symbol_namespace
+ from app.services.fx import market_data, trading
+ from app.services.fx.market_reads import read_fx_chart_with_meta, read_fx_stream_history
+@@ -77,17 +77,17 @@
+                 # tail and cursor name one committed prefix and generation.
+                 locked = True
+                 try:
+-                    await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
+-                                     .with_for_update(read=True))
++                    pair_state = await trading.read_public_pair_state(db, pair_id)
+                 except SQLAlchemyError:
+                     # A true read-only connection cannot prove the locked
+                     # event prefix. Keep quotes available without claiming it.
+                     await db.rollback()
+                     locked = False
++                    pair_state = FxReadState.from_pair(await trading._pair(db, pair_id))
+                 # The lock may have waited across a bucket boundary. Capture
+                 # tail time only after its committed prefix is established.
+                 now = datetime.now(timezone.utc)
+-                snapshot = await trading.get_public_snapshot(db, pair_id)
++                snapshot = await trading.get_public_snapshot(db, pair_id, pair_state=pair_state)
+                 try:
+                     if not locked:
+                         raise HTTPException(status_code=503, detail="FX history consistency lock is unavailable")
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/market.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/market.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/api/v1/market.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/api/v1/market.py	2026-10-18 13:01:35.000000000 +0800
+@@ -230,18 +230,20 @@
+     )
+ 
+     await db.commit()
+-    notify_pricing_changed(())
+-
+-    from app.services.market_writer import WRITER
+-    await WRITER.register_market(int(new_market.id))
+ 
+-    return {
++    response = {
+         "status": "success",
+         "market_id": new_market.id,
+         "title": new_market.title,
+         "outcomes": data.outcomes,
+         "created_by": admin.username,
+     }
++    # Register takes the market GATE before opening its own read session.
++    await _release_request_connection(db)
++    from app.services.market_writer import WRITER
++    await WRITER.register_market(int(response["market_id"]))
++    notify_pricing_changed(())
++    return response
+ 
+ 
+ async def _settled_market_without_state(db: AsyncSession, market_id: int) -> Market:
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/main.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/main.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/main.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/main.py	2026-10-18 13:01:35.000000000 +0800
+@@ -101,8 +101,7 @@
+     """
+     try:
+         await _startup(app)
+-        from app.services.trading_prices import PUBLISHER, REGISTRY
+-        REGISTRY.reset()
++        from app.services.trading_prices import PUBLISHER
+         PUBLISHER.start()
+         yield
+     finally:
+@@ -172,6 +171,12 @@
+             "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
+             "直写 API", read_only, owner,
+         )
++    # Reset/prewarm before any economic producer starts. Enable products only
++    # after every supported write path installs its committed snapshot.
++    from app.services.trading_prices import REGISTRY
++    REGISTRY.reset()
++    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
++    await REGISTRY.warm_fx()
+     # ── FX 增量行情 runtime（计划 Task 3）──
+     # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生
+     # FX 成交的经济调度器；只读/非 owner 实例只预热持久状态，绝不创建派生数据。
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/credit/execution.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/credit/execution.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/credit/execution.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/credit/execution.py	2026-10-18 13:01:35.000000000 +0800
+@@ -14,7 +14,9 @@
+    事务内记录 ``cover_group``，提交后才发布 FX 价格。
+ """
+ from __future__ import annotations
+-from app.services.account_events import notifying_transaction
++from contextlib import asynccontextmanager
++from app.services.account_events import capture_accounts, publish_accounts
++from app.services.market_read_state import capture_fx_changes, install_fx_changes, invalidate_fx_changes
+ 
+ import logging
+ from dataclasses import dataclass
+@@ -764,6 +766,24 @@
+     return (plan.target.group_id, execution.post_price, execution.trade_id), 'triggered'
+ 
+ 
++@asynccontextmanager
++async def _liquidation_transaction(session):
++    changes = ()
++    try:
++        async with session.begin():
++            yield
++            await session.flush()
++            hints = capture_accounts(session)
++            changes = capture_fx_changes(session)
++        install_fx_changes(changes)
++        publish_accounts(hints, "liquidation")
++    except BaseException:
++        session.info.pop('trading_account_changes', None)
++        session.info.pop('fx_read_changes', None)
++        invalidate_fx_changes(changes)
++        raise
++
++
+ async def execute_user(user_id, *, rate, pct, source):
+     from app.services.fx.trading import execute_liquidation_sell_in_session
+     from app.services.market_writer import WRITER
+@@ -788,7 +808,7 @@
+             async with GATES.hold(exclusive=[guess.target] if guess else (),
+                                   shared=deps.groups):
+                 async with async_session_maker() as session:
+-                    async with notifying_transaction(session, session.begin(), "liquidation"):
++                    async with _liquidation_transaction(session):
+                         # FX product rows precede User, for both sell and cover.
+                         ids = ([guess.target.group_id]
+                                if guess and guess.target.product == 'fx' else [])
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/borrow_buy.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/borrow_buy.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/borrow_buy.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/borrow_buy.py	2026-10-18 13:01:35.000000000 +0800
+@@ -3,6 +3,7 @@
+ The spot executor owns product math/rows; this wrapper owns one transaction.
+ Quotes and writes share credit.check_new_risk's full valuation projection.
+ """
++from app.services.market_read_state import commit_fx_changes
+ from app.services.account_events import capture_accounts, publish_accounts
+ from dataclasses import replace
+ from datetime import timedelta
+@@ -77,7 +78,7 @@
+                         return result
+                     trading._require_writes()
+                     account_hints = capture_accounts(db)
+-                    await db.commit()
++                    await commit_fx_changes(db)
+                     publish_accounts(account_hints, "borrow_buy")
+                     trading.notify_market_data_committed(pair_id)
+                 except BaseException:
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/liquidity.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/liquidity.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/liquidity.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/liquidity.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,5 +1,6 @@
+ """FX liquidity funding and withdrawals, preserving accounting and pair gates."""
+ from __future__ import annotations
++from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+ from app.services.trading_prices import notify_pricing_changed
+ from datetime import datetime, timezone
+ from decimal import Decimal
+@@ -53,6 +54,7 @@
+     pair.gold_reserve += gold_amount; pair.foreign_reserve += foreign_amount; pair.updated_at = _utc()
+     treasury.gold_balance += gold_amount; treasury.foreign_balance += foreign_amount; treasury.updated_at = _utc()
+     pair.pool_version += 1
++    stage_fx_pair(db, pair)
+     audit = audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
+                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
+                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
+@@ -64,7 +66,7 @@
+                       pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
+                       post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                       gold_volume=Decimal("0"), audit_id=audit.id)
+-    await db.commit()
++    await commit_fx_changes(db)
+     notify_pricing_changed(())
+     await db.refresh(pair)
+     return FxPairAdmin.model_validate(pair)
+@@ -98,6 +100,7 @@
+     pair.gold_reserve -= gold_amount; pair.foreign_reserve -= foreign_amount; pair.updated_at = _utc()
+     treasury.gold_balance -= gold_amount; treasury.foreign_balance -= foreign_amount; treasury.updated_at = _utc()
+     pair.pool_version += 1
++    stage_fx_pair(db, pair)
+     audit = audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
+                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
+                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
+@@ -109,7 +112,7 @@
+                       pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
+                       post_reserves=(pair.gold_reserve, pair.foreign_reserve),
+                       gold_volume=Decimal("0"), audit_id=audit.id)
+-    await db.commit()
++    await commit_fx_changes(db)
+     notify_pricing_changed(())
+     await db.refresh(pair)
+     return FxPairAdmin.model_validate(pair)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/market_data.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/market_data.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/market_data.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/market_data.py	2026-10-18 13:01:35.000000000 +0800
+@@ -243,11 +243,8 @@
+             }
+ 
+     async with async_session_maker() as db:
+-        from sqlalchemy import select
+-        from app.models.fx import FxPair
+-        await db.execute(select(FxPair.id).where(FxPair.id == pair_id)
+-                         .with_for_update(read=True))
+-        snapshot = await trading.get_public_snapshot(db, pair_id)
++        pair_state = await trading.read_public_pair_state(db, pair_id)
++        snapshot = await trading.get_public_snapshot(db, pair_id, pair_state=pair_state)
+         snapshot_version = (snapshot.get("history_version") if isinstance(snapshot, dict)
+                             else getattr(snapshot, "history_version", None))
+         if history is not None and snapshot_version is not None and snapshot_version != history["history_version"]:
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/net_trading.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/net_trading.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/net_trading.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/net_trading.py	2026-10-18 13:01:35.000000000 +0800
+@@ -3,6 +3,7 @@
+ AMM math and physical ledgers belong to the existing FX primitives. This
+ module owns whole-request classification, funding, risk and identity.
+ """
++from app.services.market_read_state import commit_fx_changes
+ from app.services.account_events import capture_accounts, publish_accounts
+ from dataclasses import dataclass, replace
+ from datetime import timedelta
+@@ -399,7 +400,7 @@
+                         await db.rollback()
+                         return result
+                     account_hints = capture_accounts(db)
+-                    await db.commit()
++                    await commit_fx_changes(db)
+                     publish_accounts(account_hints, "net_trading")
+                     trading.notify_market_data_committed(pair_id)
+                 except BaseException:
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/orders.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/orders.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/orders.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/orders.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,4 +1,5 @@
+ """Private trigger order storage; no funds are reserved here."""
++from app.services.market_read_state import commit_fx_changes
+ from datetime import datetime, timezone
+ from decimal import Decimal
+ import logging
+@@ -161,7 +162,7 @@
+                         result = FxTriggerOrderRead.model_validate(order)
+                         post_price = execution.post_price
+                         hints = capture_accounts(db)
+-                        await db.commit()
++                        await commit_fx_changes(db)
+                     except BaseException:
+                         await db.rollback()
+                         raise
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/shorts.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/shorts.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/shorts.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/shorts.py	2026-10-18 13:01:35.000000000 +0800
+@@ -24,6 +24,7 @@
+ debt.
+ """
+ from __future__ import annotations
++from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+ from app.services.account_events import capture_accounts, publish_accounts
+ 
+ import logging
+@@ -481,6 +482,7 @@
+     pair.foreign_reserve = q.post_foreign_reserve
+     pair.pool_version = int(pair.pool_version) + 1
+     pair.updated_at = now
++    stage_fx_pair(db, pair)
+ 
+     treasury.foreign_balance = pre_treasury_foreign - amount + q.fee_amount
+     treasury.updated_at = now
+@@ -663,6 +665,7 @@
+     pair.foreign_reserve = quote.post_foreign_reserve
+     pair.pool_version = int(pair.pool_version) + 1
+     pair.updated_at = now
++    stage_fx_pair(db, pair)
+     treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
+     treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
+     treasury.updated_at = now
+@@ -1444,7 +1447,7 @@
+                         return response
+                     _require_writes()
+                     account_hints = capture_accounts(db)
+-                    await db.commit()
++                    await commit_fx_changes(db)
+                     publish_accounts(account_hints, "shorts")
+                 except IntegrityError as exc:
+                     await _rollback_quietly(db)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/trading.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/trading.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/fx/trading.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/fx/trading.py	2026-10-18 13:01:35.000000000 +0800
+@@ -23,6 +23,7 @@
+ documented on :func:`_player_side_allowed`.
+ """
+ from __future__ import annotations
++from app.services.market_read_state import FxReadState, stage_fx_pair, commit_fx_changes
+ from app.services.account_events import capture_accounts, publish_accounts
+ 
+ import logging
+@@ -43,6 +44,7 @@
+ from app.services import audit_service, site_config, loan_service, ledger_service
+ from app.services.credit.fx_quote import FxGroupQuote, FxPairSnapshot, quote_fx_group
+ from app.services.fx import publisher
++from app.services import trading_prices
+ from app.services.fx.amm import quote_buy, quote_sell, quote_buy_exact_out, amount_down, marginal_price
+ from app.services.fx.market_reads import fx_volume_24h, read_fx_snapshot_metadata
+ from app.services.market_locks import lock_user
+@@ -180,16 +182,48 @@
+     return False
+ 
+ 
+-async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False) -> FxPair:
++async def _pair(db: AsyncSession, pair_id: int, *, lock: bool = False,
++                fresh: bool = False) -> FxPair:
++    statement = _PAIR_LOCK if lock else _PAIR_READ
++    if fresh:
++        statement = statement.execution_options(populate_existing=True)
+     pair = (await db.execute(
+-        _PAIR_LOCK if lock else _PAIR_READ, {'fx_pair_id': pair_id}
++        statement, {'fx_pair_id': pair_id}
+     )).scalars().first()
+     if pair is None:
+         raise HTTPException(status_code=404, detail="FX pair not found")
+     return pair
+ 
+ 
+-def _math(pair: FxPair, side: str, amount: Decimal):
++async def _read_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
++    state = trading_prices.REGISTRY.peek_fx(pair_id)
++    if state is not None:
++        return state
++    # Caller-owned transactions (including isolated test sessions) cannot wait
++    # on a market GATE. Uncovered/read-only processes also retain that session.
++    session = getattr(db, "sync_session", getattr(db, "_session", db))
++    if trading_prices.REGISTRY._can_reuse("fx") and not session.in_transaction():
++        return await trading_prices.REGISTRY.read_fx(pair_id)
++    return FxReadState.from_pair(await _pair(db, pair_id))
++
++
++async def read_public_pair_state(db: AsyncSession, pair_id: int) -> FxReadState:
++    """Reuse memory only when the existing history row lock proves its version.
++
++    A committed writer may still be installing memory. In that interval use
++    this locked session's fresh row without installing it or acquiring GATES.
++    """
++    version = (await db.execute(select(FxPair.pool_version).where(
++        FxPair.id == pair_id).with_for_update(read=True))).scalar_one_or_none()
++    if version is None:
++        raise HTTPException(status_code=404, detail="FX pair not found")
++    state = trading_prices.REGISTRY.peek_fx(pair_id)
++    if state is not None and state.pool_version == version:
++        return state
++    return FxReadState.from_pair(await _pair(db, pair_id, fresh=True))
++
++
++def _math(pair: FxPair | FxReadState, side: str, amount: Decimal):
+     side = str(side).lower()
+     if side == "buy":
+         return quote_buy(amount, pair.gold_reserve, pair.foreign_reserve, pair.buy_fee_rate)
+@@ -198,7 +232,7 @@
+     raise TradeRejected("side must be buy or sell")
+ 
+ 
+-def _gold_per_foreign(pair: FxPair, side: str) -> Decimal:
++def _gold_per_foreign(pair: FxPair | FxReadState, side: str) -> Decimal:
+     """Effective quote normalized to **gold per foreign** (8dp).
+ 
+     A player ``buy`` spends gold for foreign, so its effective price is
+@@ -216,7 +250,7 @@
+ async def quote(db: AsyncSession, pair_id: int, side: str, amount: Decimal,
+                 user_id: Optional[int] = None) -> FxQuote:
+     amount = _positive(amount, "amount")
+-    pair = await _pair(db, pair_id)
++    pair = await _read_pair_state(db, pair_id)
+     try:
+         q = _math(pair, side, amount)
+     except (TypeError, ValueError, ArithmeticError) as exc:
+@@ -538,6 +572,7 @@
+     pair.gold_reserve, pair.foreign_reserve = q.post_gold_reserve, q.post_foreign_reserve
+     pair.pool_version += 1
+     pair.updated_at = utcnow()
++    stage_fx_pair(db, pair)
+     if treasury is None:
+         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
+                                      .with_for_update().execution_options(populate_existing=True))).scalars().first()
+@@ -623,7 +658,7 @@
+                         await before_commit(db, execution)
+                     _require_writes()
+                     account_hints = capture_accounts(db)
+-                    await db.commit()
++                    await commit_fx_changes(db)
+                     publish_accounts(account_hints, "trading")
+                 except BaseException:
+                     await _rollback_quietly(db)
+@@ -777,6 +812,7 @@
+     pair.foreign_reserve = quote.post_foreign_reserve
+     pair.pool_version += 1
+     pair.updated_at = utcnow()
++    stage_fx_pair(db, pair)
+     # Sell fees are charged in foreign inside the AMM; they accrue to treasury
+     # while the pool receives the net input.
+     treasury.foreign_balance += quote.fee_foreign
+@@ -817,8 +853,9 @@
+         pair_id=trade.pair_id, post_price=trade.post_price, trade_id=trade.id)
+ 
+ 
+-async def get_public_snapshot(db: AsyncSession, pair_id: int) -> FxSnapshot:
+-    pair = await _pair(db, pair_id)
++async def get_public_snapshot(db: AsyncSession, pair_id: int, *,
++                              pair_state: FxReadState | None = None) -> FxSnapshot:
++    pair = pair_state if pair_state is not None else await _read_pair_state(db, pair_id)
+     # Stored pairs make the market readable.  If an operator persisted a
+     # pathological configuration (fee rate == 1, reserves too small to round a
+     # single unit), the AMM math rejects it; surface an actionable 422 for the
+Only in /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services: market_read_state.py
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/market_writer.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/market_writer.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/market_writer.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/market_writer.py	2026-10-18 13:01:35.000000000 +0800
+@@ -152,6 +152,8 @@
+ 
+     async def stop(self) -> None:
+         self._enabled = False
++        for market_id in self._states:
++            self._invalidate_read_state(market_id)
+         for t in self._tasks.values():
+             t.cancel()
+         for t in list(self._tasks.values()):
+@@ -164,48 +166,103 @@
+         self._states.clear()
+         self._market_by_outcome.clear()
+ 
+-    async def register_market(self, market_id: int) -> None:
+-        async with async_session_maker() as s:
+-            m = await s.get(Market, market_id)
+-            if m is None:
+-                return
+-            st = await _load_one(s, m)
+-        self._install(st)
++    @staticmethod
++    def _invalidate_read_state(market_id: int) -> None:
++        from app.schemas.trading_context import GroupKey
++        from app.services.trading_prices import REGISTRY
++        REGISTRY.invalidate(GroupKey(product="lmsr", id=market_id))
+ 
+-    async def reload_state(self, market_id: int) -> None:
+-        """自愈：从 DB 镜像重读 q / status。失败则标记 unavailable。"""
++    def _install_read_state(self, st: MarketState) -> None:
++        from app.services.market_read_state import LmsrReadState
++        from app.services.trading_prices import REGISTRY
+         try:
+-            # ring 要从 OutcomeCandle 镜像重建，而 flusher 里 ≤5s 未落库的行不会再回到
+-            # 新 ring——不先 flush，ring 与 DB 永久分叉，且 /history/ 防线 2 读 ring 的
+-            # 窗口段会被 nginx 30d immutable 缓存固化（审计 M5）。flush 失败会回炉并
+-            # 返回 0，此时仍继续重建（与旧行为相同），只是会少那几笔。
+-            from app.services.candle_flusher import CANDLE_FLUSHER
+-            if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
+-                logger.error("reload_state: candle flush failed, ring may miss pending rows")
+-            async with async_session_maker() as s:
+-                m = await s.get(Market, market_id)
+-                if m is None:
+-                    raise RuntimeError(f"market {market_id} vanished")
+-                st_new = await _load_one(s, m)
+-            st = self._states[market_id]
+-            st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
+-            st.status, st.closes_at = st_new.status, st_new.closes_at
+-            st.rings = st_new.rings   # 自愈同样从镜像重建 ring（resync 保证镜像可信）
+-            st.unavailable = False
+-            logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
+-        except Exception:
+-            # .get() 防 KeyError：stop() 可能已清空 _states；KeyError 穿出会静默
+-            # 杀死 consumer task，让该市场所有后续请求硬等 10s 后 503 且无日志
+-            # （final review MIN-3）
+-            st = self._states.get(market_id)
+-            if st is not None:
+-                st.unavailable = True
+-            logger.critical(
+-                "market_writer reload FAILED, market %d marked unavailable", market_id,
+-                exc_info=True,
++            REGISTRY.install_committed(LmsrReadState(
++                id=st.market_id, b=st.b, outcome_ids=tuple(st.outcome_ids),
++                q_dec=tuple(st.q_dec), status=st.status, closes_at=st.closes_at,
++            ))
++        except BaseException:
++            self._invalidate_read_state(st.market_id)
++            logger.exception(
++                "LMSR database committed; snapshot installation failed: market_id=%d",
++                st.market_id,
+             )
++            raise
++
++    async def register_market(self, market_id: int) -> None:
++        from app.services.credit.gates import GATES
++        from app.services.credit.keys import GroupKey
++        # Creation has committed and closed its transaction before registering.
++        # Serialize the DB load with cold readers and existing-market writes.
++        async with GATES.hold(exclusive=[GroupKey("lmsr", market_id)]):
++            self._invalidate_read_state(market_id)
++            existing = self._states.get(market_id)
++            if existing is not None:
++                existing.unavailable = True
++            try:
++                async with async_session_maker() as s:
++                    m = await s.get(Market, market_id)
++                    if m is None:
++                        return
++                    st = await _load_one(s, m)
++                self._install(st)
++            except BaseException:
++                st = self._states.get(market_id)
++                if st is not None:
++                    st.unavailable = True
++                self._invalidate_read_state(market_id)
++                raise
++
++    async def reload_state(self, market_id: int) -> None:
++        """Reload the whole committed pricing source; failure discards old reads."""
++        from app.services.credit.gates import GATES
++        from app.services.credit.keys import GroupKey
++        async with GATES.hold(exclusive=[GroupKey("lmsr", market_id)]):
++            self._invalidate_read_state(market_id)
++            existing = self._states.get(market_id)
++            if existing is not None:
++                existing.unavailable = True
++            try:
++                # Flush before rebuilding rings so pending candles are preserved.
++                from app.services.candle_flusher import CANDLE_FLUSHER
++                if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
++                    logger.error("reload_state: candle flush failed, ring may miss pending rows")
++                async with async_session_maker() as s:
++                    m = await s.get(Market, market_id)
++                    if m is None:
++                        raise RuntimeError(f"market {market_id} vanished")
++                    st_new = await _load_one(s, m)
++                st = self._states[market_id]
++                # Prices were derived with st_new.b: keep that exact source and
++                # outcome ordering, rather than pairing new q with old metadata.
++                for oid in st.outcome_ids:
++                    self._market_by_outcome.pop(oid, None)
++                st.b = st_new.b
++                st.outcome_ids, st.outcome_labels = st_new.outcome_ids, st_new.outcome_labels
++                st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
++                st.status, st.closes_at = st_new.status, st_new.closes_at
++                st.rings = st_new.rings
++                for oid in st.outcome_ids:
++                    self._market_by_outcome[oid] = market_id
++                self._install_read_state(st)
++                st.unavailable = False
++                logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
++            except Exception:
++                # stop() may already have cleared _states; do not kill consumer.
++                st = self._states.get(market_id)
++                if st is not None:
++                    st.unavailable = True
++                self._invalidate_read_state(market_id)
++                logger.critical(
++                    "market_writer reload FAILED, market %d marked unavailable", market_id,
++                    exc_info=True,
++                )
+ 
+     def _install(self, st: MarketState) -> None:
++        self._install_read_state(st)
++        previous = self._states.get(st.market_id)
++        if previous is not None:
++            for oid in previous.outcome_ids:
++                self._market_by_outcome.pop(oid, None)
+         self._states[st.market_id] = st
+         for oid in st.outcome_ids:
+             self._market_by_outcome[oid] = st.market_id
+@@ -308,12 +365,14 @@
+                             self._apply_outcome(st, outcome)
+                         except BaseException:
+                             st.unavailable = True
++                            self._invalidate_read_state(st.market_id)
+                             raise
+                     except (CreditRetry, HTTPException):
+                         raise
+                     except BaseException:
+                         # Isolate before releasing gates; recovery runs outside this scope.
+                         st.unavailable = True
++                        self._invalidate_read_state(st.market_id)
+                         raise
+                     finally:
+                         CREDIT_DEPS.reset(token)
+@@ -346,6 +405,10 @@
+             if outcome.tick_trade is not None:
+                 st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
+ 
++        # Account notifications remain inside the op; covered readers wait on
++        # this still-held GATE until the complete committed projection is ready.
++        self._install_read_state(st)
++
+     def _merge_candles(self, rows: list[dict]) -> None:
+         from app.services.candle_flusher import CANDLE_FLUSHER
+         CANDLE_FLUSHER.merge(rows)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/trading_prices.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/trading_prices.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/app/services/trading_prices.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/app/services/trading_prices.py	2026-10-18 13:01:35.000000000 +0800
+@@ -5,11 +5,17 @@
+ from datetime import datetime, timezone
+ from decimal import Decimal
+ from uuid import uuid4
++from typing import Sequence
++from fastapi import HTTPException
+ from sqlalchemy import select
+-from sqlalchemy.ext.asyncio import AsyncSession
+ from app.core.database import async_session_maker
+ from app.models.base import Market, Outcome
+ from app.models.fx import FxPair
++from app.services.market_read_state import FxReadState, LmsrReadState, PricingRecord, PricingStamp
++from app.services.credit.gates import GATES
++from app.services.credit.keys import GroupKey as GateKey
++from app.services.credit.ownership import OWNERSHIP
++from app.services.credit import flags
+ from app.schemas.trading_context import GroupKey, GroupStamp, FxPricingGroup, LmsrPricingGroup
+ 
+ def decimal_string(value):
+@@ -27,51 +33,172 @@
+     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+ 
+ class PricingRegistry:
++    """One committed projection; memory reuse requires covered writes and ownership."""
++
+     def __init__(self, session_factory=None):
+         self.session_factory = session_factory or async_session_maker
++        self.memory_products = frozenset()
+         self.epoch = str(uuid4())
+         self._locks = {}
+         self._entries = {}
++        self._hashes = {}
+         self._revisions = {}
+ 
++    def configure(self, *, memory_products: frozenset[str]) -> None:
++        self.memory_products = frozenset(memory_products)
++
+     def reset(self):
+         """Reset only when readers have stopped; a new epoch invalidates coverage."""
+         self.epoch = str(uuid4())
+         self._locks.clear()
+         self._entries.clear()
++        self._hashes.clear()
+         self._revisions.clear()
+ 
++    def _can_reuse(self, product):
++        return (product in self.memory_products and OWNERSHIP.is_owner
++                and OWNERSHIP.writes_enabled and not flags.read_only_from_env())
++
++    @staticmethod
++    def _pricing_data(state):
++        if isinstance(state, FxReadState):
++            return dict(product='fx', id=state.id,
++                        gold_reserve=decimal_string(state.gold_reserve),
++                        foreign_reserve=decimal_string(state.foreign_reserve),
++                        buy_fee_rate=decimal_string(state.buy_fee_rate),
++                        sell_fee_rate=decimal_string(state.sell_fee_rate),
++                        pool_version=decimal_string(state.pool_version),
++                        status=state.status, archived=state.archived,
++                        reduce_only=state.reduce_only)
++        return dict(product='lmsr', id=state.id, b=decimal_string(state.b),
++                    status=state.status, closes_at=clock_string(state.closes_at),
++                    outcome_ids=list(state.outcome_ids),
++                    q_dec=[decimal_string(q) for q in state.q_dec])
++
++    def _stamp(self, key, digest):
++        if self._hashes.get(key) != digest:
++            self._revisions[key] = self._revisions.get(key, 0) + 1
++        self._hashes[key] = digest
++        return PricingStamp(self.epoch, str(self._revisions[key]), digest)
++
++    def install_committed(self, state: FxReadState | LmsrReadState) -> None:
++        """No IO/await: existing-market writers call before releasing their GATE.
++
++        Startup prewarming and post-commit installation of a newly created key
++        are the explicit exceptions to the caller-held write GATE requirement.
++        """
++        key = (state.product, state.id)
++        digest = input_hash(self._pricing_data(state))
++        self._entries[key] = PricingRecord(state, self._stamp(key, digest), now_string())
++
++    def invalidate(self, key: GroupKey) -> None:
++        # Unavailable is not a database-confirmed deletion: retain the last hash.
++        self._entries.pop((key.product, key.id), None)
++
++    def peek_fx(self, pair_id: int) -> FxReadState | None:
++        """Synchronous locked-row callers must also compare pool_version themselves."""
++        if not self._can_reuse('fx'):
++            return None
++        record = self._entries.get(('fx', pair_id))
++        return record.state if record is not None else None
++
+     async def _snapshot(self, db, key):
+         if key.product == 'fx':
+-            columns = ('gold_reserve', 'foreign_reserve', 'buy_fee_rate', 'sell_fee_rate', 'pool_version', 'status', 'archived', 'reduce_only')
+-            row = (await db.execute(select(*(getattr(FxPair, c) for c in columns)).where(FxPair.id == key.id))).first()
+-            if row is None:
+-                return None
+-            values = dict(zip(columns, row))
+-            for name in columns[:5]:
+-                values[name] = decimal_string(values[name])
+-            return dict(product='fx', id=key.id, **values)
++            pair = (await db.execute(select(FxPair).where(FxPair.id == key.id))).scalar_one_or_none()
++            return FxReadState.from_pair(pair) if pair is not None else None
+         rows = (await db.execute(select(Market.liquidity_b, Market.status, Market.closes_at, Outcome.id, Outcome.total_shares).outerjoin(Outcome, Outcome.market_id == Market.id).where(Market.id == key.id).order_by(Outcome.id))).all()
+         if not rows or rows[0][3] is None:
+             return None
+-        return dict(product='lmsr', id=key.id, b=decimal_string(rows[0][0]), status=rows[0][1], closes_at=clock_string(rows[0][2]), outcome_ids=[r[3] for r in rows], q_dec=[decimal_string(r[4]) for r in rows])
++        return LmsrReadState(id=key.id, b=rows[0][0], status=rows[0][1],
++                             closes_at=rows[0][2], outcome_ids=tuple(r[3] for r in rows),
++                             q_dec=tuple(r[4] for r in rows))
++
++    async def _record_locked(self, key):
++        """Caller holds the batch GATE; only then take a per-key loading lock."""
++        identity = (key.product, key.id)
++        lock = self._locks.setdefault(identity, asyncio.Lock())
++        async with lock:
++            previous = self._entries.get(identity)
++            if self._can_reuse(key.product) and previous is not None:
++                return previous
++            try:
++                async with self.session_factory() as db:
++                    state = await self._snapshot(db, key)
++            except Exception:
++                self.invalidate(key)
++                raise
++            if state is None:
++                # A creation commits/installs without a key GATE. Its new snapshot
++                # must survive an older cold SELECT that observed no row.
++                current = self._entries.get(identity)
++                if current is not previous and current is not None:
++                    return current if self._can_reuse(key.product) else None
++                self._entries.pop(identity, None)
++                self._stamp(identity, input_hash(None))
++                return None
++            self.install_committed(state)
++            return self._entries[identity]
++
++    @staticmethod
++    def _keys(keys):
++        return [GroupKey(product=p, id=i) for p, i in sorted({(k.product, k.id) for k in keys})]
++
++    async def _records_locked(self, keys):
++        return [await self._record_locked(key) for key in keys]
++
++    async def _read_records(self, keys, *, require_coverage):
++        keys = self._keys(keys)
++        if not require_coverage:
++            records = [self._entries.get((key.product, key.id))
++                       if self._can_reuse(key.product) else None for key in keys]
++            if all(record is not None for record in records):
++                return records
++        # No session is opened while waiting. Declare the entire batch once.
++        async with GATES.hold(shared=[GateKey(k.product, k.id) for k in keys]):
++            return await self._records_locked(keys)
++
++    def _groups(self, records):
++        groups = []
++        for record in records:
++            if record is None:
++                continue
++            data = self._pricing_data(record.state)
++            cls = FxPricingGroup if record.state.product == 'fx' else LmsrPricingGroup
++            groups.append(cls(**data, as_of=record.observed_at,
++                              stamp=GroupStamp(epoch=record.stamp.epoch,
++                                               revision=record.stamp.revision,
++                                               input_hash=record.stamp.input_hash)))
++        return groups
++
++    async def read_groups(self, keys: Sequence[GroupKey], *, require_coverage: bool = True) -> list[FxPricingGroup | LmsrPricingGroup]:
++        return self._groups(await self._read_records(keys, require_coverage=require_coverage))
++
++    async def read_groups_locked(self, keys: Sequence[GroupKey]) -> list[FxPricingGroup | LmsrPricingGroup]:
++        """Internal integration helper: caller already holds every requested GATE."""
++        keys = self._keys(keys)
++        if not {GateKey(k.product, k.id) for k in keys}.issubset(GATES.held_keys_by_current_task()):
++            raise RuntimeError('read_groups_locked requires all market GATES')
++        return self._groups(await self._records_locked(keys))
++
++    async def read_fx(self, pair_id: int) -> FxReadState:
++        records = await self._read_records([GroupKey(product='fx', id=pair_id)], require_coverage=False)
++        if records[0] is None:
++            raise HTTPException(status_code=404, detail='FX pair not found')
++        return records[0].state
+ 
+     async def refresh_groups(self, keys):
+-        result = []
+-        for key in sorted({(k.product, k.id) for k in keys}):
+-            lock = self._locks.setdefault(key, asyncio.Lock())
+-            async with lock:
+-                async with self.session_factory() as db:
+-                    data = await self._snapshot(db, GroupKey(product=key[0], id=key[1]))
+-                digest = input_hash(data)
+-                previous = self._entries.get(key)
+-                if previous is None or previous[0] != digest:
+-                    self._revisions[key] = self._revisions.get(key, 0) + 1
+-                self._entries[key] = (digest, data)
+-                if data is not None:
+-                    cls = FxPricingGroup if key[0] == 'fx' else LmsrPricingGroup
+-                    result.append(cls(**data, as_of=now_string(), stamp=GroupStamp(epoch=self.epoch, revision=str(self._revisions[key]), input_hash=digest)))
+-        return result
++        """Compatibility name for covered reads of committed market state."""
++        return await self.read_groups(keys)
++
++    async def warm_fx(self) -> None:
++        """Startup only, before economic producers; uncovered products stay in DB mode."""
++        if not self._can_reuse('fx'):
++            return
++        async with self.session_factory() as db:
++            pairs = (await db.execute(select(FxPair))).scalars().all()
++            states = [FxReadState.from_pair(pair) for pair in pairs]
++        for state in states:
++            self.install_committed(state)
+ 
+ REGISTRY = PricingRegistry()
+ 
+@@ -116,14 +243,17 @@
+                     pass
+                 self.wake.clear()
+                 keys = set().union(*self.subscriptions.values()) if self.subscriptions else set()
+-                # Registry installation is serialized with context and supplementation.
+-                groups = await REGISTRY.refresh_groups([GroupKey(product=p, id=i) for p, i in keys])
++                # Public pricing does not claim coverage of a just-read account.
++                groups = await REGISTRY.read_groups([GroupKey(product=p, id=i) for p, i in keys], require_coverage=False)
+                 by_key = {(g.product, g.id): g for g in groups}
+                 changed = {key for key in keys if previous.get(key) != (by_key[key].stamp.input_hash if key in by_key else None)}
++                # Serialize each changed group once; filtering only builds a
++                # subscriber-specific list of these read-only dictionaries.
++                dumped = {key: by_key[key].model_dump() for key in changed if key in by_key}
+                 for subscription, wanted in tuple(self.subscriptions.items()):
+                     affected = changed & wanted
+                     if affected:
+-                        subscription.offer('pricing', dict(groups=[by_key[k].model_dump() for k in sorted(affected) if k in by_key], missing_groups=[dict(product=k[0], id=k[1]) for k in sorted(affected) if k not in by_key], server_time=now_string()))
++                        subscription.offer('pricing', dict(groups=[dumped[k] for k in sorted(affected) if k in dumped], missing_groups=[dict(product=k[0], id=k[1]) for k in sorted(affected) if k not in by_key], server_time=now_string()))
+                 previous = {key: by_key[key].stamp.input_hash if key in by_key else None for key in keys}
+             except asyncio.CancelledError:
+                 raise
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/conftest.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/conftest.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/conftest.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/conftest.py	2026-10-18 13:01:35.000000000 +0800
+@@ -149,6 +149,7 @@
+     from app.services.market_writer import WRITER
+     from app.services.candle_flusher import CANDLE_FLUSHER
+     from app.services.fx.market_state import FX_MARKET_DATA
++    from app.services.trading_prices import REGISTRY
+ 
+     # Drop previous state before replacing the schema. The client loads markets
+     # seeded by each test before its first LMSR request.
+@@ -158,6 +159,10 @@
+     # stop it (best effort) and drop all local state before the schema is dropped.
+     await FX_MARKET_DATA.stop()
+     FX_MARKET_DATA.reset()
++    # Lifespan can enable memory reads, but this fixture replaces the database.
++    # Ordinary tests use DB mode; dedicated memory fixtures opt in explicitly.
++    REGISTRY.reset()
++    REGISTRY.configure(memory_products=frozenset())
+     # Unit tests invoke economic services without the app lifespan. Establish
+     # the same ownership precondition on their disposable SQLite database.
+     from app.services.credit.ownership import OWNERSHIP
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/fx_test_helpers.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/fx_test_helpers.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/fx_test_helpers.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/fx_test_helpers.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,6 +1,7 @@
+ from datetime import datetime, timezone
+ from decimal import Decimal
+ 
++import pytest
+ import pytest_asyncio
+ from sqlalchemy import create_engine, delete, select
+ from sqlmodel import Session, SQLModel
+@@ -125,3 +126,29 @@
+     state.history_ready = True
+     await db.commit()
+     return version
++
++
++@pytest.fixture
++def committed_fx_registry(monkeypatch):
++    """Isolate the shared projection while exercising real commit owners."""
++    from app.services import trading_prices
++    registry = trading_prices.PricingRegistry()
++    registry.configure(memory_products=frozenset({'fx'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    return registry
++
++
++async def assert_committed_fx(registry, db, pair_id):
++    from app.services.market_read_state import FxReadState
++    pair = await db.get(FxPair, pair_id)
++    await db.refresh(pair)
++    actual = registry.peek_fx(pair_id)
++    expected = FxReadState.from_pair(pair)
++    assert actual is not None
++    from dataclasses import asdict
++    from app.services.trading_prices import clock_string
++    # SQLite returns naive UTC timestamps after refresh; published clocks use UTC.
++    def values(state):
++        return {key: clock_string(value) if isinstance(value, datetime) else value
++                for key, value in asdict(state).items()}
++    assert values(actual) == values(expected), (actual, expected)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_fx_history_locking.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_fx_history_locking.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_fx_history_locking.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_fx_history_locking.py	2026-10-18 13:01:35.000000000 +0800
+@@ -133,3 +133,184 @@
+         if not task.done():
+             task.cancel()
+         await reader.close()
++
++
++@pytest.mark.parametrize('consumer', ['initial', 'broadcast'])
++async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install(
++        pg_engine, pg_sessionmaker, monkeypatch, consumer):
++    import json
++    import os
++    from types import SimpleNamespace
++    from app.api.v1 import fx_stream
++    from app.core import database
++    from app.services import trading_prices
++    from app.services.credit import flags, ownership
++    from app.services.fx import trading
++    from app.services.fx.market_data import publish_pair_frame
++    from app.services.realtime import IpConcurrencyLimiter, MarketEventBroker
++    from tests.pg.test_pg_fx_short_concurrency import seed
++
++    owner = ownership.WriteOwnership(url=os.environ['TEST_PG_DATABASE_URL'])
++    assert await owner.acquire(required=True)
++    monkeypatch.setattr(trading, 'OWNERSHIP', owner)
++    monkeypatch.setattr(trading_prices, 'OWNERSHIP', owner)
++    registry = trading_prices.PricingRegistry(pg_sessionmaker)
++    registry.configure(memory_products=frozenset({'fx'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    monkeypatch.setattr(database, 'async_session_maker', pg_sessionmaker)
++    monkeypatch.setattr(fx_stream, 'async_session_maker', pg_sessionmaker)
++    broker = MarketEventBroker()
++    monkeypatch.setattr(fx_stream, 'BROKER', broker)
++    monkeypatch.setattr(fx_stream, 'IP_LIMITER', IpConcurrencyLimiter())
++    flags.clear_flags()
++    before_commit, release_commit = asyncio.Event(), asyncio.Event()
++    committed, release_install = asyncio.Event(), asyncio.Event()
++    producer = reading = None
++    response = sub = None
++    try:
++        uid, pid = await seed(pg_sessionmaker)
++        old = await registry.read_fx(pid)
++
++        async def write():
++            async with pg_sessionmaker() as db:
++                original = db.commit
++                async def held_commit():
++                    before_commit.set()
++                    await release_commit.wait()
++                    await original()
++                    committed.set()
++                    await release_install.wait()
++                monkeypatch.setattr(db, 'commit', held_commit)
++                return await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'),
++                                                   Decimal('0'), 'public-commit-gap')
++
++        producer = asyncio.create_task(write())
++        await asyncio.wait_for(before_commit.wait(), 5)
++        if consumer == 'initial':
++            request = SimpleNamespace(headers={}, client=SimpleNamespace(host='pg-history'))
++            response = await fx_stream.stream(pid, request)
++            reading = asyncio.create_task(response.body_iterator.__anext__())
++        else:
++            sub, _ = await broker.subscribe(f'fx:{pid}')
++            reading = asyncio.create_task(publish_pair_frame(pid, Decimal('1'), broker))
++        # Both paths retain FOR SHARE: an uncommitted trade cannot be combined
++        # with a supposedly committed historical prefix.
++        with pytest.raises(asyncio.TimeoutError):
++            await asyncio.wait_for(asyncio.shield(reading), .1)
++        release_commit.set()
++        await asyncio.wait_for(committed.wait(), 5)
++        blob = await asyncio.wait_for(reading, 5)
++        if consumer == 'broadcast':
++            blob = await asyncio.wait_for(sub.q.get(), 5)
++        data = json.loads(blob.decode().split('data: ', 1)[1])['data']
++        assert Decimal(data['volume']) == Decimal('10')
++        # Exclusive GATE remains held: readers complete from their locked DB
++        # row while memory is still the prior complete committed snapshot.
++        assert registry.peek_fx(pid) is old and old.pool_version == 1
++        async with pg_sessionmaker() as db:
++            pair = await db.get(FxPair, pid)
++            assert pair.pool_version == 2
++            from app.services.fx.amm import quote_buy
++            expected = quote_buy(Decimal('1'), pair.gold_reserve,
++                                 pair.foreign_reserve, pair.buy_fee_rate)
++            ask = (expected.input_amount / expected.output_amount).quantize(Decimal('.00000001'))
++        assert Decimal(data['buy_price']) == ask
++        assert data.get('history_ready', False) is False
++        release_install.set()
++        await asyncio.wait_for(producer, 5)
++        assert registry.peek_fx(pid).pool_version == 2
++    finally:
++        release_commit.set()
++        release_install.set()
++        for task in (producer, reading):
++            if task is not None and not task.done():
++                task.cancel()
++        await asyncio.gather(*(task for task in (producer, reading) if task is not None),
++                             return_exceptions=True)
++        if response is not None:
++            await response.body_iterator.aclose()
++        if sub is not None:
++            await broker.unsubscribe(f'fx:{pid}', sub)
++        flags.clear_flags()
++        await owner.release()
++
++
++async def test_locked_public_fallback_is_fresh_and_never_installs(pg_sessionmaker, monkeypatch):
++    from sqlalchemy import update
++    from app.schemas.trading_context import GroupKey
++    from app.services import trading_prices
++    from app.services.credit import flags
++    from app.services.fx import trading
++    from app.services.market_read_state import FxReadState
++
++    pid = await _seed_pair(pg_sessionmaker)
++    registry = trading_prices.PricingRegistry(pg_sessionmaker)
++    registry.configure(memory_products=frozenset({'fx'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    async with pg_sessionmaker() as db:
++        pair = await db.get(FxPair, pid)
++        old = FxReadState.from_pair(pair)
++        registry.install_committed(old)
++        # Maintenance SQL uses DB mode. Retain an old identity-map row to
++        # verify the locked fallback refreshes current committed fields.
++        monkeypatch.setenv(flags.READ_ONLY_ENV, 'true')
++        async with pg_sessionmaker() as writer:
++            await writer.execute(update(FxPair).where(FxPair.id == pid).values(
++                pool_version=2, gold_reserve=Decimal('200')))
++            await writer.commit()
++        fresh = await trading.read_public_pair_state(db, pid)
++        assert fresh.pool_version == 2 and fresh.gold_reserve == Decimal('200')
++        assert pair.pool_version == 2
++        await db.commit()
++        monkeypatch.delenv(flags.READ_ONLY_ENV)
++        assert registry._entries[('fx', pid)].state is old
++        registry.invalidate(GroupKey(product='fx', id=pid))
++        assert (await trading.read_public_pair_state(db, pid)).pool_version == 2
++        assert not registry._entries
++        await db.commit()
++        with pytest.raises(HTTPException) as exc:
++            await trading.read_public_pair_state(db, pid + 1000)
++        assert exc.value.status_code == 404
++        assert not registry._entries
++
++
++async def test_initial_read_only_connection_keeps_quote_without_history_proof(
++        pg_sessionmaker, monkeypatch):
++    import json
++    from contextlib import asynccontextmanager
++    from types import SimpleNamespace
++    from sqlalchemy import text
++    from app.api.v1 import fx_stream
++    from app.services import trading_prices
++    from app.services.market_read_state import FxReadState
++    from app.services.realtime import IpConcurrencyLimiter, MarketEventBroker
++
++    pid = await _seed_pair(pg_sessionmaker)
++    registry = trading_prices.PricingRegistry(pg_sessionmaker)
++    async with pg_sessionmaker() as db:
++        registry.install_committed(FxReadState.from_pair(await db.get(FxPair, pid)))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    sessions = []
++    @asynccontextmanager
++    async def read_only():
++        async with pg_sessionmaker() as db:
++            sessions.append(db)
++            await db.execute(text('SET TRANSACTION READ ONLY'))
++            yield db
++    monkeypatch.setattr(fx_stream, 'async_session_maker', read_only)
++    broker, limiter = MarketEventBroker(), IpConcurrencyLimiter()
++    monkeypatch.setattr(fx_stream, 'BROKER', broker)
++    monkeypatch.setattr(fx_stream, 'IP_LIMITER', limiter)
++    response = await fx_stream.stream(pid, SimpleNamespace(
++        headers={}, client=SimpleNamespace(host='read-only')))
++    try:
++        blob = await asyncio.wait_for(response.body_iterator.__anext__(), 5)
++        data = json.loads(blob.decode().split('data: ', 1)[1])['data']
++        assert Decimal(data['price']) == 1
++        assert data['history_ready'] is False and data['history_invalidated'] is True
++        # Availability fallback reuses the generator's session after rollback.
++        assert len(sessions) == 2
++        assert registry._entries[('fx', pid)].state.pool_version == 1
++    finally:
++        await response.body_iterator.aclose()
++    assert broker.subscriber_count(f'fx:{pid}') == 0
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_fx_trigger_orders.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_fx_trigger_orders.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_fx_trigger_orders.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_fx_trigger_orders.py	2026-10-18 13:01:35.000000000 +0800
+@@ -11,7 +11,8 @@
+ from app.models.base import User
+ from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
+ from app.schemas.fx import FxTriggerOrderCreate
+-from app.services.fx import orders, net_trading
++from app.services.fx import orders, net_trading, trading
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from tests.pg.test_pg_fx_short_concurrency import seed, writer
+ 
+ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
+@@ -21,15 +22,22 @@
+ def exact_disposable_database():
+     # Runs before the function-scoped pg_engine's schema reset.
+     url = make_url(os.environ.get('TEST_PG_DATABASE_URL', ''))
+-    if (url.drivername != 'postgresql+asyncpg' or url.host != '127.0.0.1'
+-            or url.port != 55547 or url.database != 'thccb_fx_orders_test'):
+-        raise pytest.UsageError('Task 3 requires the approved disposable FX orders database')
++    old_orders = (url.host == '127.0.0.1' and url.port == 55547
++                  and url.database == 'thccb_fx_orders_test')
++    committed_reads = (url.query.get('host') == '/tmp/sunyunbo/fx-pool-incident-20261017/socket'
++                       and url.query.get('port') == '55489'
++                       and url.database == 'fx_market_memory_test')
++    if url.drivername != 'postgresql+asyncpg' or not (old_orders or committed_reads):
++        raise pytest.UsageError('Requires an approved disposable FX test database')
+ 
+ 
+ @pytest_asyncio.fixture(autouse=True)
+-async def order_sessions(pg_sessionmaker, monkeypatch):
++async def order_sessions(pg_sessionmaker, monkeypatch, writer):
+     import app.core.database
+     monkeypatch.setattr(app.core.database, 'async_session_maker', pg_sessionmaker)
++    from app.services import trading_prices
++    from app.services.credit import ownership
++    monkeypatch.setattr(trading_prices, 'OWNERSHIP', ownership.OWNERSHIP)
+ 
+ 
+ def request(pid):
+@@ -63,7 +71,7 @@
+ 
+ 
+ @pytest.mark.parametrize('winner', ['trigger', 'cancel'])
+-async def test_cancel_trigger_row_lock_has_one_financial_outcome(pg_sessionmaker, monkeypatch, winner):
++async def test_cancel_trigger_row_lock_has_one_financial_outcome(pg_sessionmaker, monkeypatch, winner, committed_fx_registry):
+     uid, pid = await seed(pg_sessionmaker)
+     async with pg_sessionmaker() as db:
+         order = await orders.create_order(db, uid, request(pid))
+@@ -115,6 +123,24 @@
+             assert final.status == 'succeeded' and final.execution_id == receipts[0].id
+             assert len(receipts) == len(trades) == len(wallets) == 1
+             assert user.cash == 990 and wallets[0].foreign_amount == trades[0].output_amount
++            await assert_committed_fx(committed_fx_registry, db, pid)
+         else:
+             assert final.status == 'cancelled' and final.execution_id is None
+             assert user.cash == 1000 and receipts == trades == wallets == []
++
++
++async def test_success_rescan_and_failed_order_preserve_later_projection(pg_sessionmaker, committed_fx_registry):
++    uid, pid = await seed(pg_sessionmaker)
++    async with pg_sessionmaker() as db:
++        succeeded = await orders.create_order(db, uid, request(pid))
++        rejected = await orders.create_order(db, uid, FxTriggerOrderCreate(pair_id=pid,
++            action='buy', amount='999999', comparison='lte', trigger_price='100'))
++    assert (await orders.attempt_order(succeeded.id, 1)).status == 'succeeded'
++    async with pg_sessionmaker() as db:
++        await assert_committed_fx(committed_fx_registry, db, pid)
++        await trading.execute_trade(db, uid, pid, 'buy', 1, 0, 'later')
++    latest = committed_fx_registry.peek_fx(pid)
++    assert latest is not None
++    assert await orders.attempt_order(succeeded.id, 1) is None
++    assert (await orders.attempt_order(rejected.id, 1)).status == 'failed'
++    assert committed_fx_registry.peek_fx(pid) == latest
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_trading_context.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_trading_context.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/pg/test_pg_trading_context.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/pg/test_pg_trading_context.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,7 +1,7 @@
+ import asyncio
+ from decimal import Decimal
+ import pytest
+-from sqlalchemy import update
++from sqlalchemy import select, update
+ from app.models.base import User
+ from app.models.fx import FxPair,FxWallet
+ from app.schemas.trading_context import GroupKey
+@@ -92,3 +92,111 @@
+         assert [(group['product'], group['id']) for group in groups] == [('fx', pair_id)]
+     finally:
+         await engine.dispose()
++
++
++from tests.pg.test_pg_fx_short_concurrency import seed, writer
++from tests.fx_test_helpers import assert_committed_fx
++
++
++@pytest.fixture
++def market_registry(pg_sessionmaker, monkeypatch):
++    from app.services import trading_prices
++    from app.services.credit import ownership
++    registry = PricingRegistry(pg_sessionmaker)
++    registry.configure(memory_products=frozenset({'fx'}))
++    monkeypatch.setattr(trading_prices, 'OWNERSHIP', ownership.OWNERSHIP)
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    return registry
++
++
++async def test_context_waits_between_real_commit_and_snapshot_install(pg_sessionmaker, market_registry, monkeypatch):
++    from app.services.fx import trading
++    uid, pid = await seed(pg_sessionmaker)
++    await market_registry.read_fx(pid)
++    committed, release, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
++
++    async def write():
++        async with pg_sessionmaker() as db:
++            original = db.commit
++            async def held_commit():
++                await original()
++                committed.set()
++                await release.wait()
++            monkeypatch.setattr(db, 'commit', held_commit)
++            return await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'context-gap')
++
++    async def context():
++        async with pg_sessionmaker() as db:
++            reading.set()
++            return await read_trading_context(db, uid, registry=market_registry,
++                                               session_factory=pg_sessionmaker)
++
++    writing = asyncio.create_task(write())
++    await asyncio.wait_for(committed.wait(), 5)
++    result = asyncio.create_task(context())
++    try:
++        await reading.wait()
++        await asyncio.sleep(.05)
++        assert not result.done()
++        assert market_registry.peek_fx(pid).pool_version == 1
++    finally:
++        release.set()
++    await asyncio.wait_for(writing, 5)
++    snapshot = await asyncio.wait_for(result, 5)
++    assert snapshot.account.cash == '990.000000'
++    assert snapshot.account.economic_version == '1'
++    async with pg_sessionmaker() as db:
++        pair = await db.get(FxPair, pid)
++        assert snapshot.groups[0].gold_reserve == format(pair.gold_reserve, 'f')
++        assert snapshot.groups[0].pool_version == str(pair.pool_version)
++        await assert_committed_fx(market_registry, db, pid)
++
++
++async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market_registry):
++    from app.services.fx import trading
++    uid, pid = await seed(pg_sessionmaker)
++    queried, release = asyncio.Event(), asyncio.Event()
++    snapshot = market_registry._snapshot
++    async def old_read(db, key):
++        state = await snapshot(db, key)
++        queried.set()
++        await release.wait()
++        return state
++    market_registry._snapshot = old_read
++    cold = asyncio.create_task(market_registry.read_fx(pid))
++    await asyncio.wait_for(queried.wait(), 5)
++    async def trade():
++        async with pg_sessionmaker() as db:
++            await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'after-cold')
++    writing = asyncio.create_task(trade())
++    try:
++        await asyncio.sleep(.05)
++        assert not writing.done()
++    finally:
++        release.set()
++    assert (await cold).pool_version == 1
++    await asyncio.wait_for(writing, 5)
++    assert (await market_registry.read_fx(pid)).pool_version == 2
++    async with pg_sessionmaker() as db:
++        await assert_committed_fx(market_registry, db, pid)
++
++
++async def test_admin_fee_snapshot_uses_postgres_stored_precision(pg_sessionmaker, market_registry):
++    from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
++    async with pg_sessionmaker() as db:
++        admin = User(username='precision-admin', is_superuser=True)
++        db.add(admin)
++        await db.commit()
++        created = await create_pair(PairCreate(currency_code='PRECISE', currency_name='Precision',
++            buy_fee_rate=Decimal('0.123456785'), gold_reserve=Decimal('100.123456'),
++            foreign_reserve=Decimal('200.654321')), admin, db)
++        pid = created.id
++        await assert_committed_fx(market_registry, db, pid)
++        stored = (await db.execute(select(FxPair.buy_fee_rate).where(FxPair.id == pid))).scalar_one()
++        assert market_registry.peek_fx(pid).buy_fee_rate == stored
++        assert format(market_registry.peek_fx(pid).buy_fee_rate, 'f') == format(stored, 'f')
++        await update_pair(pid, PairPatch(sell_fee_rate=Decimal('0.123456785')), admin, db)
++        await assert_committed_fx(market_registry, db, pid)
++        stored = (await db.execute(select(FxPair.sell_fee_rate).where(FxPair.id == pid))).scalar_one()
++        assert market_registry.peek_fx(pid).sell_fee_rate == stored
++        assert format(market_registry.peek_fx(pid).sell_fee_rate, 'f') == format(stored, 'f')
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_admin_fx.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_admin_fx.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_admin_fx.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_admin_fx.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,3 +1,4 @@
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from decimal import Decimal
+ import json
+ 
+@@ -126,18 +127,21 @@
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_initial_issuance_fund_withdraw_and_audit(ctx):
++async def test_initial_issuance_fund_withdraw_and_audit(ctx, committed_fx_registry):
+     client, db, _, admin, _ = ctx
+     pair_id = (await client.post("/api/v1/admin/fx/pairs", json=PAIR)).json()["id"]
+     pair = await db.get(FxPair, pair_id)
++    await assert_committed_fx(committed_fx_registry, db, pair_id)
+     treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id))).scalars().one()
+     before_gold = pair.gold_reserve + treasury.gold_balance
+     before_foreign = pair.foreign_reserve + treasury.foreign_balance
+     assert before_gold == before_foreign == Decimal("200")
+     funded = await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/fund", json={"gold_amount": "3", "foreign_amount": "2"})
+     assert funded.status_code == 200, funded.text
++    await assert_committed_fx(committed_fx_registry, db, pair_id)
+     withdrawn = await client.post(f"/api/v1/admin/fx/pairs/{pair_id}/withdraw", json={"gold_amount": "1", "foreign_amount": "1"})
+     assert withdrawn.status_code == 200, withdrawn.text
++    await assert_committed_fx(committed_fx_registry, db, pair_id)
+     await db.refresh(pair); await db.refresh(treasury)
+     assert pair.gold_reserve + treasury.gold_balance == before_gold + Decimal("4")
+     assert pair.foreign_reserve + treasury.foreign_balance == before_foreign + Decimal("2")
+@@ -528,3 +532,45 @@
+     for path in ("/overview", "/liquidity-history"):
+         assert (await client.get(base + path)).status_code == 403
+     assert (await client.post(base + "/liquidity-preview", json={"action": "fund", "gold_amount": "1"})).status_code == 403
++
++
++@pytest.mark.asyncio
++async def test_pair_lifecycle_updates_committed_projection(ctx, committed_fx_registry):
++    client, db, _, _, _ = ctx
++    created = await client.post('/api/v1/admin/fx/pairs', json=PAIR)
++    assert created.status_code == 200
++    pid = created.json()['id']
++    await assert_committed_fx(committed_fx_registry, db, pid)
++    for patch in ({'buy_fee_rate': '0.123456785', 'sell_fee_rate': '0.01'},
++                  {'status': 'paused', 'reduce_only': True}, {'currency_name': 'Updated'}):
++        response = await client.patch(f'/api/v1/admin/fx/pairs/{pid}', json=patch)
++        assert response.status_code == 200, response.text
++        await assert_committed_fx(committed_fx_registry, db, pid)
++    response = await client.post(f'/api/v1/admin/fx/pairs/{pid}/archive')
++    assert response.status_code == 200
++    await assert_committed_fx(committed_fx_registry, db, pid)
++    assert committed_fx_registry.peek_fx(pid).archived
++    assert (await client.delete(f'/api/v1/admin/fx/pairs/{pid}')).status_code == 204
++    assert committed_fx_registry.peek_fx(pid) is None
++
++
++@pytest.mark.asyncio
++async def test_admin_creation_survives_earlier_missing_cold_read(ctx, committed_fx_registry):
++    import asyncio
++    client, _, _, _, _ = ctx
++    queried, release = asyncio.Event(), asyncio.Event()
++    # The empty isolated database allocates the first pair id as 1.
++    async def missing_snapshot(db, key):
++        queried.set()
++        await release.wait()
++        return None
++    committed_fx_registry._snapshot = missing_snapshot
++    reading = asyncio.create_task(committed_fx_registry.read_fx(1))
++    await queried.wait()
++    try:
++        created = await client.post('/api/v1/admin/fx/pairs', json=PAIR)
++        assert created.status_code == 200 and created.json()['id'] == 1
++    finally:
++        release.set()
++    assert (await reading).currency_code == PAIR['currency_code']
++    assert (await committed_fx_registry.read_fx(1)).currency_code == PAIR['currency_code']
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_credit_execution.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_credit_execution.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_credit_execution.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_credit_execution.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,3 +1,4 @@
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from tests.test_account_events import private_events
+ from decimal import Decimal as D
+ import pytest
+@@ -59,14 +60,26 @@
+         assert len(list((await s.execute(select(LiquidationEvent))).scalars()))==1
+ 
+ @pytest.mark.asyncio
+-async def test_fx_partial_exactly_one_group_and_one_action():
++async def test_fx_partial_exactly_one_group_and_one_action(committed_fx_registry, monkeypatch):
++    from app.services.credit import execution
+     uid=await seed(debt='135',fx=['500','200'])
++    published = []
++    original = execution.publish_accounts
++    def observe(changes, reason):
++        # Account hints must only expose a price projection already installed.
++        state = committed_fx_registry.peek_fx(1)
++        assert state is not None and state.pool_version == 2
++        published.append(reason)
++        original(changes, reason)
++    monkeypatch.setattr(execution, 'publish_accounts', observe)
+     assert await execute(uid)=='triggered'
++    assert published == ['liquidation']
+     async with async_session_maker() as s:
+         wallets=list((await s.execute(select(FxWallet).order_by(FxWallet.pair_id))).scalars())
+         assert [w.foreign_amount for w in wallets]==[D('450'),D('200')]
+         a=(await s.execute(select(LiquidationAction))).scalar_one()
+         assert a.mode=='partial' and a.product=='fx' and a.repaid>0
++        await assert_committed_fx(committed_fx_registry, s, a.group_id)
+         assert (await s.execute(select(LiquidationEvent))).scalar_one().sold_positions_count==1
+ 
+ @pytest.mark.asyncio
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_credit_liquidate_group.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_credit_liquidate_group.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_credit_liquidate_group.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_credit_liquidate_group.py	2026-10-18 13:01:35.000000000 +0800
+@@ -183,7 +183,12 @@
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_replay_same_run_round_does_not_sell_twice(private_events):
++async def test_replay_same_run_round_does_not_sell_twice(private_events, monkeypatch):
++    from app.schemas.trading_context import GroupKey
++    from app.services import trading_prices
++    registry = trading_prices.PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'lmsr'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+     mid, oids = await _seed_market(("0", "0"))
+     uid = await _seed_user(cash="0", debt="50", username="replay_user")
+     await _give_position(uid, oids[0], "20", "10")
+@@ -197,6 +202,9 @@
+     assert queue.empty()
+     assert first["replayed"] is False
+     snap_first = await _snapshot(uid, oids)
++    key = GroupKey(product='lmsr', id=mid)
++    first_group = (await registry.read_groups([key]))[0]
++    assert first_group.q_dec == [str(q) for q in WRITER.get_state(mid).q_dec]
+ 
+     second = await WRITER.submit(_cmd(mid, uid, run_id, mode="full",
+                                       fee_rate=Decimal("0.01")))
+@@ -218,6 +226,17 @@
+         assert run.total_repaid == first["repaid"]
+         assert run.total_fee == first["fee"]
+ 
++    # A later actual trade must survive replay of the older liquidation result.
++    buyer = await _seed_user(cash='1000', debt='0', username='later_buyer')
++    await WRITER.submit(BuyCmd(market_id=mid, outcome_id=oids[0], user_id=buyer,
++                              username='later_buyer', shares=Decimal('1'), max_cost=None,
++                              max_slippage_bps=None, accept_any_slippage=True))
++    newer = (await registry.read_groups([key]))[0]
++    assert newer.q_dec != first_group.q_dec
++    await WRITER.submit(cmd)
++    replayed = (await registry.read_groups([key]))[0]
++    assert replayed.q_dec == newer.q_dec and replayed.stamp == newer.stamp
++
+ 
+ @pytest.mark.asyncio
+ async def test_existing_action_for_round_prevents_sale():
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_market_data_integration.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_market_data_integration.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_market_data_integration.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_market_data_integration.py	2026-10-18 13:01:35.000000000 +0800
+@@ -317,3 +317,45 @@
+                     db, pair_id=pair_id, expected_event_id=cutoff,
+                     through_event_id=cutoff, rows=[],
+                     history_version=first_version, history_ready=None)
++
++
++@pytest.mark.asyncio
++async def test_warm_public_quotes_share_committed_inputs_without_pair_sql(monkeypatch):
++    from dataclasses import replace
++    from sqlalchemy import event
++    from app.core.database import engine
++    from app.services import trading_prices
++    from app.services.market_read_state import FxReadState
++
++    async with async_session_maker() as db:
++        pair = FxPair(currency_code='WARM', currency_name='Warm',
++                      gold_reserve=Decimal('100'), foreign_reserve=Decimal('100'))
++        db.add(pair)
++        await db.commit()
++        await db.refresh(pair)
++        state = FxReadState.from_pair(pair)
++    registry = trading_prices.PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'fx'}))
++    registry.install_committed(state)
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    statements = []
++    def observed(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++    event.listen(engine.sync_engine, 'before_cursor_execute', observed)
++    try:
++        # Separate requests/users use one committed input; history may query DB.
++        quotes, snapshots = [], []
++        for user in (11, 22):
++            async with async_session_maker() as db:
++                quotes.append(await trading.quote(db, state.id, 'buy', Decimal('1'), user))
++                snapshots.append(await trading.get_public_snapshot(db, state.id))
++        assert quotes[0].output_amount == quotes[1].output_amount
++        assert snapshots[0].pair.pool_version == snapshots[1].pair.pool_version == state.pool_version
++        assert all('fx_pair.' not in statement.lower() for statement in statements)
++        assert not {'gold_reserve', 'buy_fee_rate'} & snapshots[0].pair.model_dump().keys()
++        registry.install_committed(replace(state, gold_reserve=Decimal('200'), pool_version=2))
++        async with async_session_maker() as db:
++            updated = await trading.get_public_snapshot(db, state.id)
++        assert updated.price == Decimal('2') and updated.pair.pool_version == 2
++    finally:
++        event.remove(engine.sync_engine, 'before_cursor_execute', observed)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_net_trading.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_net_trading.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_net_trading.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_net_trading.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,4 +1,5 @@
+ """Net money/identity coverage using existing real database fixtures."""
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from decimal import Decimal as D
+ 
+ import pytest
+@@ -78,7 +79,7 @@
+ 
+ 
+ @pytest.mark.parametrize("auto_repay", [True, False])
+-async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
++async def test_cross_zero_sell_receipt_replay_and_money(auto_repay, committed_fx_registry):
+     from app.models.base import User
+     from app.models.fx import FxExecution, FxShortPosition, FxWallet, FxTreasury, FxPair
+     uid, pid = await _seed(wallet_foreign='100', debt='50', sell_fee='0.01')
+@@ -99,6 +100,7 @@
+         short = (await db.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
+         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
+         pair = await db.get(FxPair, pid)
++        await assert_committed_fx(committed_fx_registry, db, pid)
+         assert wallet.foreign_amount == 0 and user.debt == (0 if auto_repay else 50)
+         assert short.principal_foreign == 40
+         assert short.proceeds_basis_gold == result.legs[1].output_amount
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_stream.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_stream.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_stream.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_stream.py	2026-10-18 13:01:35.000000000 +0800
+@@ -23,6 +23,10 @@
+         return tail
+ 
+     monkeypatch.setattr(fx_stream, "read_fx_stream_history", read)
++    # These wire/queue tests stub the quote; real row-lock behavior lives in PG.
++    async def pair_state(db, pair_id):
++        return SimpleNamespace(id=pair_id)
++    monkeypatch.setattr(fx_stream.trading, "read_public_pair_state", pair_state)
+ 
+ 
+ 
+@@ -77,7 +81,7 @@
+         "volume_24h": Decimal("4.00"),
+     }
+     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         return snapshot
+     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
+     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
+@@ -152,7 +156,7 @@
+             return FakeDB()
+ 
+     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         order.append("snapshot")
+         # A trade committed while the snapshot is being read must remain in
+         # the subscriber queue even when the returned snapshot is stale.
+@@ -189,7 +193,7 @@
+     class FakeMaker:
+         def __call__(self): return FakeDB()
+     monkeypatch.setattr(database, "async_session_maker", FakeMaker())
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         return {"price": Decimal("1.2"), "buy_price": Decimal("1.3"),
+                 "sell_price": Decimal("1.1"), "spread": Decimal("0.2"),
+                 "volume_24h": Decimal("9.5")}
+@@ -293,7 +297,7 @@
+             return False
+ 
+     monkeypatch.setattr(database, "async_session_maker", lambda: FakeDB())
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         return {"price": Decimal("1.2"), "volume_24h": Decimal("9.5")}
+     monkeypatch.setattr(trading, "get_public_snapshot", fake_snapshot)
+     monkeypatch.setattr(market_state, "FX_MARKET_DATA", runtime)
+@@ -394,7 +398,7 @@
+     runtime = TailRuntime()
+     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
+     monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         return {"price": Decimal("1.10"), "spread": Decimal("0.02"),
+                 "volume_24h": Decimal("4"), "target_price": Decimal("9")}
+     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
+@@ -456,7 +460,7 @@
+     runtime = UnknownRuntime()
+     monkeypatch.setattr(fx_stream, "async_session_maker", FakeMaker())
+     monkeypatch.setattr(fx_stream, "FX_MARKET_DATA", runtime)
+-    async def fake_snapshot(db, pair_id):
++    async def fake_snapshot(db, pair_id, *, pair_state):
+         return {"price": Decimal("1.10"), "volume_24h": Decimal("4")}
+     monkeypatch.setattr(fx_stream.trading, "get_public_snapshot", fake_snapshot)
+     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="test"))
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_trading_service.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_trading_service.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_trading_service.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_trading_service.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,3 +1,4 @@
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from tests.test_account_events import private_events
+ """Runnable FX service tests; independent of the application lifespan fixture."""
+ from contextlib import asynccontextmanager
+@@ -108,18 +109,23 @@
+ 
+ 
+ @pytest.mark.asyncio
+-async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session):
++async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session, committed_fx_registry):
+     uid, pid = await seed(db_session)
+     q = await trading.quote(db_session, pid, "buy", Decimal("10"), uid)
+     with pytest.raises(HTTPException) as exc:
+         await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount + 1, "stale")
+     assert exc.value.status_code == 409
+     trade = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount, "idem")
++    await assert_committed_fx(committed_fx_registry, db_session, pid)
++    await trading.execute_trade(db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), "later")
++    latest = committed_fx_registry.peek_fx(pid)
+     replay = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount, "idem")
++    assert committed_fx_registry.peek_fx(pid) == latest
+     assert replay.id == trade.id
+     with pytest.raises(HTTPException) as mismatch:
+         await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount - 1, "idem")
+     assert mismatch.value.status_code == 409
++    assert committed_fx_registry.peek_fx(pid) == latest
+ 
+ 
+ @pytest.mark.asyncio
+@@ -233,3 +239,31 @@
+     assert snapshot.sell_price == (sell.output_amount / sell.input_amount).quantize(q8)
+     assert snapshot.spread == snapshot.buy_price - snapshot.sell_price
+     assert snapshot.spread > 0
++
++
++@pytest.mark.asyncio
++async def test_pricing_periodic_read_finds_trade_when_wake_is_lost(db_session, committed_fx_registry, monkeypatch):
++    import asyncio
++    from app.schemas.trading_context import GroupKey
++    from app.services import trading_prices
++    from app.services.account_events import Subscription
++    uid, pid = await seed(db_session)
++    pair = await db_session.get(FxPair, pid)
++    from app.services.market_read_state import FxReadState
++    committed_fx_registry.install_committed(FxReadState.from_pair(pair))
++    publisher = trading_prices.PricingPublisher()
++    subscriber = Subscription(uid)
++    publisher.subscribe(subscriber, [GroupKey(product='fx', id=pid)])
++    monkeypatch.setattr(trading_prices, 'notify_pricing_changed', lambda keys: None)
++    publisher.start()
++    publisher.wake.set()
++    try:
++        _, first = await asyncio.wait_for(subscriber.queue.get(), 2)
++        await trading.execute_trade(db_session, uid, pid, 'buy', Decimal('1'), Decimal('0'), 'lost-wake')
++        assert not publisher.wake.is_set()
++        _, second = await asyncio.wait_for(subscriber.queue.get(), 2)
++        assert first['groups'][0]['pool_version'] == '1'
++        assert second['groups'][0]['pool_version'] == '2'
++        assert second['groups'][0]['gold_reserve'] == format(committed_fx_registry.peek_fx(pid).gold_reserve, 'f')
++    finally:
++        await publisher.stop()
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_trigger_orders.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_trigger_orders.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_fx_trigger_orders.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_fx_trigger_orders.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,4 +1,5 @@
+ """Private order lifecycle and account slot limit, using real storage."""
++from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+ from decimal import Decimal as D
+ 
+ import pytest
+@@ -109,7 +110,7 @@
+ 
+ 
+ @pytest.mark.parametrize('action', ['buy', 'sell'])
+-async def test_trigger_condition_cross_zero_and_repeat(action):
++async def test_trigger_condition_cross_zero_and_repeat(action, committed_fx_registry):
+     from sqlalchemy import select
+     from app.models.base import User
+     from app.models.fx import FxExecution, FxShortPosition, FxTrade, FxWallet
+@@ -121,6 +122,8 @@
+     assert await attempt_order(order.id, D('0.5') if action == 'sell' else D('2')) is None
+     result = await attempt_order(order.id, D('1'))
+     assert result.status == 'succeeded' and result.observed_trigger_price == 1
++    async with async_session_maker() as db:
++        await assert_committed_fx(committed_fx_registry, db, pid)
+     assert await attempt_order(order.id, D('1')) is None
+     async with async_session_maker() as db:
+         receipts = (await db.execute(select(FxExecution))).scalars().all()
+@@ -140,9 +143,22 @@
+         assert notification.order_id == order.id and notification.input_amount == 20
+         assert notification.borrow_amount == 0
+ 
++    # A later real execution must survive scanning an already successful order.
++    from app.services.fx.net_trading import execute_net_trade
++    from app.schemas.fx import FxNetTradeRequest
++    async with async_session_maker() as db:
++        from app.models.base import User
++        user = await db.get(User, uid)
++        await execute_net_trade(db, uid, pid, FxNetTradeRequest(side=action,
++            amount=D('1'), min_out=D('0'), expected_economic_version=user.economic_version,
++            idempotency_key='after-order', allow_growth=True))
++    latest = committed_fx_registry.peek_fx(pid)
++    assert await attempt_order(order.id, D('1')) is None
++    assert committed_fx_registry.peek_fx(pid) == latest
++
+ 
+ @pytest.mark.parametrize('failure', ['cash', 'authorization', 'paused', 'disabled'])
+-async def test_business_failure_rolls_back_and_releases_slot(failure):
++async def test_business_failure_rolls_back_and_releases_slot(failure, committed_fx_registry):
+     from sqlalchemy import func, select
+     from app.models.base import User, SiteConfig
+     from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
+@@ -161,8 +177,13 @@
+             config = (await db.execute(select(SiteConfig).where(SiteConfig.key == 'fx_enabled'))).scalar_one()
+             config.value = 'false'
+         await db.commit()
++    from app.services.market_read_state import FxReadState
++    async with async_session_maker() as db:
++        committed_fx_registry.install_committed(FxReadState.from_pair(await db.get(FxPair, pid)))
++    before = committed_fx_registry.peek_fx(pid)
+     site_config.clear_cache()
+     result = await attempt_order(order.id, D('1'))
++    assert committed_fx_registry.peek_fx(pid) == before
+     assert result.status == 'failed' and result.failure_reason and result.execution_id is None
+     async with async_session_maker() as db:
+         assert (await db.get(User, uid)).cash == (0 if failure in ('cash','authorization') else 1000)
+Only in /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests: test_market_read_state.py
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_market_writer_loop.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_market_writer_loop.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_market_writer_loop.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_market_writer_loop.py	2026-10-18 13:01:35.000000000 +0800
+@@ -10,11 +10,16 @@
+ 
+ from app.core.database import engine, async_session_maker
+ from app.models.base import Market, MarketStatus, Outcome
++from app.schemas.trading_context import GroupKey
++from app.services import trading_prices
+ from app.services.market_writer import WRITER, MarketState, OpOutcome
+ 
+ 
+ @pytest_asyncio.fixture(autouse=True)
+-async def _fresh_db():
++async def _fresh_db(monkeypatch):
++    registry = trading_prices.PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'lmsr'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+     async with engine.begin() as conn:
+         await conn.run_sync(SQLModel.metadata.drop_all)
+         await conn.run_sync(SQLModel.metadata.create_all)
+@@ -70,6 +75,7 @@
+     st = WRITER.get_state(mid)
+     assert st.q_dec[0] == Decimal("4.500000")   # 3.5 + 1
+     assert st.q[0] == float(Decimal("4.500000"))
++    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '4.500000'
+ 
+ 
+ @pytest.mark.asyncio
+@@ -81,6 +87,7 @@
+         await WRITER.submit(FakeCmd(market_id=mid, behavior="http_error"))
+     assert ei.value.status_code == 400
+     assert WRITER.get_state(mid).q_dec[0] == Decimal("3.500000")
++    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '3.500000'
+ 
+ 
+ @pytest.mark.asyncio
+@@ -148,6 +155,7 @@
+     st = WRITER.get_state(mid)
+     assert st.q_dec[0] == Decimal("99.000000")   # 重读到了 DB 的真值
+     assert not st.unavailable
++    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '99.000000'
+     # 自愈后还能继续服务
+     res = await WRITER.submit(FakeCmd(market_id=mid))
+     assert res == {"ok": True}
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_market_writer_state.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_market_writer_state.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_market_writer_state.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_market_writer_state.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,5 +1,7 @@
+ """MarketWriter 状态加载/注册/重置单元测试（不走 HTTP，不需要 client fixture）。"""
+ from decimal import Decimal
++from datetime import datetime, timezone
++from sqlalchemy import update
+ 
+ import pytest
+ import pytest_asyncio
+@@ -7,11 +9,16 @@
+ 
+ from app.core.database import engine, async_session_maker
+ from app.models.base import Market, MarketStatus, Outcome
++from app.schemas.trading_context import GroupKey
++from app.services import trading_prices
+ from app.services.market_writer import WRITER
+ 
+ 
+ @pytest_asyncio.fixture(autouse=True)
+-async def _fresh_db():
++async def _fresh_db(monkeypatch):
++    registry = trading_prices.PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'lmsr'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+     async with engine.begin() as conn:
+         await conn.run_sync(SQLModel.metadata.drop_all)
+         await conn.run_sync(SQLModel.metadata.create_all)
+@@ -19,9 +26,9 @@
+     await WRITER.stop()
+ 
+ 
+-async def _seed_market(status=MarketStatus.TRADING, shares=("3.5", "0")) -> tuple[int, list[int]]:
++async def _seed_market(status=MarketStatus.TRADING, shares=("3.5", "0"), b=100.0) -> tuple[int, list[int]]:
+     async with async_session_maker() as s:
+-        m = Market(title="t", description="", liquidity_b=100.0, status=status)
++        m = Market(title="t", description="", liquidity_b=b, status=status)
+         s.add(m)
+         await s.flush()
+         oids = []
+@@ -44,11 +51,15 @@
+     assert WRITER.get_state(mid_t) is not None
+     assert WRITER.get_state(mid_h) is not None
+     assert WRITER.get_state(mid_s) is None  # spec § 4.1: SETTLED 不载入
++    # Writer absence is not a missing market: terminal markets cold-load.
++    settled = (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid_s)]))[0]
++    assert settled.status == MarketStatus.SETTLED
++    assert settled.q_dec == ['3.500000', '0.000000']
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_state_q_is_6dp_fixpoint_of_mirror():
+-    mid, oids = await _seed_market(shares=("3.5", "0"))
++    mid, oids = await _seed_market(shares=("3.5", "0"), b=1.234567890123)
+     await WRITER.start()
+     st = WRITER.get_state(mid)
+     assert st.outcome_ids == sorted(oids)           # 升序索引契约
+@@ -58,6 +69,16 @@
+     assert abs(sum(st.prices) - 1.0) < 1e-9
+     assert WRITER.market_id_for_outcome(oids[0]) == mid
+     assert WRITER.market_id_for_outcome(999999) is None
++    async def no_database(*args):
++        raise AssertionError('warm LMSR input must come from the writer projection')
++    trading_prices.REGISTRY._snapshot = no_database
++    key = GroupKey(product='lmsr', id=mid)
++    group = (await trading_prices.REGISTRY.read_groups([key]))[0]
++    assert group.b == '1.234567890123'
++    assert group.q_dec == ['3.500000', '0.000000']
++    st.q_dec[0] = Decimal('99')
++    group.q_dec[0] = '999'
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '3.500000'
+ 
+ 
+ @pytest.mark.asyncio
+@@ -65,13 +86,56 @@
+     await WRITER.start()
+     mid, oids = await _seed_market()
+     assert WRITER.get_state(mid) is None
++    key = GroupKey(product='lmsr', id=mid)
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '3.500000'
++    async with async_session_maker() as db:
++        await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(total_shares=Decimal('9.123456')))
++        await db.commit()
+     await WRITER.register_market(mid)
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '9.123456'
+     assert WRITER.get_state(mid) is not None
+     assert WRITER.market_id_for_outcome(oids[0]) == mid
+ 
+ 
+ @pytest.mark.asyncio
+ async def test_stop_disables():
++    mid, oids = await _seed_market()
+     await WRITER.start()
+     await WRITER.stop()
+     assert not WRITER.enabled
++    async with async_session_maker() as db:
++        await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(total_shares=Decimal('8.000001')))
++        await db.commit()
++    group = (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
++    assert group.q_dec[0] == '8.000001'
++
++
++@pytest.mark.asyncio
++async def test_reload_installs_complete_source_and_failure_discards_old_projection(monkeypatch):
++    from app.services import market_writer
++    mid, oids = await _seed_market()
++    await WRITER.start()
++    clock = datetime(2030, 1, 1, tzinfo=timezone.utc)
++    async with async_session_maker() as db:
++        await db.execute(update(Market).where(Market.id == mid).values(
++            liquidity_b=1.234567890123, status=MarketStatus.HALT, closes_at=clock))
++        await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(
++            total_shares=Decimal('3.123456'), label='Updated'))
++        await db.commit()
++    await WRITER.reload_state(mid)
++    state = WRITER.get_state(mid)
++    assert state.b == 1.234567890123 and state.outcome_labels[0] == 'Updated'
++    key = GroupKey(product='lmsr', id=mid)
++    group = (await trading_prices.REGISTRY.read_groups([key]))[0]
++    assert group.b == '1.234567890123' and group.q_dec[0] == '3.123456'
++    assert group.status == MarketStatus.HALT and group.closes_at == clock.isoformat()
++    async with async_session_maker() as db:
++        await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(total_shares=Decimal('7.654321')))
++        await db.commit()
++    async def fail_load(*args):
++        raise RuntimeError('unavailable reload')
++    monkeypatch.setattr(market_writer, '_load_one', fail_load)
++    await WRITER.reload_state(mid)
++    assert state.unavailable
++    # Cold fallback may recover from DB, never from the writer's old q.
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '7.654321'
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_trading_context.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_trading_context.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_trading_context.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_trading_context.py	2026-10-18 13:01:35.000000000 +0800
+@@ -68,3 +68,92 @@
+             assert int(second[0].stamp.revision)>int(first.groups[0].stamp.revision)
+             assert third[0].stamp==second[0].stamp
+         finally: flags.clear_flags()
++
++
++@pytest.mark.asyncio
++async def test_lmsr_read_only_process_keeps_authoritative_database_reads(monkeypatch):
++    async with async_session_maker() as db:
++        market = Market(title='readonly', liquidity_b=1.234567890123)
++        db.add(market)
++        await db.flush()
++        outcome = Outcome(market_id=market.id, label='A', total_shares=Decimal('1.123456'))
++        db.add(outcome)
++        await db.commit()
++        registry = PricingRegistry(async_session_maker)
++        registry.configure(memory_products=frozenset({'lmsr'}))
++        key = GroupKey(product='lmsr', id=market.id)
++        assert (await registry.read_groups([key]))[0].q_dec == ['1.123456']
++        monkeypatch.setenv(flags.READ_ONLY_ENV, 'true')
++        await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('2.654321')))
++        await db.commit()
++        assert (await registry.read_groups([key]))[0].q_dec == ['2.654321']
++        await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('3.987654')))
++        await db.commit()
++        assert (await registry.read_groups([key]))[0].q_dec == ['3.987654']
++
++
++@pytest.mark.asyncio
++async def test_pricing_publisher_shares_serialization_and_filters_dependencies(monkeypatch):
++    import asyncio
++    from dataclasses import replace
++    from sqlalchemy import event
++    from app.core.database import engine
++    from app.schemas.trading_context import FxPricingGroup
++    from app.services import trading_prices
++    from app.services.account_events import Subscription
++    from app.services.market_read_state import FxReadState
++
++    async with async_session_maker() as db:
++        pairs = [FxPair(currency_code=str(i), currency_name=str(i)) for i in (1, 2)]
++        db.add_all(pairs)
++        await db.commit()
++        for pair in pairs:
++            await db.refresh(pair)
++        states = [FxReadState.from_pair(pair) for pair in pairs]
++    registry = PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'fx'}))
++    for state in states:
++        registry.install_committed(state)
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
++    keys = [GroupKey(product='fx', id=state.id) for state in states]
++    before = await registry.read_groups(keys, require_coverage=False)
++    again = await registry.read_groups(keys, require_coverage=False)
++    assert [(g.stamp, g.as_of) for g in before] == [(g.stamp, g.as_of) for g in again]
++    dumps, statements = [], []
++    original = FxPricingGroup.model_dump
++    def dumped(group, *args, **kwargs):
++        dumps.append(group.id)
++        return original(group, *args, **kwargs)
++    def observed(conn, cursor, statement, parameters, context, executemany):
++        statements.append(statement)
++    monkeypatch.setattr(FxPricingGroup, 'model_dump', dumped)
++    event.listen(engine.sync_engine, 'before_cursor_execute', observed)
++    publisher = trading_prices.PricingPublisher()
++    all_groups, first_only, second_only = [Subscription(i) for i in (11, 22, 33)]
++    publisher.subscribe(all_groups, keys)
++    publisher.subscribe(first_only, keys[:1])
++    publisher.subscribe(second_only, keys[1:])
++    publisher.start()
++    publisher.wake.set()
++    try:
++        _, both = await asyncio.wait_for(all_groups.queue.get(), 2)
++        _, first = await asyncio.wait_for(first_only.queue.get(), 2)
++        _, second = await asyncio.wait_for(second_only.queue.get(), 2)
++        assert [g['id'] for g in first['groups']] == [states[0].id]
++        assert [g['id'] for g in second['groups']] == [states[1].id]
++        assert both['groups'][0] is first['groups'][0]
++        assert both['groups'][1] is second['groups'][0]
++        assert sorted(dumps) == sorted(state.id for state in states)
++        registry.install_committed(replace(states[0], gold_reserve=Decimal('2'), pool_version=2))
++        publisher.wake.set()
++        _, changed = await asyncio.wait_for(all_groups.queue.get(), 2)
++        _, changed_first = await asyncio.wait_for(first_only.queue.get(), 2)
++        assert changed['groups'][0]['gold_reserve'] == '2'
++        assert changed['groups'][0]['stamp'] != first['groups'][0]['stamp']
++        assert changed['groups'][0] is changed_first['groups'][0]
++        assert second_only.queue.empty()
++        assert dumps.count(states[0].id) == 2 and dumps.count(states[1].id) == 1
++        assert statements == []
++    finally:
++        await publisher.stop()
++        event.remove(engine.sync_engine, 'before_cursor_execute', observed)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_writer_admin_ops.py /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_writer_admin_ops.py
+--- /tmp/sunyunbo/fx-market-memory-ab-20261018/before/backend/tests/test_writer_admin_ops.py	2026-10-18 12:29:25.000000000 +0800
++++ /tmp/sunyunbo/fx-market-memory-ab-20261018/after/backend/tests/test_writer_admin_ops.py	2026-10-18 13:01:35.000000000 +0800
+@@ -1,6 +1,7 @@
+ from tests.test_account_events import private_events
+ """CloseCmd/ResumeCmd/ResolveCmd op 单元测试（fixture 拷贝自 test_writer_buy.py，文件间不共享 import）。"""
+ from decimal import Decimal
++import asyncio
+ 
+ import pytest
+ import pytest_asyncio
+@@ -11,12 +12,17 @@
+ from app.models.base import (
+     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
+ )
++from app.schemas.trading_context import GroupKey
++from app.services import trading_prices
+ from app.services.market_writer import WRITER
+-from app.services.writer_ops import BuyCmd, CloseCmd, ResolveCmd, ResumeCmd
++from app.services.writer_ops import BuyCmd, CloseCmd, ResolveCmd, ResumeCmd, SellCmd
+ 
+ 
+ @pytest_asyncio.fixture(autouse=True)
+-async def _fresh_db():
++async def _fresh_db(monkeypatch):
++    registry = trading_prices.PricingRegistry(async_session_maker)
++    registry.configure(memory_products=frozenset({'lmsr'}))
++    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+     yield
+     await WRITER.stop()
+ 
+@@ -70,14 +76,22 @@
+     await WRITER.start()
+     await WRITER.submit(CloseCmd(market_id=mid))
+     assert WRITER.get_state(mid).status == MarketStatus.HALT
++    key = GroupKey(product='lmsr', id=mid)
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].status == MarketStatus.HALT
+     async with async_session_maker() as s:
+         assert (await s.get(Market, mid)).status == MarketStatus.HALT
+     with pytest.raises(HTTPException):
+         await WRITER.submit(_buy(mid, oids[0], uid, accept_any_slippage=True))
+     await WRITER.submit(ResumeCmd(market_id=mid))
+     assert WRITER.get_state(mid).status == MarketStatus.TRADING
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].status == MarketStatus.TRADING
+     res = await WRITER.submit(_buy(mid, oids[0], uid, shares="1", accept_any_slippage=True))
+     assert res["shares"] == 1.0
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '4.500000'
++    await WRITER.submit(SellCmd(market_id=mid, outcome_id=oids[0], user_id=uid,
++                               username='alice', shares=Decimal('1'), min_proceeds=None,
++                               max_slippage_bps=None, accept_any_slippage=True))
++    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '3.500000'
+ 
+ 
+ @pytest.mark.asyncio
+@@ -110,6 +124,7 @@
+     assert res.settled_positions == 2
+     st = WRITER.get_state(mid)
+     assert st.status == MarketStatus.SETTLED       # 状态留内存，后续交易被拒
++    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].status == MarketStatus.SETTLED
+     async with async_session_maker() as s:
+         assert (await s.get(User, uid_w)).cash == cash_w_before + Decimal("10")
+         assert (await s.execute(select(Position))).scalars().first() is None
+@@ -131,3 +146,74 @@
+                                           payout=Decimal("1"), admin_id=uid))
+     assert res2.total_payout == Decimal("0")       # 与老路径幂等语义一致
+     assert res2.settled_positions == 0
++
++
++@pytest.mark.asyncio
++async def test_account_hint_context_waits_for_writer_projection(private_events):
++    from app.services.credit.trading_context import read_trading_context
++    from app.services.writer_ops import op_buy
++    mid, oids = await _seed_market(shares=('0', '0'))
++    uid = await _seed_user()
++    await WRITER.start()
++    key = GroupKey(product='lmsr', id=mid)
++    queue = private_events(uid)
++    committed, proceed, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
++    refresh = trading_prices.REGISTRY.refresh_groups
++    async def tracked_refresh(keys):
++        reading.set()
++        return await refresh(keys)
++    trading_prices.REGISTRY.refresh_groups = tracked_refresh
++    async def delayed_apply(state, cmd):
++        outcome = await op_buy(state, cmd)  # Original commit and account publication.
++        committed.set()
++        await proceed.wait()
++        return outcome
++    WRITER.register_op(BuyCmd, delayed_apply)
++    writing = asyncio.create_task(WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True)))
++    await committed.wait()
++    assert queue.get_nowait()[1]['reason'] == 'lmsr'
++    async def context():
++        async with async_session_maker() as db:
++            return await read_trading_context(db, uid, key, registry=trading_prices.REGISTRY)
++    covered = asyncio.create_task(context())
++    try:
++        public = await trading_prices.REGISTRY.read_groups([key], require_coverage=False)
++        assert public[0].q_dec[0] == '0.000000'
++        await reading.wait()
++        assert not covered.done()
++    finally:
++        proceed.set()
++        await writing
++    result = await covered
++    assert result.account.economic_version == '1'
++    assert result.account.lmsr_positions[0].amount == '1.000000'
++    assert result.groups[0].q_dec[0] == '1.000000'
++
++
++@pytest.mark.asyncio
++async def test_committed_install_failure_invalidates_before_failed_reload(monkeypatch, caplog):
++    mid, oids = await _seed_market(shares=('0', '0'))
++    uid = await _seed_user()
++    await WRITER.start()
++    registry = trading_prices.REGISTRY
++    retried = asyncio.Event()
++    attempts = 0
++    def fail_install(state):
++        nonlocal attempts
++        attempts += 1
++        if attempts == 2:
++            retried.set()
++        raise RuntimeError('snapshot unavailable')
++    with monkeypatch.context() as patch:
++        patch.setattr(registry, 'install_committed', fail_install)
++        with pytest.raises(HTTPException) as exc:
++            await WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True))
++        assert exc.value.status_code == 500
++        await retried.wait()
++    assert WRITER.get_state(mid).unavailable
++    assert 'LMSR database committed; snapshot installation failed' in caplog.text
++    async with async_session_maker() as db:
++        assert (await db.get(Outcome, oids[0])).total_shares == Decimal('1.000000')
++    # The previous zero-shares snapshot cannot be used after failed recovery.
++    group = (await registry.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
++    assert group.q_dec == ['1.000000', '0.000000']

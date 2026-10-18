@@ -1,0 +1,178 @@
+{
+  "41": {
+    "v1_entire_trace_exact": true,
+    "forecast_noise_paired_between_factor_cases": true
+  },
+  "42": {
+    "v1_entire_trace_exact": true,
+    "forecast_noise_paired_between_factor_cases": true
+  },
+  "43": {
+    "v1_entire_trace_exact": true,
+    "forecast_noise_paired_between_factor_cases": true
+  },
+  "_full_trace_checks": {
+    "factor_fixed-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    },
+    "factor_fixed-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    },
+    "factor_fixed-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    },
+    "activity_v1-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [],
+      "factor_moments_independently_verified": false
+    },
+    "activity_v1-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [],
+      "factor_moments_independently_verified": false
+    },
+    "activity_v1-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [],
+      "factor_moments_independently_verified": false
+    },
+    "factor_activity-seed41": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    },
+    "factor_activity-seed42": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    },
+    "factor_activity-seed43": {
+      "points": 100001,
+      "analysis_returns": 95000,
+      "source_hashes_current": true,
+      "pre_state_timing_verified": true,
+      "direct_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "independent_next_block_correlations": true,
+      "assets_conserved": true,
+      "changed_arrays_after_diagnostic_correction": [
+        "clipped_orders"
+      ],
+      "factor_moments_independently_verified": true
+    }
+  },
+  "_frozen_baseline_files_unchanged": 124,
+  "_unit_checks": {
+    "command": "python -m unittest discover -s research/fx/tests -v",
+    "tests": 13,
+    "result": "passed"
+  }
+}

@@ -20,7 +20,6 @@ from app.schemas.loan import LoanQuotaResponse, BorrowRequest, LoanActionRespons
 from app.services import site_config, loan_service
 from app.services.market_locks import lock_user
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import discover_dependencies, check_new_risk, PostTradeState
 from app.services.credit.valuation import value_user_detailed
@@ -81,46 +80,29 @@ async def _unified_quota(db: AsyncSession, user_id: int):
 
 async def _borrow_unified(db: AsyncSession, user_id: int, amount: Decimal):
     flags = credit_flags.get_flags()
-    for attempt in range(flags.credit_risk_retry_limit + 1):
-        deps = await discover_dependencies(db, user_id)
-        await db.rollback()  # No connection/transaction held while waiting for gates.
-        async with GATES.hold(shared=deps.groups):
-            try:
-                user = await lock_user(db, user_id)
-                if economic_version_of(user) != deps.economic_version:
-                    await db.rollback()
-                    continue
-                now = datetime.now(timezone.utc)
-                effective = loan_service.pending_debt(user, deps.daily_rate, now)
-                # Borrowed principal starts accruing now, not at the previous
-                # debt accrual timestamp. Only the old principal earns pending interest.
-                decision = await check_new_risk(
-                    db, user=user, deps=replace(deps, debt_last_accrued_at=now),
-                    post=PostTradeState(cash=Decimal(user.cash) + amount,
-                                        debt=effective + amount),
-                    thresholds=flags.thresholds, partial_pct=Decimal("1"), now=now,
-                )
-                if not decision.allowed:
-                    if decision.reason == "version_conflict":
-                        await db.rollback()
-                        continue
-                    raise HTTPException(status_code=400, detail=decision.reason)
-                u = await loan_service.increase_debt(
-                    db, user_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
-                    source="borrow", operator_user_id=None, now=now,
-                )
-                response = LoanActionResponse(
-                    cash=u.cash, debt=u.debt, max_borrow=decision.max_borrow,
-                )
-                _require_writes()
-                account_hints = capture_accounts(db)
-                await db.commit()
-                publish_accounts(account_hints, "loan")
-            except BaseException:
-                await db.rollback()
-                raise
+    try:
+        user = await lock_user(db, user_id)
+        deps = await discover_dependencies(db, user_id, account_locked=True)
+        now = datetime.now(timezone.utc)
+        effective = loan_service.pending_debt(user, deps.daily_rate, now)
+        decision = await check_new_risk(
+            db, user=user, deps=replace(deps, debt_last_accrued_at=now),
+            post=PostTradeState(cash=Decimal(user.cash) + amount, debt=effective + amount),
+            thresholds=flags.thresholds, partial_pct=Decimal("1"), now=now)
+        if not decision.allowed:
+            raise HTTPException(status_code=400, detail=decision.reason)
+        u = await loan_service.increase_debt(
+            db, user_id, amount, grant_cash=True, daily_rate=deps.daily_rate,
+            source="borrow", operator_user_id=None, now=now)
+        response = LoanActionResponse(cash=u.cash, debt=u.debt, max_borrow=decision.max_borrow)
+        _require_writes()
+        account_hints = capture_accounts(db)
+        await db.commit()
+        publish_accounts(account_hints, "loan")
         return response
-    raise HTTPException(status_code=409, detail="version_conflict; retry")
+    except BaseException:
+        await db.rollback()
+        raise
 
 
 @router.get("/quota", response_model=LoanQuotaResponse)

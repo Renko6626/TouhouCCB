@@ -1,0 +1,647 @@
+{
+  "seed_equal_averages": {
+    "random": {
+      "accounts": 10.0,
+      "arrivals": 1963.6666666666667,
+      "trades": 1908.6666666666667,
+      "arrivals_per_minute": 2.444398340248963,
+      "arrivals_per_account_minute": 0.24443983402489625,
+      "trades_per_minute": 2.375933609958506,
+      "trades_per_account_minute": 0.23759336099585063,
+      "trade_per_arrival": 0.97209896410223,
+      "quantity_per_minute": 200.4667991161826,
+      "mean_trade_size": 84.3607819995601,
+      "volume_share": 0.6381936204428819,
+      "trade_share": 0.607809196291672,
+      "net_flow30_std": 908.5646512712648,
+      "net_flow30_abs_median": 542.6342786666665,
+      "maximum_observed_abs_group_net_position": 3846.598450000001,
+      "pooled_within_account_arrival_gap_minutes": {
+        "n": 5861,
+        "mean": 4.0659728146505145,
+        "median": 2.8333333333333335,
+        "p90": 9.5,
+        "max": 31.75
+      },
+      "pooled_within_account_trade_gap_minutes": {
+        "n": 5696,
+        "mean": 4.18375468164794,
+        "median": 2.8333333333333335,
+        "p90": 9.833333333333334,
+        "max": 37.666666666666664
+      }
+    },
+    "inventory": {
+      "accounts": 5.0,
+      "arrivals": 950.6666666666666,
+      "trades": 941.3333333333334,
+      "arrivals_per_minute": 1.183402489626556,
+      "arrivals_per_account_minute": 0.2366804979253112,
+      "trades_per_minute": 1.1717842323651453,
+      "trades_per_account_minute": 0.234356846473029,
+      "trade_per_arrival": 0.9901821898163669,
+      "quantity_per_minute": 48.81266777302904,
+      "mean_trade_size": 41.651605765371414,
+      "volume_share": 0.15536655239130362,
+      "trade_share": 0.2997534993465243,
+      "net_flow30_std": 603.1658920195509,
+      "net_flow30_abs_median": 413.16297000000003,
+      "maximum_observed_abs_group_net_position": 1511.381123666667,
+      "pooled_within_account_arrival_gap_minutes": {
+        "n": 2837,
+        "mean": 4.206644342615439,
+        "median": 2.75,
+        "p90": 9.916666666666666,
+        "max": 39.666666666666664
+      },
+      "pooled_within_account_trade_gap_minutes": {
+        "n": 2809,
+        "mean": 4.248576005695977,
+        "median": 2.8333333333333335,
+        "p90": 9.916666666666666,
+        "max": 39.666666666666664
+      }
+    },
+    "trend": {
+      "accounts": 2.0,
+      "arrivals": 387.3333333333333,
+      "trades": 110.66666666666667,
+      "arrivals_per_minute": 0.4821576763485477,
+      "arrivals_per_account_minute": 0.24107883817427386,
+      "trades_per_minute": 0.13775933609958504,
+      "trades_per_account_minute": 0.06887966804979252,
+      "trade_per_arrival": 0.28535709845007756,
+      "quantity_per_minute": 24.79668049792531,
+      "mean_trade_size": 180.0,
+      "volume_share": 0.07845845621201182,
+      "trade_share": 0.035144520087844994,
+      "net_flow30_std": 315.94074309897525,
+      "net_flow30_abs_median": 210.0,
+      "maximum_observed_abs_group_net_position": 360.0,
+      "pooled_within_account_arrival_gap_minutes": {
+        "n": 1156,
+        "mean": 4.135308535178777,
+        "median": 2.6666666666666665,
+        "p90": 9.916666666666666,
+        "max": 36.75
+      },
+      "pooled_within_account_trade_gap_minutes": {
+        "n": 326,
+        "mean": 14.279396728016362,
+        "median": 8.5,
+        "p90": 36.291666666666664,
+        "max": 116.66666666666667
+      }
+    },
+    "short_reversion": {
+      "accounts": 2.0,
+      "arrivals": 383.6666666666667,
+      "trades": 126.66666666666667,
+      "arrivals_per_minute": 0.47759336099585065,
+      "arrivals_per_account_minute": 0.23879668049792532,
+      "trades_per_minute": 0.15767634854771784,
+      "trades_per_account_minute": 0.07883817427385892,
+      "trade_per_arrival": 0.3297568703182816,
+      "quantity_per_minute": 28.381742738589207,
+      "mean_trade_size": 180.0,
+      "volume_share": 0.09002469102338029,
+      "trade_share": 0.04026672213038734,
+      "net_flow30_std": 287.02446994969887,
+      "net_flow30_abs_median": 180.0,
+      "maximum_observed_abs_group_net_position": 360.0,
+      "pooled_within_account_arrival_gap_minutes": {
+        "n": 1145,
+        "mean": 4.163027656477438,
+        "median": 2.75,
+        "p90": 9.716666666666677,
+        "max": 25.333333333333332
+      },
+      "pooled_within_account_trade_gap_minutes": {
+        "n": 374,
+        "mean": 12.41488413547237,
+        "median": 8.333333333333334,
+        "p90": 29.674999999999997,
+        "max": 83.58333333333333
+      }
+    },
+    "noise_short": {
+      "accounts": 1.0,
+      "arrivals": 183.0,
+      "trades": 53.666666666666664,
+      "arrivals_per_minute": 0.22780082987551867,
+      "arrivals_per_account_minute": 0.22780082987551867,
+      "trades_per_minute": 0.06680497925311203,
+      "trades_per_account_minute": 0.06680497925311203,
+      "trade_per_arrival": 0.29093546187486263,
+      "quantity_per_minute": 12.024896265560164,
+      "mean_trade_size": 180.0,
+      "volume_share": 0.03795667993042245,
+      "trade_share": 0.017026062143571483,
+      "net_flow30_std": 166.95335982537932,
+      "net_flow30_abs_median": 180.0,
+      "maximum_observed_abs_group_net_position": 180.0,
+      "pooled_within_account_arrival_gap_minutes": {
+        "n": 546,
+        "mean": 4.375763125763125,
+        "median": 2.9166666666666665,
+        "p90": 10.041666666666668,
+        "max": 26.666666666666668
+      },
+      "pooled_within_account_trade_gap_minutes": {
+        "n": 158,
+        "mean": 14.730485232067512,
+        "median": 11.25,
+        "p90": 37.016666666666666,
+        "max": 74.16666666666667
+      }
+    }
+  },
+  "per_seed": {
+    "20261029": {
+      "random": {
+        "accounts": 10,
+        "arrivals": 1919,
+        "trades": 1884,
+        "arrivals_per_minute": 2.3887966804979253,
+        "arrivals_per_account_minute": 0.23887966804979252,
+        "trades_per_minute": 2.345228215767635,
+        "trades_per_account_minute": 0.2345228215767635,
+        "trade_per_arrival": 0.9817613340281397,
+        "quantity_per_minute": 192.91370813651454,
+        "mean_trade_size": 82.25796826061573,
+        "volume_share": 0.6465172519894746,
+        "trade_share": 0.6128822381262199,
+        "within_account_arrival_gap_minutes": {
+          "n": 1909,
+          "mean": 4.167583376986205,
+          "median": 3.0,
+          "p90": 9.600000000000005,
+          "max": 28.5
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 1874,
+          "mean": 4.245419779437922,
+          "median": 3.0,
+          "p90": 9.833333333333334,
+          "max": 28.666666666666668
+        },
+        "net_flow30_std": 1030.4465839069417,
+        "net_flow30_abs_median": 720.9939009999998,
+        "maximum_observed_abs_group_net_position": 4413.558675
+      },
+      "inventory": {
+        "accounts": 5,
+        "arrivals": 942,
+        "trades": 932,
+        "arrivals_per_minute": 1.1726141078838175,
+        "arrivals_per_account_minute": 0.2345228215767635,
+        "trades_per_minute": 1.1601659751037343,
+        "trades_per_account_minute": 0.23203319502074687,
+        "trade_per_arrival": 0.9893842887473461,
+        "quantity_per_minute": 47.666274339834025,
+        "mean_trade_size": 41.08573718133047,
+        "volume_share": 0.15974535452378708,
+        "trade_share": 0.30318802862719585,
+        "within_account_arrival_gap_minutes": {
+          "n": 937,
+          "mean": 4.245375311277126,
+          "median": 2.75,
+          "p90": 9.616666666666665,
+          "max": 39.666666666666664
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 927,
+          "mean": 4.291172240201367,
+          "median": 2.75,
+          "p90": 9.699999999999998,
+          "max": 39.666666666666664
+        },
+        "net_flow30_std": 566.0915187020835,
+        "net_flow30_abs_median": 429.84290999999996,
+        "maximum_observed_abs_group_net_position": 1139.9373560000004
+      },
+      "trend": {
+        "accounts": 2,
+        "arrivals": 351,
+        "trades": 96,
+        "arrivals_per_minute": 0.43692946058091287,
+        "arrivals_per_account_minute": 0.21846473029045643,
+        "trades_per_minute": 0.11950207468879667,
+        "trades_per_account_minute": 0.059751037344398336,
+        "trade_per_arrival": 0.27350427350427353,
+        "quantity_per_minute": 21.5103734439834,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.0720883324601817,
+        "trade_share": 0.031229668184775537,
+        "within_account_arrival_gap_minutes": {
+          "n": 349,
+          "mean": 4.561365807067812,
+          "median": 3.1666666666666665,
+          "p90": 11.0,
+          "max": 36.75
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 94,
+          "mean": 16.54787234042553,
+          "median": 10.916666666666668,
+          "p90": 44.508333333333354,
+          "max": 76.91666666666667
+        },
+        "net_flow30_std": 302.6010320791795,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "short_reversion": {
+        "accounts": 2,
+        "arrivals": 379,
+        "trades": 121,
+        "arrivals_per_minute": 0.4717842323651452,
+        "arrivals_per_account_minute": 0.2358921161825726,
+        "trades_per_minute": 0.15062240663900414,
+        "trades_per_account_minute": 0.07531120331950207,
+        "trade_per_arrival": 0.31926121372031663,
+        "quantity_per_minute": 27.112033195020746,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.09086133570502068,
+        "trade_share": 0.039362394274560834,
+        "within_account_arrival_gap_minutes": {
+          "n": 377,
+          "mean": 4.240937223695844,
+          "median": 2.8333333333333335,
+          "p90": 9.833333333333334,
+          "max": 23.416666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 119,
+          "mean": 12.897058823529413,
+          "median": 8.333333333333334,
+          "p90": 31.26666666666667,
+          "max": 81.66666666666667
+        },
+        "net_flow30_std": 315.8198123078314,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "noise_short": {
+        "accounts": 1,
+        "arrivals": 161,
+        "trades": 41,
+        "arrivals_per_minute": 0.20041493775933608,
+        "arrivals_per_account_minute": 0.20041493775933608,
+        "trades_per_minute": 0.05103734439834025,
+        "trades_per_account_minute": 0.05103734439834025,
+        "trade_per_arrival": 0.2546583850931677,
+        "quantity_per_minute": 9.186721991701244,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.030787725321535935,
+        "trade_share": 0.013337670787247886,
+        "within_account_arrival_gap_minutes": {
+          "n": 160,
+          "mean": 4.977083333333334,
+          "median": 3.541666666666667,
+          "p90": 10.916666666666666,
+          "max": 26.5
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 40,
+          "mean": 19.45,
+          "median": 14.541666666666668,
+          "p90": 41.28333333333334,
+          "max": 64.0
+        },
+        "net_flow30_std": 152.73506473629428,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 180.0
+      }
+    },
+    "20261030": {
+      "random": {
+        "accounts": 10,
+        "arrivals": 1989,
+        "trades": 1928,
+        "arrivals_per_minute": 2.4759336099585063,
+        "arrivals_per_account_minute": 0.24759336099585064,
+        "trades_per_minute": 2.4,
+        "trades_per_account_minute": 0.24,
+        "trade_per_arrival": 0.9693313222724987,
+        "quantity_per_minute": 204.53394451618257,
+        "mean_trade_size": 85.22247688174274,
+        "volume_share": 0.6566863938665591,
+        "trade_share": 0.6155810983397191,
+        "within_account_arrival_gap_minutes": {
+          "n": 1979,
+          "mean": 4.012253663466397,
+          "median": 2.75,
+          "p90": 9.433333333333337,
+          "max": 31.666666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 1918,
+          "mean": 4.139859228362878,
+          "median": 2.75,
+          "p90": 9.833333333333334,
+          "max": 36.583333333333336
+        },
+        "net_flow30_std": 872.5876067667093,
+        "net_flow30_abs_median": 456.9830775,
+        "maximum_observed_abs_group_net_position": 3618.4543380000014
+      },
+      "inventory": {
+        "accounts": 5,
+        "arrivals": 950,
+        "trades": 942,
+        "arrivals_per_minute": 1.1825726141078838,
+        "arrivals_per_account_minute": 0.23651452282157676,
+        "trades_per_minute": 1.1726141078838175,
+        "trades_per_account_minute": 0.2345228215767635,
+        "trade_per_arrival": 0.991578947368421,
+        "quantity_per_minute": 48.22431643568465,
+        "mean_trade_size": 41.12547863057325,
+        "volume_share": 0.1548312801170469,
+        "trade_share": 0.3007662835249042,
+        "within_account_arrival_gap_minutes": {
+          "n": 945,
+          "mean": 4.195502645502645,
+          "median": 2.8333333333333335,
+          "p90": 9.383333333333335,
+          "max": 30.0
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 937,
+          "mean": 4.231323372465315,
+          "median": 2.8333333333333335,
+          "p90": 9.449999999999998,
+          "max": 30.0
+        },
+        "net_flow30_std": 659.343182763994,
+        "net_flow30_abs_median": 442.5812820000001,
+        "maximum_observed_abs_group_net_position": 1640.5846350000002
+      },
+      "trend": {
+        "accounts": 2,
+        "arrivals": 408,
+        "trades": 100,
+        "arrivals_per_minute": 0.5078838174273859,
+        "arrivals_per_account_minute": 0.25394190871369293,
+        "trades_per_minute": 0.12448132780082986,
+        "trades_per_account_minute": 0.06224066390041493,
+        "trade_per_arrival": 0.24509803921568626,
+        "quantity_per_minute": 22.406639004149376,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.07193981909022672,
+        "trade_share": 0.031928480204342274,
+        "within_account_arrival_gap_minutes": {
+          "n": 406,
+          "mean": 3.9236453201970445,
+          "median": 2.458333333333333,
+          "p90": 9.125,
+          "max": 26.916666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 98,
+          "mean": 15.74829931972789,
+          "median": 7.333333333333333,
+          "p90": 42.69166666666665,
+          "max": 116.66666666666667
+        },
+        "net_flow30_std": 332.6536660529409,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "short_reversion": {
+        "accounts": 2,
+        "arrivals": 382,
+        "trades": 110,
+        "arrivals_per_minute": 0.4755186721991701,
+        "arrivals_per_account_minute": 0.23775933609958505,
+        "trades_per_minute": 0.13692946058091285,
+        "trades_per_account_minute": 0.06846473029045642,
+        "trade_per_arrival": 0.2879581151832461,
+        "quantity_per_minute": 24.647302904564313,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.0791338009992494,
+        "trade_share": 0.0351213282247765,
+        "within_account_arrival_gap_minutes": {
+          "n": 380,
+          "mean": 4.196929824561403,
+          "median": 2.75,
+          "p90": 9.916666666666666,
+          "max": 25.333333333333332
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 108,
+          "mean": 14.382716049382717,
+          "median": 8.708333333333332,
+          "p90": 34.4,
+          "max": 83.58333333333333
+        },
+        "net_flow30_std": 259.59969183340723,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "noise_short": {
+        "accounts": 1,
+        "arrivals": 193,
+        "trades": 52,
+        "arrivals_per_minute": 0.24024896265560164,
+        "arrivals_per_account_minute": 0.24024896265560164,
+        "trades_per_minute": 0.06473029045643153,
+        "trades_per_account_minute": 0.06473029045643153,
+        "trade_per_arrival": 0.2694300518134715,
+        "quantity_per_minute": 11.651452282157676,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.0374087059269179,
+        "trade_share": 0.016602809706257982,
+        "within_account_arrival_gap_minutes": {
+          "n": 192,
+          "mean": 4.145399305555556,
+          "median": 2.9166666666666665,
+          "p90": 9.158333333333333,
+          "max": 21.916666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 51,
+          "mean": 15.513071895424837,
+          "median": 11.166666666666666,
+          "p90": 34.75,
+          "max": 74.16666666666667
+        },
+        "net_flow30_std": 179.8614851660962,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 180.0
+      }
+    },
+    "20261031": {
+      "random": {
+        "accounts": 10,
+        "arrivals": 1983,
+        "trades": 1914,
+        "arrivals_per_minute": 2.468464730290456,
+        "arrivals_per_account_minute": 0.2468464730290456,
+        "trades_per_minute": 2.382572614107884,
+        "trades_per_account_minute": 0.23825726141078837,
+        "trade_per_arrival": 0.9652042360060514,
+        "quantity_per_minute": 203.95274469585064,
+        "mean_trade_size": 85.60190085632185,
+        "volume_share": 0.6113772154726119,
+        "trade_share": 0.5949642524090768,
+        "within_account_arrival_gap_minutes": {
+          "n": 1973,
+          "mean": 4.021540800810948,
+          "median": 2.6666666666666665,
+          "p90": 9.416666666666666,
+          "max": 31.75
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 1904,
+          "mean": 4.167279411764706,
+          "median": 2.6666666666666665,
+          "p90": 9.75,
+          "max": 37.666666666666664
+        },
+        "net_flow30_std": 822.6597631401434,
+        "net_flow30_abs_median": 449.9258574999998,
+        "maximum_observed_abs_group_net_position": 3507.7823370000006
+      },
+      "inventory": {
+        "accounts": 5,
+        "arrivals": 960,
+        "trades": 950,
+        "arrivals_per_minute": 1.1950207468879668,
+        "arrivals_per_account_minute": 0.23900414937759334,
+        "trades_per_minute": 1.1825726141078838,
+        "trades_per_account_minute": 0.23651452282157676,
+        "trade_per_arrival": 0.9895833333333334,
+        "quantity_per_minute": 50.547412543568456,
+        "mean_trade_size": 42.74360148421052,
+        "volume_share": 0.15152302253307692,
+        "trade_share": 0.2953061858874728,
+        "within_account_arrival_gap_minutes": {
+          "n": 955,
+          "mean": 4.179668411867365,
+          "median": 2.6666666666666665,
+          "p90": 10.550000000000002,
+          "max": 30.083333333333332
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 945,
+          "mean": 4.22389770723104,
+          "median": 2.75,
+          "p90": 10.583333333333334,
+          "max": 30.083333333333332
+        },
+        "net_flow30_std": 584.0629745925753,
+        "net_flow30_abs_median": 367.0647180000001,
+        "maximum_observed_abs_group_net_position": 1753.6213800000005
+      },
+      "trend": {
+        "accounts": 2,
+        "arrivals": 403,
+        "trades": 136,
+        "arrivals_per_minute": 0.5016597510373444,
+        "arrivals_per_account_minute": 0.2508298755186722,
+        "trades_per_minute": 0.1692946058091286,
+        "trades_per_account_minute": 0.0846473029045643,
+        "trade_per_arrival": 0.337468982630273,
+        "quantity_per_minute": 30.473029045643152,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.09134721708562703,
+        "trade_share": 0.042275411874417156,
+        "within_account_arrival_gap_minutes": {
+          "n": 401,
+          "mean": 3.978802992518703,
+          "median": 2.5833333333333335,
+          "p90": 9.083333333333334,
+          "max": 26.5
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 134,
+          "mean": 11.613805970149254,
+          "median": 7.458333333333334,
+          "p90": 27.44166666666667,
+          "max": 56.833333333333336
+        },
+        "net_flow30_std": 312.56753116480536,
+        "net_flow30_abs_median": 270.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "short_reversion": {
+        "accounts": 2,
+        "arrivals": 390,
+        "trades": 149,
+        "arrivals_per_minute": 0.4854771784232365,
+        "arrivals_per_account_minute": 0.24273858921161826,
+        "trades_per_minute": 0.1854771784232365,
+        "trades_per_account_minute": 0.09273858921161825,
+        "trade_per_arrival": 0.382051282051282,
+        "quantity_per_minute": 33.38589211618257,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.10007893636587079,
+        "trade_share": 0.04631644389182468,
+        "within_account_arrival_gap_minutes": {
+          "n": 388,
+          "mean": 4.054123711340206,
+          "median": 2.6666666666666665,
+          "p90": 9.383333333333336,
+          "max": 18.916666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 147,
+          "mean": 10.578798185941043,
+          "median": 7.083333333333333,
+          "p90": 24.733333333333338,
+          "max": 65.08333333333333
+        },
+        "net_flow30_std": 285.65390570785803,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 360.0
+      },
+      "noise_short": {
+        "accounts": 1,
+        "arrivals": 195,
+        "trades": 68,
+        "arrivals_per_minute": 0.24273858921161826,
+        "arrivals_per_account_minute": 0.24273858921161826,
+        "trades_per_minute": 0.0846473029045643,
+        "trades_per_account_minute": 0.0846473029045643,
+        "trade_per_arrival": 0.3487179487179487,
+        "quantity_per_minute": 15.236514522821576,
+        "mean_trade_size": 180.0,
+        "volume_share": 0.045673608542813514,
+        "trade_share": 0.021137705937208578,
+        "within_account_arrival_gap_minutes": {
+          "n": 194,
+          "mean": 4.107817869415808,
+          "median": 2.625,
+          "p90": 9.783333333333337,
+          "max": 26.666666666666668
+        },
+        "within_account_trade_gap_minutes": {
+          "n": 67,
+          "mean": 11.317164179104479,
+          "median": 9.416666666666666,
+          "p90": 24.75,
+          "max": 41.666666666666664
+        },
+        "net_flow30_std": 168.26352957374746,
+        "net_flow30_abs_median": 180.0,
+        "maximum_observed_abs_group_net_position": 180.0
+      }
+    }
+  },
+  "descriptive_same_window_net_flow_correlations_with_random": {
+    "inventory": -0.8460236862479056,
+    "trend": 0.16248098694072044,
+    "short_reversion": -0.25763605596312356,
+    "noise_short": -0.21398410981896318
+  },
+  "structural_capacity": {
+    "trend_group_accounts": 2,
+    "episode_quantity": 180,
+    "max_abs_trend_net_foreign": 360,
+    "inventory_group_accounts": 5,
+    "per_account_target_cap": 450,
+    "max_abs_inventory_group_target": 2250,
+    "note": "Target/position capacity is not realized trading force. Short positions return to baseline at episode end."
+  }
+}

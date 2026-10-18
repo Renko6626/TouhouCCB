@@ -1,0 +1,15 @@
+{
+  "paired_arrivals_and_noise": true,
+  "previous_market_series_identical": [
+    "fixed-seed41",
+    "fixed-seed42",
+    "fixed-seed43",
+    "random-seed41",
+    "random-seed42",
+    "random-seed43",
+    "noise-seed41",
+    "noise-seed42",
+    "noise-seed43"
+  ],
+  "inventory_decomposition": true
+}

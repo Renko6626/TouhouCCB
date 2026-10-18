@@ -1,0 +1,2994 @@
+{
+  "control": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 18,
+    "queue_peak": 14,
+    "phases": {
+      "readonly": {
+        "duration_s": 31.004,
+        "successes_per_s": 0.0,
+        "trade_results": {},
+        "trade_latency": {},
+        "app_cpu_percent": 20.213490814624492,
+        "main_cpu_fraction": 0.9952834091646976,
+        "app_cpu_s": 6.201449314000001,
+        "pg_backend_cpu_percent": 1.6949288289554716,
+        "gate": {},
+        "event_loop_lag": {
+          "phase": "readonly",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 606,
+          "total_ms": 716.0965677350742,
+          "mean_ms": 1.1816775045133239,
+          "p50_ms": 0.7768411189317675,
+          "p95_ms": 1.87677592039108,
+          "p99_ms": 2.9505070298910114,
+          "max_ms": 157.43240043520927
+        },
+        "sql_calls": 2504,
+        "sql_client_total_ms": 1714.9491291493177,
+        "routes_sql": [
+          {
+            "phase": "readonly",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 1045,
+            "total_ms": 641.2486415356398
+          },
+          {
+            "phase": "readonly",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 1400,
+            "total_ms": 1023.4607625752687
+          },
+          {
+            "phase": "readonly",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 59,
+            "total_ms": 50.23972503840923
+          }
+        ],
+        "pg": {
+          "statement_calls": 2456.0,
+          "statement_exec_ms": 63.952033000000164,
+          "snapshot_duration_s": 30.681132316589355,
+          "calls": 5856.0,
+          "exec_total_ms": 67.4679520000002,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.0,
+          "io_write_ms": 0.0,
+          "wal_bytes": 0.0,
+          "wal_sync_ms": 0.7330000000000041,
+          "wal_write_ms": 0.06799999999999962,
+          "top_queries": [
+            {
+              "queryid": "2177010440970817476",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 400.0,
+              "total_exec_time": 23.623579000000177,
+              "total_plan_time": 0.0,
+              "rows": 400.0,
+              "shared_blks_hit": 800.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "8283281710134983333",
+              "query": "SELECT siteconfig.value \nFROM siteconfig \nWHERE siteconfig.key = $1::VARCHAR",
+              "calls": 400.0,
+              "total_exec_time": 9.24874099999999,
+              "total_plan_time": 0.0,
+              "rows": 400.0,
+              "shared_blks_hit": 800.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "-270806864789430441",
+              "query": "SELECT fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.pool_version, fx_pair.status, fx_pair.archived, fx_pair.reduce_only \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER",
+              "calls": 226.0,
+              "total_exec_time": 8.825409,
+              "total_plan_time": 0.0,
+              "rows": 226.0,
+              "shared_blks_hit": 452.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "-1379013142138962287",
+              "query": "SELECT \"user\".economic_version \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 195.0,
+              "total_exec_time": 8.661252999999999,
+              "total_plan_time": 0.0,
+              "rows": 195.0,
+              "shared_blks_hit": 390.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "6282226408184268676",
+              "query": "SELECT fx_wallet.pair_id \nFROM fx_wallet \nWHERE fx_wallet.user_id = $1::INTEGER",
+              "calls": 400.0,
+              "total_exec_time": 6.716548,
+              "total_plan_time": 0.0,
+              "rows": 106.0,
+              "shared_blks_hit": 506.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "-9078765366290759043",
+              "query": "SELECT fx_short_position.pair_id \nFROM fx_short_position \nWHERE fx_short_position.user_id = $1::INTEGER",
+              "calls": 400.0,
+              "total_exec_time": 3.350186,
+              "total_plan_time": 0.0,
+              "rows": 79.0,
+              "shared_blks_hit": 479.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2575115080340585787",
+              "query": "SELECT outcome.market_id \nFROM outcome JOIN position ON position.outcome_id = outcome.id \nWHERE position.user_id = $1::INTEGER",
+              "calls": 400.0,
+              "total_exec_time": 2.228591,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2397681704071010949",
+              "query": "BEGIN",
+              "calls": 1700.0,
+              "total_exec_time": 2.020767000000024,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "7088996947831101750",
+              "query": "ROLLBACK",
+              "calls": 1700.0,
+              "total_exec_time": 1.4951520000000027,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2556842428016063828",
+              "query": "SELECT $3 FROM pg_locks WHERE locktype = $4 AND pid = pg_backend_pid() AND classid = $1 AND objid = $2",
+              "calls": 6.0,
+              "total_exec_time": 0.5634290000000002,
+              "total_plan_time": 0.0,
+              "rows": 6.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            }
+          ]
+        }
+      },
+      "normal": {
+        "duration_s": 61.088,
+        "successes_per_s": 2.537,
+        "trade_results": {
+          "ok": 155
+        },
+        "trade_latency": {
+          "count": 155,
+          "p50_ms": 48.942,
+          "p95_ms": 164.435,
+          "p99_ms": 296.061
+        },
+        "app_cpu_percent": 45.279778666016185,
+        "main_cpu_fraction": 0.9965212061009777,
+        "app_cpu_s": 27.717567582,
+        "pg_backend_cpu_percent": 5.750317751831971,
+        "gate": {
+          "gate_wait": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_wait",
+            "count": 171,
+            "total_ms": 424.42742362618446,
+            "mean_ms": 2.4820317171121897,
+            "p50_ms": 0.03697909414768219,
+            "p95_ms": 15.89098758995533,
+            "p99_ms": 31.111834570765495,
+            "max_ms": 92.38048270344734
+          },
+          "flush_inclusive": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "flush_inclusive",
+            "count": 466,
+            "total_ms": 1668.7629707157612,
+            "mean_ms": 3.581036417844981,
+            "p50_ms": 2.8400570154190063,
+            "p95_ms": 9.413296356797218,
+            "p99_ms": 13.757793232798576,
+            "max_ms": 17.427517101168633
+          },
+          "commit_including_flush": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "commit_including_flush",
+            "count": 145,
+            "total_ms": 688.8076737523079,
+            "mean_ms": 4.7503977500159165,
+            "p50_ms": 4.127444699406624,
+            "p95_ms": 9.234199300408363,
+            "p99_ms": 13.823006302118301,
+            "max_ms": 14.382129535079002
+          },
+          "gate_held": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_held",
+            "count": 171,
+            "total_ms": 5368.6197102069855,
+            "mean_ms": 31.395436901795236,
+            "p50_ms": 25.786664336919785,
+            "p95_ms": 76.70869864523411,
+            "p99_ms": 107.13326744735241,
+            "max_ms": 257.52613693475723
+          },
+          "gate_sql_wait": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_sql_wait",
+            "count": 171,
+            "total_ms": 2983.942622318864,
+            "mean_ms": 17.44995685566587,
+            "p50_ms": 10.636476799845695,
+            "p95_ms": 56.91937170922756,
+            "p99_ms": 80.22693917155266,
+            "max_ms": 88.49534206092358
+          },
+          "gate_commit_driver": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_commit_driver",
+            "count": 171,
+            "total_ms": 138.78418505191803,
+            "mean_ms": 0.8116034213562457,
+            "p50_ms": 0.7663201540708542,
+            "p95_ms": 1.7437711358070374,
+            "p99_ms": 2.1475907415151596,
+            "max_ms": 8.43045860528946
+          },
+          "gate_remaining_inclusive": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_remaining_inclusive",
+            "count": 171,
+            "total_ms": 2245.8929028362036,
+            "mean_ms": 13.133876624773121,
+            "p50_ms": 11.241436004638672,
+            "p95_ms": 26.38620138168335,
+            "p99_ms": 31.32477216422558,
+            "max_ms": 198.54007847607136
+          }
+        },
+        "event_loop_lag": {
+          "phase": "normal",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 1156,
+          "total_ms": 3298.537066951391,
+          "mean_ms": 2.8534057672589888,
+          "p50_ms": 0.9123001247644397,
+          "p95_ms": 13.889406621456143,
+          "p99_ms": 21.90088368952274,
+          "max_ms": 185.8599491417408
+        },
+        "sql_calls": 13814,
+        "sql_client_total_ms": 23555.043943226337,
+        "routes_sql": [
+          {
+            "phase": "normal",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 1629,
+            "total_ms": 4540.6518038362265
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 2800,
+            "total_ms": 3721.071109175682
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/quote",
+            "kind": "SELECT",
+            "count": 823,
+            "total_ms": 1091.4129875600338
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "SELECT",
+            "count": 1790,
+            "total_ms": 2528.4325890243053
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "INSERT",
+            "count": 693,
+            "total_ms": 633.9494045823812
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "UPDATE",
+            "count": 729,
+            "total_ms": 500.59681944549084
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 2510,
+            "total_ms": 3375.04549510777
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-context",
+            "kind": "SELECT",
+            "count": 1395,
+            "total_ms": 3191.0674273967743
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/fx/pairs/:id/snapshot",
+            "kind": "SELECT",
+            "count": 465,
+            "total_ms": 1615.7724428921938
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/fx/pairs/:id/my-trades",
+            "kind": "SELECT",
+            "count": 310,
+            "total_ms": 1286.378437653184
+          },
+          {
+            "phase": "normal",
+            "route": "background",
+            "kind": "INSERT",
+            "count": 155,
+            "total_ms": 275.9265713393688
+          },
+          {
+            "phase": "normal",
+            "route": "background",
+            "kind": "UPDATE",
+            "count": 155,
+            "total_ms": 185.93390844762325
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-prices",
+            "kind": "SELECT",
+            "count": 35,
+            "total_ms": 189.00956772267818
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/quote",
+            "kind": "SELECT",
+            "count": 130,
+            "total_ms": 197.7024357765913
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "SELECT",
+            "count": 110,
+            "total_ms": 166.31163284182549
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "INSERT",
+            "count": 40,
+            "total_ms": 29.266346246004105
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "UPDATE",
+            "count": 40,
+            "total_ms": 22.35542982816696
+          },
+          {
+            "phase": "normal",
+            "route": "GET /history/fx/:id/e6573ade-58f0-427d-824d-970726902171/15m/1791763200.json",
+            "kind": "SELECT",
+            "count": 5,
+            "total_ms": 4.159534350037575
+          }
+        ],
+        "pg": {
+          "statement_calls": 13884.0,
+          "statement_exec_ms": 1197.2745380000006,
+          "snapshot_duration_s": 61.21268129348755,
+          "calls": 31460.0,
+          "exec_total_ms": 1213.2903380000005,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.02535000000000001,
+          "io_write_ms": 0.0,
+          "wal_bytes": 1134444.0,
+          "wal_sync_ms": 215.24599999999998,
+          "wal_write_ms": 15.694999999999999,
+          "top_queries": [
+            {
+              "queryid": "-4716528797807529607",
+              "query": "SELECT fx_pair.id \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR SHARE",
+              "calls": 160.0,
+              "total_exec_time": 348.9929909999999,
+              "total_plan_time": 0.0,
+              "rows": 160.0,
+              "shared_blks_hit": 406.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 8694.0
+            },
+            {
+              "queryid": "2177010440970817476",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 1688.0,
+              "total_exec_time": 89.5896060000005,
+              "total_plan_time": 0.0,
+              "rows": 1688.0,
+              "shared_blks_hit": 3376.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 7242.0
+            },
+            {
+              "queryid": "1537804869611962449",
+              "query": "SELECT (SELECT fx_market_data_state.history_ready \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 \nFROM fx_candle \nWHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 \nFROM fx_trade \nWHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 \nFROM fx_trade \nWHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 \nFROM fx_pool_event \nWHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+              "calls": 310.0,
+              "total_exec_time": 79.06569300000017,
+              "total_plan_time": 0.0,
+              "rows": 310.0,
+              "shared_blks_hit": 23389.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 2300.0
+            },
+            {
+              "queryid": "921255867352091687",
+              "query": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+              "calls": 157.0,
+              "total_exec_time": 74.48144099999996,
+              "total_plan_time": 0.0,
+              "rows": 157.0,
+              "shared_blks_hit": 3448.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 134946.0
+            },
+            {
+              "queryid": "-4164208770914076852",
+              "query": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+              "calls": 157.0,
+              "total_exec_time": 62.10184899999999,
+              "total_plan_time": 0.0,
+              "rows": 157.0,
+              "shared_blks_hit": 2595.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 87590.0
+            },
+            {
+              "queryid": "1040097635508601146",
+              "query": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+              "calls": 155.0,
+              "total_exec_time": 56.95667500000003,
+              "total_plan_time": 0.0,
+              "rows": 620.0,
+              "shared_blks_hit": 3170.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 126930.0
+            },
+            {
+              "queryid": "4361230571329202399",
+              "query": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+              "calls": 181.0,
+              "total_exec_time": 48.40000100000001,
+              "total_plan_time": 0.0,
+              "rows": 181.0,
+              "shared_blks_hit": 412.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 9774.0
+            },
+            {
+              "queryid": "7648745883839042605",
+              "query": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+              "calls": 204.0,
+              "total_exec_time": 30.648775999999998,
+              "total_plan_time": 0.0,
+              "rows": 204.0,
+              "shared_blks_hit": 4426.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 355034.0
+            },
+            {
+              "queryid": "-1379013142138962287",
+              "query": "SELECT \"user\".economic_version \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 709.0,
+              "total_exec_time": 30.528876000000114,
+              "total_plan_time": 0.0,
+              "rows": 709.0,
+              "shared_blks_hit": 1418.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 600.0
+            },
+            {
+              "queryid": "7031260698040618830",
+              "query": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+              "calls": 145.0,
+              "total_exec_time": 26.731648000000018,
+              "total_plan_time": 0.0,
+              "rows": 145.0,
+              "shared_blks_hit": 1796.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 80493.0
+            }
+          ]
+        }
+      },
+      "active": {
+        "duration_s": 32.09,
+        "successes_per_s": 7.167,
+        "trade_results": {
+          "ok": 230
+        },
+        "trade_latency": {
+          "count": 230,
+          "p50_ms": 516.111,
+          "p95_ms": 1901.877,
+          "p99_ms": 3049.828
+        },
+        "app_cpu_percent": 90.83561011646967,
+        "main_cpu_fraction": 0.9968131000646764,
+        "app_cpu_s": 29.435420597999993,
+        "pg_backend_cpu_percent": 16.50971870794781,
+        "gate": {
+          "gate_wait": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_wait",
+            "count": 252,
+            "total_ms": 132757.53789022565,
+            "mean_ms": 526.8156265485145,
+            "p50_ms": 357.8187823295593,
+            "p95_ms": 1591.7775314301252,
+            "p99_ms": 1713.8875871896744,
+            "max_ms": 1792.7672918885946
+          },
+          "flush_inclusive": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "flush_inclusive",
+            "count": 671,
+            "total_ms": 6278.760204091668,
+            "mean_ms": 9.357317740822158,
+            "p50_ms": 6.829068064689636,
+            "p95_ms": 25.189675390720367,
+            "p99_ms": 51.942283287644386,
+            "max_ms": 82.66484923660755
+          },
+          "commit_including_flush": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "commit_including_flush",
+            "count": 208,
+            "total_ms": 2118.1010846048594,
+            "mean_ms": 10.183178291369517,
+            "p50_ms": 9.184412658214569,
+            "p95_ms": 20.974792540073395,
+            "p99_ms": 39.86786678433418,
+            "max_ms": 44.149499386548996
+          },
+          "gate_held": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_held",
+            "count": 252,
+            "total_ms": 22792.429111897945,
+            "mean_ms": 90.4461472694363,
+            "p50_ms": 89.4862487912178,
+            "p95_ms": 166.2390511482954,
+            "p99_ms": 222.6814068853855,
+            "max_ms": 436.886802315712
+          },
+          "gate_sql_wait": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_sql_wait",
+            "count": 252,
+            "total_ms": 18247.345132753253,
+            "mean_ms": 72.41009973314783,
+            "p50_ms": 71.27738930284977,
+            "p95_ms": 141.49953983724117,
+            "p99_ms": 182.40251392126083,
+            "max_ms": 404.76796217262745
+          },
+          "gate_commit_driver": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_commit_driver",
+            "count": 252,
+            "total_ms": 417.0565754175186,
+            "mean_ms": 1.6549864103869787,
+            "p50_ms": 1.244308426976204,
+            "p95_ms": 5.019785836338997,
+            "p99_ms": 6.788967177271843,
+            "max_ms": 14.437355101108551
+          },
+          "gate_remaining_inclusive": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_remaining_inclusive",
+            "count": 252,
+            "total_ms": 4128.027403727174,
+            "mean_ms": 16.381061125901482,
+            "p50_ms": 14.824099838733673,
+            "p95_ms": 29.47475202381611,
+            "p99_ms": 49.071040004491806,
+            "max_ms": 56.411441415548325
+          }
+        },
+        "event_loop_lag": {
+          "phase": "active",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 552,
+          "total_ms": 4730.950247123836,
+          "mean_ms": 8.570562041891007,
+          "p50_ms": 4.222363978624341,
+          "p95_ms": 20.53865678608417,
+          "p99_ms": 33.3815298974514,
+          "max_ms": 173.94592314958572
+        },
+        "sql_calls": 15604,
+        "sql_client_total_ms": 87318.17822530866,
+        "routes_sql": [
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 1424,
+            "total_ms": 6868.903931230307
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/quote",
+            "kind": "SELECT",
+            "count": 1021,
+            "total_ms": 5140.179794281721
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "SELECT",
+            "count": 2401,
+            "total_ms": 15352.94571518898
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "INSERT",
+            "count": 968,
+            "total_ms": 2756.546599790454
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "UPDATE",
+            "count": 1113,
+            "total_ms": 2848.86160120368
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 1759,
+            "total_ms": 7162.340687587857
+          },
+          {
+            "phase": "active",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 2185,
+            "total_ms": 16252.910323441029
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-context",
+            "kind": "SELECT",
+            "count": 2070,
+            "total_ms": 10650.51076747477
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/fx/pairs/:id/my-trades",
+            "kind": "SELECT",
+            "count": 460,
+            "total_ms": 5622.664397582412
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/fx/pairs/:id/snapshot",
+            "kind": "SELECT",
+            "count": 690,
+            "total_ms": 6517.013683915138
+          },
+          {
+            "phase": "active",
+            "route": "background",
+            "kind": "INSERT",
+            "count": 209,
+            "total_ms": 933.5150178521872
+          },
+          {
+            "phase": "active",
+            "route": "background",
+            "kind": "UPDATE",
+            "count": 209,
+            "total_ms": 679.4189065694809
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/quote",
+            "kind": "SELECT",
+            "count": 286,
+            "total_ms": 1762.0169296860695
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "SELECT",
+            "count": 243,
+            "total_ms": 1779.003607109189
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-prices",
+            "kind": "SELECT",
+            "count": 390,
+            "total_ms": 2491.3989901542664
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "INSERT",
+            "count": 88,
+            "total_ms": 241.1556877195835
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "UPDATE",
+            "count": 88,
+            "total_ms": 258.79158452153206
+          }
+        ],
+        "pg": {
+          "statement_calls": 15626.0,
+          "statement_exec_ms": 5552.090280000001,
+          "snapshot_duration_s": 32.10630512237549,
+          "calls": 35391.0,
+          "exec_total_ms": 5570.106286000002,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.0,
+          "io_write_ms": 0.0,
+          "wal_bytes": 1665567.0,
+          "wal_sync_ms": 272.526,
+          "wal_write_ms": 22.438000000000002,
+          "top_queries": [
+            {
+              "queryid": "-4716528797807529607",
+              "query": "SELECT fx_pair.id \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR SHARE",
+              "calls": 207.0,
+              "total_exec_time": 3407.671361000001,
+              "total_plan_time": 0.0,
+              "rows": 207.0,
+              "shared_blks_hit": 717.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 11232.0
+            },
+            {
+              "queryid": "4361230571329202399",
+              "query": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+              "calls": 272.0,
+              "total_exec_time": 783.10337,
+              "total_plan_time": 0.0,
+              "rows": 272.0,
+              "shared_blks_hit": 544.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 14688.0
+            },
+            {
+              "queryid": "1537804869611962449",
+              "query": "SELECT (SELECT fx_market_data_state.history_ready \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 \nFROM fx_candle \nWHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 \nFROM fx_trade \nWHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 \nFROM fx_trade \nWHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 \nFROM fx_pool_event \nWHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+              "calls": 436.0,
+              "total_exec_time": 150.9036570000001,
+              "total_plan_time": 0.0,
+              "rows": 436.0,
+              "shared_blks_hit": 34141.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 3688.0
+            },
+            {
+              "queryid": "921255867352091687",
+              "query": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+              "calls": 233.0,
+              "total_exec_time": 147.08204400000017,
+              "total_plan_time": 0.0,
+              "rows": 233.0,
+              "shared_blks_hit": 6378.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 210972.0
+            },
+            {
+              "queryid": "-4164208770914076852",
+              "query": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+              "calls": 233.0,
+              "total_exec_time": 117.63706400000008,
+              "total_plan_time": 0.0,
+              "rows": 233.0,
+              "shared_blks_hit": 5720.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 132052.0
+            },
+            {
+              "queryid": "1040097635508601146",
+              "query": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+              "calls": 207.0,
+              "total_exec_time": 103.3657759999999,
+              "total_plan_time": 0.0,
+              "rows": 828.0,
+              "shared_blks_hit": 4690.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 165647.0
+            },
+            {
+              "queryid": "-2088290405634037062",
+              "query": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE), ($61::INTEGER, $62::VARCHAR, $63::TIMESTAMP WITH TIME ZONE, $64::NUMERIC(24, 8), $65::NUMERIC(24, 8), $66::NUMERIC(24, 8), $67::NUMERIC(24, 8), $68::NUMERIC(30, 6), $69::INTEGER, $70::TIMESTAMP WITH TIME ZONE, $71::BIGINT, $72::TIMESTAMP WITH TIME ZONE, $73::BIGINT, $74::INTEGER, $75::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+              "calls": 1.0,
+              "total_exec_time": 97.66127900000001,
+              "total_plan_time": 0.0,
+              "rows": 5.0,
+              "shared_blks_hit": 33.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 1193.0
+            },
+            {
+              "queryid": "2177010440970817476",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 1727.0,
+              "total_exec_time": 85.49977700000017,
+              "total_plan_time": 0.0,
+              "rows": 1727.0,
+              "shared_blks_hit": 3454.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 5440.0
+            },
+            {
+              "queryid": "7648745883839042605",
+              "query": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+              "calls": 324.0,
+              "total_exec_time": 71.53574600000015,
+              "total_plan_time": 0.0,
+              "rows": 324.0,
+              "shared_blks_hit": 11462.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 547162.0
+            },
+            {
+              "queryid": "7031260698040618830",
+              "query": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+              "calls": 206.0,
+              "total_exec_time": 56.374689000000025,
+              "total_plan_time": 0.0,
+              "rows": 206.0,
+              "shared_blks_hit": 3365.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 116254.0
+            }
+          ]
+        }
+      }
+    },
+    "pg_settings": {
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "track_io_timing": "on",
+      "track_wal_io_timing": "on",
+      "shared_preload_libraries": "pg_stat_statements"
+    },
+    "pool_error_mentions": 0,
+    "tracebacks": 0
+  },
+  "profile": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 15,
+    "queue_peak": 13,
+    "phases": {
+      "readonly": {
+        "duration_s": 31.003,
+        "successes_per_s": 0.0,
+        "trade_results": {},
+        "trade_latency": {},
+        "app_cpu_percent": 20.50830503654139,
+        "main_cpu_fraction": 0.995304690397025,
+        "app_cpu_s": 6.395237277,
+        "pg_backend_cpu_percent": 1.6675407271212535,
+        "gate": {},
+        "event_loop_lag": {
+          "phase": "readonly",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 607,
+          "total_ms": 653.6160349845869,
+          "mean_ms": 1.076797421720901,
+          "p50_ms": 0.7918521761894198,
+          "p95_ms": 1.980458199977872,
+          "p99_ms": 2.3835606873035404,
+          "max_ms": 91.27490855753422
+        },
+        "sql_calls": 2507,
+        "sql_client_total_ms": 1686.5579970180988,
+        "routes_sql": [
+          {
+            "phase": "readonly",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 1048,
+            "total_ms": 610.9324339777231
+          },
+          {
+            "phase": "readonly",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 1400,
+            "total_ms": 1004.8940256237984
+          },
+          {
+            "phase": "readonly",
+            "route": "background:pricing_push",
+            "kind": "SELECT",
+            "count": 30,
+            "total_ms": 28.697680681943893
+          },
+          {
+            "phase": "readonly",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 11,
+            "total_ms": 27.76765264570713
+          },
+          {
+            "phase": "readonly",
+            "route": "background:market_data",
+            "kind": "SELECT",
+            "count": 18,
+            "total_ms": 14.266204088926315
+          }
+        ],
+        "pg": {
+          "statement_calls": 2561.0,
+          "statement_exec_ms": 68.80886399999987,
+          "snapshot_duration_s": 31.189013242721558,
+          "calls": 6101.0,
+          "exec_total_ms": 72.17256199999987,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.0,
+          "io_write_ms": 0.0,
+          "wal_bytes": 7358.0,
+          "wal_sync_ms": 1.2160000000000082,
+          "wal_write_ms": 0.09199999999999875,
+          "top_queries": [
+            {
+              "queryid": "-601695701654182632",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 414.0,
+              "total_exec_time": 23.950947999999904,
+              "total_plan_time": 0.0,
+              "rows": 414.0,
+              "shared_blks_hit": 828.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "-2026517451192961386",
+              "query": "SELECT siteconfig.value \nFROM siteconfig \nWHERE siteconfig.key = $1::VARCHAR",
+              "calls": 410.0,
+              "total_exec_time": 9.004752999999994,
+              "total_plan_time": 0.0,
+              "rows": 410.0,
+              "shared_blks_hit": 820.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "673611947807667958",
+              "query": "SELECT \"user\".economic_version \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 201.0,
+              "total_exec_time": 8.953768000000007,
+              "total_plan_time": 0.0,
+              "rows": 201.0,
+              "shared_blks_hit": 402.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "4005523504224843073",
+              "query": "SELECT fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.pool_version, fx_pair.status, fx_pair.archived, fx_pair.reduce_only \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER",
+              "calls": 231.0,
+              "total_exec_time": 8.356489999999955,
+              "total_plan_time": 0.0,
+              "rows": 231.0,
+              "shared_blks_hit": 462.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "6466541105316097128",
+              "query": "SELECT fx_wallet.pair_id \nFROM fx_wallet \nWHERE fx_wallet.user_id = $1::INTEGER",
+              "calls": 410.0,
+              "total_exec_time": 6.497545000000007,
+              "total_plan_time": 0.0,
+              "rows": 104.0,
+              "shared_blks_hit": 514.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2964256657519166664",
+              "query": "SELECT fx_short_position.pair_id \nFROM fx_short_position \nWHERE fx_short_position.user_id = $1::INTEGER",
+              "calls": 410.0,
+              "total_exec_time": 3.395179000000005,
+              "total_plan_time": 0.0,
+              "rows": 84.0,
+              "shared_blks_hit": 494.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "-5515095260722182830",
+              "query": "SELECT outcome.market_id \nFROM outcome JOIN position ON position.outcome_id = outcome.id \nWHERE position.user_id = $1::INTEGER",
+              "calls": 410.0,
+              "total_exec_time": 2.1062779999999988,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2397681704071010949",
+              "query": "BEGIN",
+              "calls": 1770.0,
+              "total_exec_time": 1.9483859999999869,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "7088996947831101750",
+              "query": "ROLLBACK",
+              "calls": 1767.0,
+              "total_exec_time": 1.4119530000000005,
+              "total_plan_time": 0.0,
+              "rows": 0.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            },
+            {
+              "queryid": "2556842428016063828",
+              "query": "SELECT $3 FROM pg_locks WHERE locktype = $4 AND pid = pg_backend_pid() AND classid = $1 AND objid = $2",
+              "calls": 7.0,
+              "total_exec_time": 0.9175960000000005,
+              "total_plan_time": 0.0,
+              "rows": 7.0,
+              "shared_blks_hit": 0.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 0.0
+            }
+          ]
+        }
+      },
+      "normal": {
+        "duration_s": 61.066,
+        "successes_per_s": 2.44,
+        "trade_results": {
+          "ok": 149
+        },
+        "trade_latency": {
+          "count": 149,
+          "p50_ms": 48.68,
+          "p95_ms": 147.193,
+          "p99_ms": 234.998
+        },
+        "app_cpu_percent": 46.25345778576118,
+        "main_cpu_fraction": 0.9966731663281647,
+        "app_cpu_s": 28.144464147000008,
+        "pg_backend_cpu_percent": 5.669833631488255,
+        "gate": {
+          "gate_wait": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_wait",
+            "count": 165,
+            "total_ms": 499.212559312582,
+            "mean_ms": 3.025530662500497,
+            "p50_ms": 0.03883428871631622,
+            "p95_ms": 20.434556528925896,
+            "p99_ms": 70.12092880904675,
+            "max_ms": 95.03182023763657
+          },
+          "flush_inclusive": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "flush_inclusive",
+            "count": 449,
+            "total_ms": 1735.3380508720875,
+            "mean_ms": 3.8648954362407295,
+            "p50_ms": 3.0025839805603027,
+            "p95_ms": 9.736180305480957,
+            "p99_ms": 14.941267669200897,
+            "max_ms": 39.10006582736969
+          },
+          "commit_including_flush": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "commit_including_flush",
+            "count": 140,
+            "total_ms": 693.1720413267612,
+            "mean_ms": 4.951228866619723,
+            "p50_ms": 4.14605624973774,
+            "p95_ms": 9.989794343709946,
+            "p99_ms": 15.379220247268677,
+            "max_ms": 17.82655343413353
+          },
+          "gate_held": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_held",
+            "count": 165,
+            "total_ms": 5267.424926161766,
+            "mean_ms": 31.92378743128343,
+            "p50_ms": 24.46938306093216,
+            "p95_ms": 73.52821342647076,
+            "p99_ms": 109.8979152739048,
+            "max_ms": 370.48980966210365
+          },
+          "gate_sql_wait": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_sql_wait",
+            "count": 165,
+            "total_ms": 3105.703579261899,
+            "mean_ms": 18.8224459349206,
+            "p50_ms": 10.180596262216568,
+            "p95_ms": 60.204751789569855,
+            "p99_ms": 88.17782066762447,
+            "max_ms": 345.65201215445995
+          },
+          "gate_commit_driver": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_commit_driver",
+            "count": 165,
+            "total_ms": 133.9108794927597,
+            "mean_ms": 0.8115810878349073,
+            "p50_ms": 0.804554671049118,
+            "p95_ms": 1.8608458340168,
+            "p99_ms": 2.265267074108124,
+            "max_ms": 2.556074410676956
+          },
+          "gate_remaining_inclusive": {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_remaining_inclusive",
+            "count": 165,
+            "total_ms": 2027.8104674071074,
+            "mean_ms": 12.289760408527924,
+            "p50_ms": 11.267678812146187,
+            "p95_ms": 24.385850876569748,
+            "p99_ms": 31.81271255016327,
+            "max_ms": 34.6517339348793
+          }
+        },
+        "event_loop_lag": {
+          "phase": "normal",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 1154,
+          "total_ms": 3326.6812089830605,
+          "mean_ms": 2.882739349205425,
+          "p50_ms": 0.9420800954103442,
+          "p95_ms": 12.952054664492604,
+          "p99_ms": 20.68141549825668,
+          "max_ms": 210.39002276957035
+        },
+        "sql_calls": 13420,
+        "sql_client_total_ms": 24598.93217124045,
+        "routes_sql": [
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 2489,
+            "total_ms": 3708.34699831903
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 2797,
+            "total_ms": 4377.168254926801
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/quote",
+            "kind": "SELECT",
+            "count": 804,
+            "total_ms": 1116.9488169252872
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "SELECT",
+            "count": 1705,
+            "total_ms": 2351.0933369398117
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "INSERT",
+            "count": 669,
+            "total_ms": 649.8246565461159
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "UPDATE",
+            "count": 702,
+            "total_ms": 539.2941758036613
+          },
+          {
+            "phase": "normal",
+            "route": "background:pricing_push",
+            "kind": "SELECT",
+            "count": 177,
+            "total_ms": 352.9165852814913
+          },
+          {
+            "phase": "normal",
+            "route": "background:market_data",
+            "kind": "SELECT",
+            "count": 593,
+            "total_ms": 1806.507432833314
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-context",
+            "kind": "SELECT",
+            "count": 1341,
+            "total_ms": 3445.402108132839
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/fx/pairs/:id/snapshot",
+            "kind": "SELECT",
+            "count": 447,
+            "total_ms": 1777.9765706509352
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/fx/pairs/:id/my-trades",
+            "kind": "SELECT",
+            "count": 298,
+            "total_ms": 1452.32467725873
+          },
+          {
+            "phase": "normal",
+            "route": "background:public_fx_push",
+            "kind": "SELECT",
+            "count": 748,
+            "total_ms": 2127.244235947728
+          },
+          {
+            "phase": "normal",
+            "route": "background:market_data",
+            "kind": "INSERT",
+            "count": 149,
+            "total_ms": 285.75257025659084
+          },
+          {
+            "phase": "normal",
+            "route": "background:market_data",
+            "kind": "UPDATE",
+            "count": 149,
+            "total_ms": 191.29743240773678
+          },
+          {
+            "phase": "normal",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 49,
+            "total_ms": 87.37902157008648
+          },
+          {
+            "phase": "normal",
+            "route": "GET /api/v1/user/trading-prices",
+            "kind": "SELECT",
+            "count": 15,
+            "total_ms": 102.07119584083557
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/quote",
+            "kind": "SELECT",
+            "count": 117,
+            "total_ms": 93.36370974779129
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "SELECT",
+            "count": 99,
+            "total_ms": 90.16118943691254
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "INSERT",
+            "count": 36,
+            "total_ms": 24.21921119093895
+          },
+          {
+            "phase": "normal",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "UPDATE",
+            "count": 36,
+            "total_ms": 19.639991223812103
+          }
+        ],
+        "pg": {
+          "statement_calls": 13429.0,
+          "statement_exec_ms": 1054.0930250000004,
+          "snapshot_duration_s": 60.84863257408142,
+          "calls": 30461.0,
+          "exec_total_ms": 1069.7324720000004,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.056324,
+          "io_write_ms": 0.0,
+          "wal_bytes": 1082384.0,
+          "wal_sync_ms": 223.81500000000005,
+          "wal_write_ms": 14.953000000000003,
+          "top_queries": [
+            {
+              "queryid": "1688820219351457683",
+              "query": "SELECT fx_pair.id \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR SHARE",
+              "calls": 153.0,
+              "total_exec_time": 209.25771799999995,
+              "total_plan_time": 0.0,
+              "rows": 153.0,
+              "shared_blks_hit": 366.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 8316.0
+            },
+            {
+              "queryid": "-601695701654182632",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 1634.0,
+              "total_exec_time": 87.23846200000013,
+              "total_plan_time": 0.0,
+              "rows": 1634.0,
+              "shared_blks_hit": 3268.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 7140.0
+            },
+            {
+              "queryid": "5139284989273137490",
+              "query": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+              "calls": 150.0,
+              "total_exec_time": 76.45351700000012,
+              "total_plan_time": 0.0,
+              "rows": 150.0,
+              "shared_blks_hit": 3280.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 128555.0
+            },
+            {
+              "queryid": "-86944908993556742",
+              "query": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+              "calls": 148.0,
+              "total_exec_time": 68.621878,
+              "total_plan_time": 0.0,
+              "rows": 592.0,
+              "shared_blks_hit": 3044.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 121171.0
+            },
+            {
+              "queryid": "2848460915035450938",
+              "query": "SELECT (SELECT fx_market_data_state.history_ready \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 \nFROM fx_candle \nWHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 \nFROM fx_trade \nWHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 \nFROM fx_trade \nWHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 \nFROM fx_pool_event \nWHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+              "calls": 296.0,
+              "total_exec_time": 64.34751299999994,
+              "total_plan_time": 0.0,
+              "rows": 296.0,
+              "shared_blks_hit": 15824.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 2552.0
+            },
+            {
+              "queryid": "6679848245798857951",
+              "query": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+              "calls": 150.0,
+              "total_exec_time": 60.15479300000004,
+              "total_plan_time": 0.0,
+              "rows": 150.0,
+              "shared_blks_hit": 2467.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 83652.0
+            },
+            {
+              "queryid": "-9211381476521981822",
+              "query": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+              "calls": 173.0,
+              "total_exec_time": 54.59963299999998,
+              "total_plan_time": 0.0,
+              "rows": 173.0,
+              "shared_blks_hit": 379.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 9342.0
+            },
+            {
+              "queryid": "6250524538412555030",
+              "query": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+              "calls": 194.0,
+              "total_exec_time": 30.119610000000044,
+              "total_plan_time": 0.0,
+              "rows": 194.0,
+              "shared_blks_hit": 4120.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 338855.0
+            },
+            {
+              "queryid": "673611947807667958",
+              "query": "SELECT \"user\".economic_version \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 692.0,
+              "total_exec_time": 30.020634000000054,
+              "total_plan_time": 0.0,
+              "rows": 692.0,
+              "shared_blks_hit": 1384.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 596.0
+            },
+            {
+              "queryid": "1663247676588288911",
+              "query": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+              "calls": 139.0,
+              "total_exec_time": 26.976064,
+              "total_plan_time": 0.0,
+              "rows": 139.0,
+              "shared_blks_hit": 1706.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 77395.0
+            }
+          ]
+        }
+      },
+      "active": {
+        "duration_s": 32.163,
+        "successes_per_s": 7.307,
+        "trade_results": {
+          "ok": 235
+        },
+        "trade_latency": {
+          "count": 235,
+          "p50_ms": 543.63,
+          "p95_ms": 1629.642,
+          "p99_ms": 2394.286
+        },
+        "app_cpu_percent": 88.06160481648247,
+        "main_cpu_fraction": 0.9797813286987803,
+        "app_cpu_s": 28.337298700999995,
+        "pg_backend_cpu_percent": 16.53254752920942,
+        "gate": {
+          "gate_wait": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_wait",
+            "count": 258,
+            "total_ms": 110943.33658181131,
+            "mean_ms": 430.01293248764074,
+            "p50_ms": 337.23815716803074,
+            "p95_ms": 1281.3051156699657,
+            "p99_ms": 1458.0287374556065,
+            "max_ms": 1609.1264076530933
+          },
+          "flush_inclusive": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "flush_inclusive",
+            "count": 688,
+            "total_ms": 6701.847519725561,
+            "mean_ms": 9.741057441461571,
+            "p50_ms": 6.226673722267151,
+            "p95_ms": 27.96871028840542,
+            "p99_ms": 55.27022294700146,
+            "max_ms": 177.30027809739113
+          },
+          "commit_including_flush": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "commit_including_flush",
+            "count": 213,
+            "total_ms": 2244.1729195415974,
+            "mean_ms": 10.536023096439424,
+            "p50_ms": 9.33803804218769,
+            "p95_ms": 21.50817960500717,
+            "p99_ms": 36.4088024944067,
+            "max_ms": 58.07493068277836
+          },
+          "gate_held": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_held",
+            "count": 258,
+            "total_ms": 23446.486001834273,
+            "mean_ms": 90.87785272028788,
+            "p50_ms": 86.3118302077055,
+            "p95_ms": 182.94430896639824,
+            "p99_ms": 254.85170632600784,
+            "max_ms": 334.9627424031496
+          },
+          "gate_sql_wait": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_sql_wait",
+            "count": 258,
+            "total_ms": 18684.762954711914,
+            "mean_ms": 72.42156183996866,
+            "p50_ms": 70.06195932626724,
+            "p95_ms": 161.2553521990776,
+            "p99_ms": 232.64318518340588,
+            "max_ms": 312.6293867826462
+          },
+          "gate_commit_driver": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_commit_driver",
+            "count": 258,
+            "total_ms": 478.580504655838,
+            "mean_ms": 1.8549631963404574,
+            "p50_ms": 1.1800024658441544,
+            "p95_ms": 5.663612857460976,
+            "p99_ms": 12.62371800839901,
+            "max_ms": 19.980257377028465
+          },
+          "gate_remaining_inclusive": {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "name": "gate_remaining_inclusive",
+            "count": 258,
+            "total_ms": 4283.142542466521,
+            "mean_ms": 16.601327683978763,
+            "p50_ms": 14.656683430075645,
+            "p95_ms": 34.29080732166767,
+            "p99_ms": 44.08592730760574,
+            "max_ms": 63.34144249558449
+          }
+        },
+        "event_loop_lag": {
+          "phase": "active",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 555,
+          "total_ms": 4654.613796621559,
+          "mean_ms": 8.38669152544425,
+          "p50_ms": 3.8399759680032703,
+          "p95_ms": 23.671231046319004,
+          "p99_ms": 91.17541536688805,
+          "max_ms": 176.09899379312992
+        },
+        "sql_calls": 15861,
+        "sql_client_total_ms": 87543.62355172634,
+        "routes_sql": [
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-versions",
+            "kind": "SELECT",
+            "count": 1414,
+            "total_ms": 6901.366796344519
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/quote",
+            "kind": "SELECT",
+            "count": 1076,
+            "total_ms": 5913.589907810092
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "SELECT",
+            "count": 2491,
+            "total_ms": 15362.762119621038
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "INSERT",
+            "count": 992,
+            "total_ms": 2882.0479419082403
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/net/trades",
+            "kind": "UPDATE",
+            "count": 1142,
+            "total_ms": 3162.9173699766397
+          },
+          {
+            "phase": "active",
+            "route": "background:pricing_push",
+            "kind": "SELECT",
+            "count": 227,
+            "total_ms": 1220.9981959313154
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/stream/trading",
+            "kind": "SELECT",
+            "count": 1703,
+            "total_ms": 7180.032085627317
+          },
+          {
+            "phase": "active",
+            "route": "background:market_data",
+            "kind": "SELECT",
+            "count": 865,
+            "total_ms": 6028.3542443066835
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/fx/pairs/:id/snapshot",
+            "kind": "SELECT",
+            "count": 705,
+            "total_ms": 6066.582782194018
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-context",
+            "kind": "SELECT",
+            "count": 2115,
+            "total_ms": 10534.13519449532
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/fx/pairs/:id/my-trades",
+            "kind": "SELECT",
+            "count": 470,
+            "total_ms": 4953.624460846186
+          },
+          {
+            "phase": "active",
+            "route": "background:public_fx_push",
+            "kind": "SELECT",
+            "count": 1092,
+            "total_ms": 8718.737877905369
+          },
+          {
+            "phase": "active",
+            "route": "background:market_data",
+            "kind": "INSERT",
+            "count": 214,
+            "total_ms": 948.932720348239
+          },
+          {
+            "phase": "active",
+            "route": "background:market_data",
+            "kind": "UPDATE",
+            "count": 214,
+            "total_ms": 743.6101157218218
+          },
+          {
+            "phase": "active",
+            "route": "GET /api/v1/user/trading-prices",
+            "kind": "SELECT",
+            "count": 405,
+            "total_ms": 2577.879413962364
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/quote",
+            "kind": "SELECT",
+            "count": 286,
+            "total_ms": 1699.0506686270237
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "SELECT",
+            "count": 242,
+            "total_ms": 1732.092371210456
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "INSERT",
+            "count": 88,
+            "total_ms": 261.0683664679527
+          },
+          {
+            "phase": "active",
+            "route": "POST /api/v1/fx/pairs/:id/short/cover",
+            "kind": "UPDATE",
+            "count": 88,
+            "total_ms": 274.1489075124264
+          },
+          {
+            "phase": "active",
+            "route": "background",
+            "kind": "SELECT",
+            "count": 32,
+            "total_ms": 381.6920109093189
+          }
+        ],
+        "pg": {
+          "statement_calls": 15871.0,
+          "statement_exec_ms": 5305.310094,
+          "snapshot_duration_s": 32.07392692565918,
+          "calls": 35884.0,
+          "exec_total_ms": 5322.772968,
+          "plan_total_ms": 0.0,
+          "io_read_ms": 0.0,
+          "io_write_ms": 0.0,
+          "wal_bytes": 1697884.0,
+          "wal_sync_ms": 318.9480000000001,
+          "wal_write_ms": 22.551999999999992,
+          "top_queries": [
+            {
+              "queryid": "1688820219351457683",
+              "query": "SELECT fx_pair.id \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR SHARE",
+              "calls": 209.0,
+              "total_exec_time": 3174.8181570000006,
+              "total_plan_time": 0.0,
+              "rows": 209.0,
+              "shared_blks_hit": 732.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 11340.0
+            },
+            {
+              "queryid": "-9211381476521981822",
+              "query": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at \nFROM fx_pair \nWHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+              "calls": 277.0,
+              "total_exec_time": 793.1530389999997,
+              "total_plan_time": 0.0,
+              "rows": 277.0,
+              "shared_blks_hit": 554.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 14958.0
+            },
+            {
+              "queryid": "2848460915035450938",
+              "query": "SELECT (SELECT fx_market_data_state.history_ready \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 \nFROM fx_candle \nWHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 \nFROM fx_trade \nWHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 \nFROM fx_trade \nWHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 \nFROM fx_pool_event \nWHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id \nFROM fx_market_data_state \nWHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+              "calls": 443.0,
+              "total_exec_time": 178.05512499999975,
+              "total_plan_time": 0.0,
+              "rows": 443.0,
+              "shared_blks_hit": 46626.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 3538.0
+            },
+            {
+              "queryid": "5139284989273137490",
+              "query": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+              "calls": 238.0,
+              "total_exec_time": 149.868182,
+              "total_plan_time": 0.0,
+              "rows": 238.0,
+              "shared_blks_hit": 6544.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 211025.0
+            },
+            {
+              "queryid": "-86944908993556742",
+              "query": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+              "calls": 213.0,
+              "total_exec_time": 127.54464000000009,
+              "total_plan_time": 0.0,
+              "rows": 852.0,
+              "shared_blks_hit": 4758.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 170535.0
+            },
+            {
+              "queryid": "6679848245798857951",
+              "query": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+              "calls": 238.0,
+              "total_exec_time": 122.74598500000016,
+              "total_plan_time": 0.0,
+              "rows": 238.0,
+              "shared_blks_hit": 5563.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 134811.0
+            },
+            {
+              "queryid": "-601695701654182632",
+              "query": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id \nFROM \"user\" \nWHERE \"user\".id = $1::INTEGER",
+              "calls": 1755.0,
+              "total_exec_time": 84.37487000000004,
+              "total_plan_time": 0.0,
+              "rows": 1755.0,
+              "shared_blks_hit": 3510.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 5376.0
+            },
+            {
+              "queryid": "6250524538412555030",
+              "query": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+              "calls": 329.0,
+              "total_exec_time": 74.32483300000001,
+              "total_plan_time": 0.0,
+              "rows": 329.0,
+              "shared_blks_hit": 11949.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 557208.0
+            },
+            {
+              "queryid": "1663247676588288911",
+              "query": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+              "calls": 211.0,
+              "total_exec_time": 58.24018800000002,
+              "total_plan_time": 0.0,
+              "rows": 211.0,
+              "shared_blks_hit": 3482.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 118657.0
+            },
+            {
+              "queryid": "-149266951282231916",
+              "query": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+              "calls": 238.0,
+              "total_exec_time": 45.8668110000001,
+              "total_plan_time": 0.0,
+              "rows": 238.0,
+              "shared_blks_hit": 1904.0,
+              "shared_blks_read": 0.0,
+              "blk_read_time": 0.0,
+              "blk_write_time": 0.0,
+              "wal_bytes": 30693.0
+            }
+          ]
+        }
+      }
+    },
+    "pg_settings": {
+      "fsync": "on",
+      "synchronous_commit": "on",
+      "track_io_timing": "on",
+      "track_wal_io_timing": "on",
+      "shared_preload_libraries": "pg_stat_statements"
+    },
+    "pool_error_mentions": 0,
+    "tracebacks": 2,
+    "sample_errors": 0,
+    "cpu_samples": {
+      "readonly": {
+        "total": 298,
+        "routes": [
+          {
+            "name": "GET /api/v1/user/trading-versions",
+            "samples": 142,
+            "percent": 47.651006711409394
+          },
+          {
+            "name": "GET /api/v1/stream/trading",
+            "samples": 88,
+            "percent": 29.53020134228188
+          },
+          {
+            "name": "background",
+            "samples": 58,
+            "percent": 19.463087248322147
+          },
+          {
+            "name": "background:market_data",
+            "samples": 4,
+            "percent": 1.342281879194631
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/snapshot",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/my-trades",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          },
+          {
+            "name": "background:pricing_push",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          }
+        ],
+        "leaf_categories": [
+          {
+            "name": "SQLAlchemy",
+            "samples": 146,
+            "percent": 48.99328859060403
+          },
+          {
+            "name": "async scheduling",
+            "samples": 62,
+            "percent": 20.80536912751678
+          },
+          {
+            "name": "other Python/native caller",
+            "samples": 59,
+            "percent": 19.798657718120804
+          },
+          {
+            "name": "FastAPI/Starlette",
+            "samples": 9,
+            "percent": 3.0201342281879198
+          },
+          {
+            "name": "asyncpg",
+            "samples": 8,
+            "percent": 2.684563758389262
+          },
+          {
+            "name": "other application Python",
+            "samples": 5,
+            "percent": 1.6778523489932886
+          },
+          {
+            "name": "instrumentation",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "Uvicorn",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          },
+          {
+            "name": "Pydantic",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          },
+          {
+            "name": "JSON",
+            "samples": 2,
+            "percent": 0.6711409395973155
+          }
+        ],
+        "gate": [
+          {
+            "name": "False",
+            "samples": 298,
+            "percent": 100.0
+          }
+        ],
+        "top_leaf_functions": [
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:write",
+            "samples": 15,
+            "percent": 5.033557046979865
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/selectors.py:select",
+            "samples": 13,
+            "percent": 4.3624161073825505
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/cache_key.py:_gen_cache_key",
+            "samples": 12,
+            "percent": 4.026845637583892
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:greenlet_spawn",
+            "samples": 11,
+            "percent": 3.691275167785235
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:__init__",
+            "samples": 8,
+            "percent": 2.684563758389262
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:_run",
+            "samples": 7,
+            "percent": 2.348993288590604
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:_prepare_and_execute",
+            "samples": 6,
+            "percent": 2.013422818791946
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:_read_ready__data_received",
+            "samples": 6,
+            "percent": 2.013422818791946
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/session.py:execute",
+            "samples": 5,
+            "percent": 1.6778523489932886
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/event/base.py:__getattr__",
+            "samples": 5,
+            "percent": 1.6778523489932886
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_run_once",
+            "samples": 5,
+            "percent": 1.6778523489932886
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:__iter__",
+            "samples": 4,
+            "percent": 1.342281879194631
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/enum.py:__hash__",
+            "samples": 4,
+            "percent": 1.342281879194631
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/h11/_util.py:validate",
+            "samples": 4,
+            "percent": 1.342281879194631
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/engine/base.py:_execute_clauseelement",
+            "samples": 4,
+            "percent": 1.342281879194631
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/coercions.py:expect",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/context.py:__init__",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:instances",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/properties.py:operate",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/_weakrefset.py:_remove",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/typing.py:cast",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "<frozen codecs>:__init__",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/annotation.py:__init__",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/attributes.py:__get__",
+            "samples": 3,
+            "percent": 1.006711409395973
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/socket.py:accept",
+            "samples": 3,
+            "percent": 1.006711409395973
+          }
+        ]
+      },
+      "normal": {
+        "total": 1352,
+        "routes": [
+          {
+            "name": "GET /api/v1/stream/trading",
+            "samples": 350,
+            "percent": 25.88757396449704
+          },
+          {
+            "name": "GET /api/v1/user/trading-versions",
+            "samples": 217,
+            "percent": 16.050295857988164
+          },
+          {
+            "name": "background",
+            "samples": 165,
+            "percent": 12.20414201183432
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/net/trades",
+            "samples": 144,
+            "percent": 10.650887573964498
+          },
+          {
+            "name": "background:market_data",
+            "samples": 84,
+            "percent": 6.21301775147929
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/net/quote",
+            "samples": 77,
+            "percent": 5.695266272189349
+          },
+          {
+            "name": "GET /api/v1/user/trading-context",
+            "samples": 74,
+            "percent": 5.473372781065089
+          },
+          {
+            "name": "GET /api/v1/fx/stream/:id",
+            "samples": 71,
+            "percent": 5.2514792899408285
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/snapshot",
+            "samples": 43,
+            "percent": 3.1804733727810652
+          },
+          {
+            "name": "background:public_fx_push",
+            "samples": 42,
+            "percent": 3.106508875739645
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/my-trades",
+            "samples": 37,
+            "percent": 2.7366863905325447
+          },
+          {
+            "name": "background:pricing_push",
+            "samples": 27,
+            "percent": 1.9970414201183433
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/short/cover",
+            "samples": 9,
+            "percent": 0.6656804733727811
+          },
+          {
+            "name": "GET /api/v1/fx/pairs",
+            "samples": 6,
+            "percent": 0.4437869822485207
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/short/quote",
+            "samples": 6,
+            "percent": 0.4437869822485207
+          }
+        ],
+        "leaf_categories": [
+          {
+            "name": "SQLAlchemy",
+            "samples": 516,
+            "percent": 38.16568047337278
+          },
+          {
+            "name": "async scheduling",
+            "samples": 420,
+            "percent": 31.06508875739645
+          },
+          {
+            "name": "other Python/native caller",
+            "samples": 243,
+            "percent": 17.973372781065088
+          },
+          {
+            "name": "FastAPI/Starlette",
+            "samples": 49,
+            "percent": 3.6242603550295858
+          },
+          {
+            "name": "other application Python",
+            "samples": 44,
+            "percent": 3.2544378698224854
+          },
+          {
+            "name": "asyncpg",
+            "samples": 29,
+            "percent": 2.1449704142011834
+          },
+          {
+            "name": "JSON",
+            "samples": 21,
+            "percent": 1.5532544378698225
+          },
+          {
+            "name": "Pydantic",
+            "samples": 16,
+            "percent": 1.183431952662722
+          },
+          {
+            "name": "instrumentation",
+            "samples": 8,
+            "percent": 0.591715976331361
+          },
+          {
+            "name": "Uvicorn",
+            "samples": 6,
+            "percent": 0.4437869822485207
+          }
+        ],
+        "gate": [
+          {
+            "name": "False",
+            "samples": 1245,
+            "percent": 92.08579881656804
+          },
+          {
+            "name": "True",
+            "samples": 107,
+            "percent": 7.914201183431953
+          }
+        ],
+        "top_leaf_functions": [
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:write",
+            "samples": 78,
+            "percent": 5.769230769230769
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:_run",
+            "samples": 45,
+            "percent": 3.3284023668639056
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:call_soon",
+            "samples": 45,
+            "percent": 3.3284023668639056
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/_weakrefset.py:_remove",
+            "samples": 41,
+            "percent": 3.032544378698225
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:greenlet_spawn",
+            "samples": 35,
+            "percent": 2.5887573964497044
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/cache_key.py:_gen_cache_key",
+            "samples": 30,
+            "percent": 2.2189349112426036
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/selectors.py:select",
+            "samples": 29,
+            "percent": 2.1449704142011834
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/event/base.py:__getattr__",
+            "samples": 24,
+            "percent": 1.7751479289940828
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:_deliver_cancellation",
+            "samples": 19,
+            "percent": 1.4053254437869822
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/coercions.py:expect",
+            "samples": 19,
+            "percent": 1.4053254437869822
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:get_debug",
+            "samples": 17,
+            "percent": 1.257396449704142
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:await_only",
+            "samples": 16,
+            "percent": 1.183431952662722
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:_read_ready__data_received",
+            "samples": 14,
+            "percent": 1.0355029585798818
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:_prepare_and_execute",
+            "samples": 13,
+            "percent": 0.9615384615384616
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/json/encoder.py:iterencode",
+            "samples": 13,
+            "percent": 0.9615384615384616
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_call_soon",
+            "samples": 12,
+            "percent": 0.8875739644970414
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:instances",
+            "samples": 12,
+            "percent": 0.8875739644970414
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/elements.py:__init__",
+            "samples": 11,
+            "percent": 0.8136094674556213
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:create_future",
+            "samples": 11,
+            "percent": 0.8136094674556213
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/engine/result.py:__init__",
+            "samples": 11,
+            "percent": 0.8136094674556213
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/locks.py:wait",
+            "samples": 11,
+            "percent": 0.8136094674556213
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sniffio/_impl.py:current_async_library",
+            "samples": 10,
+            "percent": 0.7396449704142012
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_run_once",
+            "samples": 10,
+            "percent": 0.7396449704142012
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/util/langhelpers.py:__get__",
+            "samples": 9,
+            "percent": 0.6656804733727811
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/weakref.py:remove",
+            "samples": 9,
+            "percent": 0.6656804733727811
+          }
+        ]
+      },
+      "active": {
+        "total": 1339,
+        "routes": [
+          {
+            "name": "GET /api/v1/stream/trading",
+            "samples": 365,
+            "percent": 27.25914861837192
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/net/trades",
+            "samples": 141,
+            "percent": 10.53024645257655
+          },
+          {
+            "name": "GET /api/v1/fx/stream/:id",
+            "samples": 123,
+            "percent": 9.185959671396565
+          },
+          {
+            "name": "GET /api/v1/user/trading-context",
+            "samples": 104,
+            "percent": 7.766990291262135
+          },
+          {
+            "name": "background",
+            "samples": 101,
+            "percent": 7.542942494398805
+          },
+          {
+            "name": "background:market_data",
+            "samples": 99,
+            "percent": 7.3935772964899185
+          },
+          {
+            "name": "GET /api/v1/user/trading-versions",
+            "samples": 94,
+            "percent": 7.0201643017177
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/net/quote",
+            "samples": 76,
+            "percent": 5.675877520537715
+          },
+          {
+            "name": "background:public_fx_push",
+            "samples": 55,
+            "percent": 4.1075429424943986
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/snapshot",
+            "samples": 53,
+            "percent": 3.9581777445855115
+          },
+          {
+            "name": "GET /api/v1/fx/pairs/:id/my-trades",
+            "samples": 41,
+            "percent": 3.061986557132188
+          },
+          {
+            "name": "GET /api/v1/user/trading-prices",
+            "samples": 29,
+            "percent": 2.165795369678865
+          },
+          {
+            "name": "background:pricing_push",
+            "samples": 25,
+            "percent": 1.8670649738610903
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/short/quote",
+            "samples": 17,
+            "percent": 1.2696041822255415
+          },
+          {
+            "name": "POST /api/v1/fx/pairs/:id/short/cover",
+            "samples": 16,
+            "percent": 1.194921583271098
+          }
+        ],
+        "leaf_categories": [
+          {
+            "name": "SQLAlchemy",
+            "samples": 476,
+            "percent": 35.54891710231516
+          },
+          {
+            "name": "async scheduling",
+            "samples": 457,
+            "percent": 34.12994772218073
+          },
+          {
+            "name": "other Python/native caller",
+            "samples": 235,
+            "percent": 17.550410754294248
+          },
+          {
+            "name": "FastAPI/Starlette",
+            "samples": 61,
+            "percent": 4.5556385362210605
+          },
+          {
+            "name": "other application Python",
+            "samples": 37,
+            "percent": 2.7632561613144135
+          },
+          {
+            "name": "asyncpg",
+            "samples": 26,
+            "percent": 1.9417475728155338
+          },
+          {
+            "name": "JSON",
+            "samples": 22,
+            "percent": 1.6430171769977595
+          },
+          {
+            "name": "Pydantic",
+            "samples": 13,
+            "percent": 0.9708737864077669
+          },
+          {
+            "name": "instrumentation",
+            "samples": 7,
+            "percent": 0.5227781926811054
+          },
+          {
+            "name": "Uvicorn",
+            "samples": 3,
+            "percent": 0.22404779686333084
+          },
+          {
+            "name": "AMM math",
+            "samples": 2,
+            "percent": 0.14936519790888725
+          }
+        ],
+        "gate": [
+          {
+            "name": "False",
+            "samples": 1228,
+            "percent": 91.71023151605677
+          },
+          {
+            "name": "True",
+            "samples": 111,
+            "percent": 8.289768483943242
+          }
+        ],
+        "top_leaf_functions": [
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:write",
+            "samples": 72,
+            "percent": 5.37714712471994
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/_weakrefset.py:_remove",
+            "samples": 43,
+            "percent": 3.2113517550410755
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/cache_key.py:_gen_cache_key",
+            "samples": 36,
+            "percent": 2.68857356235997
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:_run",
+            "samples": 31,
+            "percent": 2.315160567587752
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:call_soon",
+            "samples": 27,
+            "percent": 2.0164301717699775
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/util/_concurrency_py3k.py:greenlet_spawn",
+            "samples": 27,
+            "percent": 2.0164301717699775
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/locks.py:wait",
+            "samples": 26,
+            "percent": 1.9417475728155338
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:_read_ready__data_received",
+            "samples": 22,
+            "percent": 1.6430171769977595
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:get_debug",
+            "samples": 20,
+            "percent": 1.4936519790888723
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/event/base.py:__getattr__",
+            "samples": 17,
+            "percent": 1.2696041822255415
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:_deliver_cancellation",
+            "samples": 17,
+            "percent": 1.2696041822255415
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/coercions.py:expect",
+            "samples": 16,
+            "percent": 1.194921583271098
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/selectors.py:select",
+            "samples": 15,
+            "percent": 1.1202389843166543
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/json/encoder.py:iterencode",
+            "samples": 15,
+            "percent": 1.1202389843166543
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:__exit__",
+            "samples": 15,
+            "percent": 1.1202389843166543
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sniffio/_impl.py:current_async_library",
+            "samples": 15,
+            "percent": 1.1202389843166543
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/coercions.py:_post_coercion",
+            "samples": 13,
+            "percent": 0.9708737864077669
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:_prepare_and_execute",
+            "samples": 13,
+            "percent": 0.9708737864077669
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_call_soon",
+            "samples": 13,
+            "percent": 0.9708737864077669
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_tasks.py:_task_repr_info",
+            "samples": 12,
+            "percent": 0.8961911874533234
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/weakref.py:remove",
+            "samples": 12,
+            "percent": 0.8961911874533234
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:__init__",
+            "samples": 11,
+            "percent": 0.8215085884988798
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/starlette/middleware/base.py:body_stream",
+            "samples": 11,
+            "percent": 0.8215085884988798
+          },
+          {
+            "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/compiler.py:construct_params",
+            "samples": 10,
+            "percent": 0.7468259895444361
+          },
+          {
+            "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_run_once",
+            "samples": 10,
+            "percent": 0.7468259895444361
+          }
+        ]
+      },
+      "stress": {
+        "total": 0,
+        "routes": [],
+        "leaf_categories": [],
+        "gate": [],
+        "top_leaf_functions": []
+      }
+    },
+    "native": {
+      "leaf_categories": [
+        {
+          "name": "SQLAlchemy",
+          "samples": 133,
+          "percent": 38.775510204081634
+        },
+        {
+          "name": "async scheduling",
+          "samples": 105,
+          "percent": 30.612244897959183
+        },
+        {
+          "name": "other Python/native caller",
+          "samples": 43,
+          "percent": 12.536443148688047
+        },
+        {
+          "name": "other application Python",
+          "samples": 14,
+          "percent": 4.081632653061225
+        },
+        {
+          "name": "FastAPI/Starlette",
+          "samples": 11,
+          "percent": 3.206997084548105
+        },
+        {
+          "name": "asyncpg",
+          "samples": 8,
+          "percent": 2.3323615160349855
+        },
+        {
+          "name": "instrumentation",
+          "samples": 8,
+          "percent": 2.3323615160349855
+        },
+        {
+          "name": "unavailable stack",
+          "samples": 7,
+          "percent": 2.0408163265306123
+        },
+        {
+          "name": "Pydantic",
+          "samples": 4,
+          "percent": 1.1661807580174928
+        },
+        {
+          "name": "JSON",
+          "samples": 4,
+          "percent": 1.1661807580174928
+        },
+        {
+          "name": "Uvicorn",
+          "samples": 4,
+          "percent": 1.1661807580174928
+        },
+        {
+          "name": "AMM math",
+          "samples": 1,
+          "percent": 0.2915451895043732
+        },
+        {
+          "name": "risk Python",
+          "samples": 1,
+          "percent": 0.2915451895043732
+        }
+      ],
+      "top_leaf_functions": [
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/coercions.py:expect",
+          "samples": 9,
+          "percent": 2.6785714285714284
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/cache_key.py:_gen_cache_key",
+          "samples": 8,
+          "percent": 2.380952380952381
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:_run",
+          "samples": 8,
+          "percent": 2.380952380952381
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/selector_events.py:write",
+          "samples": 6,
+          "percent": 1.7857142857142856
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:_deliver_cancellation",
+          "samples": 6,
+          "percent": 1.7857142857142856
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/events.py:__init__",
+          "samples": 6,
+          "percent": 1.7857142857142856
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_call_soon",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:instances",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/event/attr.py:__call__",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/h11/_connection.py:_process_event",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:create_future",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/locks.py:__init__",
+          "samples": 5,
+          "percent": 1.488095238095238
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:_run_once",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/fastapi/dependencies/utils.py:solve_dependencies",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/sql/compiler.py:construct_params",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:__aexit__",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:__init__",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/tmp/sunyunbo/fx-cpu-io-profile-20261017/profile/backend/app/api/v1/user_trading.py:frames",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/weakref.py:__getitem__",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:_prepare_and_execute",
+          "samples": 4,
+          "percent": 1.1904761904761905
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sniffio/_impl.py:current_async_library",
+          "samples": 3,
+          "percent": 0.8928571428571428
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/sqlalchemy/orm/loading.py:_instance_processor",
+          "samples": 3,
+          "percent": 0.8928571428571428
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/base_events.py:call_soon",
+          "samples": 3,
+          "percent": 0.8928571428571428
+        },
+        {
+          "name": "/data/sunyunbo/miniconda3/lib/python3.13/asyncio/locks.py:wait",
+          "samples": 3,
+          "percent": 0.8928571428571428
+        },
+        {
+          "name": "/data/sunyunbo/www/TouhouCCB/backend/venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py:cancel",
+          "samples": 3,
+          "percent": 0.8928571428571428
+        }
+      ]
+    }
+  }
+}

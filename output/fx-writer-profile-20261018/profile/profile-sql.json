@@ -1,0 +1,1746 @@
+[
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 310,
+    "total_ms": 1592.239398509264
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 310,
+    "total_ms": 1058.7961245328188
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 636,
+    "total_ms": 2144.757393747568
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 305,
+    "total_ms": 1738.0973361432552
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.fx.net_trading.quote_net_trade",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at, \"user\".id AS id_1, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id, fx_wallet.id AS id_2, fx_wallet.user_id, fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis, fx_wallet.updated_at AS updated_at_1, fx_treasury.id AS id_3, fx_treasury.pair_id AS pair_id_1, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at AS updated_at_2 FROM fx_pair LEFT OUTER JOIN \"user\" ON \"user\".id = $1::INTEGER LEFT OUTER JOIN fx_wallet ON fx_wallet.user_id = $2::INTEGER AND fx_wallet.pair_id = fx_pair.id LEFT OUTER JOIN fx_treasury ON fx_treasury.pair_id = fx_pair.id WHERE fx_pair.id = $3::INTEGER",
+    "count": 305,
+    "total_ms": 1103.6498490720987
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.fx.net_trading.quote_net_trade",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id",
+    "count": 305,
+    "total_ms": 874.2209747433662
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 296,
+    "total_ms": 1875.3395192325115
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+    "count": 296,
+    "total_ms": 1327.5183252990246
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 296,
+    "total_ms": 823.4064429998398
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_execution.id, fx_execution.user_id, fx_execution.pair_id, fx_execution.idempotency_key, fx_execution.request_payload, fx_execution.response_version, fx_execution.response_payload, fx_execution.created_at, EXISTS (SELECT fx_trade.id FROM fx_trade WHERE fx_trade.user_id = $1::INTEGER AND fx_trade.idempotency_key = $2::VARCHAR) AS anon_1 FROM (SELECT $3::INTEGER AS anchor) AS anon_2 LEFT OUTER JOIN fx_execution ON fx_execution.user_id = $1::INTEGER AND fx_execution.idempotency_key = $2::VARCHAR",
+    "count": 296,
+    "total_ms": 1082.354260608554
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_wallet.id, fx_wallet.user_id, fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis, fx_wallet.updated_at FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.pair_id = $2::INTEGER FOR UPDATE",
+    "count": 296,
+    "total_ms": 1033.2004316151142
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 296,
+    "total_ms": 801.514770835638
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_treasury.id, fx_treasury.pair_id, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at FROM fx_treasury WHERE fx_treasury.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 296,
+    "total_ms": 686.7499519139528
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+    "count": 296,
+    "total_ms": 608.4639895707369
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 273,
+    "total_ms": 467.4109499901533
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 273,
+    "total_ms": 425.05033127963543
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 273,
+    "total_ms": 512.4376695603132
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_treasury SET updated_at=$1::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $2::INTEGER",
+    "count": 273,
+    "total_ms": 351.8789540976286
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_wallet (user_id, pair_id, foreign_amount, cost_basis, updated_at) VALUES ($1::INTEGER, $2::INTEGER, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::TIMESTAMP WITH TIME ZONE) RETURNING fx_wallet.id",
+    "count": 12,
+    "total_ms": 33.63189473748207
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 326,
+    "total_ms": 466.5168263018131
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "UPDATE fx_execution SET response_payload=$1::JSON WHERE fx_execution.id = $2::INTEGER",
+    "count": 296,
+    "total_ms": 422.6617831736803
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 295,
+    "total_ms": 460.6641475111246
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 300,
+    "total_ms": 1658.9306965470314
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT max(fx_pool_event.id) AS max_1 FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER",
+    "count": 312,
+    "total_ms": 1888.8486716896296
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 138,
+    "total_ms": 418.99621300399303
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 300,
+    "total_ms": 1504.4137984514236
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 138,
+    "total_ms": 360.2967858314514
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 300,
+    "total_ms": 1120.8928730338812
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 138,
+    "total_ms": 546.6361939907074
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 300,
+    "total_ms": 831.9731019437313
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 138,
+    "total_ms": 406.5586142241955
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 138,
+    "total_ms": 465.77709168195724
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 326,
+    "total_ms": 1901.7632063478231
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 326,
+    "total_ms": 1873.9325795322657
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "span": "outside_command",
+    "statement": "SELECT (SELECT fx_market_data_state.history_ready FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 FROM fx_candle WHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 FROM fx_trade WHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 FROM fx_trade WHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 FROM fx_pool_event WHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+    "count": 326,
+    "total_ms": 2332.7034451067448
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_pool_event.id, fx_pool_event.pair_id, fx_pool_event.created_at, fx_pool_event.kind, fx_pool_event.pre_gold_reserve, fx_pool_event.pre_foreign_reserve, fx_pool_event.post_gold_reserve, fx_pool_event.post_foreign_reserve, fx_pool_event.gold_volume FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER AND fx_pool_event.id > $2::BIGINT AND fx_pool_event.id <= $3::BIGINT ORDER BY fx_pool_event.id LIMIT $4::INTEGER",
+    "count": 256,
+    "total_ms": 992.7209932357073
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "span": "outside_command",
+    "statement": "SELECT fx_trade.id, fx_trade.execution_id, fx_trade.execution_leg, fx_trade.pair_id, fx_trade.user_id, fx_trade.purpose, fx_trade.requested_foreign_amount, fx_trade.borrow_amount, fx_trade.max_gold_in, fx_trade.cover_all, fx_trade.side, fx_trade.input_amount, fx_trade.output_amount, fx_trade.min_out, fx_trade.fee_amount, fx_trade.pre_gold_reserve, fx_trade.pre_foreign_reserve, fx_trade.post_gold_reserve, fx_trade.post_foreign_reserve, fx_trade.post_price, fx_trade.source, fx_trade.idempotency_key, fx_trade.created_at, fx_pair.id AS id_1, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at AS created_at_1, fx_pair.updated_at FROM fx_trade JOIN fx_pair ON fx_pair.id = fx_trade.pair_id WHERE fx_trade.pair_id = $1::INTEGER AND fx_trade.user_id = $2::INTEGER ORDER BY fx_trade.created_at DESC, fx_trade.id DESC LIMIT $3::INTEGER",
+    "count": 326,
+    "total_ms": 1221.99197858572
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER",
+    "count": 326,
+    "total_ms": 1151.3434741646051
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_wallet SET foreign_amount=$1::NUMERIC(16, 6), cost_basis=$2::NUMERIC(16, 6), updated_at=$3::TIMESTAMP WITH TIME ZONE WHERE fx_wallet.id = $4::INTEGER",
+    "count": 261,
+    "total_ms": 353.7223543971777
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 302,
+    "total_ms": 1278.8339648395777
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT max(fx_pool_event.id) AS max_1 FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER",
+    "count": 314,
+    "total_ms": 2783.500900492072
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 652,
+    "total_ms": 3008.380800485611
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+    "count": 302,
+    "total_ms": 974.7455883771181
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".auto_repay, \"user\".cash, \"user\".debt, \"user\".debt_last_accrued_at, \"user\".credit_frozen, \"user\".is_active, \"user\".is_bot, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 326,
+    "total_ms": 996.5477995574474
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "UPDATE fx_market_data_state SET last_event_id=$1::BIGINT, updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_market_data_state.pair_id = $3::INTEGER",
+    "count": 302,
+    "total_ms": 825.7753867655993
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT outcome.market_id, position.outcome_id, position.amount, position.cost_basis FROM position LEFT OUTER JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER ORDER BY position.outcome_id",
+    "count": 326,
+    "total_ms": 1378.6922246217728
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER ORDER BY fx_wallet.pair_id",
+    "count": 326,
+    "total_ms": 1113.8864569365978
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id",
+    "count": 326,
+    "total_ms": 1162.4268312007189
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 326,
+    "total_ms": 1107.3372904211283
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.pool_version FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR SHARE",
+    "count": 314,
+    "total_ms": 3700.664820149541
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT (SELECT fx_market_data_state.history_ready FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 FROM fx_candle WHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 FROM fx_trade WHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 FROM fx_trade WHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 FROM fx_pool_event WHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+    "count": 314,
+    "total_ms": 2598.591795191169
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version FROM fx_market_data_state WHERE fx_market_data_state.pair_id IN ($1::INTEGER, $2::INTEGER)",
+    "count": 312,
+    "total_ms": 1563.3746907114983
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER",
+    "count": 314,
+    "total_ms": 1892.0548055320978
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 121,
+    "total_ms": 265.2354445308447
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 121,
+    "total_ms": 215.59184230864048
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 121,
+    "total_ms": 160.0801981985569
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 121,
+    "total_ms": 172.53656312823296
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 121,
+    "total_ms": 173.37887920439243
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 38,
+    "total_ms": 39.74446654319763
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 30,
+    "total_ms": 37.33953274786472
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 30,
+    "total_ms": 37.248946726322174
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 7,
+    "total_ms": 6.331553682684898
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_short_position SET principal_foreign=$1::NUMERIC(24, 6), interest_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE, proceeds_basis_gold=$3::NUMERIC(16, 6), updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_short_position.id = $5::INTEGER",
+    "count": 30,
+    "total_ms": 43.351517990231514
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 30,
+    "total_ms": 40.70098511874676
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_treasury SET foreign_balance=$1::NUMERIC(16, 6), updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $3::INTEGER",
+    "count": 30,
+    "total_ms": 31.491432338953018
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.loan_service.increase_debt_locked",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), debt=$2::NUMERIC(16, 6), debt_last_accrued_at=$3::TIMESTAMP WITH TIME ZONE, economic_version=$4::INTEGER WHERE \"user\".id = $5::INTEGER",
+    "count": 30,
+    "total_ms": 69.06509399414062
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.loan_service.increase_debt_locked",
+    "statement": "INSERT INTO ledger_entry (user_id, entry_type, cash_delta, debt_delta, cash_after, debt_after, debt_last_accrued_at_after, daily_rate_at_event, operator_user_id, reason, created_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::TIMESTAMP WITH TIME ZONE, $8::NUMERIC(16, 8), $9::INTEGER, $10::VARCHAR, $11::TIMESTAMP WITH TIME ZONE) RETURNING ledger_entry.id",
+    "count": 30,
+    "total_ms": 66.7999666184187
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pool_event.id, fx_pool_event.pair_id, fx_pool_event.created_at, fx_pool_event.kind, fx_pool_event.pre_gold_reserve, fx_pool_event.pre_foreign_reserve, fx_pool_event.post_gold_reserve, fx_pool_event.post_foreign_reserve, fx_pool_event.gold_volume FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER AND fx_pool_event.id > $2::BIGINT AND fx_pool_event.id <= $3::BIGINT ORDER BY fx_pool_event.id LIMIT $4::INTEGER",
+    "count": 70,
+    "total_ms": 304.616242647171
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 61,
+    "total_ms": 72.9750320315361
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR)",
+    "count": 10,
+    "total_ms": 100.45254230499268
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 154.77992594242096
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 310.43844297528267
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 109.11512561142445
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".cash FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 89.68710713088512
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".debt FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 86.45259775221348
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 60,
+    "total_ms": 203.0969299376011
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 60,
+    "total_ms": 195.58746181428432
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 60,
+    "total_ms": 160.5752557516098
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 60,
+    "total_ms": 150.17922036349773
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 60,
+    "total_ms": 221.26202657818794
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 100.58428347110748
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 30,
+    "total_ms": 146.83784544467926
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+    "count": 30,
+    "total_ms": 142.45963282883167
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 30,
+    "total_ms": 88.3828978985548
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_execution.id FROM fx_execution WHERE fx_execution.user_id = $1::INTEGER AND fx_execution.idempotency_key = $2::VARCHAR",
+    "count": 30,
+    "total_ms": 124.76185336709023
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_trade.id, fx_trade.execution_id, fx_trade.execution_leg, fx_trade.pair_id, fx_trade.user_id, fx_trade.purpose, fx_trade.requested_foreign_amount, fx_trade.borrow_amount, fx_trade.max_gold_in, fx_trade.cover_all, fx_trade.side, fx_trade.input_amount, fx_trade.output_amount, fx_trade.min_out, fx_trade.fee_amount, fx_trade.pre_gold_reserve, fx_trade.pre_foreign_reserve, fx_trade.post_gold_reserve, fx_trade.post_foreign_reserve, fx_trade.post_price, fx_trade.source, fx_trade.idempotency_key, fx_trade.created_at FROM fx_trade WHERE fx_trade.user_id = $1::INTEGER AND fx_trade.idempotency_key = $2::VARCHAR",
+    "count": 30,
+    "total_ms": 92.1898540109396
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 30,
+    "total_ms": 50.652069970965385
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_treasury.id, fx_treasury.pair_id, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at FROM fx_treasury WHERE fx_treasury.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 30,
+    "total_ms": 36.74613498151302
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 30,
+    "total_ms": 60.1069200783968
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 30,
+    "total_ms": 40.22291675209999
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 30,
+    "total_ms": 45.29452882707119
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_short_position SET principal_foreign=$1::NUMERIC(24, 6), interest_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE, proceeds_basis_gold=$3::NUMERIC(16, 6), updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_short_position.id = $5::INTEGER",
+    "count": 30,
+    "total_ms": 43.83140057325363
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 30,
+    "total_ms": 56.036124005913734
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_treasury SET foreign_balance=$1::NUMERIC(16, 6), updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $3::INTEGER",
+    "count": 30,
+    "total_ms": 41.95133410394192
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE \"user\" SET debt=$1::NUMERIC(16, 6), debt_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE WHERE \"user\".id = $3::INTEGER",
+    "count": 31,
+    "total_ms": 62.22324073314667
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), debt=$2::NUMERIC(16, 6), debt_last_accrued_at=$3::TIMESTAMP WITH TIME ZONE, economic_version=$4::INTEGER WHERE \"user\".id = $5::INTEGER",
+    "count": 31,
+    "total_ms": 31.076760962605476
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 31,
+    "total_ms": 28.807928785681725
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO ledger_entry (user_id, entry_type, cash_delta, debt_delta, cash_after, debt_after, debt_last_accrued_at_after, daily_rate_at_event, operator_user_id, reason, created_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::TIMESTAMP WITH TIME ZONE, $8::NUMERIC(16, 8), $9::INTEGER, $10::VARCHAR, $11::TIMESTAMP WITH TIME ZONE) RETURNING ledger_entry.id",
+    "count": 31,
+    "total_ms": 23.870568722486496
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER",
+    "count": 17,
+    "total_ms": 101.82775184512138
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT fx_trigger_order.id, fx_trigger_order.comparison, fx_trigger_order.trigger_price, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve FROM fx_trigger_order JOIN fx_pair ON fx_pair.id = fx_trigger_order.pair_id WHERE fx_trigger_order.status = $1::VARCHAR ORDER BY fx_trigger_order.id",
+    "count": 5,
+    "total_ms": 37.75279223918915
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id FROM \"user\" WHERE \"user\".debt > $1::NUMERIC(16, 6) OR \"user\".id IN (SELECT fx_short_position.user_id FROM fx_short_position WHERE fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 1,
+    "total_ms": 1.3769064098596573
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 15,
+    "total_ms": 89.27908912301064
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 2,
+    "total_ms": 8.197356015443802
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 15,
+    "total_ms": 51.43577791750431
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 2,
+    "total_ms": 6.001625210046768
+  },
+  {
+    "phase": "active",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading._simulate",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 2,
+    "total_ms": 0.48294663429260254
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 1,
+    "total_ms": 213.71266432106495
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 2,
+    "total_ms": 13.646433129906654
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 2,
+    "total_ms": 6.433187052607536
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 340,
+    "total_ms": 3207.500932738185
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 205,
+    "total_ms": 2074.201649054885
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.fx.net_trading.quote_net_trade",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at, \"user\".id AS id_1, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id, fx_wallet.id AS id_2, fx_wallet.user_id, fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis, fx_wallet.updated_at AS updated_at_1, fx_treasury.id AS id_3, fx_treasury.pair_id AS pair_id_1, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at AS updated_at_2 FROM fx_pair LEFT OUTER JOIN \"user\" ON \"user\".id = $1::INTEGER LEFT OUTER JOIN fx_wallet ON fx_wallet.user_id = $2::INTEGER AND fx_wallet.pair_id = fx_pair.id LEFT OUTER JOIN fx_treasury ON fx_treasury.pair_id = fx_pair.id WHERE fx_pair.id = $3::INTEGER",
+    "count": 340,
+    "total_ms": 1890.181802213192
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 205,
+    "total_ms": 1287.7697255462408
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.fx.net_trading.quote_net_trade",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id",
+    "count": 340,
+    "total_ms": 1580.0816845148802
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 440,
+    "total_ms": 2414.053525775671
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 325,
+    "total_ms": 3360.4690581560135
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+    "count": 216,
+    "total_ms": 1594.1706616431475
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 216,
+    "total_ms": 1235.7265539467335
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_execution.id, fx_execution.user_id, fx_execution.pair_id, fx_execution.idempotency_key, fx_execution.request_payload, fx_execution.response_version, fx_execution.response_payload, fx_execution.created_at, EXISTS (SELECT fx_trade.id FROM fx_trade WHERE fx_trade.user_id = $1::INTEGER AND fx_trade.idempotency_key = $2::VARCHAR) AS anon_1 FROM (SELECT $3::INTEGER AS anchor) AS anon_2 LEFT OUTER JOIN fx_execution ON fx_execution.user_id = $1::INTEGER AND fx_execution.idempotency_key = $2::VARCHAR",
+    "count": 216,
+    "total_ms": 1720.7521311938763
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_wallet.id, fx_wallet.user_id, fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis, fx_wallet.updated_at FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.pair_id = $2::INTEGER FOR UPDATE",
+    "count": 216,
+    "total_ms": 1393.083667382598
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 216,
+    "total_ms": 1096.211239695549
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "SELECT fx_treasury.id, fx_treasury.pair_id, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at FROM fx_treasury WHERE fx_treasury.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 216,
+    "total_ms": 750.9983479976654
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_execution (user_id, pair_id, idempotency_key, request_payload, response_version, response_payload, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::VARCHAR, $4::JSON, $5::INTEGER, $6::JSON, $7::TIMESTAMP WITH TIME ZONE) RETURNING fx_execution.id",
+    "count": 215,
+    "total_ms": 691.7099170386791
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 197,
+    "total_ms": 573.3273606747389
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 197,
+    "total_ms": 561.0426962375641
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 197,
+    "total_ms": 597.4357277154922
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 198,
+    "total_ms": 1983.580281957984
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_treasury SET updated_at=$1::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $2::INTEGER",
+    "count": 197,
+    "total_ms": 484.68743078410625
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE fx_wallet SET foreign_amount=$1::NUMERIC(16, 6), cost_basis=$2::NUMERIC(16, 6), updated_at=$3::TIMESTAMP WITH TIME ZONE WHERE fx_wallet.id = $4::INTEGER",
+    "count": 191,
+    "total_ms": 419.3894900381565
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 235,
+    "total_ms": 607.4384786188602
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "UPDATE fx_execution SET response_payload=$1::JSON WHERE fx_execution.id = $2::INTEGER",
+    "count": 215,
+    "total_ms": 512.4621111899614
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.writer_ops.execute_command",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 213,
+    "total_ms": 551.433501765132
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 198,
+    "total_ms": 1678.8933370262384
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 198,
+    "total_ms": 943.8741430640221
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 198,
+    "total_ms": 1322.2947269678116
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT max(fx_pool_event.id) AS max_1 FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER",
+    "count": 214,
+    "total_ms": 2429.9362767487764
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_pool_event.id, fx_pool_event.pair_id, fx_pool_event.created_at, fx_pool_event.kind, fx_pool_event.pre_gold_reserve, fx_pool_event.pre_foreign_reserve, fx_pool_event.post_gold_reserve, fx_pool_event.post_foreign_reserve, fx_pool_event.gold_volume FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER AND fx_pool_event.id > $2::BIGINT AND fx_pool_event.id <= $3::BIGINT ORDER BY fx_pool_event.id LIMIT $4::INTEGER",
+    "count": 140,
+    "total_ms": 1009.4071663916111
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 202,
+    "total_ms": 1505.6998264044523
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT max(fx_pool_event.id) AS max_1 FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER",
+    "count": 213,
+    "total_ms": 2606.0504354536533
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 265,
+    "total_ms": 2087.2666351497173
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 189,
+    "total_ms": 1293.2602278888226
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "span": "outside_command",
+    "statement": "SELECT (SELECT fx_market_data_state.history_ready FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 FROM fx_candle WHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 FROM fx_trade WHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 FROM fx_trade WHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 FROM fx_pool_event WHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+    "count": 189,
+    "total_ms": 1836.0142800956964
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "span": "outside_command",
+    "statement": "SELECT fx_trade.id, fx_trade.execution_id, fx_trade.execution_leg, fx_trade.pair_id, fx_trade.user_id, fx_trade.purpose, fx_trade.requested_foreign_amount, fx_trade.borrow_amount, fx_trade.max_gold_in, fx_trade.cover_all, fx_trade.side, fx_trade.input_amount, fx_trade.output_amount, fx_trade.min_out, fx_trade.fee_amount, fx_trade.pre_gold_reserve, fx_trade.pre_foreign_reserve, fx_trade.post_gold_reserve, fx_trade.post_foreign_reserve, fx_trade.post_price, fx_trade.source, fx_trade.idempotency_key, fx_trade.created_at, fx_pair.id AS id_1, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at AS created_at_1, fx_pair.updated_at FROM fx_trade JOIN fx_pair ON fx_pair.id = fx_trade.pair_id WHERE fx_trade.pair_id = $1::INTEGER AND fx_trade.user_id = $2::INTEGER ORDER BY fx_trade.created_at DESC, fx_trade.id DESC LIMIT $3::INTEGER",
+    "count": 189,
+    "total_ms": 900.3890249878168
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER",
+    "count": 189,
+    "total_ms": 692.0028030872345
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+    "count": 201,
+    "total_ms": 1034.922830760479
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.pool_version FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR SHARE",
+    "count": 212,
+    "total_ms": 4909.9205285310745
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "UPDATE fx_market_data_state SET last_event_id=$1::BIGINT, updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_market_data_state.pair_id = $3::INTEGER",
+    "count": 202,
+    "total_ms": 1104.055779054761
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT (SELECT fx_market_data_state.history_ready FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER) AS anon_1, (SELECT coalesce(sum(fx_candle.gold_volume), $2::NUMERIC) AS coalesce_1 FROM fx_candle WHERE fx_candle.pair_id = $3::INTEGER AND fx_candle.interval = $4::VARCHAR AND fx_candle.bucket_start >= $5::TIMESTAMP WITH TIME ZONE AND fx_candle.bucket_start < $6::TIMESTAMP WITH TIME ZONE) AS anon_2, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $7::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $8::NUMERIC) AS coalesce_3 FROM fx_trade WHERE fx_trade.pair_id = $9::INTEGER AND fx_trade.created_at >= $10::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $11::TIMESTAMP WITH TIME ZONE) AS anon_3, (SELECT coalesce(sum(CASE WHEN (fx_trade.side = $12::VARCHAR) THEN fx_trade.input_amount ELSE fx_trade.output_amount END), $13::NUMERIC) AS coalesce_5 FROM fx_trade WHERE fx_trade.pair_id = $14::INTEGER AND fx_trade.created_at >= $15::TIMESTAMP WITH TIME ZONE AND fx_trade.created_at < $16::TIMESTAMP WITH TIME ZONE) AS anon_4, (SELECT coalesce(sum(fx_pool_event.gold_volume), $17::NUMERIC) AS coalesce_7 FROM fx_pool_event WHERE fx_pool_event.pair_id = $18::INTEGER AND fx_pool_event.created_at >= $19::TIMESTAMP WITH TIME ZONE AND fx_pool_event.created_at < $20::TIMESTAMP WITH TIME ZONE AND fx_pool_event.id > (SELECT fx_market_data_state.last_event_id FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $21::INTEGER)) AS anon_5",
+    "count": 212,
+    "total_ms": 3682.716751471162
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version, fx_market_data_state.history_ready, fx_market_data_state.updated_at FROM fx_market_data_state WHERE fx_market_data_state.pair_id = $1::INTEGER",
+    "count": 212,
+    "total_ms": 2323.383340612054
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 560,
+    "total_ms": 4347.871446982026
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".auto_repay, \"user\".cash, \"user\".debt, \"user\".debt_last_accrued_at, \"user\".credit_frozen, \"user\".is_active, \"user\".is_bot, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 280,
+    "total_ms": 1219.8864929378033
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT outcome.market_id, position.outcome_id, position.amount, position.cost_basis FROM position LEFT OUTER JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER ORDER BY position.outcome_id",
+    "count": 280,
+    "total_ms": 1535.5024095624685
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "SELECT fx_market_data_state.pair_id, fx_market_data_state.last_event_id, fx_market_data_state.history_version FROM fx_market_data_state WHERE fx_market_data_state.pair_id IN ($1::INTEGER, $2::INTEGER)",
+    "count": 214,
+    "total_ms": 2232.5889077037573
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount, fx_wallet.cost_basis FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER ORDER BY fx_wallet.pair_id",
+    "count": 280,
+    "total_ms": 1749.7823629528284
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id",
+    "count": 280,
+    "total_ms": 1952.1302990615368
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.value FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 280,
+    "total_ms": 1563.9114454388618
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 154,
+    "total_ms": 855.2994150668383
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 154,
+    "total_ms": 834.5855828374624
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pool_event.id, fx_pool_event.pair_id, fx_pool_event.created_at, fx_pool_event.kind, fx_pool_event.pre_gold_reserve, fx_pool_event.pre_foreign_reserve, fx_pool_event.post_gold_reserve, fx_pool_event.post_foreign_reserve, fx_pool_event.gold_volume FROM fx_pool_event WHERE fx_pool_event.pair_id = $1::INTEGER AND fx_pool_event.id > $2::BIGINT AND fx_pool_event.id <= $3::BIGINT ORDER BY fx_pool_event.id LIMIT $4::INTEGER",
+    "count": 94,
+    "total_ms": 489.7716138511896
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 154,
+    "total_ms": 774.3217349052429
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 154,
+    "total_ms": 671.3213436305523
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 154,
+    "total_ms": 906.2110595405102
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 32,
+    "total_ms": 376.6275681555271
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER",
+    "count": 32,
+    "total_ms": 125.77301077544689
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER",
+    "count": 32,
+    "total_ms": 168.62735152244568
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".cash FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 32,
+    "total_ms": 137.44408637285233
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".debt FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 32,
+    "total_ms": 162.49974817037582
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 62,
+    "total_ms": 342.22023375332355
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 62,
+    "total_ms": 308.3915878087282
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 62,
+    "total_ms": 402.12669037282467
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 62,
+    "total_ms": 300.3670983016491
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 62,
+    "total_ms": 262.5594027340412
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 31,
+    "total_ms": 108.32003876566887
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 31,
+    "total_ms": 304.4556602835655
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 91,
+    "total_ms": 370.07200717926025
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT position.outcome_id, position.amount, outcome.market_id FROM position JOIN outcome ON outcome.id = position.outcome_id WHERE position.user_id = $1::INTEGER AND position.amount > $2::NUMERIC(16, 6)",
+    "count": 90,
+    "total_ms": 343.526978045702
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_wallet.pair_id, fx_wallet.foreign_amount FROM fx_wallet WHERE fx_wallet.user_id = $1::INTEGER AND fx_wallet.foreign_amount > $2::NUMERIC(16, 6)",
+    "count": 90,
+    "total_ms": 258.3342529833317
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk.discover_dependencies",
+    "statement": "SELECT fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER AND (fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 90,
+    "total_ms": 363.5294456034899
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.credit.risk._current_rates",
+    "statement": "SELECT siteconfig.key, siteconfig.value FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR, $3::VARCHAR)",
+    "count": 90,
+    "total_ms": 313.07059712707996
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.loan_service.increase_debt_locked",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), debt=$2::NUMERIC(16, 6), debt_last_accrued_at=$3::TIMESTAMP WITH TIME ZONE, economic_version=$4::INTEGER WHERE \"user\".id = $5::INTEGER",
+    "count": 25,
+    "total_ms": 79.38051037490368
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.loan_service.increase_debt_locked",
+    "statement": "INSERT INTO ledger_entry (user_id, entry_type, cash_delta, debt_delta, cash_after, debt_after, debt_last_accrued_at_after, daily_rate_at_event, operator_user_id, reason, created_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::TIMESTAMP WITH TIME ZONE, $8::NUMERIC(16, 8), $9::INTEGER, $10::VARCHAR, $11::TIMESTAMP WITH TIME ZONE) RETURNING ledger_entry.id",
+    "count": 25,
+    "total_ms": 88.19576352834702
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 47,
+    "total_ms": 110.67910306155682
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "span": "outside_command",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER",
+    "count": 27,
+    "total_ms": 229.07921113073826
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 26,
+    "total_ms": 59.36489626765251
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE \"user\" SET debt=$1::NUMERIC(16, 6), debt_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE WHERE \"user\".id = $3::INTEGER",
+    "count": 22,
+    "total_ms": 85.70658415555954
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), debt=$2::NUMERIC(16, 6), debt_last_accrued_at=$3::TIMESTAMP WITH TIME ZONE, economic_version=$4::INTEGER WHERE \"user\".id = $5::INTEGER",
+    "count": 22,
+    "total_ms": 41.543398052453995
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 22,
+    "total_ms": 61.59364618360996
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO ledger_entry (user_id, entry_type, cash_delta, debt_delta, cash_after, debt_after, debt_last_accrued_at_after, daily_rate_at_event, operator_user_id, reason, created_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::TIMESTAMP WITH TIME ZONE, $8::NUMERIC(16, 8), $9::INTEGER, $10::VARCHAR, $11::TIMESTAMP WITH TIME ZONE) RETURNING ledger_entry.id",
+    "count": 22,
+    "total_ms": 45.97684368491173
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_pair.id, fx_pair.currency_code, fx_pair.currency_name, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve, fx_pair.initial_price, fx_pair.buy_fee_rate, fx_pair.sell_fee_rate, fx_pair.short_lending_limit_foreign, fx_pair.pool_version, fx_pair.reduce_only, fx_pair.created_at, fx_pair.updated_at FROM fx_pair WHERE fx_pair.id = $1::INTEGER FOR UPDATE",
+    "count": 21,
+    "total_ms": 211.67089231312275
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 21,
+    "total_ms": 98.61209243535995
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_execution.id FROM fx_execution WHERE fx_execution.user_id = $1::INTEGER AND fx_execution.idempotency_key = $2::VARCHAR",
+    "count": 21,
+    "total_ms": 172.08680137991905
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_trade.id, fx_trade.execution_id, fx_trade.execution_leg, fx_trade.pair_id, fx_trade.user_id, fx_trade.purpose, fx_trade.requested_foreign_amount, fx_trade.borrow_amount, fx_trade.max_gold_in, fx_trade.cover_all, fx_trade.side, fx_trade.input_amount, fx_trade.output_amount, fx_trade.min_out, fx_trade.fee_amount, fx_trade.pre_gold_reserve, fx_trade.pre_foreign_reserve, fx_trade.post_gold_reserve, fx_trade.post_foreign_reserve, fx_trade.post_price, fx_trade.source, fx_trade.idempotency_key, fx_trade.created_at FROM fx_trade WHERE fx_trade.user_id = $1::INTEGER AND fx_trade.idempotency_key = $2::VARCHAR",
+    "count": 21,
+    "total_ms": 171.8718484044075
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 20,
+    "total_ms": 52.10878141224384
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "SELECT fx_treasury.id, fx_treasury.pair_id, fx_treasury.gold_balance, fx_treasury.foreign_balance, fx_treasury.updated_at FROM fx_treasury WHERE fx_treasury.pair_id = $1::INTEGER FOR UPDATE",
+    "count": 20,
+    "total_ms": 52.38599330186844
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "INSERT INTO audit_event (ts, event_type, user_id, market_id, outcome_id, operator_user_id, ref_table, ref_id, payload, user_after, position_after, market_after) VALUES ($1::TIMESTAMP WITH TIME ZONE, $2::VARCHAR, $3::INTEGER, $4::INTEGER, $5::INTEGER, $6::INTEGER, $7::VARCHAR, $8::INTEGER, $9::JSON, $10::JSON, $11::JSON, $12::JSON) RETURNING audit_event.id",
+    "count": 20,
+    "total_ms": 53.95194888114929
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 20,
+    "total_ms": 62.327366322278976
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 20,
+    "total_ms": 91.56402945518494
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_short_position SET principal_foreign=$1::NUMERIC(24, 6), interest_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE, proceeds_basis_gold=$3::NUMERIC(16, 6), updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_short_position.id = $5::INTEGER",
+    "count": 20,
+    "total_ms": 71.09309546649456
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 20,
+    "total_ms": 64.31733071804047
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.shorts.execute_short_cover_in_session",
+    "statement": "UPDATE fx_treasury SET foreign_balance=$1::NUMERIC(16, 6), updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $3::INTEGER",
+    "count": 20,
+    "total_ms": 85.109643638134
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE \"user\" SET cash=$1::NUMERIC(16, 6), economic_version=$2::INTEGER WHERE \"user\".id = $3::INTEGER",
+    "count": 22,
+    "total_ms": 50.99277198314667
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_pair SET gold_reserve=$1::NUMERIC(16, 6), foreign_reserve=$2::NUMERIC(16, 6), pool_version=$3::INTEGER, updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_pair.id = $5::INTEGER",
+    "count": 22,
+    "total_ms": 66.93989410996437
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_short_position SET principal_foreign=$1::NUMERIC(24, 6), interest_last_accrued_at=$2::TIMESTAMP WITH TIME ZONE, proceeds_basis_gold=$3::NUMERIC(16, 6), updated_at=$4::TIMESTAMP WITH TIME ZONE WHERE fx_short_position.id = $5::INTEGER",
+    "count": 22,
+    "total_ms": 68.3961883187294
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_trade (execution_id, execution_leg, pair_id, user_id, purpose, requested_foreign_amount, borrow_amount, max_gold_in, cover_all, side, input_amount, output_amount, min_out, fee_amount, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, post_price, source, idempotency_key, created_at) VALUES ($1::INTEGER, $2::INTEGER, $3::INTEGER, $4::INTEGER, $5::VARCHAR, $6::NUMERIC(24, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::BOOLEAN, $10::VARCHAR, $11::NUMERIC(16, 6), $12::NUMERIC(16, 6), $13::NUMERIC(16, 6), $14::NUMERIC(16, 6), $15::NUMERIC(16, 6), $16::NUMERIC(16, 6), $17::NUMERIC(16, 6), $18::NUMERIC(16, 6), $19::NUMERIC(16, 6), $20::VARCHAR, $21::VARCHAR, $22::TIMESTAMP WITH TIME ZONE) RETURNING fx_trade.id",
+    "count": 22,
+    "total_ms": 90.63565917313099
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "UPDATE fx_treasury SET foreign_balance=$1::NUMERIC(16, 6), updated_at=$2::TIMESTAMP WITH TIME ZONE WHERE fx_treasury.id = $3::INTEGER",
+    "count": 22,
+    "total_ms": 54.36231009662151
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key IN ($1::VARCHAR, $2::VARCHAR)",
+    "count": 6,
+    "total_ms": 54.87687885761261
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.trading._write_spot_ledger",
+    "statement": "INSERT INTO fx_wallet (user_id, pair_id, foreign_amount, cost_basis, updated_at) VALUES ($1::INTEGER, $2::INTEGER, $3::NUMERIC(16, 6), $4::NUMERIC(16, 6), $5::TIMESTAMP WITH TIME ZONE) RETURNING fx_wallet.id",
+    "count": 6,
+    "total_ms": 14.57209698855877
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id AS user_id, \"user\".casdoor_id AS user_casdoor_id, \"user\".username AS user_username, \"user\".email AS user_email, \"user\".is_active AS user_is_active, \"user\".is_superuser AS user_is_superuser, \"user\".is_bot AS user_is_bot, \"user\".cash AS user_cash, \"user\".debt AS user_debt, \"user\".auto_repay AS user_auto_repay, \"user\".debt_last_accrued_at AS user_debt_last_accrued_at, \"user\".tos_accepted_at AS user_tos_accepted_at, \"user\".last_liquidated_at AS user_last_liquidated_at, \"user\".economic_version AS user_economic_version, \"user\".credit_frozen AS user_credit_frozen, \"user\".equipped_title_id AS user_equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER",
+    "count": 3,
+    "total_ms": 12.498795986175537
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "span": "outside_command",
+    "statement": "SELECT $1::VARCHAR AS anon_1, outcome.market_id FROM outcome JOIN position ON position.outcome_id = outcome.id WHERE position.user_id = $2::INTEGER UNION ALL SELECT $3::VARCHAR AS anon_2, fx_wallet.pair_id FROM fx_wallet WHERE fx_wallet.user_id = $4::INTEGER UNION ALL SELECT $5::VARCHAR AS anon_3, fx_short_position.pair_id FROM fx_short_position WHERE fx_short_position.user_id = $6::INTEGER",
+    "count": 3,
+    "total_ms": 15.234852209687233
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 3,
+    "total_ms": 34.39400903880596
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT fx_trigger_order.id, fx_trigger_order.comparison, fx_trigger_order.trigger_price, fx_pair.status, fx_pair.archived, fx_pair.gold_reserve, fx_pair.foreign_reserve FROM fx_trigger_order JOIN fx_pair ON fx_pair.id = fx_trigger_order.pair_id WHERE fx_trigger_order.status = $1::VARCHAR ORDER BY fx_trigger_order.id",
+    "count": 3,
+    "total_ms": 30.103161931037903
+  },
+  {
+    "phase": "stress",
+    "route": "background:fx_writer",
+    "span": "app.services.fx.net_trading.execute_net_trade_in_session",
+    "statement": "INSERT INTO fx_pool_event (pair_id, created_at, kind, pre_gold_reserve, pre_foreign_reserve, post_gold_reserve, post_foreign_reserve, gold_volume, trade_id, audit_id) VALUES ($1::INTEGER, $2::TIMESTAMP WITH TIME ZONE, $3::VARCHAR, $4::NUMERIC(16, 6), $5::NUMERIC(16, 6), $6::NUMERIC(16, 6), $7::NUMERIC(16, 6), $8::NUMERIC(16, 6), $9::INTEGER, $10::BIGINT) RETURNING fx_pool_event.id",
+    "count": 4,
+    "total_ms": 4.580767825245857
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id FROM \"user\" WHERE \"user\".debt > $1::NUMERIC(16, 6) OR \"user\".id IN (SELECT fx_short_position.user_id FROM fx_short_position WHERE fx_short_position.principal_foreign > $2::NUMERIC(24, 6) OR fx_short_position.interest_foreign > $3::NUMERIC(24, 6))",
+    "count": 1,
+    "total_ms": 3.164958208799362
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT \"user\".id, \"user\".casdoor_id, \"user\".username, \"user\".email, \"user\".is_active, \"user\".is_superuser, \"user\".is_bot, \"user\".cash, \"user\".debt, \"user\".auto_repay, \"user\".debt_last_accrued_at, \"user\".tos_accepted_at, \"user\".last_liquidated_at, \"user\".economic_version, \"user\".credit_frozen, \"user\".equipped_title_id FROM \"user\" WHERE \"user\".id = $1::INTEGER FOR UPDATE",
+    "count": 21,
+    "total_ms": 307.89676308631897
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "span": "outside_command",
+    "statement": "SELECT fx_short_position.id, fx_short_position.user_id, fx_short_position.pair_id, fx_short_position.principal_foreign, fx_short_position.interest_foreign, fx_short_position.interest_last_accrued_at, fx_short_position.proceeds_basis_gold, fx_short_position.created_at, fx_short_position.updated_at FROM fx_short_position WHERE fx_short_position.user_id = $1::INTEGER ORDER BY fx_short_position.pair_id ASC FOR UPDATE",
+    "count": 21,
+    "total_ms": 87.16095425188541
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 4,
+    "total_ms": 36.91910766065121
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "span": "outside_command",
+    "statement": "INSERT INTO fx_candle (pair_id, interval, bucket_start, open_price, high_price, low_price, close_price, gold_volume, n_trades, first_event_at, first_event_id, last_event_at, last_event_id, n_events, updated_at) VALUES ($1::INTEGER, $2::VARCHAR, $3::TIMESTAMP WITH TIME ZONE, $4::NUMERIC(24, 8), $5::NUMERIC(24, 8), $6::NUMERIC(24, 8), $7::NUMERIC(24, 8), $8::NUMERIC(30, 6), $9::INTEGER, $10::TIMESTAMP WITH TIME ZONE, $11::BIGINT, $12::TIMESTAMP WITH TIME ZONE, $13::BIGINT, $14::INTEGER, $15::TIMESTAMP WITH TIME ZONE), ($16::INTEGER, $17::VARCHAR, $18::TIMESTAMP WITH TIME ZONE, $19::NUMERIC(24, 8), $20::NUMERIC(24, 8), $21::NUMERIC(24, 8), $22::NUMERIC(24, 8), $23::NUMERIC(30, 6), $24::INTEGER, $25::TIMESTAMP WITH TIME ZONE, $26::BIGINT, $27::TIMESTAMP WITH TIME ZONE, $28::BIGINT, $29::INTEGER, $30::TIMESTAMP WITH TIME ZONE), ($31::INTEGER, $32::VARCHAR, $33::TIMESTAMP WITH TIME ZONE, $34::NUMERIC(24, 8), $35::NUMERIC(24, 8), $36::NUMERIC(24, 8), $37::NUMERIC(24, 8), $38::NUMERIC(30, 6), $39::INTEGER, $40::TIMESTAMP WITH TIME ZONE, $41::BIGINT, $42::TIMESTAMP WITH TIME ZONE, $43::BIGINT, $44::INTEGER, $45::TIMESTAMP WITH TIME ZONE), ($46::INTEGER, $47::VARCHAR, $48::TIMESTAMP WITH TIME ZONE, $49::NUMERIC(24, 8), $50::NUMERIC(24, 8), $51::NUMERIC(24, 8), $52::NUMERIC(24, 8), $53::NUMERIC(30, 6), $54::INTEGER, $55::TIMESTAMP WITH TIME ZONE, $56::BIGINT, $57::TIMESTAMP WITH TIME ZONE, $58::BIGINT, $59::INTEGER, $60::TIMESTAMP WITH TIME ZONE), ($61::INTEGER, $62::VARCHAR, $63::TIMESTAMP WITH TIME ZONE, $64::NUMERIC(24, 8), $65::NUMERIC(24, 8), $66::NUMERIC(24, 8), $67::NUMERIC(24, 8), $68::NUMERIC(30, 6), $69::INTEGER, $70::TIMESTAMP WITH TIME ZONE, $71::BIGINT, $72::TIMESTAMP WITH TIME ZONE, $73::BIGINT, $74::INTEGER, $75::TIMESTAMP WITH TIME ZONE) ON CONFLICT (pair_id, interval, bucket_start) DO UPDATE SET open_price = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.open_price ELSE fx_candle.open_price END, high_price = greatest(fx_candle.high_price, excluded.high_price), low_price = least(fx_candle.low_price, excluded.low_price), close_price = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.close_price ELSE fx_candle.close_price END, gold_volume = (fx_candle.gold_volume + excluded.gold_volume), n_trades = (fx_candle.n_trades + excluded.n_trades), first_event_at = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_at ELSE fx_candle.first_event_at END, first_event_id = CASE WHEN (excluded.first_event_at < fx_candle.first_event_at OR excluded.first_event_at = fx_candle.first_event_at AND excluded.first_event_id < fx_candle.first_event_id) THEN excluded.first_event_id ELSE fx_candle.first_event_id END, last_event_at = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_at ELSE fx_candle.last_event_at END, last_event_id = CASE WHEN (fx_candle.last_event_at < excluded.last_event_at OR fx_candle.last_event_at = excluded.last_event_at AND fx_candle.last_event_id < excluded.last_event_id) THEN excluded.last_event_id ELSE fx_candle.last_event_id END, n_events = (fx_candle.n_events + excluded.n_events), updated_at = now()",
+    "count": 1,
+    "total_ms": 12.795621529221535
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "span": "outside_command",
+    "statement": "SELECT siteconfig.id, siteconfig.key, siteconfig.value, siteconfig.value_type, siteconfig.updated_at, siteconfig.updated_by FROM siteconfig WHERE siteconfig.key = $1::VARCHAR",
+    "count": 1,
+    "total_ms": 24.776728823781013
+  }
+]

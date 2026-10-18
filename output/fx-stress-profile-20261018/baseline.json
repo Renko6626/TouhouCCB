@@ -1,0 +1,4 @@
+{
+  "HEAD": "d88a9399ded066eb517d7eee5fba8b43fffd886a",
+  "status": " M backend/app/services/fx/net_trading.py\n M backend/app/services/loan_service.py\n M backend/tests/test_fx_net_trading.py\n M backend/tests/test_ledger_loan_service.py\n"
+}

@@ -1,4 +1,6 @@
 """Private bounded delivery and transaction rollback isolation."""
+import json
+from types import SimpleNamespace
 from decimal import Decimal
 import pytest
 from app.core.database import async_session_maker, managed_transaction
@@ -6,13 +8,20 @@ from app.models.base import User
 from app.services.account_events import AccountEvents, EVENTS, notifying_transaction
 from app.services.credit.version import bump_economic_version
 
+def decode_event(frame):
+    event, wire = frame
+    return event, json.loads(wire.split(b'data: ', 1)[1])
+
+
 @pytest.fixture
 def private_events():
     subscriptions = []
     def subscribe(user_id):
         sub = EVENTS.subscribe(user_id)
         subscriptions.append(sub)
-        return sub.queue
+        # Existing money-service tests assert decoded notification payloads.
+        return SimpleNamespace(get_nowait=lambda: decode_event(sub.queue.get_nowait()),
+                               empty=sub.queue.empty)
     yield subscribe
     for sub in subscriptions:
         EVENTS.unsubscribe(sub)
@@ -22,12 +31,21 @@ def test_private_bounded_independent_delivery():
     slow = broker.subscribe(1)
     fast = broker.subscribe(1)
     other = broker.subscribe(2)
+    peer = broker.subscribe(1)
     for i in range(65):
         broker.enqueue(1, i, 'trade')
-        event, payload = fast.queue.get_nowait()
+        frame = fast.queue.get_nowait()
+        assert isinstance(frame[1], bytes) and peer.queue.get_nowait()[1] is frame[1]
+        event, payload = decode_event(frame)
         assert event == 'account_changed' and payload['economic_version'] == str(i)
     assert slow.closed.is_set() and slow.queue.qsize() == 64
     assert not fast.closed.is_set() and other.queue.empty()
+    payload = {'reason': '成交', 'groups': [{'id': 1}]}
+    fast.offer('pricing', payload)
+    payload['groups'][0]['id'] = 2
+    frame = fast.queue.get_nowait()
+    assert frame[1] == b'event: pricing\ndata: {"reason":"\\u6210\\u4ea4","groups":[{"id":1}]}\n\n'
+    assert decode_event(frame)[1]['groups'] == [{'id': 1}]
     broker.close()
     assert not broker._subscribers
 

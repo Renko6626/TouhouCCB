@@ -1,0 +1,1129 @@
+{
+  "spec": {
+    "spreads": [
+      0.5,
+      1.0
+    ],
+    "population_seeds": [
+      301,
+      302,
+      303
+    ],
+    "market_seeds": [
+      71,
+      72,
+      73
+    ],
+    "ticks": 100000,
+    "burn_in": 5000,
+    "workers": 9
+  },
+  "config": {
+    "ticks": 100000,
+    "burn_in": 5000,
+    "seeds": [
+      71,
+      72,
+      73
+    ],
+    "tau": 1000,
+    "mean_arrivals": 1,
+    "psi": 0.0004,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 1000000,
+    "pool_foreign": 200000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 40,
+    "max_pool_fraction": 0.005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2
+  },
+  "populations": [
+    {
+      "id": "fixed",
+      "model": "fixed",
+      "population_seed": null,
+      "spread": 0,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 30.0,
+          "reversion": 0.1,
+          "sigma": 0.0005
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 3.0,
+          "reversion": 1.0,
+          "sigma": 0.0005
+        }
+      ]
+    },
+    {
+      "id": "s0.5-p301",
+      "model": "hetero_0.5",
+      "population_seed": 301,
+      "spread": 0.5,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 17.913518888324234,
+          "reversion": 0.10119209228027351,
+          "sigma": 0.000569813429152146
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 7.899907672330436,
+          "reversion": 1.438485354782471,
+          "sigma": 0.00010110286439266561
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 16.278237068962525,
+          "reversion": 0.10597949352332242,
+          "sigma": 0.00043175758922893665
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 1.8975991982859162,
+          "reversion": 0.35731604317690185,
+          "sigma": 0.0003600217264943343
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 33.24706334942914,
+          "reversion": 0.23124672816005565,
+          "sigma": 0.0002803317874422276
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 2.4660248668840548,
+          "reversion": 0.8645489168541043,
+          "sigma": 0.0002947736691695077
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 18.522033382042906,
+          "reversion": 0.09544204855220378,
+          "sigma": 0.0003993551058623593
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 3.0494428185206752,
+          "reversion": 1.267344369904603,
+          "sigma": 0.00033243609550886663
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 17.10214280823915,
+          "reversion": 0.05420358599213974,
+          "sigma": 0.0003401199765587704
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 2.157400328605347,
+          "reversion": 1.989770853335328,
+          "sigma": 0.00048532424770345744
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 32.24693216299397,
+          "reversion": 0.06541300764500237,
+          "sigma": 0.0005251725139063266
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 1.2527743507593965,
+          "reversion": 0.7296013249970555,
+          "sigma": 0.0009359465942607759
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 63.4065510597796,
+          "reversion": 0.039564874411857416,
+          "sigma": 0.00039263300304170435
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 2.2014784022962015,
+          "reversion": 1.3156041247901913,
+          "sigma": 0.0004331910825327732
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 9.743028382869824,
+          "reversion": 0.06722816887087571,
+          "sigma": 0.0006185145095743391
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 3.2367726646969013,
+          "reversion": 0.8317158902586842,
+          "sigma": 0.0005800794886922773
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 48.821040072217684,
+          "reversion": 0.0312319729513952,
+          "sigma": 0.0007374234384841209
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 4.467036248232671,
+          "reversion": 0.7827234792393819,
+          "sigma": 0.00039349407756994844
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 42.719452825140934,
+          "reversion": 0.20849802761287428,
+          "sigma": 0.0005280394487137237
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 1.3715634493883972,
+          "reversion": 0.42288964266127926,
+          "sigma": 0.0006101125507998467
+        }
+      ]
+    },
+    {
+      "id": "s0.5-p302",
+      "model": "hetero_0.5",
+      "population_seed": 302,
+      "spread": 0.5,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 26.092729425850408,
+          "reversion": 0.043678022171326346,
+          "sigma": 0.0005273462338640566
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 10.475058346910254,
+          "reversion": 0.4873609496096355,
+          "sigma": 0.0005822338468283621
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 25.656275773469318,
+          "reversion": 0.05619561925418459,
+          "sigma": 0.0002639754995719432
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 1.7845353821493857,
+          "reversion": 0.7803539181770052,
+          "sigma": 0.0004310511293709004
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 49.80206654866033,
+          "reversion": 0.13211961233446945,
+          "sigma": 0.00037170649213076623
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 1.166958492390244,
+          "reversion": 2.113399508176041,
+          "sigma": 0.0003519752098094322
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 21.129435473879063,
+          "reversion": 0.1278346725773669,
+          "sigma": 0.0004359217236006109
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 2.4537421149077203,
+          "reversion": 0.7890067377864701,
+          "sigma": 0.0003109904979841218
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 12.26260822537181,
+          "reversion": 0.08002143749671663,
+          "sigma": 0.00034267451194342743
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 3.099941002162362,
+          "reversion": 1.8611147336369311,
+          "sigma": 0.0007990098889337064
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 57.39937111731015,
+          "reversion": 0.03661682878650021,
+          "sigma": 0.00045853566583943175
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 1.2400143824697814,
+          "reversion": 1.2596684132443898,
+          "sigma": 0.00040676347733848556
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 44.74229941421742,
+          "reversion": 0.08782577280764359,
+          "sigma": 0.00024240394117072502
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 3.0059369623900762,
+          "reversion": 0.6597106837550301,
+          "sigma": 0.0005394275623657194
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 10.279609962804667,
+          "reversion": 0.16465582177078286,
+          "sigma": 0.00037772488955341386
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 0.9779964727110464,
+          "reversion": 0.4659519516625821,
+          "sigma": 0.0004336794382006782
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 31.112457231602658,
+          "reversion": 0.19520594480795372,
+          "sigma": 0.0007471293907075218
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 3.682743350359483,
+          "reversion": 0.7052826699899358,
+          "sigma": 0.00037031103022565565
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 21.523146826834193,
+          "reversion": 0.07584626799305565,
+          "sigma": 0.0008583184447111355
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 2.11307349354964,
+          "reversion": 0.8781504339619783,
+          "sigma": 0.000578388705753923
+        }
+      ]
+    },
+    {
+      "id": "s0.5-p303",
+      "model": "hetero_0.5",
+      "population_seed": 303,
+      "spread": 0.5,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 29.465651824469592,
+          "reversion": 0.09603440441891903,
+          "sigma": 0.000590677595661735
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 1.4374744247599973,
+          "reversion": 2.228460834688177,
+          "sigma": 0.0004903428066989075
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 20.468077529318567,
+          "reversion": 0.06385753260905526,
+          "sigma": 0.0007195305425377794
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 1.703057672690775,
+          "reversion": 0.8716396071944895,
+          "sigma": 0.0005605462023006055
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 26.688011873337754,
+          "reversion": 0.11369848566051462,
+          "sigma": 0.00033202426299372857
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 2.8324115907944516,
+          "reversion": 0.7538001229193463,
+          "sigma": 0.00044008750487418155
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 36.099014910643966,
+          "reversion": 0.10027629279967772,
+          "sigma": 0.0009049813387171028
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 2.675839684762507,
+          "reversion": 0.621648312960341,
+          "sigma": 0.0005495477482388759
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 19.524937694634026,
+          "reversion": 0.12623818173574658,
+          "sigma": 0.0002984684721872226
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 1.0487923605871985,
+          "reversion": 1.3362346851887374,
+          "sigma": 0.00029597427453970847
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 53.68758486458595,
+          "reversion": 0.049290800399304294,
+          "sigma": 0.0002761741220550069
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 7.494839411361274,
+          "reversion": 0.6276283700814139,
+          "sigma": 0.0001752276737839724
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 35.94322626812999,
+          "reversion": 0.1262347972031046,
+          "sigma": 0.0002782150599312585
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 2.3438884230601436,
+          "reversion": 0.9072213259871841,
+          "sigma": 0.0007640408171797887
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 25.14403820080815,
+          "reversion": 0.10856119947356394,
+          "sigma": 0.0003804324248648349
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 3.236808911621578,
+          "reversion": 0.4876657097616618,
+          "sigma": 0.0006991994035326631
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 14.924194271103971,
+          "reversion": 0.09786820556528449,
+          "sigma": 0.0005328482164881474
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 3.859152439162086,
+          "reversion": 1.5386744898289375,
+          "sigma": 0.00041817341105282826
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 38.05526256296796,
+          "reversion": 0.11794010013482961,
+          "sigma": 0.00018091212186449113
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 3.3677350811999918,
+          "reversion": 0.6270265413897106,
+          "sigma": 0.00028958498007736417
+        }
+      ]
+    },
+    {
+      "id": "s1-p301",
+      "model": "hetero_1",
+      "population_seed": 301,
+      "spread": 1.0,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 8.234798779592532,
+          "reversion": 0.07221097016963142,
+          "sigma": 0.000572254736374794
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 15.005368378038067,
+          "reversion": 1.6883369734719593,
+          "sigma": 1.4938692432273837e-05
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 6.79995310461484,
+          "reversion": 0.07920520238553225,
+          "sigma": 0.00032855190943226556
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 0.8657880891564456,
+          "reversion": 0.10417254493557616,
+          "sigma": 0.00018942752562058933
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 28.36597797510169,
+          "reversion": 0.3771040721500271,
+          "sigma": 0.00013850604477263833
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 1.4621688708570875,
+          "reversion": 0.6098561166438483,
+          "sigma": 0.0001269881044409987
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 8.803766283866109,
+          "reversion": 0.06423763352406367,
+          "sigma": 0.00028108813758530695
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 2.235854914897627,
+          "reversion": 1.3105014977672633,
+          "sigma": 0.0001615109648467795
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 7.5057178855417535,
+          "reversion": 0.020718870102194403,
+          "sigma": 0.00020388642748672396
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 1.119087671989566,
+          "reversion": 3.2303856455559545,
+          "sigma": 0.0003442307363948996
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 26.685047948752352,
+          "reversion": 0.030174373721599736,
+          "sigma": 0.00048610267580589787
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 0.3773534601285534,
+          "reversion": 0.4343296420180767,
+          "sigma": 0.001280229418026109
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 103.17142786061851,
+          "reversion": 0.011038996907307351,
+          "sigma": 0.000271705005121529
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 1.1652832093870478,
+          "reversion": 1.4122080892447801,
+          "sigma": 0.0002742487656803016
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 2.4360102701767676,
+          "reversion": 0.03187224045779735,
+          "sigma": 0.0006742544468952103
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 2.5189933783708245,
+          "reversion": 0.5644146005950922,
+          "sigma": 0.0004917684747965548
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 61.1653174518216,
+          "reversion": 0.006878739586751304,
+          "sigma": 0.0009584245060764243
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 4.797793852721078,
+          "reversion": 0.4998790835121927,
+          "sigma": 0.00022628828257235847
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 46.83198243991382,
+          "reversion": 0.3065589009950954,
+          "sigma": 0.0004914244646153101
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 0.4523081744537012,
+          "reversion": 0.1459158062552556,
+          "sigma": 0.0005440083729149102
+        }
+      ]
+    },
+    {
+      "id": "s1-p302",
+      "model": "hetero_1",
+      "population_seed": 302,
+      "spread": 1.0,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 18.15611367035646,
+          "reversion": 0.015226811444175937,
+          "sigma": 0.0004243797563842999
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 20.643308147683637,
+          "reversion": 0.18402648172678113,
+          "sigma": 0.0005780319485640029
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 17.55379821234001,
+          "reversion": 0.025205073236971895,
+          "sigma": 0.0001063384198397959
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 0.5991240045033223,
+          "reversion": 0.4718045209970159,
+          "sigma": 0.0003168214086486495
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 66.14219450321293,
+          "reversion": 0.13932133344382747,
+          "sigma": 0.00021084497472200083
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 0.2561988711139443,
+          "reversion": 3.460525641071198,
+          "sigma": 0.000211242402891174
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 11.905829514532172,
+          "reversion": 0.13043086301180898,
+          "sigma": 0.0002899879726473252
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 1.1327243277639574,
+          "reversion": 0.48232557568147394,
+          "sigma": 0.00016491159250028344
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 4.010048065081573,
+          "reversion": 0.051108806395019295,
+          "sigma": 0.00017919528051883827
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 1.8078951968307897,
+          "reversion": 2.683645595618179,
+          "sigma": 0.0010885822654569067
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 87.86140419887326,
+          "reversion": 0.010701496153983369,
+          "sigma": 0.0003208552906699398
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 0.28928095255602165,
+          "reversion": 1.2293947274652313,
+          "sigma": 0.00028212453010440007
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 53.385150457691765,
+          "reversion": 0.06156402430571534,
+          "sigma": 8.966899759839033e-05
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 1.6999107938290967,
+          "reversion": 0.3371987082309221,
+          "sigma": 0.0004961616720126294
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 2.8179750574979807,
+          "reversion": 0.21639001774887953,
+          "sigma": 0.00021772794191021085
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 0.17994549189794296,
+          "reversion": 0.16821361253242295,
+          "sigma": 0.0003206967873784564
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 25.813833038368486,
+          "reversion": 0.3041369036039352,
+          "sigma": 0.0008518332808635197
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 2.5515806621009123,
+          "reversion": 0.38539430495725907,
+          "sigma": 0.0002338246228952227
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 12.353653282045386,
+          "reversion": 0.04591467065568311,
+          "sigma": 0.0011242421202192034
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 0.8400315517203787,
+          "reversion": 0.5974708317195188,
+          "sigma": 0.0005704223765822372
+        }
+      ]
+    },
+    {
+      "id": "s1-p303",
+      "model": "hetero_1",
+      "population_seed": 303,
+      "spread": 1.0,
+      "profiles": [
+        {
+          "account": 0,
+          "type": 0,
+          "trend": 25.633505467532412,
+          "reversion": 0.08712281105862185,
+          "sigma": 0.0005046365352746037
+        },
+        {
+          "account": 1,
+          "type": 1,
+          "trend": 0.5181920076872446,
+          "reversion": 3.915987279828349,
+          "sigma": 0.00039824313848204024
+        },
+        {
+          "account": 2,
+          "type": 0,
+          "trend": 12.368869360999382,
+          "reversion": 0.038521434607950794,
+          "sigma": 0.0007488178012590406
+        },
+        {
+          "account": 3,
+          "type": 1,
+          "trend": 0.727359587528051,
+          "reversion": 0.5991080754868962,
+          "sigma": 0.000520441013337983
+        },
+        {
+          "account": 4,
+          "type": 0,
+          "trend": 21.028502200485228,
+          "reversion": 0.12212021094662427,
+          "sigma": 0.0001594473610263307
+        },
+        {
+          "account": 5,
+          "type": 1,
+          "trend": 2.0118851411302594,
+          "reversion": 0.4480677318741333,
+          "sigma": 0.0003207943870686264
+        },
+        {
+          "account": 6,
+          "type": 0,
+          "trend": 38.47393416558015,
+          "reversion": 0.09498930816068363,
+          "sigma": 0.001184559665606128
+        },
+        {
+          "account": 7,
+          "type": 1,
+          "trend": 1.7956043052000474,
+          "reversion": 0.30473390694862734,
+          "sigma": 0.0005002182701916388
+        },
+        {
+          "account": 8,
+          "type": 0,
+          "trend": 11.255251641736708,
+          "reversion": 0.15054268103176946,
+          "sigma": 0.00012884709105338537
+        },
+        {
+          "account": 9,
+          "type": 1,
+          "trend": 0.2758477766361358,
+          "reversion": 1.407980831846777,
+          "sigma": 0.00014509639227701585
+        },
+        {
+          "account": 10,
+          "type": 0,
+          "trend": 85.09883825096725,
+          "reversion": 0.022951439312410407,
+          "sigma": 0.00011031730843099845
+        },
+        {
+          "account": 11,
+          "type": 1,
+          "trend": 14.086889922552478,
+          "reversion": 0.3106249911142358,
+          "sigma": 5.0857390862612104e-05
+        },
+        {
+          "account": 12,
+          "type": 0,
+          "trend": 38.14257506412923,
+          "reversion": 0.1505346088339493,
+          "sigma": 0.00011195383185425608
+        },
+        {
+          "account": 13,
+          "type": 1,
+          "trend": 1.377730666035348,
+          "reversion": 0.6490195248493167,
+          "sigma": 0.0009669005460172398
+        },
+        {
+          "account": 14,
+          "type": 0,
+          "trend": 18.665771779750127,
+          "reversion": 0.11133390735539626,
+          "sigma": 0.00020933061238327392
+        },
+        {
+          "account": 15,
+          "type": 1,
+          "trend": 2.627390223274475,
+          "reversion": 0.1875321356176294,
+          "sigma": 0.0008097496760610627
+        },
+        {
+          "account": 16,
+          "type": 0,
+          "trend": 6.575937597437453,
+          "reversion": 0.09048184258337731,
+          "sigma": 0.0004106621967475652
+        },
+        {
+          "account": 17,
+          "type": 1,
+          "trend": 3.7348599817404855,
+          "reversion": 1.8669159582052035,
+          "sigma": 0.0002896419851669929
+        },
+        {
+          "account": 18,
+          "type": 0,
+          "trend": 42.75681447138209,
+          "reversion": 0.1314017561092169,
+          "sigma": 4.733834034832594e-05
+        },
+        {
+          "account": 19,
+          "type": 1,
+          "trend": 2.844240388215475,
+          "reversion": 0.310029564228832,
+          "sigma": 0.00013889952153045933
+        }
+      ]
+    },
+    {
+      "id": "v1",
+      "model": "activity_v1",
+      "population_seed": null,
+      "spread": null,
+      "profiles": null
+    }
+  ],
+  "source_sha256": {
+    "research/fx/activity/run.py": "b32ab92102efc5dbe560e9fc032b50d1286e0475b73f071a2b5c3e20aab2f7ac",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/common/__init__.py": "2dfe33b532aba5a05b60654c1ce20caa2722a13195b1d7368bf1735334e4bf0a",
+    "research/fx/common/amm.py": "9b92fdc0fcd741a3a74ca9249c62af58e4bdfb739d12e64bd116dda3b45f40d0",
+    "research/fx/common/analysis.py": "c512e21d4254ea266fc43478edd28a6dd5f06c9c8b34ae4db43a4c960de14df8",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/common/diagnostics.py": "2db57539c108644845767de2fe4dd49bde4682a4c2ee945c179c0bfa323b4e55",
+    "research/fx/common/execution.py": "d424108e01b8202e49f05013a9f33f9de94a223f46b148f1f5b0c6f847ee331d",
+    "research/fx/common/reporting.py": "c97bfe6d13d635d304f55f965fe1dfc141bd4a137cc8a05fcd475d165fea8fcf",
+    "research/fx/common/scaling.py": "ff0eed69f28ce8c4f6422f84214af347a0bdfa89c6e616bc9aee191d7823c547",
+    "research/fx/common/series.py": "c2e6fc29baeca3c0c4defd24cf1b1089c1fa23dd5eef525415df4e6415b66f71",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008",
+    "backend/app/services/fx/quantize.py": "fc00ed13ac71d67e3d3ea8115682fe2ffcc88d7e256807b0d372ca79615074be",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/factor_activity/run.py": "dce413b29f388236ae70d7ee4968ef80414bbf900275b8b5ff987a2d6d5f6e1a",
+    "research/fx/factor_activity/config.json": "bc4e0f96135d5ece607a9f896d2cf7b7423e21ebebfbd37f094db8e5f294aa5c",
+    "research/fx/archive/2026-10-15/expectation.py": "859d462cb0d1b78a1f2baba97ec4c6eb55f19268bb7df6d270454d57207107b7",
+    "research/fx/archive/2026-10-15/position.py": "cb91b6e6962aa38ec6f17215126f8f5840362464d105418ae1d27be0b6ad8efe",
+    "research/fx/archive/2026-10-15/configs/baseline.json": "c077ea45692ed5ef54e110d89dff7ce4cc22c1401193808d1faea495230c217e",
+    "research/fx/factor_activity/grid.py": "99ee95a1e83480c286d9a3b1729262e00474bf3d18ad1b039817394ba2bb9ce5",
+    "research/fx/heterogeneous/run.py": "ca07224e18e675ecff20fd214afb58886a4f2d82f37a9fee9696f21110ee049d",
+    "research/fx/heterogeneous/profiles.py": "1543169973c57bbbb2b3afc31691d0c61079674ca702215e7f642fc5958deb7a",
+    "research/fx/heterogeneous/config.json": "48857c2d013b1d3d9241848e90758beeb5aee1085968a201c47a21887942bd09"
+  },
+  "frozen_files_verified": 124
+}

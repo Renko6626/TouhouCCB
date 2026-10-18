@@ -1,0 +1,11 @@
+{
+  "new_paths": 3,
+  "reused_paths": 3,
+  "finite_series": true,
+  "assets_conserved": true,
+  "nonnegative_wallets": true,
+  "wealth_and_trade_counts_verified": true,
+  "sources_unchanged": true,
+  "sizes_unchanged": true,
+  "signal_parameters_unchanged": true
+}

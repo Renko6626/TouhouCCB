@@ -1,0 +1,389 @@
+{
+  "control": {
+    "raw": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.5322,
+        "mean": -4.4907997558728993e-07,
+        "std": 0.0009589610674243007,
+        "skew": 0.01927162229630657,
+        "excess_kurtosis": 4.950363927995884
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.019593904298056526,
+          "2_10": -0.01703418966369839,
+          "11_30": -0.004962366145165206,
+          "31_180": -0.001154971344858974,
+          "101_300": 0.00021636639762803364,
+          "301_1000": 4.0547672089767306e-05,
+          "max_abs_1_100": 0.032358295674356774
+        },
+        "abs": {
+          "1_1": 0.031000040068089808,
+          "2_10": 0.021908500340886143,
+          "11_30": 0.010019675318186549,
+          "31_180": 0.0008570454097716429,
+          "101_300": -0.00038250961487097733,
+          "301_1000": -0.0006907836084481594,
+          "max_abs_1_100": 0.037469709570532375
+        },
+        "sq": {
+          "1_1": 0.03624759550816921,
+          "2_10": 0.015818195105224843,
+          "11_30": 0.009049603918597583,
+          "31_180": 0.0014317701304314213,
+          "101_300": -0.00014958284789381957,
+          "301_1000": -0.0007871313682574841,
+          "max_abs_1_100": 0.03960368461081446
+        }
+      }
+    },
+    "bot_only": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.5322,
+        "mean": -4.4907997558728993e-07,
+        "std": 0.0009589610674243007,
+        "skew": 0.01927162229630657,
+        "excess_kurtosis": 4.950363927995884
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.019593904298056526,
+          "2_10": -0.01703418966369839,
+          "11_30": -0.004962366145165206,
+          "31_180": -0.001154971344858974,
+          "101_300": 0.00021636639762803364,
+          "301_1000": 4.0547672089767306e-05,
+          "max_abs_1_100": 0.032358295674356774
+        },
+        "abs": {
+          "1_1": 0.031000040068089808,
+          "2_10": 0.021908500340886143,
+          "11_30": 0.010019675318186549,
+          "31_180": 0.0008570454097716429,
+          "101_300": -0.00038250961487097733,
+          "301_1000": -0.0006907836084481594,
+          "max_abs_1_100": 0.037469709570532375
+        },
+        "sq": {
+          "1_1": 0.03624759550816921,
+          "2_10": 0.015818195105224843,
+          "11_30": 0.009049603918597583,
+          "31_180": 0.0014317701304314213,
+          "101_300": -0.00014958284789381957,
+          "301_1000": -0.0007871313682574841,
+          "max_abs_1_100": 0.03960368461081446
+        }
+      }
+    },
+    "quiet_same_calendar_mask": {
+      "shape": {
+        "n": 9450,
+        "zero_fraction": 0.5324867724867725,
+        "mean": -1.1426064647732185e-06,
+        "std": 0.0009498973803700973,
+        "skew": 0.00510581696640269,
+        "excess_kurtosis": 5.0471012401047535
+      },
+      "acf": {
+        "signed": {
+          "lag1": -0.021334150647556328,
+          "mean_31_180": -0.000992979872432193
+        },
+        "abs": {
+          "lag1": 0.024313317449735503,
+          "mean_31_180": 0.0009063854657224829
+        },
+        "sq": {
+          "lag1": 0.028496484250680583,
+          "mean_31_180": 0.001512902938980036
+        }
+      },
+      "pair_counts_31_180_min_max": [
+        8721,
+        9140
+      ]
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.013811838739127865,
+      "p10": 0.009951236680081276,
+      "p90": 0.0188896450610178
+    },
+    "range30_no_event_tick": {
+      "windows": 46,
+      "median": 0.013439373275554724,
+      "p10": 0.009664022341444246,
+      "p90": 0.018748314746839648
+    },
+    "range30_no_event_or_first_10m": {
+      "windows": 43,
+      "median": 0.01347207044955559,
+      "p10": 0.009986128980142369,
+      "p90": 0.01900208811709905
+    },
+    "execution": {
+      "arrivals": 7755,
+      "trades": 6315,
+      "order_attempts": 6440,
+      "clipped_orders": 259,
+      "skipped_orders": 125,
+      "mean_intensity": 0.7833550259577025,
+      "max_intensity": 0.9809114928066319,
+      "max_arrivals": 6,
+      "clipped_per_attempt": 0.04021739130434782,
+      "executed_over_intended_abs": 0.9620312797080594,
+      "executed_abs_foreign": 584452.671096
+    },
+    "groups": {
+      "random": {
+        "trades": 3807,
+        "executed_volume_share": 0.619077682138899
+      },
+      "reversion": {
+        "trades": 1850,
+        "executed_volume_share": 0.1557543846677836
+      },
+      "factor": {
+        "trades": 658,
+        "executed_volume_share": 0.22516793319331735
+      }
+    },
+    "short_episodes": {
+      "opened": 330,
+      "completed": 328,
+      "unfinished": 2,
+      "unfinished_fraction": 0.006060606060606061,
+      "long_opened": 159,
+      "short_opened": 171,
+      "exits": {
+        "take_profit": 92,
+        "stop_loss": 157,
+        "trailing": 79
+      },
+      "mean_completed_holding": 112.48170731707317,
+      "median_completed_holding": 84.5,
+      "max_completed_holding": 534,
+      "realized_pnl": "-553.418046",
+      "unrealized_pnl": "-4.848023",
+      "post_burn_entries": 330,
+      "carry_in": 0,
+      "post_burn_completions": 328,
+      "longest_no_trade_ticks": 16,
+      "post_burn_longest_no_trade_ticks": 16,
+      "last_trade_tick": 9996,
+      "last_behavior_trade_tick": 9993,
+      "holding_minutes_mean": 18.746951219512194,
+      "holding_minutes_median": 14.083333333333334,
+      "holding_minutes_p90": 40.1,
+      "fraction_completed_5_15m": 0.38109756097560976
+    },
+    "wallets": {
+      "min_gold": 0.0,
+      "min_foreign": 0.0,
+      "min_marked_wealth": 9627.708864078173,
+      "max_individual_drawdown": 0.05081127473289726
+    },
+    "event_tick_fraction_of_sum_squared_returns": 0.0019671968723082227
+  },
+  "shock": {
+    "raw": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.4659,
+        "mean": -1.070411555815097e-05,
+        "std": 0.0018279353901117209,
+        "skew": -5.685864228115159,
+        "excess_kurtosis": 557.7974496737301
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.02883305594260767,
+          "2_10": -0.009728676650034032,
+          "11_30": -6.921979995843188e-05,
+          "31_180": -0.001301420707653327,
+          "101_300": 0.00021912505805988275,
+          "301_1000": -3.223983863183098e-05,
+          "max_abs_1_100": 0.02883305594260767
+        },
+        "abs": {
+          "1_1": 0.02776182713938091,
+          "2_10": 0.016800560136641905,
+          "11_30": 0.00782488920827375,
+          "31_180": 0.0019146078333705408,
+          "101_300": 0.00023552818565000555,
+          "301_1000": -0.00048083407734602,
+          "max_abs_1_100": 0.02924012084465513
+        },
+        "sq": {
+          "1_1": 0.0008804714709953256,
+          "2_10": 3.46094402562133e-05,
+          "11_30": -0.00063334896310672,
+          "31_180": -0.0009050234952356392,
+          "101_300": -0.0009540592595849802,
+          "301_1000": 0.00029918122172413117,
+          "max_abs_1_100": 0.0013944052396762212
+        }
+      }
+    },
+    "bot_only": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.4664,
+        "mean": 5.557954053756914e-07,
+        "std": 0.0009193314596230196,
+        "skew": 0.21675936679744626,
+        "excess_kurtosis": 4.515956147642269
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.013104939138965651,
+          "2_10": -0.005071866516675095,
+          "11_30": 0.0029493231960978855,
+          "31_180": -0.0007167636781631783,
+          "101_300": -0.00044917575190637983,
+          "301_1000": -0.00018290992496557967,
+          "max_abs_1_100": 0.035793275334144316
+        },
+        "abs": {
+          "1_1": 0.04060462320019519,
+          "2_10": 0.03605775119870838,
+          "11_30": 0.024508905705405187,
+          "31_180": 0.012448717488010061,
+          "101_300": 0.00788181123175586,
+          "301_1000": -0.0018282590460609331,
+          "max_abs_1_100": 0.044598505415993736
+        },
+        "sq": {
+          "1_1": 0.03553845213159501,
+          "2_10": 0.032575759368526164,
+          "11_30": 0.02087611881234422,
+          "31_180": 0.007061839571121305,
+          "101_300": 0.004481212508710573,
+          "301_1000": -0.0006851315895898077,
+          "max_abs_1_100": 0.0529301942726932
+        }
+      }
+    },
+    "quiet_same_calendar_mask": {
+      "shape": {
+        "n": 9450,
+        "zero_fraction": 0.4731216931216931,
+        "mean": 8.272458653788035e-07,
+        "std": 0.0008859162734079321,
+        "skew": 0.275461286560219,
+        "excess_kurtosis": 4.357712570254689
+      },
+      "acf": {
+        "signed": {
+          "lag1": -0.012968307772418705,
+          "mean_31_180": -0.001133023211754229
+        },
+        "abs": {
+          "lag1": 0.030761468981090178,
+          "mean_31_180": 0.013791548104876311
+        },
+        "sq": {
+          "lag1": 0.020810086516921223,
+          "mean_31_180": 0.009924414883632006
+        }
+      },
+      "pair_counts_31_180_min_max": [
+        8721,
+        9140
+      ]
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.01487288871495689,
+      "p10": 0.009214796687294557,
+      "p90": 0.05347971938978294
+    },
+    "range30_no_event_tick": {
+      "windows": 46,
+      "median": 0.013799590788932593,
+      "p10": 0.00874641200258731,
+      "p90": 0.024052929312368097
+    },
+    "range30_no_event_or_first_10m": {
+      "windows": 43,
+      "median": 0.013606384531914975,
+      "p10": 0.008540177564171046,
+      "p90": 0.02169081407490688
+    },
+    "execution": {
+      "arrivals": 9846,
+      "trades": 7965,
+      "order_attempts": 8128,
+      "clipped_orders": 340,
+      "skipped_orders": 163,
+      "mean_intensity": 0.986925963268528,
+      "max_intensity": 2.866011844899857,
+      "max_arrivals": 9,
+      "clipped_per_attempt": 0.041830708661417325,
+      "executed_over_intended_abs": 0.9589014218945952,
+      "executed_abs_foreign": 692213.4368680001
+    },
+    "groups": {
+      "random": {
+        "trades": 4809,
+        "executed_volume_share": 0.656934225549735
+      },
+      "reversion": {
+        "trades": 2349,
+        "executed_volume_share": 0.10990069645022925
+      },
+      "factor": {
+        "trades": 807,
+        "executed_volume_share": 0.23316507800003566
+      }
+    },
+    "short_episodes": {
+      "opened": 405,
+      "completed": 402,
+      "unfinished": 3,
+      "unfinished_fraction": 0.007407407407407408,
+      "long_opened": 202,
+      "short_opened": 203,
+      "exits": {
+        "take_profit": 139,
+        "stop_loss": 208,
+        "trailing": 55
+      },
+      "mean_completed_holding": 93.136815920398,
+      "median_completed_holding": 73.0,
+      "max_completed_holding": 500,
+      "realized_pnl": "-627.732909",
+      "unrealized_pnl": "130.720624",
+      "post_burn_entries": 405,
+      "carry_in": 0,
+      "post_burn_completions": 402,
+      "longest_no_trade_ticks": 16,
+      "post_burn_longest_no_trade_ticks": 16,
+      "last_trade_tick": 9999,
+      "last_behavior_trade_tick": 9995,
+      "holding_minutes_mean": 15.522802653399667,
+      "holding_minutes_median": 12.166666666666666,
+      "holding_minutes_p90": 30.31666666666667,
+      "fraction_completed_5_15m": 0.42786069651741293
+    },
+    "wallets": {
+      "min_gold": 0.0,
+      "min_foreign": 0.0,
+      "min_marked_wealth": 8962.51701642754,
+      "max_individual_drawdown": 0.14347762076948334
+    },
+    "event_tick_fraction_of_sum_squared_returns": 0.7471713361314659
+  },
+  "sources_sha256": {
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/manifest.json": "6dc91e693044a2a7c1bf352190bba32d8f5d9bfc881b69b6d91f07b86e8704c7",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/summary.json": "111e612e009499e56d8f84efc65720ed77deebccb309ea2f8e8f01613f0b8478",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/control.npz": "3850caaa280a7589b8a52deda5a31cc45a0c4b8cb8d466fcc550872a54a44b22",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/control-episodes.json": "e3ff1f71e8f14bebd2e2eb75d9c112175f03acf411558f5430de5405e747bfec",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/shock.npz": "bb5d14a6bc47b9107121b7e1f7a8227e232bd8b375f54122e75f789d0bfe3a66",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/shock-episodes.json": "3431919e23655ecaf69c62b02ab87ae00e3755769c9abe128e4d477143c6b09b"
+  },
+  "analysis_source_sha256": "8b9946b752f68d50080222f6eec491c17b073729ba744759d7c561c23a91bd86"
+}

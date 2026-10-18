@@ -1,0 +1,863 @@
+{"t": 2.02, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 2.55, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 3.06, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 3.58, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 4.11, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 4.63, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 5.15, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 5.67, "rows": [["idle", "Client", "ClientRead", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 6.2, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 6.71, "rows": [["idle", "Client", "ClientRead", 2]]}
+{"t": 7.28, "rows": [["idle", "Client", "ClientRead", 2], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 7.81, "rows": [["idle", "Client", "ClientRead", 3]]}
+{"t": 8.33, "rows": [["idle", "Client", "ClientRead", 3]]}
+{"t": 8.87, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 9.39, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 9.91, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 10.43, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 10.95, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 11.47, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 11.99, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 12.53, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 13.05, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 13.57, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 14.1, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 14.62, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 15.15, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 15.67, "rows": [["idle", "Client", "ClientRead", 5], ["active", "Client", "ClientRead", 1]]}
+{"t": 16.19, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 16.72, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 17.24, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 17.76, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 18.28, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 18.81, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 19.33, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 19.85, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 20.37, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 20.9, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 21.42, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 21.94, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 22.47, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 23.0, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 23.52, "rows": [["idle", "Client", "ClientRead", 6]]}
+{"t": 24.04, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 24.57, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 25.09, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 25.61, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 26.13, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 26.66, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 27.18, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 27.7, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 28.22, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 28.75, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 29.29, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 29.82, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 30.35, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 30.88, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 31.41, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 31.94, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 32.46, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 32.98, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 33.5, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 34.05, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 34.57, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 35.13, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 35.65, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 36.18, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 36.7, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 37.22, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 37.76, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 38.28, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 38.84, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "-", "-", 1]]}
+{"t": 39.36, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 39.92, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 40.44, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 40.97, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 41.49, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 42.03, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 42.56, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 43.08, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 43.62, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 44.14, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 44.68, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "-", "-", 1]]}
+{"t": 45.2, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 45.76, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 46.28, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 46.81, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 47.33, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 47.86, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 48.42, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 48.96, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "-", "-", 1]]}
+{"t": 49.5, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 50.03, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 50.56, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 51.09, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 51.62, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 52.15, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 52.67, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 53.21, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 53.74, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 54.27, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 54.8, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 55.34, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 55.86, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 56.4, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 56.92, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 57.45, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 57.97, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 58.49, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 59.05, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 59.57, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 60.14, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 60.7, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 61.24, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 61.76, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 62.3, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 62.83, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 63.35, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 63.89, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 64.43, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 64.99, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 65.53, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 66.09, "rows": [["idle", "Client", "ClientRead", 4], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 66.61, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 67.18, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 67.71, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 68.26, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 68.8, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 69.36, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 69.89, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 70.45, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 71.03, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 71.58, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 72.16, "rows": [["idle", "Client", "ClientRead", 6], ["active", "IO", "WALSync", 1]]}
+{"t": 72.7, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 73.28, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 73.81, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 74.38, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 74.94, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 75.49, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 76.06, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 76.6, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 77.19, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 77.73, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 78.3, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 78.86, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 79.46, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 79.99, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 80.57, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 81.12, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 81.68, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 82.26, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 82.81, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 83.39, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "-", "-", 1]]}
+{"t": 83.94, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 84.52, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 85.08, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 85.66, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 86.22, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 86.8, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 87.36, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 87.93, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 88.51, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 89.07, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 89.65, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 90.17, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 90.74, "rows": [["idle", "Client", "ClientRead", 5], ["active", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 91.27, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 91.83, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 92.35, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 92.9, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 93.45, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 94.02, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 94.6, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 95.16, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 95.69, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 96.21, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 96.73, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 97.26, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 97.8, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 98.32, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 98.84, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 99.38, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 99.91, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 100.45, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 101.03, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 101.55, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 102.08, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 102.61, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 103.15, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 103.96, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 104.49, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 105.08, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 105.6, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 106.14, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 106.66, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 107.2, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 107.75, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 108.34, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 108.86, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 109.4, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 109.93, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 110.48, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 111.04, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 111.57, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 112.1, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 112.64, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 113.19, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 113.78, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 114.36, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 114.88, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 115.4, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 115.93, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 116.47, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 117.0, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 117.52, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 118.06, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 118.61, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 119.14, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 119.66, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 120.2, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 120.82, "rows": [["idle", "Client", "ClientRead", 5], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 121.41, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 121.98, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 122.58, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 123.1, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 123.65, "rows": [["idle", "Client", "ClientRead", 5], ["active", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 124.18, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 124.77, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 125.35, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 125.89, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 126.41, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 126.94, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 127.54, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 128.12, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 128.66, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "-", "-", 1]]}
+{"t": 129.19, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 129.73, "rows": [["idle", "Client", "ClientRead", 7]]}
+{"t": 130.37, "rows": [["idle", "Client", "ClientRead", 6], ["active", "-", "-", 1]]}
+{"t": 131.05, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 131.64, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 132.23, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 132.81, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 133.46, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 134.12, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 134.73, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 2], ["active", "-", "-", 1]]}
+{"t": 135.47, "rows": [["idle", "Client", "ClientRead", 9], ["active", "Client", "ClientRead", 1]]}
+{"t": 136.08, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 136.71, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 137.41, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 138.06, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 138.72, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 139.37, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 139.99, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 140.83, "rows": [["idle", "Client", "ClientRead", 10], ["active", "Client", "ClientRead", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 141.42, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 141.98, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 142.61, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 143.24, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 143.88, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 144.52, "rows": [["idle", "Client", "ClientRead", 10], ["active", "Client", "ClientRead", 1]]}
+{"t": 145.14, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 145.8, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 5]]}
+{"t": 146.42, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 147.09, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 147.7, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 148.38, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 148.98, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 149.61, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 150.28, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 150.93, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 151.56, "rows": [["idle", "Client", "ClientRead", 9], ["idle", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 152.2, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 152.87, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 153.53, "rows": [["idle", "Client", "ClientRead", 9], ["active", "Client", "ClientRead", 1], ["idle in transaction", "-", "-", 1]]}
+{"t": 154.15, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 154.79, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 155.47, "rows": [["idle", "Client", "ClientRead", 10], ["active", "IO", "WALSync", 1]]}
+{"t": 156.13, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 156.77, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 157.43, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 158.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 158.86, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 159.46, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "-", "-", 1]]}
+{"t": 160.28, "rows": [["idle", "Client", "ClientRead", 6], ["idle in transaction", "Client", "ClientRead", 5]]}
+{"t": 161.05, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2], ["active", "-", "-", 1]]}
+{"t": 161.74, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 162.39, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 163.04, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 2], ["idle in transaction", "-", "-", 1]]}
+{"t": 163.62, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 164.19, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 164.81, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 165.47, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 166.1, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 166.72, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 167.36, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 168.01, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 168.64, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 169.24, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 169.89, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 170.51, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 171.16, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 171.72, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 172.29, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "-", "-", 1]]}
+{"t": 172.91, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 173.52, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 174.21, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 174.83, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 175.49, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 176.54, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 177.19, "rows": [["idle", "Client", "ClientRead", 9], ["active", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 177.83, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 178.49, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 179.14, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 3], ["idle in transaction", "-", "-", 1]]}
+{"t": 179.77, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 180.43, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 181.08, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 181.69, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 182.32, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 183.02, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 183.57, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 184.13, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 184.78, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 185.34, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 186.08, "rows": [["idle", "Client", "ClientRead", 9], ["active", "Client", "ClientRead", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 186.63, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 187.35, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 187.93, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 188.47, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 189.15, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 189.67, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 190.3, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 190.87, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 191.46, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 192.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 192.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 193.12, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 193.64, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 194.17, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 195.2, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 195.72, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 196.26, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 196.79, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 197.32, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 197.84, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 198.41, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 198.94, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 199.56, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 3]]}
+{"t": 200.08, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 200.69, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 201.26, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 201.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 202.46, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 203.04, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 203.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 204.19, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 204.7, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 205.23, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 205.76, "rows": [["idle", "Client", "ClientRead", 10], ["active", "Client", "ClientRead", 1]]}
+{"t": 206.3, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 206.88, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 207.45, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 208.05, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 208.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 209.17, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 209.69, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 210.21, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 210.74, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 211.26, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 211.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 212.42, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 212.98, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 213.5, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 214.02, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 214.55, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 215.1, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 215.67, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 216.23, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 216.75, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 217.29, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 217.81, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 218.33, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 218.88, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 219.43, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 219.96, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 220.48, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 221.0, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 221.53, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 222.06, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 222.63, "rows": [["idle", "Client", "ClientRead", 10], ["idle", "-", "-", 1]]}
+{"t": 223.18, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "-", "-", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 223.7, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 224.23, "rows": [["idle", "Client", "ClientRead", 10], ["idle", "-", "-", 1]]}
+{"t": 224.76, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 225.31, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 225.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 226.35, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 226.87, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 227.41, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 227.97, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 228.56, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2]]}
+{"t": 229.14, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 229.67, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 230.19, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 230.96, "rows": [["idle in transaction", "Client", "ClientRead", 8], ["idle", "Client", "ClientRead", 3]]}
+{"t": 231.79, "rows": [["idle in transaction", "Client", "ClientRead", 9], ["idle", "Client", "ClientRead", 4]]}
+{"t": 232.62, "rows": [["idle in transaction", "Client", "ClientRead", 7], ["idle", "Client", "ClientRead", 3], ["active", "Client", "ClientRead", 2], ["idle in transaction", "-", "-", 2], ["active", "Lock", "transactionid", 1]]}
+{"t": 233.42, "rows": [["idle", "Client", "ClientRead", 12], ["idle in transaction", "Client", "ClientRead", 5]]}
+{"t": 234.18, "rows": [["idle in transaction", "Client", "ClientRead", 10], ["idle", "Client", "ClientRead", 3], ["idle in transaction", "-", "-", 2], ["active", "-", "-", 1]]}
+{"t": 235.44, "rows": [["idle in transaction", "Client", "ClientRead", 13], ["idle", "Client", "ClientRead", 5], ["active", "-", "-", 1], ["active", "Client", "ClientRead", 1], ["idle in transaction", "-", "-", 1]]}
+{"t": 236.11, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 3], ["active", "Lock", "transactionid", 1]]}
+{"t": 237.01, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 8], ["active", "Client", "ClientRead", 3], ["active", "-", "-", 1], ["idle in transaction", "-", "-", 1]]}
+{"t": 237.78, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 3], ["active", "-", "-", 2], ["active", "Client", "ClientRead", 1]]}
+{"t": 238.43, "rows": [["idle", "Client", "ClientRead", 11], ["idle in transaction", "Client", "ClientRead", 4], ["active", "Lock", "transactionid", 1]]}
+{"t": 239.1, "rows": [["idle", "Client", "ClientRead", 12], ["idle in transaction", "Client", "ClientRead", 3], ["active", "Lock", "transactionid", 1]]}
+{"t": 239.89, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 6]]}
+{"t": 240.68, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 4], ["active", "Client", "ClientRead", 1]]}
+{"t": 241.36, "rows": [["idle", "Client", "ClientRead", 11], ["idle in transaction", "Client", "ClientRead", 4], ["active", "Lock", "transactionid", 1]]}
+{"t": 242.03, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 5], ["active", "Lock", "transactionid", 1]]}
+{"t": 242.76, "rows": [["idle", "Client", "ClientRead", 11], ["idle in transaction", "Client", "ClientRead", 3], ["active", "Client", "ClientRead", 1]]}
+{"t": 243.48, "rows": [["idle in transaction", "Client", "ClientRead", 9], ["idle", "Client", "ClientRead", 3], ["idle in transaction", "-", "-", 2], ["idle", "-", "-", 1]]}
+{"t": 244.27, "rows": [["idle", "Client", "ClientRead", 12], ["idle in transaction", "Client", "ClientRead", 2], ["active", "Client", "ClientRead", 1]]}
+{"t": 245.06, "rows": [["idle in transaction", "Client", "ClientRead", 10], ["idle", "Client", "ClientRead", 4]]}
+{"t": 245.86, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 5], ["active", "Lock", "transactionid", 1]]}
+{"t": 246.49, "rows": [["idle", "Client", "ClientRead", 11], ["idle in transaction", "Client", "ClientRead", 4]]}
+{"t": 247.11, "rows": [["idle", "Client", "ClientRead", 10], ["active", "Client", "ClientRead", 2], ["idle in transaction", "Client", "ClientRead", 2], ["active", "Lock", "transactionid", 1]]}
+{"t": 247.98, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 6], ["active", "Client", "ClientRead", 1], ["active", "Lock", "transactionid", 1]]}
+{"t": 248.72, "rows": [["idle", "Client", "ClientRead", 13], ["idle in transaction", "Client", "ClientRead", 2], ["active", "Client", "ClientRead", 1]]}
+{"t": 249.44, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2], ["active", "-", "-", 1], ["active", "Client", "ClientRead", 1]]}
+{"t": 250.22, "rows": [["idle in transaction", "Client", "ClientRead", 9], ["idle", "Client", "ClientRead", 4]]}
+{"t": 250.98, "rows": [["idle in transaction", "Client", "ClientRead", 9], ["idle", "Client", "ClientRead", 7], ["active", "Lock", "transactionid", 1]]}
+{"t": 251.9, "rows": [["idle in transaction", "Client", "ClientRead", 10], ["idle", "Client", "ClientRead", 9]]}
+{"t": 252.69, "rows": [["idle", "Client", "ClientRead", 7], ["idle in transaction", "Client", "ClientRead", 7]]}
+{"t": 253.29, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 3], ["active", "Client", "ClientRead", 1], ["active", "Lock", "transactionid", 1]]}
+{"t": 254.02, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 5]]}
+{"t": 254.59, "rows": [["idle", "Client", "ClientRead", 10], ["active", "Lock", "transactionid", 2], ["active", "-", "-", 1]]}
+{"t": 255.95, "rows": [["idle", "Client", "ClientRead", 13], ["idle in transaction", "Client", "ClientRead", 8], ["active", "Client", "ClientRead", 2]]}
+{"t": 256.75, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 6], ["active", "-", "-", 1], ["active", "Client", "ClientRead", 1], ["idle", "-", "-", 1]]}
+{"t": 257.49, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 5], ["active", "Client", "ClientRead", 1]]}
+{"t": 258.21, "rows": [["idle", "Client", "ClientRead", 8], ["idle in transaction", "Client", "ClientRead", 4], ["active", "Lock", "transactionid", 1]]}
+{"t": 258.83, "rows": [["idle in transaction", "Client", "ClientRead", 7], ["idle", "Client", "ClientRead", 5], ["active", "Client", "ClientRead", 1]]}
+{"t": 259.61, "rows": [["idle in transaction", "Client", "ClientRead", 8], ["idle", "Client", "ClientRead", 4], ["idle in transaction", "-", "-", 1]]}
+{"t": 260.31, "rows": [["idle", "Client", "ClientRead", 12], ["idle in transaction", "Client", "ClientRead", 4], ["active", "Lock", "transactionid", 1]]}
+{"t": 260.89, "rows": [["idle", "Client", "ClientRead", 11], ["active", "-", "-", 1]]}
+{"t": 261.5, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 3], ["active", "Lock", "transactionid", 1], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 262.07, "rows": [["idle", "Client", "ClientRead", 9], ["idle in transaction", "Client", "ClientRead", 2], ["active", "Client", "ClientRead", 1], ["active", "Lock", "transactionid", 1]]}
+{"t": 262.61, "rows": [["idle", "Client", "ClientRead", 8], ["active", "Client", "ClientRead", 1]]}
+{"t": 263.13, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 263.65, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 264.17, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 264.69, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 265.21, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 265.73, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 266.25, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 266.78, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 267.3, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 267.82, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 268.34, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 268.86, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 269.38, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 269.9, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 270.42, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 270.94, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 271.46, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 271.99, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 272.52, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 273.03, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 273.55, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 274.07, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 274.59, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 275.11, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 275.62, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 276.14, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 276.66, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 277.18, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 277.69, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 278.21, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 278.73, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 279.26, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 279.78, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 280.3, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 280.82, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 281.35, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 281.87, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 282.39, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 282.91, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 283.43, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 283.95, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 284.47, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 284.99, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 285.51, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 286.03, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 286.55, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 287.07, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 287.6, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 288.12, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 288.64, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 289.16, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 289.68, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 290.2, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 290.71, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 291.24, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 291.76, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 292.28, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 292.8, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 293.32, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 293.85, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 294.37, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 294.89, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 295.41, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 295.93, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 296.45, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 296.98, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 297.5, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 298.03, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 298.55, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 299.06, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 299.58, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 300.1, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 300.62, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 301.14, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 301.66, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 302.18, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 302.71, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 303.23, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 303.75, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 304.26, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 304.79, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 305.3, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 305.82, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 306.35, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 306.86, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 307.38, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 307.91, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 308.42, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 308.94, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 309.46, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 309.99, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 310.5, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 311.03, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 311.55, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 312.07, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 312.59, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 313.1, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 313.63, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 314.15, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 314.67, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 315.19, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 315.71, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 316.23, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 316.75, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 317.26, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 317.78, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 318.3, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 318.82, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 319.34, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 319.86, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 320.38, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 320.9, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 321.42, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 321.94, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 322.47, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 322.98, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 323.51, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 324.03, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 324.56, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 325.08, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 325.6, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 326.12, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 326.64, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 327.15, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 327.67, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 328.2, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 328.72, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 329.24, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 329.76, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 330.27, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 330.8, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 331.31, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 331.83, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 332.35, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 332.88, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 333.41, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 333.92, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 334.44, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 334.96, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 335.47, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 335.99, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 336.52, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 337.04, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 337.56, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 338.08, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 338.6, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 339.12, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 339.64, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 340.18, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 340.69, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 341.22, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 341.74, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 342.26, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 342.78, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 343.3, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 343.82, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 344.34, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 344.86, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 345.38, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 345.91, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 346.42, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 346.94, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 347.46, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 347.98, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 348.49, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 349.01, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 349.53, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 350.05, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 350.57, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 351.09, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 351.61, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 352.13, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 352.65, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 353.17, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 353.69, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 354.2, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 354.72, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 355.24, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 355.76, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 356.29, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 356.8, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 357.32, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 357.85, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 358.37, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 358.89, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 359.41, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 359.93, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 360.46, "rows": [["idle", "Client", "ClientRead", 10]]}
+{"t": 360.98, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 361.51, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 362.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 362.55, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 363.07, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 363.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 364.11, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 364.62, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 365.14, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 365.67, "rows": [["idle", "Client", "ClientRead", 10], ["idle in transaction", "Client", "ClientRead", 1]]}
+{"t": 366.19, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 366.71, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 367.23, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 367.76, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 368.28, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 368.8, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 369.31, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 369.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 370.35, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 370.87, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 371.39, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 371.91, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 372.43, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 372.95, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 373.47, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 373.99, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 374.51, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 375.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 375.54, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 376.06, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 376.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 377.1, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 377.62, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 378.14, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 378.66, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 379.17, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 379.7, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 380.21, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 380.74, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 381.26, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 381.77, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 382.29, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 382.81, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 383.33, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 383.85, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 384.38, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 384.89, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 385.41, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 385.94, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 386.46, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 386.98, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 387.5, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 388.02, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 388.54, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 389.06, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 389.58, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 390.1, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 390.62, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 391.16, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 391.69, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 392.21, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 392.73, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 393.25, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 393.77, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 394.29, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 394.81, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 395.33, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 395.85, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 396.37, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 396.89, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 397.41, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 397.93, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 398.45, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 398.97, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 399.49, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 400.01, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 400.53, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 401.05, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 401.57, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 402.09, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 402.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 403.13, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 403.65, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 404.17, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 404.69, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 405.2, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 405.73, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 406.24, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 406.76, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 407.28, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 407.8, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 408.31, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 408.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 409.35, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 409.87, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 410.39, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 410.91, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 411.43, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 411.96, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 412.48, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 412.99, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 413.52, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 414.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 414.55, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 415.07, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 415.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 416.11, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 416.63, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 417.15, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 417.66, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 418.18, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 418.7, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 419.22, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 419.74, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 420.26, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 420.78, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 421.3, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 421.82, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 422.34, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 422.86, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 423.38, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 423.89, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 424.41, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 424.93, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 425.45, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 425.97, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 426.49, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 427.01, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 427.53, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 428.05, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 428.57, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 429.09, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 429.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 430.13, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 430.65, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 431.17, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 431.69, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 432.21, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 432.73, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 433.25, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 433.77, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 434.29, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 434.81, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 435.33, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 435.85, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 436.36, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 436.88, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 437.4, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 437.92, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 438.44, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 438.96, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 439.47, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 439.99, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 440.51, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 441.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 441.55, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 442.07, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 442.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 443.11, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 443.63, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 444.15, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 444.67, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 445.19, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 445.71, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 446.23, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 446.75, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 447.28, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 447.8, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 448.32, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 448.84, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 449.37, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 449.88, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 450.41, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 450.93, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 451.45, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 451.97, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 452.49, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 453.01, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 453.53, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 454.05, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 454.57, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 455.09, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 455.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 456.13, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 456.65, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 457.16, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 457.68, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 458.2, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 458.72, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 459.24, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 459.76, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 460.28, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 460.8, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 461.31, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 461.83, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 462.35, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 462.87, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 463.39, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 463.91, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 464.43, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 464.95, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 465.47, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 465.99, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 466.51, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 467.03, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 467.55, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 468.07, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 468.59, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 469.11, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 469.63, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 470.15, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 470.68, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 471.2, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 471.72, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 472.24, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 472.76, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 473.28, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 473.8, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 474.33, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 474.85, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 475.36, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 475.88, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 476.41, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 476.92, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 477.44, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 477.96, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 478.48, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 479.0, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 479.51, "rows": [["idle", "Client", "ClientRead", 11]]}

@@ -1,0 +1,8 @@
+{
+  "selected": "rate2.5",
+  "eligible": [
+    "rate2.5",
+    "rate3"
+  ],
+  "rule": "Lowest tested rate with every exploratory seed average between6 and10; no independent holdout."
+}

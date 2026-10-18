@@ -1,0 +1,102 @@
+[
+  {
+    "random_count": 0,
+    "b": 0,
+    "exact_common_fields": [
+      "actual_flow",
+      "arrivals",
+      "cash_saturated",
+      "clipped_orders",
+      "executed_abs_quantity",
+      "foreign_saturated",
+      "gold",
+      "gold_volume",
+      "intensity",
+      "pool_foreign",
+      "prices",
+      "raw_abs_demand",
+      "raw_demand",
+      "returns",
+      "skipped_orders",
+      "trades",
+      "wallet_foreign_min",
+      "wallet_gold_min",
+      "z_pre"
+    ]
+  },
+  {
+    "random_count": 20,
+    "b": 0,
+    "exact_common_fields": [
+      "actual_flow",
+      "arrivals",
+      "cash_saturated",
+      "clipped_orders",
+      "executed_abs_quantity",
+      "foreign_saturated",
+      "gold",
+      "gold_volume",
+      "intensity",
+      "pool_foreign",
+      "prices",
+      "raw_abs_demand",
+      "raw_demand",
+      "returns",
+      "skipped_orders",
+      "trades",
+      "wallet_foreign_min",
+      "wallet_gold_min",
+      "z_pre"
+    ]
+  },
+  {
+    "random_count": 0,
+    "b": 0.25,
+    "exact_common_fields": [
+      "actual_flow",
+      "arrivals",
+      "cash_saturated",
+      "clipped_orders",
+      "executed_abs_quantity",
+      "foreign_saturated",
+      "gold",
+      "gold_volume",
+      "intensity",
+      "pool_foreign",
+      "prices",
+      "raw_abs_demand",
+      "raw_demand",
+      "returns",
+      "skipped_orders",
+      "trades",
+      "wallet_foreign_min",
+      "wallet_gold_min",
+      "z_pre"
+    ]
+  },
+  {
+    "random_count": 20,
+    "b": 0.25,
+    "exact_common_fields": [
+      "actual_flow",
+      "arrivals",
+      "cash_saturated",
+      "clipped_orders",
+      "executed_abs_quantity",
+      "foreign_saturated",
+      "gold",
+      "gold_volume",
+      "intensity",
+      "pool_foreign",
+      "prices",
+      "raw_abs_demand",
+      "raw_demand",
+      "returns",
+      "skipped_orders",
+      "trades",
+      "wallet_foreign_min",
+      "wallet_gold_min",
+      "z_pre"
+    ]
+  }
+]

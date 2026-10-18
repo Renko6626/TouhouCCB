@@ -1,0 +1,42 @@
+{
+  "a1.8_t1.5": [
+    {
+      "seed": 20261029,
+      "wave_amplitude": 1.9130535552071122,
+      "wave_duration": 1.5753424657534247,
+      "matched_horizon_range": 1.714477571186856
+    },
+    {
+      "seed": 20261030,
+      "wave_amplitude": 1.968913946889203,
+      "wave_duration": 1.6341463414634145,
+      "matched_horizon_range": 1.755673057219586
+    },
+    {
+      "seed": 20261031,
+      "wave_amplitude": 1.9046989490171407,
+      "wave_duration": 1.5057471264367814,
+      "matched_horizon_range": 1.8114988021031786
+    }
+  ],
+  "a1.8_t2": [
+    {
+      "seed": 20261029,
+      "wave_amplitude": 1.78730921960412,
+      "wave_duration": 3.0753424657534247,
+      "matched_horizon_range": 1.3164553422059422
+    },
+    {
+      "seed": 20261030,
+      "wave_amplitude": 1.8977069723309674,
+      "wave_duration": 2.25609756097561,
+      "matched_horizon_range": 1.7126823798459343
+    },
+    {
+      "seed": 20261031,
+      "wave_amplitude": 1.8809174679963812,
+      "wave_duration": 2.0,
+      "matched_horizon_range": 1.9573635733218595
+    }
+  ]
+}

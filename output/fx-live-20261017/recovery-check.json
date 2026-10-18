@@ -1,0 +1,20 @@
+{
+  "checked_at": "2026-10-17T09:24:53.746073+00:00",
+  "checks": [
+    {
+      "path": "/api/v1/fx/pairs",
+      "status": 200,
+      "latency_ms": 175.4,
+      "valid_json": true
+    },
+    {
+      "path": "/api/v1/market/list",
+      "status": 200,
+      "latency_ms": 84.4,
+      "valid_json": true
+    }
+  ],
+  "source_pair_8_restored": true,
+  "test_pair_9_absent": true,
+  "local_token_deleted": true
+}

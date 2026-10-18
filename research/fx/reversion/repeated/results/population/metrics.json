@@ -1,0 +1,749 @@
+{
+  "n20_control": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.5225,
+        "mean": -3.8260557603088457e-07,
+        "std": 0.0009429616818226014,
+        "skew": -0.05744145946423398,
+        "excess_kurtosis": 4.867759151893108
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.033144942565760026,
+          "2_10": -0.019508349396593603,
+          "11_30": -0.004162255326344296,
+          "31_180": -0.0009767654941363808,
+          "101_300": 7.753682317337449e-05,
+          "301_1000": 2.1832900288827815e-05,
+          "max_abs_1_100": 0.035038066275677605
+        },
+        "abs": {
+          "1_1": 0.024140653647813315,
+          "2_10": 0.025649277367003342,
+          "11_30": 0.010874799985050632,
+          "31_180": 0.0023294343428526144,
+          "101_300": -0.0003166818574545292,
+          "301_1000": -0.00038097789835496833,
+          "max_abs_1_100": 0.04958451838593008
+        },
+        "sq": {
+          "1_1": 0.010386142364621632,
+          "2_10": 0.01667734005729786,
+          "11_30": 0.009616288068783627,
+          "31_180": 0.0012236923332166253,
+          "101_300": 0.0001306149246070714,
+          "301_1000": -0.00016722216239965535,
+          "max_abs_1_100": 0.04997777837864413
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.013147958272981042,
+      "p10": 0.009021543629314501,
+      "p90": 0.017243073933345475
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.013147958272981042,
+      "p10": 0.009231346051576007,
+      "p90": 0.017108863123712317
+    },
+    "mean_intensity": 0.8124614753036598,
+    "max_intensity": 1.5529676444323446,
+    "max_arrivals": 5,
+    "trades": 6466,
+    "clipped_per_attempt": 0.04196969696969697,
+    "executed_over_intended": 0.9597987532407611,
+    "holding_median_minutes": 17.166666666666668,
+    "holding_mean_minutes": 21.115212527964207,
+    "short_realized_pnl": "-338.786255",
+    "unfinished": 5,
+    "final_price": 4.980906271326025,
+    "final_bot_wealth": 199621.77288972543,
+    "events": []
+  },
+  "n20_shock": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.432,
+        "mean": 1.241511021159556e-06,
+        "std": 0.0009937530148981999,
+        "skew": -0.12672172180751598,
+        "excess_kurtosis": 5.503969432909665
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.01712764305600951,
+          "2_10": -0.013929993206562559,
+          "11_30": 0.00238543703577603,
+          "31_180": 0.0006443836784801526,
+          "101_300": -0.0006809665989804287,
+          "301_1000": -0.0005174183993119881,
+          "max_abs_1_100": 0.03086140267951233
+        },
+        "abs": {
+          "1_1": 0.0938681518350827,
+          "2_10": 0.06036482349094728,
+          "11_30": 0.04621025671187505,
+          "31_180": 0.02311697334640432,
+          "101_300": 0.015524434257498438,
+          "301_1000": 0.0031882071081889363,
+          "max_abs_1_100": 0.0938681518350827
+        },
+        "sq": {
+          "1_1": 0.06360135428634543,
+          "2_10": 0.045690192285785296,
+          "11_30": 0.03316620981017892,
+          "31_180": 0.011964118454774918,
+          "101_300": 0.005835004899612774,
+          "301_1000": -0.00031607047253650076,
+          "max_abs_1_100": 0.06360135428634543
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.015554729678098313,
+      "p10": 0.009590450543848847,
+      "p90": 0.05269516166541768
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.014666998206669961,
+      "p10": 0.009524974611354431,
+      "p90": 0.019219115765977277
+    },
+    "mean_intensity": 1.1399942412386557,
+    "max_intensity": 5.807854673244988,
+    "max_arrivals": 10,
+    "trades": 9159,
+    "clipped_per_attempt": 0.04685665492581919,
+    "executed_over_intended": 0.9542418455999483,
+    "holding_median_minutes": 8.5,
+    "holding_mean_minutes": 13.488936473947179,
+    "short_realized_pnl": "-588.834005",
+    "unfinished": 3,
+    "final_price": 4.523354718936284,
+    "final_bot_wealth": 192076.2128308454,
+    "events": [
+      {
+        "tick": 1000,
+        "requested_return": 0.05,
+        "first_half_minutes": 3.6666666666666665,
+        "sustained_half_start_minutes": 4.5,
+        "retraced_10m": 0.6491597565023295,
+        "first10_mean_intensity": 1.4402903516115424,
+        "first10_arrivals": 11,
+        "first10_trades": 11,
+        "first10_distinct_traders": 9
+      },
+      {
+        "tick": 2000,
+        "requested_return": -0.05,
+        "first_half_minutes": 9.333333333333334,
+        "sustained_half_start_minutes": 9.333333333333334,
+        "retraced_10m": 0.48040620671186673,
+        "first10_mean_intensity": 1.6898837386648686,
+        "first10_arrivals": 10,
+        "first10_trades": 9,
+        "first10_distinct_traders": 8
+      },
+      {
+        "tick": 3000,
+        "requested_return": -0.05,
+        "first_half_minutes": 8.666666666666666,
+        "sustained_half_start_minutes": 8.666666666666666,
+        "retraced_10m": 0.5480260880196515,
+        "first10_mean_intensity": 3.012435277960141,
+        "first10_arrivals": 32,
+        "first10_trades": 29,
+        "first10_distinct_traders": 18
+      },
+      {
+        "tick": 4000,
+        "requested_return": 0.05,
+        "first_half_minutes": 10.666666666666666,
+        "sustained_half_start_minutes": 10.666666666666666,
+        "retraced_10m": 0.44014315977128465,
+        "first10_mean_intensity": 1.4338394617407677,
+        "first10_arrivals": 16,
+        "first10_trades": 14,
+        "first10_distinct_traders": 12
+      },
+      {
+        "tick": 5000,
+        "requested_return": 0.05,
+        "first_half_minutes": 32.166666666666664,
+        "sustained_half_start_minutes": 35.0,
+        "retraced_10m": -0.029708378865328882,
+        "first10_mean_intensity": 3.9615172464829547,
+        "first10_arrivals": 36,
+        "first10_trades": 34,
+        "first10_distinct_traders": 17
+      },
+      {
+        "tick": 6000,
+        "requested_return": -0.05,
+        "first_half_minutes": 19.666666666666668,
+        "sustained_half_start_minutes": 22.666666666666668,
+        "retraced_10m": 0.4616655033396242,
+        "first10_mean_intensity": 1.4465380600742375,
+        "first10_arrivals": 18,
+        "first10_trades": 18,
+        "first10_distinct_traders": 12
+      },
+      {
+        "tick": 7000,
+        "requested_return": -0.05,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "retraced_10m": 0.25731767160752167,
+        "first10_mean_intensity": 3.6523544994832853,
+        "first10_arrivals": 32,
+        "first10_trades": 27,
+        "first10_distinct_traders": 19
+      },
+      {
+        "tick": 8000,
+        "requested_return": -0.05,
+        "first_half_minutes": 32.5,
+        "sustained_half_start_minutes": 43.0,
+        "retraced_10m": 0.2601259027674059,
+        "first10_mean_intensity": 5.122609783240584,
+        "first10_arrivals": 55,
+        "first10_trades": 45,
+        "first10_distinct_traders": 19
+      },
+      {
+        "tick": 9000,
+        "requested_return": 0.05,
+        "first_half_minutes": 11.666666666666666,
+        "sustained_half_start_minutes": 15.0,
+        "retraced_10m": 0.4711971065625739,
+        "first10_mean_intensity": 1.2769241304899563,
+        "first10_arrivals": 16,
+        "first10_trades": 12,
+        "first10_distinct_traders": 9
+      },
+      {
+        "tick": 10000,
+        "requested_return": -0.05,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "retraced_10m": null,
+        "first10_mean_intensity": null,
+        "first10_arrivals": null,
+        "first10_trades": null,
+        "first10_distinct_traders": null
+      }
+    ],
+    "mean_retraced_10m": 0.39314811293521434,
+    "events_half_reached": 8,
+    "events_half_sustained": 8,
+    "mean_first10_intensity": 2.5595991721942597,
+    "mean_first10_trades": 22.11111111111111,
+    "mean_first10_distinct_traders": 13.666666666666666
+  },
+  "n40_control": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.266,
+        "mean": -2.530820296404024e-06,
+        "std": 0.0014165489303934562,
+        "skew": 0.021559574849646594,
+        "excess_kurtosis": 2.658205912023927
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.06209418131815626,
+          "2_10": -0.028604147589534074,
+          "11_30": -0.0022901021311247096,
+          "31_180": -0.0006582728736870835,
+          "101_300": 4.029539469869173e-05,
+          "301_1000": 7.142107196432905e-05,
+          "max_abs_1_100": 0.06209418131815626
+        },
+        "abs": {
+          "1_1": 0.04966235874356253,
+          "2_10": 0.025495682900169726,
+          "11_30": 0.0091724405733134,
+          "31_180": 0.0034242786072056753,
+          "101_300": 0.002574649345322978,
+          "301_1000": 0.0006290779808128265,
+          "max_abs_1_100": 0.04966235874356253
+        },
+        "sq": {
+          "1_1": 0.049356948387232945,
+          "2_10": 0.01930878981265969,
+          "11_30": 0.007345834173021365,
+          "31_180": 0.001988609726640293,
+          "101_300": 0.0012222108564145235,
+          "301_1000": -1.0958627541934091e-06,
+          "max_abs_1_100": 0.049356948387232945
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.016664508297322304,
+      "p10": 0.012643971845594628,
+      "p90": 0.021265006222733356
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.01706843467157177,
+      "p10": 0.012637911729179703,
+      "p90": 0.021291156590139543
+    },
+    "mean_intensity": 1.634596801397468,
+    "max_intensity": 2.879150571144775,
+    "max_arrivals": 9,
+    "trades": 13331,
+    "clipped_per_attempt": 0.04670430383459198,
+    "executed_over_intended": 0.9574372903870271,
+    "holding_median_minutes": 11.333333333333334,
+    "holding_mean_minutes": 15.476798637718177,
+    "short_realized_pnl": "-1031.891483",
+    "unfinished": 5,
+    "final_price": 4.87504682469858,
+    "final_bot_wealth": 395159.9770116593,
+    "events": []
+  },
+  "n40_shock": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.2081,
+        "mean": 7.448290598641395e-07,
+        "std": 0.0014180540616143826,
+        "skew": -0.05254250128024121,
+        "excess_kurtosis": 2.7754281210652394
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.04388247173023072,
+          "2_10": -0.014563536360626048,
+          "11_30": -0.0010170254420215571,
+          "31_180": -0.0003347402441570106,
+          "101_300": 0.00012302810273208322,
+          "301_1000": -0.00021254981469037156,
+          "max_abs_1_100": 0.04388247173023072
+        },
+        "abs": {
+          "1_1": 0.11617008698532603,
+          "2_10": 0.07370145181579082,
+          "11_30": 0.053962969023666194,
+          "31_180": 0.030826273244288393,
+          "101_300": 0.018911042667090535,
+          "301_1000": -0.001046020911417883,
+          "max_abs_1_100": 0.11617008698532603
+        },
+        "sq": {
+          "1_1": 0.10332361697656775,
+          "2_10": 0.06330731111476642,
+          "11_30": 0.04584102287502253,
+          "31_180": 0.017565548028459946,
+          "101_300": 0.009058854452453882,
+          "301_1000": -0.0004615113723096305,
+          "max_abs_1_100": 0.10332361697656775
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.018511224050943683,
+      "p10": 0.012622499847897291,
+      "p90": 0.058688849268364256
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.017319603165293324,
+      "p10": 0.01257829455664609,
+      "p90": 0.022514632760028606
+    },
+    "mean_intensity": 2.1313966591491966,
+    "max_intensity": 12.273949789445618,
+    "max_arrivals": 18,
+    "trades": 17483,
+    "clipped_per_attempt": 0.04841682023789579,
+    "executed_over_intended": 0.9548291440947844,
+    "holding_median_minutes": 7.5,
+    "holding_mean_minutes": 11.139754485363552,
+    "short_realized_pnl": "-1981.889804",
+    "unfinished": 8,
+    "final_price": 4.500943733729917,
+    "final_bot_wealth": 382327.2303974336,
+    "events": [
+      {
+        "tick": 1000,
+        "requested_return": 0.05,
+        "first_half_minutes": 3.5,
+        "sustained_half_start_minutes": 3.5,
+        "retraced_10m": 0.7947573560280552,
+        "first10_mean_intensity": 3.276827306067818,
+        "first10_arrivals": 29,
+        "first10_trades": 28,
+        "first10_distinct_traders": 22
+      },
+      {
+        "tick": 2000,
+        "requested_return": -0.05,
+        "first_half_minutes": 3.1666666666666665,
+        "sustained_half_start_minutes": 7.166666666666667,
+        "retraced_10m": 0.6248802176187144,
+        "first10_mean_intensity": 2.6009713517922783,
+        "first10_arrivals": 24,
+        "first10_trades": 23,
+        "first10_distinct_traders": 19
+      },
+      {
+        "tick": 3000,
+        "requested_return": -0.05,
+        "first_half_minutes": 6.166666666666667,
+        "sustained_half_start_minutes": 6.166666666666667,
+        "retraced_10m": 0.6259129451281096,
+        "first10_mean_intensity": 5.547764782706823,
+        "first10_arrivals": 58,
+        "first10_trades": 51,
+        "first10_distinct_traders": 32
+      },
+      {
+        "tick": 4000,
+        "requested_return": 0.05,
+        "first_half_minutes": 2.5,
+        "sustained_half_start_minutes": 3.0,
+        "retraced_10m": 0.909800599756434,
+        "first10_mean_intensity": 3.9954276497124694,
+        "first10_arrivals": 40,
+        "first10_trades": 36,
+        "first10_distinct_traders": 23
+      },
+      {
+        "tick": 5000,
+        "requested_return": 0.05,
+        "first_half_minutes": 7.666666666666667,
+        "sustained_half_start_minutes": 24.666666666666668,
+        "retraced_10m": 0.30945144054620854,
+        "first10_mean_intensity": 6.611188044333933,
+        "first10_arrivals": 65,
+        "first10_trades": 52,
+        "first10_distinct_traders": 32
+      },
+      {
+        "tick": 6000,
+        "requested_return": -0.05,
+        "first_half_minutes": 3.0,
+        "sustained_half_start_minutes": 4.833333333333333,
+        "retraced_10m": 0.6891156189936435,
+        "first10_mean_intensity": 3.911741724979334,
+        "first10_arrivals": 34,
+        "first10_trades": 34,
+        "first10_distinct_traders": 25
+      },
+      {
+        "tick": 7000,
+        "requested_return": -0.05,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "retraced_10m": 0.21626214446942849,
+        "first10_mean_intensity": 5.390218554767432,
+        "first10_arrivals": 54,
+        "first10_trades": 49,
+        "first10_distinct_traders": 29
+      },
+      {
+        "tick": 8000,
+        "requested_return": -0.05,
+        "first_half_minutes": 17.666666666666668,
+        "sustained_half_start_minutes": 32.333333333333336,
+        "retraced_10m": 0.3317225344862995,
+        "first10_mean_intensity": 10.588511587649641,
+        "first10_arrivals": 122,
+        "first10_trades": 108,
+        "first10_distinct_traders": 39
+      },
+      {
+        "tick": 9000,
+        "requested_return": 0.05,
+        "first_half_minutes": 4.0,
+        "sustained_half_start_minutes": 5.333333333333333,
+        "retraced_10m": 0.5520251244327968,
+        "first10_mean_intensity": 2.140636613588176,
+        "first10_arrivals": 25,
+        "first10_trades": 24,
+        "first10_distinct_traders": 17
+      },
+      {
+        "tick": 10000,
+        "requested_return": -0.05,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "retraced_10m": null,
+        "first10_mean_intensity": null,
+        "first10_arrivals": null,
+        "first10_trades": null,
+        "first10_distinct_traders": null
+      }
+    ],
+    "mean_retraced_10m": 0.5615475534955211,
+    "events_half_reached": 8,
+    "events_half_sustained": 8,
+    "mean_first10_intensity": 4.895920846177545,
+    "mean_first10_trades": 45.0,
+    "mean_first10_distinct_traders": 26.444444444444443
+  },
+  "n80_control": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.0812,
+        "mean": -1.0114213887749727e-06,
+        "std": 0.0020790027101964268,
+        "skew": 0.02409465930522721,
+        "excess_kurtosis": 1.4370221980329312
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.08118342282891926,
+          "2_10": -0.03775783886718577,
+          "11_30": -0.0017823399914135897,
+          "31_180": -0.00029392218644680023,
+          "101_300": -2.8905002392328772e-05,
+          "301_1000": 7.899119614915895e-06,
+          "max_abs_1_100": 0.08248371266113783
+        },
+        "abs": {
+          "1_1": 0.05364164420530273,
+          "2_10": 0.018869661994176543,
+          "11_30": 0.006776868977424714,
+          "31_180": 0.0015008978215912008,
+          "101_300": 0.0011267659165230038,
+          "301_1000": 0.001347034089614135,
+          "max_abs_1_100": 0.05364164420530273
+        },
+        "sq": {
+          "1_1": 0.03993298060768677,
+          "2_10": 0.01594832966841889,
+          "11_30": 0.003925194925933568,
+          "31_180": 0.0014863532561580723,
+          "101_300": 0.0009688104624991584,
+          "301_1000": 0.0011523671692868344,
+          "max_abs_1_100": 0.03993298060768677
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.019421354206299726,
+      "p10": 0.015287412562594528,
+      "p90": 0.023954831885086354
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.019231726550753583,
+      "p10": 0.014423360971012199,
+      "p90": 0.02398734262788878
+    },
+    "mean_intensity": 3.0629748217950787,
+    "max_intensity": 3.962214071896554,
+    "max_arrivals": 12,
+    "trades": 25544,
+    "clipped_per_attempt": 0.04590314436538903,
+    "executed_over_intended": 0.9612015017713974,
+    "holding_median_minutes": 10.0,
+    "holding_mean_minutes": 14.035045317220543,
+    "short_realized_pnl": "-3922.534198",
+    "unfinished": 11,
+    "final_price": 4.949683813829293,
+    "final_bot_wealth": 796000.129730202,
+    "events": []
+  },
+  "n80_shock": {
+    "returns": {
+      "shape": {
+        "n": 10000,
+        "zero_fraction": 0.0625,
+        "mean": -4.4112969428171045e-08,
+        "std": 0.0019620717272170562,
+        "skew": -0.05587555038298156,
+        "excess_kurtosis": 2.210027357869702
+      },
+      "acf": {
+        "signed": {
+          "1_1": -0.04872146487685164,
+          "2_10": -0.027241182804187122,
+          "11_30": 0.003700875319623849,
+          "31_180": -0.0002606429812833138,
+          "101_300": -3.886410221132442e-05,
+          "301_1000": -1.3177489573353816e-05,
+          "max_abs_1_100": 0.05831972911543389
+        },
+        "abs": {
+          "1_1": 0.0796898817538503,
+          "2_10": 0.04701336171628538,
+          "11_30": 0.024086336373013585,
+          "31_180": 0.010319009986097255,
+          "101_300": 0.010833266733991398,
+          "301_1000": 0.0031423132043134983,
+          "max_abs_1_100": 0.0887654154670615
+        },
+        "sq": {
+          "1_1": 0.0921585716550436,
+          "2_10": 0.04671286952556006,
+          "11_30": 0.019187543297767114,
+          "31_180": 0.007790571311205658,
+          "101_300": 0.007492357477089933,
+          "301_1000": 0.0029216866529656266,
+          "max_abs_1_100": 0.09548381111769451
+        }
+      }
+    },
+    "range30_all": {
+      "windows": 55,
+      "median": 0.019188850391858286,
+      "p10": 0.014244884541781576,
+      "p90": 0.0561946633817756
+    },
+    "range30_quiet": {
+      "windows": 43,
+      "median": 0.01840072920180102,
+      "p10": 0.013924396024555651,
+      "p90": 0.02237236062605566
+    },
+    "mean_intensity": 3.500323825756286,
+    "max_intensity": 15.544065436020295,
+    "max_arrivals": 16,
+    "trades": 29300,
+    "clipped_per_attempt": 0.04613333333333333,
+    "executed_over_intended": 0.9603688595274323,
+    "holding_median_minutes": 8.166666666666666,
+    "holding_mean_minutes": 11.751360544217688,
+    "short_realized_pnl": "-3359.329734",
+    "unfinished": 13,
+    "final_price": 4.465573605264797,
+    "final_bot_wealth": 759789.0913952352,
+    "events": [
+      {
+        "tick": 1000,
+        "requested_return": 0.05,
+        "first_half_minutes": 1.0,
+        "sustained_half_start_minutes": 1.0,
+        "retraced_10m": 0.9383771519985828,
+        "first10_mean_intensity": 5.667027286322152,
+        "first10_arrivals": 50,
+        "first10_trades": 46,
+        "first10_distinct_traders": 37
+      },
+      {
+        "tick": 2000,
+        "requested_return": -0.05,
+        "first_half_minutes": 2.3333333333333335,
+        "sustained_half_start_minutes": 3.0,
+        "retraced_10m": 0.8663011236238798,
+        "first10_mean_intensity": 6.541200350316342,
+        "first10_arrivals": 58,
+        "first10_trades": 58,
+        "first10_distinct_traders": 43
+      },
+      {
+        "tick": 3000,
+        "requested_return": -0.05,
+        "first_half_minutes": 1.0,
+        "sustained_half_start_minutes": 1.0,
+        "retraced_10m": 0.8321855066764748,
+        "first10_mean_intensity": 7.179941371081176,
+        "first10_arrivals": 78,
+        "first10_trades": 76,
+        "first10_distinct_traders": 51
+      },
+      {
+        "tick": 4000,
+        "requested_return": 0.05,
+        "first_half_minutes": 2.5,
+        "sustained_half_start_minutes": 2.5,
+        "retraced_10m": 0.9153079215654221,
+        "first10_mean_intensity": 4.680440598370829,
+        "first10_arrivals": 39,
+        "first10_trades": 37,
+        "first10_distinct_traders": 30
+      },
+      {
+        "tick": 5000,
+        "requested_return": 0.05,
+        "first_half_minutes": 2.0,
+        "sustained_half_start_minutes": 2.0,
+        "retraced_10m": 0.8590030398861288,
+        "first10_mean_intensity": 7.4872661780367125,
+        "first10_arrivals": 74,
+        "first10_trades": 70,
+        "first10_distinct_traders": 48
+      },
+      {
+        "tick": 6000,
+        "requested_return": -0.05,
+        "first_half_minutes": 1.5,
+        "sustained_half_start_minutes": 1.5,
+        "retraced_10m": 0.8231352517195153,
+        "first10_mean_intensity": 5.256799009992401,
+        "first10_arrivals": 41,
+        "first10_trades": 40,
+        "first10_distinct_traders": 31
+      },
+      {
+        "tick": 7000,
+        "requested_return": -0.05,
+        "first_half_minutes": 0.6666666666666666,
+        "sustained_half_start_minutes": 0.6666666666666666,
+        "retraced_10m": 0.8801863449607049,
+        "first10_mean_intensity": 6.838213732716416,
+        "first10_arrivals": 68,
+        "first10_trades": 66,
+        "first10_distinct_traders": 47
+      },
+      {
+        "tick": 8000,
+        "requested_return": -0.05,
+        "first_half_minutes": 1.8333333333333333,
+        "sustained_half_start_minutes": 2.3333333333333335,
+        "retraced_10m": 0.8465501606642364,
+        "first10_mean_intensity": 10.424878888925171,
+        "first10_arrivals": 88,
+        "first10_trades": 82,
+        "first10_distinct_traders": 51
+      },
+      {
+        "tick": 9000,
+        "requested_return": 0.05,
+        "first_half_minutes": 1.1666666666666667,
+        "sustained_half_start_minutes": 1.1666666666666667,
+        "retraced_10m": 0.853171885897853,
+        "first10_mean_intensity": 3.206965616046933,
+        "first10_arrivals": 32,
+        "first10_trades": 31,
+        "first10_distinct_traders": 27
+      },
+      {
+        "tick": 10000,
+        "requested_return": -0.05,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "retraced_10m": null,
+        "first10_mean_intensity": null,
+        "first10_arrivals": null,
+        "first10_trades": null,
+        "first10_distinct_traders": null
+      }
+    ],
+    "mean_retraced_10m": 0.8682464874436442,
+    "events_half_reached": 9,
+    "events_half_sustained": 9,
+    "mean_first10_intensity": 6.364748114645348,
+    "mean_first10_trades": 56.22222222222222,
+    "mean_first10_distinct_traders": 40.55555555555556
+  }
+}

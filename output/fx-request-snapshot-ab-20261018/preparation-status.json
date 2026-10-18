@@ -1,0 +1,11 @@
+{
+  "status": "prepared_waiting_final_commit_and_start_signal",
+  "before_commit": "330f4e683ec5564dea6ea59983351c3c8e128d9d",
+  "before_matches_previous_after_hashes": true,
+  "after_extracted": false,
+  "pg_connections_started": false,
+  "http_started": false,
+  "load_started": false,
+  "pg_owner": "main agent",
+  "syntax_check": "passed"
+}

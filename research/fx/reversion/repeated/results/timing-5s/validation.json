@@ -1,0 +1,11 @@
+{
+  "paths": 12,
+  "event_records_checked": 60,
+  "all_30minute_windows_and_holding_units_verified": true,
+  "tenminute_response_last60seconds_verified": true,
+  "first100seconds_twenty_ticks_verified": true,
+  "source_and_previous_results_unchanged": true,
+  "test_command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v",
+  "tests_passed": 36,
+  "report_tables_and_links_verified": true
+}

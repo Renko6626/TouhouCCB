@@ -1,0 +1,14 @@
+{
+  "accounts": 20,
+  "reference_accounts": 40,
+  "tick_seconds": 5,
+  "ticks": 10000,
+  "inventory_window": 360,
+  "tau": 540,
+  "psi": 0.0008,
+  "policy": "weak_trend",
+  "trend_multiplier": 0.25,
+  "market_seeds": [81, 82, 83],
+  "activity_scale": "accounts / 20; keep per-account arrival rate identical for the same z",
+  "profiles": "Use the first copy of each role's frozen coefficients in the 40-account reference"
+}

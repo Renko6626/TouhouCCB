@@ -1,0 +1,6 @@
+{
+  "app/api/v1/user_trading.py": "d657145e112dd2e122ef454bc23aee5c068369e7a6049b206c5f982106721593",
+  "app/services/credit/trading_context.py": "141f576408cf858afef547cd9ebedea6139afce4843895f0fa260215244041c6",
+  "app/services/fx/net_trading.py": "da97983b64f9dcb72f5d9722d936c83572acb5a068df22f498f962ee6a3e073a",
+  "app/services/loan_service.py": "c2e2521cfb92f87377eff2ec7add1939cf506e790eeb252c6d2f230be5d89d20"
+}

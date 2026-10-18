@@ -1,0 +1,200 @@
+[
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "wait",
+    "count": 8,
+    "mean_ms": 0.07361802272498608,
+    "p50_ms": 0.06878003478050232,
+    "p95_ms": 0.09267963469028473,
+    "p99_ms": 0.09267963469028473,
+    "max_ms": 0.0968538224697113
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "held",
+    "count": 8,
+    "mean_ms": 33.20590406656265,
+    "p50_ms": 26.658790186047554,
+    "p95_ms": 35.406168550252914,
+    "p99_ms": 35.406168550252914,
+    "max_ms": 74.25478287041187
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "wait",
+    "count": 105,
+    "mean_ms": 0.03139259559767587,
+    "p50_ms": 0.03075413405895233,
+    "p95_ms": 0.04241056740283966,
+    "p99_ms": 0.04434026777744293,
+    "max_ms": 0.05375966429710388
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "held",
+    "count": 105,
+    "mean_ms": 17.34637552428813,
+    "p50_ms": 19.09320056438446,
+    "p95_ms": 35.382553935050964,
+    "p99_ms": 41.476696729660034,
+    "max_ms": 53.04661579430103
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "wait",
+    "count": 20,
+    "mean_ms": 0.032811425626277924,
+    "p50_ms": 0.0310409814119339,
+    "p95_ms": 0.04456937313079834,
+    "p99_ms": 0.04456937313079834,
+    "max_ms": 0.045394524931907654
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "held",
+    "count": 20,
+    "mean_ms": 15.151122771203518,
+    "p50_ms": 14.662401750683784,
+    "p95_ms": 18.547339364886284,
+    "p99_ms": 18.547339364886284,
+    "max_ms": 27.964860200881958
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "wait",
+    "count": 167,
+    "mean_ms": 2.4681194367522963,
+    "p50_ms": 0.03816001117229462,
+    "p95_ms": 14.579802751541138,
+    "p99_ms": 36.51496395468712,
+    "max_ms": 82.97614194452763
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "held",
+    "count": 167,
+    "mean_ms": 31.2518485247375,
+    "p50_ms": 27.07720175385475,
+    "p95_ms": 78.21465656161308,
+    "p99_ms": 99.94147159159184,
+    "max_ms": 115.70575833320618
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "wait",
+    "count": 8,
+    "mean_ms": 0.04515261389315128,
+    "p50_ms": 0.03145448863506317,
+    "p95_ms": 0.0661071389913559,
+    "p99_ms": 0.0661071389913559,
+    "max_ms": 0.06844475865364075
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "held",
+    "count": 8,
+    "mean_ms": 26.95024386048317,
+    "p50_ms": 24.499649181962013,
+    "p95_ms": 31.45563416182995,
+    "p99_ms": 31.45563416182995,
+    "max_ms": 41.56291112303734
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "wait",
+    "count": 372,
+    "mean_ms": 131.2624860795275,
+    "p50_ms": 29.431354254484177,
+    "p95_ms": 510.4459151625633,
+    "p99_ms": 710.1628221571445,
+    "max_ms": 825.9626403450966
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "held",
+    "count": 372,
+    "mean_ms": 69.8979707004162,
+    "p50_ms": 66.37252494692802,
+    "p95_ms": 138.92856426537037,
+    "p99_ms": 199.9360229820013,
+    "max_ms": 306.33997172117233
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "wait",
+    "count": 32,
+    "mean_ms": 155.62655334360898,
+    "p50_ms": 92.62974932789803,
+    "p95_ms": 526.5105161815882,
+    "p99_ms": 593.7911439687014,
+    "max_ms": 655.9197995811701
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "held",
+    "count": 32,
+    "mean_ms": 67.64578830916435,
+    "p50_ms": 72.18502834439278,
+    "p95_ms": 126.26444920897484,
+    "p99_ms": 131.53921999037266,
+    "max_ms": 132.71500915288925
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "wait",
+    "count": 416,
+    "mean_ms": 6304.681244745063,
+    "p50_ms": 7458.417907357216,
+    "p95_ms": 9319.51842829585,
+    "p99_ms": 9430.681390687823,
+    "max_ms": 9603.291779756546
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "held",
+    "count": 416,
+    "mean_ms": 75.58512441867676,
+    "p50_ms": 73.03528860211372,
+    "p95_ms": 151.53514593839645,
+    "p99_ms": 229.55888882279396,
+    "max_ms": 282.43724070489407
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "wait",
+    "count": 20,
+    "mean_ms": 6320.307747833431,
+    "p50_ms": 7541.302386671305,
+    "p95_ms": 9275.845557451248,
+    "p99_ms": 9275.845557451248,
+    "max_ms": 9302.543418481946
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "kind": "held",
+    "count": 20,
+    "mean_ms": 92.51376502215862,
+    "p50_ms": 90.65721929073334,
+    "p95_ms": 149.55906011164188,
+    "p99_ms": 149.55906011164188,
+    "max_ms": 157.57929906249046
+  }
+]

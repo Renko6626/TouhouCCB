@@ -1,0 +1,428 @@
+{
+  "20261029": {
+    "swings": {
+      "0.005": {
+        "legs_minutes": {
+          "n": 388,
+          "median": 1.6666666666666667,
+          "p90": 4.025000000000001,
+          "mean": 2.0569158075601375
+        },
+        "cycles_minutes": {
+          "n": 387,
+          "median": 3.4166666666666665,
+          "p90": 7.233333333333339,
+          "mean": 4.116709732988803
+        },
+        "amplitude": {
+          "n": 388,
+          "median": 0.010774453047791677,
+          "p90": 0.021535483621713283,
+          "mean": 0.012681130798333084
+        }
+      },
+      "0.01": {
+        "legs_minutes": {
+          "n": 163,
+          "median": 3.5,
+          "p90": 10.516666666666671,
+          "mean": 4.8246421267893655
+        },
+        "cycles_minutes": {
+          "n": 162,
+          "median": 7.875,
+          "p90": 18.200000000000003,
+          "mean": 9.654835390946502
+        },
+        "amplitude": {
+          "n": 163,
+          "median": 0.018195418624957327,
+          "p90": 0.030365444997592486,
+          "mean": 0.02010893193079583
+        }
+      },
+      "0.02": {
+        "legs_minutes": {
+          "n": 53,
+          "median": 11.166666666666666,
+          "p90": 27.21666666666667,
+          "mean": 14.838050314465407
+        },
+        "cycles_minutes": {
+          "n": 52,
+          "median": 28.166666666666664,
+          "p90": 52.48333333333332,
+          "mean": 29.737179487179485
+        },
+        "amplitude": {
+          "n": 53,
+          "median": 0.0288898417941571,
+          "p90": 0.052540925022222254,
+          "mean": 0.033962078538429856
+        }
+      }
+    },
+    "range30": {
+      "n": 26,
+      "median": 0.029839269231122352,
+      "p90": 0.054738924337063455,
+      "mean": 0.0351371608696508
+    },
+    "range60": {
+      "n": 13,
+      "median": 0.04363463041422053,
+      "p90": 0.05574915072498264,
+      "mean": 0.04770005202060657
+    },
+    "abs_net30": {
+      "n": 26,
+      "median": 0.004367218399329631,
+      "p90": 0.025814592702781747,
+      "mean": 0.010845527066358128
+    },
+    "trades_per_minute": 5.958921161825726,
+    "clipped_fraction": 0.03168724279835391,
+    "executed_quantity_fraction": 0.971264440551399,
+    "cash_saturated_arrivals": 38,
+    "foreign_saturated_arrivals": 35,
+    "tick_return_std": 0.00162706790400465,
+    "net_change": 0.04589007611552276,
+    "max_abs_displacement": 0.08785485144175387,
+    "completed_holding_minutes": {
+      "n": 420,
+      "median": 7.0,
+      "p90": 19.383333333333344,
+      "mean": 9.625992063492063
+    },
+    "unfinished": 5,
+    "short_realized_per_account": -69.21284228571429,
+    "groups": {
+      "random": {
+        "accounts": 10,
+        "gross_foreign": 254762.338518,
+        "trades_per_minute": 3.792946058091286,
+        "final_mtm_vs_hold_per_account": 20.495178101111378,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "inventory": {
+        "accounts": 3,
+        "gross_foreign": 40039.30824300001,
+        "trades_per_minute": 1.1066390041493774,
+        "final_mtm_vs_hold_per_account": 183.13642274876838,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "reversion": {
+        "accounts": 3,
+        "gross_foreign": 71460.0,
+        "trades_per_minute": 0.49419087136929457,
+        "final_mtm_vs_hold_per_account": 60.76024466401759,
+        "entry_dominance": {
+          "reversion": 182,
+          "noise": 16
+        },
+        "analyzed_entries": 198
+      },
+      "trend": {
+        "accounts": 4,
+        "gross_foreign": 81720.0,
+        "trades_per_minute": 0.5651452282157676,
+        "final_mtm_vs_hold_per_account": -169.82001187202331,
+        "entry_dominance": {
+          "trend": 181,
+          "reversion": 19,
+          "noise": 27
+        },
+        "analyzed_entries": 227
+      }
+    },
+    "efficiency5_median": 0.15462876448599747,
+    "arrivals_per_minute": 7.670539419087136,
+    "gross_foreign_per_minute": 557.6535021921162
+  },
+  "20261030": {
+    "swings": {
+      "0.005": {
+        "legs_minutes": {
+          "n": 410,
+          "median": 1.5833333333333333,
+          "p90": 3.9166666666666665,
+          "mean": 1.955081300813008
+        },
+        "cycles_minutes": {
+          "n": 409,
+          "median": 3.5,
+          "p90": 6.766666666666666,
+          "mean": 3.9013854930725347
+        },
+        "amplitude": {
+          "n": 410,
+          "median": 0.009923062355160606,
+          "p90": 0.018883538691199023,
+          "mean": 0.01158492518545902
+        }
+      },
+      "0.01": {
+        "legs_minutes": {
+          "n": 162,
+          "median": 4.083333333333333,
+          "p90": 9.633333333333335,
+          "mean": 4.913065843621399
+        },
+        "cycles_minutes": {
+          "n": 161,
+          "median": 9.25,
+          "p90": 16.416666666666668,
+          "mean": 9.831262939958593
+        },
+        "amplitude": {
+          "n": 162,
+          "median": 0.017426376491439133,
+          "p90": 0.027157273100493363,
+          "mean": 0.018727345399512596
+        }
+      },
+      "0.02": {
+        "legs_minutes": {
+          "n": 50,
+          "median": 10.875,
+          "p90": 35.31666666666667,
+          "mean": 15.35
+        },
+        "cycles_minutes": {
+          "n": 49,
+          "median": 24.5,
+          "p90": 56.16666666666667,
+          "mean": 30.965986394557827
+        },
+        "amplitude": {
+          "n": 50,
+          "median": 0.02813333901471854,
+          "p90": 0.039053682660878365,
+          "mean": 0.030101172205229513
+        }
+      }
+    },
+    "range30": {
+      "n": 26,
+      "median": 0.029011298565120334,
+      "p90": 0.03964887652984136,
+      "mean": 0.030052723774872146
+    },
+    "range60": {
+      "n": 13,
+      "median": 0.037744036600542596,
+      "p90": 0.04597348005633033,
+      "mean": 0.03765411943470294
+    },
+    "abs_net30": {
+      "n": 26,
+      "median": 0.009156850405564188,
+      "p90": 0.019993306007486056,
+      "mean": 0.009593421110401948
+    },
+    "trades_per_minute": 5.194605809128631,
+    "clipped_fraction": 0.041060534960112624,
+    "executed_quantity_fraction": 0.9665004223694688,
+    "cash_saturated_arrivals": 31,
+    "foreign_saturated_arrivals": 58,
+    "tick_return_std": 0.001533335493401617,
+    "net_change": -0.012548189116180941,
+    "max_abs_displacement": 0.044634641103634465,
+    "completed_holding_minutes": {
+      "n": 367,
+      "median": 8.5,
+      "p90": 24.400000000000006,
+      "mean": 11.03905540417802
+    },
+    "unfinished": 4,
+    "short_realized_per_account": -112.18880342857143,
+    "groups": {
+      "random": {
+        "accounts": 10,
+        "gross_foreign": 228677.281274,
+        "trades_per_minute": 3.296265560165975,
+        "final_mtm_vs_hold_per_account": -11.18420233586221,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "inventory": {
+        "accounts": 3,
+        "gross_foreign": 41197.845965,
+        "trades_per_minute": 0.9746887966804979,
+        "final_mtm_vs_hold_per_account": 301.2473896196734,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "reversion": {
+        "accounts": 3,
+        "gross_foreign": 59760.0,
+        "trades_per_minute": 0.41327800829875516,
+        "final_mtm_vs_hold_per_account": 103.44499480304148,
+        "entry_dominance": {
+          "reversion": 144,
+          "noise": 22
+        },
+        "analyzed_entries": 166
+      },
+      "trend": {
+        "accounts": 4,
+        "gross_foreign": 73800.0,
+        "trades_per_minute": 0.5103734439834025,
+        "final_mtm_vs_hold_per_account": -270.6078749999997,
+        "entry_dominance": {
+          "trend": 157,
+          "noise": 35,
+          "reversion": 13
+        },
+        "analyzed_entries": 205
+      }
+    },
+    "efficiency5_median": 0.129861998070402,
+    "arrivals_per_minute": 6.816597510373444,
+    "gross_foreign_per_minute": 502.20140320207463
+  },
+  "20261031": {
+    "swings": {
+      "0.005": {
+        "legs_minutes": {
+          "n": 373,
+          "median": 1.6666666666666667,
+          "p90": 4.333333333333333,
+          "mean": 2.135612153708669
+        },
+        "cycles_minutes": {
+          "n": 372,
+          "median": 3.75,
+          "p90": 7.575000000000003,
+          "mean": 4.273521505376344
+        },
+        "amplitude": {
+          "n": 373,
+          "median": 0.010932071808088084,
+          "p90": 0.02022512115754012,
+          "mean": 0.012207819302783146
+        }
+      },
+      "0.01": {
+        "legs_minutes": {
+          "n": 154,
+          "median": 4.083333333333333,
+          "p90": 10.258333333333338,
+          "mean": 5.138528138528138
+        },
+        "cycles_minutes": {
+          "n": 153,
+          "median": 9.25,
+          "p90": 18.133333333333336,
+          "mean": 10.27723311546841
+        },
+        "amplitude": {
+          "n": 154,
+          "median": 0.018419143472568567,
+          "p90": 0.027795104640059482,
+          "mean": 0.01941222293132595
+        }
+      },
+      "0.02": {
+        "legs_minutes": {
+          "n": 49,
+          "median": 13.25,
+          "p90": 28.916666666666675,
+          "mean": 16.064625850340136
+        },
+        "cycles_minutes": {
+          "n": 48,
+          "median": 26.416666666666664,
+          "p90": 56.225,
+          "mean": 32.265625
+        },
+        "amplitude": {
+          "n": 49,
+          "median": 0.027897565800139468,
+          "p90": 0.04278440162806612,
+          "mean": 0.03048703743105319
+        }
+      }
+    },
+    "range30": {
+      "n": 26,
+      "median": 0.030282457043248272,
+      "p90": 0.04139112783937922,
+      "mean": 0.031143218534316404
+    },
+    "range60": {
+      "n": 13,
+      "median": 0.04060572339844496,
+      "p90": 0.05381969140648076,
+      "mean": 0.04132489141378321
+    },
+    "abs_net30": {
+      "n": 26,
+      "median": 0.007550176568040967,
+      "p90": 0.019523996576615188,
+      "mean": 0.010019221041586047
+    },
+    "trades_per_minute": 5.198340248962656,
+    "clipped_fraction": 0.04884318766066838,
+    "executed_quantity_fraction": 0.9601178803764224,
+    "cash_saturated_arrivals": 80,
+    "foreign_saturated_arrivals": 23,
+    "tick_return_std": 0.0015722271897184773,
+    "net_change": 0.017965222427823058,
+    "max_abs_displacement": 0.0719047888167812,
+    "completed_holding_minutes": {
+      "n": 359,
+      "median": 9.25,
+      "p90": 23.333333333333332,
+      "mean": 11.507428040854226
+    },
+    "unfinished": 6,
+    "short_realized_per_account": -90.18457914285715,
+    "groups": {
+      "random": {
+        "accounts": 10,
+        "gross_foreign": 224621.83993199997,
+        "trades_per_minute": 3.257676348547718,
+        "final_mtm_vs_hold_per_account": -9.932566910281821,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "inventory": {
+        "accounts": 3,
+        "gross_foreign": 40011.279527,
+        "trades_per_minute": 1.0356846473029044,
+        "final_mtm_vs_hold_per_account": 251.72501367145378,
+        "entry_dominance": {},
+        "analyzed_entries": 0
+      },
+      "reversion": {
+        "accounts": 3,
+        "gross_foreign": 58680.0,
+        "trades_per_minute": 0.4058091286307054,
+        "final_mtm_vs_hold_per_account": 38.21715506168039,
+        "entry_dominance": {
+          "reversion": 144,
+          "noise": 19
+        },
+        "analyzed_entries": 163
+      },
+      "trend": {
+        "accounts": 4,
+        "gross_foreign": 72180.0,
+        "trades_per_minute": 0.4991701244813278,
+        "final_mtm_vs_hold_per_account": -182.62969979625996,
+        "entry_dominance": {
+          "trend": 153,
+          "reversion": 21,
+          "noise": 28
+        },
+        "analyzed_entries": 202
+      }
+    },
+    "efficiency5_median": 0.14837947664954237,
+    "arrivals_per_minute": 6.7182572614107885,
+    "gross_foreign_per_minute": 492.31508646348544
+  }
+}

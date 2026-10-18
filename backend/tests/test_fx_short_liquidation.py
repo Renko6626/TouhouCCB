@@ -15,6 +15,7 @@ from decimal import Decimal as D
 from uuid import uuid4
 
 import pytest
+from tests.conftest import publish_seeded_market_records
 import pytest_asyncio
 from sqlalchemy import func, select
 
@@ -33,7 +34,6 @@ from app.models.credit import LiquidationAction, LiquidationRun
 from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import liquidation_sweep, site_config
 from app.services.credit.flags import CreditFlags, set_flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import discover_dependencies
@@ -44,7 +44,7 @@ from app.services.fx.shorts import (
     ShortRetryCredit,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -348,24 +348,20 @@ async def _liq_cover(uid, pid, *, run_id=1, round_no=1, planned="100",
             deps = await discover_dependencies(db, uid, extra_groups=[target])
             if db.in_transaction():
                 await db.rollback()
-            async with GATES.hold(
-                exclusive=[target],
-                shared=[g for g in deps.groups if g != target],
-            ):
-                try:
-                    execution = await execute_liquidation_cover_in_session(
-                        db, user_id=uid, pair_id=pid, run_id=run_id,
-                        round_no=round_no, planned_amount=D(planned),
-                        max_gold_budget=D(budget), credit_deps=deps,
-                    )
-                    await db.commit()
-                    return execution
-                except ShortRetryCredit:
-                    await db.rollback()
-                    continue
-                except BaseException:
-                    await db.rollback()
-                    raise
+            try:
+                execution = await execute_liquidation_cover_in_session(
+                    db, user_id=uid, pair_id=pid, run_id=run_id,
+                    round_no=round_no, planned_amount=D(planned),
+                    max_gold_budget=D(budget), credit_deps=deps,
+                )
+                await db.commit()
+                return execution
+            except ShortRetryCredit:
+                await db.rollback()
+                continue
+            except BaseException:
+                await db.rollback()
+                raise
     raise AssertionError("liquidation-cover retries exhausted")
 
 
@@ -698,32 +694,28 @@ async def test_post_settlement_bound_failure_requires_whole_transaction_rollback
         deps = await discover_dependencies(db, uid, extra_groups=[target])
         if db.in_transaction():
             await db.rollback()
-        async with GATES.hold(
-            exclusive=[target],
-            shared=[g for g in deps.groups if g != target],
-        ):
-            with pytest.raises(ShortPostSettlementMismatch) as excinfo:
-                await execute_liquidation_cover_in_session(
-                    db, user_id=uid, pair_id=pid, run_id=81, round_no=1,
-                    planned_amount=D("100"), max_gold_budget=D("1000000"),
-                    credit_deps=deps,
-                )
-            # Distinct from every pre-mutation rejection: a caller that recorded
-            # this as a committable blocked round would be wrong by type.
-            assert not isinstance(excinfo.value, ShortLiquidationRejected)
-            # The settlement already moved the clocks and wrote audits inside this
-            # transaction, so a commit would persist interest with no trade.
-            dirty_user = await db.get(User, uid)
-            dirty_target = (await db.execute(select(FxShortPosition).where(
-                FxShortPosition.pair_id == pid))).scalars().one()
-            dirty_audit_count = int((await db.execute(
-                select(func.count()).select_from(AuditEvent))).scalar_one())
-            assert D(dirty_user.debt) > before_econ["gold_debt"]
-            assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
-            assert dirty_audit_count > before_econ["audit_count"]
-            # WP4c's contract: roll the whole transaction back, never commit the
-            # blocked-looking round.
-            await db.rollback()
+        with pytest.raises(ShortPostSettlementMismatch) as excinfo:
+            await execute_liquidation_cover_in_session(
+                db, user_id=uid, pair_id=pid, run_id=81, round_no=1,
+                planned_amount=D("100"), max_gold_budget=D("1000000"),
+                credit_deps=deps,
+            )
+        # Distinct from every pre-mutation rejection: a caller that recorded
+        # this as a committable blocked round would be wrong by type.
+        assert not isinstance(excinfo.value, ShortLiquidationRejected)
+        # The settlement already moved the clocks and wrote audits inside this
+        # transaction, so a commit would persist interest with no trade.
+        dirty_user = await db.get(User, uid)
+        dirty_target = (await db.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == pid))).scalars().one()
+        dirty_audit_count = int((await db.execute(
+            select(func.count()).select_from(AuditEvent))).scalar_one())
+        assert D(dirty_user.debt) > before_econ["gold_debt"]
+        assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
+        assert dirty_audit_count > before_econ["audit_count"]
+        # WP4c's contract: roll the whole transaction back, never commit the
+        # blocked-looking round.
+        await db.rollback()
 
     async with async_session_maker() as db:
         after_econ = await _blocked_round_snapshot(db, uid, pid)
@@ -784,35 +776,31 @@ async def test_sibling_settlement_overflow_requires_whole_transaction_rollback()
         deps = await discover_dependencies(db, uid, extra_groups=[target])
         if db.in_transaction():
             await db.rollback()
-        async with GATES.hold(
-            exclusive=[target],
-            shared=[g for g in deps.groups if g != target],
-        ):
-            with pytest.raises(ShortPostSettlementMismatch) as excinfo:
-                await execute_liquidation_cover_in_session(
-                    db, user_id=uid, pair_id=pid, run_id=91, round_no=1,
-                    planned_amount=D("100"), max_gold_budget=D("1000000"),
-                    credit_deps=deps,
-                )
-            # A post-settlement sibling overflow is never the pre-mutation type.
-            assert not isinstance(excinfo.value, ShortLiquidationRejected)
-            assert isinstance(excinfo.value, ShortRetryCredit)
-            # The original settlement failure is preserved as the cause.
-            assert isinstance(excinfo.value.__cause__, ShortRejected)
-            # Settlement already moved the gold debt, the target short and audit
-            # inside this transaction, so a commit would persist interest with no
-            # trade and no economic-version bump.
-            dirty_user = await db.get(User, uid)
-            dirty_target = (await db.execute(select(FxShortPosition).where(
-                FxShortPosition.pair_id == pid))).scalars().one()
-            dirty_audit_count = int((await db.execute(
-                select(func.count()).select_from(AuditEvent))).scalar_one())
-            assert D(dirty_user.debt) > before_econ["gold_debt"]
-            assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
-            assert dirty_audit_count > before_econ["audit_count"]
-            # WP4c's contract: roll the whole transaction back, never commit the
-            # blocked-looking round.
-            await db.rollback()
+        with pytest.raises(ShortPostSettlementMismatch) as excinfo:
+            await execute_liquidation_cover_in_session(
+                db, user_id=uid, pair_id=pid, run_id=91, round_no=1,
+                planned_amount=D("100"), max_gold_budget=D("1000000"),
+                credit_deps=deps,
+            )
+        # A post-settlement sibling overflow is never the pre-mutation type.
+        assert not isinstance(excinfo.value, ShortLiquidationRejected)
+        assert isinstance(excinfo.value, ShortRetryCredit)
+        # The original settlement failure is preserved as the cause.
+        assert isinstance(excinfo.value.__cause__, ShortRejected)
+        # Settlement already moved the gold debt, the target short and audit
+        # inside this transaction, so a commit would persist interest with no
+        # trade and no economic-version bump.
+        dirty_user = await db.get(User, uid)
+        dirty_target = (await db.execute(select(FxShortPosition).where(
+            FxShortPosition.pair_id == pid))).scalars().one()
+        dirty_audit_count = int((await db.execute(
+            select(func.count()).select_from(AuditEvent))).scalar_one())
+        assert D(dirty_user.debt) > before_econ["gold_debt"]
+        assert D(dirty_target.interest_foreign) > before_econ["foreign_interest"]
+        assert dirty_audit_count > before_econ["audit_count"]
+        # WP4c's contract: roll the whole transaction back, never commit the
+        # blocked-looking round.
+        await db.rollback()
 
     async with async_session_maker() as db:
         after_econ = await _blocked_round_snapshot(db, uid, pid)
@@ -1189,6 +1177,7 @@ async def test_queued_lmsr_sale_revalidation_persists_unknown_short_block(monkey
             pair = await s.get(FxPair, pair_id)
             pair.foreign_reserve = D('10000')
             await s.commit()
+            await publish_seeded_market_records()
         response = await submit(cmd)
         responses.append(response)
         return response
@@ -1264,6 +1253,7 @@ async def test_unknown_full_quote_overflow_covers_only_fixed_budgeted_short(cash
         user = await s.get(User, uid)
         user.debt = D('100')
         await s.commit()
+        await publish_seeded_market_records()
         pre = await value_user_detailed(s, uid, daily_rate=D('0'))
         assert pre.risk_status == 'blocked' and pre.short_cover_cost is None
         assert pre.blocked_reason == 'short_quote_failed'
@@ -1332,6 +1322,7 @@ async def test_unknown_overflow_skips_unstorable_treasury_and_covers_next_pair()
             interest_last_accrued_at=datetime.now(timezone.utc),
             proceeds_basis_gold=D('0')))
         await s.commit()
+        await publish_seeded_market_records()
 
     result = await liquidation_sweep.run_liquidation_sweep_once()
     assert result.get('monetary_action_count') == 1
@@ -1417,6 +1408,7 @@ async def test_unknown_run_recovers_at_initial_only_after_pool_funding(cash, exp
         pair.status = "paused"
         # Explicit pool funding repairs full-cover quotation; no cover trade.
         await s.commit()
+        await publish_seeded_market_records()
     await liquidation_sweep.run_liquidation_sweep_once()
     async with async_session_maker() as s:
         run = (await s.execute(select(LiquidationRun))).scalar_one()
@@ -1448,6 +1440,7 @@ async def test_known_cover_skips_unstorable_treasury_and_executes_next_short():
             interest_last_accrued_at=datetime.now(timezone.utc),
             proceeds_basis_gold=D('0')))
         await s.commit()
+        await publish_seeded_market_records()
         pre = await value_user_detailed(s, uid, daily_rate=D('0'))
         assert pre.risk_status == 'ok' and pre.liquidation_equity < 0
 
@@ -1497,7 +1490,7 @@ async def test_treasury_operations_preserve_borrowed_stock_and_unknown_debt_scan
         original_version = pair.pool_version
         await liquidity.fund_pair(s, pair_id, D('10'), D('20'), uid)
         await liquidity.withdraw_pair(s, pair_id, D('0'), D('120'), uid)
-        await s.refresh(pair)
+        pair = await s.get(FxPair, pair_id)
         assert pair.pool_version == original_version + 2
         assert pair.gold_reserve == D('1010') and pair.foreign_reserve == D('900')
         treasury = (await s.execute(select(FxTreasury))).scalar_one()
@@ -1533,6 +1526,7 @@ async def test_blocked_run_resumes_cover_with_current_provenance():
         pair = await s.get(FxPair, pid)
         pair.status = "paused"
         await s.commit()
+        await publish_seeded_market_records()
     await liquidation_sweep.run_liquidation_sweep_once()
     async with async_session_maker() as s:
         run = (await s.execute(select(LiquidationRun))).scalars().one()
@@ -1546,6 +1540,7 @@ async def test_blocked_run_resumes_cover_with_current_provenance():
         pair = await s.get(FxPair, pid)
         pair.status = "trading"
         await s.commit()
+        await publish_seeded_market_records()
     result = await liquidation_sweep.run_liquidation_sweep_once()
     assert result.get("monetary_action_count") == 1
     async with async_session_maker() as s:

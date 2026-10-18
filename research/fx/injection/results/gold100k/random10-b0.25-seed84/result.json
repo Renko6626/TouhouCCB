@@ -1,0 +1,501 @@
+{
+  "name": "random10-b0.25-seed84",
+  "random_count": 10,
+  "b": 0.25,
+  "seed": 84,
+  "config": {
+    "ticks": 11000,
+    "burn_in": 1000,
+    "seeds": [
+      81,
+      82,
+      83,
+      84,
+      85,
+      86,
+      87,
+      88,
+      89,
+      90
+    ],
+    "tau": 1000,
+    "mean_arrivals": 1,
+    "psi": 0.0004,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 1000000,
+    "pool_foreign": 200000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 40,
+    "max_pool_fraction": 0.005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2
+  },
+  "source_sha256": {
+    "research/fx/activity/run.py": "b32ab92102efc5dbe560e9fc032b50d1286e0475b73f071a2b5c3e20aab2f7ac",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/common/__init__.py": "2dfe33b532aba5a05b60654c1ce20caa2722a13195b1d7368bf1735334e4bf0a",
+    "research/fx/common/amm.py": "9b92fdc0fcd741a3a74ca9249c62af58e4bdfb739d12e64bd116dda3b45f40d0",
+    "research/fx/common/analysis.py": "c512e21d4254ea266fc43478edd28a6dd5f06c9c8b34ae4db43a4c960de14df8",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/common/diagnostics.py": "2db57539c108644845767de2fe4dd49bde4682a4c2ee945c179c0bfa323b4e55",
+    "research/fx/common/execution.py": "d424108e01b8202e49f05013a9f33f9de94a223f46b148f1f5b0c6f847ee331d",
+    "research/fx/common/reporting.py": "c97bfe6d13d635d304f55f965fe1dfc141bd4a137cc8a05fcd475d165fea8fcf",
+    "research/fx/common/scaling.py": "ff0eed69f28ce8c4f6422f84214af347a0bdfa89c6e616bc9aee191d7823c547",
+    "research/fx/common/series.py": "c2e6fc29baeca3c0c4defd24cf1b1089c1fa23dd5eef525415df4e6415b66f71",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008",
+    "backend/app/services/fx/quantize.py": "fc00ed13ac71d67e3d3ea8115682fe2ffcc88d7e256807b0d372ca79615074be",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/factor_activity/run.py": "dce413b29f388236ae70d7ee4968ef80414bbf900275b8b5ff987a2d6d5f6e1a",
+    "research/fx/factor_activity/config.json": "bc4e0f96135d5ece607a9f896d2cf7b7423e21ebebfbd37f094db8e5f294aa5c",
+    "research/fx/archive/2026-10-15/expectation.py": "859d462cb0d1b78a1f2baba97ec4c6eb55f19268bb7df6d270454d57207107b7",
+    "research/fx/archive/2026-10-15/position.py": "cb91b6e6962aa38ec6f17215126f8f5840362464d105418ae1d27be0b6ad8efe",
+    "research/fx/archive/2026-10-15/configs/baseline.json": "c077ea45692ed5ef54e110d89dff7ce4cc22c1401193808d1faea495230c217e",
+    "research/fx/injection/run.py": "df910c124ea968acb052c2a08791d885136c4b9dd3461e3aa7607a26decb932f",
+    "research/fx/injection/config.json": "4b3284c68400905595773816f807eedadd228af022a885877c2e6c7d716a04a4",
+    "research/fx/mixed/run.py": "e653af151510b5885e0b82f06abb6a17560930b9b6c3b64dcbaa68375e9256ab",
+    "research/fx/heterogeneous/profiles.py": "1543169973c57bbbb2b3afc31691d0c61079674ca702215e7f642fc5958deb7a"
+  },
+  "status": "complete",
+  "control_summary": {
+    "seed": 84,
+    "b": 0.25,
+    "random_count": 10,
+    "ticks": 11000,
+    "final_z": 0.23029266498286546,
+    "issue": {
+      "tick": 1000,
+      "amount": 0,
+      "pre_price": "4.999001982969140820548029796",
+      "pre_gold": "999900.193745",
+      "pre_foreign": "200019.963415",
+      "pre_k": "200000000171.526311839175",
+      "post_price": "4.999001982969140820548029796",
+      "post_gold": "999900.193745",
+      "post_foreign": "200019.963415",
+      "post_k": "200000000171.526311839175"
+    },
+    "peak_intensity": 1.6056860192852318,
+    "conserved_with_issue": true,
+    "pool_gold": "994700.661452",
+    "pool_foreign": "201065.516048",
+    "accounts": [
+      {
+        "name": "0",
+        "policy": "random",
+        "gold": "8277.349703",
+        "foreign": "339.844631"
+      },
+      {
+        "name": "1",
+        "policy": "random",
+        "gold": "7488.710921",
+        "foreign": "496.692605"
+      },
+      {
+        "name": "2",
+        "policy": "random",
+        "gold": "40.039100",
+        "foreign": "2003.794270"
+      },
+      {
+        "name": "3",
+        "policy": "random",
+        "gold": "1741.002360",
+        "foreign": "1655.244647"
+      },
+      {
+        "name": "4",
+        "policy": "random",
+        "gold": "5940.778479",
+        "foreign": "810.762447"
+      },
+      {
+        "name": "5",
+        "policy": "random",
+        "gold": "969.070379",
+        "foreign": "1818.329397"
+      },
+      {
+        "name": "6",
+        "policy": "random",
+        "gold": "5565.331291",
+        "foreign": "879.538675"
+      },
+      {
+        "name": "7",
+        "policy": "random",
+        "gold": "9962.640879",
+        "foreign": "0.000000"
+      },
+      {
+        "name": "8",
+        "policy": "random",
+        "gold": "8630.258420",
+        "foreign": "268.255863"
+      },
+      {
+        "name": "9",
+        "policy": "random",
+        "gold": "8614.050623",
+        "foreign": "278.904364"
+      },
+      {
+        "name": "10",
+        "policy": "factor",
+        "gold": "4799.488871",
+        "foreign": "1039.994819"
+      },
+      {
+        "name": "11",
+        "policy": "factor",
+        "gold": "4829.008393",
+        "foreign": "1034.009435"
+      },
+      {
+        "name": "12",
+        "policy": "factor",
+        "gold": "4336.329462",
+        "foreign": "1131.256043"
+      },
+      {
+        "name": "13",
+        "policy": "factor",
+        "gold": "5174.383698",
+        "foreign": "962.073192"
+      },
+      {
+        "name": "14",
+        "policy": "factor",
+        "gold": "5031.365747",
+        "foreign": "993.463515"
+      },
+      {
+        "name": "15",
+        "policy": "factor",
+        "gold": "5000.763066",
+        "foreign": "999.794529"
+      },
+      {
+        "name": "16",
+        "policy": "factor",
+        "gold": "4443.377236",
+        "foreign": "1113.033933"
+      },
+      {
+        "name": "17",
+        "policy": "factor",
+        "gold": "4984.364579",
+        "foreign": "1002.968197"
+      },
+      {
+        "name": "18",
+        "policy": "factor",
+        "gold": "4424.174888",
+        "foreign": "1115.728636"
+      },
+      {
+        "name": "19",
+        "policy": "factor",
+        "gold": "5046.850453",
+        "foreign": "990.794754"
+      }
+    ]
+  },
+  "shock_summary": {
+    "seed": 84,
+    "b": 0.25,
+    "random_count": 10,
+    "ticks": 11000,
+    "final_z": -0.17649402118521026,
+    "issue": {
+      "tick": 1000,
+      "amount": 100000,
+      "pre_price": "4.999001982969140820548029796",
+      "pre_gold": "999900.193745",
+      "pre_foreign": "200019.963415",
+      "pre_k": "200000000171.526311839175",
+      "post_price": "5.498952079412867839814868111",
+      "post_gold": "1099900.193745",
+      "post_foreign": "200019.963415",
+      "post_k": "220001996513.026311839175"
+    },
+    "peak_intensity": 31.156468262966065,
+    "conserved_with_issue": true,
+    "pool_gold": "1073809.459656",
+    "pool_foreign": "204879.923946",
+    "accounts": [
+      {
+        "name": "0",
+        "policy": "random",
+        "gold": "8445.231004",
+        "foreign": "359.502939"
+      },
+      {
+        "name": "1",
+        "policy": "random",
+        "gold": "6929.842591",
+        "foreign": "641.819144"
+      },
+      {
+        "name": "2",
+        "policy": "random",
+        "gold": "3430.179726",
+        "foreign": "1311.139639"
+      },
+      {
+        "name": "3",
+        "policy": "random",
+        "gold": "6900.538905",
+        "foreign": "645.130762"
+      },
+      {
+        "name": "4",
+        "policy": "random",
+        "gold": "9486.420923",
+        "foreign": "113.332503"
+      },
+      {
+        "name": "5",
+        "policy": "random",
+        "gold": "4827.356573",
+        "foreign": "1040.869451"
+      },
+      {
+        "name": "6",
+        "policy": "random",
+        "gold": "8112.319435",
+        "foreign": "455.742256"
+      },
+      {
+        "name": "7",
+        "policy": "random",
+        "gold": "9468.699117",
+        "foreign": "161.214476"
+      },
+      {
+        "name": "8",
+        "policy": "random",
+        "gold": "10253.401521",
+        "foreign": "13.098417"
+      },
+      {
+        "name": "9",
+        "policy": "random",
+        "gold": "7894.556796",
+        "foreign": "437.532328"
+      },
+      {
+        "name": "10",
+        "policy": "factor",
+        "gold": "5293.580218",
+        "foreign": "966.633973"
+      },
+      {
+        "name": "11",
+        "policy": "factor",
+        "gold": "4731.900157",
+        "foreign": "1031.047128"
+      },
+      {
+        "name": "12",
+        "policy": "factor",
+        "gold": "5511.230817",
+        "foreign": "924.037283"
+      },
+      {
+        "name": "13",
+        "policy": "factor",
+        "gold": "4657.731581",
+        "foreign": "1025.522717"
+      },
+      {
+        "name": "14",
+        "policy": "factor",
+        "gold": "5034.325691",
+        "foreign": "996.196410"
+      },
+      {
+        "name": "15",
+        "policy": "factor",
+        "gold": "4735.391910",
+        "foreign": "1028.547899"
+      },
+      {
+        "name": "16",
+        "policy": "factor",
+        "gold": "5202.263095",
+        "foreign": "1007.967498"
+      },
+      {
+        "name": "17",
+        "policy": "factor",
+        "gold": "4825.764070",
+        "foreign": "1012.383754"
+      },
+      {
+        "name": "18",
+        "policy": "factor",
+        "gold": "5497.725127",
+        "foreign": "946.250377"
+      },
+      {
+        "name": "19",
+        "policy": "factor",
+        "gold": "4952.081087",
+        "foreign": "1002.107100"
+      }
+    ]
+  },
+  "response": {
+    "pre_price": 4.999001982969141,
+    "post_price": 5.4989520794128675,
+    "injection_jump": 0.10000998162172826,
+    "horizons": [
+      {
+        "horizon": 30,
+        "point": {
+          "price": 5.454245478190011,
+          "control_price": 4.979395528110218,
+          "price_change_from_pre": 0.09106687630287369,
+          "retraced_fraction": 0.0894221274100467,
+          "paired_retraced_fraction": 0.05020530357425135
+        },
+        "trailing_width": 30,
+        "trailing": {
+          "price": 5.457436894828607,
+          "control_price": 4.9940273478015484,
+          "price_change_from_pre": 0.09170528705955427,
+          "retraced_fraction": 0.08303865701710716,
+          "paired_retraced_fraction": 0.07308839357485974
+        }
+      },
+      {
+        "horizon": 100,
+        "point": {
+          "price": 5.4639850336043345,
+          "control_price": 4.964656794921478,
+          "price_change_from_pre": 0.09301517627304867,
+          "retraced_fraction": 0.0699410722335339,
+          "paired_retraced_fraction": 0.0012438396657856732
+        },
+        "trailing_width": 100,
+        "trailing": {
+          "price": 5.393275418170609,
+          "control_price": 4.98436486576062,
+          "price_change_from_pre": 0.07887042984673731,
+          "retraced_fraction": 0.2113744191549583,
+          "paired_retraced_fraction": 0.18209726266946458
+        }
+      },
+      {
+        "horizon": 300,
+        "point": {
+          "price": 5.338084894490539,
+          "control_price": 4.919554998202272,
+          "price_change_from_pre": 0.06783012142755762,
+          "retraced_fraction": 0.32176648442838224,
+          "paired_retraced_fraction": 0.1628566545633705
+        },
+        "trailing_width": 100,
+        "trailing": {
+          "price": 5.41610670169657,
+          "control_price": 4.946195783224692,
+          "price_change_from_pre": 0.08343759817428431,
+          "retraced_fraction": 0.16570729419915622,
+          "paired_retraced_fraction": 0.06008435278945767
+        }
+      },
+      {
+        "horizon": 1000,
+        "point": {
+          "price": 5.443416593544643,
+          "control_price": 4.899628560383138,
+          "price_change_from_pre": 0.08890066699104282,
+          "retraced_fraction": 0.11108205851596548,
+          "paired_retraced_fraction": -0.08768462498479024
+        },
+        "trailing_width": 100,
+        "trailing": {
+          "price": 5.359838859230933,
+          "control_price": 4.889830302481538,
+          "price_change_from_pre": 0.07218178298210542,
+          "retraced_fraction": 0.27825421211333295,
+          "paired_retraced_fraction": 0.05988905674249034
+        }
+      },
+      {
+        "horizon": 5000,
+        "point": {
+          "price": 5.310496430917336,
+          "control_price": 4.944393820845223,
+          "price_change_from_pre": 0.06231132714277998,
+          "retraced_fraction": 0.3769489191742628,
+          "paired_retraced_fraction": 0.2677216932723985
+        },
+        "trailing_width": 100,
+        "trailing": {
+          "price": 5.305827259950025,
+          "control_price": 4.938057417747512,
+          "price_change_from_pre": 0.06137730651561912,
+          "retraced_fraction": 0.3862881932348626,
+          "paired_retraced_fraction": 0.2643868961751299
+        }
+      },
+      {
+        "horizon": 10000,
+        "point": {
+          "price": 5.24116486854526,
+          "control_price": 4.947146984739725,
+          "price_change_from_pre": 0.04844224635259842,
+          "retraced_fraction": 0.5156258848659373,
+          "paired_retraced_fraction": 0.41190553637861205
+        },
+        "trailing_width": 100,
+        "trailing": {
+          "price": 5.2539051912068535,
+          "control_price": 4.934489815187464,
+          "price_change_from_pre": 0.050990819588816017,
+          "retraced_fraction": 0.49014269613926514,
+          "paired_retraced_fraction": 0.36110548174413293
+        }
+      }
+    ],
+    "terminal": {
+      "price": 5.247764497799259,
+      "control_price": 4.937173190129593,
+      "price_change_from_pre": 0.04976243571769223,
+      "retraced_fraction": 0.5024253088465634,
+      "paired_retraced_fraction": 0.37875538002896514,
+      "within_pre_one_percent": false,
+      "first_half_hit": 3219,
+      "first_full_hit": null,
+      "additional_runup_300": 0.006790283752206694,
+      "random_net_sold": 4143.215201000001,
+      "random_control_net_sold": 771.2302170000005,
+      "factor_net_sold": 716.7453300000009,
+      "factor_control_net_sold": 274.3224159999995,
+      "peak_post_intensity": 31.156468262966065,
+      "post_clipped_fraction": 0.015381246921013739,
+      "wallet_gold_min": 0.0,
+      "wallet_foreign_min": 0.0
+    }
+  },
+  "seconds": 4.526859307661653
+}

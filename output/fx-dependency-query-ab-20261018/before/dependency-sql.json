@@ -1,0 +1,434 @@
+[
+  {
+    "phase": "deterministic_versions_warmup",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_versions_warmup",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_versions_warmup",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_versions_measured",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_versions_measured",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_versions_measured",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_prices_warmup",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_market",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_prices_warmup",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_wallet",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_prices_warmup",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_short",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_prices_measured",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_market",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_prices_measured",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_wallet",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_prices_measured",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_short",
+    "executions": 1000
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 216
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 216
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 216
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 1
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 1
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 1
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 160
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 160
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 160
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 20
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 200
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 200
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 200
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 558
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 558
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 558
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 399
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 399
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 399
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 37
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 37
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_market",
+    "executions": 4
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_wallet",
+    "executions": 4
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_short",
+    "executions": 4
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 9
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 5
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 5
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 5
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 296
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 296
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 296
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 646
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 646
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 646
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 64
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 62
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 27
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_market",
+    "executions": 49
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_wallet",
+    "executions": 49
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_short",
+    "executions": 49
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_market",
+    "executions": 506
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_wallet",
+    "executions": 506
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_short",
+    "executions": 506
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_market",
+    "executions": 197
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_wallet",
+    "executions": 197
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 73
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_short",
+    "executions": 197
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 25
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 55
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_market",
+    "executions": 59
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_wallet",
+    "executions": 59
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_short",
+    "executions": 59
+  }
+]

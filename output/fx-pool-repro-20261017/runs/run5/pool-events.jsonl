@@ -1,0 +1,237 @@
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.014}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.025}
+{"event": "checkin", "held": 1, "held_ms": 55.0, "endpoint": "?", "t": 0.08}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.091}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.091}
+{"event": "checkin", "held": 1, "held_ms": 38.5, "endpoint": "?", "t": 0.13}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.131}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.131}
+{"event": "checkin", "held": 1, "held_ms": 2.9, "endpoint": "?", "t": 0.134}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.14}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.141}
+{"event": "checkin", "held": 1, "held_ms": 1.9, "endpoint": "?", "t": 0.143}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.143}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.143}
+{"event": "checkin", "held": 1, "held_ms": 2.4, "endpoint": "?", "t": 0.146}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.146}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.147}
+{"event": "checkin", "held": 1, "held_ms": 0.9, "endpoint": "?", "t": 0.148}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.149}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.149}
+{"event": "checkin", "held": 1, "held_ms": 11.8, "endpoint": "?", "t": 0.161}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.161}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.162}
+{"event": "checkin", "held": 1, "held_ms": 2.5, "endpoint": "?", "t": 0.164}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.165}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.165}
+{"event": "checkin", "held": 1, "held_ms": 2.0, "endpoint": "?", "t": 0.167}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.168}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.168}
+{"event": "checkin", "held": 1, "held_ms": 1.1, "endpoint": "?", "t": 0.169}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.17}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.17}
+{"event": "checkin", "held": 1, "held_ms": 1.8, "endpoint": "?", "t": 0.172}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.173}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.173}
+{"event": "checkin", "held": 1, "held_ms": 3.4, "endpoint": "?", "t": 0.177}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.177}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.177}
+{"event": "checkin", "held": 1, "held_ms": 3.2, "endpoint": "?", "t": 0.181}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.186}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.186}
+{"event": "checkin", "held": 1, "held_ms": 1.8, "endpoint": "?", "t": 0.188}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.189}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.19}
+{"event": "checkin", "held": 1, "held_ms": 0.9, "endpoint": "?", "t": 0.191}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.192}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.192}
+{"event": "checkin", "held": 1, "held_ms": 0.9, "endpoint": "?", "t": 0.193}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.194}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.194}
+{"event": "checkin", "held": 1, "held_ms": 0.8, "endpoint": "?", "t": 0.195}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.195}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 0.196}
+{"event": "checkin", "held": 1, "held_ms": 0.9, "endpoint": "?", "t": 0.197}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.238}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.239}
+{"event": "checkin", "held": 1, "held_ms": 4.3, "endpoint": "?", "t": 0.243}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.471}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.479}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.483}
+{"event": "pool_wait_done", "waited_ms": 0.1, "t": 0.494}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.499}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.511}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.514}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.516}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.519}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.521}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.523}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.526}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.528}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.53}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.532}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.534}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.536}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.538}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.54}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.541}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.543}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.545}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.546}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.55}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.551}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.553}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.554}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.556}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.557}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 0.558}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.567}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.584}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.585}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.586}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.587}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.588}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.588}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.588}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.589}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.589}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.589}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.589}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.59}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.59}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.59}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.59}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.59}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.591}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.591}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.591}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.592}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.592}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.592}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.592}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.593}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.593}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.593}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.593}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.594}
+{"event": "checkout", "held": 30, "endpoint": "?", "task": "starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro", "t": 0.594}
+{"event": "ready", "pool_max": 30, "t": 2.001}
+{"event": "hot", "seq": 1, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 42, "locks": {}, "t": 2.26}
+{"event": "hot", "seq": 2, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 42, "locks": {}, "t": 4.339}
+{"event": "hot", "seq": 3, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 6.425}
+{"event": "hot", "seq": 4, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 8.508}
+{"event": "hot", "seq": 5, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 10.577}
+{"event": "hot", "seq": 6, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 12.662}
+{"event": "hot", "seq": 7, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 14.719}
+{"event": "hot", "seq": 8, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 16.79}
+{"event": "hot", "seq": 9, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 18.879}
+{"event": "hot", "seq": 10, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 20.975}
+{"event": "hot", "seq": 11, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 23.034}
+{"event": "hot", "seq": 12, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 25.121}
+{"event": "hot", "seq": 13, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 27.195}
+{"event": "hot", "seq": 14, "checkedout": 30, "waiting_for_pool": 0, "waiting_lock": 41, "locks": {}, "t": 29.266}
+{"event": "pool_wait_done", "waited_ms": 30000.7, "t": 30.56}
+{"event": "pool_wait_done", "waited_ms": 30000.7, "t": 30.561}
+{"event": "pool_wait_done", "waited_ms": 30000.5, "t": 30.561}
+{"event": "pool_wait_done", "waited_ms": 30016.6, "t": 30.578}
+{"event": "pool_wait_done", "waited_ms": 30024.1, "t": 30.586}
+{"event": "pool_wait_done", "waited_ms": 30023.9, "t": 30.587}
+{"event": "pool_wait_done", "waited_ms": 30023.6, "t": 30.587}
+{"event": "pool_wait_done", "waited_ms": 30023.4, "t": 30.587}
+{"event": "pool_wait_done", "waited_ms": 30023.1, "t": 30.587}
+{"event": "pool_wait_done", "waited_ms": 30022.8, "t": 30.587}
+{"event": "pool_wait_done", "waited_ms": 30026.3, "t": 30.61}
+{"event": "pool_wait_done", "waited_ms": 30040.7, "t": 30.644}
+{"event": "pool_wait_done", "waited_ms": 30040.1, "t": 30.644}
+{"event": "pool_wait_done", "waited_ms": 30038.1, "t": 30.645}
+{"event": "pool_wait_done", "waited_ms": 30037.9, "t": 30.645}
+{"event": "pool_wait_done", "waited_ms": 30035.4, "t": 30.645}
+{"event": "pool_wait_done", "waited_ms": 30035.2, "t": 30.645}
+{"event": "pool_wait_done", "waited_ms": 30035.1, "t": 30.645}
+{"event": "pool_wait_done", "waited_ms": 30061.7, "t": 30.674}
+{"event": "pool_wait_done", "waited_ms": 30061.6, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30061.5, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30061.4, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.7, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.5, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.4, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.3, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.2, "t": 30.675}
+{"event": "pool_wait_done", "waited_ms": 30060.1, "t": 30.676}
+{"event": "pool_wait_done", "waited_ms": 30060.6, "t": 30.676}
+{"event": "pool_wait_done", "waited_ms": 30060.5, "t": 30.676}
+{"event": "pool_wait_done", "waited_ms": 30060.4, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30060.3, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30060.2, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30060.1, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30060.0, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30059.9, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30059.7, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30059.6, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30059.5, "t": 30.677}
+{"event": "pool_wait_done", "waited_ms": 30059.4, "t": 30.677}
+{"event": "checkin", "held": 30, "held_ms": 30111.8, "endpoint": "?", "t": 30.679}
+{"event": "pool_wait_done", "waited_ms": 25505.4, "t": 30.68}
+{"event": "checkin", "held": 30, "held_ms": 30096.9, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 29, "held_ms": 30097.6, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 28, "held_ms": 30095.5, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 27, "held_ms": 30095.9, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 26, "held_ms": 30094.7, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 25, "held_ms": 30094.2, "endpoint": "?", "t": 30.682}
+{"event": "checkin", "held": 24, "held_ms": 30094.6, "endpoint": "?", "t": 30.683}
+{"event": "pool_wait_done", "waited_ms": 25485.4, "t": 30.686}
+{"event": "pool_wait_done", "waited_ms": 20486.5, "t": 30.686}
+{"event": "pool_wait_done", "waited_ms": 10489.3, "t": 30.687}
+{"event": "checkin", "held": 26, "held_ms": 30097.8, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 25, "held_ms": 30097.2, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 24, "held_ms": 30098.4, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 23, "held_ms": 30097.2, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 22, "held_ms": 30097.8, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 21, "held_ms": 30097.0, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 20, "held_ms": 30098.2, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 20, "held_ms": 30095.8, "endpoint": "?", "t": 30.687}
+{"event": "checkin", "held": 20, "held_ms": 30097.1, "endpoint": "?", "t": 30.688}
+{"event": "checkin", "held": 20, "held_ms": 30096.6, "endpoint": "?", "t": 30.688}
+{"event": "checkin", "held": 20, "held_ms": 30103.0, "endpoint": "?", "t": 30.693}
+{"event": "checkin", "held": 20, "held_ms": 30102.5, "endpoint": "?", "t": 30.693}
+{"event": "checkin", "held": 20, "held_ms": 30101.4, "endpoint": "?", "t": 30.693}
+{"event": "checkin", "held": 20, "held_ms": 30100.1, "endpoint": "?", "t": 30.693}
+{"event": "checkin", "held": 20, "held_ms": 30100.0, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30100.8, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30100.0, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30101.3, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30102.6, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30102.0, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30101.1, "endpoint": "?", "t": 30.694}
+{"event": "checkin", "held": 20, "held_ms": 30101.9, "endpoint": "?", "t": 30.694}
+{"event": "checkout", "held": 4, "endpoint": "FxMarketDataService._run", "task": "fx-market-state", "t": 30.794}
+{"event": "checkout", "held": 4, "endpoint": "?", "task": "Task-148", "t": 30.912}
+{"event": "checkout", "held": 4, "endpoint": "run_order_scan_once", "task": "Task-128", "t": 30.913}
+{"event": "checkout", "held": 4, "endpoint": "?", "task": "Task-117", "t": 30.914}
+{"event": "checkin", "held": 4, "held_ms": 122.4, "endpoint": "FxMarketDataService._run", "t": 30.916}
+{"event": "checkin", "held": 4, "held_ms": 6.4, "endpoint": "_tick_safe", "t": 30.919}
+{"event": "checkin", "held": 4, "held_ms": 5.1, "endpoint": "_tick_safe", "t": 30.92}
+{"event": "checkin", "held": 4, "held_ms": 7.5, "endpoint": "run_order_scan_once", "t": 30.92}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 30.925}
+{"event": "checkout", "held": 2, "endpoint": "FxMarketDataService._run", "task": "fx-market-state", "t": 30.926}
+{"event": "checkin", "held": 1, "held_ms": 2.7, "endpoint": "FxMarketDataService._run", "t": 30.929}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 30.929}
+{"event": "checkout", "held": 1, "endpoint": "FxMarketDataService._run", "task": "fx-market-state", "t": 30.93}
+{"event": "checkin", "held": 1, "held_ms": 2.6, "endpoint": "FxMarketDataService._run", "t": 30.933}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.34}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 33.342}
+{"event": "checkin", "held": 1, "held_ms": 4.2, "endpoint": "?", "t": 33.346}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.347}
+{"event": "checkout", "held": 1, "endpoint": "?", "task": "Task-3", "t": 33.349}
+{"event": "checkin", "held": 1, "held_ms": 3.4, "endpoint": "?", "t": 33.352}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.363}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.37}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.377}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.381}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.388}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.395}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.401}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.408}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.412}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.419}
+{"event": "pool_wait_done", "waited_ms": 0.0, "t": 33.426}

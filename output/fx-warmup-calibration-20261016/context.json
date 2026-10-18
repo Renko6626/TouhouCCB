@@ -1,0 +1,10 @@
+{
+  "day_preset": "research/fx/intraday_6_8h/FROZEN_CONFIG.json",
+  "day_preset_sha256": "98c71d9be31b438e6dfd8ca44b649f16a3be185ee8b9378d86198a5d23d46e57",
+  "warmup_start": "output/fx-cycle20-20261016/candidate.json",
+  "warmup_start_sha256": "d5726eb90e03b5e845cdc10ba1719fcd455ff30d36032741e05d67708d7cfb14",
+  "amplitude_multiplier": 1.5,
+  "pending_clarification": "40-60min full cycle or one directional leg",
+  "trade_frequency_target_per_minute": 5,
+  "scope": "Offline research, no scheduled switching or production configuration writes; earlier2x amplitude request superseded."
+}

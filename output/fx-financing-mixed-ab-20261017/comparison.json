@@ -1,0 +1,360 @@
+{
+  "before": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 18,
+    "queue_peak": 101,
+    "stages": [
+      {
+        "name": "readonly",
+        "duration_s": 31.005,
+        "cycles": 0,
+        "successes": 0,
+        "successes_per_s": 0.0,
+        "nominal_trade_cycles_per_s": 0,
+        "http_results": {
+          "ok": 200
+        },
+        "trade_results": {},
+        "trade_latency": {},
+        "gate_wait": null,
+        "gate_held": null,
+        "queue_peak": 0,
+        "pool_peak_sampled": 2,
+        "cpu_mean": 21.521612903225805,
+        "trade_sql": 0,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "normal",
+        "duration_s": 61.061,
+        "cycles": 154,
+        "successes": 154,
+        "successes_per_s": 2.522,
+        "nominal_trade_cycles_per_s": 2.5,
+        "http_results": {
+          "ok": 1178
+        },
+        "trade_results": {
+          "ok": 154
+        },
+        "trade_latency": {
+          "count": 154,
+          "p50_ms": 49.387,
+          "p95_ms": 198.938,
+          "p99_ms": 287.884
+        },
+        "gate_wait": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 189,
+          "mean_ms": 3.2565897458760196,
+          "p50_ms": 0.042719766497612,
+          "p95_ms": 21.871604025363922,
+          "p99_ms": 48.91629330813885,
+          "max_ms": 110.49206927418709
+        },
+        "gate_held": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 189,
+          "mean_ms": 32.61072732626446,
+          "p50_ms": 25.913769379258156,
+          "p95_ms": 98.3472391963005,
+          "p99_ms": 122.9169312864542,
+          "max_ms": 234.422467648983
+        },
+        "queue_peak": 0,
+        "pool_peak_sampled": 8,
+        "cpu_mean": 47.73466666666666,
+        "trade_sql": 3282,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "active",
+        "duration_s": 46.441,
+        "cycles": 342,
+        "successes": 336,
+        "successes_per_s": 7.235,
+        "nominal_trade_cycles_per_s": 7.5,
+        "http_results": {
+          "ok": 2069
+        },
+        "trade_results": {
+          "ok": 336
+        },
+        "trade_latency": {
+          "count": 336,
+          "p50_ms": 216.649,
+          "p95_ms": 1002.667,
+          "p99_ms": 1503.757
+        },
+        "gate_wait": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 401,
+          "mean_ms": 153.08546098854922,
+          "p50_ms": 35.262079909443855,
+          "p95_ms": 660.253468900919,
+          "p99_ms": 859.4164289534092,
+          "max_ms": 978.2326109707355
+        },
+        "gate_held": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 401,
+          "mean_ms": 71.46941361358932,
+          "p50_ms": 69.28196176886559,
+          "p95_ms": 147.66221307218075,
+          "p99_ms": 235.30205711722374,
+          "max_ms": 314.1522631049156
+        },
+        "queue_peak": 10,
+        "pool_peak_sampled": 11,
+        "cpu_mean": 91.63511111111112,
+        "trade_sql": 6871,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "stress",
+        "duration_s": 34.565,
+        "cycles": 393,
+        "successes": 336,
+        "successes_per_s": 9.721,
+        "nominal_trade_cycles_per_s": 25.0,
+        "http_results": {
+          "ok": 2032,
+          "timeout": 27,
+          "version_conflict": 22
+        },
+        "trade_results": {
+          "ok": 336,
+          "timeout": 27,
+          "version_conflict": 22
+        },
+        "trade_latency": {
+          "count": 336,
+          "p50_ms": 7395.538,
+          "p95_ms": 12229.502,
+          "p99_ms": 14508.494
+        },
+        "gate_wait": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 431,
+          "mean_ms": 6131.3165748392485,
+          "p50_ms": 7161.460319533944,
+          "p95_ms": 8368.539396673441,
+          "p99_ms": 8458.235980942845,
+          "max_ms": 8590.148875489831
+        },
+        "gate_held": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 431,
+          "mean_ms": 72.02842221822235,
+          "p50_ms": 68.69695894420147,
+          "p95_ms": 138.95593211054802,
+          "p99_ms": 230.5151205509901,
+          "max_ms": 290.7970566302538
+        },
+        "queue_peak": 101,
+        "pool_peak_sampled": 15,
+        "cpu_mean": 96.50617647058823,
+        "trade_sql": 6985,
+        "sse_public": 0,
+        "sse_private": 0
+      }
+    ],
+    "pool_errors": 0,
+    "tracebacks": 1,
+    "cancelled_mentions": 1
+  },
+  "after": {
+    "abort": "30s window: successful trade P99 exceeds 2000ms",
+    "pool_peak": 18,
+    "queue_peak": 100,
+    "stages": [
+      {
+        "name": "readonly",
+        "duration_s": 31.004,
+        "cycles": 0,
+        "successes": 0,
+        "successes_per_s": 0.0,
+        "nominal_trade_cycles_per_s": 0,
+        "http_results": {
+          "ok": 200
+        },
+        "trade_results": {},
+        "trade_latency": {},
+        "gate_wait": null,
+        "gate_held": null,
+        "queue_peak": 0,
+        "pool_peak_sampled": 2,
+        "cpu_mean": 19.03933333333333,
+        "trade_sql": 0,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "normal",
+        "duration_s": 61.005,
+        "cycles": 151,
+        "successes": 150,
+        "successes_per_s": 2.459,
+        "nominal_trade_cycles_per_s": 2.5,
+        "http_results": {
+          "ok": 1158
+        },
+        "trade_results": {
+          "ok": 150
+        },
+        "trade_latency": {
+          "count": 150,
+          "p50_ms": 49.232,
+          "p95_ms": 142.144,
+          "p99_ms": 197.606
+        },
+        "gate_wait": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 167,
+          "mean_ms": 2.4681194367522963,
+          "p50_ms": 0.03816001117229462,
+          "p95_ms": 14.579802751541138,
+          "p99_ms": 36.51496395468712,
+          "max_ms": 82.97614194452763
+        },
+        "gate_held": {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 167,
+          "mean_ms": 31.2518485247375,
+          "p50_ms": 27.07720175385475,
+          "p95_ms": 78.21465656161308,
+          "p99_ms": 99.94147159159184,
+          "max_ms": 115.70575833320618
+        },
+        "queue_peak": 0,
+        "pool_peak_sampled": 7,
+        "cpu_mean": 44.87416666666666,
+        "trade_sql": 3126,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "active",
+        "duration_s": 46.528,
+        "cycles": 348,
+        "successes": 344,
+        "successes_per_s": 7.393,
+        "nominal_trade_cycles_per_s": 7.5,
+        "http_results": {
+          "ok": 2091
+        },
+        "trade_results": {
+          "ok": 344
+        },
+        "trade_latency": {
+          "count": 344,
+          "p50_ms": 168.985,
+          "p95_ms": 846.359,
+          "p99_ms": 1159.725
+        },
+        "gate_wait": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 372,
+          "mean_ms": 131.2624860795275,
+          "p50_ms": 29.431354254484177,
+          "p95_ms": 510.4459151625633,
+          "p99_ms": 710.1628221571445,
+          "max_ms": 825.9626403450966
+        },
+        "gate_held": {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 372,
+          "mean_ms": 69.8979707004162,
+          "p50_ms": 66.37252494692802,
+          "p95_ms": 138.92856426537037,
+          "p99_ms": 199.9360229820013,
+          "max_ms": 306.33997172117233
+        },
+        "queue_peak": 6,
+        "pool_peak_sampled": 12,
+        "cpu_mean": 87.84822222222222,
+        "trade_sql": 6700,
+        "sse_public": 100,
+        "sse_private": 100
+      },
+      {
+        "name": "stress",
+        "duration_s": 35.059,
+        "cycles": 390,
+        "successes": 338,
+        "successes_per_s": 9.641,
+        "nominal_trade_cycles_per_s": 25.0,
+        "http_results": {
+          "ok": 2033,
+          "timeout": 21,
+          "version_conflict": 16
+        },
+        "trade_results": {
+          "ok": 338,
+          "timeout": 21,
+          "version_conflict": 16
+        },
+        "trade_latency": {
+          "count": 338,
+          "p50_ms": 7683.78,
+          "p95_ms": 10865.285,
+          "p99_ms": 14120.462
+        },
+        "gate_wait": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "wait",
+          "count": 416,
+          "mean_ms": 6304.681244745063,
+          "p50_ms": 7458.417907357216,
+          "p95_ms": 9319.51842829585,
+          "p99_ms": 9430.681390687823,
+          "max_ms": 9603.291779756546
+        },
+        "gate_held": {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "kind": "held",
+          "count": 416,
+          "mean_ms": 75.58512441867676,
+          "p50_ms": 73.03528860211372,
+          "p95_ms": 151.53514593839645,
+          "p99_ms": 229.55888882279396,
+          "max_ms": 282.43724070489407
+        },
+        "queue_peak": 100,
+        "pool_peak_sampled": 11,
+        "cpu_mean": 98.15176470588234,
+        "trade_sql": 7079,
+        "sse_public": 0,
+        "sse_private": 0
+      }
+    ],
+    "pool_errors": 0,
+    "tracebacks": 0,
+    "cancelled_mentions": 0
+  }
+}

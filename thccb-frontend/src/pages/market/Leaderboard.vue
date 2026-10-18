@@ -14,7 +14,7 @@ const leaderboardRows = computed(() => marketStore.leaderboard)
 
 const modeOptions: { value: LeaderboardMode; label: string; sub: string }[] = [
   { value: 'net_worth', label: '净值榜', sub: '按 现金 - 债务' },
-  { value: 'spending', label: '消费榜', sub: '按 兑换消费 - 债务' },
+  { value: 'spending', label: '消费榜', sub: '按累计兑换及付费弹幕消费排名' },
 ]
 
 // 前 3 名徽章样式（工业风黑白递进；不用金银铜彩色，守 docs/style.md）
@@ -38,7 +38,7 @@ const rankBadgeStyle = (rank: number): Record<string, string> => {
 
 const numStyle = { fontVariantNumeric: 'tabular-nums' as const }
 
-// 列定义随 mode 动态切换：net_worth 模式只显示总分；spending 模式额外展示消费/债务分量
+// 列定义随 mode 动态切换：net_worth 模式只显示总分；spending 模式展示累计消费
 const columns = computed<DataTableColumns<LeaderboardItem>>(() => {
   const base: DataTableColumns<LeaderboardItem> = [
     {
@@ -63,20 +63,9 @@ const columns = computed<DataTableColumns<LeaderboardItem>>(() => {
   if (mode.value === 'spending') {
     base.push(
       {
-        title: '消费总额', key: 'spent_total',
+        title: '累计消费', key: 'spent_total',
         render: (row) => h('span', { style: numStyle },
           row.spent_total != null ? `金 ${Number(row.spent_total).toLocaleString()}` : '—'),
-      },
-      {
-        title: '当前债务', key: 'debt',
-        render: (row) => h('span', { style: numStyle },
-          row.debt != null ? `金 ${Number(row.debt).toLocaleString()}` : '—'),
-      },
-      {
-        title: '净消费', key: 'net_worth',
-        render: (row) => h('span',
-          { style: { ...numStyle, fontWeight: '700' } },
-          `金 ${row.net_worth.toLocaleString()}`),
       },
     )
   } else {

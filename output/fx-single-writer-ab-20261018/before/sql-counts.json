@@ -1,0 +1,527 @@
+[
+  {
+    "phase": "startup",
+    "route": "background",
+    "executions": 64
+  },
+  {
+    "phase": "startup",
+    "route": "GET /api/v1/fx/pairs",
+    "executions": 1
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs",
+    "executions": 1
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 2
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 1
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 804
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/announcements/latest",
+    "executions": 100
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "executions": 400
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "executions": 1925
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 742
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792278000.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792281600.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792285200.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792288800.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792292400.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792296000.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792299600.json",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/1m/1792303200.json",
+    "executions": 203
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 24
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 128
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "executions": 48
+  },
+  {
+    "phase": "smoke",
+    "route": "background:public_fx_push",
+    "executions": 32
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 64
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "background",
+    "executions": 3
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 4
+  },
+  {
+    "phase": "connect",
+    "route": "background",
+    "executions": 15
+  },
+  {
+    "phase": "connect",
+    "route": "background:market_data",
+    "executions": 27
+  },
+  {
+    "phase": "connect",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 6
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 587
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 2170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background",
+    "executions": 8
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 313
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "executions": 510
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 693
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:public_fx_push",
+    "executions": 340
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "executions": 260
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "executions": 360
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 667
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 1200
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 1235
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "executions": 180
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:public_fx_push",
+    "executions": 120
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 660
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 2632
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "executions": 600
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 60
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 187
+  },
+  {
+    "phase": "readheavy",
+    "route": "background",
+    "executions": 39
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 624
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 800
+  },
+  {
+    "phase": "readonly",
+    "route": "background",
+    "executions": 11
+  },
+  {
+    "phase": "readonly",
+    "route": "background:market_data",
+    "executions": 18
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 753
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 1596
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 3152
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 1385
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "executions": 930
+  },
+  {
+    "phase": "normal",
+    "route": "background:public_fx_push",
+    "executions": 623
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 1248
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 312
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 312
+  },
+  {
+    "phase": "normal",
+    "route": "background",
+    "executions": 50
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "executions": 156
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "executions": 228
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791849600.json",
+    "executions": 5
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791936000.json",
+    "executions": 23
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792022400.json",
+    "executions": 23
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792108800.json",
+    "executions": 23
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1792195200.json",
+    "executions": 23
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/65e5c42f-b84c-495f-9ba4-e957b8aaaa53/15m/1791849600.json",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 6
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 1251
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 1605
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 6351
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 1200
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "executions": 1846
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "executions": 1321
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 648
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 648
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 2597
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "executions": 49
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "executions": 403
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "executions": 589
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "executions": 2
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "executions": 1715
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "executions": 6746
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "executions": 918
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "executions": 1865
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "executions": 1216
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "executions": 2729
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "executions": 682
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "executions": 682
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "executions": 660
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "executions": 338
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "executions": 494
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "executions": 48
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "executions": 41
+  }
+]

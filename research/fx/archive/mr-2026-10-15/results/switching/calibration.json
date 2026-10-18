@@ -1,0 +1,10 @@
+{
+  "method": "1 / pooled fixed-A score-difference RMS",
+  "rms": 2.107761085771911e-05,
+  "beta": 47443.707294452535,
+  "seeds": [
+    41,
+    42,
+    43
+  ]
+}

@@ -16,7 +16,7 @@ from app.services.credit import flags
 from app.services.credit.flags import CreditFlags
 from app.services.fx import borrow_buy, trading
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 NOW = datetime(2026, 10, 10, 12, tzinfo=timezone.utc)
 
 

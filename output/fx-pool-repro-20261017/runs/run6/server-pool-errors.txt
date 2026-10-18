@@ -1,0 +1,3 @@
+lines=1 queuepool_mentions=0 timeout_mentions=0
+first unique queuepool line:
+(none)

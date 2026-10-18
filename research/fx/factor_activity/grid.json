@@ -1,0 +1,11 @@
+{
+  "trend_multipliers": [0.1, 1, 10],
+  "reversion_multipliers": [0.1, 1, 10],
+  "noise_sigmas": [0.0005, 0.002, 0.008],
+  "window_pairs": [[30, 30], [10, 100], [100, 1000]],
+  "adjustments": [0.2, 0.5],
+  "screen": {"seeds": [51, 52], "ticks": 25000, "burn_in": 5000},
+  "validation": {"seeds": [61, 62, 63], "ticks": 100000, "burn_in": 5000},
+  "workers": 12,
+  "selection_per_ranking": 2
+}

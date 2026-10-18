@@ -1,0 +1,44 @@
+{
+  "6": {
+    "total_trades": 1904.6666666666667,
+    "trades_per_minute_full": 5.290740740740741,
+    "trades_per_minute_after30": 5.303030303030304,
+    "arrivals_per_minute_after30": 6.775757575757576,
+    "gross_foreign_per_minute_after30": 510.1781848515152,
+    "net_change": -0.02396270292221736,
+    "unfinished_episodes": 4.666666666666667,
+    "range30_median": 0.03241087174171651,
+    "cycle1_minutes": 9.069444444444445,
+    "amplitude1": 0.01783432200115953,
+    "up1_minutes": 3.9027777777777772,
+    "up1_gain": 0.017675125741906623
+  },
+  "7": {
+    "total_trades": 2200.0,
+    "trades_per_minute_full": 5.238095238095238,
+    "trades_per_minute_after30": 5.2444444444444445,
+    "arrivals_per_minute_after30": 6.764102564102564,
+    "gross_foreign_per_minute_after30": 504.71162980854706,
+    "net_change": -0.025450428374474348,
+    "unfinished_episodes": 7.0,
+    "range30_median": 0.03219448198065025,
+    "cycle1_minutes": 9.166666666666666,
+    "amplitude1": 0.017585362166752955,
+    "up1_minutes": 3.9583333333333335,
+    "up1_gain": 0.017579271894421322
+  },
+  "8": {
+    "total_trades": 2509.6666666666665,
+    "trades_per_minute_full": 5.228472222222222,
+    "trades_per_minute_after30": 5.233333333333333,
+    "arrivals_per_minute_after30": 6.785185185185185,
+    "gross_foreign_per_minute_after30": 496.81800615259266,
+    "net_change": -0.017050448729499863,
+    "unfinished_episodes": 5.333333333333333,
+    "range30_median": 0.029810007188597887,
+    "cycle1_minutes": 9.583333333333334,
+    "amplitude1": 0.01762591578215426,
+    "up1_minutes": 4.222222222222222,
+    "up1_gain": 0.01755906067216802
+  }
+}

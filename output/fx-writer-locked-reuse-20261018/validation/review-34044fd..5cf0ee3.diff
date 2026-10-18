@@ -1,0 +1,252 @@
+BASE34044fd HEAD5cf0ee30ae7c364d456307828a6bae3c3982565f
+5cf0ee3 perf: reuse locked NetTrade account rows for risk discovery
+ backend/app/services/credit/risk.py    | 28 ++++++++++++----
+ backend/app/services/fx/net_trading.py |  3 +-
+ backend/tests/test_credit_risk.py      | 58 +++++++++++++++++++++++++++++++---
+ 3 files changed, 76 insertions(+), 13 deletions(-)
+diff --git a/backend/app/services/credit/risk.py b/backend/app/services/credit/risk.py
+index c6ebc88..f183826 100644
+--- a/backend/app/services/credit/risk.py
++++ b/backend/app/services/credit/risk.py
+@@ -498,43 +498,57 @@ def _captured_snapshots(keys, *, lmsr_fee_rate, short_debts):
+ async def _ensure_snapshots(session, deps, needed):
+     # A missing record stays missing for this check; never recapture or SQL-fill.
+     return dict(deps.snapshots)
+ 
+ 
+ async def discover_dependencies(
+     session: AsyncSession, user_id: int, *,
+     extra_groups: Sequence[GroupKey] = (), account_locked: bool = False,
++    locked_user: User | None = None,
++    locked_short_rows: Sequence[FxShortPosition] | None = None,
+ ) -> DependencySet:
+     """Read the complete own ledger, then synchronously capture its prices once.
+ 
+     Execution passes account_locked only after obtaining User FOR UPDATE. A
+     discovery made before that lock is prefetch, never execution authorization.
+     SQL is used for account amounts and identifiers, never market quote inputs.
++
++    Locked inputs must belong to this session's current User-locked transaction;
++    short rows must be the complete locked set, including closed positions.
++    An empty set means that the account has no short rows. Other callers retain
++    the authoritative User refresh and short-debt query by omitting these inputs.
+     """
+     uid = int(user_id)
+-    user = await _refresh_user_authority(session, uid)
++    if (locked_user is not None or locked_short_rows is not None) and not account_locked:
++        raise ValueError("locked account inputs require account_locked=True")
++    user = locked_user if locked_user is not None else await _refresh_user_authority(session, uid)
+     pos_rows = (await session.execute(select(
+         Position.outcome_id, Position.amount, Outcome.market_id,
+     ).join(Outcome, Outcome.id == Position.outcome_id).where(
+         Position.user_id == uid, Position.amount > ZERO))).all()
+     holdings = {}
+     for oid, amount, mid in pos_rows:
+         holdings.setdefault(GroupKey("lmsr", int(mid)), {})[int(oid)] = Decimal(amount)
+     wallet_rows = (await session.execute(select(
+         FxWallet.pair_id, FxWallet.foreign_amount,
+     ).where(FxWallet.user_id == uid, FxWallet.foreign_amount > ZERO))).all()
+     for pid, amount in wallet_rows:
+         holdings[GroupKey("fx", int(pid))] = {int(pid): Decimal(amount)}
+-    rows = (await session.execute(select(
+-        FxShortPosition.pair_id, FxShortPosition.principal_foreign,
+-        FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
+-    ).where(FxShortPosition.user_id == uid,
+-        (FxShortPosition.principal_foreign > ZERO)
+-        | (FxShortPosition.interest_foreign > ZERO)))).all()
++    if locked_short_rows is None:
++        rows = (await session.execute(select(
++            FxShortPosition.pair_id, FxShortPosition.principal_foreign,
++            FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
++        ).where(FxShortPosition.user_id == uid,
++            (FxShortPosition.principal_foreign > ZERO)
++            | (FxShortPosition.interest_foreign > ZERO)))).all()
++    else:
++        rows = [(p.pair_id, p.principal_foreign, p.interest_foreign, p.interest_last_accrued_at)
++                for p in locked_short_rows
++                if p.principal_foreign > ZERO or p.interest_foreign > ZERO]
+     short_debts = {int(pid): ShortDebtSnapshot(Decimal(principal), Decimal(interest), accrued)
+                    for pid, principal, interest, accrued in rows}
+     deps = DependencySet(economic_version=economic_version_of(user),
+         cash=Decimal(user.cash), debt=Decimal(user.debt),
+         debt_last_accrued_at=user.debt_last_accrued_at,
+         groups=tuple(sorted(set(holdings) | {GroupKey("fx", pid) for pid in short_debts})),
+         holdings=holdings, short_debts=short_debts, account_locked=account_locked)
+     # These are existing maintenance-frozen global rules, separate from markets.
+diff --git a/backend/app/services/fx/net_trading.py b/backend/app/services/fx/net_trading.py
+index a0f11aa..666aba5 100644
+--- a/backend/app/services/fx/net_trading.py
++++ b/backend/app/services/fx/net_trading.py
+@@ -282,17 +282,18 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
+     trading._require_writes()
+     if economic_version_of(user) != req.expected_economic_version:
+         raise HTTPException(status_code=409, detail='economic_version_changed; requote')
+     wallet = await trading._wallet_lock(db, user_id, pair_id, create=False)
+     positions = await shorts._lock_short_rows(db, user_id)
+     requires_deps = bool(req.borrow_amount or (_instruction and _instruction.auto_borrow) or user.debt or any(
+         p.principal_foreign or p.interest_foreign for p in positions)
+         or (req.side == 'sell' and req.amount > (wallet.foreign_amount if wallet else 0)))
+-    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
++    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True,
++                                       locked_user=user, locked_short_rows=positions)
+             if requires_deps else None)
+     treasury = await shorts._lock_treasury(db, pair_id)
+     now = _now or trading.utcnow()
+     simulation = await _simulate(db, user, pair, wallet, positions, treasury, req, now=now, deps=deps, instruction=_instruction)
+     quote = simulation.quote
+     if quote.growth_amount > 0 and not req.allow_growth:
+         raise HTTPException(status_code=409, detail='growth_requires_confirmation; requote')
+     if not quote.executable:
+diff --git a/backend/tests/test_credit_risk.py b/backend/tests/test_credit_risk.py
+index 9a3e6be..b7c5cfc 100644
+--- a/backend/tests/test_credit_risk.py
++++ b/backend/tests/test_credit_risk.py
+@@ -11,17 +11,17 @@ from decimal import Decimal
+ import pytest
+ from tests.conftest import publish_seeded_market_records
+ from sqlalchemy import event, select
+ 
+ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+ 
+ from app.core.database import async_session_maker, engine
+ from app.models.base import Market, Outcome, Position, SiteConfig, User
+-from app.models.fx import FxPair, FxWallet
++from app.models.fx import FxPair, FxShortPosition, FxWallet
+ from app.services.credit import flags as credit_flags
+ from app.services.credit import risk
+ from app.services.credit.keys import GroupKey
+ from app.services.credit.risk import (
+     REASON_CREDIT_FROZEN,
+     REASON_FROZEN_BY_OPERATOR,
+     REASON_INSUFFICIENT_INITIAL_MARGIN,
+     REASON_VERSION_CONFLICT,
+@@ -159,24 +159,32 @@ async def _check_spend(uid: int, spend, *, deps=None, thresholds=TH):
+         return await check_cash_spend(
+             s, user=user, deps=current, spend=Decimal(str(spend)),
+             thresholds=thresholds, partial_pct=PCT, now=NOW,
+         )
+ 
+ 
+ # ────────────────────────────── 发现依赖 ──────────────────────────────
+ 
+-async def test_discover_dependencies_reads_full_collateral_set():
++@pytest.mark.parametrize('reuse_locked_rows', [False, True])
++async def test_discover_dependencies_reads_full_collateral_set(reuse_locked_rows):
+     await _seed_config(loan_daily_rate="0.01", sell_fee_rate="0.02")
+     async with async_session_maker() as s:
+         user, market, outcomes, pair = await _rich_user(s, "disc", fx_foreign="30")
+         uid = int(user.id)
+         market_id, outcome_id, pair_id = int(market.id), int(outcomes[0].id), int(pair.id)
+ 
+-    deps = await _deps(uid)
++    async with async_session_maker() as s:
++        inputs = {}
++        if reuse_locked_rows:
++            from app.services.market_locks import lock_user
++            from app.services.fx.shorts import _lock_short_rows
++            inputs = dict(account_locked=True, locked_user=await lock_user(s, uid),
++                          locked_short_rows=await _lock_short_rows(s, uid))
++        deps = await discover_dependencies(s, uid, **inputs)
+     lmsr_key = GroupKey("lmsr", market_id)
+     fx_key = GroupKey("fx", pair_id)
+     assert deps.groups == (fx_key, lmsr_key)          # (product, id) 全序：fx < lmsr
+     assert deps.holdings[lmsr_key] == {outcome_id: Decimal("40")}
+     assert deps.holdings[fx_key] == {pair_id: Decimal("30")}
+     assert deps.cash == Decimal("500") and deps.debt == Decimal("200")
+     assert deps.daily_rate == Decimal("0.01")
+     assert deps.lmsr_fee_rate == Decimal("0.02")
+@@ -184,16 +192,49 @@ async def test_discover_dependencies_reads_full_collateral_set():
+     lmsr_snapshot = deps.snapshots[lmsr_key]
+     assert lmsr_snapshot.b == Decimal("100")
+     assert [item.outcome_id for item in lmsr_snapshot.outcomes] == sorted(
+         int(item.outcome_id) for item in lmsr_snapshot.outcomes
+     )
+     assert lmsr_snapshot.version and deps.snapshots[fx_key].version
+ 
+ 
++async def test_locked_discovery_keeps_other_pair_interest_and_ignores_closed_short():
++    from app.services.market_locks import lock_user
++    from app.services.fx.shorts import _lock_short_rows
++
++    async with async_session_maker() as s:
++        user = await _user(s, 'locked_shorts', cash='0')
++        target = await _pair(s, 'locked_target')
++        other = await _pair(s, 'locked_interest')
++        s.add_all([
++            FxShortPosition(user_id=user.id, pair_id=target.id, principal_foreign=ZERO,
++                            interest_foreign=ZERO),
++            FxShortPosition(user_id=user.id, pair_id=other.id, principal_foreign=ZERO,
++                            interest_foreign=Decimal('10'), interest_last_accrued_at=NOW),
++        ])
++        await s.commit()
++        uid, target_id, other_id = user.id, target.id, other.id
++
++    async with async_session_maker() as s:
++        user = await lock_user(s, uid)
++        positions = await _lock_short_rows(s, uid)
++        deps = await discover_dependencies(s, uid, account_locked=True,
++            extra_groups=[GroupKey('fx', target_id)], locked_user=user,
++            locked_short_rows=positions)
++        assert set(deps.short_debts) == {other_id}
++        assert deps.short_debts[other_id].principal_foreign == ZERO
++        assert deps.short_debts[other_id].interest_foreign == Decimal('10')
++        assert deps.groups == (GroupKey('fx', other_id),)
++        decision = await check_new_risk(s, user=user, deps=deps,
++            post=PostTradeState(cash=ZERO, debt=ZERO), thresholds=TH, partial_pct=PCT, now=NOW)
++        assert decision.allowed is False
++        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
++
++
+ async def test_discover_extra_groups_prefetches_unheld_market():
+     async with async_session_maker() as s:
+         user, market, outcomes, _ = await _rich_user(s, "extra")
+         other, other_outcomes = await _market(s, "extra_other", [100, 100])
+         uid = int(user.id)
+         other_key = GroupKey("lmsr", int(other.id))
+ 
+     deps = await _deps(uid, extra_groups=[other_key])
+@@ -708,17 +749,18 @@ async def _check_in(session, uid, *, user, deps, post=None, thresholds=TH):
+ 
+ async def _check_spend_in(session, uid, spend, *, user, deps, thresholds=TH):
+     return await check_cash_spend(
+         session, user=user, deps=deps, spend=Decimal(str(spend)),
+         thresholds=thresholds, partial_pct=PCT, now=NOW,
+     )
+ 
+ 
+-async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze():
++@pytest.mark.parametrize('reuse_locked_rows', [False, True])
++async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze(reuse_locked_rows):
+     """R1：外部冻结后，同 session 的旧 User 身份映射不得让 check_new_risk 放行。"""
+     await _seed_config(loan_daily_rate="0.01")
+     async with async_session_maker() as s:
+         user, *_ = await _rich_user(s, "r1_freeze", cash="500", debt="100")
+         uid = int(user.id)
+ 
+     async with async_session_maker() as s1:
+         stale_user = await _load_user_stale(s1, uid)
+@@ -727,17 +769,23 @@ async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze():
+                                economic_version=int(stale_user.economic_version or 0) + 1)
+         # 机制证明：外部已提交新状态，而 s1 手里仍是旧对象
+         assert stale_user.credit_frozen is False
+         async with async_session_maker() as s_probe:
+             probe = (await s_probe.execute(select(User).where(User.id == uid))).scalars().one()
+             assert probe.credit_frozen is True
+             assert int(probe.economic_version) == int(stale_user.economic_version or 0) + 1
+ 
+-        deps = await discover_dependencies(s1, uid)
++        inputs = {}
++        if reuse_locked_rows:
++            from app.services.market_locks import lock_user
++            from app.services.fx.shorts import _lock_short_rows
++            inputs = dict(account_locked=True, locked_user=await lock_user(s1, uid),
++                          locked_short_rows=await _lock_short_rows(s1, uid))
++        deps = await discover_dependencies(s1, uid, **inputs)
+         assert deps.cash == Decimal("500")          # 冻结不改现金
+         assert deps.economic_version == int(probe.economic_version)   # 修复后：权威版本
+         decision = await _check_in(s1, uid, user=stale_user, deps=deps)
+         assert decision.allowed is False and decision.reason == REASON_CREDIT_FROZEN
+ 
+ 
+ async def test_r1_same_session_stale_cash_cannot_allow_new_risk():
+     """R1：外部抽走现金后，旧身份映射不得让 check_new_risk 用旧 cash 放行。"""

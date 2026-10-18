@@ -1,0 +1,10 @@
+{
+  "unchanged_layout_exact_reproduction": true,
+  "new_paths": 3,
+  "reused_paths": 3,
+  "finite_series": true,
+  "nonnegative_wallets": true,
+  "asset_conservation": true,
+  "wealth_and_trade_counts_verified": true,
+  "unchanged_source_hashes": true
+}

@@ -1,0 +1,5632 @@
+[
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310213.8184054,
+    "sql_ms": 15.050241723656654,
+    "sql_count": 15,
+    "ms": 39.23674859106541,
+    "end": 1792310213.857651,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310213.857683,
+    "sql_ms": 64.42747265100479,
+    "sql_count": 15,
+    "ms": 125.18589198589325,
+    "end": 1792310213.9828804,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.0265365,
+    "sql_ms": 61.68256513774395,
+    "sql_count": 27,
+    "ms": 96.01675532758236,
+    "end": 1792310214.122562,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.1225991,
+    "sql_ms": 50.93083530664444,
+    "sql_count": 15,
+    "ms": 102.93679311871529,
+    "end": 1792310214.2255445,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.2255838,
+    "sql_ms": 75.23863948881626,
+    "sql_count": 23,
+    "ms": 297.02803306281567,
+    "end": 1792310214.52262,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.5775592,
+    "sql_ms": 43.13734918832779,
+    "sql_count": 15,
+    "ms": 97.29789197444916,
+    "end": 1792310214.674867,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.674905,
+    "sql_ms": 62.089912593364716,
+    "sql_count": 15,
+    "ms": 119.36536058783531,
+    "end": 1792310214.7942786,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.7943175,
+    "sql_ms": 111.01757176220417,
+    "sql_count": 27,
+    "ms": 185.62349677085876,
+    "end": 1792310214.9799492,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310214.979986,
+    "sql_ms": 55.33294193446636,
+    "sql_count": 15,
+    "ms": 107.99435898661613,
+    "end": 1792310215.087987,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310215.0880191,
+    "sql_ms": 46.84705287218094,
+    "sql_count": 19,
+    "ms": 92.39283949136734,
+    "end": 1792310215.1804183,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.1804495,
+    "sql_ms": 59.59426425397396,
+    "sql_count": 15,
+    "ms": 106.99527338147163,
+    "end": 1792310215.287452,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.2874787,
+    "sql_ms": 59.82821807265282,
+    "sql_count": 20,
+    "ms": 108.53499174118042,
+    "end": 1792310215.3960223,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.3960657,
+    "sql_ms": 43.71798224747181,
+    "sql_count": 15,
+    "ms": 86.37962117791176,
+    "end": 1792310215.4824536,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.565644,
+    "sql_ms": 26.932530105113983,
+    "sql_count": 15,
+    "ms": 58.68129804730415,
+    "end": 1792310215.6243331,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.6243732,
+    "sql_ms": 38.77763822674751,
+    "sql_count": 23,
+    "ms": 85.22899821400642,
+    "end": 1792310215.7096086,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310215.776509,
+    "sql_ms": 23.707101121544838,
+    "sql_count": 25,
+    "ms": 48.58146794140339,
+    "end": 1792310215.8251016,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310216.06774,
+    "sql_ms": 11.515853926539421,
+    "sql_count": 19,
+    "ms": 45.39877735078335,
+    "end": 1792310216.1131492,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310216.2114077,
+    "sql_ms": 4.226773977279663,
+    "sql_count": 15,
+    "ms": 19.995812326669693,
+    "end": 1792310216.231409,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310216.5251381,
+    "sql_ms": 10.971514508128166,
+    "sql_count": 15,
+    "ms": 27.11269073188305,
+    "end": 1792310216.5522573,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310216.6317456,
+    "sql_ms": 4.805402830243111,
+    "sql_count": 15,
+    "ms": 24.884015321731567,
+    "end": 1792310216.6566434,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310216.977059,
+    "sql_ms": 31.214356422424316,
+    "sql_count": 19,
+    "ms": 62.414417043328285,
+    "end": 1792310217.039483,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.0395198,
+    "sql_ms": 30.952850356698036,
+    "sql_count": 15,
+    "ms": 85.61422489583492,
+    "end": 1792310217.1251419,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.2384539,
+    "sql_ms": 27.17907726764679,
+    "sql_count": 20,
+    "ms": 54.35972101986408,
+    "end": 1792310217.2928214,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.292857,
+    "sql_ms": 40.44543579220772,
+    "sql_count": 15,
+    "ms": 83.16265791654587,
+    "end": 1792310217.376029,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.4167943,
+    "sql_ms": 57.04598128795624,
+    "sql_count": 15,
+    "ms": 89.80907127261162,
+    "end": 1792310217.5066125,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.5066488,
+    "sql_ms": 53.94269339740276,
+    "sql_count": 15,
+    "ms": 105.21276853978634,
+    "end": 1792310217.61187,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.6710618,
+    "sql_ms": 29.737116768956184,
+    "sql_count": 15,
+    "ms": 62.30059452354908,
+    "end": 1792310217.7333708,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.7334044,
+    "sql_ms": 49.69777539372444,
+    "sql_count": 15,
+    "ms": 93.29589642584324,
+    "end": 1792310217.8267083,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.8267415,
+    "sql_ms": 67.26128235459328,
+    "sql_count": 23,
+    "ms": 131.43647462129593,
+    "end": 1792310217.9581845,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310217.958214,
+    "sql_ms": 62.72651441395283,
+    "sql_count": 25,
+    "ms": 133.5915271192789,
+    "end": 1792310218.0918157,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.2093217,
+    "sql_ms": 8.56756791472435,
+    "sql_count": 15,
+    "ms": 27.158090844750404,
+    "end": 1792310218.2364867,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.3127134,
+    "sql_ms": 4.960047081112862,
+    "sql_count": 15,
+    "ms": 23.763859644532204,
+    "end": 1792310218.3364842,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.3365135,
+    "sql_ms": 45.05078122019768,
+    "sql_count": 23,
+    "ms": 86.39638312160969,
+    "end": 1792310218.4229167,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.4229507,
+    "sql_ms": 41.712455451488495,
+    "sql_count": 15,
+    "ms": 79.37097921967506,
+    "end": 1792310218.5023289,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.5023596,
+    "sql_ms": 50.14493875205517,
+    "sql_count": 25,
+    "ms": 94.72916088998318,
+    "end": 1792310218.5971005,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.5971482,
+    "sql_ms": 44.36862654983997,
+    "sql_count": 15,
+    "ms": 83.04455317556858,
+    "end": 1792310218.6801999,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.6854866,
+    "sql_ms": 35.906899720430374,
+    "sql_count": 15,
+    "ms": 71.37342356145382,
+    "end": 1792310218.7568676,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310218.85297,
+    "sql_ms": 7.629083469510078,
+    "sql_count": 15,
+    "ms": 24.02888424694538,
+    "end": 1792310218.8770063,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310218.968814,
+    "sql_ms": 8.80204327404499,
+    "sql_count": 19,
+    "ms": 32.09382854402065,
+    "end": 1792310219.0009158,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310219.000947,
+    "sql_ms": 42.7603330463171,
+    "sql_count": 19,
+    "ms": 82.88704045116901,
+    "end": 1792310219.0838413,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310219.106441,
+    "sql_ms": 56.29085935652256,
+    "sql_count": 19,
+    "ms": 92.78275072574615,
+    "end": 1792310219.1992307,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.1992583,
+    "sql_ms": 35.44925153255463,
+    "sql_count": 15,
+    "ms": 70.24923712015152,
+    "end": 1792310219.269515,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310219.2695422,
+    "sql_ms": 35.60259006917477,
+    "sql_count": 19,
+    "ms": 79.15926910936832,
+    "end": 1792310219.3487086,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.348741,
+    "sql_ms": 78.1166609376669,
+    "sql_count": 15,
+    "ms": 292.8742244839668,
+    "end": 1792310219.6416209,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.6706042,
+    "sql_ms": 58.180203661322594,
+    "sql_count": 15,
+    "ms": 96.8763493001461,
+    "end": 1792310219.7674868,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.7675126,
+    "sql_ms": 61.042819172143936,
+    "sql_count": 15,
+    "ms": 103.90553623437881,
+    "end": 1792310219.871424,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.8714511,
+    "sql_ms": 48.85136894881725,
+    "sql_count": 15,
+    "ms": 87.98934333026409,
+    "end": 1792310219.9594474,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310219.9594786,
+    "sql_ms": 65.45339897274971,
+    "sql_count": 25,
+    "ms": 106.71559162437916,
+    "end": 1792310220.0662003,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.0662308,
+    "sql_ms": 46.94904386997223,
+    "sql_count": 15,
+    "ms": 84.81846190989017,
+    "end": 1792310220.1510553,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.2672799,
+    "sql_ms": 10.468978434801102,
+    "sql_count": 15,
+    "ms": 31.108824536204338,
+    "end": 1792310220.2983966,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.298429,
+    "sql_ms": 22.282548248767853,
+    "sql_count": 15,
+    "ms": 56.56500346958637,
+    "end": 1792310220.3550005,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.5087042,
+    "sql_ms": 5.065843462944031,
+    "sql_count": 15,
+    "ms": 20.93915455043316,
+    "end": 1792310220.5296512,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.5974083,
+    "sql_ms": 12.03230582177639,
+    "sql_count": 25,
+    "ms": 33.95017795264721,
+    "end": 1792310220.6313646,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.6313958,
+    "sql_ms": 31.89227730035782,
+    "sql_count": 15,
+    "ms": 70.5493725836277,
+    "end": 1792310220.7019513,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.723998,
+    "sql_ms": 46.27683945000172,
+    "sql_count": 25,
+    "ms": 76.95725187659264,
+    "end": 1792310220.8009622,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.8335898,
+    "sql_ms": 30.959799885749817,
+    "sql_count": 25,
+    "ms": 65.08338078856468,
+    "end": 1792310220.8986797,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310220.8987103,
+    "sql_ms": 38.883160799741745,
+    "sql_count": 15,
+    "ms": 74.9987605959177,
+    "end": 1792310220.9737165,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310221.0775838,
+    "sql_ms": 8.185427635908127,
+    "sql_count": 25,
+    "ms": 29.462100937962532,
+    "end": 1792310221.107053,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310221.1831079,
+    "sql_ms": 4.977205768227577,
+    "sql_count": 15,
+    "ms": 22.35330455005169,
+    "end": 1792310221.205468,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310221.432556,
+    "sql_ms": 7.751757279038429,
+    "sql_count": 23,
+    "ms": 38.09187188744545,
+    "end": 1792310221.470658,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310221.6352232,
+    "sql_ms": 5.301337689161301,
+    "sql_count": 15,
+    "ms": 27.146833017468452,
+    "end": 1792310221.662377,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310221.947634,
+    "sql_ms": 3.001602366566658,
+    "sql_count": 15,
+    "ms": 18.554696813225746,
+    "end": 1792310221.9661968,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310222.0626209,
+    "sql_ms": 6.426643580198288,
+    "sql_count": 19,
+    "ms": 24.21196922659874,
+    "end": 1792310222.0868392,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.1820016,
+    "sql_ms": 5.11830672621727,
+    "sql_count": 15,
+    "ms": 20.874055102467537,
+    "end": 1792310222.2028828,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.2905796,
+    "sql_ms": 5.6313443928956985,
+    "sql_count": 15,
+    "ms": 24.128040298819542,
+    "end": 1792310222.3147154,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.4481702,
+    "sql_ms": 11.285264045000076,
+    "sql_count": 25,
+    "ms": 39.458077400922775,
+    "end": 1792310222.4876356,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.4876704,
+    "sql_ms": 24.138687178492546,
+    "sql_count": 15,
+    "ms": 65.7902117818594,
+    "end": 1792310222.553467,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.576172,
+    "sql_ms": 29.159024357795715,
+    "sql_count": 15,
+    "ms": 55.852487683296204,
+    "end": 1792310222.632032,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.6671185,
+    "sql_ms": 48.74586872756481,
+    "sql_count": 25,
+    "ms": 89.81398865580559,
+    "end": 1792310222.75694,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310222.8981862,
+    "sql_ms": 5.9499479830265045,
+    "sql_count": 15,
+    "ms": 26.35914459824562,
+    "end": 1792310222.924553,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310223.0335536,
+    "sql_ms": 11.927362531423569,
+    "sql_count": 19,
+    "ms": 36.54636815190315,
+    "end": 1792310223.070108,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.070143,
+    "sql_ms": 41.53663292527199,
+    "sql_count": 27,
+    "ms": 92.71028824150562,
+    "end": 1792310223.1628597,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.1628888,
+    "sql_ms": 50.99605210125446,
+    "sql_count": 15,
+    "ms": 96.99727967381477,
+    "end": 1792310223.2598927,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.2932203,
+    "sql_ms": 46.465205028653145,
+    "sql_count": 15,
+    "ms": 76.6664445400238,
+    "end": 1792310223.369894,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.3699284,
+    "sql_ms": 46.64311185479164,
+    "sql_count": 15,
+    "ms": 93.41639094054699,
+    "end": 1792310223.463352,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.4633863,
+    "sql_ms": 77.01985351741314,
+    "sql_count": 15,
+    "ms": 130.8440174907446,
+    "end": 1792310223.5942369,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.647904,
+    "sql_ms": 32.06837736070156,
+    "sql_count": 15,
+    "ms": 66.44033081829548,
+    "end": 1792310223.714351,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.7143822,
+    "sql_ms": 36.205584183335304,
+    "sql_count": 15,
+    "ms": 84.33504216372967,
+    "end": 1792310223.7987242,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310223.8994231,
+    "sql_ms": 6.548445671796799,
+    "sql_count": 15,
+    "ms": 22.419428452849388,
+    "end": 1792310223.921851,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310224.1561377,
+    "sql_ms": 11.783987283706665,
+    "sql_count": 15,
+    "ms": 50.06852187216282,
+    "end": 1792310224.2062194,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310224.2816203,
+    "sql_ms": 10.764922946691513,
+    "sql_count": 20,
+    "ms": 33.07856805622578,
+    "end": 1792310224.3147073,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310224.3897848,
+    "sql_ms": 17.61585660278797,
+    "sql_count": 15,
+    "ms": 36.57477721571922,
+    "end": 1792310224.4263675,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310224.4264011,
+    "sql_ms": 28.024885803461075,
+    "sql_count": 20,
+    "ms": 66.54195673763752,
+    "end": 1792310224.4929502,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310224.9235425,
+    "sql_ms": 7.642952725291252,
+    "sql_count": 15,
+    "ms": 42.220817878842354,
+    "end": 1792310224.9657743,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.0719044,
+    "sql_ms": 8.882159367203712,
+    "sql_count": 15,
+    "ms": 33.4587637335062,
+    "end": 1792310225.1053705,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.3785946,
+    "sql_ms": 33.58559496700764,
+    "sql_count": 15,
+    "ms": 63.88960964977741,
+    "end": 1792310225.4424946,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310225.4854152,
+    "sql_ms": 37.645015865564346,
+    "sql_count": 19,
+    "ms": 64.50599618256092,
+    "end": 1792310225.549928,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.5499573,
+    "sql_ms": 46.3405828922987,
+    "sql_count": 15,
+    "ms": 85.5486411601305,
+    "end": 1792310225.635513,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.6951857,
+    "sql_ms": 18.30725185573101,
+    "sql_count": 23,
+    "ms": 44.325947761535645,
+    "end": 1792310225.7395186,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.7803993,
+    "sql_ms": 21.141868084669113,
+    "sql_count": 15,
+    "ms": 48.205334693193436,
+    "end": 1792310225.8286126,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310225.8286428,
+    "sql_ms": 44.008197262883186,
+    "sql_count": 25,
+    "ms": 85.43290756642818,
+    "end": 1792310225.914082,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.0032902,
+    "sql_ms": 13.083530589938164,
+    "sql_count": 20,
+    "ms": 33.323051407933235,
+    "end": 1792310226.036621,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.1320004,
+    "sql_ms": 11.109288781881332,
+    "sql_count": 15,
+    "ms": 26.88734047114849,
+    "end": 1792310226.158895,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.2368474,
+    "sql_ms": 13.623243197798729,
+    "sql_count": 25,
+    "ms": 35.567404702305794,
+    "end": 1792310226.272422,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.272457,
+    "sql_ms": 26.665782555937767,
+    "sql_count": 15,
+    "ms": 62.99535930156708,
+    "end": 1792310226.3354592,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.4426563,
+    "sql_ms": 11.58151589334011,
+    "sql_count": 23,
+    "ms": 33.834058791399,
+    "end": 1792310226.4764972,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310226.476528,
+    "sql_ms": 28.023559600114822,
+    "sql_count": 19,
+    "ms": 67.0368317514658,
+    "end": 1792310226.543571,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.637599,
+    "sql_ms": 15.269957482814789,
+    "sql_count": 23,
+    "ms": 34.61772762238979,
+    "end": 1792310226.6722245,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310226.71785,
+    "sql_ms": 24.99379962682724,
+    "sql_count": 15,
+    "ms": 45.2314130961895,
+    "end": 1792310226.7630887,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.0160615,
+    "sql_ms": 6.101746112108231,
+    "sql_count": 15,
+    "ms": 34.77669507265091,
+    "end": 1792310227.0508473,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.2358143,
+    "sql_ms": 5.459330976009369,
+    "sql_count": 20,
+    "ms": 29.722265899181366,
+    "end": 1792310227.2655451,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.4475992,
+    "sql_ms": 16.34865440428257,
+    "sql_count": 23,
+    "ms": 46.18639685213566,
+    "end": 1792310227.4937954,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.561195,
+    "sql_ms": 33.27609412372112,
+    "sql_count": 15,
+    "ms": 63.94033692777157,
+    "end": 1792310227.6251438,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.625187,
+    "sql_ms": 37.79357299208641,
+    "sql_count": 15,
+    "ms": 82.86494016647339,
+    "end": 1792310227.7080598,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310227.784848,
+    "sql_ms": 19.934412091970444,
+    "sql_count": 15,
+    "ms": 47.56435938179493,
+    "end": 1792310227.832421,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.1624064,
+    "sql_ms": 16.722777858376503,
+    "sql_count": 15,
+    "ms": 55.214738473296165,
+    "end": 1792310228.217635,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.21768,
+    "sql_ms": 24.93748813867569,
+    "sql_count": 15,
+    "ms": 72.07643054425716,
+    "end": 1792310228.2897625,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.4238803,
+    "sql_ms": 17.672371119260788,
+    "sql_count": 23,
+    "ms": 46.63253389298916,
+    "end": 1792310228.4705224,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310228.4705706,
+    "sql_ms": 39.515845477581024,
+    "sql_count": 19,
+    "ms": 87.24238723516464,
+    "end": 1792310228.557822,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.6729238,
+    "sql_ms": 7.9300422221422195,
+    "sql_count": 20,
+    "ms": 40.533408522605896,
+    "end": 1792310228.713467,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.7988064,
+    "sql_ms": 24.679100140929222,
+    "sql_count": 15,
+    "ms": 54.60459180176258,
+    "end": 1792310228.8534212,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310228.9332714,
+    "sql_ms": 38.74914534389973,
+    "sql_count": 15,
+    "ms": 66.26329198479652,
+    "end": 1792310228.9995425,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.1319685,
+    "sql_ms": 7.157579064369202,
+    "sql_count": 15,
+    "ms": 28.197526931762695,
+    "end": 1792310229.1601768,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.160223,
+    "sql_ms": 39.07759115099907,
+    "sql_count": 20,
+    "ms": 91.55923314392567,
+    "end": 1792310229.2517922,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.3446546,
+    "sql_ms": 22.431956604123116,
+    "sql_count": 15,
+    "ms": 48.05460385978222,
+    "end": 1792310229.3927183,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.49908,
+    "sql_ms": 21.434416994452477,
+    "sql_count": 20,
+    "ms": 46.74476012587547,
+    "end": 1792310229.545834,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.628527,
+    "sql_ms": 39.40548747777939,
+    "sql_count": 15,
+    "ms": 67.84144602715969,
+    "end": 1792310229.6963778,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.7375395,
+    "sql_ms": 61.24358996748924,
+    "sql_count": 23,
+    "ms": 100.73735564947128,
+    "end": 1792310229.8382866,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310229.8383253,
+    "sql_ms": 60.09607017040253,
+    "sql_count": 23,
+    "ms": 115.334527567029,
+    "end": 1792310229.9536679,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.0385969,
+    "sql_ms": 20.833764225244522,
+    "sql_count": 15,
+    "ms": 55.83397299051285,
+    "end": 1792310230.0944402,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.1940176,
+    "sql_ms": 24.6945321559906,
+    "sql_count": 22,
+    "ms": 58.772217482328415,
+    "end": 1792310230.2527993,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.2528489,
+    "sql_ms": 61.71996891498566,
+    "sql_count": 15,
+    "ms": 297.64305986464024,
+    "end": 1792310230.5505,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.5927653,
+    "sql_ms": 73.90116713941097,
+    "sql_count": 15,
+    "ms": 126.23458169400692,
+    "end": 1792310230.7190092,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.719046,
+    "sql_ms": 83.86353217065334,
+    "sql_count": 15,
+    "ms": 148.0931993573904,
+    "end": 1792310230.8671472,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.8671849,
+    "sql_ms": 61.57919391989708,
+    "sql_count": 15,
+    "ms": 126.38852745294571,
+    "end": 1792310230.9935813,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310230.9936206,
+    "sql_ms": 72.16180674731731,
+    "sql_count": 20,
+    "ms": 139.9823371320963,
+    "end": 1792310231.1336112,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.1336498,
+    "sql_ms": 63.56964260339737,
+    "sql_count": 15,
+    "ms": 113.23541589081287,
+    "end": 1792310231.2468934,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.246932,
+    "sql_ms": 65.31551480293274,
+    "sql_count": 23,
+    "ms": 129.75122034549713,
+    "end": 1792310231.3766918,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.3767292,
+    "sql_ms": 97.15668670833111,
+    "sql_count": 15,
+    "ms": 148.77407811582088,
+    "end": 1792310231.525511,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.5255492,
+    "sql_ms": 57.220930233597755,
+    "sql_count": 23,
+    "ms": 110.76986789703369,
+    "end": 1792310231.6363266,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.6363614,
+    "sql_ms": 42.80503839254379,
+    "sql_count": 15,
+    "ms": 84.05209705233574,
+    "end": 1792310231.7204208,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.7204516,
+    "sql_ms": 47.791892662644386,
+    "sql_count": 15,
+    "ms": 92.41417050361633,
+    "end": 1792310231.8128731,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.8861957,
+    "sql_ms": 21.262172609567642,
+    "sql_count": 15,
+    "ms": 46.59801721572876,
+    "end": 1792310231.9328012,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310231.932834,
+    "sql_ms": 46.97260446846485,
+    "sql_count": 15,
+    "ms": 88.96905928850174,
+    "end": 1792310232.0218103,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.0218437,
+    "sql_ms": 64.91629965603352,
+    "sql_count": 15,
+    "ms": 117.65497177839279,
+    "end": 1792310232.1395056,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.1395397,
+    "sql_ms": 62.08918243646622,
+    "sql_count": 20,
+    "ms": 112.60590516030788,
+    "end": 1792310232.252155,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.252195,
+    "sql_ms": 91.92208014428616,
+    "sql_count": 23,
+    "ms": 155.54714389145374,
+    "end": 1792310232.4077504,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.4077916,
+    "sql_ms": 94.84103694558144,
+    "sql_count": 15,
+    "ms": 166.57008789479733,
+    "end": 1792310232.5743709,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.5744116,
+    "sql_ms": 76.9774317741394,
+    "sql_count": 15,
+    "ms": 139.51056636869907,
+    "end": 1792310232.7139306,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.7139668,
+    "sql_ms": 71.93157076835632,
+    "sql_count": 23,
+    "ms": 138.9558780938387,
+    "end": 1792310232.8529305,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310232.8529663,
+    "sql_ms": 77.70249806344509,
+    "sql_count": 19,
+    "ms": 126.49254500865936,
+    "end": 1792310232.9794672,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310232.9795098,
+    "sql_ms": 74.1064976900816,
+    "sql_count": 25,
+    "ms": 138.39134760200977,
+    "end": 1792310233.117909,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.1179447,
+    "sql_ms": 58.01479518413544,
+    "sql_count": 15,
+    "ms": 117.84983985126019,
+    "end": 1792310233.2358031,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.2358415,
+    "sql_ms": 66.74246303737164,
+    "sql_count": 15,
+    "ms": 122.84003756940365,
+    "end": 1792310233.3586898,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.3587317,
+    "sql_ms": 30.72868473827839,
+    "sql_count": 15,
+    "ms": 85.28556302189827,
+    "end": 1792310233.4440248,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.4440598,
+    "sql_ms": 51.92192643880844,
+    "sql_count": 15,
+    "ms": 106.7599393427372,
+    "end": 1792310233.5508282,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.5508668,
+    "sql_ms": 85.38582175970078,
+    "sql_count": 15,
+    "ms": 143.06697994470596,
+    "end": 1792310233.6939418,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.693978,
+    "sql_ms": 62.04110197722912,
+    "sql_count": 15,
+    "ms": 111.43684573471546,
+    "end": 1792310233.8054233,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.8054578,
+    "sql_ms": 60.961782932281494,
+    "sql_count": 15,
+    "ms": 112.08332143723965,
+    "end": 1792310233.9175494,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310233.9175828,
+    "sql_ms": 60.12043543159962,
+    "sql_count": 15,
+    "ms": 110.27368530631065,
+    "end": 1792310234.0278652,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.027904,
+    "sql_ms": 64.54079039394855,
+    "sql_count": 15,
+    "ms": 112.76988871395588,
+    "end": 1792310234.1406817,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.1407173,
+    "sql_ms": 56.35213665664196,
+    "sql_count": 15,
+    "ms": 111.48403026163578,
+    "end": 1792310234.2522097,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.2522452,
+    "sql_ms": 77.27410271763802,
+    "sql_count": 23,
+    "ms": 145.41583880782127,
+    "end": 1792310234.3976705,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.397714,
+    "sql_ms": 71.30707800388336,
+    "sql_count": 15,
+    "ms": 123.90339747071266,
+    "end": 1792310234.521626,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.5216646,
+    "sql_ms": 64.15715627372265,
+    "sql_count": 15,
+    "ms": 113.93955536186695,
+    "end": 1792310234.6356122,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.635647,
+    "sql_ms": 79.88024316728115,
+    "sql_count": 15,
+    "ms": 129.26075980067253,
+    "end": 1792310234.7649162,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.764956,
+    "sql_ms": 43.54087822139263,
+    "sql_count": 15,
+    "ms": 97.74216264486313,
+    "end": 1792310234.8627057,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.8627398,
+    "sql_ms": 43.13408583402634,
+    "sql_count": 15,
+    "ms": 101.03986784815788,
+    "end": 1792310234.9637887,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310234.963828,
+    "sql_ms": 54.33487892150879,
+    "sql_count": 15,
+    "ms": 102.08936780691147,
+    "end": 1792310235.0659256,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310235.065962,
+    "sql_ms": 54.60605025291443,
+    "sql_count": 15,
+    "ms": 103.37558388710022,
+    "end": 1792310235.169347,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310235.1693864,
+    "sql_ms": 67.66348332166672,
+    "sql_count": 19,
+    "ms": 116.66338331997395,
+    "end": 1792310235.2860587,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310235.286106,
+    "sql_ms": 84.50020290911198,
+    "sql_count": 19,
+    "ms": 147.83679507672787,
+    "end": 1792310235.4339533,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310235.4339914,
+    "sql_ms": 82.92726054787636,
+    "sql_count": 15,
+    "ms": 309.50257927179337,
+    "end": 1792310235.743503,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310235.7435396,
+    "sql_ms": 57.86037631332874,
+    "sql_count": 15,
+    "ms": 111.57192289829254,
+    "end": 1792310235.8551197,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310235.8551652,
+    "sql_ms": 51.27246677875519,
+    "sql_count": 15,
+    "ms": 105.84396496415138,
+    "end": 1792310235.9610167,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310235.961051,
+    "sql_ms": 76.35578513145447,
+    "sql_count": 23,
+    "ms": 121.99486047029495,
+    "end": 1792310236.083052,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.0830796,
+    "sql_ms": 40.369829162955284,
+    "sql_count": 15,
+    "ms": 79.3830119073391,
+    "end": 1792310236.1624691,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.1625018,
+    "sql_ms": 52.99221910536289,
+    "sql_count": 15,
+    "ms": 106.94853588938713,
+    "end": 1792310236.2694588,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.269496,
+    "sql_ms": 34.18100252747536,
+    "sql_count": 15,
+    "ms": 93.83299760520458,
+    "end": 1792310236.3633366,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.4735475,
+    "sql_ms": 12.603875249624252,
+    "sql_count": 15,
+    "ms": 38.37843984365463,
+    "end": 1792310236.5119326,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.511961,
+    "sql_ms": 33.63739140331745,
+    "sql_count": 25,
+    "ms": 72.93861173093319,
+    "end": 1792310236.5849073,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310236.6562595,
+    "sql_ms": 8.140716701745987,
+    "sql_count": 19,
+    "ms": 38.21759484708309,
+    "end": 1792310236.6944845,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.7430103,
+    "sql_ms": 25.745779275894165,
+    "sql_count": 15,
+    "ms": 49.50016736984253,
+    "end": 1792310236.792518,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.7925494,
+    "sql_ms": 24.146994575858116,
+    "sql_count": 15,
+    "ms": 59.603599831461906,
+    "end": 1792310236.8521602,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310236.9244912,
+    "sql_ms": 16.28909632563591,
+    "sql_count": 15,
+    "ms": 34.809861332178116,
+    "end": 1792310236.9593084,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310237.1255221,
+    "sql_ms": 13.243068009614944,
+    "sql_count": 15,
+    "ms": 37.007030099630356,
+    "end": 1792310237.1625392,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310237.199632,
+    "sql_ms": 32.600997015833855,
+    "sql_count": 15,
+    "ms": 59.04268100857735,
+    "end": 1792310237.258681,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310237.258711,
+    "sql_ms": 53.85703593492508,
+    "sql_count": 23,
+    "ms": 97.90871851146221,
+    "end": 1792310237.3566265,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310237.356656,
+    "sql_ms": 44.701918959617615,
+    "sql_count": 25,
+    "ms": 90.10710567235947,
+    "end": 1792310237.4467697,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310237.446802,
+    "sql_ms": 44.45008188486099,
+    "sql_count": 15,
+    "ms": 82.77958445250988,
+    "end": 1792310237.5295885,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310238.3418136,
+    "sql_ms": 13.630865141749382,
+    "sql_count": 19,
+    "ms": 53.22475917637348,
+    "end": 1792310238.3950548,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310238.5318353,
+    "sql_ms": 5.390394479036331,
+    "sql_count": 15,
+    "ms": 24.649403989315033,
+    "end": 1792310238.5564926,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310238.6080444,
+    "sql_ms": 14.821549877524376,
+    "sql_count": 25,
+    "ms": 39.743389934301376,
+    "end": 1792310238.6477945,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310238.6982949,
+    "sql_ms": 20.003126934170723,
+    "sql_count": 25,
+    "ms": 46.78262025117874,
+    "end": 1792310238.7450845,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310238.971258,
+    "sql_ms": 11.07260026037693,
+    "sql_count": 15,
+    "ms": 51.408084109425545,
+    "end": 1792310239.0226803,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310239.4407914,
+    "sql_ms": 13.624552637338638,
+    "sql_count": 19,
+    "ms": 51.21377669274807,
+    "end": 1792310239.492019,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310239.5890505,
+    "sql_ms": 9.92344319820404,
+    "sql_count": 23,
+    "ms": 30.055534094572067,
+    "end": 1792310239.6191137,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310239.6191437,
+    "sql_ms": 18.631184473633766,
+    "sql_count": 15,
+    "ms": 56.78577534854412,
+    "end": 1792310239.6759362,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310239.7965145,
+    "sql_ms": 9.770801290869713,
+    "sql_count": 19,
+    "ms": 29.70779314637184,
+    "end": 1792310239.8262296,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310239.9122026,
+    "sql_ms": 6.576312705874443,
+    "sql_count": 15,
+    "ms": 28.590716421604156,
+    "end": 1792310239.9408,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310239.940828,
+    "sql_ms": 36.78525052964687,
+    "sql_count": 15,
+    "ms": 81.63170889019966,
+    "end": 1792310240.022466,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.144469,
+    "sql_ms": 17.044678330421448,
+    "sql_count": 15,
+    "ms": 36.346640437841415,
+    "end": 1792310240.1808233,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.3270597,
+    "sql_ms": 5.796726793050766,
+    "sql_count": 15,
+    "ms": 25.732019916176796,
+    "end": 1792310240.3527997,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.424113,
+    "sql_ms": 32.780153676867485,
+    "sql_count": 25,
+    "ms": 59.09205600619316,
+    "end": 1792310240.4832137,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.4832454,
+    "sql_ms": 27.93031372129917,
+    "sql_count": 20,
+    "ms": 67.66622141003609,
+    "end": 1792310240.5509183,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310240.5509539,
+    "sql_ms": 59.02168154716492,
+    "sql_count": 19,
+    "ms": 100.3450769931078,
+    "end": 1792310240.6513047,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.698302,
+    "sql_ms": 28.303002938628197,
+    "sql_count": 15,
+    "ms": 57.186149060726166,
+    "end": 1792310240.7554953,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.7555206,
+    "sql_ms": 54.31545712053776,
+    "sql_count": 25,
+    "ms": 97.14047983288765,
+    "end": 1792310240.8526676,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.852699,
+    "sql_ms": 59.037838131189346,
+    "sql_count": 15,
+    "ms": 106.28195106983185,
+    "end": 1792310240.9589884,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310240.959023,
+    "sql_ms": 70.71486487984657,
+    "sql_count": 15,
+    "ms": 124.9967385083437,
+    "end": 1792310241.0840278,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.084064,
+    "sql_ms": 89.73559737205505,
+    "sql_count": 23,
+    "ms": 293.96397434175014,
+    "end": 1792310241.3780353,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.3780677,
+    "sql_ms": 40.703924372792244,
+    "sql_count": 15,
+    "ms": 85.04713326692581,
+    "end": 1792310241.4631212,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.4631515,
+    "sql_ms": 26.584405452013016,
+    "sql_count": 15,
+    "ms": 67.2999918460846,
+    "end": 1792310241.5304585,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310241.5304909,
+    "sql_ms": 48.22227545082569,
+    "sql_count": 19,
+    "ms": 88.14748004078865,
+    "end": 1792310241.6186447,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.6186776,
+    "sql_ms": 40.41648097336292,
+    "sql_count": 15,
+    "ms": 83.17920193076134,
+    "end": 1792310241.701863,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.70189,
+    "sql_ms": 51.07131786644459,
+    "sql_count": 20,
+    "ms": 92.75967441499233,
+    "end": 1792310241.794656,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.7946846,
+    "sql_ms": 54.05699647963047,
+    "sql_count": 27,
+    "ms": 99.41365569829941,
+    "end": 1792310241.8941052,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.894136,
+    "sql_ms": 37.897417321801186,
+    "sql_count": 15,
+    "ms": 71.49519771337509,
+    "end": 1792310241.9656386,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310241.9656706,
+    "sql_ms": 34.34084355831146,
+    "sql_count": 15,
+    "ms": 77.3799978196621,
+    "end": 1792310242.043058,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.0430896,
+    "sql_ms": 22.009938955307007,
+    "sql_count": 15,
+    "ms": 59.89009328186512,
+    "end": 1792310242.102987,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.1030183,
+    "sql_ms": 42.80318692326546,
+    "sql_count": 15,
+    "ms": 81.520926207304,
+    "end": 1792310242.184545,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.184572,
+    "sql_ms": 73.77434335649014,
+    "sql_count": 15,
+    "ms": 119.29708160459995,
+    "end": 1792310242.3038762,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.3039107,
+    "sql_ms": 69.00873593986034,
+    "sql_count": 25,
+    "ms": 121.23275734484196,
+    "end": 1792310242.4251497,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.425178,
+    "sql_ms": 37.427324801683426,
+    "sql_count": 15,
+    "ms": 73.8102700561285,
+    "end": 1792310242.4989946,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.4990256,
+    "sql_ms": 39.645131677389145,
+    "sql_count": 15,
+    "ms": 78.23805697262287,
+    "end": 1792310242.57727,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.5773022,
+    "sql_ms": 45.903246849775314,
+    "sql_count": 15,
+    "ms": 83.73253419995308,
+    "end": 1792310242.6610413,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.6610727,
+    "sql_ms": 68.97656992077827,
+    "sql_count": 15,
+    "ms": 107.8353002667427,
+    "end": 1792310242.7689152,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.7689474,
+    "sql_ms": 33.39637629687786,
+    "sql_count": 15,
+    "ms": 72.36633077263832,
+    "end": 1792310242.8413208,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.8413517,
+    "sql_ms": 46.97714000940323,
+    "sql_count": 15,
+    "ms": 89.95495922863483,
+    "end": 1792310242.931313,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310242.93134,
+    "sql_ms": 24.525843560695648,
+    "sql_count": 15,
+    "ms": 70.27515582740307,
+    "end": 1792310243.0016222,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.001655,
+    "sql_ms": 38.75769302248955,
+    "sql_count": 15,
+    "ms": 78.23434472084045,
+    "end": 1792310243.079896,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.0799284,
+    "sql_ms": 55.12291379272938,
+    "sql_count": 25,
+    "ms": 97.19170816242695,
+    "end": 1792310243.177127,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.2458894,
+    "sql_ms": 21.706512197852135,
+    "sql_count": 15,
+    "ms": 42.32249967753887,
+    "end": 1792310243.2882192,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.288251,
+    "sql_ms": 31.37742169201374,
+    "sql_count": 15,
+    "ms": 65.92672504484653,
+    "end": 1792310243.3541842,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.4200344,
+    "sql_ms": 26.48533694446087,
+    "sql_count": 20,
+    "ms": 53.23287285864353,
+    "end": 1792310243.473275,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.6361518,
+    "sql_ms": 6.997076794505119,
+    "sql_count": 23,
+    "ms": 27.599608525633812,
+    "end": 1792310243.6637583,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.7342033,
+    "sql_ms": 5.901029333472252,
+    "sql_count": 15,
+    "ms": 21.525878459215164,
+    "end": 1792310243.7557359,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.8971007,
+    "sql_ms": 24.789806455373764,
+    "sql_count": 25,
+    "ms": 56.29502795636654,
+    "end": 1792310243.9534025,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310243.9699833,
+    "sql_ms": 33.27887877821922,
+    "sql_count": 20,
+    "ms": 64.348379150033,
+    "end": 1792310244.0343404,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.114618,
+    "sql_ms": 13.344686478376389,
+    "sql_count": 15,
+    "ms": 38.21580670773983,
+    "end": 1792310244.1528418,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.1825385,
+    "sql_ms": 52.61066555976868,
+    "sql_count": 15,
+    "ms": 76.9551545381546,
+    "end": 1792310244.2595031,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.2595358,
+    "sql_ms": 46.13841511309147,
+    "sql_count": 15,
+    "ms": 93.80553849041462,
+    "end": 1792310244.3533492,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.4563296,
+    "sql_ms": 7.039908319711685,
+    "sql_count": 15,
+    "ms": 23.14341999590397,
+    "end": 1792310244.4794788,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.5549624,
+    "sql_ms": 10.709036141633987,
+    "sql_count": 25,
+    "ms": 32.17463567852974,
+    "end": 1792310244.5871441,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.7866054,
+    "sql_ms": 7.601127028465271,
+    "sql_count": 20,
+    "ms": 36.646006628870964,
+    "end": 1792310244.8232603,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.9087968,
+    "sql_ms": 6.917385384440422,
+    "sql_count": 15,
+    "ms": 23.893993347883224,
+    "end": 1792310244.9326973,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310244.932731,
+    "sql_ms": 31.80966153740883,
+    "sql_count": 27,
+    "ms": 72.12434336543083,
+    "end": 1792310245.0048614,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310245.3023193,
+    "sql_ms": 9.19010117650032,
+    "sql_count": 15,
+    "ms": 52.19167470932007,
+    "end": 1792310245.3545272,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310245.4965916,
+    "sql_ms": 5.196966230869293,
+    "sql_count": 15,
+    "ms": 32.155584543943405,
+    "end": 1792310245.5287573,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310245.6675906,
+    "sql_ms": 4.450390115380287,
+    "sql_count": 15,
+    "ms": 27.70141139626503,
+    "end": 1792310245.695299,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310245.8297105,
+    "sql_ms": 5.9538427740335464,
+    "sql_count": 15,
+    "ms": 24.502553045749664,
+    "end": 1792310245.85422,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310246.2146027,
+    "sql_ms": 7.997035980224609,
+    "sql_count": 25,
+    "ms": 26.884879916906357,
+    "end": 1792310246.2414935,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310246.309774,
+    "sql_ms": 9.814120829105377,
+    "sql_count": 27,
+    "ms": 29.80356104671955,
+    "end": 1792310246.339583,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310246.4147768,
+    "sql_ms": 11.670898646116257,
+    "sql_count": 15,
+    "ms": 27.024053037166595,
+    "end": 1792310246.4418063,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310246.4983428,
+    "sql_ms": 20.8017248660326,
+    "sql_count": 23,
+    "ms": 45.912280678749084,
+    "end": 1792310246.5442603,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310247.159364,
+    "sql_ms": 5.450526252388954,
+    "sql_count": 15,
+    "ms": 25.51187016069889,
+    "end": 1792310247.1848848,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310247.2930238,
+    "sql_ms": 5.408495664596558,
+    "sql_count": 15,
+    "ms": 22.46331237256527,
+    "end": 1792310247.315494,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310247.4164813,
+    "sql_ms": 7.0207323879003525,
+    "sql_count": 15,
+    "ms": 24.92392063140869,
+    "end": 1792310247.4414115,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.0285711,
+    "sql_ms": 6.8814195692539215,
+    "sql_count": 15,
+    "ms": 34.80752930045128,
+    "end": 1792310248.0633898,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.0634298,
+    "sql_ms": 13.854330405592918,
+    "sql_count": 15,
+    "ms": 61.95021606981754,
+    "end": 1792310248.1253872,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.2373834,
+    "sql_ms": 7.715994492173195,
+    "sql_count": 23,
+    "ms": 28.334015980362892,
+    "end": 1792310248.2657244,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.2657554,
+    "sql_ms": 23.134008049964905,
+    "sql_count": 15,
+    "ms": 62.09755875170231,
+    "end": 1792310248.3278594,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.420682,
+    "sql_ms": 21.35518565773964,
+    "sql_count": 23,
+    "ms": 44.35494728386402,
+    "end": 1792310248.465044,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.5330365,
+    "sql_ms": 5.057560279965401,
+    "sql_count": 15,
+    "ms": 23.42836558818817,
+    "end": 1792310248.556472,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.604293,
+    "sql_ms": 22.79462292790413,
+    "sql_count": 15,
+    "ms": 45.50829716026783,
+    "end": 1792310248.6498084,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310248.6979651,
+    "sql_ms": 21.70124091207981,
+    "sql_count": 19,
+    "ms": 45.79278826713562,
+    "end": 1792310248.7437644,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310248.9622438,
+    "sql_ms": 9.135229513049126,
+    "sql_count": 15,
+    "ms": 50.4390150308609,
+    "end": 1792310249.0126984,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310249.123299,
+    "sql_ms": 14.8770771920681,
+    "sql_count": 15,
+    "ms": 32.210661098361015,
+    "end": 1792310249.155518,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310249.2284606,
+    "sql_ms": 8.329592645168304,
+    "sql_count": 23,
+    "ms": 31.472820788621902,
+    "end": 1792310249.259941,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310249.7055318,
+    "sql_ms": 15.482166782021523,
+    "sql_count": 20,
+    "ms": 40.38183018565178,
+    "end": 1792310249.7459228,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310249.8506212,
+    "sql_ms": 28.303630650043488,
+    "sql_count": 20,
+    "ms": 56.416453793644905,
+    "end": 1792310249.9070458,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310249.9723942,
+    "sql_ms": 10.606227442622185,
+    "sql_count": 20,
+    "ms": 40.312789380550385,
+    "end": 1792310250.0127153,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310250.0127506,
+    "sql_ms": 45.01396790146828,
+    "sql_count": 19,
+    "ms": 98.12541864812374,
+    "end": 1792310250.1108844,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.207325,
+    "sql_ms": 42.27514937520027,
+    "sql_count": 15,
+    "ms": 70.07259503006935,
+    "end": 1792310250.277405,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.3218994,
+    "sql_ms": 58.39154124259949,
+    "sql_count": 23,
+    "ms": 98.10333326458931,
+    "end": 1792310250.4200115,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.4200492,
+    "sql_ms": 69.40489076077938,
+    "sql_count": 25,
+    "ms": 123.1412198394537,
+    "end": 1792310250.5431983,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.5432346,
+    "sql_ms": 66.24843366444111,
+    "sql_count": 20,
+    "ms": 114.78795669972897,
+    "end": 1792310250.6580303,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.658067,
+    "sql_ms": 58.49981866776943,
+    "sql_count": 20,
+    "ms": 108.44491235911846,
+    "end": 1792310250.7665215,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.7665606,
+    "sql_ms": 55.8644887059927,
+    "sql_count": 15,
+    "ms": 102.63196751475334,
+    "end": 1792310250.8692012,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310250.9915082,
+    "sql_ms": 5.729410797357559,
+    "sql_count": 15,
+    "ms": 31.65087103843689,
+    "end": 1792310251.0231683,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.1500463,
+    "sql_ms": 11.613724753260612,
+    "sql_count": 25,
+    "ms": 45.80523446202278,
+    "end": 1792310251.1958606,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310251.195898,
+    "sql_ms": 31.613251194357872,
+    "sql_count": 19,
+    "ms": 82.50844664871693,
+    "end": 1792310251.2784133,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.4875655,
+    "sql_ms": 3.6140568554401398,
+    "sql_count": 15,
+    "ms": 23.086847737431526,
+    "end": 1792310251.5106604,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.5961452,
+    "sql_ms": 5.644535645842552,
+    "sql_count": 15,
+    "ms": 31.278640031814575,
+    "end": 1792310251.6274323,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.6274729,
+    "sql_ms": 53.635334596037865,
+    "sql_count": 25,
+    "ms": 105.05957528948784,
+    "end": 1792310251.7325418,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.732578,
+    "sql_ms": 47.481369227170944,
+    "sql_count": 15,
+    "ms": 91.18392504751682,
+    "end": 1792310251.8237705,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.8238082,
+    "sql_ms": 50.898486748337746,
+    "sql_count": 15,
+    "ms": 100.59047304093838,
+    "end": 1792310251.9244072,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310251.9596891,
+    "sql_ms": 40.28294421732426,
+    "sql_count": 15,
+    "ms": 70.9718819707632,
+    "end": 1792310252.03067,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.1336203,
+    "sql_ms": 21.029068157076836,
+    "sql_count": 15,
+    "ms": 47.88544401526451,
+    "end": 1792310252.1815147,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.1815531,
+    "sql_ms": 48.92811365425587,
+    "sql_count": 23,
+    "ms": 99.64444115757942,
+    "end": 1792310252.2812057,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.28124,
+    "sql_ms": 51.82025209069252,
+    "sql_count": 15,
+    "ms": 100.30567087233067,
+    "end": 1792310252.3815536,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.381589,
+    "sql_ms": 83.16299133002758,
+    "sql_count": 15,
+    "ms": 294.26939599215984,
+    "end": 1792310252.6758661,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.7475808,
+    "sql_ms": 55.59557117521763,
+    "sql_count": 15,
+    "ms": 96.78477607667446,
+    "end": 1792310252.8443725,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310252.8444068,
+    "sql_ms": 105.9336643666029,
+    "sql_count": 15,
+    "ms": 175.93739926815033,
+    "end": 1792310253.020352,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.0203896,
+    "sql_ms": 91.55573323369026,
+    "sql_count": 15,
+    "ms": 164.72680494189262,
+    "end": 1792310253.1852195,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.1852634,
+    "sql_ms": 61.32163666188717,
+    "sql_count": 15,
+    "ms": 120.18353119492531,
+    "end": 1792310253.3054552,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.3054926,
+    "sql_ms": 94.71012279391289,
+    "sql_count": 15,
+    "ms": 152.1411184221506,
+    "end": 1792310253.4576423,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310253.4576824,
+    "sql_ms": 59.71582233905792,
+    "sql_count": 19,
+    "ms": 109.24365371465683,
+    "end": 1792310253.566934,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.5669696,
+    "sql_ms": 65.24855270981789,
+    "sql_count": 15,
+    "ms": 118.51525120437145,
+    "end": 1792310253.6854925,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.6855235,
+    "sql_ms": 47.66540601849556,
+    "sql_count": 15,
+    "ms": 106.91586881875992,
+    "end": 1792310253.792448,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310253.792486,
+    "sql_ms": 55.02729304134846,
+    "sql_count": 15,
+    "ms": 120.4396765679121,
+    "end": 1792310253.9129353,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310253.912975,
+    "sql_ms": 115.05628749728203,
+    "sql_count": 19,
+    "ms": 177.42987722158432,
+    "end": 1792310254.090414,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.0904565,
+    "sql_ms": 52.391648292541504,
+    "sql_count": 15,
+    "ms": 98.28247129917145,
+    "end": 1792310254.1887474,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.18878,
+    "sql_ms": 46.79698124527931,
+    "sql_count": 15,
+    "ms": 105.4571270942688,
+    "end": 1792310254.2942464,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310254.2942874,
+    "sql_ms": 44.33303512632847,
+    "sql_count": 19,
+    "ms": 93.22085045278072,
+    "end": 1792310254.3875165,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.3875554,
+    "sql_ms": 32.2805792093277,
+    "sql_count": 15,
+    "ms": 69.55980136990547,
+    "end": 1792310254.4571226,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310254.4571536,
+    "sql_ms": 50.467683002352715,
+    "sql_count": 19,
+    "ms": 92.60055609047413,
+    "end": 1792310254.5497608,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.5497928,
+    "sql_ms": 44.9296236038208,
+    "sql_count": 27,
+    "ms": 93.55950728058815,
+    "end": 1792310254.6433587,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.6433847,
+    "sql_ms": 32.71001949906349,
+    "sql_count": 15,
+    "ms": 66.13223999738693,
+    "end": 1792310254.709524,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.7095554,
+    "sql_ms": 47.14631289243698,
+    "sql_count": 15,
+    "ms": 94.99192424118519,
+    "end": 1792310254.804554,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.8045855,
+    "sql_ms": 43.28385554254055,
+    "sql_count": 15,
+    "ms": 91.78726747632027,
+    "end": 1792310254.8963792,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.8964112,
+    "sql_ms": 49.36469346284866,
+    "sql_count": 15,
+    "ms": 97.77357429265976,
+    "end": 1792310254.9941912,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310254.9942205,
+    "sql_ms": 50.112394616007805,
+    "sql_count": 25,
+    "ms": 96.66570089757442,
+    "end": 1792310255.0908928,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.0909245,
+    "sql_ms": 36.03770211338997,
+    "sql_count": 15,
+    "ms": 74.1839800029993,
+    "end": 1792310255.1651154,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.165148,
+    "sql_ms": 50.35199597477913,
+    "sql_count": 15,
+    "ms": 90.93264304101467,
+    "end": 1792310255.2560878,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.2561255,
+    "sql_ms": 63.319090753793716,
+    "sql_count": 15,
+    "ms": 105.84177076816559,
+    "end": 1792310255.361975,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.3620076,
+    "sql_ms": 63.14408406615257,
+    "sql_count": 15,
+    "ms": 110.77754013240337,
+    "end": 1792310255.4727936,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.4728396,
+    "sql_ms": 58.68876725435257,
+    "sql_count": 15,
+    "ms": 112.50564828515053,
+    "end": 1792310255.5853543,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.5853882,
+    "sql_ms": 42.847348377108574,
+    "sql_count": 15,
+    "ms": 85.5653714388609,
+    "end": 1792310255.6709602,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.6709957,
+    "sql_ms": 49.6833398938179,
+    "sql_count": 15,
+    "ms": 97.01958484947681,
+    "end": 1792310255.7680223,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.768055,
+    "sql_ms": 49.12230558693409,
+    "sql_count": 15,
+    "ms": 89.8324828594923,
+    "end": 1792310255.8578935,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310255.8579226,
+    "sql_ms": 36.29415109753609,
+    "sql_count": 19,
+    "ms": 84.61605943739414,
+    "end": 1792310255.9425454,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310255.9615824,
+    "sql_ms": 30.18975257873535,
+    "sql_count": 15,
+    "ms": 56.370534002780914,
+    "end": 1792310256.0179596,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310256.1122003,
+    "sql_ms": 7.571039721369743,
+    "sql_count": 23,
+    "ms": 38.519443944096565,
+    "end": 1792310256.1507268,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310256.4615598,
+    "sql_ms": 17.97414943575859,
+    "sql_count": 23,
+    "ms": 51.84215307235718,
+    "end": 1792310256.5134122,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310256.5134547,
+    "sql_ms": 14.78515937924385,
+    "sql_count": 15,
+    "ms": 57.511741295456886,
+    "end": 1792310256.5709743,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310256.793949,
+    "sql_ms": 9.193886071443558,
+    "sql_count": 25,
+    "ms": 34.725481644272804,
+    "end": 1792310256.8286827,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310257.4839725,
+    "sql_ms": 48.10856468975544,
+    "sql_count": 25,
+    "ms": 86.2335879355669,
+    "end": 1792310257.5702186,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310257.570257,
+    "sql_ms": 21.652119234204292,
+    "sql_count": 15,
+    "ms": 67.84245371818542,
+    "end": 1792310257.6381087,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310257.638147,
+    "sql_ms": 56.770168244838715,
+    "sql_count": 15,
+    "ms": 276.4479164034128,
+    "end": 1792310257.9146025,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "active",
+    "start": 1792310258.0278766,
+    "sql_ms": 33.86441059410572,
+    "sql_count": 19,
+    "ms": 61.180854216217995,
+    "end": 1792310258.0890665,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310258.3115375,
+    "sql_ms": 10.971764102578163,
+    "sql_count": 20,
+    "ms": 47.101616859436035,
+    "end": 1792310258.3586493,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310258.4999268,
+    "sql_ms": 4.912571981549263,
+    "sql_count": 15,
+    "ms": 33.94425846636295,
+    "end": 1792310258.5338833,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310258.5339272,
+    "sql_ms": 56.597352027893066,
+    "sql_count": 25,
+    "ms": 117.27931164205074,
+    "end": 1792310258.6512141,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310258.7777987,
+    "sql_ms": 35.765303298830986,
+    "sql_count": 15,
+    "ms": 61.73441372811794,
+    "end": 1792310258.8395407,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "active",
+    "start": 1792310258.8395724,
+    "sql_ms": 21.28632925450802,
+    "sql_count": 15,
+    "ms": 55.309295654296875,
+    "end": 1792310258.8948884,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.0793266,
+    "sql_ms": 28.748292475938797,
+    "sql_count": 15,
+    "ms": 58.64652246236801,
+    "end": 1792310260.1379821,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.1761484,
+    "sql_ms": 41.711485013365746,
+    "sql_count": 15,
+    "ms": 72.73812778294086,
+    "end": 1792310260.248894,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.3295577,
+    "sql_ms": 72.59502820670605,
+    "sql_count": 15,
+    "ms": 118.48458088934422,
+    "end": 1792310260.448049,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.4480805,
+    "sql_ms": 93.04344840347767,
+    "sql_count": 15,
+    "ms": 176.24681629240513,
+    "end": 1792310260.6243339,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.624368,
+    "sql_ms": 55.5038396269083,
+    "sql_count": 15,
+    "ms": 119.31073293089867,
+    "end": 1792310260.7436867,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.7437313,
+    "sql_ms": 96.92120365798473,
+    "sql_count": 15,
+    "ms": 156.3673745840788,
+    "end": 1792310260.900106,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310260.900144,
+    "sql_ms": 95.40320001542568,
+    "sql_count": 15,
+    "ms": 147.1853367984295,
+    "end": 1792310261.0473378,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.047375,
+    "sql_ms": 103.63868437707424,
+    "sql_count": 15,
+    "ms": 162.55351155996323,
+    "end": 1792310261.2099378,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.2099752,
+    "sql_ms": 102.96956449747086,
+    "sql_count": 15,
+    "ms": 170.3390795737505,
+    "end": 1792310261.380323,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.3803632,
+    "sql_ms": 113.4041529148817,
+    "sql_count": 23,
+    "ms": 181.72449618577957,
+    "end": 1792310261.5621018,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.5621367,
+    "sql_ms": 96.74316458404064,
+    "sql_count": 25,
+    "ms": 142.6408402621746,
+    "end": 1792310261.7047837,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310261.7048166,
+    "sql_ms": 90.87357483804226,
+    "sql_count": 19,
+    "ms": 151.96700021624565,
+    "end": 1792310261.8567913,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.8568275,
+    "sql_ms": 48.2083223760128,
+    "sql_count": 15,
+    "ms": 94.63059343397617,
+    "end": 1792310261.9514642,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310261.9514906,
+    "sql_ms": 49.47584494948387,
+    "sql_count": 15,
+    "ms": 110.53778231143951,
+    "end": 1792310262.062035,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310262.0620687,
+    "sql_ms": 143.1789416819811,
+    "sql_count": 15,
+    "ms": 192.23899580538273,
+    "end": 1792310262.2543137,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310262.2543452,
+    "sql_ms": 103.4984141588211,
+    "sql_count": 15,
+    "ms": 174.86274242401123,
+    "end": 1792310262.4292147,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310262.4292548,
+    "sql_ms": 109.60103943943977,
+    "sql_count": 20,
+    "ms": 182.11095593869686,
+    "end": 1792310262.6113734,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310262.6114132,
+    "sql_ms": 131.21448457241058,
+    "sql_count": 15,
+    "ms": 193.19601729512215,
+    "end": 1792310262.8046184,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310262.8046594,
+    "sql_ms": 206.23563043773174,
+    "sql_count": 19,
+    "ms": 271.7248611152172,
+    "end": 1792310263.0763924,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310263.0764313,
+    "sql_ms": 170.31634785234928,
+    "sql_count": 19,
+    "ms": 294.8447596281767,
+    "end": 1792310263.3712845,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310263.371318,
+    "sql_ms": 185.24562567472458,
+    "sql_count": 25,
+    "ms": 269.2336793988943,
+    "end": 1792310263.64056,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310263.6405947,
+    "sql_ms": 115.38544110953808,
+    "sql_count": 23,
+    "ms": 186.52130849659443,
+    "end": 1792310263.827123,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310263.8271568,
+    "sql_ms": 105.31328432261944,
+    "sql_count": 23,
+    "ms": 185.19630283117294,
+    "end": 1792310264.0123613,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310264.0124028,
+    "sql_ms": 276.4974609017372,
+    "sql_count": 15,
+    "ms": 345.10648250579834,
+    "end": 1792310264.3575163,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310264.3575468,
+    "sql_ms": 56.655071675777435,
+    "sql_count": 15,
+    "ms": 106.08412884175777,
+    "end": 1792310264.4636376,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310264.4636662,
+    "sql_ms": 102.69775614142418,
+    "sql_count": 20,
+    "ms": 163.51888701319695,
+    "end": 1792310264.6271923,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310264.6272237,
+    "sql_ms": 58.123212307691574,
+    "sql_count": 19,
+    "ms": 111.78254149854183,
+    "end": 1792310264.739013,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310264.7390475,
+    "sql_ms": 155.72628937661648,
+    "sql_count": 15,
+    "ms": 413.6135298758745,
+    "end": 1792310265.1526694,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.152703,
+    "sql_ms": 131.37451000511646,
+    "sql_count": 15,
+    "ms": 187.4678209424019,
+    "end": 1792310265.340177,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.3402102,
+    "sql_ms": 81.88201673328876,
+    "sql_count": 15,
+    "ms": 131.4091719686985,
+    "end": 1792310265.4716265,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.471659,
+    "sql_ms": 62.3382143676281,
+    "sql_count": 15,
+    "ms": 108.2862839102745,
+    "end": 1792310265.5799537,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.5799878,
+    "sql_ms": 49.35869388282299,
+    "sql_count": 15,
+    "ms": 100.13700649142265,
+    "end": 1792310265.6801317,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.6801636,
+    "sql_ms": 63.081687316298485,
+    "sql_count": 15,
+    "ms": 129.08638454973698,
+    "end": 1792310265.8092577,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310265.8093007,
+    "sql_ms": 156.45722672343254,
+    "sql_count": 15,
+    "ms": 218.137564137578,
+    "end": 1792310266.0274475,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.0274837,
+    "sql_ms": 52.54799500107765,
+    "sql_count": 15,
+    "ms": 116.28732085227966,
+    "end": 1792310266.1437778,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.1438098,
+    "sql_ms": 76.23215578496456,
+    "sql_count": 15,
+    "ms": 133.09636898338795,
+    "end": 1792310266.2769136,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.2769508,
+    "sql_ms": 56.996939703822136,
+    "sql_count": 15,
+    "ms": 104.68210652470589,
+    "end": 1792310266.3816402,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.3816762,
+    "sql_ms": 106.06292821466923,
+    "sql_count": 25,
+    "ms": 163.90088573098183,
+    "end": 1792310266.545583,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.5456107,
+    "sql_ms": 25.819463655352592,
+    "sql_count": 23,
+    "ms": 65.94345718622208,
+    "end": 1792310266.6115603,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.611591,
+    "sql_ms": 86.51993051171303,
+    "sql_count": 15,
+    "ms": 158.73689763247967,
+    "end": 1792310266.7703357,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310266.7703729,
+    "sql_ms": 67.23038107156754,
+    "sql_count": 23,
+    "ms": 137.24618218839169,
+    "end": 1792310266.907629,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310266.9076724,
+    "sql_ms": 89.92672525346279,
+    "sql_count": 19,
+    "ms": 162.6269482076168,
+    "end": 1792310267.07031,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.0703537,
+    "sql_ms": 59.1961033642292,
+    "sql_count": 15,
+    "ms": 113.03736083209515,
+    "end": 1792310267.1833978,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.1834226,
+    "sql_ms": 49.8511902987957,
+    "sql_count": 15,
+    "ms": 86.26348525285721,
+    "end": 1792310267.2696912,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.2697287,
+    "sql_ms": 66.93287380039692,
+    "sql_count": 15,
+    "ms": 112.08728142082691,
+    "end": 1792310267.3818228,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.3818555,
+    "sql_ms": 57.912493124604225,
+    "sql_count": 15,
+    "ms": 99.14221614599228,
+    "end": 1792310267.4810045,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.481035,
+    "sql_ms": 56.387800723314285,
+    "sql_count": 15,
+    "ms": 98.56453537940979,
+    "end": 1792310267.579607,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.5796394,
+    "sql_ms": 82.99842849373817,
+    "sql_count": 25,
+    "ms": 131.2373112887144,
+    "end": 1792310267.7108827,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.7109113,
+    "sql_ms": 80.24106919765472,
+    "sql_count": 23,
+    "ms": 132.49523378908634,
+    "end": 1792310267.8434136,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.8434453,
+    "sql_ms": 61.65785528719425,
+    "sql_count": 15,
+    "ms": 130.59280812740326,
+    "end": 1792310267.9740458,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310267.9740832,
+    "sql_ms": 60.80597639083862,
+    "sql_count": 15,
+    "ms": 100.62312707304955,
+    "end": 1792310268.0747137,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.0747457,
+    "sql_ms": 59.14338119328022,
+    "sql_count": 15,
+    "ms": 106.46047629415989,
+    "end": 1792310268.1812136,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.1812496,
+    "sql_ms": 49.11833442747593,
+    "sql_count": 15,
+    "ms": 85.5825413018465,
+    "end": 1792310268.2668378,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.2668655,
+    "sql_ms": 64.09747526049614,
+    "sql_count": 23,
+    "ms": 106.60622827708721,
+    "end": 1792310268.3734782,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.373509,
+    "sql_ms": 43.78133825957775,
+    "sql_count": 15,
+    "ms": 94.40779127180576,
+    "end": 1792310268.4679232,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.4679534,
+    "sql_ms": 49.96527172625065,
+    "sql_count": 15,
+    "ms": 95.2231828123331,
+    "end": 1792310268.5631835,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310268.5632114,
+    "sql_ms": 62.30786070227623,
+    "sql_count": 19,
+    "ms": 109.27355289459229,
+    "end": 1792310268.6724918,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.6725252,
+    "sql_ms": 66.24167785048485,
+    "sql_count": 25,
+    "ms": 112.28538677096367,
+    "end": 1792310268.7848182,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.7848465,
+    "sql_ms": 51.02544277906418,
+    "sql_count": 15,
+    "ms": 93.97338703274727,
+    "end": 1792310268.878826,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310268.8788574,
+    "sql_ms": 94.60370801389217,
+    "sql_count": 25,
+    "ms": 147.32401818037033,
+    "end": 1792310269.0261886,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.0262227,
+    "sql_ms": 60.299476608633995,
+    "sql_count": 20,
+    "ms": 103.42072695493698,
+    "end": 1792310269.1296506,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.129684,
+    "sql_ms": 42.13527962565422,
+    "sql_count": 15,
+    "ms": 85.85306815803051,
+    "end": 1792310269.2155445,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.2155764,
+    "sql_ms": 75.21252520382404,
+    "sql_count": 23,
+    "ms": 124.00864250957966,
+    "end": 1792310269.3395925,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.3396266,
+    "sql_ms": 72.07939960062504,
+    "sql_count": 15,
+    "ms": 122.71344289183617,
+    "end": 1792310269.4623468,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.462379,
+    "sql_ms": 59.907009825110435,
+    "sql_count": 20,
+    "ms": 102.7232427150011,
+    "end": 1792310269.5651088,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.5651429,
+    "sql_ms": 72.37045653164387,
+    "sql_count": 15,
+    "ms": 126.67471170425415,
+    "end": 1792310269.6918244,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310269.6918561,
+    "sql_ms": 138.66319507360458,
+    "sql_count": 20,
+    "ms": 398.3185850083828,
+    "end": 1792310270.0901818,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.0902152,
+    "sql_ms": 58.07473883032799,
+    "sql_count": 15,
+    "ms": 107.31679573655128,
+    "end": 1792310270.1975381,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.1975663,
+    "sql_ms": 23.310156539082527,
+    "sql_count": 15,
+    "ms": 65.41009992361069,
+    "end": 1792310270.2629838,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.263017,
+    "sql_ms": 64.03029151260853,
+    "sql_count": 15,
+    "ms": 111.06251180171967,
+    "end": 1792310270.374086,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.3741417,
+    "sql_ms": 83.53195525705814,
+    "sql_count": 25,
+    "ms": 133.82171466946602,
+    "end": 1792310270.50797,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.5079997,
+    "sql_ms": 72.44245707988739,
+    "sql_count": 15,
+    "ms": 113.9042042195797,
+    "end": 1792310270.62191,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310270.6219447,
+    "sql_ms": 64.57704119384289,
+    "sql_count": 19,
+    "ms": 142.5146572291851,
+    "end": 1792310270.764468,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.7645104,
+    "sql_ms": 49.080874770879745,
+    "sql_count": 15,
+    "ms": 105.07460124790668,
+    "end": 1792310270.8695946,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.8696296,
+    "sql_ms": 66.70695915818214,
+    "sql_count": 15,
+    "ms": 115.81641249358654,
+    "end": 1792310270.985453,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310270.985486,
+    "sql_ms": 61.77140399813652,
+    "sql_count": 15,
+    "ms": 106.10124841332436,
+    "end": 1792310271.091593,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.0916212,
+    "sql_ms": 22.57179282605648,
+    "sql_count": 15,
+    "ms": 67.52979569137096,
+    "end": 1792310271.1591587,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310271.1591954,
+    "sql_ms": 88.31333182752132,
+    "sql_count": 19,
+    "ms": 139.45728540420532,
+    "end": 1792310271.2986586,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.2986903,
+    "sql_ms": 50.207167863845825,
+    "sql_count": 15,
+    "ms": 92.03985147178173,
+    "end": 1792310271.3907373,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.390764,
+    "sql_ms": 34.93871912360191,
+    "sql_count": 15,
+    "ms": 84.34338495135307,
+    "end": 1792310271.4751146,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.4751472,
+    "sql_ms": 76.61513984203339,
+    "sql_count": 15,
+    "ms": 121.72936089336872,
+    "end": 1792310271.5968823,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.59691,
+    "sql_ms": 64.34761919081211,
+    "sql_count": 20,
+    "ms": 111.46696656942368,
+    "end": 1792310271.708385,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.7084222,
+    "sql_ms": 115.55470153689384,
+    "sql_count": 15,
+    "ms": 200.26024617254734,
+    "end": 1792310271.908688,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310271.9087195,
+    "sql_ms": 61.65589950978756,
+    "sql_count": 15,
+    "ms": 117.9013792425394,
+    "end": 1792310272.0266278,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310272.0266664,
+    "sql_ms": 68.83953884243965,
+    "sql_count": 19,
+    "ms": 120.9573745727539,
+    "end": 1792310272.1476312,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.1476722,
+    "sql_ms": 46.56088910996914,
+    "sql_count": 15,
+    "ms": 87.68296055495739,
+    "end": 1792310272.235362,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.2353938,
+    "sql_ms": 25.340566411614418,
+    "sql_count": 15,
+    "ms": 66.4001889526844,
+    "end": 1792310272.3018012,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.301835,
+    "sql_ms": 51.043225452303886,
+    "sql_count": 15,
+    "ms": 111.8773091584444,
+    "end": 1792310272.4137206,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.413755,
+    "sql_ms": 50.81385001540184,
+    "sql_count": 15,
+    "ms": 93.77856738865376,
+    "end": 1792310272.5075407,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.5075727,
+    "sql_ms": 73.12806136906147,
+    "sql_count": 15,
+    "ms": 122.15206772089005,
+    "end": 1792310272.629732,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.6297636,
+    "sql_ms": 36.80627979338169,
+    "sql_count": 15,
+    "ms": 77.97433994710445,
+    "end": 1792310272.7077453,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.7077775,
+    "sql_ms": 51.41257494688034,
+    "sql_count": 15,
+    "ms": 96.77249565720558,
+    "end": 1792310272.8045583,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.8045907,
+    "sql_ms": 61.5241564810276,
+    "sql_count": 15,
+    "ms": 111.37598380446434,
+    "end": 1792310272.9159734,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310272.916002,
+    "sql_ms": 50.45445077121258,
+    "sql_count": 15,
+    "ms": 91.61350876092911,
+    "end": 1792310273.0076225,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.0076535,
+    "sql_ms": 65.71529433131218,
+    "sql_count": 25,
+    "ms": 112.33782395720482,
+    "end": 1792310273.119998,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.1200264,
+    "sql_ms": 54.46590110659599,
+    "sql_count": 15,
+    "ms": 103.69250923395157,
+    "end": 1792310273.223725,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.2237542,
+    "sql_ms": 68.52824613451958,
+    "sql_count": 23,
+    "ms": 128.79474461078644,
+    "end": 1792310273.352556,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.3525877,
+    "sql_ms": 70.40706276893616,
+    "sql_count": 15,
+    "ms": 112.6447543501854,
+    "end": 1792310273.465239,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.465268,
+    "sql_ms": 68.38796846568584,
+    "sql_count": 20,
+    "ms": 110.7469443231821,
+    "end": 1792310273.5760207,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.5760472,
+    "sql_ms": 69.62322629988194,
+    "sql_count": 15,
+    "ms": 188.57199139893055,
+    "end": 1792310273.7646265,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.7646692,
+    "sql_ms": 76.02942362427711,
+    "sql_count": 27,
+    "ms": 129.17526811361313,
+    "end": 1792310273.89385,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.893883,
+    "sql_ms": 40.07158242166042,
+    "sql_count": 23,
+    "ms": 88.3141253143549,
+    "end": 1792310273.9822025,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310273.9822357,
+    "sql_ms": 82.45673589408398,
+    "sql_count": 25,
+    "ms": 128.45722399652004,
+    "end": 1792310274.1106982,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.1107304,
+    "sql_ms": 41.09901562333107,
+    "sql_count": 15,
+    "ms": 77.27017253637314,
+    "end": 1792310274.1880064,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.1880364,
+    "sql_ms": 77.07001082599163,
+    "sql_count": 27,
+    "ms": 123.96774254739285,
+    "end": 1792310274.3120093,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.3120384,
+    "sql_ms": 47.00424708425999,
+    "sql_count": 15,
+    "ms": 306.07132986187935,
+    "end": 1792310274.6181166,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.6181579,
+    "sql_ms": 44.23866048455238,
+    "sql_count": 15,
+    "ms": 93.83165463805199,
+    "end": 1792310274.7119954,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.712025,
+    "sql_ms": 58.548999950289726,
+    "sql_count": 20,
+    "ms": 100.30863992869854,
+    "end": 1792310274.8123386,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.8123674,
+    "sql_ms": 47.25302197039127,
+    "sql_count": 15,
+    "ms": 89.76156637072563,
+    "end": 1792310274.9021342,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310274.9021657,
+    "sql_ms": 77.82990857958794,
+    "sql_count": 23,
+    "ms": 127.70582176744938,
+    "end": 1792310275.0298767,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.0299091,
+    "sql_ms": 39.08395208418369,
+    "sql_count": 15,
+    "ms": 77.75701582431793,
+    "end": 1792310275.1076715,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.107701,
+    "sql_ms": 49.14959892630577,
+    "sql_count": 15,
+    "ms": 85.70186421275139,
+    "end": 1792310275.1934083,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.1934388,
+    "sql_ms": 46.8815416097641,
+    "sql_count": 15,
+    "ms": 98.59723038971424,
+    "end": 1792310275.2920418,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.2920742,
+    "sql_ms": 52.02653259038925,
+    "sql_count": 15,
+    "ms": 100.89035332202911,
+    "end": 1792310275.3929706,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.393013,
+    "sql_ms": 105.95418140292168,
+    "sql_count": 23,
+    "ms": 167.16223396360874,
+    "end": 1792310275.5601816,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.560227,
+    "sql_ms": 129.2719952762127,
+    "sql_count": 20,
+    "ms": 186.64140813052654,
+    "end": 1792310275.7468743,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.7469099,
+    "sql_ms": 57.2159867733717,
+    "sql_count": 15,
+    "ms": 102.57038101553917,
+    "end": 1792310275.8494856,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310275.8495185,
+    "sql_ms": 52.14345641434193,
+    "sql_count": 15,
+    "ms": 93.91774609684944,
+    "end": 1792310275.9434412,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310275.9434743,
+    "sql_ms": 55.14403432607651,
+    "sql_count": 19,
+    "ms": 107.03223384916782,
+    "end": 1792310276.0505116,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.0505404,
+    "sql_ms": 33.64606574177742,
+    "sql_count": 15,
+    "ms": 70.4321451485157,
+    "end": 1792310276.1209779,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.1210022,
+    "sql_ms": 56.013260036706924,
+    "sql_count": 15,
+    "ms": 100.31120106577873,
+    "end": 1792310276.2213187,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.2213483,
+    "sql_ms": 69.41713951528072,
+    "sql_count": 23,
+    "ms": 132.59391859173775,
+    "end": 1792310276.3539479,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.3539813,
+    "sql_ms": 46.0431594401598,
+    "sql_count": 25,
+    "ms": 101.16617754101753,
+    "end": 1792310276.4551528,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.4551876,
+    "sql_ms": 89.55051563680172,
+    "sql_count": 15,
+    "ms": 129.48869541287422,
+    "end": 1792310276.5846817,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.5847201,
+    "sql_ms": 71.86627015471458,
+    "sql_count": 25,
+    "ms": 127.58215516805649,
+    "end": 1792310276.7123075,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.7123342,
+    "sql_ms": 39.50359858572483,
+    "sql_count": 15,
+    "ms": 76.90680399537086,
+    "end": 1792310276.7892463,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.7892723,
+    "sql_ms": 53.87416295707226,
+    "sql_count": 15,
+    "ms": 90.32810106873512,
+    "end": 1792310276.8796058,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.8796315,
+    "sql_ms": 47.259287908673286,
+    "sql_count": 25,
+    "ms": 87.0692078024149,
+    "end": 1792310276.966706,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310276.9667313,
+    "sql_ms": 44.02599856257439,
+    "sql_count": 15,
+    "ms": 84.72133986651897,
+    "end": 1792310277.051458,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.0514832,
+    "sql_ms": 35.62371805310249,
+    "sql_count": 15,
+    "ms": 69.83107887208462,
+    "end": 1792310277.121319,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.1213453,
+    "sql_ms": 49.12865348160267,
+    "sql_count": 15,
+    "ms": 84.99015308916569,
+    "end": 1792310277.206341,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.2063699,
+    "sql_ms": 59.73292142152786,
+    "sql_count": 15,
+    "ms": 134.3297678977251,
+    "end": 1792310277.3407054,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.3407342,
+    "sql_ms": 90.55174328386784,
+    "sql_count": 15,
+    "ms": 180.28437159955502,
+    "end": 1792310277.5210366,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.5211515,
+    "sql_ms": 86.35658584535122,
+    "sql_count": 23,
+    "ms": 154.29307147860527,
+    "end": 1792310277.675453,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.6754916,
+    "sql_ms": 101.93372517824173,
+    "sql_count": 25,
+    "ms": 171.95109464228153,
+    "end": 1792310277.8474517,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.8474948,
+    "sql_ms": 50.32659135758877,
+    "sql_count": 15,
+    "ms": 96.34989872574806,
+    "end": 1792310277.9438534,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310277.9438932,
+    "sql_ms": 57.61495605111122,
+    "sql_count": 15,
+    "ms": 119.16422098875046,
+    "end": 1792310278.063066,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.0631247,
+    "sql_ms": 38.23578357696533,
+    "sql_count": 15,
+    "ms": 104.00697588920593,
+    "end": 1792310278.1671402,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.1671867,
+    "sql_ms": 69.14347596466541,
+    "sql_count": 15,
+    "ms": 125.54517015814781,
+    "end": 1792310278.2927403,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.2927835,
+    "sql_ms": 86.27781644463539,
+    "sql_count": 25,
+    "ms": 147.20534905791283,
+    "end": 1792310278.4399972,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.440036,
+    "sql_ms": 53.495366126298904,
+    "sql_count": 15,
+    "ms": 105.00745475292206,
+    "end": 1792310278.5450525,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.545091,
+    "sql_ms": 55.45178800821304,
+    "sql_count": 15,
+    "ms": 112.1548991650343,
+    "end": 1792310278.6572595,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.6572971,
+    "sql_ms": 66.18129834532738,
+    "sql_count": 20,
+    "ms": 124.66762773692608,
+    "end": 1792310278.781973,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310278.78201,
+    "sql_ms": 109.90784503519535,
+    "sql_count": 23,
+    "ms": 384.1256760060787,
+    "end": 1792310279.166146,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310279.1661918,
+    "sql_ms": 64.78635407984257,
+    "sql_count": 15,
+    "ms": 122.52559885382652,
+    "end": 1792310279.2887244,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310279.288754,
+    "sql_ms": 90.5222911387682,
+    "sql_count": 23,
+    "ms": 150.53727477788925,
+    "end": 1792310279.4392972,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310279.4393315,
+    "sql_ms": 93.00998598337173,
+    "sql_count": 19,
+    "ms": 150.16664005815983,
+    "end": 1792310279.5895054,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310279.5895414,
+    "sql_ms": 84.55763198435307,
+    "sql_count": 25,
+    "ms": 138.616306707263,
+    "end": 1792310279.7281642,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310279.7281914,
+    "sql_ms": 53.310323506593704,
+    "sql_count": 15,
+    "ms": 98.71559403836727,
+    "end": 1792310279.8269153,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310279.826949,
+    "sql_ms": 49.16160739958286,
+    "sql_count": 15,
+    "ms": 94.46984343230724,
+    "end": 1792310279.9214256,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310279.92146,
+    "sql_ms": 58.48059430718422,
+    "sql_count": 19,
+    "ms": 115.21285213530064,
+    "end": 1792310280.0366812,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.0367184,
+    "sql_ms": 51.85286141932011,
+    "sql_count": 15,
+    "ms": 94.97900493443012,
+    "end": 1792310280.1317034,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310280.1317284,
+    "sql_ms": 45.04070058465004,
+    "sql_count": 19,
+    "ms": 87.11663074791431,
+    "end": 1792310280.2188523,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.218884,
+    "sql_ms": 47.170648351311684,
+    "sql_count": 15,
+    "ms": 97.52579219639301,
+    "end": 1792310280.316417,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.316446,
+    "sql_ms": 52.43263952434063,
+    "sql_count": 15,
+    "ms": 104.43607345223427,
+    "end": 1792310280.4208896,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.420927,
+    "sql_ms": 65.98663702607155,
+    "sql_count": 23,
+    "ms": 115.44210650026798,
+    "end": 1792310280.5363765,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.5364103,
+    "sql_ms": 60.32830849289894,
+    "sql_count": 20,
+    "ms": 109.02289859950542,
+    "end": 1792310280.6454408,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.645474,
+    "sql_ms": 71.1721833795309,
+    "sql_count": 15,
+    "ms": 125.97428634762764,
+    "end": 1792310280.771457,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310280.7714984,
+    "sql_ms": 211.91240660846233,
+    "sql_count": 23,
+    "ms": 287.6185681670904,
+    "end": 1792310281.0591273,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.059167,
+    "sql_ms": 65.87530486285686,
+    "sql_count": 20,
+    "ms": 119.82684955000877,
+    "end": 1792310281.1790016,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.1790369,
+    "sql_ms": 52.6556633412838,
+    "sql_count": 15,
+    "ms": 102.56939381361008,
+    "end": 1792310281.2816129,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.2816517,
+    "sql_ms": 58.91107581555843,
+    "sql_count": 23,
+    "ms": 109.71185564994812,
+    "end": 1792310281.3913717,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.3914177,
+    "sql_ms": 73.35060648620129,
+    "sql_count": 20,
+    "ms": 172.0830276608467,
+    "end": 1792310281.5635092,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.5635529,
+    "sql_ms": 97.06763550639153,
+    "sql_count": 15,
+    "ms": 174.9349795281887,
+    "end": 1792310281.738497,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.7385387,
+    "sql_ms": 64.4671842455864,
+    "sql_count": 15,
+    "ms": 129.91679273545742,
+    "end": 1792310281.8684647,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310281.8685048,
+    "sql_ms": 69.5272795855999,
+    "sql_count": 15,
+    "ms": 141.2144284695387,
+    "end": 1792310282.0097268,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310282.009765,
+    "sql_ms": 74.09624010324478,
+    "sql_count": 19,
+    "ms": 150.56034736335278,
+    "end": 1792310282.1603334,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.1603718,
+    "sql_ms": 92.49902330338955,
+    "sql_count": 15,
+    "ms": 168.62138360738754,
+    "end": 1792310282.3290024,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.3290467,
+    "sql_ms": 87.07342855632305,
+    "sql_count": 20,
+    "ms": 153.23768183588982,
+    "end": 1792310282.482293,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.4823365,
+    "sql_ms": 91.80019237101078,
+    "sql_count": 15,
+    "ms": 160.6221441179514,
+    "end": 1792310282.6429677,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.6430132,
+    "sql_ms": 125.16042776405811,
+    "sql_count": 15,
+    "ms": 189.7386759519577,
+    "end": 1792310282.8327599,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.8327987,
+    "sql_ms": 45.057155191898346,
+    "sql_count": 15,
+    "ms": 96.1497314274311,
+    "end": 1792310282.9289544,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310282.928982,
+    "sql_ms": 44.22546736896038,
+    "sql_count": 15,
+    "ms": 89.43633548915386,
+    "end": 1792310283.0184245,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.018458,
+    "sql_ms": 63.64600732922554,
+    "sql_count": 27,
+    "ms": 111.79262772202492,
+    "end": 1792310283.1302567,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.1302867,
+    "sql_ms": 30.024105682969093,
+    "sql_count": 15,
+    "ms": 72.06982560455799,
+    "end": 1792310283.2023637,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.2024002,
+    "sql_ms": 53.64220030605793,
+    "sql_count": 15,
+    "ms": 90.99309891462326,
+    "end": 1792310283.2934,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.293433,
+    "sql_ms": 66.77561067044735,
+    "sql_count": 15,
+    "ms": 110.12432537972927,
+    "end": 1792310283.4035645,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.4035954,
+    "sql_ms": 70.72031684219837,
+    "sql_count": 23,
+    "ms": 124.50789101421833,
+    "end": 1792310283.5281093,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.528138,
+    "sql_ms": 73.61092045903206,
+    "sql_count": 20,
+    "ms": 122.89371155202389,
+    "end": 1792310283.6510382,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.651075,
+    "sql_ms": 55.39777874946594,
+    "sql_count": 15,
+    "ms": 102.61249542236328,
+    "end": 1792310283.7536945,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310283.753728,
+    "sql_ms": 51.43995210528374,
+    "sql_count": 19,
+    "ms": 97.37521409988403,
+    "end": 1792310283.851111,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310283.8511481,
+    "sql_ms": 220.920043066144,
+    "sql_count": 15,
+    "ms": 268.78498308360577,
+    "end": 1792310284.1199396,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310284.119971,
+    "sql_ms": 68.02763231098652,
+    "sql_count": 19,
+    "ms": 134.1471429914236,
+    "end": 1792310284.2541244,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310284.254156,
+    "sql_ms": 63.437359407544136,
+    "sql_count": 23,
+    "ms": 110.16424372792244,
+    "end": 1792310284.364327,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310284.3643553,
+    "sql_ms": 53.541524335742,
+    "sql_count": 15,
+    "ms": 224.37465749680996,
+    "end": 1792310284.588737,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310284.588769,
+    "sql_ms": 66.11058302223682,
+    "sql_count": 19,
+    "ms": 125.40658190846443,
+    "end": 1792310284.714183,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310284.7142217,
+    "sql_ms": 36.867655813694,
+    "sql_count": 15,
+    "ms": 75.17512142658234,
+    "end": 1792310284.7894053,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310284.7894351,
+    "sql_ms": 62.91540525853634,
+    "sql_count": 27,
+    "ms": 109.60284061729908,
+    "end": 1792310284.8990445,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310284.8990765,
+    "sql_ms": 53.80254238843918,
+    "sql_count": 19,
+    "ms": 98.09214249253273,
+    "end": 1792310284.997175,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310284.9972088,
+    "sql_ms": 47.17844910919666,
+    "sql_count": 15,
+    "ms": 94.70481984317303,
+    "end": 1792310285.0919209,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.091952,
+    "sql_ms": 78.82660068571568,
+    "sql_count": 25,
+    "ms": 136.35672256350517,
+    "end": 1792310285.2283168,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.2283525,
+    "sql_ms": 45.03563046455383,
+    "sql_count": 15,
+    "ms": 87.24671602249146,
+    "end": 1792310285.3156054,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.3156383,
+    "sql_ms": 46.61424830555916,
+    "sql_count": 15,
+    "ms": 107.24651999771595,
+    "end": 1792310285.4228923,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.4229262,
+    "sql_ms": 60.86314283311367,
+    "sql_count": 15,
+    "ms": 116.74783937633038,
+    "end": 1792310285.5396802,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.5397117,
+    "sql_ms": 59.03825722634792,
+    "sql_count": 15,
+    "ms": 104.23494689166546,
+    "end": 1792310285.6439526,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.6439812,
+    "sql_ms": 56.6609650850296,
+    "sql_count": 25,
+    "ms": 113.75926248729229,
+    "end": 1792310285.7577472,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.7577784,
+    "sql_ms": 48.444902524352074,
+    "sql_count": 15,
+    "ms": 92.06550009548664,
+    "end": 1792310285.8498511,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.8498852,
+    "sql_ms": 34.635985270142555,
+    "sql_count": 15,
+    "ms": 84.04409885406494,
+    "end": 1792310285.9339364,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310285.9339745,
+    "sql_ms": 75.70197433233261,
+    "sql_count": 15,
+    "ms": 133.15940089523792,
+    "end": 1792310286.067141,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310286.067184,
+    "sql_ms": 99.13958981633186,
+    "sql_count": 19,
+    "ms": 172.5260578095913,
+    "end": 1792310286.2397158,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.2397468,
+    "sql_ms": 60.630423948168755,
+    "sql_count": 20,
+    "ms": 165.2873493731022,
+    "end": 1792310286.4050407,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.4050694,
+    "sql_ms": 58.021459728479385,
+    "sql_count": 15,
+    "ms": 106.77234642207623,
+    "end": 1792310286.5118496,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.5118911,
+    "sql_ms": 76.3784758746624,
+    "sql_count": 25,
+    "ms": 128.17920558154583,
+    "end": 1792310286.640077,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.6401167,
+    "sql_ms": 45.324284583330154,
+    "sql_count": 15,
+    "ms": 99.12717714905739,
+    "end": 1792310286.7392511,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.739283,
+    "sql_ms": 43.520815670490265,
+    "sql_count": 15,
+    "ms": 102.99118049442768,
+    "end": 1792310286.8422816,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310286.8423204,
+    "sql_ms": 78.61003279685974,
+    "sql_count": 23,
+    "ms": 170.1846644282341,
+    "end": 1792310287.0125124,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.0125496,
+    "sql_ms": 56.22207745909691,
+    "sql_count": 15,
+    "ms": 109.04304310679436,
+    "end": 1792310287.1216,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.121631,
+    "sql_ms": 70.01421600580215,
+    "sql_count": 23,
+    "ms": 121.32024578750134,
+    "end": 1792310287.242959,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.2429936,
+    "sql_ms": 43.42525266110897,
+    "sql_count": 15,
+    "ms": 85.86682565510273,
+    "end": 1792310287.328868,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.328898,
+    "sql_ms": 40.77092558145523,
+    "sql_count": 15,
+    "ms": 83.22245255112648,
+    "end": 1792310287.4121275,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.4121587,
+    "sql_ms": 54.35860529541969,
+    "sql_count": 15,
+    "ms": 94.30298767983913,
+    "end": 1792310287.5064683,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.506499,
+    "sql_ms": 55.62308430671692,
+    "sql_count": 15,
+    "ms": 97.3733626306057,
+    "end": 1792310287.60388,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.603912,
+    "sql_ms": 48.280661925673485,
+    "sql_count": 15,
+    "ms": 91.97749197483063,
+    "end": 1792310287.6958961,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.6959276,
+    "sql_ms": 69.79858316481113,
+    "sql_count": 25,
+    "ms": 122.04871512949467,
+    "end": 1792310287.8179824,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.8180125,
+    "sql_ms": 42.28653386235237,
+    "sql_count": 15,
+    "ms": 77.85326614975929,
+    "end": 1792310287.8958716,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.8959048,
+    "sql_ms": 46.44092544913292,
+    "sql_count": 15,
+    "ms": 93.97992864251137,
+    "end": 1792310287.9898913,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310287.9899197,
+    "sql_ms": 39.55284133553505,
+    "sql_count": 15,
+    "ms": 83.39451253414154,
+    "end": 1792310288.0733202,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310288.0733473,
+    "sql_ms": 49.70495589077473,
+    "sql_count": 15,
+    "ms": 87.73373998701572,
+    "end": 1792310288.161087,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310288.1611192,
+    "sql_ms": 148.68025667965412,
+    "sql_count": 23,
+    "ms": 212.80009858310223,
+    "end": 1792310288.3739269,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310288.3739648,
+    "sql_ms": 63.544634729623795,
+    "sql_count": 15,
+    "ms": 288.1465554237366,
+    "end": 1792310288.6621192,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310288.6621892,
+    "sql_ms": 50.70771649479866,
+    "sql_count": 15,
+    "ms": 109.45515148341656,
+    "end": 1792310288.771653,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310288.7716916,
+    "sql_ms": 82.40345865488052,
+    "sql_count": 19,
+    "ms": 129.44990023970604,
+    "end": 1792310288.9011486,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310288.9011827,
+    "sql_ms": 66.44466705620289,
+    "sql_count": 25,
+    "ms": 151.2493472546339,
+    "end": 1792310289.0524404,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.0524716,
+    "sql_ms": 66.89476408064365,
+    "sql_count": 15,
+    "ms": 105.6419238448143,
+    "end": 1792310289.1581202,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.1581495,
+    "sql_ms": 76.96229964494705,
+    "sql_count": 25,
+    "ms": 126.94885022938251,
+    "end": 1792310289.285105,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.2851374,
+    "sql_ms": 37.934983149170876,
+    "sql_count": 15,
+    "ms": 112.5242505222559,
+    "end": 1792310289.3976684,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.3977027,
+    "sql_ms": 77.21547968685627,
+    "sql_count": 20,
+    "ms": 126.79446302354336,
+    "end": 1792310289.5245047,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.5245378,
+    "sql_ms": 23.312663659453392,
+    "sql_count": 11,
+    "ms": 51.33279785513878,
+    "end": 1792310289.5758772,
+    "outcome": "HTTPException"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.5759118,
+    "sql_ms": 55.98344840109348,
+    "sql_count": 15,
+    "ms": 75.80902427434921,
+    "end": 1792310289.6517265,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.6517563,
+    "sql_ms": 44.270068407058716,
+    "sql_count": 15,
+    "ms": 84.7539659589529,
+    "end": 1792310289.7365162,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.7365491,
+    "sql_ms": 81.24069683253765,
+    "sql_count": 15,
+    "ms": 129.78047505021095,
+    "end": 1792310289.866336,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.866366,
+    "sql_ms": 52.7539849281311,
+    "sql_count": 20,
+    "ms": 103.38019952178001,
+    "end": 1792310289.969752,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310289.9697812,
+    "sql_ms": 49.78851601481438,
+    "sql_count": 15,
+    "ms": 174.66313391923904,
+    "end": 1792310290.1444523,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310290.1444917,
+    "sql_ms": 75.01534931361675,
+    "sql_count": 15,
+    "ms": 137.62814924120903,
+    "end": 1792310290.2821298,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310290.2821734,
+    "sql_ms": 71.8380231410265,
+    "sql_count": 23,
+    "ms": 149.72238428890705,
+    "end": 1792310290.4319057,
+    "outcome": "ok"
+  },
+  {
+    "command": "NetTrade",
+    "phase": "stress",
+    "start": 1792310290.4319448,
+    "sql_ms": 78.78118567168713,
+    "sql_count": 25,
+    "ms": 135.62576845288277,
+    "end": 1792310290.5675786,
+    "outcome": "ok"
+  },
+  {
+    "command": "ShortCover",
+    "phase": "stress",
+    "start": 1792310290.5676177,
+    "sql_ms": 19.06580850481987,
+    "sql_count": 5,
+    "ms": 97.16066531836987,
+    "end": 1792310290.6647851,
+    "outcome": "ok"
+  }
+]

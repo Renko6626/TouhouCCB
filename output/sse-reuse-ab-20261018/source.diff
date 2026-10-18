@@ -1,0 +1,356 @@
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/api/v1/user_trading.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/api/v1/user_trading.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/api/v1/user_trading.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/api/v1/user_trading.py	2026-10-18 16:15:26.000000000 +0800
+@@ -47,13 +47,12 @@
+     return TradingPrices(groups=groups, missing_groups=missing_keys(keys, groups), server_time=now_string())
+ 
+ import asyncio
+-import json
+ import time
+ import jwt
+ from fastapi import Request
+ from fastapi.responses import StreamingResponse
+ from app.core.config import settings
+-from app.services.account_events import EVENTS
++from app.services.account_events import EVENTS, encode_frame
+ from app.services.trading_prices import REGISTRY, PUBLISHER
+ from app.services.credit.trading_context import read_dependencies, read_rules, authoritative_version
+ 
+@@ -68,9 +67,6 @@
+     expiry = float(payload.get('exp', time.time() + 3600))
+     return user_id, min(expiry, time.time() + 3600)
+ 
+-def encode_frame(event, payload):
+-    return 'event: ' + event + '\ndata: ' + json.dumps(payload, separators=(',', ':')) + '\n\n'
+-
+ @stream_router.get('/trading')
+ async def trading_stream(request: Request, identity=Depends(stream_identity), group=Depends(current_group)):
+     user_id, deadline = identity
+@@ -124,7 +120,7 @@
+                 # Retain it in order and revalidate before private delivery.
+                 if time.monotonic() >= next_check or time.time() >= deadline:
+                     continue
+-                event, payload = pending_frame
++                event, wire = pending_frame
+                 pending_frame = None
+                 if subscription.closed.is_set():
+                     break
+@@ -132,7 +128,7 @@
+                     async with async_session_maker() as db:
+                         keys_now = await read_dependencies(db, user_id, group)
+                     PUBLISHER.subscribe(subscription, keys_now)
+-                yield encode_frame(event, payload)
++                yield wire
+         finally:
+             PUBLISHER.unsubscribe(subscription)
+             EVENTS.unsubscribe(subscription)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/services/account_events.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/services/account_events.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/services/account_events.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/services/account_events.py	2026-10-18 16:15:26.000000000 +0800
+@@ -1,5 +1,6 @@
+ """Ephemeral private hints. Delivery failure never participates in money commits."""
+ import asyncio
++import json
+ import logging
+ from dataclasses import dataclass, field
+ from uuid import uuid4
+@@ -8,17 +9,28 @@
+ 
+ logger = logging.getLogger(__name__)
+ 
++def encode_frame(event: str, payload) -> bytes:
++    """Freeze private SSE content once, using the existing compact JSON format."""
++    return ('event: ' + event + '\ndata: ' +
++            json.dumps(payload, separators=(',', ':')) + '\n\n').encode('utf-8')
++
++
+ @dataclass(eq=False)
+ class Subscription:
+     user_id: int
+-    queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=64))
++    queue: asyncio.Queue[tuple[str, bytes]] = field(default_factory=lambda: asyncio.Queue(maxsize=64))
+     closed: asyncio.Event = field(default_factory=asyncio.Event)
+ 
+     def offer(self, event, payload):
++        if not self.closed.is_set():
++            self.offer_encoded(event, encode_frame(event, payload))
++
++    def offer_encoded(self, event: str, wire: bytes):
++        """Offer a shared immutable frame to this connection's existing FIFO."""
+         if self.closed.is_set():
+             return
+         try:
+-            self.queue.put_nowait((event, payload))
++            self.queue.put_nowait((event, wire))
+         except asyncio.QueueFull:
+             self.closed.set()
+ 
+@@ -45,11 +57,15 @@
+                 self.unsubscribe(subscriber)
+ 
+     def enqueue(self, user_id, economic_version, reason, operation_ref=None):
++        subscribers = tuple(self._subscribers.get(user_id, ()))
++        if not subscribers:
++            return
+         payload = dict(event_id=str(uuid4()), economic_version=str(economic_version), reason=reason, occurred_at=now_string())
+         if operation_ref is not None:
+             payload['operation_ref'] = str(operation_ref)
+-        for subscriber in tuple(self._subscribers.get(user_id, ())):
+-            subscriber.offer('account_changed', payload)
++        wire = encode_frame('account_changed', payload)
++        for subscriber in subscribers:
++            subscriber.offer_encoded('account_changed', wire)
+ 
+ EVENTS = AccountEvents()
+ 
+@@ -105,8 +121,11 @@
+ def enqueue_order_result(user_id: int, payload: FxOrderResult) -> None:
+     """Offer committed FX outcomes only to the owner's existing subscriptions."""
+     try:
+-        data = payload.model_dump(mode='json')
+-        for subscriber in tuple(EVENTS._subscribers.get(user_id, ())):
+-            subscriber.offer('fx_order_result', data)
++        subscribers = tuple(EVENTS._subscribers.get(user_id, ()))
++        if not subscribers:
++            return
++        wire = encode_frame('fx_order_result', payload.model_dump(mode='json'))
++        for subscriber in subscribers:
++            subscriber.offer_encoded('fx_order_result', wire)
+     except Exception:
+         logger.exception('Private FX order result dropped')
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/services/trading_prices.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/services/trading_prices.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/app/services/trading_prices.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/app/services/trading_prices.py	2026-10-18 16:15:26.000000000 +0800
+@@ -263,6 +263,7 @@
+ 
+     async def run(self):
+         import logging
++        from app.services.account_events import encode_frame
+         previous = {}
+         while True:
+             try:
+@@ -276,13 +277,20 @@
+                 groups = await REGISTRY.read_groups([GroupKey(product=p, id=i) for p, i in keys], require_coverage=False)
+                 by_key = {(g.product, g.id): g for g in groups}
+                 changed = {key for key in keys if previous.get(key) != (by_key[key].stamp.input_hash if key in by_key else None)}
+-                # Serialize each changed group once; filtering only builds a
+-                # subscriber-specific list of these read-only dictionaries.
++                # Dump changed groups once, then encode once per affected subset.
++                # Frames live only for this publication and contain immutable bytes.
+                 dumped = {key: by_key[key].model_dump() for key in changed if key in by_key}
++                frames = {}
+                 for subscription, wanted in tuple(self.subscriptions.items()):
+-                    affected = changed & wanted
++                    affected = frozenset(changed & wanted)
+                     if affected:
+-                        subscription.offer('pricing', dict(groups=[dumped[k] for k in sorted(affected) if k in dumped], missing_groups=[dict(product=k[0], id=k[1]) for k in sorted(affected) if k not in by_key], server_time=now_string()))
++                        if affected not in frames:
++                            ordered = sorted(affected)
++                            frames[affected] = encode_frame('pricing', dict(
++                                groups=[dumped[k] for k in ordered if k in dumped],
++                                missing_groups=[dict(product=k[0], id=k[1]) for k in ordered if k not in by_key],
++                                server_time=now_string()))
++                        subscription.offer_encoded('pricing', frames[affected])
+                 previous = {key: by_key[key].stamp.input_hash if key in by_key else None for key in keys}
+             except asyncio.CancelledError:
+                 raise
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_account_events.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_account_events.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_account_events.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_account_events.py	2026-10-18 16:15:26.000000000 +0800
+@@ -1,4 +1,6 @@
+ """Private bounded delivery and transaction rollback isolation."""
++import json
++from types import SimpleNamespace
+ from decimal import Decimal
+ import pytest
+ from app.core.database import async_session_maker, managed_transaction
+@@ -6,13 +8,20 @@
+ from app.services.account_events import AccountEvents, EVENTS, notifying_transaction
+ from app.services.credit.version import bump_economic_version
+ 
++def decode_event(frame):
++    event, wire = frame
++    return event, json.loads(wire.split(b'data: ', 1)[1])
++
++
+ @pytest.fixture
+ def private_events():
+     subscriptions = []
+     def subscribe(user_id):
+         sub = EVENTS.subscribe(user_id)
+         subscriptions.append(sub)
+-        return sub.queue
++        # Existing money-service tests assert decoded notification payloads.
++        return SimpleNamespace(get_nowait=lambda: decode_event(sub.queue.get_nowait()),
++                               empty=sub.queue.empty)
+     yield subscribe
+     for sub in subscriptions:
+         EVENTS.unsubscribe(sub)
+@@ -22,12 +31,21 @@
+     slow = broker.subscribe(1)
+     fast = broker.subscribe(1)
+     other = broker.subscribe(2)
++    peer = broker.subscribe(1)
+     for i in range(65):
+         broker.enqueue(1, i, 'trade')
+-        event, payload = fast.queue.get_nowait()
++        frame = fast.queue.get_nowait()
++        assert isinstance(frame[1], bytes) and peer.queue.get_nowait()[1] is frame[1]
++        event, payload = decode_event(frame)
+         assert event == 'account_changed' and payload['economic_version'] == str(i)
+     assert slow.closed.is_set() and slow.queue.qsize() == 64
+     assert not fast.closed.is_set() and other.queue.empty()
++    payload = {'reason': '成交', 'groups': [{'id': 1}]}
++    fast.offer('pricing', payload)
++    payload['groups'][0]['id'] = 2
++    frame = fast.queue.get_nowait()
++    assert frame[1] == b'event: pricing\ndata: {"reason":"\\u6210\\u4ea4","groups":[{"id":1}]}\n\n'
++    assert decode_event(frame)[1]['groups'] == [{'id': 1}]
+     broker.close()
+     assert not broker._subscribers
+ 
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_fx_net_trading.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_fx_net_trading.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_fx_net_trading.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_fx_net_trading.py	2026-10-18 16:15:26.000000000 +0800
+@@ -1,5 +1,6 @@
+ """Net money/identity coverage using existing real database fixtures."""
+ from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
++from tests.test_account_events import decode_event
+ from decimal import Decimal as D
+ 
+ import pytest
+@@ -511,7 +512,7 @@
+     sub = EVENTS.subscribe(uid)
+     try:
+         result = await _net(uid, pid, 'sell', '10', key='hint-once')
+-        event, payload = sub.queue.get_nowait()
++        event, payload = decode_event(sub.queue.get_nowait())
+         from app.models.base import User
+         async with async_session_maker() as db:
+             committed = await db.get(User, uid)
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_fx_trading_service.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_fx_trading_service.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_fx_trading_service.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_fx_trading_service.py	2026-10-18 16:15:26.000000000 +0800
+@@ -1,5 +1,5 @@
+ from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+-from tests.test_account_events import private_events
++from tests.test_account_events import private_events, decode_event
+ """Runnable FX service tests; independent of the application lifespan fixture."""
+ from contextlib import asynccontextmanager
+ from datetime import datetime, timedelta, timezone
+@@ -259,10 +259,10 @@
+     publisher.start()
+     publisher.wake.set()
+     try:
+-        _, first = await asyncio.wait_for(subscriber.queue.get(), 2)
++        _, first = decode_event(await asyncio.wait_for(subscriber.queue.get(), 2))
+         await trading.execute_trade(db_session, uid, pid, 'buy', Decimal('1'), Decimal('0'), 'lost-wake')
+         assert not publisher.wake.is_set()
+-        _, second = await asyncio.wait_for(subscriber.queue.get(), 2)
++        _, second = decode_event(await asyncio.wait_for(subscriber.queue.get(), 2))
+         assert first['groups'][0]['pool_version'] == '1'
+         assert second['groups'][0]['pool_version'] == '2'
+         assert second['groups'][0]['gold_reserve'] == format(committed_fx_registry.peek_fx(pid).gold_reserve, 'f')
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_trading_context.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_trading_context.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_trading_context.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_trading_context.py	2026-10-18 16:15:26.000000000 +0800
+@@ -1,3 +1,4 @@
++from tests.test_account_events import decode_event
+ from decimal import Decimal
+ from datetime import datetime, timezone
+ import pytest
+@@ -129,30 +130,50 @@
+     monkeypatch.setattr(FxPricingGroup, 'model_dump', dumped)
+     event.listen(engine.sync_engine, 'before_cursor_execute', observed)
+     publisher = trading_prices.PricingPublisher()
+-    all_groups, first_only, second_only = [Subscription(i) for i in (11, 22, 33)]
++    all_groups, first_only, second_only, same_first = [Subscription(i) for i in (11, 22, 33, 44)]
+     publisher.subscribe(all_groups, keys)
+     publisher.subscribe(first_only, keys[:1])
+     publisher.subscribe(second_only, keys[1:])
++    publisher.subscribe(same_first, keys[:1])
+     publisher.start()
+     publisher.wake.set()
+     try:
+-        _, both = await asyncio.wait_for(all_groups.queue.get(), 2)
+-        _, first = await asyncio.wait_for(first_only.queue.get(), 2)
+-        _, second = await asyncio.wait_for(second_only.queue.get(), 2)
++        both_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
++        first_frame = await asyncio.wait_for(first_only.queue.get(), 2)
++        second_frame = await asyncio.wait_for(second_only.queue.get(), 2)
++        assert first_frame[1] is (await same_first.queue.get())[1]
++        _, both = decode_event(both_frame)
++        _, first = decode_event(first_frame)
++        _, second = decode_event(second_frame)
+         assert [g['id'] for g in first['groups']] == [states[0].id]
+         assert [g['id'] for g in second['groups']] == [states[1].id]
+-        assert both['groups'][0] is first['groups'][0]
+-        assert both['groups'][1] is second['groups'][0]
++        assert both['groups'][0] == first['groups'][0]
++        assert both['groups'][1] == second['groups'][0]
+         assert sorted(dumps) == sorted(state.id for state in states)
+         registry.install_committed(replace(states[0], gold_reserve=Decimal('2'), pool_version=2))
+         publisher.wake.set()
+-        _, changed = await asyncio.wait_for(all_groups.queue.get(), 2)
+-        _, changed_first = await asyncio.wait_for(first_only.queue.get(), 2)
++        changed_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
++        changed_first_frame = await asyncio.wait_for(first_only.queue.get(), 2)
++        assert changed_frame[1] is changed_first_frame[1] is (await same_first.queue.get())[1]
++        _, changed = decode_event(changed_frame)
++        _, changed_first = decode_event(changed_first_frame)
+         assert changed['groups'][0]['gold_reserve'] == '2'
+         assert changed['groups'][0]['stamp'] != first['groups'][0]['stamp']
+-        assert changed['groups'][0] is changed_first['groups'][0]
++        assert changed['groups'][0] == changed_first['groups'][0]
+         assert second_only.queue.empty()
+         assert dumps.count(states[0].id) == 2 and dumps.count(states[1].id) == 1
++        registry.invalidate(keys[0])
++        # Model a deleted projection at the existing cold-read boundary.
++        original_record = registry._record_locked
++        async def missing_record(key):
++            return None if key == keys[0] else await original_record(key)
++        monkeypatch.setattr(registry, '_record_locked', missing_record)
++        publisher.wake.set()
++        missing_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
++        assert missing_frame[1] is (await first_only.queue.get())[1] is (await same_first.queue.get())[1]
++        _, missing = decode_event(missing_frame)
++        assert missing['groups'] == [] and missing['missing_groups'] == [keys[0].model_dump()]
++        assert second_only.queue.empty()
+         assert statements == []
+     finally:
+         await publisher.stop()
+diff -ru '--exclude=__pycache__' /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_trading_stream.py /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_trading_stream.py
+--- /tmp/sunyunbo/sse-reuse-ab-20261018/before/backend/tests/test_trading_stream.py	2026-10-18 15:48:34.000000000 +0800
++++ /tmp/sunyunbo/sse-reuse-ab-20261018/after/backend/tests/test_trading_stream.py	2026-10-18 16:15:26.000000000 +0800
+@@ -117,6 +117,8 @@
+ 
+ @pytest.mark.asyncio
+ async def test_shared_pricing_frame_uses_committed_complete_inputs():
++    from app.services.account_events import enqueue_order_result
++    from app.schemas.fx import FxOrderResult
+     uid, _, ids = await seed()
+     frames = []
+     async def on_frame(event,payload,stopped):
+@@ -127,7 +129,12 @@
+             PUBLISHER.wake.set()
+         if event == 'pricing':
+             if any(g['id']==ids[0] and g['gold_reserve']=='123.000000' for g in payload['groups']):
+-                stopped.set()
++                enqueue_account_change(uid, 2, '成交')
++                enqueue_order_result(uid, FxOrderResult(order_id=3, pair_id=ids[0],
++                    currency_code='0', action='buy', status='succeeded',
++                    occurred_at=datetime.now(timezone.utc)))
++        if event == 'fx_order_result':
++            stopped.set()
+     PUBLISHER.start()
+     try:
+         await request_stream(create_access_token(uid),on_frame)
+@@ -137,6 +144,8 @@
+     assert group['foreign_reserve']=='456.000000' and group['sell_fee_rate']=='0.12345678'
+     fresh = await REGISTRY.refresh_groups([GroupKey(product='fx',id=ids[0])])
+     assert group['stamp'] == fresh[0].stamp.model_dump()
++    assert [event for event, _ in frames][-3:] == ['pricing', 'account_changed', 'fx_order_result']
++    assert frames[-2][1]['reason'] == '成交' and frames[-1][1]['order_id'] == 3
+ 
+ @pytest.mark.asyncio
+ @pytest.mark.parametrize('change', ['rules', 'ban'])

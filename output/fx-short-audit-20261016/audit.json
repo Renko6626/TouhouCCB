@@ -1,0 +1,27 @@
+{
+  "20261029": {
+    "all_trace_fields_bitwise_equal": true,
+    "episodes_and_fills_exactly_equal": true,
+    "entries_joined_to_episodes": true,
+    "no_overlapping_episodes": true,
+    "full_exits_restore_inventory": true,
+    "observed_exit_thresholds_verified": true
+  },
+  "20261030": {
+    "all_trace_fields_bitwise_equal": true,
+    "episodes_and_fills_exactly_equal": true,
+    "entries_joined_to_episodes": true,
+    "no_overlapping_episodes": true,
+    "full_exits_restore_inventory": true,
+    "observed_exit_thresholds_verified": true
+  },
+  "20261031": {
+    "all_trace_fields_bitwise_equal": true,
+    "episodes_and_fills_exactly_equal": true,
+    "entries_joined_to_episodes": true,
+    "no_overlapping_episodes": true,
+    "full_exits_restore_inventory": true,
+    "observed_exit_thresholds_verified": true
+  },
+  "all_sources_and_original_traces_unchanged": true
+}

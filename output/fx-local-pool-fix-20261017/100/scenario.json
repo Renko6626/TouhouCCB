@@ -1,0 +1,23 @@
+{
+  "users": 100,
+  "pool_size": 10,
+  "max_overflow": 20,
+  "seconds": {
+    "readonly": 120,
+    "normal": 300,
+    "active": 60,
+    "stress": 30,
+    "burst-observe": 30
+  },
+  "smoke_seconds": 10,
+  "join_interval": 0.3,
+  "role_mix": "60/20/20",
+  "orders": false,
+  "base_code": "bde43b0",
+  "patch": "current user_trading.py short authentication session",
+  "source_reserves": [
+    "1000000",
+    "200000"
+  ],
+  "initial_cash": "100000"
+}

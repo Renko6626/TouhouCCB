@@ -1,0 +1,65 @@
+[
+  {
+    "variant": "baseline",
+    "scenario": "normal",
+    "trades_per_minute": 7.8764,
+    "inventory_trades_per_minute": 2.3811999999999998,
+    "inventory_vs_hold": 118.3768097610379,
+    "short_realized_per_account": -53.8109566,
+    "holding_median_minutes": 7.361111111111111,
+    "range30": 0.01585244138426033
+  },
+  {
+    "variant": "robust_inventory",
+    "scenario": "normal",
+    "trades_per_minute": 8.5148,
+    "inventory_trades_per_minute": 2.3684,
+    "inventory_vs_hold": 32.37607832832206,
+    "short_realized_per_account": -31.918256266666663,
+    "holding_median_minutes": 5.402777777777778,
+    "range30": 0.021021584058247472
+  },
+  {
+    "variant": "belief_mix",
+    "scenario": "normal",
+    "trades_per_minute": 8.2424,
+    "inventory_trades_per_minute": 2.4068,
+    "inventory_vs_hold": 122.51142111244614,
+    "short_realized_per_account": -45.742574,
+    "holding_median_minutes": 5.305555555555556,
+    "range30": 0.020742522749605207
+  },
+  {
+    "variant": "baseline",
+    "scenario": "shock",
+    "trades_per_minute": 11.766799999999998,
+    "inventory_trades_per_minute": 3.5143999999999997,
+    "inventory_vs_hold": 224.0214590797253,
+    "short_realized_per_account": 72.87111599999999,
+    "holding_median_minutes": 4.125,
+    "mean_retraced_10m": 0.4767128268494975,
+    "range30": 0.021562455234833272
+  },
+  {
+    "variant": "robust_inventory",
+    "scenario": "shock",
+    "trades_per_minute": 12.6704,
+    "inventory_trades_per_minute": 3.3404000000000003,
+    "inventory_vs_hold": 90.26330482557326,
+    "short_realized_per_account": -32.583225,
+    "holding_median_minutes": 3.444444444444444,
+    "mean_retraced_10m": 0.3255434967865461,
+    "range30": 0.02906448378806258
+  },
+  {
+    "variant": "belief_mix",
+    "scenario": "shock",
+    "trades_per_minute": 12.0668,
+    "inventory_trades_per_minute": 3.5412,
+    "inventory_vs_hold": 233.8772962819979,
+    "short_realized_per_account": -4.615716399999999,
+    "holding_median_minutes": 3.625,
+    "mean_retraced_10m": 0.2897703092972593,
+    "range30": 0.024760475054657363
+  }
+]

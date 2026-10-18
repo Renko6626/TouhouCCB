@@ -1,0 +1,757 @@
+{
+  "settings": {
+    "fsync": "on",
+    "synchronous_commit": "on",
+    "full_page_writes": "on",
+    "wal_level": "replica"
+  },
+  "note": "20 measured transactions per case after 2 warmups; sequential, no HTTP/SSE; instrumentation active; gate time sums all acquisitions per request; SQL sum includes outside gate discovery; commit_driver timing from engine commit event to ORM after_commit, excludes precommit flush and includes driver await/scheduling",
+  "summary": {
+    "cash": {
+      "sql_count": {
+        "mean": 15,
+        "median": 15.0,
+        "min": 15,
+        "max": 15
+      },
+      "sql_ms": {
+        "mean": 4.414418339729309,
+        "median": 4.10502590239048,
+        "min": 2.6275143027305603,
+        "max": 6.776001304388046
+      },
+      "gate_held_ms": {
+        "mean": 10.129896365106106,
+        "median": 9.750834666192532,
+        "min": 8.089818060398102,
+        "max": 12.76404969394207
+      },
+      "commit_driver_ms": {
+        "mean": 0.6401602178812027,
+        "median": 0.6417334079742432,
+        "min": 0.45898184180259705,
+        "max": 0.790771096944809
+      }
+    },
+    "finance": {
+      "sql_count": {
+        "mean": 34,
+        "median": 34.0,
+        "min": 34,
+        "max": 34
+      },
+      "sql_ms": {
+        "mean": 7.45464451611042,
+        "median": 7.268482819199562,
+        "min": 5.265882238745689,
+        "max": 11.849232017993927
+      },
+      "gate_held_ms": {
+        "mean": 19.727705139666796,
+        "median": 18.335756845772266,
+        "min": 15.558775514364243,
+        "max": 29.68125231564045
+      },
+      "commit_driver_ms": {
+        "mean": 0.6579727865755558,
+        "median": 0.6157336756587029,
+        "min": 0.4197601228952408,
+        "max": 1.500047743320465
+      }
+    },
+    "short": {
+      "sql_count": {
+        "mean": 35,
+        "median": 35.0,
+        "min": 35,
+        "max": 35
+      },
+      "sql_ms": {
+        "mean": 7.809900678694248,
+        "median": 7.673989050090313,
+        "min": 5.534445866942406,
+        "max": 9.143514558672905
+      },
+      "gate_held_ms": {
+        "mean": 19.987970124930143,
+        "median": 19.645508378744125,
+        "min": 16.60681515932083,
+        "max": 23.06031435728073
+      },
+      "commit_driver_ms": {
+        "mean": 0.661951769143343,
+        "median": 0.6710635498166084,
+        "min": 0.4629436880350113,
+        "max": 0.8231643587350845
+      }
+    },
+    "cover": {
+      "sql_count": {
+        "mean": 28,
+        "median": 28.0,
+        "min": 28,
+        "max": 28
+      },
+      "sql_ms": {
+        "mean": 7.590328063815832,
+        "median": 7.556701079010963,
+        "min": 5.038371309638023,
+        "max": 10.403145104646683
+      },
+      "gate_held_ms": {
+        "mean": 18.58811816200614,
+        "median": 18.56265217065811,
+        "min": 14.318350702524185,
+        "max": 26.398777961730957
+      },
+      "commit_driver_ms": {
+        "mean": 0.6486261263489723,
+        "median": 0.6571980193257332,
+        "min": 0.4979148507118225,
+        "max": 0.8081104606389999
+      }
+    }
+  },
+  "samples": [
+    {
+      "case": "cash",
+      "iteration": 2,
+      "sql_ms": 6.776001304388046,
+      "sql_count": 15,
+      "gate_held_ms": 12.596078217029572,
+      "commit_driver_ms": 0.7183197885751724
+    },
+    {
+      "case": "cash",
+      "iteration": 3,
+      "sql_ms": 6.274780258536339,
+      "sql_count": 15,
+      "gate_held_ms": 12.27714866399765,
+      "commit_driver_ms": 0.7758457213640213
+    },
+    {
+      "case": "cash",
+      "iteration": 4,
+      "sql_ms": 6.278784945607185,
+      "sql_count": 15,
+      "gate_held_ms": 12.399967759847641,
+      "commit_driver_ms": 0.7707122713327408
+    },
+    {
+      "case": "cash",
+      "iteration": 5,
+      "sql_ms": 6.680669263005257,
+      "sql_count": 15,
+      "gate_held_ms": 12.76404969394207,
+      "commit_driver_ms": 0.790771096944809
+    },
+    {
+      "case": "cash",
+      "iteration": 6,
+      "sql_ms": 2.6544705033302307,
+      "sql_count": 15,
+      "gate_held_ms": 8.247539401054382,
+      "commit_driver_ms": 0.5109049379825592
+    },
+    {
+      "case": "cash",
+      "iteration": 7,
+      "sql_ms": 2.6275143027305603,
+      "sql_count": 15,
+      "gate_held_ms": 8.089818060398102,
+      "commit_driver_ms": 0.45898184180259705
+    },
+    {
+      "case": "cash",
+      "iteration": 8,
+      "sql_ms": 3.632768988609314,
+      "sql_count": 15,
+      "gate_held_ms": 9.204765781760216,
+      "commit_driver_ms": 0.5329214036464691
+    },
+    {
+      "case": "cash",
+      "iteration": 9,
+      "sql_ms": 4.098976030945778,
+      "sql_count": 15,
+      "gate_held_ms": 9.629037231206894,
+      "commit_driver_ms": 0.5859676748514175
+    },
+    {
+      "case": "cash",
+      "iteration": 10,
+      "sql_ms": 4.093699157238007,
+      "sql_count": 15,
+      "gate_held_ms": 9.694477543234825,
+      "commit_driver_ms": 0.5969591438770294
+    },
+    {
+      "case": "cash",
+      "iteration": 11,
+      "sql_ms": 3.9142239838838577,
+      "sql_count": 15,
+      "gate_held_ms": 9.572915732860565,
+      "commit_driver_ms": 0.608302652835846
+    },
+    {
+      "case": "cash",
+      "iteration": 12,
+      "sql_ms": 3.8069579750299454,
+      "sql_count": 15,
+      "gate_held_ms": 9.473597630858421,
+      "commit_driver_ms": 0.6918050348758698
+    },
+    {
+      "case": "cash",
+      "iteration": 13,
+      "sql_ms": 4.617802798748016,
+      "sql_count": 15,
+      "gate_held_ms": 10.481027886271477,
+      "commit_driver_ms": 0.7162000983953476
+    },
+    {
+      "case": "cash",
+      "iteration": 14,
+      "sql_ms": 4.201449453830719,
+      "sql_count": 15,
+      "gate_held_ms": 10.013226419687271,
+      "commit_driver_ms": 0.7174517959356308
+    },
+    {
+      "case": "cash",
+      "iteration": 15,
+      "sql_ms": 4.058953374624252,
+      "sql_count": 15,
+      "gate_held_ms": 9.876798838376999,
+      "commit_driver_ms": 0.7139258086681366
+    },
+    {
+      "case": "cash",
+      "iteration": 16,
+      "sql_ms": 3.9787311106920242,
+      "sql_count": 15,
+      "gate_held_ms": 9.572131559252739,
+      "commit_driver_ms": 0.6751641631126404
+    },
+    {
+      "case": "cash",
+      "iteration": 17,
+      "sql_ms": 4.1312575340271,
+      "sql_count": 15,
+      "gate_held_ms": 9.76686179637909,
+      "commit_driver_ms": 0.6765816360712051
+    },
+    {
+      "case": "cash",
+      "iteration": 18,
+      "sql_ms": 4.111075773835182,
+      "sql_count": 15,
+      "gate_held_ms": 9.743217378854752,
+      "commit_driver_ms": 0.5691517144441605
+    },
+    {
+      "case": "cash",
+      "iteration": 19,
+      "sql_ms": 4.1931550949811935,
+      "sql_count": 15,
+      "gate_held_ms": 9.831840172410011,
+      "commit_driver_ms": 0.5585085600614548
+    },
+    {
+      "case": "cash",
+      "iteration": 20,
+      "sql_ms": 4.144797101616859,
+      "sql_count": 15,
+      "gate_held_ms": 9.758451953530312,
+      "commit_driver_ms": 0.5524400621652603
+    },
+    {
+      "case": "cash",
+      "iteration": 21,
+      "sql_ms": 4.012297838926315,
+      "sql_count": 15,
+      "gate_held_ms": 9.604975581169128,
+      "commit_driver_ms": 0.5822889506816864
+    },
+    {
+      "case": "finance",
+      "iteration": 2,
+      "sql_ms": 11.849232017993927,
+      "sql_count": 34,
+      "gate_held_ms": 21.47957868874073,
+      "commit_driver_ms": 0.7785074412822723
+    },
+    {
+      "case": "finance",
+      "iteration": 3,
+      "sql_ms": 8.66946391761303,
+      "sql_count": 34,
+      "gate_held_ms": 19.463270902633667,
+      "commit_driver_ms": 0.7311198860406876
+    },
+    {
+      "case": "finance",
+      "iteration": 4,
+      "sql_ms": 8.536038920283318,
+      "sql_count": 34,
+      "gate_held_ms": 19.021643325686455,
+      "commit_driver_ms": 0.7117334753274918
+    },
+    {
+      "case": "finance",
+      "iteration": 5,
+      "sql_ms": 5.802996456623077,
+      "sql_count": 34,
+      "gate_held_ms": 16.295040026307106,
+      "commit_driver_ms": 0.5872715264558792
+    },
+    {
+      "case": "finance",
+      "iteration": 6,
+      "sql_ms": 5.265882238745689,
+      "sql_count": 34,
+      "gate_held_ms": 15.79468883574009,
+      "commit_driver_ms": 0.5959384143352509
+    },
+    {
+      "case": "finance",
+      "iteration": 7,
+      "sql_ms": 5.274534225463867,
+      "sql_count": 34,
+      "gate_held_ms": 15.780160203576088,
+      "commit_driver_ms": 0.5845110863447189
+    },
+    {
+      "case": "finance",
+      "iteration": 8,
+      "sql_ms": 5.308233201503754,
+      "sql_count": 34,
+      "gate_held_ms": 15.558775514364243,
+      "commit_driver_ms": 0.42830780148506165
+    },
+    {
+      "case": "finance",
+      "iteration": 9,
+      "sql_ms": 7.181717082858086,
+      "sql_count": 34,
+      "gate_held_ms": 20.197251811623573,
+      "commit_driver_ms": 0.4197601228952408
+    },
+    {
+      "case": "finance",
+      "iteration": 10,
+      "sql_ms": 7.137486711144447,
+      "sql_count": 34,
+      "gate_held_ms": 20.00555768609047,
+      "commit_driver_ms": 0.643119215965271
+    },
+    {
+      "case": "finance",
+      "iteration": 11,
+      "sql_ms": 10.107122361660004,
+      "sql_count": 34,
+      "gate_held_ms": 29.68125231564045,
+      "commit_driver_ms": 1.500047743320465
+    },
+    {
+      "case": "finance",
+      "iteration": 12,
+      "sql_ms": 8.207738399505615,
+      "sql_count": 34,
+      "gate_held_ms": 26.098517701029778,
+      "commit_driver_ms": 0.7470659911632538
+    },
+    {
+      "case": "finance",
+      "iteration": 13,
+      "sql_ms": 7.932083681225777,
+      "sql_count": 34,
+      "gate_held_ms": 24.851422756910324,
+      "commit_driver_ms": 0.7063932716846466
+    },
+    {
+      "case": "finance",
+      "iteration": 14,
+      "sql_ms": 6.384078413248062,
+      "sql_count": 34,
+      "gate_held_ms": 17.511053010821342,
+      "commit_driver_ms": 0.6283018738031387
+    },
+    {
+      "case": "finance",
+      "iteration": 15,
+      "sql_ms": 5.830703303217888,
+      "sql_count": 34,
+      "gate_held_ms": 16.571545973420143,
+      "commit_driver_ms": 0.5226321518421173
+    },
+    {
+      "case": "finance",
+      "iteration": 16,
+      "sql_ms": 7.185576483607292,
+      "sql_count": 34,
+      "gate_held_ms": 18.10893416404724,
+      "commit_driver_ms": 0.5632489919662476
+    },
+    {
+      "case": "finance",
+      "iteration": 17,
+      "sql_ms": 7.351389154791832,
+      "sql_count": 34,
+      "gate_held_ms": 17.802005633711815,
+      "commit_driver_ms": 0.5238726735115051
+    },
+    {
+      "case": "finance",
+      "iteration": 18,
+      "sql_ms": 7.859187200665474,
+      "sql_count": 34,
+      "gate_held_ms": 18.56257952749729,
+      "commit_driver_ms": 0.5738511681556702
+    },
+    {
+      "case": "finance",
+      "iteration": 19,
+      "sql_ms": 7.39559531211853,
+      "sql_count": 34,
+      "gate_held_ms": 17.98023283481598,
+      "commit_driver_ms": 0.603165477514267
+    },
+    {
+      "case": "finance",
+      "iteration": 20,
+      "sql_ms": 9.703928604722023,
+      "sql_count": 34,
+      "gate_held_ms": 26.95559337735176,
+      "commit_driver_ms": 0.6428193300962448
+    },
+    {
+      "case": "finance",
+      "iteration": 21,
+      "sql_ms": 6.109902635216713,
+      "sql_count": 34,
+      "gate_held_ms": 16.83499850332737,
+      "commit_driver_ms": 0.6677880883216858
+    },
+    {
+      "case": "short",
+      "iteration": 2,
+      "sql_ms": 7.433261722326279,
+      "sql_count": 35,
+      "gate_held_ms": 18.759386613965034,
+      "commit_driver_ms": 0.5948524922132492
+    },
+    {
+      "case": "short",
+      "iteration": 3,
+      "sql_ms": 7.279431447386742,
+      "sql_count": 35,
+      "gate_held_ms": 18.979718908667564,
+      "commit_driver_ms": 0.7098410278558731
+    },
+    {
+      "case": "short",
+      "iteration": 4,
+      "sql_ms": 7.384372875094414,
+      "sql_count": 35,
+      "gate_held_ms": 18.554335460066795,
+      "commit_driver_ms": 0.7261037826538086
+    },
+    {
+      "case": "short",
+      "iteration": 5,
+      "sql_ms": 8.803412318229675,
+      "sql_count": 35,
+      "gate_held_ms": 19.897667691111565,
+      "commit_driver_ms": 0.6624292582273483
+    },
+    {
+      "case": "short",
+      "iteration": 6,
+      "sql_ms": 8.568989112973213,
+      "sql_count": 35,
+      "gate_held_ms": 19.8325477540493,
+      "commit_driver_ms": 0.7898733019828796
+    },
+    {
+      "case": "short",
+      "iteration": 7,
+      "sql_ms": 8.821407333016396,
+      "sql_count": 35,
+      "gate_held_ms": 19.679971039295197,
+      "commit_driver_ms": 0.6115809082984924
+    },
+    {
+      "case": "short",
+      "iteration": 8,
+      "sql_ms": 7.864292711019516,
+      "sql_count": 35,
+      "gate_held_ms": 18.9068466424942,
+      "commit_driver_ms": 0.6776005029678345
+    },
+    {
+      "case": "short",
+      "iteration": 9,
+      "sql_ms": 8.067918941378593,
+      "sql_count": 35,
+      "gate_held_ms": 19.443295896053314,
+      "commit_driver_ms": 0.6916709244251251
+    },
+    {
+      "case": "short",
+      "iteration": 10,
+      "sql_ms": 6.993724033236504,
+      "sql_count": 35,
+      "gate_held_ms": 18.374213948845863,
+      "commit_driver_ms": 0.6645265966653824
+    },
+    {
+      "case": "short",
+      "iteration": 11,
+      "sql_ms": 6.520628929138184,
+      "sql_count": 35,
+      "gate_held_ms": 18.06061714887619,
+      "commit_driver_ms": 0.6291456520557404
+    },
+    {
+      "case": "short",
+      "iteration": 12,
+      "sql_ms": 7.48368538916111,
+      "sql_count": 35,
+      "gate_held_ms": 20.34788951277733,
+      "commit_driver_ms": 0.8231643587350845
+    },
+    {
+      "case": "short",
+      "iteration": 13,
+      "sql_ms": 8.91990028321743,
+      "sql_count": 35,
+      "gate_held_ms": 22.953452542424202,
+      "commit_driver_ms": 0.748729333281517
+    },
+    {
+      "case": "short",
+      "iteration": 14,
+      "sql_ms": 9.143514558672905,
+      "sql_count": 35,
+      "gate_held_ms": 23.06031435728073,
+      "commit_driver_ms": 0.783238559961319
+    },
+    {
+      "case": "short",
+      "iteration": 15,
+      "sql_ms": 8.633267134428024,
+      "sql_count": 35,
+      "gate_held_ms": 22.90128357708454,
+      "commit_driver_ms": 0.7389113306999207
+    },
+    {
+      "case": "short",
+      "iteration": 16,
+      "sql_ms": 8.733432739973068,
+      "sql_count": 35,
+      "gate_held_ms": 22.503817453980446,
+      "commit_driver_ms": 0.7544085383415222
+    },
+    {
+      "case": "short",
+      "iteration": 17,
+      "sql_ms": 8.092859759926796,
+      "sql_count": 35,
+      "gate_held_ms": 21.967267617583275,
+      "commit_driver_ms": 0.5631148815155029
+    },
+    {
+      "case": "short",
+      "iteration": 18,
+      "sql_ms": 7.41933286190033,
+      "sql_count": 35,
+      "gate_held_ms": 21.130597218871117,
+      "commit_driver_ms": 0.5130022764205933
+    },
+    {
+      "case": "short",
+      "iteration": 19,
+      "sql_ms": 7.478443905711174,
+      "sql_count": 35,
+      "gate_held_ms": 19.611045718193054,
+      "commit_driver_ms": 0.47087855637073517
+    },
+    {
+      "case": "short",
+      "iteration": 20,
+      "sql_ms": 5.534445866942406,
+      "sql_count": 35,
+      "gate_held_ms": 16.60681515932083,
+      "commit_driver_ms": 0.4629436880350113
+    },
+    {
+      "case": "short",
+      "iteration": 21,
+      "sql_ms": 7.021691650152206,
+      "sql_count": 35,
+      "gate_held_ms": 18.188318237662315,
+      "commit_driver_ms": 0.6230194121599197
+    },
+    {
+      "case": "cover",
+      "iteration": 2,
+      "sql_ms": 8.327571675181389,
+      "sql_count": 28,
+      "gate_held_ms": 18.887918442487717,
+      "commit_driver_ms": 0.7301308214664459
+    },
+    {
+      "case": "cover",
+      "iteration": 3,
+      "sql_ms": 8.099669590592384,
+      "sql_count": 28,
+      "gate_held_ms": 18.685290589928627,
+      "commit_driver_ms": 0.7325932383537292
+    },
+    {
+      "case": "cover",
+      "iteration": 4,
+      "sql_ms": 8.090542629361153,
+      "sql_count": 28,
+      "gate_held_ms": 18.586866557598114,
+      "commit_driver_ms": 0.7353033870458603
+    },
+    {
+      "case": "cover",
+      "iteration": 5,
+      "sql_ms": 8.600249886512756,
+      "sql_count": 28,
+      "gate_held_ms": 19.137131050229073,
+      "commit_driver_ms": 0.7444694638252258
+    },
+    {
+      "case": "cover",
+      "iteration": 6,
+      "sql_ms": 8.885204792022705,
+      "sql_count": 28,
+      "gate_held_ms": 19.414249807596207,
+      "commit_driver_ms": 0.5836226046085358
+    },
+    {
+      "case": "cover",
+      "iteration": 7,
+      "sql_ms": 6.816552951931953,
+      "sql_count": 28,
+      "gate_held_ms": 18.504111096262932,
+      "commit_driver_ms": 0.533323734998703
+    },
+    {
+      "case": "cover",
+      "iteration": 8,
+      "sql_ms": 7.356559857726097,
+      "sql_count": 28,
+      "gate_held_ms": 19.017213955521584,
+      "commit_driver_ms": 0.7833633571863174
+    },
+    {
+      "case": "cover",
+      "iteration": 9,
+      "sql_ms": 8.058914914727211,
+      "sql_count": 28,
+      "gate_held_ms": 23.50134402513504,
+      "commit_driver_ms": 0.6804168224334717
+    },
+    {
+      "case": "cover",
+      "iteration": 10,
+      "sql_ms": 7.862841710448265,
+      "sql_count": 28,
+      "gate_held_ms": 23.02706241607666,
+      "commit_driver_ms": 0.5678664892911911
+    },
+    {
+      "case": "cover",
+      "iteration": 11,
+      "sql_ms": 7.556375116109848,
+      "sql_count": 28,
+      "gate_held_ms": 20.618554204702377,
+      "commit_driver_ms": 0.6754305213689804
+    },
+    {
+      "case": "cover",
+      "iteration": 12,
+      "sql_ms": 10.403145104646683,
+      "sql_count": 28,
+      "gate_held_ms": 26.398777961730957,
+      "commit_driver_ms": 0.8081104606389999
+    },
+    {
+      "case": "cover",
+      "iteration": 13,
+      "sql_ms": 7.348302751779556,
+      "sql_count": 28,
+      "gate_held_ms": 18.53843778371811,
+      "commit_driver_ms": 0.6164629012346268
+    },
+    {
+      "case": "cover",
+      "iteration": 14,
+      "sql_ms": 5.038371309638023,
+      "sql_count": 28,
+      "gate_held_ms": 14.951437711715698,
+      "commit_driver_ms": 0.5510076880455017
+    },
+    {
+      "case": "cover",
+      "iteration": 15,
+      "sql_ms": 6.98552280664444,
+      "sql_count": 28,
+      "gate_held_ms": 17.008287832140923,
+      "commit_driver_ms": 0.6714686751365662
+    },
+    {
+      "case": "cover",
+      "iteration": 16,
+      "sql_ms": 7.845178246498108,
+      "sql_count": 28,
+      "gate_held_ms": 17.87027344107628,
+      "commit_driver_ms": 0.4979148507118225
+    },
+    {
+      "case": "cover",
+      "iteration": 17,
+      "sql_ms": 7.557027041912079,
+      "sql_count": 28,
+      "gate_held_ms": 17.550073564052582,
+      "commit_driver_ms": 0.6584580987691879
+    },
+    {
+      "case": "cover",
+      "iteration": 18,
+      "sql_ms": 7.534947246313095,
+      "sql_count": 28,
+      "gate_held_ms": 15.833217650651932,
+      "commit_driver_ms": 0.6559379398822784
+    },
+    {
+      "case": "cover",
+      "iteration": 19,
+      "sql_ms": 5.987964570522308,
+      "sql_count": 28,
+      "gate_held_ms": 14.318350702524185,
+      "commit_driver_ms": 0.5550887435674667
+    },
+    {
+      "case": "cover",
+      "iteration": 20,
+      "sql_ms": 6.704861298203468,
+      "sql_count": 28,
+      "gate_held_ms": 14.904649928212166,
+      "commit_driver_ms": 0.5946643650531769
+    },
+    {
+      "case": "cover",
+      "iteration": 21,
+      "sql_ms": 6.74675777554512,
+      "sql_count": 28,
+      "gate_held_ms": 15.009114518761635,
+      "commit_driver_ms": 0.5968883633613586
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "after_ready": true,
+  "observer_implemented": true,
+  "reviewed_interface_commit": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+  "reviewed_writer_sha256": "140a786908a8d7a5e5a25a3013e4004ba2b16de95d6800d00afa4ef4aa2e84c0",
+  "load_start_authorized": true,
+  "pending": "None; do not rerun/overwrite this completed experiment.",
+  "execution_status": "completed_once_before_then_after_both_stress_latency_protection"
+}

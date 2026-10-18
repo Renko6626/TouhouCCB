@@ -1,0 +1,90 @@
+{
+  "candidates": {
+    "memory2": {
+      "memory": 2,
+      "exits": 1,
+      "random_size": 1
+    },
+    "memory3": {
+      "memory": 3,
+      "exits": 1,
+      "random_size": 1
+    },
+    "memory2_exit15": {
+      "memory": 2,
+      "exits": 1.5,
+      "random_size": 1
+    },
+    "memory2_exit2": {
+      "memory": 2,
+      "exits": 2,
+      "random_size": 1
+    },
+    "memory2_noise75": {
+      "memory": 2,
+      "exits": 1,
+      "random_size": 0.75
+    },
+    "memory2_noise67": {
+      "memory": 2,
+      "exits": 1,
+      "random_size": 0.6666666666666666
+    },
+    "memory2_noise67_exit15": {
+      "memory": 2,
+      "exits": 1.5,
+      "random_size": 0.6666666666666666
+    },
+    "memory2_noise67_exit2": {
+      "memory": 2,
+      "exits": 2,
+      "random_size": 0.6666666666666666
+    },
+    "memory2_noise50_exit15": {
+      "memory": 2,
+      "exits": 1.5,
+      "random_size": 0.5
+    },
+    "memory2_noise50_exit15_rate07": {
+      "memory": 2,
+      "exits": 1.5,
+      "random_size": 0.5,
+      "arrival": 0.7
+    },
+    "memory2_noise72_exit2_rate07": {
+      "memory": 2,
+      "exits": 2,
+      "random_size": 0.6666666666666666,
+      "arrival": 0.7
+    },
+    "memory2_noise66_exit2_rate07": {
+      "memory": 2,
+      "exits": 2,
+      "random_size": 0.6111111111111112,
+      "arrival": 0.7
+    },
+    "memory2_noise60_exit2_rate07": {
+      "memory": 2,
+      "exits": 2,
+      "random_size": 0.5555555555555556,
+      "arrival": 0.7
+    }
+  },
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "hours": 7,
+  "target": {
+    "cycle_minutes": 20,
+    "up_minutes": 10,
+    "trades_per_minute": 5.2444444444444445
+  },
+  "scope": "Offline parameter changes only; no players/shocks/fees, frozen version retained. First six cases fixed arrivals0.6; follow-up combos permit explicit arrival compensation.",
+  "source_sha256": {
+    "research/fx/intraday_6_8h/FROZEN_CONFIG.json": "98c71d9be31b438e6dfd8ca44b649f16a3be185ee8b9378d86198a5d23d46e57",
+    "research/fx/intraday_6_8h/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c",
+    "research/fx/intraday_6_8h/BASELINE_METRICS.json": "b21ba714cf7d8024fb67311e06142e04a2356e0ae00fae4e4e1416bfb795a5f1"
+  }
+}

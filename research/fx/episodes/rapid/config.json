@@ -1,0 +1,86 @@
+{
+  "tick_seconds": 10,
+  "horizons": [
+    2160,
+    8640
+  ],
+  "shock_tick": 1000,
+  "injection_gold": 100000,
+  "terminal_window": 180,
+  "market_seeds": [
+    81,
+    82,
+    83
+  ],
+  "population_seed": 301,
+  "spread": 1.0,
+  "random_counts": [
+    0,
+    15
+  ],
+  "b": 0.25,
+  "variant": "trailing",
+  "workers": 6,
+  "cells": [
+    {
+      "id": "eighth_rate1",
+      "label": "±0.125%／1倍到达",
+      "tau": 1000,
+      "mean_arrivals": 1,
+      "take_profit": 0.00125,
+      "stop_loss": 0.00125,
+      "trail_arm": 0.000625,
+      "trail_drawdown": 0.000625
+    },
+    {
+      "id": "sixteenth_rate1",
+      "label": "±0.0625%／1倍到达",
+      "tau": 1000,
+      "mean_arrivals": 1,
+      "take_profit": 0.000625,
+      "stop_loss": 0.000625,
+      "trail_arm": 0.0003125,
+      "trail_drawdown": 0.0003125
+    },
+    {
+      "id": "fortieth_rate1",
+      "label": "±0.025%／1倍到达",
+      "tau": 1000,
+      "mean_arrivals": 1,
+      "take_profit": 0.00025,
+      "stop_loss": 0.00025,
+      "trail_arm": 0.000125,
+      "trail_drawdown": 0.000125
+    },
+    {
+      "id": "eighth_rate3",
+      "label": "±0.125%／3倍到达",
+      "tau": 1000,
+      "mean_arrivals": 3,
+      "take_profit": 0.00125,
+      "stop_loss": 0.00125,
+      "trail_arm": 0.000625,
+      "trail_drawdown": 0.000625
+    },
+    {
+      "id": "sixteenth_rate3",
+      "label": "±0.0625%／3倍到达",
+      "tau": 1000,
+      "mean_arrivals": 3,
+      "take_profit": 0.000625,
+      "stop_loss": 0.000625,
+      "trail_arm": 0.0003125,
+      "trail_drawdown": 0.0003125
+    },
+    {
+      "id": "fortieth_rate3",
+      "label": "±0.025%／3倍到达",
+      "tau": 1000,
+      "mean_arrivals": 3,
+      "take_profit": 0.00025,
+      "stop_loss": 0.00025,
+      "trail_arm": 0.000125,
+      "trail_drawdown": 0.000125
+    }
+  ]
+}

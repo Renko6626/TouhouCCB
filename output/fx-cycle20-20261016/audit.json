@@ -1,0 +1,8 @@
+{
+  "candidate_paths": 39,
+  "finite_series": true,
+  "nonnegative_wallets": true,
+  "assets_conserved": true,
+  "wealth_and_trade_counts_verified": true,
+  "frozen_sources_unchanged": true
+}

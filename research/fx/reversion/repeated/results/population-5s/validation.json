@@ -1,0 +1,11 @@
+{
+  "paths": 12,
+  "new20_paths": 6,
+  "reused40_paths": 6,
+  "event_records_verified": 60,
+  "short_wallet_slice_and_realized_pnl_per_account_verified": true,
+  "all30minute_ranges_trades_per_minute_and_response_windows_verified": true,
+  "previous_results_and_sources_unchanged": true,
+  "tests_passed": 37,
+  "test_command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v"
+}

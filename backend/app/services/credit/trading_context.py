@@ -1,7 +1,7 @@
 """Bounded, clean-session account reads; no valuation or transaction admission."""
 from decimal import Decimal
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import literal, select, union_all
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.models.base import User, Position, Outcome
 from app.models.fx import FxWallet, FxShortPosition
@@ -33,10 +33,20 @@ async def authoritative_version(db, user_id):
 
 async def read_dependencies(db, user_id, current_group=None):
     # Only identities: version polling never loads amounts or runs valuation.
-    markets = (await db.execute(select(Outcome.market_id).join(Position, Position.outcome_id == Outcome.id).where(Position.user_id == user_id))).scalars().all()
-    wallets = (await db.execute(select(FxWallet.pair_id).where(FxWallet.user_id == user_id))).scalars().all()
-    shorts = (await db.execute(select(FxShortPosition.pair_id).where(FxShortPosition.user_id == user_id))).scalars().all()
-    keys = {('lmsr', i) for i in markets} | {('fx', i) for i in wallets + shorts}
+    identities = union_all(
+        select(literal('lmsr'), Outcome.market_id).join(Position, Position.outcome_id == Outcome.id).where(Position.user_id == user_id),
+        select(literal('fx'), FxWallet.pair_id).where(FxWallet.user_id == user_id),
+        select(literal('fx'), FxShortPosition.pair_id).where(FxShortPosition.user_id == user_id),
+    )
+    keys = {(product, group_id) for product, group_id in (await db.execute(identities)).all()}
+    if current_group:
+        keys.add((current_group.product, current_group.id))
+    return [GroupKey(product=p, id=i) for p, i in sorted(keys)]
+
+def _dependencies_from_basis(basis: AccountBasis, current_group=None):
+    keys = {('lmsr', p.market_id) for p in basis.lmsr_positions if p.market_id is not None}
+    keys.update(('fx', w.pair_id) for w in basis.fx_wallets)
+    keys.update(('fx', s.pair_id) for s in basis.fx_shorts)
     if current_group:
         keys.add((current_group.product, current_group.id))
     return [GroupKey(product=p, id=i) for p, i in sorted(keys)]
@@ -63,6 +73,8 @@ def missing_keys(keys, groups):
     return [k for k in keys if (k.product, k.id) not in found]
 
 def coverage(groups):
+    # Floors describe only the included prices. Account economic_version is
+    # checked separately; a market's commit-to-publication gap is permitted.
     return [GroupCoverage(product=g.product, id=g.id, stamp=g.stamp) for g in groups]
 
 async def read_trading_context(session, user_id, current_group=None, *, registry=None, session_factory=None):
@@ -72,7 +84,7 @@ async def read_trading_context(session, user_id, current_group=None, *, registry
         async with factory() as db:
             before = await authoritative_version(db, user_id)
             basis = await read_basis(db, user_id)
-            keys = await read_dependencies(db, user_id, current_group)
+            keys = _dependencies_from_basis(basis, current_group)
             rules = await read_rules(db)
         groups = await registry.refresh_groups(keys)
         async with factory() as db:

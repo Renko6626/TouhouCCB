@@ -7,8 +7,8 @@
 两者都允许填 0（但 yuan + huo > 0）。
 
 统一信贷（WP6b）：账户级准入 时，扣款入口先 `OWNERSHIP.require_writes()`，
-锁外发现依赖（无债走单行快路径）+ 按品种门闩，再锁 user、跑 `check_cash_spend`
-（版本复检 + 交易后 E / 冻结判定），通过后扣款并自增 `economic_version`。
+锁 user 后重读本人完整账本，再用一次已提交行情捕获运行 `check_cash_spend`；
+通过交易后 E / 冻结检查后扣款并自增 `economic_version`。
 """
 from __future__ import annotations
 from app.services.account_events import notifying_transaction
@@ -33,7 +33,6 @@ from app.services.credit.cash import available_cash, has_foreign_debt
 from app.models.base import User
 from app.models.redemption import DanmukuExchange
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.risk import (
     REASON_CREDIT_FROZEN,
@@ -162,12 +161,11 @@ async def exchange(
         raise RuntimeError("exchange requires a clean session before risk admission")
     deps = await _deps_for_spend(session, user_id)
     await session.commit()
-    async with GATES.hold(shared=() if deps is None else deps.groups):
-        async with notifying_transaction(session, managed_transaction(session), "danmuku"):
-            return await _exchange_impl(
-                session, user_id=user_id, qq_user_id=qq_user_id, room_id=room_id,
-                yuan=yuan, huo=huo, amount=amount, deps=deps, thresholds=thresholds,
-            )
+    async with notifying_transaction(session, managed_transaction(session), "danmuku"):
+        return await _exchange_impl(
+            session, user_id=user_id, qq_user_id=qq_user_id, room_id=room_id,
+            yuan=yuan, huo=huo, amount=amount, deps=deps, thresholds=thresholds,
+        )
 
 
 async def _exchange_impl(

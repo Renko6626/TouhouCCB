@@ -6,11 +6,9 @@ Transaction contract (spec §7.1–7.3 / §11):
 - ``execute_short_open_in_session`` performs every validation, lock and balance
   mutation for opening or adding to a short **inside the caller's transaction**.
   It never commits, never rolls back and never publishes, so one outer caller
-  can hold the complete GATE set, run the whole borrow/sell/risk bundle and
-  commit once.  The caller owns lock order and gates; a stale dependency set or
-  a concurrently changed price raises :class:`ShortRetryCredit` so the caller
-  releases every lock and re-discovers rather than taking a missing pair GATE
-  while holding the User lock (spec §11).
+  runs the whole borrow/sell/risk bundle and commits once. The target writer
+  owns ordering, and the User lock guards the complete own ledger through
+  commit. Foreign prices come from one committed capture before simulation.
 - ``execute_short_cover_in_session`` is the risk-reducing twin: it settles the
   debt at one UTC T, buys exactly q foreign through the AMM using account cash
   and repays interest then principal.  It is
@@ -24,7 +22,7 @@ gold proceeds to unified account cash; covering never credits ``FxWallet`` and n
 debt.
 """
 from __future__ import annotations
-from app.services.account_events import capture_accounts, publish_accounts
+from app.services.market_read_state import stage_fx_pair
 
 import logging
 from dataclasses import dataclass
@@ -44,7 +42,6 @@ from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.schemas.fx import FxShortTradeResponse
 from app.services import audit_service, loan_service, site_config
 from app.services.credit import flags as credit_flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.version import bump_economic_version, economic_version_of
@@ -302,8 +299,7 @@ async def execute_short_open_in_session(
 ) -> FxShortExecution:
     """Borrow real foreign, sell it into the AMM and lock the proceeds.
 
-    The caller must hold the target pair's exclusive gate and every dependency
-    shared gate, and owns the single transaction (commit/rollback/SSE).  This
+    The target writer owns the single transaction (commit/rollback/SSE). This
     function validates every §7.1 precondition under the lock order
     ``pair -> User -> wallet/short rows -> treasury``, runs the shared
     post-sell ``check_new_risk`` and returns the committed-in-transaction trade
@@ -311,8 +307,6 @@ async def execute_short_open_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("short-open caller must hold the target pair gate through commit")
 
     amount = _positive_six(foreign_amount, "foreign_amount")
     min_out = _nonnegative_six(min_gold_out, "min_gold_out")
@@ -344,14 +338,13 @@ async def execute_short_open_in_session(
             post_price=Decimal(old.post_price), trade_id=int(old.id),
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
     snapshot = credit_deps.snapshots.get(target_key)
     if snapshot is None:
-        raise ShortRetryCredit()
+        raise HTTPException(503, "market_pricing_unavailable")
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(status_code=403, detail="FX trading is disabled")
@@ -481,6 +474,7 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
     pair.foreign_reserve = q.post_foreign_reserve
     pair.pool_version = int(pair.pool_version) + 1
     pair.updated_at = now
+    stage_fx_pair(db, pair)
 
     treasury.foreign_balance = pre_treasury_foreign - amount + q.fee_amount
     treasury.updated_at = now
@@ -663,6 +657,7 @@ async def _write_cover_ledger(
     pair.foreign_reserve = quote.post_foreign_reserve
     pair.pool_version = int(pair.pool_version) + 1
     pair.updated_at = now
+    stage_fx_pair(db, pair)
     treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
     treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
     treasury.updated_at = now
@@ -782,8 +777,6 @@ async def execute_short_cover_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError("short-cover caller must hold the target pair gate through commit")
 
     is_cover_all = bool(cover_all)
     if is_cover_all and foreign_amount is not None:
@@ -823,13 +816,13 @@ async def execute_short_cover_in_session(
             post_price=Decimal(old.post_price), trade_id=int(old.id),
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
-    if credit_deps.snapshots.get(target_key) is None:
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
+    snapshot = credit_deps.snapshots.get(target_key)
+    if snapshot is None:
+        raise HTTPException(503, "market_pricing_unavailable")
 
     if not await site_config.get_bool_or(db, "fx_enabled", False):
         raise HTTPException(status_code=403, detail="FX trading is disabled")
@@ -1060,9 +1053,8 @@ async def execute_liquidation_cover_in_session(
     """Buy back foreign debt with a hard gold budget inside the caller's txn.
 
     Forced-liquidation twin of :func:`execute_short_cover_in_session` (spec
-    §7.3/§8.1–8.2).  The caller (WP4c) already holds the target pair's
-    exclusive GATE plus every dependency shared GATE and owns the single
-    transaction; this function never commits, rolls back, publishes or creates a
+    §7.3/§8.1–8.2). The target writer owns the single transaction and retains
+    its Pair/User row locks; this function never commits, rolls back, publishes or creates a
     ``LiquidationAction``.
 
     - Player business gates are deliberately ignored: ``fx_enabled``, the loan gate,
@@ -1104,9 +1096,6 @@ async def execute_liquidation_cover_in_session(
     """
     _require_writes()
     target_key = GroupKey("fx", pair_id)
-    if target_key not in GATES.held_keys_by_current_task():
-        raise RuntimeError(
-            "liquidation-cover caller must hold the target pair gate through commit")
 
     # Imported lazily: ``fx.trading`` imports ``credit.risk`` which imports this
     # module at load time, so a module-level import would be a cycle.
@@ -1145,13 +1134,13 @@ async def execute_liquidation_cover_in_session(
             **metadata,
         )
 
-    held = GATES.held_keys_by_current_task()
-    if economic_version_of(user) != credit_deps.economic_version:
-        raise ShortRetryCredit()
-    if not set(credit_deps.groups).issubset(held):
-        raise ShortRetryCredit()
-    if credit_deps.snapshots.get(target_key) is None:
-        raise ShortRetryCredit()
+    from app.services.credit.risk import discover_dependencies
+    if credit_deps is None or not credit_deps.account_locked:
+        credit_deps = await discover_dependencies(db, user_id,
+            extra_groups=[target_key], account_locked=True)
+    snapshot = credit_deps.snapshots.get(target_key)
+    if snapshot is None:
+        raise HTTPException(503, "market_pricing_unavailable")
 
     status = str(pair.status or "").strip().lower()
     coverable = (
@@ -1400,96 +1389,19 @@ def _short_response(execution: FxShortExecution) -> FxShortTradeResponse:
     )
 
 
-async def _execute_player_short_write(
-    db: AsyncSession, *, user_id: int, pair_id: int, run_in_session,
-) -> FxShortTradeResponse:
-    """Shared player-write wrapper for short open and cover (spec §7 / §11).
-
-    Discovers the complete :class:`DependencySet` before taking gates, releases
-    the discovery transaction, then holds the target FX GATE exclusive plus every
-    other dependency group shared in total order and runs the kernel inside one
-    caller-owned transaction.  ``ShortRetryCredit`` rolls back, releases row
-    locks/GATES, rediscovers and retries within ``credit_risk_retry_limit``; no
-    pair GATE is ever acquired while holding the User lock because the kernel
-    raises instead of taking one.  A same-key replay rolls back to release locks
-    and returns the saved trade with no second borrow/buy/commit.  On a fresh
-    success the transaction commits once and only then is the real
-    ``FxTrade`` price frame handed to the bounded publisher.
-    """
-    _require_writes()
-    # Imported lazily: credit.risk imports this module at module load.
-    from app.services.credit.risk import discover_dependencies
-    from app.services.fx import publisher
-    from app.services.fx.trading import notify_market_data_committed
-
-    target = GroupKey("fx", pair_id)
-    retry_limit = max(0, int(credit_flags.get_flags().credit_risk_retry_limit))
-    attempt = 0
-    while True:
-        deps = await discover_dependencies(db, user_id, extra_groups=[target])
-        if db.in_transaction():
-            await db.rollback()
-        try:
-            async with GATES.hold(
-                exclusive=[target],
-                shared=[group for group in deps.groups if group != target],
-            ):
-                try:
-                    execution = await run_in_session(db, deps)
-                    # Materialize before commit/replay-rollback: a rollback
-                    # expires the live ORM row.
-                    response = _short_response(execution)
-                    if execution.replay:
-                        await db.rollback()
-                        return response
-                    _require_writes()
-                    account_hints = capture_accounts(db)
-                    await db.commit()
-                    publish_accounts(account_hints, "shorts")
-                except IntegrityError as exc:
-                    await _rollback_quietly(db)
-                    if not _is_fx_trade_idempotency_conflict(exc):
-                        raise
-                    # Expected same-key race: the winner committed elsewhere.
-                    # All pending money/locks/audit are rolled back above; a
-                    # same-key retry can read the saved trade (replay or a
-                    # parameter-mismatch 409), never a second borrow.
-                    raise HTTPException(
-                        status_code=409,
-                        detail="idempotency key conflict; retry",
-                    ) from None
-                except BaseException:
-                    await _rollback_quietly(db)
-                    raise
-        except ShortRetryCredit:
-            attempt += 1
-            if attempt > retry_limit:
-                raise HTTPException(
-                    status_code=409, detail="version_conflict; retry") from None
-            continue
-        # Fresh commit only: replay returned above.  Hint the incremental
-        # market-data runtime before the bounded, discardable publication.
-        notify_market_data_committed(execution.pair_id)
-        publisher.enqueue_publication(
-            pair_id=execution.pair_id, post_price=execution.post_price,
-            trade_id=execution.trade_id)
-        return response
-
-
 async def execute_short_open(
     db: AsyncSession, *, user_id: int, pair_id: int, foreign_amount: Decimal,
     min_gold_out: Decimal, idempotency_key: str,
 ) -> FxShortTradeResponse:
-    """Request-path short open: owns gates, one commit, retry and publication."""
-    async def run_in_session(session: AsyncSession, deps: "DependencySet") -> FxShortExecution:
-        return await execute_short_open_in_session(
-            session, user_id=user_id, pair_id=pair_id,
-            foreign_amount=foreign_amount, min_gold_out=min_gold_out,
-            idempotency_key=idempotency_key, credit_deps=deps,
-        )
-
-    return await _execute_player_short_write(
-        db, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
+    """Submit one atomic short-open to the target pair writer."""
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import ShortOpen
+    _require_writes()
+    command = ShortOpen(int(pair_id), int(user_id), foreign_amount, min_gold_out,
+                        idempotency_key)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 async def execute_short_cover(
@@ -1497,17 +1409,15 @@ async def execute_short_cover(
     foreign_amount: Optional[Decimal], cover_all: bool, max_gold_in: Decimal,
     idempotency_key: str,
 ) -> FxShortTradeResponse:
-    """Request-path short cover: risk-reducing, never routed through spot buy."""
-    async def run_in_session(session: AsyncSession, deps: "DependencySet") -> FxShortExecution:
-        return await execute_short_cover_in_session(
-            session, user_id=user_id, pair_id=pair_id,
-            foreign_amount=foreign_amount, cover_all=cover_all,
-            max_gold_in=max_gold_in, idempotency_key=idempotency_key,
-            credit_deps=deps,
-        )
-
-    return await _execute_player_short_write(
-        db, user_id=user_id, pair_id=pair_id, run_in_session=run_in_session)
+    """Submit risk-reducing cover without routing through ordinary spot buy."""
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import ShortCover
+    _require_writes()
+    command = ShortCover(int(pair_id), int(user_id), foreign_amount, cover_all,
+                         max_gold_in, idempotency_key)
+    if db.in_transaction():
+        await db.rollback()
+    return await FX_WRITER.submit(command)
 
 
 # ── read-only current position and indicative quote (Task 3c2) ───────────────

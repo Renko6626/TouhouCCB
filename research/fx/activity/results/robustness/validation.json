@@ -1,0 +1,415 @@
+{
+  "paths": {
+    "linear-b0-seed101": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0-seed102": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0-seed103": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0-seed104": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0-seed105": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0.25-seed101": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0.25-seed102": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0.25-seed103": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0.25-seed104": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "linear-b0.25-seed105": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0-seed101": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0-seed102": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0-seed103": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0-seed104": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0-seed105": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0.25-seed101": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0.25-seed102": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0.25-seed103": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0.25-seed104": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    },
+    "amm-b0.25-seed105": {
+      "saved_points": 500001,
+      "analysis_returns": 495000,
+      "full_trace_checks": true,
+      "source_hashes_current": true,
+      "independent_direct_squared_acf_lags": [
+        1,
+        301,
+        1000,
+        5000
+      ],
+      "all_full_and_third_next_block_correlations_verified": true,
+      "segment_boundaries_verified": true
+    }
+  },
+  "runtime_including_burn_in": {
+    "linear-b0-seed101": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 9,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0-seed102": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0-seed103": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0-seed104": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0-seed105": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0.25-seed101": {
+      "peak_intensity": 12.584875298061377,
+      "max_arrivals": 21,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0.25-seed102": {
+      "peak_intensity": 4.849727148982432,
+      "max_arrivals": 12,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0.25-seed103": {
+      "peak_intensity": 16.3972537151616,
+      "max_arrivals": 24,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0.25-seed104": {
+      "peak_intensity": 8.935962304027376,
+      "max_arrivals": 16,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "linear-b0.25-seed105": {
+      "peak_intensity": 9.232091885446545,
+      "max_arrivals": 17,
+      "scope": "ticks1-500000_including_burn_in"
+    },
+    "amm-b0-seed101": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 9,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0-seed102": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0-seed103": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0-seed104": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0-seed105": {
+      "peak_intensity": 1.0,
+      "max_arrivals": 8,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0.25-seed101": {
+      "peak_intensity": 6.534864539772187,
+      "max_arrivals": 13,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0.25-seed102": {
+      "peak_intensity": 6.580190462428195,
+      "max_arrivals": 13,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0.25-seed103": {
+      "peak_intensity": 7.7217177509329895,
+      "max_arrivals": 13,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0.25-seed104": {
+      "peak_intensity": 11.45518930767315,
+      "max_arrivals": 17,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    },
+    "amm-b0.25-seed105": {
+      "peak_intensity": 6.157473255861002,
+      "max_arrivals": 11,
+      "scope": "ticks1-500000_including_burn_in",
+      "minimum_closing_wallet_gold": 0.0,
+      "minimum_closing_wallet_foreign": 0.0
+    }
+  },
+  "frozen_reference_unchanged": true,
+  "fixed_rate_inputs_cross_executor_exact": true,
+  "existing_unit_checks": {
+    "command": "python -m unittest discover -s research/fx/tests -v",
+    "returncode": 0,
+    "tests_run": 8,
+    "result": "passed",
+    "log": "unit-tests.log"
+  }
+}

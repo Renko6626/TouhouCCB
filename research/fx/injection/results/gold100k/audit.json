@@ -1,0 +1,14 @@
+{
+  "pairs": 100,
+  "paths": 200,
+  "finite_arrays": 7400,
+  "recovery_checks": 1300,
+  "pre_issue_prefixes_exact": true,
+  "issue_not_counted_as_trade": true,
+  "asset_conservation_with_issue": true,
+  "feedback_timing": true,
+  "group_flows_and_inventories": true,
+  "nonnegative_recorded_wallets": true,
+  "old_files_unchanged": 1737,
+  "source_hashes": true
+}

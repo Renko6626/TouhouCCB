@@ -1,0 +1,291 @@
+{
+  "cases": {
+    "n40_control": {
+      "total": {
+        "count": 783,
+        "pnl": -1031.891483,
+        "positive_fraction": 0.39080459770114945,
+        "mean_trade_return": -0.001325300195357738
+      },
+      "dominant": {
+        "trend": {
+          "count": 341,
+          "pnl": -1219.976853,
+          "positive_fraction": 0.24633431085043989,
+          "mean_trade_return": -0.0035927961643450086
+        },
+        "reversion": {
+          "count": 315,
+          "pnl": 401.92212,
+          "positive_fraction": 0.5555555555555556,
+          "mean_trade_return": 0.0012721295371905998
+        },
+        "noise": {
+          "count": 127,
+          "pnl": -213.83675,
+          "positive_fraction": 0.3700787401574803,
+          "mean_trade_return": -0.0016794280719566908
+        }
+      },
+      "exits": {
+        "take_profit": {
+          "count": 257,
+          "pnl": 1921.896843,
+          "positive_fraction": 1.0,
+          "mean_trade_return": 0.007488831194773243
+        },
+        "stop_loss": {
+          "count": 379,
+          "pnl": -2816.926754,
+          "positive_fraction": 0.0,
+          "mean_trade_return": -0.0074525131897524004
+        },
+        "trailing": {
+          "count": 147,
+          "pnl": -136.861572,
+          "positive_fraction": 0.3333333333333333,
+          "mean_trade_return": -0.0009376678306508285
+        }
+      },
+      "dominant_component_opposes_final_direction": 3,
+      "carried_over_issue": {
+        "count": 0,
+        "pnl": 0,
+        "positive_fraction": null,
+        "mean_trade_return": null
+      },
+      "not_carried_over_issue": {
+        "count": 783,
+        "pnl": -1031.891483,
+        "positive_fraction": 0.39080459770114945,
+        "mean_trade_return": -0.001325300195357738
+      },
+      "trailing_negative_count": 98,
+      "immediate_reverse_pnl_sum": -0.000788,
+      "immediate_reverse_pnl_min": -1e-06,
+      "immediate_reverse_pnl_max": -1e-06,
+      "mean_short_check_interval_minutes": 4.045307443365696
+    },
+    "n40_shock": {
+      "total": {
+        "count": 1059,
+        "pnl": -1981.889804,
+        "positive_fraction": 0.40226628895184136,
+        "mean_trade_return": -0.0019112468793472427
+      },
+      "dominant": {
+        "trend": {
+          "count": 482,
+          "pnl": -2134.343144,
+          "positive_fraction": 0.25103734439834025,
+          "mean_trade_return": -0.004525035754153843
+        },
+        "reversion": {
+          "count": 425,
+          "pnl": 452.483812,
+          "positive_fraction": 0.571764705882353,
+          "mean_trade_return": 0.0010906690542078898
+        },
+        "noise": {
+          "count": 152,
+          "pnl": -300.03047200000003,
+          "positive_fraction": 0.40789473684210525,
+          "mean_trade_return": -0.002016299735295596
+        }
+      },
+      "exits": {
+        "take_profit": {
+          "count": 368,
+          "pnl": 3526.300662,
+          "positive_fraction": 1.0,
+          "mean_trade_return": 0.009779467240982252
+        },
+        "stop_loss": {
+          "count": 529,
+          "pnl": -5379.961359,
+          "positive_fraction": 0.0,
+          "mean_trade_return": -0.010381199212702943
+        },
+        "trailing": {
+          "count": 162,
+          "pnl": -128.229107,
+          "positive_fraction": 0.35802469135802467,
+          "mean_trade_return": -0.0008098765826564334
+        }
+      },
+      "dominant_component_opposes_final_direction": 3,
+      "carried_over_issue": {
+        "count": 54,
+        "pnl": -793.420159,
+        "positive_fraction": 0.3333333333333333,
+        "mean_trade_return": -0.015013049404925162
+      },
+      "not_carried_over_issue": {
+        "count": 1005,
+        "pnl": -1188.469645,
+        "positive_fraction": 0.4059701492537313,
+        "mean_trade_return": -0.0012072694302117126
+      },
+      "trailing_negative_count": 104,
+      "immediate_reverse_pnl_sum": -0.001067,
+      "immediate_reverse_pnl_min": -1e-06,
+      "immediate_reverse_pnl_max": -1e-06,
+      "mean_short_check_interval_minutes": 3.1152647975077885
+    },
+    "n80_control": {
+      "total": {
+        "count": 1655,
+        "pnl": -3922.534198,
+        "positive_fraction": 0.3220543806646526,
+        "mean_trade_return": -0.0023795418964507407
+      },
+      "dominant": {
+        "trend": {
+          "count": 770,
+          "pnl": -4138.821756,
+          "positive_fraction": 0.13896103896103895,
+          "mean_trade_return": -0.0054002395117447016
+        },
+        "reversion": {
+          "count": 648,
+          "pnl": 799.135407,
+          "positive_fraction": 0.5432098765432098,
+          "mean_trade_return": 0.0012423466997935268
+        },
+        "noise": {
+          "count": 237,
+          "pnl": -582.847849,
+          "positive_fraction": 0.31223628691983124,
+          "mean_trade_return": -0.002468346312442031
+        }
+      },
+      "exits": {
+        "take_profit": {
+          "count": 444,
+          "pnl": 3326.701045,
+          "positive_fraction": 1.0,
+          "mean_trade_return": 0.007530582887552411
+        },
+        "stop_loss": {
+          "count": 911,
+          "pnl": -6912.157263,
+          "positive_fraction": 0.0,
+          "mean_trade_return": -0.007621451829285336
+        },
+        "trailing": {
+          "count": 300,
+          "pnl": -337.07798,
+          "positive_fraction": 0.2966666666666667,
+          "mean_trade_return": -0.0011285934140676816
+        }
+      },
+      "dominant_component_opposes_final_direction": 2,
+      "carried_over_issue": {
+        "count": 0,
+        "pnl": 0,
+        "positive_fraction": null,
+        "mean_trade_return": null
+      },
+      "not_carried_over_issue": {
+        "count": 1655,
+        "pnl": -3922.534198,
+        "positive_fraction": 0.3220543806646526,
+        "mean_trade_return": -0.0023795418964507407
+      },
+      "trailing_negative_count": 211,
+      "immediate_reverse_pnl_sum": -0.001669,
+      "immediate_reverse_pnl_min": -2e-06,
+      "immediate_reverse_pnl_max": -1e-06,
+      "mean_short_check_interval_minutes": 4.390586582367404
+    },
+    "n80_shock": {
+      "total": {
+        "count": 1960,
+        "pnl": -3359.329734,
+        "positive_fraction": 0.37704081632653064,
+        "mean_trade_return": -0.0017326951512990727
+      },
+      "dominant": {
+        "trend": {
+          "count": 926,
+          "pnl": -3992.758192,
+          "positive_fraction": 0.2408207343412527,
+          "mean_trade_return": -0.0043796829733273425
+        },
+        "reversion": {
+          "count": 784,
+          "pnl": 1098.901406,
+          "positive_fraction": 0.5357142857142857,
+          "mean_trade_return": 0.0014449328900766239
+        },
+        "noise": {
+          "count": 250,
+          "pnl": -465.47294800000003,
+          "positive_fraction": 0.384,
+          "mean_trade_return": -0.001893293796260544
+        }
+      },
+      "exits": {
+        "take_profit": {
+          "count": 640,
+          "pnl": 6180.007474,
+          "positive_fraction": 1.0,
+          "mean_trade_return": 0.009835810826012198
+        },
+        "stop_loss": {
+          "count": 1020,
+          "pnl": -9240.957064,
+          "positive_fraction": 0.0,
+          "mean_trade_return": -0.009204201379671316
+        },
+        "trailing": {
+          "count": 300,
+          "pnl": -298.380144,
+          "positive_fraction": 0.33,
+          "mean_trade_return": -0.0010090533930974946
+        }
+      },
+      "dominant_component_opposes_final_direction": 6,
+      "carried_over_issue": {
+        "count": 121,
+        "pnl": -181.419555,
+        "positive_fraction": 0.512396694214876,
+        "mean_trade_return": -0.0014618253066435364
+      },
+      "not_carried_over_issue": {
+        "count": 1839,
+        "pnl": -3177.910179,
+        "positive_fraction": 0.3681348558999456,
+        "mean_trade_return": -0.0017505174738674902
+      },
+      "trailing_negative_count": 201,
+      "immediate_reverse_pnl_sum": -0.001974,
+      "immediate_reverse_pnl_min": -2e-06,
+      "immediate_reverse_pnl_max": -1e-06,
+      "mean_short_check_interval_minutes": 3.8182512409316534
+    }
+  },
+  "sources_sha256": {
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/manifest.json": "8eefffa7c107ef07e00477c9e408ee33dbbb7b755cfbf168706d2abbb67712e9",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/short_loss_diagnosis.py": "cf50e147ce5ef6cf6d3439c689db97f3bdad561370947d45950b355dcb3f57f7",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/control.npz": "e2bf892eb4c8a12d313dd15bfec668689bc14dc6ba288a7e6245034da7d9e8d0",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/control-episodes.json": "b3ab771bd78deb02e9c25a6a302003844448dc7644e113fb7e680d7cf3936b22",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/control-fills.jsonl": "cd78cf0f56173e5d904cfc4478dbf28a99aaf020b9b07b6d07ac5b433984a873",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/shock.npz": "c6fbe9aebf1e8a2aef5d10c0061d2a9fdc9c61d9fc01cf648aa48e9fc5a6c523",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/shock-episodes.json": "e63ff25587c8eb5ccacc288bf22e5fd8dbac89648b68280a26f827537ab01368",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/shock-fills.jsonl": "0f70fcefb662cbc2cdf65dd4950a8b0268bbcb326a6d01f9d83545f0078c9199",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/control.npz": "c66de689526b050ab5a020463b2e6e4ef67e7cb96ab7e398fc972e92baa17284",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/control-episodes.json": "4afc76d7f1c3c41c1de5d54ec65af91ee290da177b247b815e2e403246014363",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/control-fills.jsonl": "a52b87f94d1cfabb0e3acdd118d30104a82d6d3ffb782d73c9e91533014a62dd",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/shock.npz": "f919dadf8e5edef09bc4117e186bde373ed5894d3c0260dff893b18c96dcc1a3",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/shock-episodes.json": "bc27345597c6d726b86d7e231d23ad7523416c36ffec5cf3c58f8550a39979e1",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/shock-fills.jsonl": "b4f4ac4aafd7945fbef499888bb3390e86cee66d5bd0b9416f77fc0c9b0f2c36",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n40/summary.json": "da591d136df87925cba5c6c21574afd89b3724ed15513dd95ee59f16e09dcbf2",
+    "/data/sunyunbo/www/TouhouCCB/research/fx/reversion/repeated/results/population/n80/summary.json": "692373c68f9ad736c50499ed6bac37a74a0153ab7ecaabc4410528a24f14a945"
+  },
+  "method": "Reconstruct every entry signal using recorded previous closes, frozen personal coefficients and independent per-account normal stream (one draw per short account per tick). Dominant means largest absolute component, not a strategy ablation. Completed episodes only for PnL tables; all opened episodes for immediate reversal quote. Carried-over-event and entry-type splits are observational, not causal effects."
+}

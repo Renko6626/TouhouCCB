@@ -8,7 +8,6 @@ from __future__ import annotations
 from app.services.account_events import notifying_transaction
 
 import logging
-from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -50,35 +49,22 @@ Q6 = Decimal("0.000001")
 
 
 
-# Set only by the consumer/API gate owner. Discovery and retries run with no locks.
-CREDIT_DEPS = ContextVar("lmsr_credit_dependencies", default=None)
-
-
-class CreditRetry(Exception):
-    """Release the transaction and every gate, rediscover, and recompute."""
-
-
 async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, new_q):
     from app.services.credit import flags, risk
     from app.services.credit.keys import GroupKey
-    from app.services.credit.gates import GATES
-    # 无金债不再等于无风险（spec §6.3/§11）：锁内按索引确认外币欠币。金债>0 时
-    # 短路，不额外查询外币表。乐观首试 deps 为 None 时会 CreditRetry，由外层
-    # 释放门闩、重新发现完整依赖后再带 GATES 重试。
+    # Debt-free buying needs no collateral valuation. Own foreign obligations
+    # still require the complete locked ledger and its committed price capture.
     if user.debt <= ZERO and not await has_foreign_debt(session, user.id):
         return
-    deps = CREDIT_DEPS.get()
-    if deps is None or deps.economic_version != user.economic_version:
-        raise CreditRetry()
     target = GroupKey("lmsr", int(market_id))
-    if not (set(deps.groups) | {target}) <= GATES.held_keys_by_current_task():
-        raise CreditRetry()
+    deps = await risk.discover_dependencies(session, user.id,
+        extra_groups=[target], account_locked=True)
     holdings = dict(deps.holdings.get(target, {}))
     holdings[int(outcome_id)] = holdings.get(int(outcome_id), ZERO) + shares
     post = risk.PostTradeState(
         cash=user.cash-pay, debt=user.debt,
         lmsr_q={int(market_id): tuple(new_q)}, post_holdings={target: holdings},
-        base_versions={target: deps.snapshots[target].version},
+        base_versions=({target: deps.snapshots[target].version} if target in deps.snapshots else {}),
     )
     thresholds = flags.get_flags().thresholds
     if thresholds is None:
@@ -88,7 +74,7 @@ async def check_credit_buy(session, user, market_id, outcome_id, shares, pay, ne
         partial_pct=Decimal("0.1"), now=datetime.now(timezone.utc),
     )
     if decision.reason == "version_conflict":
-        raise CreditRetry()
+        raise HTTPException(409, "version_conflict")
     if not decision.allowed:
         raise HTTPException(400, decision.reason)
 
@@ -171,7 +157,9 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
 
     # ── 3. DB 事务（唯一阻塞点）──
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
             # title 门槛：在锁内、扣款前检查
@@ -258,6 +246,7 @@ async def op_buy(state: MarketState, cmd: BuyCmd) -> OpOutcome:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return OpOutcome(
+        account_changes=account_changes,
         response={
             "shares": float(shares_d),
             "cost": float(pay.quantize(Decimal("0.01"))),
@@ -318,7 +307,9 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
 
     # 2. DB 事务：fee 率读取 + 滑点（fee 依赖 site_config，在事务 session 上读，60s 缓存）
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             sell_fee_rate = await site_config.get_decimal_or(session, "sell_fee_rate", ZERO)
             fee = (proceeds * sell_fee_rate).quantize(Decimal("0.000001"))
             net = proceeds - fee
@@ -389,6 +380,7 @@ async def op_sell(state: MarketState, cmd: SellCmd) -> OpOutcome:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     return OpOutcome(
+        account_changes=account_changes,
         response={
             "shares": float(shares_d),
             "cost": float((-net).quantize(Decimal("0.01"))),
@@ -418,7 +410,9 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
     if state.status == MarketStatus.SETTLED:
         raise HTTPException(status_code=400, detail="市场已结算，无法熔断")
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             market.status = MarketStatus.HALT
@@ -431,6 +425,7 @@ async def op_close(state: MarketState, cmd: CloseCmd) -> OpOutcome:
             )
         title = market.title
     return OpOutcome(
+        account_changes=account_changes,
         response={"message": f"市场 {title} 已停止交易（熔断）"},
         new_status=MarketStatus.HALT,
     )
@@ -442,7 +437,9 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
     if state.status != MarketStatus.HALT:
         raise HTTPException(status_code=400, detail="市场当前不在熔断状态")
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             market.status = MarketStatus.TRADING
@@ -455,6 +452,7 @@ async def op_resume(state: MarketState, cmd: ResumeCmd) -> OpOutcome:
             )
         title = market.title
     return OpOutcome(
+        account_changes=account_changes,
         response={"message": f"市场 {title} 已恢复交易"},
         new_status=MarketStatus.TRADING,
     )
@@ -481,7 +479,9 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
         raise HTTPException(status_code=422, detail="payout 必须 >= 0")
 
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             market = await session.get(Market, cmd.market_id)
             OWNERSHIP.require_writes()
             if not market:
@@ -491,6 +491,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
                 if market.winning_outcome_id is None or market.settled_at is None:
                     raise HTTPException(status_code=500, detail="市场已结算但结算字段缺失（数据异常）")
                 return OpOutcome(
+                    account_changes=account_changes,
                     response=SettleResult(
                         market_id=market.id,
                         status=market.status,
@@ -658,6 +659,7 @@ async def op_resolve(state: MarketState, cmd: ResolveCmd) -> OpOutcome:
     )
 
     return OpOutcome(
+        account_changes=account_changes,
         response=SettleResult(
             market_id=cmd.market_id,
             status=MarketStatus.SETTLED,
@@ -771,7 +773,7 @@ async def _create_group_run(session, cmd: LiquidateGroupCmd) -> LiquidationRun:
 def _group_response(
     *, mode: str, sold_count: int, gross: Decimal, fee: Decimal, net: Decimal,
     repaid: Decimal, debt_after: Decimal, cash_after: Decimal,
-    blocked_reason: Optional[str], replayed: bool,
+    blocked_reason: Optional[str], replayed: bool, account_changes=None,
 ) -> OpOutcome:
     """统一响应体（计划 §WP5：sold_count/gross/fee/net/repaid/debt_after/cash_after）。"""
     return OpOutcome(response={
@@ -785,10 +787,10 @@ def _group_response(
         "blocked_reason": blocked_reason,
         "mode": mode,
         "replayed": replayed,
-    })
+    }, account_changes=account_changes)
 
 
-def _replay_group_outcome(action: LiquidationAction, cmd: LiquidateGroupCmd) -> OpOutcome:
+def _replay_group_outcome(action: LiquidationAction, cmd: LiquidateGroupCmd, account_changes) -> OpOutcome:
     """幂等命中：原样回放已提交动作，不对 DB / 内存镜像做任何变更。
 
     回放**不**返回 ``new_q_dec``：DB 与 writer 内存镜像的一致性由 writer 自身
@@ -798,6 +800,7 @@ def _replay_group_outcome(action: LiquidationAction, cmd: LiquidateGroupCmd) -> 
     gross = Decimal(str(action.proceeds or ZERO))
     fee = Decimal(str(action.fee or ZERO))
     return _group_response(
+        account_changes=account_changes,
         mode=str(action.mode or cmd.mode),
         sold_count=int(executed.get("sold_count") or 0),
         gross=gross, fee=fee, net=gross - fee,
@@ -851,7 +854,9 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
     index_of = {int(oid): i for i, oid in enumerate(state.outcome_ids)}
 
     async with async_session_maker() as session:
-        async with notifying_transaction(session, session.begin(), "lmsr"):
+        async with notifying_transaction(
+            session, session.begin(), "lmsr", defer_publication=True,
+        ) as account_changes:
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
             version_before = locked_user.economic_version
@@ -868,7 +873,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     "action_id=%s kind=%s",
                     cmd.user_id, market_id, cmd.run_id, cmd.round_no, replay.id, replay.kind,
                 )
-                return _replay_group_outcome(replay, cmd)
+                return _replay_group_outcome(replay, cmd, account_changes)
             if run is not None and run.status != "active":
                 # 已提交动作的轮次在上面 replay 掉了；这里是"终态 run + 新轮次"
                 raise HTTPException(
@@ -880,15 +885,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 from app.services.credit.execution import prepare_locked
                 from app.services.credit.risk import discover_dependencies
                 from app.services.credit.keys import GroupKey
-                deps = CREDIT_DEPS.get()
-                from app.services.credit.gates import GATES
-                if (deps is None or deps.economic_version != locked_user.economic_version
-                        or not (set(deps.groups) | {GroupKey("lmsr", market_id)})
-                        <= GATES.held_keys_by_current_task()):
-                    raise CreditRetry()
-                fresh = await discover_dependencies(session, cmd.user_id)
-                if set(fresh.groups) != set(deps.groups):
-                    raise CreditRetry()
+                fresh = await discover_dependencies(session, cmd.user_id, account_locked=True)
                 plan = await prepare_locked(
                     session, locked_user, fresh, rate=cmd.daily_rate, pct=partial_pct,
                     source=trigger_source, run_id=cmd.run_id, round_no=cmd.round_no)
@@ -898,21 +895,24 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                         # The ranked cover ranks above this market; release this
                         # writer round without touching the market so the caller
                         # rediscovers and executes the cover directly.
-                        return _group_response(mode=plan.mode or mode, sold_count=0,
+                        return _group_response(
+                            account_changes=account_changes, mode=plan.mode or mode, sold_count=0,
                             gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                             debt_after=locked_user.debt, cash_after=locked_user.cash,
                             blocked_reason="selection_changed", replayed=False)
                     # Report the *actual* amount repaid on this path, never the
                     # phantom ``pre.debt_effective - user.debt`` (interest drift /
                     # partial repayment / selection change made it wrong).
-                    return _group_response(mode=plan.mode or mode, sold_count=0,
+                    return _group_response(
+                        account_changes=account_changes, mode=plan.mode or mode, sold_count=0,
                         gross=ZERO, fee=ZERO, net=ZERO, repaid=plan.repaid,
                         debt_after=locked_user.debt, cash_after=locked_user.cash,
                         blocked_reason=(plan.blocked_reason if plan.status == "blocked"
                                         else None),
                         replayed=plan.status == "replayed")
                 if plan.target != GroupKey("lmsr", market_id):
-                    return _group_response(mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
+                    return _group_response(
+                        account_changes=account_changes, mode=mode, sold_count=0, gross=ZERO, fee=ZERO,
                         net=ZERO, repaid=ZERO, debt_after=locked_user.debt,
                         cash_after=locked_user.cash, blocked_reason="selection_changed", replayed=False)
                 mode = plan.mode
@@ -926,6 +926,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     cmd.user_id, market_id, state.status,
                 )
                 return _group_response(
+                    account_changes=account_changes,
                     mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=BLOCKED_MARKET_NOT_OPEN, replayed=False)
@@ -942,6 +943,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             )).scalars().all()
             if not positions:
                 return _group_response(
+                    account_changes=account_changes,
                     mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=None, replayed=False)
@@ -954,6 +956,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     cmd.user_id, market_id, unknown,
                 )
                 return _group_response(
+                    account_changes=account_changes,
                     mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=BLOCKED_UNKNOWN_OUTCOME, replayed=False)
@@ -980,12 +983,14 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     cmd.user_id, market_id, quote.blocked_reason,
                 )
                 return _group_response(
+                    account_changes=account_changes,
                     mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=quote.blocked_reason, replayed=False)
             if not quote.legs:
                 # 没有正回收腿（held 非空时只可能是全部持仓 amount<=0）
                 return _group_response(
+                    account_changes=account_changes,
                     mode=mode, sold_count=0, gross=ZERO, fee=ZERO, net=ZERO, repaid=ZERO,
                     debt_after=locked_user.debt, cash_after=locked_user.cash,
                     blocked_reason=None, replayed=False)
@@ -1114,7 +1119,8 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                 public_event(session, locked_user, run, account_pre, product="lmsr",
                     mode=mode, sold=len(quote.legs), proceeds=quote.net,
                     repaid=repaid, source=trigger_source)
-                await finish_locked(session, locked_user, run, cmd.daily_rate)
+                await finish_locked(session, locked_user, run, cmd.daily_rate,
+                                    deps=fresh, target=GroupKey("lmsr", market_id))
                 action.economic_version_after = locked_user.economic_version
 
             audit_service.record(
@@ -1146,6 +1152,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
         quote.gross, quote.fee, quote.net, repaid, new_cash, new_debt,
     )
     return OpOutcome(
+        account_changes=account_changes,
         response={
             "sold_count": len(quote.legs),
             "gross": quote.gross,

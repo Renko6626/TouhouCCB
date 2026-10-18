@@ -1,0 +1,5 @@
+{"t": 1792299892.8276098, "phase": "startup", "stress_started": false, "stress_ended": false, "elapsed_s": 0, "pg_cpu_s": 0.0, "backend_cumulative_cpu_s": {}, "activity": []}
+{"t": 1792299893.3317423, "phase": "startup", "stress_started": false, "stress_ended": false, "elapsed_s": 0.5041297562420368, "pg_cpu_s": 0.0, "backend_cumulative_cpu_s": {}, "activity": []}
+{"t": 1792299893.8360121, "phase": "startup", "stress_started": false, "stress_ended": false, "elapsed_s": 0.5042730271816254, "pg_cpu_s": 0.0, "backend_cumulative_cpu_s": {}, "activity": []}
+{"t": 1792299894.340807, "phase": "startup", "stress_started": false, "stress_ended": false, "elapsed_s": 0.5047948304563761, "pg_cpu_s": 0.0, "backend_cumulative_cpu_s": {}, "activity": []}
+{"t": 1792299894.8454864, "phase": "startup", "stress_started": false, "stress_ended": false, "elapsed_s": 0.5046789087355137, "pg_cpu_s": 0.0, "backend_cumulative_cpu_s": {}, "activity": []}

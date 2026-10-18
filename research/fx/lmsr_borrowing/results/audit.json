@@ -1,0 +1,175 @@
+{
+  "paths": 18,
+  "path_checks": [
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 302,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 480,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 286,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 544,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 326,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 475,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true,
+      "frozen_trace_exact_match": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 441,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 629,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 405,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 697,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 414,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "robust_inventory",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 597,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 387,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 573,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 426,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 562,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 414,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    },
+    {
+      "variant": "belief_mix",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 560,
+      "no_future_policy_inputs": true,
+      "two_assets_conserved": true,
+      "wallet_marks_checked": true
+    }
+  ],
+  "protected_files_unchanged": 5626,
+  "paired_first_shock_prefix_exact": true
+}

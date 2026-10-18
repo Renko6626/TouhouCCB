@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from decimal import Decimal as D
 
 import pytest
+from tests.conftest import publish_seeded_market_records
 from fastapi import HTTPException
 from sqlalchemy import select
 
@@ -25,7 +26,6 @@ from app.models.fx import FxPair, FxShortPosition, FxTrade, FxTreasury, FxWallet
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit.thresholds import derive_thresholds
@@ -34,7 +34,7 @@ from app.services.fx.amm import quote_buy_exact_out
 from app.api.v1.loan import borrow, get_quota
 from app.schemas.loan import BorrowRequest
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = D("0")
 UNIFIED = CreditFlags(
@@ -126,6 +126,7 @@ async def test_foreign_only_short_blocks_other_pair_fx_buy():
         await _short(db, user_id=user.id, pair_id=short_pair.id, principal="500")
         await _config(db, fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid, spid, tpid = user.id, short_pair.id, target.id
 
@@ -146,7 +147,6 @@ async def test_foreign_only_short_blocks_other_pair_fx_buy():
             FxShortPosition.user_id == uid, FxShortPosition.pair_id == spid,
         ))).scalars().one()
         assert short.principal_foreign == D("500")
-        assert not GATES.held_keys()
 
 
 async def test_same_pair_spot_buy_with_live_short_is_rejected_without_wallet():
@@ -156,6 +156,7 @@ async def test_same_pair_spot_buy_with_live_short_is_rejected_without_wallet():
         await _short(db, user_id=user.id, pair_id=pair.id, principal="10")
         await _config(db, fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid, pid = user.id, pair.id
 
@@ -169,7 +170,6 @@ async def test_same_pair_spot_buy_with_live_short_is_rejected_without_wallet():
         assert (await db.execute(select(FxWallet))).scalars().all() == []
         assert (await db.execute(select(FxTrade))).scalars().all() == []
         assert (await db.get(FxPair, pid)).pool_version == 1
-        assert not GATES.held_keys()
 
 
 async def test_healthy_mixed_short_can_buy_another_pair_with_shared_margin():
@@ -180,6 +180,7 @@ async def test_healthy_mixed_short_can_buy_another_pair_with_shared_margin():
         await _short(db, user_id=user.id, pair_id=short_pair.id, principal="10")
         await _config(db, fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid, tpid = user.id, target.id
 
@@ -190,7 +191,6 @@ async def test_healthy_mixed_short_can_buy_another_pair_with_shared_margin():
             FxWallet.user_id == uid, FxWallet.pair_id == tpid))).scalars().one()
         assert wallet.foreign_amount == public.output_amount
         assert (await db.get(User, uid)).cash < D("100000")
-        assert not GATES.held_keys()
 
 
 async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkeypatch):
@@ -204,6 +204,7 @@ async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkey
         await _short(db, user_id=user.id, pair_id=new_short.id, principal="10")
         await _config(db, fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid, tpid, new_pid = user.id, target.id, new_short.id
 
@@ -213,36 +214,32 @@ async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkey
     discover_calls = {"n": 0}
     held_at_check: list[frozenset] = []
 
-    async def stale_first_discovery(db, user_id, *, extra_groups=()):
+    async def stale_first_discovery(db, user_id, *, extra_groups=(), account_locked=False):
         discover_calls["n"] += 1
-        deps = await real_discover(db, user_id, extra_groups=extra_groups)
-        if discover_calls["n"] == 1:
-            # The lock-outside snapshot predates the concurrently-added short.
-            return replace(
-                deps,
-                groups=tuple(g for g in deps.groups if g != new_key),
+        deps = await real_discover(db, user_id, extra_groups=extra_groups,
+                                   account_locked=account_locked)
+        if not account_locked:
+            return replace(deps, groups=tuple(g for g in deps.groups if g != new_key),
                 holdings={k: v for k, v in deps.holdings.items() if k != new_key},
-                snapshots={k: v for k, v in deps.snapshots.items() if k != new_key},
-            )
+                snapshots={k: v for k, v in deps.snapshots.items() if k != new_key})
         return deps
 
     async def recording_check(*args, **kwargs):
-        held_at_check.append(GATES.held_keys_by_current_task())
+        basis = kwargs["deps"]
+        held_at_check.append(basis)
+        assert basis.account_locked and new_key in basis.groups
+        assert basis.short_debts[new_pid].principal_foreign == D("10")
         return await real_check(*args, **kwargs)
 
     monkeypatch.setattr(trading, "discover_dependencies", stale_first_discovery)
+    from app.services.fx import writer_ops
+    monkeypatch.setattr(writer_ops, "discover_dependencies", stale_first_discovery)
     monkeypatch.setattr(trading, "check_new_risk", recording_check)
 
     async with async_session_maker() as db:
         public = await trading.execute_trade(
             db, uid, tpid, "buy", D("10"), D("0"), "fx-gate-race")
-
-    # One stale pre-lock set → one lock-in refresh that sees the new short and
-    # rejects; the next attempt discovers + holds the complete set.
-    assert discover_calls["n"] >= 4
-    assert held_at_check, "risk must be quoted after the lock-in refresh"
-    for held in held_at_check:
-        assert new_key in held, "new short pair was quoted without its GATE"
+    assert held_at_check
 
     # The retry executed the order under the complete gate set, with the real
     # economic writes the controller expects.
@@ -264,7 +261,6 @@ async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkey
         FxShortPosition.user_id == uid, FxShortPosition.pair_id == new_pid,
     ))).scalars().one()
     assert short.principal_foreign == D("10")
-    assert not GATES.held_keys()
 
 
 async def test_foreign_only_short_blocks_lmsr_writer_buy():
@@ -277,6 +273,7 @@ async def test_foreign_only_short_blocks_lmsr_writer_buy():
         await _short(db, user_id=user.id, pair_id=short_pair.id, principal="500")
         market, outcomes = await _market(db, title="lmsr_writer_block")
         await db.commit()
+        await publish_seeded_market_records()
         uid, mid, oid = user.id, market.id, outcomes[0].id
 
     await WRITER.start()
@@ -294,7 +291,6 @@ async def test_foreign_only_short_blocks_lmsr_writer_buy():
         assert (await db.get(Outcome, oid)).total_shares == ZERO
         assert (await db.execute(select(Position))).scalars().all() == []
         assert (await db.execute(select(FxTrade))).scalars().all() == []
-    assert not GATES.held_keys()
 
 
 
@@ -306,6 +302,7 @@ async def test_quota_known_short_uses_shared_headroom_not_gold_only():
         await _short(db, user_id=user.id, pair_id=pair.id, principal="10")
         await _config(db, loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid = user.id
 
@@ -332,6 +329,7 @@ async def test_quota_unknown_short_returns_null_equity_and_zero_borrow():
         await _short(db, user_id=user.id, pair_id=thin.id, principal="10")
         await _config(db, loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid = user.id
 
@@ -352,6 +350,7 @@ async def test_foreign_only_short_blocks_gold_borrow_and_keeps_balances():
         await _short(db, user_id=user.id, pair_id=pair.id, principal="500")
         await _config(db, loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid = user.id
 
@@ -367,7 +366,6 @@ async def test_foreign_only_short_blocks_gold_borrow_and_keeps_balances():
         short = (await db.execute(select(FxShortPosition).where(
             FxShortPosition.user_id == uid))).scalars().one()
         assert short.principal_foreign == D("500")
-    assert not GATES.held_keys()
 
 
 async def test_unknown_short_cover_cost_borrow_is_rejected_not_500():
@@ -377,6 +375,7 @@ async def test_unknown_short_cover_cost_borrow_is_rejected_not_500():
         await _short(db, user_id=user.id, pair_id=thin.id, principal="10")
         await _config(db, loan_enabled="true", loan_daily_rate="0")
         await db.commit()
+        await publish_seeded_market_records()
         site_config.clear_cache()
         uid = user.id
 
@@ -388,4 +387,3 @@ async def test_unknown_short_cover_cost_borrow_is_rejected_not_500():
 
     async with async_session_maker() as db:
         assert (await db.get(User, uid)).debt == ZERO
-    assert not GATES.held_keys()

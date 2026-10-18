@@ -1,0 +1,28 @@
+{
+  "current": {
+    "range30": 0.02712503053019327,
+    "range60": 0.03727580175163684,
+    "trades_per_minute": 3.8692946058091287,
+    "efficiency5_median": 0.16416514272911686,
+    "completed_holding_minutes": 11.444444444444443,
+    "swing0.005_amplitude": 0.010181169626900669,
+    "swing0.005_cycles_minutes": 4.597222222222222,
+    "swing0.01_amplitude": 0.01788151304133871,
+    "swing0.01_cycles_minutes": 13.5,
+    "mean_intensity": 0.41651946448333715,
+    "gross_foreign_per_minute": 367.1553897842323
+  },
+  "slower125": {
+    "range30": 0.027035575650214794,
+    "range60": 0.032729233230761254,
+    "trades_per_minute": 3.050207468879668,
+    "efficiency5_median": 0.19090602775425267,
+    "completed_holding_minutes": 14.291666666666666,
+    "swing0.005_amplitude": 0.010109414416916965,
+    "swing0.005_cycles_minutes": 6.152777777777778,
+    "swing0.01_amplitude": 0.018010631903932484,
+    "swing0.01_cycles_minutes": 16.583333333333332,
+    "mean_intensity": 0.3286846691917513,
+    "gross_foreign_per_minute": 290.07082968008297
+  }
+}

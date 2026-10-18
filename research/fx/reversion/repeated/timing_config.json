@@ -1,0 +1,16 @@
+{
+  "tick_seconds": 5,
+  "ticks": 10000,
+  "accounts": 40,
+  "policy": "weak_trend",
+  "trend_multiplier": 0.25,
+  "inventory_window": 360,
+  "tau": 540,
+  "psi": 0.0008,
+  "market_seeds": [81, 82, 83],
+  "event_interval": 1000,
+  "event_abs_return": 0.05,
+  "shock_seed": 20261015,
+  "baseline_inventory_window": 720,
+  "baseline_tau": 1000
+}

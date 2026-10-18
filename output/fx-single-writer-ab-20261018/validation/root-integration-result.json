@@ -1,0 +1,9 @@
+{
+  "candidate": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+  "paths": 70,
+  "unrelated_differences": [
+    "backend/app/api/v1/market.py",
+    "docs/api.md"
+  ],
+  "realtime_cap": 10
+}

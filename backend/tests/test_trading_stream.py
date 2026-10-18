@@ -80,16 +80,45 @@ async def test_expired_credentials_and_slow_queue_cleanup():
 
 @pytest.mark.asyncio
 async def test_first_sync_recovers_commit_before_subscription():
-    uid, _, _ = await seed()
+    from app.services.credit.trading_context import read_trading_context
+
+    uid, _, ids = await seed()
+    REGISTRY.configure(memory_products=frozenset({'fx'}))
+    await REGISTRY.warm_fx()
+    previous = (await REGISTRY.read_groups([GroupKey(product='fx', id=ids[0])]))[0]
     # No subscriber existed for this durable version change.
     async with async_session_maker() as db:
-        await db.execute(update(User).where(User.id==uid).values(economic_version=9));await db.commit()
-    messages = await request_stream(create_access_token(uid))
+        await db.execute(update(User).where(User.id==uid).values(economic_version=9))
+        await db.execute(update(FxPair).where(FxPair.id==ids[0]).values(pool_version=2))
+        await db.commit()
+    held, release = asyncio.Event(), asyncio.Event()
+
+    async def pending_publication():
+        held.set()
+        await release.wait()
+
+    writing = asyncio.create_task(pending_publication())
+    await held.wait()
+    try:
+        async with async_session_maker() as db:
+            context = await asyncio.wait_for(read_trading_context(db, uid), .5)
+        assert context.account.economic_version == '9'
+        assert context.groups[0].stamp == previous.stamp
+        assert context.minimum_group_stamps[0].stamp == previous.stamp
+        messages = await asyncio.wait_for(request_stream(create_access_token(uid)), .5)
+    finally:
+        release.set()
+        await writing
     body = next(m['body'] for m in messages if m.get('body',b'').startswith(b'event: sync'))
-    assert json.loads(body.decode().splitlines()[1][6:])['economic_version'] == '9'
+    payload = json.loads(body.decode().splitlines()[1][6:])
+    assert payload['economic_version'] == '9'
+    assert payload['groups'][0]['pool_version'] == '1'
+    assert payload['groups'][0]['stamp'] == previous.stamp.model_dump()
 
 @pytest.mark.asyncio
 async def test_shared_pricing_frame_uses_committed_complete_inputs():
+    from app.services.account_events import enqueue_order_result
+    from app.schemas.fx import FxOrderResult
     uid, _, ids = await seed()
     frames = []
     async def on_frame(event,payload,stopped):
@@ -100,7 +129,12 @@ async def test_shared_pricing_frame_uses_committed_complete_inputs():
             PUBLISHER.wake.set()
         if event == 'pricing':
             if any(g['id']==ids[0] and g['gold_reserve']=='123.000000' for g in payload['groups']):
-                stopped.set()
+                enqueue_account_change(uid, 2, '成交')
+                enqueue_order_result(uid, FxOrderResult(order_id=3, pair_id=ids[0],
+                    currency_code='0', action='buy', status='succeeded',
+                    occurred_at=datetime.now(timezone.utc)))
+        if event == 'fx_order_result':
+            stopped.set()
     PUBLISHER.start()
     try:
         await request_stream(create_access_token(uid),on_frame)
@@ -110,6 +144,8 @@ async def test_shared_pricing_frame_uses_committed_complete_inputs():
     assert group['foreign_reserve']=='456.000000' and group['sell_fee_rate']=='0.12345678'
     fresh = await REGISTRY.refresh_groups([GroupKey(product='fx',id=ids[0])])
     assert group['stamp'] == fresh[0].stamp.model_dump()
+    assert [event for event, _ in frames][-3:] == ['pricing', 'account_changed', 'fx_order_result']
+    assert frames[-2][1]['reason'] == '成交' and frames[-1][1]['order_id'] == 3
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('change', ['rules', 'ban'])

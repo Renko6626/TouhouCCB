@@ -1,0 +1,25 @@
+{
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "random_order_sigma": 108,
+  "candidate": "output/fx-shallow-calibration-20261016/candidate-a1.8_t2.json",
+  "primary_entry_start_tick": 360,
+  "source_sha256": {
+    "output/fx-shallow-calibration-20261016/candidate-a1.8_t2.json": "a134576136ac305e8cd19281b020a3cabc7825c4d124d56e1f3163cde8998593",
+    "research/fx/reversion/repeated/entry_model.py": "4ddc65ee8aa06cff24e39c2c264240ef7492781e0cc59049d92b38813580a5c0",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261029/trace.npz": "a975357477b04e3bfdf6a493136ce06815489a2d529f88f6bbf685c44d312ded",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261030/trace.npz": "0b3b0da3c8ac9973cf3933b935a1adac1735b9cb1ddf594e75927cfa199b3e27",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261031/trace.npz": "770f069fceaa9774f6ddcddade6825031cd863dce98b49c456dd1991d45d7aed"
+  },
+  "caveats": [
+    "Only three existing research paths, not new validation.",
+    "Noise-zero diagnosis is entry-local, without rerunning the economic path.",
+    "Largest absolute term alone is not a causal contribution.",
+    "No forced holding timeout; unfinished ages reported separately.",
+    "Zero fees, no players or external shocks."
+  ]
+}

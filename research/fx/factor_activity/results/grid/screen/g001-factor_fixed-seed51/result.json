@@ -1,0 +1,262 @@
+{
+  "stage": "screen",
+  "id": "g001",
+  "case": "factor_fixed",
+  "seed": 51,
+  "parameters": {
+    "trend_multiplier": 0.1,
+    "reversion_multiplier": 0.1,
+    "noise_sigma": 0.0005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "adjustment": 0.5
+  },
+  "config": {
+    "ticks": 25000,
+    "burn_in": 5000,
+    "seeds": [
+      51,
+      52
+    ],
+    "tau": 1000,
+    "mean_arrivals": 1,
+    "psi": 0.0004,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 1000000,
+    "pool_foreign": 200000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 40,
+    "max_pool_fraction": 0.005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "factor_mix": [
+      [
+        3.0,
+        0.01
+      ],
+      [
+        0.3,
+        0.1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.5
+  },
+  "source_sha256": {
+    "research/fx/activity/run.py": "b32ab92102efc5dbe560e9fc032b50d1286e0475b73f071a2b5c3e20aab2f7ac",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/common/__init__.py": "2dfe33b532aba5a05b60654c1ce20caa2722a13195b1d7368bf1735334e4bf0a",
+    "research/fx/common/amm.py": "9b92fdc0fcd741a3a74ca9249c62af58e4bdfb739d12e64bd116dda3b45f40d0",
+    "research/fx/common/analysis.py": "c512e21d4254ea266fc43478edd28a6dd5f06c9c8b34ae4db43a4c960de14df8",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/common/diagnostics.py": "2db57539c108644845767de2fe4dd49bde4682a4c2ee945c179c0bfa323b4e55",
+    "research/fx/common/execution.py": "d424108e01b8202e49f05013a9f33f9de94a223f46b148f1f5b0c6f847ee331d",
+    "research/fx/common/reporting.py": "c97bfe6d13d635d304f55f965fe1dfc141bd4a137cc8a05fcd475d165fea8fcf",
+    "research/fx/common/scaling.py": "ff0eed69f28ce8c4f6422f84214af347a0bdfa89c6e616bc9aee191d7823c547",
+    "research/fx/common/series.py": "c2e6fc29baeca3c0c4defd24cf1b1089c1fa23dd5eef525415df4e6415b66f71",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008",
+    "backend/app/services/fx/quantize.py": "fc00ed13ac71d67e3d3ea8115682fe2ffcc88d7e256807b0d372ca79615074be",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/factor_activity/run.py": "dce413b29f388236ae70d7ee4968ef80414bbf900275b8b5ff987a2d6d5f6e1a",
+    "research/fx/factor_activity/config.json": "bc4e0f96135d5ece607a9f896d2cf7b7423e21ebebfbd37f094db8e5f294aa5c",
+    "research/fx/archive/2026-10-15/expectation.py": "859d462cb0d1b78a1f2baba97ec4c6eb55f19268bb7df6d270454d57207107b7",
+    "research/fx/archive/2026-10-15/position.py": "cb91b6e6962aa38ec6f17215126f8f5840362464d105418ae1d27be0b6ad8efe",
+    "research/fx/archive/2026-10-15/configs/baseline.json": "c077ea45692ed5ef54e110d89dff7ce4cc22c1401193808d1faea495230c217e",
+    "research/fx/factor_activity/grid.py": "99ee95a1e83480c286d9a3b1729262e00474bf3d18ad1b039817394ba2bb9ce5",
+    "research/fx/factor_activity/grid.json": "5f051f154d52eaf4e10d4d05ae5afb51dcb4982264bfa6b6d7db4e7a9fe8e105"
+  },
+  "status": "complete",
+  "summary": {
+    "case": "factor_fixed",
+    "seed": 51,
+    "b": 0,
+    "ticks": 25000,
+    "final_z": -0.048962313254106896,
+    "arrivals": 24954,
+    "trades": 24954,
+    "gold_volume": 1432060.585092,
+    "peak_intensity": 1.0,
+    "conserved": true,
+    "nonnegative_wallets": true,
+    "max_abs_position": 64.215648,
+    "factors": [
+      {
+        "weights": [
+          3.0,
+          0.01
+        ],
+        "updates": 200000,
+        "means": [
+          9.271850467856541e-08,
+          -3.456525945285645e-09,
+          -3.012520118320034e-07
+        ],
+        "std": [
+          6.764497109338747e-05,
+          3.977116076564645e-06,
+          0.0005003697322068751
+        ]
+      },
+      {
+        "weights": [
+          0.3,
+          0.1
+        ],
+        "updates": 200000,
+        "means": [
+          9.271850467856435e-09,
+          -3.456525945286406e-08,
+          2.845634787166288e-07
+        ],
+        "std": [
+          6.76449710933848e-06,
+          3.977116076564536e-05,
+          0.0004996652455309796
+        ]
+      }
+    ],
+    "pool_gold": "999862.051772",
+    "pool_foreign": "200027.600957",
+    "accounts": [
+      {
+        "name": "0",
+        "gold": "5067.465615",
+        "foreign": "985.947739"
+      },
+      {
+        "name": "1",
+        "gold": "5029.587209",
+        "foreign": "994.228093"
+      },
+      {
+        "name": "2",
+        "gold": "5080.453971",
+        "foreign": "983.452319"
+      },
+      {
+        "name": "3",
+        "gold": "5113.058336",
+        "foreign": "977.810887"
+      },
+      {
+        "name": "4",
+        "gold": "5123.119543",
+        "foreign": "975.218063"
+      },
+      {
+        "name": "5",
+        "gold": "4972.949746",
+        "foreign": "1005.869643"
+      },
+      {
+        "name": "6",
+        "gold": "4985.126205",
+        "foreign": "1002.384445"
+      },
+      {
+        "name": "7",
+        "gold": "4977.037913",
+        "foreign": "1004.552812"
+      },
+      {
+        "name": "8",
+        "gold": "5032.186794",
+        "foreign": "993.257023"
+      },
+      {
+        "name": "9",
+        "gold": "5039.040962",
+        "foreign": "992.306457"
+      },
+      {
+        "name": "10",
+        "gold": "4990.576122",
+        "foreign": "1001.931502"
+      },
+      {
+        "name": "11",
+        "gold": "4925.405737",
+        "foreign": "1015.113055"
+      },
+      {
+        "name": "12",
+        "gold": "4800.903306",
+        "foreign": "1039.731344"
+      },
+      {
+        "name": "13",
+        "gold": "4959.092960",
+        "foreign": "1008.271237"
+      },
+      {
+        "name": "14",
+        "gold": "5018.287712",
+        "foreign": "996.343069"
+      },
+      {
+        "name": "15",
+        "gold": "5046.263937",
+        "foreign": "991.436698"
+      },
+      {
+        "name": "16",
+        "gold": "5075.597487",
+        "foreign": "984.714761"
+      },
+      {
+        "name": "17",
+        "gold": "4890.165395",
+        "foreign": "1022.048151"
+      },
+      {
+        "name": "18",
+        "gold": "5044.767386",
+        "foreign": "991.079099"
+      },
+      {
+        "name": "19",
+        "gold": "4966.861892",
+        "foreign": "1006.702646"
+      }
+    ]
+  },
+  "metrics": {
+    "n": 20000,
+    "zero_fraction": 0.36385,
+    "mean": -1.4461435236874003e-09,
+    "std": 0.00014610126387030762,
+    "skew": 0.02438507978629774,
+    "excess_kurtosis": 2.996751020015875,
+    "mean_intensity": 1.0,
+    "peak_intensity": 1.0,
+    "max_signed": 0.024902320344518263,
+    "signed_1_1": -0.016389376528665914,
+    "signed_101_300": -0.00016421574786638929,
+    "signed_301_1000": -1.477124825409725e-05,
+    "abs_1_1": 0.0013121852709053054,
+    "abs_101_300": 0.0012907804332874257,
+    "abs_301_1000": 7.472379450032235e-05,
+    "sq_1_1": 0.0012450396865589129,
+    "sq_101_300": 0.0008521915778110526,
+    "sq_301_1000": 0.0003968357319606958,
+    "next_100": null,
+    "next_240": null,
+    "next_1000": null,
+    "arrivals": 20079.0,
+    "trades": 20079.0,
+    "raw_abs_demand": 231002.90852597466,
+    "executed_abs_quantity": 230992.217679,
+    "clipped_orders": 0.0,
+    "skipped_orders": 0.0,
+    "gross_quantity_per_tick": 11.549610883949999,
+    "clipped_fraction": 0.0,
+    "wallet_gold_min": 4678.144946,
+    "wallet_foreign_min": 941.24775
+  },
+  "seconds": 5.8364683501422405
+}

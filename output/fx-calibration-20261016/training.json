@@ -1,0 +1,80 @@
+{
+  "a1.8_t1.5": {
+    "wave_amplitude": 1.8787520466830288,
+    "wave_duration": 2.169699486559952,
+    "single_leg_duration": 2.0635135135135134,
+    "matched_horizon_range": 1.832510712530459,
+    "score": 0.07659180299834735,
+    "clipped_fraction": 0.09032931955593826,
+    "executed_quantity_fraction": 0.9150963833223783,
+    "cash_saturated_arrivals": 81.5,
+    "foreign_saturated_arrivals": 113.5,
+    "trades_per_minute": 4.93195020746888,
+    "max_abs_displacement": 0.043473307153422014
+  },
+  "a1.8_t2": {
+    "wave_amplitude": 2.0228381322872266,
+    "wave_duration": 2.3732256115977046,
+    "single_leg_duration": 2.4175675675675676,
+    "matched_horizon_range": 1.6758410902969763,
+    "score": 0.1257941891379277,
+    "clipped_fraction": 0.09198961754679816,
+    "executed_quantity_fraction": 0.9149033864517397,
+    "cash_saturated_arrivals": 62.0,
+    "foreign_saturated_arrivals": 94.5,
+    "trades_per_minute": 3.7232365145228217,
+    "max_abs_displacement": 0.04293202861801998
+  },
+  "a1.8_t3": {
+    "wave_amplitude": 1.7933715204056144,
+    "wave_duration": 3.280806402899426,
+    "single_leg_duration": 3.1550193050193047,
+    "matched_horizon_range": 1.5166840976362468,
+    "score": 0.2934380148466865,
+    "clipped_fraction": 0.07850549647065604,
+    "executed_quantity_fraction": 0.929006880114087,
+    "cash_saturated_arrivals": 28.5,
+    "foreign_saturated_arrivals": 61.0,
+    "trades_per_minute": 2.592946058091286,
+    "max_abs_displacement": 0.04671209489231409
+  },
+  "a2.2_t1.5": {
+    "wave_amplitude": 2.0906741520189787,
+    "wave_duration": 1.484710057384476,
+    "single_leg_duration": 1.547876447876448,
+    "matched_horizon_range": 2.2365902203843295,
+    "score": 0.15499570024252365,
+    "clipped_fraction": 0.10342888297942146,
+    "executed_quantity_fraction": 0.9025511430788185,
+    "cash_saturated_arrivals": 94.0,
+    "foreign_saturated_arrivals": 129.0,
+    "trades_per_minute": 4.819294605809128,
+    "max_abs_displacement": 0.04798268111106124
+  },
+  "a2.2_t2": {
+    "wave_amplitude": 2.022551961867129,
+    "wave_duration": 1.8524614919963756,
+    "single_leg_duration": 1.8864864864864863,
+    "matched_horizon_range": 1.9598988691628514,
+    "score": 0.05377897216951913,
+    "clipped_fraction": 0.10527527691384296,
+    "executed_quantity_fraction": 0.9018341333201713,
+    "cash_saturated_arrivals": 72.0,
+    "foreign_saturated_arrivals": 103.0,
+    "trades_per_minute": 3.6435684647302904,
+    "max_abs_displacement": 0.04146776445785405
+  },
+  "a2.2_t3": {
+    "wave_amplitude": 1.927195565224444,
+    "wave_duration": 2.4816520688613712,
+    "single_leg_duration": 2.434749034749035,
+    "matched_horizon_range": 1.6299357999244333,
+    "score": 0.15191473233679847,
+    "clipped_fraction": 0.0940894974336848,
+    "executed_quantity_fraction": 0.9124972920316574,
+    "cash_saturated_arrivals": 35.5,
+    "foreign_saturated_arrivals": 69.0,
+    "trades_per_minute": 2.495850622406639,
+    "max_abs_displacement": 0.044848494633011604
+  }
+}

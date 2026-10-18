@@ -1,0 +1,25 @@
+{
+  "start": 1792310259.9840581,
+  "stop_requested": 1792310290.6484795,
+  "end": 1792310290.8624992,
+  "status": 0,
+  "rate": 19,
+  "gil_only": true,
+  "native": true,
+  "blocking": true,
+  "command": [
+    "/tmp/sunyunbo/fx-pool-loadtest-20261017/profiler/bin/py-spy",
+    "record",
+    "--rate",
+    "19",
+    "--gil",
+    "--native",
+    "--format",
+    "speedscope",
+    "--full-filenames",
+    "--pid",
+    "3325664",
+    "--output",
+    "/data/sunyunbo/www/TouhouCCB/output/fx-writer-profile-20261018/profile/native-stress.speedscope.json"
+  ]
+}

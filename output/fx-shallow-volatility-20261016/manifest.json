@@ -1,0 +1,35 @@
+{
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "variants": [
+    "deep_baseline",
+    "shallow_unmodified",
+    "a1.8_t2"
+  ],
+  "source_sha256": {
+    "output/fx-shallow-calibration-20261016/deep_baseline/seed20261029/trace.npz": "4969d38948cb2bd5c4d901d74865cdffae50202a273fc3db7f4767240a3f6451",
+    "output/fx-shallow-calibration-20261016/deep_baseline/seed20261030/trace.npz": "29b642fdde15cb692b9bdd88faca4d5e2649775c1661cb87bd64c87b343fa22d",
+    "output/fx-shallow-calibration-20261016/deep_baseline/seed20261031/trace.npz": "649029ab32d21b7ac09a4aa91a583ae0d48ae658f55d84d067664850c005c7e9",
+    "output/fx-shallow-calibration-20261016/shallow_unmodified/seed20261029/trace.npz": "3e9fcc749d616113eb0ca6caa82226f4dcade77da1ac5667feafc63f29e0194f",
+    "output/fx-shallow-calibration-20261016/shallow_unmodified/seed20261030/trace.npz": "18cdaa335d2c4aa758f5babb48d90078afd09f807101bd47f9fe50fdbe6f79b2",
+    "output/fx-shallow-calibration-20261016/shallow_unmodified/seed20261031/trace.npz": "971ecb54c56ae8d250b99dfba2a0c249e909c0815ed84c3318dddcec22372ab1",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261029/trace.npz": "a975357477b04e3bfdf6a493136ce06815489a2d529f88f6bbf685c44d312ded",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261030/trace.npz": "0b3b0da3c8ac9973cf3933b935a1adac1735b9cb1ddf594e75927cfa199b3e27",
+    "output/fx-shallow-calibration-20261016/a1.8_t2/seed20261031/trace.npz": "770f069fceaa9774f6ddcddade6825031cd863dce98b49c456dd1991d45d7aed"
+  },
+  "first_price_index": 360,
+  "returns_per_seed": 9640,
+  "return_definition": "Natural log returns. Non-overlapping blocks aligned to tick 360; incomplete final block discarded.",
+  "rv_definition": "sqrt(sum(5-second log return squared)), not centered or annualized.",
+  "aggregation": "Headline metrics are per-seed estimates averaged with equal seed weight; CDF pools 78 non-overlapping windows descriptively.",
+  "limitations": [
+    "Three seed paths, zero fees, no shocks or players.",
+    "No confidence intervals or statistical significance tests.",
+    "ACF is computed separately in each path, never across concatenated seeds.",
+    "No long-memory or price-recovery half-life claim.",
+    "The slow candidate was already examined on these seeds; this is descriptive follow-up, not new holdout validation."
+  ]
+}

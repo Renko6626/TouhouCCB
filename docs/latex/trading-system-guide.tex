@@ -1,0 +1,393 @@
+% !TEX program = xelatex
+% Build: xelatex -interaction=nonstopmode -halt-on-error trading-system-guide.tex (twice)
+% Approved target: 2026-10-18 single-writer plan; implementation/verification status remains in plan ledger.
+\documentclass[11pt,a4paper,twoside]{article}
+\usepackage{touhouccb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,backgrounds}
+\usepackage{needspace}
+\hypersetup{pdftitle={交易请求的一生：唯一 writer、账户锁与已提交行情},pdfauthor={TouhouCCB},pdfsubject={已批准的唯一 writer 迁移目标与读取协议}}
+\definecolor{dbBlue}{HTML}{215A91}
+\definecolor{memGreen}{HTML}{237461}
+\definecolor{waitAmber}{HTML}{9C620F}
+\definecolor{eventPurple}{HTML}{70538F}
+\fancyhead[LE,RO]{\sffamily\small\color{soft}交易系统阅读指南}
+\fancyhead[LO,RE]{\sffamily\small\color{soft}\rightmark}
+\fancyfoot[C]{\sffamily\small\thepage\ /\ \pageref*{guide:lastpage}}
+\renewcommand{\sectionmark}[1]{\markboth{#1}{#1}}
+\raggedbottom
+\setlength{\emergencystretch}{2em}
+\setcounter{tocdepth}{1}
+\newcommand{\sql}[1]{\textcolor{dbBlue}{\textbf{#1}}}
+\newcommand{\mem}[1]{\textcolor{memGreen}{\textbf{#1}}}
+\newcommand{\waitfor}[1]{\textcolor{waitAmber}{\textbf{#1}}}
+\newcommand{\notice}[1]{\textcolor{eventPurple}{\textbf{#1}}}
+\newcommand{\src}[1]{\par{\raggedright\footnotesize\color{soft}代码入口：\texttt{\detokenize{#1}}\par}}
+\newcommand{\takeaway}[1]{\begin{notebox}[colframe=memGreen!50,boxrule=0.5pt,borderline west={2pt}{0pt}{memGreen}]#1\end{notebox}}
+\newcommand{\problem}[1]{\begin{notebox}[colframe=waitAmber!60,boxrule=0.5pt,borderline west={2pt}{0pt}{waitAmber}]#1\end{notebox}}
+\newcommand{\newtopic}[1]{\clearpage\section{#1}}
+\tikzset{
+  guidebox/.style={draw=soft!45,rounded corners=2pt,fill=white,align=center,font=\small\sffamily,minimum height=12mm,text width=30mm,inner sep=5pt},
+  dbbox/.style={guidebox,draw=dbBlue!55,fill=dbBlue!5},
+  membox/.style={guidebox,draw=memGreen!55,fill=memGreen!5},
+  waitbox/.style={guidebox,draw=waitAmber!55,fill=waitAmber!6},
+  eventbox/.style={guidebox,draw=eventPurple!55,fill=eventPurple!5},
+  flow/.style={-{Latex[length=2mm]},thick,draw=ink!70},
+  seqtext/.style={fill=white,inner sep=3pt,align=center,font=\small\sffamily,text width=34mm},
+}
+% Sequence diagrams: four lanes, top-to-bottom time; y values are schematic.
+\newcommand{\lanes}[5]{%
+  \foreach \x/\name in {0/{#1},1/{#2},2/{#3},3/{#4}} {
+    \node[guidebox,minimum height=9mm] at (\x,0) {\name};
+    \draw[soft!40,densely dashed] (\x,-0.5)--(\x,-#5);
+  }}
+\newcommand{\msg}[5][ink!70]{%
+  \draw[-{Latex[length=2mm]},draw=#1,thick] (#2,-#4)--(#3,-#4)
+    node[midway,seqtext,text=ink] {#5};}
+\newcommand{\action}[4][ink]{%
+  \node[seqtext,text=#1,draw=#1!30,rounded corners=1pt,text width=29mm] at (#2,-#3) {#4};}
+
+\begin{document}
+\thispagestyle{empty}
+{\sffamily\small\color{soft}TOUHOUCCB / SYSTEM GUIDE / 2026-10-18}\par
+\vspace{5mm}
+{\sffamily\bfseries\fontsize{29}{37}\selectfont 交易请求的一生}\par
+\vspace{2mm}
+{\sffamily\Large 唯一 writer、账户锁与已提交行情}\par
+\vspace{4mm}
+{\color{rule}\hrule height 1pt}
+\vspace{4mm}
+点击报价、提交成交、刷新余额，服务端走的是不同路径。本指南沿着请求往前走，说明谁负责排队、谁保存资金事实，以及读者什么时候能看到新行情。
+
+\problem{\textbf{阅读基准。}本文描述 2026-10-18 已确认的迁移目标，替代检查点 \texttt{330f4e6} 中的通用 GATE 协调。实施、审阅和最终性能对照的进度，以仓库迁移计划及其 SDD ledger 为准；本文不代表迁移已全部完成、验证通过或已经部署。}
+
+\begin{center}
+\begin{tikzpicture}[node distance=12mm and 8mm]
+  \node[guidebox,text width=132mm] (browser) {浏览器：询价、成交、刷新余额、接收行情};
+  \node[waitbox,below=of browser,xshift=-44mm] (writer) {每市场唯一 writer\\经济写入按队列执行};
+  \node[dbbox,below=of browser] (db) {SQL 数据库\\余额、债务、成交事实};
+  \node[membox,below=of browser,xshift=44mm] (memory) {不可变 Registry\\普通读取已发布行情};
+  \draw[flow] (browser.south west) -- (writer.north);
+  \draw[flow] (browser) -- (db);
+  \draw[flow] (browser.south east) -- (memory.north);
+  \node[eventbox,below=16mm of db,text width=132mm] (events) {writer 提交并安装快照后发提示；前端分别合并账户版本和行情版本};
+  \draw[flow] (db) -- (events);
+  \draw[flow] (memory) -- (events.north east);
+\end{tikzpicture}
+\end{center}
+
+\textbf{图例：}\sql{蓝色为 SQL}；\mem{绿色为内存}；\waitfor{棕色为排队与锁}；\notice{紫色为通知}。时序图从上向下看时间，图中长度不代表真实耗时。
+
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+想弄清什么 & 从这里读起\\\midrule
+数据库、writer 和快照各管什么 & 第\pageref{sec:storage}页，数据与锁的分工\\
+报价、成交和融资的顺序 & 第\pageref{sec:quote}--\pageref{sec:net}页，FX 请求\\
+同账户跨市场如何避免重复授信 & 第\pageref{sec:net}页，User 行锁与新账本\\
+账户、公共 SSE、私人 SSE 的承诺 & 第\pageref{sec:account}--\pageref{sec:private}页\\
+\bottomrule
+\end{tabularx}
+
+\newtopic{先认清数据、队列和锁}\label{sec:storage}
+FX 与 LMSR 共用已提交行情的读取方式，执行状态仍有区别。FX 首轮保留事务内数据库权威；LMSR 沿用原有 writer 内存份额推进交易，再把结果持久化。
+
+\begin{tabularx}{\linewidth}{@{}p{27mm}XX@{}}
+\toprule
+数据 & SQL 中是什么 & 内存中是什么\\\midrule
+用户资金 & 现金、债务、钱包、持仓、利息与账户版本 & 不新增余额或债务缓存；执行检查必须重读本人账本\\
+FX 当前市场 & 储备、费率、状态与 \texttt{pool\_version}；成交计算仍使用事务内真实值 & 每 pair 一个 writer 排序；Registry 保存完整不可变的已提交快照\\
+LMSR 当前市场 & 参数与 Outcome 份额的持久镜像 & writer 保存可推进的 q；Registry 保存不可变读取投影\\
+成交和执行结果 & 成交记录、回执、幂等键、订单终态与审计 & 价格快照不替代这些持久证据\\
+历史与订阅 & K 线、历史版本、游标等持久记录 & 现有历史环、runtime、订阅队列与共享广播；各有自己的覆盖协议\\
+\bottomrule
+\end{tabularx}
+
+\subsection*{四种等待，作用各不相同}
+\begin{enumerate}
+  \item \waitfor{市场命令队列}：同市场经济写入按成功入队顺序执行；不同市场可以同时运行。
+  \item \waitfor{User 行锁}：同账户即使进入不同市场队列，也要串行检查和修改本人资金。取得锁后重读，提交或回滚后释放。
+  \item \waitfor{其他数据库行锁}：继续保护 Pair、钱包、持仓、订单等；精确公共历史读取仍可能使用 \texttt{FOR SHARE}。
+  \item \waitfor{连接池}：分配数据库连接。它会影响延迟，不负责市场或账户的业务排序。
+\end{enumerate}
+
+\takeaway{通用 GATE 的职责被拆回明确边界：市场 writer 管写入次序，数据库事务和行锁管资金，Registry 供普通读使用。写实例 OWNERSHIP 继续保留，进程内队列不能代替跨实例所有权。}
+\src{services/fx/writer.py; services/market_writer.py; services/market_read_state.py}
+
+\newtopic{报价：读取一份完整的已提交行情}\label{sec:quote}
+纯 FX 报价用储备和手续费估算兑换结果，不借款、不扣余额、不写成交。LMSR quote 同样从 Registry 取得定价输入；静态名称等元数据仍可读库。
+
+\begin{center}
+\begin{tikzpicture}[x=4cm,y=1cm]
+  \lanes{浏览器}{报价服务}{市场 writer}{内存 Registry}{6.8}
+  \msg{0}{1}{1.2}{发送方向和数量}
+  \msg[memGreen]{1}{3}{2.4}{直接取最近完整发布记录}
+  \action[waitAmber]{2}{1.2}{可能正在执行另一笔成交}
+  \msg[memGreen]{3}{1}{3.6}{储备、费率、状态与 stamp}
+  \action{1}{4.8}{按这份输入计算}
+  \msg{1}{0}{6.0}{返回估算，不占用额度}
+\end{tikzpicture}
+\end{center}
+
+\textbf{不等待正在写的市场。}writer 正在执行或队列里还有命令时，普通读直接取最后一份完整快照。数据库已提交而内存尚未安装的短暂窗口，也允许返回上一份快照；响应的 stamp 和行情 \texttt{as\_of} 描述实际附带的记录。
+
+\textbf{冷读没有发布权限。}活跃 owner 市场先完成 bootstrap，才公开可接单状态。它缺少健康快照时，普通活跃行情返回暂不可用，经济写入由 writer 的恢复路径处理。终态市场、只读或非 owner 实例可用 SQL 构造本次响应，但不能安装、失效或复活全局记录。
+
+\textbf{SQL 晚到也不能倒退状态。}冷查结束时若已有健康的新记录，优先用它；若市场已删除或不可用，迟到的旧 SQL 不能反转这个状态。响应级冷读也不能提供 writer 风控所需的活跃发布状态。
+
+\takeaway{报价只说明观察到的行情。下单时会按目标 writer 的真实执行状态重验价格和滑点；列表、详情、排行榜、成交量与历史也不因这次迁移全部变成零 SQL。}
+\src{services/trading_prices.py; services/market_read_state.py; services/fx/trading.py}
+
+\newtopic{FX 成交：一个 writer 负责完整提交顺序}\label{sec:fx}
+请求侧只传 ID、金额等普通参数。认证和解析完成后，先结束数据库事务、释放连接和锁，再等待 submit；不能带着认证 session、ORM 对象或已锁账户排队。
+
+\begin{center}
+\begin{tikzpicture}[x=4cm,y=1cm]
+  \lanes{请求执行器}{本市场 writer}{SQL}{Registry / 通知}{12.0}
+  \action[dbBlue]{0}{1.0}{结束认证事务，释放连接}
+  \msg[waitAmber]{0}{1}{2.1}{提交命令，等待结果}
+  \msg[dbBlue]{1}{2}{3.2}{出队后新事务；锁 Pair、User 等}
+  \action[dbBlue]{2}{4.3}{重读本人账本、版本与准入}
+  \msg[memGreen]{1}{3}{5.4}{复制外市场已发布行情做风控}
+  \action[dbBlue]{2}{6.5}{重验本市场滑点，执行资金内核}
+  \msg[dbBlue]{1}{2}{7.6}{flush、构造最终投影、commit}
+  \msg[memGreen]{1}{3}{8.7}{同步安装完整快照}
+  \msg[eventPurple]{1}{3}{9.8}{账户提示与行情唤醒}
+  \msg{1}{0}{10.9}{返回结果；才开始下一条命令}
+\end{tikzpicture}
+\end{center}
+
+\textbf{首轮不改 FX 金融计算的权威。}writer 调度现有事务内核，储备、资金、债务、成交回执、订单状态和审计仍在数据库事务中共同成立。内层 helper 不自行 commit，也不能回调另一个会 submit 的外层入口。
+
+\textbf{发布只有最终状态。}flush 后按数据库实际精度构造快照；成功提交后同步安装，再发提示。复合交易各腿的中间值不会提前公开。提交、安装与通知完成后，consumer 才处理下一条命令。
+
+\textbf{队列顺序的含义。}保证的是成功进入同一市场队列的次序，不是点击或网络到达时间。不同市场没有全局 FIFO；consumer 也不能持锁等待另一个市场 writer。
+\src{services/fx/writer.py; services/fx/writer_ops.py; services/fx/net_trading.py}
+
+\newtopic{融资与跨市场：先锁本人，再用新账本检查}\label{sec:net}
+融资买入、跨零净交易都作为一个市场命令运行。借款和买入不能拆成“先借款提交，再排队成交”；各腿及执行回执仍在一笔资金事务中提交。
+
+\begin{center}
+\begin{tikzpicture}[node distance=9mm and 8mm]
+  \node[waitbox,text width=128mm] (lock) {本市场命令出队，取得本人 User 排他行锁};
+  \node[dbbox,below=of lock,text width=128mm] (ledger) {重新读取现金、全部相关债务、持仓、冻结状态与 economic\_version};
+  \draw[flow] (lock) -- (ledger);
+  \node[membox,below=of ledger,text width=128mm] (risk) {复制所需外市场已发布快照；本次检查复用同一组输入};
+  \draw[flow] (ledger) -- (risk);
+  \node[dbbox,below=of risk,text width=128mm] (commit) {用目标市场真实执行状态重验；借款、成交与账本共同提交};
+  \draw[flow] (risk) -- (commit);
+\end{tikzpicture}
+\end{center}
+
+\textbf{跨市场价格在什么时候取？}固定为命令出队、取得账户锁后、资金变更前。只锁本人及本次实际写入的目标市场，不冻结其他抵押市场、不等它们的队列，也不向它们发送查询命令。不同快照可有不同观察时间；后续外市场变价不会撤回本次操作。
+
+\textbf{同一用户向两个市场各借 80。}假设当前可承受新增负债 100，两条命令可以分别进入 A、B 队列。先取得 User 锁的一笔检查并提交；另一笔等待后，必须看到新增债务和持仓，再判断能否借 80。结果取决于第一笔后的真实组合风险，不能沿用旧的 100 额度，也不硬编码“第二笔必失败”。
+
+\textbf{账户锁保护检查到提交。}入队前发现的依赖和额度仅作提示或预取；锁后须重新确认，新增或清空的跨市场持仓不能漏算。行情中的市场投影不能替代刚重读的本人债务。共享 User 锁已经承担账户串行要求，本轮不新增账户队列或重复请求准入机制。
+
+独立借还款、兑换和不改 AMM 的现金管理保留各自账户事务，遵守同一 User 锁纪律，并复用执行时行情。开平空仍检查本金、利息、金库和回购成本；幂等回执命中时返回原结果，不重新扣钱或安装旧行情。
+\src{services/fx/borrow_buy.py; services/fx/net_trading.py; services/fx/shorts.py; services/credit/}
+
+\newtopic{LMSR：保留内存 q，补齐生命周期和通知}\label{sec:lmsr}
+LMSR 沿用每市场 writer 和 consumer。买卖、关盘、恢复、结算、强平与实盘成交在同一市场队列运行；迁移补齐已有市场注册、重载和通知顺序。
+
+\begin{center}
+\begin{tikzpicture}[x=4cm,y=1cm]
+  \lanes{HTTP / 后台}{本市场 writer}{SQL}{读取投影 / 通知}{10.8}
+  \msg[waitAmber]{0}{1}{1.1}{结束请求事务后提交命令}
+  \action[waitAmber]{1}{2.2}{consumer 按顺序取命令}
+  \msg[dbBlue]{1}{2}{3.3}{原交易操作；资金与份额镜像}
+  \action[dbBlue]{2}{4.4}{数据库提交成功}
+  \action[memGreen]{1}{5.5}{apply 更新 q 与市场状态}
+  \msg[memGreen]{1}{3}{6.6}{安装不可变读取投影}
+  \msg[eventPurple]{1}{3}{7.7}{发账户提示与 tick}
+  \msg{1}{0}{8.8}{完成结果 future}
+  \action[waitAmber]{1}{9.9}{开始下一条命令}
+\end{tikzpicture}
+\end{center}
+
+writer 的 \texttt{q\_dec} 继续保存 Decimal，定价浮点向量由它派生，参数 \texttt{b} 沿用 float。Registry 保存不可变副本，读者拿不到可修改 writer 状态的列表。FX 改用 writer 调度，并不意味着把 FX 同时改为内存储备权威。
+
+\textbf{账户提示跟在安装后。}旧 GATE 模型中，op 内通知可能早于 apply；目标顺序把通知材料交回 consumer，等提交、apply 和 install 完成再发出。普通账户读取因此不必等待市场 GATE 来覆盖这一窗口。
+
+\textbf{注册和重载不能越过成交。}新 ID 创建提交、关闭 session 后 bootstrap，成功后接单；已有 ID 的注册和重载进入原 writer 队列。consumer 内恢复直接调用内部加载路径，不能向自己 submit 后等待。不可用时失效旧投影，完成恢复后再接经济写入，避免旧 q 覆盖新成交。
+\src{services/market_writer.py; services/writer_ops.py; services/account_events.py}
+
+\newtopic{刷新账户：账户稳定，附带行情独立}\label{sec:account}
+交易页需要余额、债务和持仓，也需要价格来估值。目标协议分别保证账户读取稳定和行情记录完整，不再承诺两者来自同一个提交截面。
+
+\begin{center}
+\begin{tikzpicture}[x=4cm,y=1cm]
+  \lanes{账户读取}{SQL 短 session}{市场 writer}{Registry}{9.3}
+  \msg[dbBlue]{0}{1}{1.1}{短认证；读 before、账户和依赖}
+  \action[dbBlue]{1}{2.3}{结束本次读取 session}
+  \msg[memGreen]{0}{3}{3.5}{直接复制已发布行情}
+  \action[waitAmber]{2}{1.1}{继续执行自己的命令}
+  \msg[memGreen]{3}{0}{4.7}{返回完整记录及其 stamp}
+  \msg[dbBlue]{0}{1}{6.0}{新 session 再读 after 版本}
+  \action{0}{7.3}{before / basis / after 稳定才返回}
+  \action{0}{8.6}{账户变化时沿用有限重试}
+\end{tikzpicture}
+\end{center}
+
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{25mm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+接口 & 保留的检查 & 行情读取\\\midrule
+context & 完整账户、规则、依赖及经济版本稳定性 & 复制独立已发布记录，不排市场队列\\
+versions & 账户版本、规则版本与依赖 & 不为取得 stamp 等待市场写入\\
+prices & 在数据库核对请求市场属于用户依赖 & 授权后直接读完整快照\\
+\bottomrule
+\end{tabularx}
+
+\texttt{minimum\_group\_stamps} 仅表示本响应附带价格的版本下限，不能再解释成“这一账户变更已被行情因果覆盖”。客户端分别合并 \texttt{economic\_version} 和行情 stamp，不能互相替代。
+
+行情组内 \texttt{as\_of} 描述所附快照；context 顶层的 \texttt{as\_of} 与 \texttt{server\_time} 使用响应时钟。账户已更新而价格仍是上一份完整记录，在短暂发布窗口内属于已确认的取舍；风险执行仍按第\pageref{sec:net}页的账户锁与真实账本检查。
+\src{services/credit/trading_context.py; services/trading_prices.py; schemas/trading_context.py}
+
+\newtopic{公共 SSE：精确历史仍可能等数据库}\label{sec:public}
+普通报价与精确历史组合包的承诺不同。公共 FX SSE 若同时携带成交游标或历史前缀，继续证明行情与所宣称的历史覆盖相符，不能把旧报价和新历史拼成同一截面。
+
+\begin{center}
+\begin{tikzpicture}[x=4cm,y=1cm]
+  \lanes{SSE 构建器}{SQL}{Registry}{客户端}{10.0}
+  \msg[dbBlue]{0}{1}{1.1}{SELECT pool\_version FOR SHARE}
+  \msg[dbBlue]{1}{0}{2.3}{取得被锁定的数据库版本}
+  \msg[memGreen]{0}{2}{3.5}{peek 已发布记录，比较版本}
+  \draw[soft!55,dashed] (-0.42,-4.1) rectangle (3.42,-6.9);
+  \node[fill=white,anchor=west,font=\small\sffamily] at (-0.38,-4.1) {二选一};
+  \draw[soft!45,dashed] (-0.42,-5.45)--(3.42,-5.45);
+  \action[memGreen]{2}{4.8}{健康且版本相同：复用}
+  \msg[dbBlue]{0}{1}{6.2}{否则同 session 读 Pair，仅供响应}
+  \action[dbBlue]{0}{7.9}{构建历史游标、成交量与覆盖信息}
+  \msg[eventPurple]{0}{3}{9.2}{释放数据库锁后发送帧}
+\end{tikzpicture}
+\end{center}
+
+\textbf{这条路径不经过通用 GATE。}数据库 \texttt{FOR SHARE} 仍可能等待进行中的写入，也可能短暂阻挡写者；普通行情、账户估值和私人 SSE 初始价格不调用这条历史组合路径。
+
+\textbf{首帧保留订阅与 anchor 顺序。}先订阅，再建立 anchor、读取快照和历史覆盖，行锁外发送。只读连接无法取得共享锁时，沿用 rollback 后读取并标记 \texttt{history\_ready=false} 的降级语义。LMSR 的 ring、tail、封存、高水位和历史去重约束同样保留。
+
+\textbf{广播继续按市场复用。}后台构建公共帧，已有 broker 分发编码 bytes；无订阅者时跳过构帧。历史 SQL 和精确滚动 24 小时成交量仍保留。
+
+\problem{本轮取消普通读对市场队列的等待，不重做精确历史协议。因此不能声称所有 SSE 包都绝不等待数据库；把历史前缀也一起纳入 writer 发布，需要另行确认。}
+\src{services/fx/trading.py; services/fx/market_data.py; api/v1/fx_stream.py}
+
+\newtopic{私人 SSE：提示账户变化，共享价格输入}\label{sec:private}
+私人交易 SSE 使用独立短认证，鉴权连接不会陪长连接一直占用。账户提示和市场价格各有版本，不构成一份跨对象原子资金快照。
+
+\begin{center}
+\begin{tikzpicture}[node distance=12mm and 8mm]
+  \node[eventbox,text width=56mm] (account) {writer 提交、安装后\\发账户经济版本变化提示};
+  \node[membox,right=12mm of account,text width=56mm] (pricing) {PricingPublisher\\每市场读取已发布行情};
+  \node[eventbox,below=of account,text width=56mm] (personal) {按 user id 找到私人订阅\\推送 account\_changed};
+  \node[membox,below=of pricing,text width=56mm] (shared) {变化市场转换一次字典\\按订阅者依赖过滤};
+  \draw[flow] (account) -- (personal);
+  \draw[flow] (pricing) -- (shared);
+  \node[guidebox,below=19mm of personal,xshift=34mm,text width=128mm] (client) {浏览器分别合并账户版本和价格 stamp，按账户提示补读};
+  \draw[flow] (personal) -- (client.north west);
+  \draw[flow] (shared) -- (client.north east);
+\end{tikzpicture}
+\end{center}
+
+\textbf{连上时。}先订阅账户事件，再从短 session 重读依赖、规则与账户版本，随后复制初始已发布价格，形成 sync 首帧。首帧沿用账户版本稳定检查，价格不排市场队列。
+
+\textbf{连着时。}PricingPublisher 共享市场输入，只在输入变化时投递价格组。账户提示会触发依赖复核，客户端再按版本补读；约每 15 秒继续复核准入、规则和依赖，长连接不免除后续授权检查。
+
+\textbf{提示不替代持久事实。}账户提示没有带回完整余额；行情唤醒只促使 publisher 检查，定时检查可弥补最终唤醒丢失。成交成功仍以数据库提交和持久回执为准，不能仅凭收到 SSE 就认定资金已经完整刷新。
+
+\takeaway{提交后再提示可以减少无谓刷新，但不提供跨账户、跨市场原子一致性。私人 SSE 和普通账户估值都使用独立已提交行情；公共精确历史组合包保留第\pageref{sec:public}页的例外。}
+\src{api/v1/user_trading.py; services/trading_prices.py; services/account_events.py}
+
+\newtopic{旧基线暴露了什么，新方案还要验证什么}\label{sec:queue}
+旧的覆盖读取会申请共享 GATE，并让已有冲突写者先通过。读者可能等完一批成交，最后只用很短时间复制内存。新目标让普通读取直接返回最近完整发布记录。
+
+\begin{center}
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[anchor=west,font=\small\sffamily] at (0,0.4) {示意时间轴\quad 时间向右，长度不按比例};
+  \draw[flow] (0,-0.2)--(14,-0.2);
+  \node[anchor=east,font=\small\sffamily] at (1.8,-1.2) {市场命令};
+  \foreach \x/\label in {2/A,5/B,8/C} {
+    \node[waitbox,text width=21mm,minimum height=10mm] at (\x+1,-1.2) {交易\label};
+  }
+  \node[anchor=east,font=\small\sffamily] at (1.8,-2.7) {旧覆盖读};
+  \fill[waitAmber!15] (2,-3.2) rectangle (10.5,-2.2);
+  \node[font=\small\sffamily,text=waitAmber] at (6.25,-2.7) {等 A，再等 B，再等 C};
+  \node[membox,text width=21mm,minimum height=10mm] at (12,-2.7) {复制快照};
+  \node[anchor=east,font=\small\sffamily] at (1.8,-4.3) {目标普通读};
+  \node[membox,text width=43mm,minimum height=10mm] at (4.2,-4.3) {读上次完整发布记录，返回};
+\end{tikzpicture}
+\end{center}
+
+\begin{tabularx}{\linewidth}{@{}Xrr@{}}
+\toprule
+\textbf{旧轮 A/B}：100 用户 / 200 SSE & 旧 SQL 路径 & GATE 覆盖读\\\midrule
+读多写少：行情 Pair 输入 SELECT & 1367 & 0\\
+同阶段 SQL 总数 & 8925 & 7570\\
+同阶段应用 CPU（一核为100\%） & 39.75\% & 36.78\%\\
+stress：交易后 context P99 & 384ms & 7135ms\\
+stress：context GATE 等待 P99 & 未走此 GATE & 6920ms\\
+stress：context 持有 GATE 工作 P99 & 未走此 GATE & 0.045ms\\
+\bottomrule
+\end{tabularx}
+
+\textbf{表内全部是旧报告数据，不是本轮唯一 writer 的结果。}不同分布的 P99 不能相加当成单请求拆账；两版 stress 都因原 P99 保护提前停止，实际工作量有差异，不能据此推出交易容量变化的因果。
+
+本轮最终对照待按计划完成：固定 \texttt{330f4e6} 与最终提交、同机同数据同请求密度，分别报告成功吞吐、错误率、行情/context P95/P99、队列等待、User/DB 锁等待、SQL 与 CPU。取消和失败请求不计入成功吞吐。普通读解除排队，也不会消除单市场串行、数据库提交或同账户争用。
+\src{output/fx-market-memory-ab-20261018/report.md; docs/superpowers/plans/2026-10-18-single-writer-market-migration.md}
+
+\newtopic{后台入口、生命周期与失败边界}\label{sec:other}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{25mm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+入口 & 市场队列边界 & 事务中继续保证什么\\\midrule
+条件单 & 创建、取消、触发成交及失败终态进入同 pair 队列；scheduler 只发现候选 & 出队后锁订单重验；成交资金与订单终态共同提交，不持订单锁等待 submit\\
+强平、注撤资 & 发现事务结束后 submit；handler 锁内重新准备与检查 & 资金、幂等记录、审计及历史事件仍在各自原子事务中\\
+市场管理 & 费率、储备、状态、归档、删除、空仓核销进入相应队列 & 保留容量与资金锁；调用者不持 capacity 锁等待队列\\
+PvE & 实盘和强制平仓复用交易命令；observation-only 也入同 pair 队列 & profile 的 before\_commit/on\_fill 更新留在成交事务；observation 与成交仍是两次事务\\
+\bottomrule
+\end{tabularx}
+
+PvE 账户生成、充值、启停和退休等不改 AMM 的管理继续独立事务，保留 Pair/User/Profile 锁及状态重验；不承诺和市场命令同队列顺序。observation 与成交之间不持锁，成交再次检查 profile/episode，内层不回调 submit wrapper。
+
+\textbf{创建、重载与删除。}新市场先完成创建事务、关闭 session，再 bootstrap；已有市场重载排入原队列。删除后停止接该 ID 的新经济命令，已排队命令明确失败并完成 future，不能用 register 复活旧 ID。跨市场批处理逐市场提交，不嵌套等待其他 actor；离线 reset/修复仍要求 backend 停机。
+
+\subsection*{失败发生在哪一侧}
+\begin{enumerate}
+  \item \textbf{提交前拒绝或回滚：}不公开未提交快照，旧的已提交记录仍有效。
+  \item \textbf{成功提交：}同步安装最终快照，随后提示并完成结果，再取下一条命令。
+  \item \textbf{提交成功但安装失败：}成交不能靠 rollback 撤销。标记不可用，沿现有 DB 重载路径恢复，不能用过期执行状态继续处理下一笔。
+  \item \textbf{等待超时或取消：}未开始的已取消命令可跳过；已开始的可能提交，客户端 timeout 不代表回滚，须依靠持久回执核对。
+\end{enumerate}
+\src{services/fx/orders.py; services/credit/execution.py; services/pve_fx/; api/v1/admin_fx.py}
+
+\newtopic{对照代码与确认迁移进度}\label{sec:references}
+本文的图和时序描述批准后的目标。迁移可分阶段保留过渡 GATE，不能只凭搜索不到 GATE 引用就宣称资金正确；实际完成状态由总体验收统一记录。
+
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{30mm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+要核对的问题 & 模块索引（相对 \texttt{backend/app/}）\\\midrule
+FX 谁排序和提交 & \texttt{services/fx/writer.py}、\texttt{services/fx/writer\_ops.py}；交易内核见 \texttt{services/fx/trading.py}、\texttt{services/fx/net\_trading.py}、\texttt{services/fx/borrow\_buy.py}、\texttt{services/fx/shorts.py}\\
+LMSR 谁推进与发布 & \texttt{services/market\_writer.py}、\texttt{services/writer\_ops.py}\\
+谁保存不可变行情 & \texttt{services/market\_read\_state.py}、\texttt{services/trading\_prices.py}\\
+账户与风控如何读取 & \texttt{services/credit/}；账户写入口还须核对 User 锁与新账本读取\\
+条件单、注撤资与 PvE & \texttt{services/fx/orders.py}、\texttt{services/fx/liquidity.py}、\texttt{services/pve\_fx/}\\
+公共历史、私人 SSE & \texttt{services/fx/market\_data.py}、\texttt{api/v1/fx\_stream.py}、\texttt{api/v1/user\_trading.py}\\
+协议与前端版本合并 & \texttt{schemas/trading\_context.py}；前端 \texttt{src/stores/tradingSession.ts}\\
+\bottomrule
+\end{tabularx}
+
+\textbf{批准依据与进度。}仓库文件\par
+{\raggedright\small\texttt{docs/superpowers/plans/}\par
+\texttt{2026-10-18-single-writer-market-migration.md}\par}
+固定执行检查时间点、历史协议、User 行锁方案及各入口边界；实施证据见该计划对应的 SDD ledger。本文不替代调用图审计、资金检查、PostgreSQL 并发检查或最终同口径性能对照。
+
+\textbf{本轮保留的边界。}单经济写实例及 OWNERSHIP 不变；无跨进程报价同步。Registry 重启后重新加载，终态/只读的 SQL fallback 仅服务响应。不新增全内存账本、入队授信预留、账户队列、跨市场原子事务或历史发布协议。
+
+\textbf{历史数据来源。}第\pageref{sec:queue}页数字来自\par
+{\raggedright\small\texttt{output/fx-market-memory-ab-20261018/report.md}\par}
+及对应 GATE 统计；旧轮验证范围见同目录 \texttt{validation.md}。这些证据只说明旧基线，不证明当前目标已经实现或提速。
+
+\textbf{构建。}在 \texttt{docs/latex} 直接运行两次\par
+{\raggedright\small\texttt{xelatex -interaction=nonstopmode -halt-on-error}\par
+\texttt{trading-system-guide.tex}\par}
+使用现有 XeLaTeX、中文字体与 TikZ；所有插图都是矢量图。
+\label{guide:lastpage}
+\end{document}

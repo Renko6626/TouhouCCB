@@ -1,0 +1,196 @@
+{
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "sigmas": [
+    108,
+    54,
+    27
+  ],
+  "base_candidate": "output/fx-shallow-calibration-20261016/candidate-a1.8_t2.json",
+  "only_changed_parameter": "order_sigma_foreign",
+  "profiles": [
+    {
+      "account": 0,
+      "type": 0,
+      "trend": 8.234798779592532,
+      "reversion": 0.07221097016963142,
+      "sigma": 0.0010300585254746292,
+      "role": "random"
+    },
+    {
+      "account": 1,
+      "type": 1,
+      "trend": 15.005368378038067,
+      "reversion": 1.6883369734719593,
+      "sigma": 2.6889646378092905e-05,
+      "role": "random"
+    },
+    {
+      "account": 2,
+      "type": 0,
+      "trend": 6.79995310461484,
+      "reversion": 0.07920520238553225,
+      "sigma": 0.000591393436978078,
+      "role": "random"
+    },
+    {
+      "account": 3,
+      "type": 1,
+      "trend": 0.8657880891564456,
+      "reversion": 0.10417254493557616,
+      "sigma": 0.0003409695461170608,
+      "role": "random"
+    },
+    {
+      "account": 4,
+      "type": 0,
+      "trend": 28.36597797510169,
+      "reversion": 0.3771040721500271,
+      "sigma": 0.000249310880590749,
+      "role": "random"
+    },
+    {
+      "account": 5,
+      "type": 1,
+      "trend": 1.4621688708570875,
+      "reversion": 0.6098561166438483,
+      "sigma": 0.00022857858799379767,
+      "role": "random"
+    },
+    {
+      "account": 6,
+      "type": 0,
+      "trend": 8.803766283866109,
+      "reversion": 0.06423763352406367,
+      "sigma": 0.0005059586476535526,
+      "role": "random"
+    },
+    {
+      "account": 7,
+      "type": 1,
+      "trend": 2.235854914897627,
+      "reversion": 1.3105014977672633,
+      "sigma": 0.0002907197367242031,
+      "role": "random"
+    },
+    {
+      "account": 8,
+      "type": 0,
+      "trend": 7.5057178855417535,
+      "reversion": 0.020718870102194403,
+      "sigma": 0.00036699556947610316,
+      "role": "random"
+    },
+    {
+      "account": 9,
+      "type": 1,
+      "trend": 1.119087671989566,
+      "reversion": 3.2303856455559545,
+      "sigma": 0.0006196153255108193,
+      "role": "random"
+    },
+    {
+      "account": 10,
+      "type": 0,
+      "trend": 26.685047948752352,
+      "reversion": 0.030174373721599736,
+      "sigma": 0.0008749848164506162,
+      "role": "inventory"
+    },
+    {
+      "account": 11,
+      "type": 1,
+      "trend": 0.3773534601285534,
+      "reversion": 0.4343296420180767,
+      "sigma": 0.0023044129524469963,
+      "role": "inventory"
+    },
+    {
+      "account": 12,
+      "type": 0,
+      "trend": 103.17142786061851,
+      "reversion": 0.011038996907307351,
+      "sigma": 0.0004890690092187521,
+      "role": "inventory"
+    },
+    {
+      "account": 13,
+      "type": 1,
+      "trend": 1.1652832093870478,
+      "reversion": 1.4122080892447801,
+      "sigma": 0.0004936477782245429,
+      "role": "inventory"
+    },
+    {
+      "account": 14,
+      "type": 0,
+      "trend": 2.4360102701767676,
+      "reversion": 0.03187224045779735,
+      "sigma": 0.0012136580044113787,
+      "role": "inventory"
+    },
+    {
+      "account": 15,
+      "type": 1,
+      "trend": 2.5189933783708245,
+      "reversion": 0.5644146005950922,
+      "sigma": 0.0008851832546337986,
+      "role": "short_episode"
+    },
+    {
+      "account": 16,
+      "type": 0,
+      "trend": 61.1653174518216,
+      "reversion": 0.006878739586751304,
+      "sigma": 0.0017251641109375638,
+      "role": "short_episode"
+    },
+    {
+      "account": 17,
+      "type": 1,
+      "trend": 4.797793852721078,
+      "reversion": 0.4998790835121927,
+      "sigma": 0.00040731890863024526,
+      "role": "short_episode"
+    },
+    {
+      "account": 18,
+      "type": 0,
+      "trend": 46.83198243991382,
+      "reversion": 0.3065589009950954,
+      "sigma": 0.0008845640363075581,
+      "role": "short_episode"
+    },
+    {
+      "account": 19,
+      "type": 1,
+      "trend": 0.4523081744537012,
+      "reversion": 0.1459158062552556,
+      "sigma": 0.0009792150712468384,
+      "role": "short_episode"
+    }
+  ],
+  "activity_b": 0.125,
+  "trend_multiplier": 0.5,
+  "tick_seconds": 5,
+  "ticks": 10000,
+  "primary_exclusion_ticks": 360,
+  "baseline_reuse": "sigma108 paths from prior shallow calibration",
+  "protected_sha256": {
+    "output/fx-shallow-calibration-20261016/candidate-a1.8_t2.json": "a134576136ac305e8cd19281b020a3cabc7825c4d124d56e1f3163cde8998593",
+    "research/fx/reversion/repeated/entry_model.py": "4ddc65ee8aa06cff24e39c2c264240ef7492781e0cc59049d92b38813580a5c0",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/reversion/inventory.py": "6209426f61b13119280ba292df9384c353000a2cf3c6e613d52fd5aaa6eb2735",
+    "research/fx/factor_activity/model.py": "4e2648f2b9bf7328b434818d473307f0f674afa483ea85f90aaa8cbb057368bb",
+    "research/fx/reversion/repeated/FROZEN_CONFIG.json": "b834898530f3f1fd69ab3b65bc713f0fac784f3d70cae5bbc10c0284bf54d3b0"
+  },
+  "limits": [
+    "Three reused research seeds, not fresh validation.",
+    "No players, external shocks or fees.",
+    "Endogenous activity remains unchanged in parameters, so realized arrivals can differ."
+  ]
+}

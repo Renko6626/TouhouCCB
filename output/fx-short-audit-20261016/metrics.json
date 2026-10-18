@@ -1,0 +1,577 @@
+{
+  "overall": {
+    "entries": 437,
+    "completed": 425,
+    "unfinished": 12,
+    "entry_classes": {
+      "noise_reversed_qualified_direction": 2,
+      "same_direction_without_noise": 299,
+      "noise_needed_for_threshold": 136
+    },
+    "dominant_terms": {
+      "noise": 116,
+      "trend": 127,
+      "reversion": 194
+    },
+    "exit_reasons": {
+      "stop_loss": 171,
+      "trailing": 98,
+      "take_profit": 156
+    },
+    "noise_needed_fraction": 0.3112128146453089,
+    "direction_flipped_from_nonzero_deterministic_fraction": 0.05034324942791762,
+    "deterministic_support_fraction": 0.6842105263157895,
+    "noise_largest_fraction": 0.2654462242562929,
+    "holding_minutes": {
+      "n": 425,
+      "median": 15.166666666666666,
+      "p90": 41.050000000000004,
+      "mean": 20.142745098039214,
+      "max": 116.66666666666667
+    },
+    "holding_over30_fraction": 0.20470588235294118,
+    "holding_over60_fraction": 0.03764705882352941,
+    "unfinished_age_minutes": {
+      "n": 12,
+      "median": 8.875,
+      "p90": 20.825,
+      "mean": 10.631944444444445,
+      "max": 24.833333333333332
+    },
+    "realized_pnl": -496.973009,
+    "win_fraction": 0.4329411764705882,
+    "realized_return": {
+      "n": 425,
+      "median": -0.00146539492756581,
+      "p90": 0.011647237542401654,
+      "mean": -0.0013055874229239743,
+      "max": 0.025736809098144284
+    },
+    "by_exit_reason": {
+      "take_profit": {
+        "count": 156,
+        "mean_execution_return": 0.010575164368842122
+      },
+      "stop_loss": {
+        "count": 171,
+        "mean_execution_return": -0.011996915341478086
+      },
+      "trailing": {
+        "count": 98,
+        "mean_execution_return": -0.0015625282947888557
+      }
+    },
+    "trailing_loss_count": 70
+  },
+  "by_actor": {
+    "15": {
+      "entries": 97,
+      "completed": 94,
+      "unfinished": 3,
+      "entry_classes": {
+        "same_direction_without_noise": 76,
+        "noise_needed_for_threshold": 20,
+        "noise_reversed_qualified_direction": 1
+      },
+      "dominant_terms": {
+        "reversion": 83,
+        "noise": 14
+      },
+      "exit_reasons": {
+        "trailing": 24,
+        "take_profit": 50,
+        "stop_loss": 20
+      },
+      "noise_needed_fraction": 0.20618556701030927,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.030927835051546393,
+      "deterministic_support_fraction": 0.7835051546391752,
+      "noise_largest_fraction": 0.14432989690721648,
+      "holding_minutes": {
+        "n": 94,
+        "median": 15.5,
+        "p90": 32.233333333333334,
+        "mean": 17.965425531914892,
+        "max": 73.16666666666667
+      },
+      "holding_over30_fraction": 0.14893617021276595,
+      "holding_over60_fraction": 0.02127659574468085,
+      "unfinished_age_minutes": {
+        "n": 3,
+        "median": 13.416666666666666,
+        "p90": 22.55,
+        "mean": 12.944444444444443,
+        "max": 24.833333333333332
+      },
+      "realized_pnl": 229.64933000000002,
+      "win_fraction": 0.6170212765957447,
+      "realized_return": {
+        "n": 94,
+        "median": 0.007667074014907543,
+        "p90": 0.012266869308875484,
+        "mean": 0.0027199394380188345,
+        "max": 0.025736809098144284
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 50,
+          "mean_execution_return": 0.010567225768681186
+        },
+        "stop_loss": {
+          "count": 20,
+          "mean_execution_return": -0.012375680946652834
+        },
+        "trailing": {
+          "count": 24,
+          "mean_execution_return": -0.0010488900969680087
+        }
+      },
+      "trailing_loss_count": 16
+    },
+    "16": {
+      "entries": 88,
+      "completed": 85,
+      "unfinished": 3,
+      "entry_classes": {
+        "same_direction_without_noise": 66,
+        "noise_needed_for_threshold": 22
+      },
+      "dominant_terms": {
+        "trend": 66,
+        "noise": 22
+      },
+      "exit_reasons": {
+        "stop_loss": 56,
+        "trailing": 11,
+        "take_profit": 18
+      },
+      "noise_needed_fraction": 0.25,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.03409090909090909,
+      "deterministic_support_fraction": 0.75,
+      "noise_largest_fraction": 0.25,
+      "holding_minutes": {
+        "n": 85,
+        "median": 12.5,
+        "p90": 50.13333333333335,
+        "mean": 20.925490196078428,
+        "max": 77.58333333333333
+      },
+      "holding_over30_fraction": 0.21176470588235294,
+      "holding_over60_fraction": 0.03529411764705882,
+      "unfinished_age_minutes": {
+        "n": 3,
+        "median": 4.166666666666667,
+        "p90": 9.233333333333334,
+        "mean": 5.5,
+        "max": 10.5
+      },
+      "realized_pnl": -431.949294,
+      "win_fraction": 0.25882352941176473,
+      "realized_return": {
+        "n": 85,
+        "median": -0.00999649726869737,
+        "p90": 0.009115817801258117,
+        "mean": -0.005722630782609729,
+        "max": 0.01788971542674863
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 18,
+          "mean_execution_return": 0.010258194823000975
+        },
+        "stop_loss": {
+          "count": 56,
+          "mean_execution_return": -0.01187573277397574
+        },
+        "trailing": {
+          "count": 11,
+          "mean_execution_return": -0.0005481898175639214
+        }
+      },
+      "trailing_loss_count": 7
+    },
+    "17": {
+      "entries": 93,
+      "completed": 91,
+      "unfinished": 2,
+      "entry_classes": {
+        "same_direction_without_noise": 84,
+        "noise_needed_for_threshold": 9
+      },
+      "dominant_terms": {
+        "reversion": 84,
+        "noise": 9
+      },
+      "exit_reasons": {
+        "stop_loss": 31,
+        "take_profit": 40,
+        "trailing": 20
+      },
+      "noise_needed_fraction": 0.0967741935483871,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.010752688172043012,
+      "deterministic_support_fraction": 0.9032258064516129,
+      "noise_largest_fraction": 0.0967741935483871,
+      "holding_minutes": {
+        "n": 91,
+        "median": 14.666666666666666,
+        "p90": 41.083333333333336,
+        "mean": 20.73168498168498,
+        "max": 83.58333333333333
+      },
+      "holding_over30_fraction": 0.23076923076923078,
+      "holding_over60_fraction": 0.04395604395604396,
+      "unfinished_age_minutes": {
+        "n": 2,
+        "median": 10.916666666666666,
+        "p90": 18.983333333333334,
+        "mean": 10.916666666666666,
+        "max": 21.0
+      },
+      "realized_pnl": -13.302396999999996,
+      "win_fraction": 0.4945054945054945,
+      "realized_return": {
+        "n": 91,
+        "median": -3.79530243519053e-05,
+        "p90": 0.012865197144545664,
+        "mean": -0.00014618615987038204,
+        "max": 0.020648348342101205
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 40,
+          "mean_execution_return": 0.010673498639178762
+        },
+        "stop_loss": {
+          "count": 31,
+          "mean_execution_return": -0.013118613299610926
+        },
+        "trailing": {
+          "count": 20,
+          "mean_execution_return": -0.0016782936913708236
+        }
+      },
+      "trailing_loss_count": 15
+    },
+    "18": {
+      "entries": 78,
+      "completed": 76,
+      "unfinished": 2,
+      "entry_classes": {
+        "same_direction_without_noise": 60,
+        "noise_needed_for_threshold": 18
+      },
+      "dominant_terms": {
+        "trend": 61,
+        "noise": 11,
+        "reversion": 6
+      },
+      "exit_reasons": {
+        "trailing": 24,
+        "stop_loss": 35,
+        "take_profit": 17
+      },
+      "noise_needed_fraction": 0.23076923076923078,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.02564102564102564,
+      "deterministic_support_fraction": 0.7692307692307693,
+      "noise_largest_fraction": 0.14102564102564102,
+      "holding_minutes": {
+        "n": 76,
+        "median": 15.916666666666668,
+        "p90": 51.0,
+        "mean": 22.850877192982455,
+        "max": 116.66666666666667
+      },
+      "holding_over30_fraction": 0.2236842105263158,
+      "holding_over60_fraction": 0.06578947368421052,
+      "unfinished_age_minutes": {
+        "n": 2,
+        "median": 6.5,
+        "p90": 7.1,
+        "mean": 6.5,
+        "max": 7.25
+      },
+      "realized_pnl": -249.86208,
+      "win_fraction": 0.3157894736842105,
+      "realized_return": {
+        "n": 76,
+        "median": -0.006146985113371167,
+        "p90": 0.009654808375502623,
+        "mean": -0.0036659248090007454,
+        "max": 0.021440985819962167
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 17,
+          "mean_execution_return": 0.010424567521184713
+        },
+        "stop_loss": {
+          "count": 35,
+          "mean_execution_return": -0.01155975370579864
+        },
+        "trailing": {
+          "count": 24,
+          "mean_execution_return": -0.002134856401718514
+        }
+      },
+      "trailing_loss_count": 17
+    },
+    "19": {
+      "entries": 81,
+      "completed": 79,
+      "unfinished": 2,
+      "entry_classes": {
+        "noise_reversed_qualified_direction": 1,
+        "noise_needed_for_threshold": 67,
+        "same_direction_without_noise": 13
+      },
+      "dominant_terms": {
+        "noise": 60,
+        "reversion": 21
+      },
+      "exit_reasons": {
+        "stop_loss": 29,
+        "trailing": 19,
+        "take_profit": 31
+      },
+      "noise_needed_fraction": 0.8271604938271605,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.16049382716049382,
+      "deterministic_support_fraction": 0.16049382716049382,
+      "noise_largest_fraction": 0.7407407407407407,
+      "holding_minutes": {
+        "n": 79,
+        "median": 12.75,
+        "p90": 40.03333333333334,
+        "mean": 18.607594936708864,
+        "max": 74.16666666666667
+      },
+      "holding_over30_fraction": 0.21518987341772153,
+      "holding_over60_fraction": 0.02531645569620253,
+      "unfinished_age_minutes": {
+        "n": 2,
+        "median": 18.708333333333336,
+        "p90": 19.141666666666666,
+        "mean": 18.708333333333336,
+        "max": 19.25
+      },
+      "realized_pnl": -31.508568,
+      "win_fraction": 0.4430379746835443,
+      "realized_return": {
+        "n": 79,
+        "median": -0.0025797008337268452,
+        "p90": 0.012763322940209331,
+        "mean": -0.0004077483463591306,
+        "max": 0.019353458274908107
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 31,
+          "mean_execution_return": 0.010727717834322704
+        },
+        "stop_loss": {
+          "count": 29,
+          "mean_execution_return": -0.011298257831936668
+        },
+        "trailing": {
+          "count": 19,
+          "mean_execution_return": -0.0019537839526427223
+        }
+      },
+      "trailing_loss_count": 15
+    }
+  },
+  "by_seed": {
+    "20261029": {
+      "entries": 129,
+      "completed": 126,
+      "unfinished": 3,
+      "entry_classes": {
+        "noise_reversed_qualified_direction": 1,
+        "same_direction_without_noise": 91,
+        "noise_needed_for_threshold": 37
+      },
+      "dominant_terms": {
+        "noise": 31,
+        "trend": 36,
+        "reversion": 62
+      },
+      "exit_reasons": {
+        "stop_loss": 46,
+        "trailing": 36,
+        "take_profit": 44
+      },
+      "noise_needed_fraction": 0.2868217054263566,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.03875968992248062,
+      "deterministic_support_fraction": 0.7054263565891473,
+      "noise_largest_fraction": 0.24031007751937986,
+      "holding_minutes": {
+        "n": 126,
+        "median": 16.291666666666668,
+        "p90": 48.625,
+        "mean": 22.277777777777775,
+        "max": 81.66666666666667
+      },
+      "holding_over30_fraction": 0.2698412698412698,
+      "holding_over60_fraction": 0.05555555555555555,
+      "unfinished_age_minutes": {
+        "n": 3,
+        "median": 19.25,
+        "p90": 23.716666666666665,
+        "mean": 15.305555555555555,
+        "max": 24.833333333333332
+      },
+      "realized_pnl": -142.528811,
+      "win_fraction": 0.42857142857142855,
+      "realized_return": {
+        "n": 126,
+        "median": -0.0013038281304528364,
+        "p90": 0.010194023743782673,
+        "mean": -0.001289888343109608,
+        "max": 0.020338814155717807
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 44,
+          "mean_execution_return": 0.009711207766148375
+        },
+        "stop_loss": {
+          "count": 46,
+          "mean_execution_return": -0.011554440457024332
+        },
+        "trailing": {
+          "count": 36,
+          "mean_execution_return": -0.0016198558866449934
+        }
+      },
+      "trailing_loss_count": 26
+    },
+    "20261030": {
+      "entries": 131,
+      "completed": 127,
+      "unfinished": 4,
+      "entry_classes": {
+        "same_direction_without_noise": 93,
+        "noise_needed_for_threshold": 38
+      },
+      "dominant_terms": {
+        "reversion": 54,
+        "noise": 41,
+        "trend": 36
+      },
+      "exit_reasons": {
+        "stop_loss": 52,
+        "take_profit": 51,
+        "trailing": 24
+      },
+      "noise_needed_fraction": 0.2900763358778626,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.04580152671755725,
+      "deterministic_support_fraction": 0.7099236641221374,
+      "noise_largest_fraction": 0.31297709923664124,
+      "holding_minutes": {
+        "n": 127,
+        "median": 16.166666666666668,
+        "p90": 49.783333333333346,
+        "mean": 23.1003937007874,
+        "max": 116.66666666666667
+      },
+      "holding_over30_fraction": 0.2677165354330709,
+      "holding_over60_fraction": 0.06299212598425197,
+      "unfinished_age_minutes": {
+        "n": 4,
+        "median": 4.958333333333334,
+        "p90": 16.425000000000004,
+        "mean": 7.875,
+        "max": 21.0
+      },
+      "realized_pnl": -92.19655499999999,
+      "win_fraction": 0.4566929133858268,
+      "realized_return": {
+        "n": 127,
+        "median": -0.001219007444643164,
+        "p90": 0.01296226621860603,
+        "mean": -0.0008375919974686806,
+        "max": 0.025736809098144284
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 51,
+          "mean_execution_return": 0.011163173148331769
+        },
+        "stop_loss": {
+          "count": 52,
+          "mean_execution_return": -0.012363642111771562
+        },
+        "trailing": {
+          "count": 24,
+          "mean_execution_return": -0.0013661093513050715
+        }
+      },
+      "trailing_loss_count": 17
+    },
+    "20261031": {
+      "entries": 177,
+      "completed": 172,
+      "unfinished": 5,
+      "entry_classes": {
+        "same_direction_without_noise": 115,
+        "noise_needed_for_threshold": 61,
+        "noise_reversed_qualified_direction": 1
+      },
+      "dominant_terms": {
+        "reversion": 78,
+        "trend": 55,
+        "noise": 44
+      },
+      "exit_reasons": {
+        "stop_loss": 73,
+        "take_profit": 61,
+        "trailing": 38
+      },
+      "noise_needed_fraction": 0.3446327683615819,
+      "direction_flipped_from_nonzero_deterministic_fraction": 0.062146892655367235,
+      "deterministic_support_fraction": 0.6497175141242938,
+      "noise_largest_fraction": 0.24858757062146894,
+      "holding_minutes": {
+        "n": 172,
+        "median": 14.083333333333332,
+        "p90": 30.308333333333334,
+        "mean": 16.39486434108527,
+        "max": 65.08333333333333
+      },
+      "holding_over30_fraction": 0.11046511627906977,
+      "holding_over60_fraction": 0.005813953488372093,
+      "unfinished_age_minutes": {
+        "n": 5,
+        "median": 10.5,
+        "p90": 16.266666666666666,
+        "mean": 10.033333333333335,
+        "max": 18.166666666666668
+      },
+      "realized_pnl": -262.247643,
+      "win_fraction": 0.4186046511627907,
+      "realized_return": {
+        "n": 172,
+        "median": -0.0021975265258269054,
+        "p90": 0.011844047704889624,
+        "mean": -0.0016626426734439312,
+        "max": 0.021440985819962167
+      },
+      "by_exit_reason": {
+        "take_profit": {
+          "count": 61,
+          "mean_execution_return": 0.01070673228301512
+        },
+        "stop_loss": {
+          "count": 73,
+          "mean_execution_return": -0.012014505103527563
+        },
+        "trailing": {
+          "count": 38,
+          "mean_execution_return": -0.0016322720141780632
+        }
+      },
+      "trailing_loss_count": 27
+    }
+  },
+  "theoretical_noise_only_entry_probability": 0.31731050786291415,
+  "scope": "Actual entries at tick>=360, five short accounts, three sigma108 seeds. Completed durations exclude unfinished episodes.",
+  "noise_zero_test": "At each actual entry, set only that personal noise term to zero, holding observed historical terms and threshold fixed. Not a full counterfactual path."
+}

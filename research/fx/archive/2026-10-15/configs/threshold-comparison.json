@@ -1,0 +1,81 @@
+{
+  "defaults": {
+    "ticks": 100000,
+    "burn_in": 5000,
+    "bots": 20,
+    "rate": 0.05,
+    "order_size": 200,
+    "trend_window": 30,
+    "mean_window": 30,
+    "trend_strength": 30,
+    "reversion_strength": 1,
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "gold": 1000000,
+    "foreign": 200000,
+    "fee_rate": 0.0005,
+    "strategy": "position",
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ]
+  },
+  "cases": [
+    {},
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.0005
+    },
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.0005,
+      "threshold_mix": [
+        0.00025,
+        0.00025,
+        0.00075,
+        0.00075
+      ]
+    },
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.001
+    },
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.001,
+      "threshold_mix": [
+        0.0005,
+        0.0005,
+        0.0015,
+        0.0015
+      ]
+    },
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.002
+    },
+    {
+      "strategy": "threshold",
+      "entry_threshold": 0.002,
+      "threshold_mix": [
+        0.001,
+        0.001,
+        0.003,
+        0.003
+      ]
+    }
+  ],
+  "seeds": [
+    41,
+    42,
+    43
+  ]
+}

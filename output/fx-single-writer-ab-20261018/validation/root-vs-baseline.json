@@ -1,0 +1,11 @@
+[
+  "backend/app/schemas/market.py",
+  "backend/app/services/rank.py",
+  "backend/app/services/realtime.py",
+  "backend/app/api/v1/market.py",
+  "backend/tests/test_title_leaderboard_chips.py",
+  "thccb-frontend/src/api/market.ts",
+  "thccb-frontend/src/types/user.ts",
+  "thccb-frontend/src/pages/market/Leaderboard.vue",
+  "thccb-frontend/src/components/chart/FxCandleChart.vue"
+]

@@ -101,8 +101,7 @@ async def lifespan(app: FastAPI):
     """
     try:
         await _startup(app)
-        from app.services.trading_prices import PUBLISHER, REGISTRY
-        REGISTRY.reset()
+        from app.services.trading_prices import PUBLISHER
         PUBLISHER.start()
         yield
     finally:
@@ -172,6 +171,12 @@ async def _startup(app: FastAPI) -> None:
             "SQLAdmin 未挂载（read_only=%s owner=%s）：只读/非 owner 实例不得暴露"
             "直写 API", read_only, owner,
         )
+    # Reset/prewarm before any economic producer starts. Enable products only
+    # after every supported write path installs its committed snapshot.
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.reset()
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
+    await REGISTRY.warm_fx()
     # ── FX 增量行情 runtime（计划 Task 3）──
     # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生
     # FX 成交的经济调度器；只读/非 owner 实例只预热持久状态，绝不创建派生数据。
@@ -198,9 +203,11 @@ async def _startup(app: FastAPI) -> None:
         )
     # 有经济写权限的实例始终运行市场 writer 与 candle flusher。
     from app.services.market_writer import WRITER
+    from app.services.fx.writer import FX_WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
     if writes_ok:
         await WRITER.start()
+        await FX_WRITER.start()
         await CANDLE_FLUSHER.start()
     if writes_ok:
         # ── 写调度器：只读实例 / 非 owner 必须显式全关（spec §6.1）──
@@ -254,6 +261,8 @@ async def _shutdown() -> None:
         await _safe("bot_detection_scheduler", stop_bot_detection_scheduler)
         await _safe("liquidation_scheduler", stop_liquidation_scheduler)
         await _safe("loan_scheduler", stop_loan_scheduler)
+        from app.services.fx.writer import FX_WRITER
+        await _safe("fx_writer", FX_WRITER.stop)
         # Every economic producer that can create FX trades is now stopped;
         # drain the market-data consumer (final catch-up + flush) before the
         # FX publisher stops and before ownership is released.

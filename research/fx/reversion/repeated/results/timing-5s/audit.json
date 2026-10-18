@@ -1,0 +1,10 @@
+{
+  "paths": 12,
+  "new_paths": 9,
+  "reused_paths": 3,
+  "both_assets_conserved": true,
+  "individual_wallets_and_fills_verified": true,
+  "first_event_prefix_exact": true,
+  "terminal_event_no_followup": true,
+  "protected_files_unchanged": 2137
+}

@@ -1,0 +1,64 @@
+{
+  "status": "exploratory_candidate_not_production_default",
+  "target_holding_minutes": [
+    5,
+    15
+  ],
+  "tick_seconds": 10,
+  "population_seed": 301,
+  "spread": 1,
+  "random_count": 15,
+  "behavior_count": 5,
+  "b": 0.25,
+  "variant": "trailing",
+  "config": {
+    "ticks": 8640,
+    "burn_in": 0,
+    "seeds": [
+      81,
+      82,
+      83
+    ],
+    "tau": 1000,
+    "mean_arrivals": 1,
+    "psi": 0.0004,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 1000000,
+    "pool_foreign": 200000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 40,
+    "max_pool_fraction": 0.005,
+    "trend_window": 30,
+    "mean_window": 30,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "entry_quantity": 100,
+    "take_profit": 0.00125,
+    "stop_loss": 0.00125,
+    "trail_arm": 0.000625,
+    "trail_drawdown": 0.000625
+  },
+  "source_results": "results/eighth_rate1-random15-seed81/result.json",
+  "evidence_seeds": [
+    81,
+    82,
+    83
+  ],
+  "typical_event_price_jump_absolute": 0.05,
+  "event_test_scope": "isolated_upward_5_percent_only"
+}

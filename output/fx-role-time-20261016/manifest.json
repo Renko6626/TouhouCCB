@@ -1,0 +1,290 @@
+{
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "factor": 1.25,
+  "tick_seconds": 5,
+  "config": {
+    "ticks": 10000,
+    "burn_in": 0,
+    "seeds": [
+      81
+    ],
+    "tau": 1350.0,
+    "mean_arrivals": 0.3333333333333333,
+    "psi": 0.0010182337649086285,
+    "initial_z": 0,
+    "accounts": 20,
+    "initial_gold": 5000,
+    "initial_foreign": 1000,
+    "pool_gold": 500000,
+    "pool_foreign": 100000,
+    "fee_rate": 0,
+    "order_sigma_foreign": 108.0,
+    "max_pool_fraction": 0.005,
+    "trend_window": 75,
+    "mean_window": 75,
+    "factor_mix": [
+      [
+        30,
+        0.1
+      ],
+      [
+        3,
+        1
+      ]
+    ],
+    "noise_sigma": 0.0005,
+    "sensitivity": 100,
+    "position_cap": 500,
+    "adjustment": 0.2,
+    "entry_quantity": 180.0,
+    "take_profit": 0.007200000000000001,
+    "stop_loss": 0.009000000000000001,
+    "trail_arm": 0.0036000000000000003,
+    "trail_drawdown": 0.0036000000000000003,
+    "inventory_window": 900,
+    "inventory_position_cap": 450.0,
+    "inventory_sensitivity": 55.55555555555556,
+    "inventory_adjustment": 0.5
+  },
+  "activity_b": 0.1,
+  "profiles": [
+    {
+      "account": 0,
+      "type": 0,
+      "trend": 8.234798779592532,
+      "reversion": 0.07221097016963142,
+      "sigma": 0.0010300585254746292,
+      "role": "random"
+    },
+    {
+      "account": 1,
+      "type": 1,
+      "trend": 15.005368378038067,
+      "reversion": 1.6883369734719593,
+      "sigma": 2.6889646378092905e-05,
+      "role": "random"
+    },
+    {
+      "account": 2,
+      "type": 0,
+      "trend": 6.79995310461484,
+      "reversion": 0.07920520238553225,
+      "sigma": 0.000591393436978078,
+      "role": "random"
+    },
+    {
+      "account": 3,
+      "type": 1,
+      "trend": 0.8657880891564456,
+      "reversion": 0.10417254493557616,
+      "sigma": 0.0003409695461170608,
+      "role": "random"
+    },
+    {
+      "account": 4,
+      "type": 0,
+      "trend": 28.36597797510169,
+      "reversion": 0.3771040721500271,
+      "sigma": 0.000249310880590749,
+      "role": "random"
+    },
+    {
+      "account": 5,
+      "type": 1,
+      "trend": 1.4621688708570875,
+      "reversion": 0.6098561166438483,
+      "sigma": 0.00022857858799379767,
+      "role": "random"
+    },
+    {
+      "account": 6,
+      "type": 0,
+      "trend": 8.803766283866109,
+      "reversion": 0.06423763352406367,
+      "sigma": 0.0005059586476535526,
+      "role": "random"
+    },
+    {
+      "account": 7,
+      "type": 1,
+      "trend": 2.235854914897627,
+      "reversion": 1.3105014977672633,
+      "sigma": 0.0002907197367242031,
+      "role": "random"
+    },
+    {
+      "account": 8,
+      "type": 0,
+      "trend": 7.5057178855417535,
+      "reversion": 0.020718870102194403,
+      "sigma": 0.00036699556947610316,
+      "role": "random"
+    },
+    {
+      "account": 9,
+      "type": 1,
+      "trend": 1.119087671989566,
+      "reversion": 3.2303856455559545,
+      "sigma": 0.0006196153255108193,
+      "role": "random"
+    },
+    {
+      "account": 10,
+      "type": 0,
+      "trend": 26.685047948752352,
+      "reversion": 0.030174373721599736,
+      "sigma": 0.0008749848164506162,
+      "role": "inventory"
+    },
+    {
+      "account": 11,
+      "type": 1,
+      "trend": 0.3773534601285534,
+      "reversion": 0.4343296420180767,
+      "sigma": 0.0023044129524469963,
+      "role": "inventory"
+    },
+    {
+      "account": 12,
+      "type": 0,
+      "trend": 103.17142786061851,
+      "reversion": 0.011038996907307351,
+      "sigma": 0.0004890690092187521,
+      "role": "inventory"
+    },
+    {
+      "account": 13,
+      "type": 1,
+      "trend": 2.5189933783708245,
+      "reversion": 0.5644146005950922,
+      "sigma": 0.0008851832546337986,
+      "role": "reversion"
+    },
+    {
+      "account": 14,
+      "type": 1,
+      "trend": 4.797793852721078,
+      "reversion": 0.4998790835121927,
+      "sigma": 0.00040731890863024526,
+      "role": "reversion"
+    },
+    {
+      "account": 15,
+      "type": 1,
+      "trend": 2.5189933783708245,
+      "reversion": 0.5644146005950922,
+      "sigma": 0.0008851832546337986,
+      "role": "reversion"
+    },
+    {
+      "account": 16,
+      "type": 0,
+      "trend": 61.1653174518216,
+      "reversion": 0.006878739586751304,
+      "sigma": 0.0017251641109375638,
+      "role": "trend"
+    },
+    {
+      "account": 17,
+      "type": 0,
+      "trend": 46.83198243991382,
+      "reversion": 0.3065589009950954,
+      "sigma": 0.0008845640363075581,
+      "role": "trend"
+    },
+    {
+      "account": 18,
+      "type": 0,
+      "trend": 61.1653174518216,
+      "reversion": 0.006878739586751304,
+      "sigma": 0.0017251641109375638,
+      "role": "trend"
+    },
+    {
+      "account": 19,
+      "type": 0,
+      "trend": 46.83198243991382,
+      "reversion": 0.3065589009950954,
+      "sigma": 0.0008845640363075581,
+      "role": "trend"
+    }
+  ],
+  "trend_multiplier": 0.5,
+  "groups": {
+    "random": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "inventory": [
+      10,
+      11,
+      12
+    ],
+    "reversion": [
+      13,
+      14,
+      15
+    ],
+    "trend": [
+      16,
+      17,
+      18,
+      19
+    ]
+  },
+  "differences": {
+    "tau": {
+      "before": 1080,
+      "after": 1350.0
+    },
+    "mean_arrivals": {
+      "before": 0.42857142857142855,
+      "after": 0.3333333333333333
+    },
+    "trend_window": {
+      "before": 60,
+      "after": 75
+    },
+    "mean_window": {
+      "before": 60,
+      "after": 75
+    },
+    "inventory_window": {
+      "before": 720,
+      "after": 900
+    }
+  },
+  "activity_b_before": 0.125,
+  "unchanged": [
+    "order sizes",
+    "inventory target cap and sensitivity",
+    "wallets",
+    "pool",
+    "signal coefficients and signal noise",
+    "take profit, stop loss, trailing exits",
+    "psi",
+    "tick seconds"
+  ],
+  "caveats": [
+    "Three exploratory seeds, no players, shocks or fees.",
+    "Window and arrival changes interact with endogenous activity; realized time scales need measurement.",
+    "Completed-holding statistics omit unfinished episodes; first 30 minutes excluded from main window metrics."
+  ],
+  "source_sha256": {
+    "output/fx-role-mix-20261016/manifest.json": "7a2ac9d698ce81929a061530ac7e92a00850042a11e1b4a182ab2cfe571a22d8",
+    "output/fx-role-mix-20261016/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c",
+    "output/fx-role-mix-20261016/run.py": "fd3013cc0856c62580808c56c804b3940dce74a11bbd3754a1b5bf992d125d8e"
+  }
+}

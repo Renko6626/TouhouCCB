@@ -1,0 +1,159 @@
+{
+  "date": "2026-10-15",
+  "paths_independently_checked": 24,
+  "realized_pnl_and_holding_quantiles_match": true,
+  "selected_close_fills_threshold_checked": 2413,
+  "selected_closes_full_and_unclipped": true,
+  "source_and_protected_hashes_match": true,
+  "existing_tests": {
+    "command": "OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 python -m unittest discover -s research/fx/tests -v",
+    "passed": 37,
+    "note": "Executed in this session before final documentation; no strategy source changed afterward."
+  },
+  "details": [
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 285
+    },
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 286
+    },
+    {
+      "variant": "baseline",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 250
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 437
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 421
+    },
+    {
+      "variant": "baseline",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 432
+    },
+    {
+      "variant": "profit04",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 293
+    },
+    {
+      "variant": "profit04",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 233
+    },
+    {
+      "variant": "profit04",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 319
+    },
+    {
+      "variant": "profit04",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 470
+    },
+    {
+      "variant": "profit04",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 472
+    },
+    {
+      "variant": "profit04",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 428
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 302
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 286
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 326
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 480
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 544
+    },
+    {
+      "variant": "profit_trail04",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 475
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "normal",
+      "seed": 81,
+      "completed": 360
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "normal",
+      "seed": 82,
+      "completed": 343
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "normal",
+      "seed": 83,
+      "completed": 374
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "shock",
+      "seed": 81,
+      "completed": 545
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "shock",
+      "seed": 82,
+      "completed": 620
+    },
+    {
+      "variant": "symmetric04",
+      "scenario": "shock",
+      "seed": 83,
+      "completed": 533
+    }
+  ]
+}

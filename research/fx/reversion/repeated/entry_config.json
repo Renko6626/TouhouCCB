@@ -1,0 +1,13 @@
+{
+  "accounts": 40,
+  "ticks": 10000,
+  "market_seeds": [81, 82, 83],
+  "policies": ["original", "weak_trend", "confirmed_trend", "random_direction"],
+  "trend_multiplier": 0.25,
+  "confirmation_window": 30,
+  "confirmation_min_accounts": 3,
+  "confirmation_min_fraction": 0.6666666666666666,
+  "scenario": "no external shocks",
+  "source_population_case": "40",
+  "direction_random_stream": "SeedSequence([market_seed, account_id, 20261015, 511]), one draw per eligible idle arrival"
+}

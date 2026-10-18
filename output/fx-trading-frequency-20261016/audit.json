@@ -1,0 +1,9 @@
+{
+  "arrivals_exactly_reconstructed": true,
+  "trade_counts_bounded_by_arrivals": true,
+  "strategy_gross_volume_matches_trace": true,
+  "group_volume_shares_sum_to_one": true,
+  "net_flow_endpoint_identity_verified": true,
+  "source_traces_unchanged": true,
+  "new_simulations": 0
+}

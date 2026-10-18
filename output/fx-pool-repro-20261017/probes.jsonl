@@ -1,0 +1,5 @@
+{"mode": "control /fx/pairs", "concurrency": 100, "wall_s": 0.36, "ok": 100, "p50_ms": 253.1, "p95_ms": 325.6, "max_ms": 335.8, "label": "no-auth public read, 100 concurrent", "statuses": {}}
+{"mode": "trade", "concurrency": 30, "wall_s": 1.53, "trades_ok": 30, "blocked": 0, "failed_stages": {"done": 30}, "quote_ms": {"p50": 204.3, "max": 335.3}, "trade_ms": {"p50": 668.3, "p95": 1070.6, "max": 1164.8}, "context_ms": {"p50": 39.6, "max": 66.0}, "label": "30 concurrent cash buy cycles", "statuses": {}}
+{"mode": "versions", "concurrency": 40, "wall_s": 30.47, "ok": 0, "statuses": {"500": 40}, "p50_ms": 30322.7, "p95_ms": 30451.0, "max_ms": 30459.5, "label": "40 concurrent /trading-versions"}
+{"mode": "versions", "concurrency": 40, "wall_s": 0.47, "ok": 40, "statuses": {"200": 40}, "p50_ms": 419.2, "p95_ms": 458.4, "max_ms": 463.8, "label": "COUNTERFACTUAL short auth session, 40 concurrent"}
+{"mode": "versions", "concurrency": 40, "wall_s": 0.46, "ok": 40, "statuses": {"200": 40}, "p50_ms": 403.9, "p95_ms": 440.4, "max_ms": 443.3, "label": "FIXED build: 40 concurrent versions"}

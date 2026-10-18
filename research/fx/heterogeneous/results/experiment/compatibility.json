@@ -1,0 +1,10 @@
+{
+  "factor_fixed": {
+    "all_original_fields_exact": true,
+    "fields": 21
+  },
+  "factor_activity": {
+    "all_original_fields_exact": true,
+    "fields": 21
+  }
+}

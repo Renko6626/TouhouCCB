@@ -1,0 +1,23 @@
+{
+  "gate_present": false,
+  "gate_timing_status": "absent_in_source",
+  "fx_writer": {
+    "status": "attached",
+    "reviewed_interface_commit": "6c7675722cda265bd205dced6ce0f939ae7ac769",
+    "hooks": [
+      "FxWriter._bootstrap",
+      "FxWriter._consume",
+      "per-actor queue.put_nowait",
+      "per-actor queue.get"
+    ],
+    "sql_attribution": "consumer background:fx_writer; bootstrap background:fx_writer_bootstrap",
+    "queue_wait": "accepted put_nowait to consumer get return; includes scheduler delay",
+    "execution": "consumer get return to next get call or consumer exit; includes handler, commit/publication/notifications/future handling and recovery where present; excludes idle queue get",
+    "phase": "execution/dequeue phase; submission route retained separately",
+    "overhead": "per accepted enqueue: timestamp + dictionary entry; per dequeue/execution: timestamps, dictionary lookup, counters and sample append; two actor-level contextvar scopes; no extra task, await, SQL, I/O, polling or profiler",
+    "comparability": "same module loaded before/after; baseline actor absence is unavailable, never zero; SQL cursor observer applies equally to both",
+    "limits": "execution is consumer service elapsed, not pure DB time; future outcomes are observed done/cancelled flags, HTTP results remain success authority; shutdown-drained commands lack dequeue timing"
+  },
+  "lock_query_elapsed_semantics": "client cursor execution elapsed includes PostgreSQL execution, possible lock wait, and transport/scheduling; NOT pure lock-wait time",
+  "pg_lock_wait_semantics": "pg_stat_activity Lock samples are observed wait states at 0.5s sampling; no exact per-query wait duration"
+}

@@ -10,11 +10,16 @@ from sqlmodel import SQLModel
 
 from app.core.database import engine, async_session_maker
 from app.models.base import Market, MarketStatus, Outcome
+from app.schemas.trading_context import GroupKey
+from app.services import trading_prices
 from app.services.market_writer import WRITER, MarketState, OpOutcome
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _fresh_db():
+async def _fresh_db(monkeypatch):
+    registry = trading_prices.PricingRegistry(async_session_maker)
+    registry.configure(memory_products=frozenset({'lmsr'}))
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.drop_all)
         await conn.run_sync(SQLModel.metadata.create_all)
@@ -70,6 +75,7 @@ async def test_submit_ok_applies_memory_after_op():
     st = WRITER.get_state(mid)
     assert st.q_dec[0] == Decimal("4.500000")   # 3.5 + 1
     assert st.q[0] == float(Decimal("4.500000"))
+    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '4.500000'
 
 
 @pytest.mark.asyncio
@@ -81,6 +87,7 @@ async def test_http_error_propagates_and_memory_untouched():
         await WRITER.submit(FakeCmd(market_id=mid, behavior="http_error"))
     assert ei.value.status_code == 400
     assert WRITER.get_state(mid).q_dec[0] == Decimal("3.500000")
+    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '3.500000'
 
 
 @pytest.mark.asyncio
@@ -148,6 +155,7 @@ async def test_unexpected_exception_self_heals_from_mirror():
     st = WRITER.get_state(mid)
     assert st.q_dec[0] == Decimal("99.000000")   # 重读到了 DB 的真值
     assert not st.unavailable
+    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].q_dec[0] == '99.000000'
     # 自愈后还能继续服务
     res = await WRITER.submit(FakeCmd(market_id=mid))
     assert res == {"ok": True}

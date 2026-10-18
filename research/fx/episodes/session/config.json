@@ -1,0 +1,21 @@
+{
+  "tick_seconds": 10,
+  "horizons": [2160, 8640],
+  "shock_tick": 1000,
+  "injection_gold": 100000,
+  "terminal_window": 180,
+  "market_seeds": [81, 82, 83],
+  "population_seed": 301,
+  "spread": 1.0,
+  "random_counts": [0, 15],
+  "b": 0.25,
+  "variant": "trailing",
+  "workers": 6,
+  "cells": [
+    {"id": "original", "label": "原参数", "tau": 1000, "take_profit": 0.01, "stop_loss": 0.01, "trail_arm": 0.005, "trail_drawdown": 0.005},
+    {"id": "exit_half", "label": "退出阈值减半", "tau": 1000, "take_profit": 0.005, "stop_loss": 0.005, "trail_arm": 0.0025, "trail_drawdown": 0.0025},
+    {"id": "exit_quarter", "label": "退出阈值四分之一", "tau": 1000, "take_profit": 0.0025, "stop_loss": 0.0025, "trail_arm": 0.00125, "trail_drawdown": 0.00125},
+    {"id": "heat_short", "label": "30分钟热度记忆", "tau": 180, "take_profit": 0.01, "stop_loss": 0.01, "trail_arm": 0.005, "trail_drawdown": 0.005},
+    {"id": "half_short", "label": "阈值减半＋30分钟记忆", "tau": 180, "take_profit": 0.005, "stop_loss": 0.005, "trail_arm": 0.0025, "trail_drawdown": 0.0025}
+  ]
+}

@@ -230,18 +230,20 @@ async def create_market(
     )
 
     await db.commit()
-    notify_pricing_changed(())
 
-    from app.services.market_writer import WRITER
-    await WRITER.register_market(int(new_market.id))
-
-    return {
+    response = {
         "status": "success",
         "market_id": new_market.id,
         "title": new_market.title,
         "outcomes": data.outcomes,
         "created_by": admin.username,
     }
+    # Register takes the market GATE before opening its own read session.
+    await _release_request_connection(db)
+    from app.services.market_writer import WRITER
+    await WRITER.register_market(int(response["market_id"]))
+    notify_pricing_changed(())
+    return response
 
 
 async def _settled_market_without_state(db: AsyncSession, market_id: int) -> Market:
@@ -656,34 +658,26 @@ async def quote_trade(
             return cached_resp
         _QUOTE_CACHE.pop(cache_key, None)
 
-    # ── 取市场状态：写实例使用内存权威 q/b/status；只读实例和历史市场读取 DB ──
-    from app.services.market_writer import WRITER
-    ids: List[int]; labels: List[str]; old_q: List[float]
-    st = None
-    if WRITER.enabled:
-        mid = WRITER.market_id_for_outcome(int(req.outcome_id))
-        st = WRITER.get_state(mid) if mid is not None else None
-    if st is not None and not st.unavailable:
-        if not market_is_open(st.status, st.closes_at):
-            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
-        ids, labels, old_q, b = st.outcome_ids, st.outcome_labels, list(st.q), st.b
-    else:
-        outcome = await db.get(Outcome, req.outcome_id)
-        if not outcome:
-            raise HTTPException(status_code=404, detail="选项不存在")
-        market = await db.get(Market, outcome.market_id)
-        if not market:
-            raise HTTPException(status_code=404, detail="市场不存在")
-        # 与 buy/sell 同源：status + closes_at 一起判（审计 L8）
-        if not market_is_open(market.status, market.closes_at):
-            raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
-        outcomes = (await db.execute(
-            select(Outcome).where(Outcome.market_id == market.id).order_by(Outcome.id)
-        )).scalars().all()
-        ids = [int(o.id) for o in outcomes]
-        labels = [o.label for o in outcomes]
-        old_q = _shares_to_floats(outcomes)
-        b = float(market.liquidity_b)
+    # Pricing inputs come from one complete committed record. SQL supplies only
+    # identities/labels; a writer's mutable in-flight q is never a quote source.
+    from app.services.trading_prices import REGISTRY
+    market_id = (await db.execute(
+        select(Outcome.market_id).where(Outcome.id == req.outcome_id)
+    )).scalar_one_or_none()
+    if market_id is None:
+        raise HTTPException(status_code=404, detail="选项不存在")
+    labels_by_id = dict((await db.execute(
+        select(Outcome.id, Outcome.label).where(Outcome.market_id == market_id)
+    )).all())
+    # A response-only registry fallback owns a separate short session.
+    await db.close()
+    state = await REGISTRY.read_lmsr(market_id)
+    if not market_is_open(state.status, state.closes_at):
+        raise HTTPException(status_code=400, detail="市场未在交易中，无法报价")
+    ids = state.outcome_ids
+    labels = [labels_by_id[oid] for oid in ids]
+    old_q = [float(q) for q in state.q_dec]
+    b = state.b
 
     idx = next((i for i, oid in enumerate(ids) if oid == int(req.outcome_id)), None)
     if idx is None:
@@ -801,7 +795,7 @@ def clear_leaderboard_cache() -> None:
 @router.get("/leaderboard", response_model=List[LeaderboardItem], summary="财富/消费排行榜")
 async def leaderboard(
     limit: int = Query(20, ge=1, le=100),
-    mode: str = Query("net_worth", description="net_worth=cash-debt+持仓 LMSR 清算价；spending=兑换消费总额-当前债务"),
+    mode: str = Query("net_worth", description="net_worth=cash-debt+持仓 LMSR 清算价；spending=累计兑换及付费弹幕消费总额"),
     db: AsyncSession = Depends(get_async_session),
 ):
     key = (mode, limit)
@@ -884,7 +878,7 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
         spent_expr = (
             func.coalesce(rt_subq.c.rt_sum, 0) + func.coalesce(de_subq.c.de_sum, 0)
         )
-        score_expr = spent_expr - User.debt
+        score_expr = spent_expr
 
         stmt = (
             select(
@@ -913,8 +907,7 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
             spent = Decimal(str(r.spent_total or 0))
             debt = Decimal(str(r.debt or 0))
             score = Decimal(str(r.score or 0))
-            # 完全没消费过的用户不参与 spending 榜（score = -debt 没意义，会拉一堆 0 消费 +
-            # 负债的用户上来；过滤 spent > 0 让榜单只展示有过实际消费的）
+            # 消费榜只展示有过实际消费的用户；后续债务不扣减已有成绩。
             if spent <= 0:
                 continue
             equipped = (

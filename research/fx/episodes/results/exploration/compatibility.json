@@ -1,0 +1,22 @@
+[
+  {
+    "b": 0,
+    "injection_gold": 0,
+    "exact_common_fields": 34
+  },
+  {
+    "b": 0,
+    "injection_gold": 100000,
+    "exact_common_fields": 34
+  },
+  {
+    "b": 0.25,
+    "injection_gold": 0,
+    "exact_common_fields": 34
+  },
+  {
+    "b": 0.25,
+    "injection_gold": 100000,
+    "exact_common_fields": 34
+  }
+]

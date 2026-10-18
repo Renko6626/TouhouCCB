@@ -1,0 +1,17 @@
+{
+  "worktree": "/tmp/sunyunbo/thccb-fx-read-checkpoint-20261017",
+  "HEAD": "e3b2087f4828f76a79cfe152be768d3621829801",
+  "financing_files": [
+    "backend/app/services/fx/net_trading.py",
+    "backend/app/services/loan_service.py",
+    "backend/tests/test_fx_net_trading.py",
+    "backend/tests/test_ledger_loan_service.py"
+  ],
+  "query_files": [
+    "backend/app/services/credit/trading_context.py",
+    "backend/tests/test_trading_context.py"
+  ],
+  "backend_differences": [
+    "app/services/credit/trading_context.py"
+  ]
+}

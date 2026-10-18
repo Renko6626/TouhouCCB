@@ -1,0 +1,50 @@
+{
+  "scope": "Virtual game, not player backtest. Gross arithmetic examples ignore fees, interest, execution impact, entry/exit timing and behavioral response.",
+  "exploratory_up_gain_mean_of_medians": 0.017710629268370453,
+  "additional_seed_up_gain_median": 0.018914912707630682,
+  "equity_gold": 500,
+  "reference_gain": 0.018,
+  "examples": [
+    {
+      "leverage": 1,
+      "notional_gold": 500,
+      "gross_profit_full_1_8pct": 9.0,
+      "gross_profit_capture_0_9pct": 4.5
+    },
+    {
+      "leverage": 5,
+      "notional_gold": 2500,
+      "gross_profit_full_1_8pct": 45.0,
+      "gross_profit_capture_0_9pct": 22.5
+    },
+    {
+      "leverage": 10,
+      "notional_gold": 5000,
+      "gross_profit_full_1_8pct": 90.0,
+      "gross_profit_capture_0_9pct": 45.0
+    }
+  ],
+  "initial_pool_fee0_buy_impact": [
+    {
+      "gold_in": 500,
+      "post_price_change": 0.0020009999999996975
+    },
+    {
+      "gold_in": 1000,
+      "post_price_change": 0.0040039999999998965
+    },
+    {
+      "gold_in": 1500,
+      "post_price_change": 0.006008999999999709
+    },
+    {
+      "gold_in": 2500,
+      "post_price_change": 0.010024999999999729
+    },
+    {
+      "gold_in": 5000,
+      "post_price_change": 0.020100000000000007
+    }
+  ],
+  "note": "Entry price impact is not itself a round-trip loss. Post-entry robot response is not simulated here; a5000gold buy shifts the mark about2.01%, comparable with the no-player wave."
+}

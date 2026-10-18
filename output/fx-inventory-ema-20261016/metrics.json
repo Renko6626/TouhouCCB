@@ -1,0 +1,378 @@
+{
+  "baseline": {
+    "20261029": {
+      "fills_per_minute": 5.324822695035461,
+      "cycle_minutes": 48.25,
+      "cycle_n": 55,
+      "up_minutes": 26.583333333333332,
+      "up_gain": 0.026258584246182437,
+      "cycle1pct_minutes": 23.166666666666668,
+      "range30": 0.021953871581496455,
+      "return10m_std": 0.00927830938097888,
+      "gap_rms": 0.01724920165976176,
+      "mean_abs_target": 312.49147776259446,
+      "inventory_fills_per_minute": 1.173049645390071,
+      "inventory_volume_share": 0.06161481652942433,
+      "volume_per_minute": 270.97257079503544,
+      "clipped_fraction": 0.020424298326525234,
+      "final_return": 0.01777866392284122,
+      "role_volume_per_minute": {
+        "random": 217.40856045460993,
+        "inventory": 16.695925234042555,
+        "short": 36.86808510638298
+      },
+      "inventory_final_net": -953.145077
+    },
+    "20261030": {
+      "fills_per_minute": 5.18581560283688,
+      "cycle_minutes": 49.833333333333336,
+      "cycle_n": 48,
+      "up_minutes": 28.166666666666668,
+      "up_gain": 0.02616819747964838,
+      "cycle1pct_minutes": 23.25,
+      "range30": 0.01987790192160695,
+      "return10m_std": 0.00818260278681365,
+      "gap_rms": 0.011773916521340353,
+      "mean_abs_target": 211.66795516251344,
+      "inventory_fills_per_minute": 1.1517730496453902,
+      "inventory_volume_share": 0.06423022810598938,
+      "volume_per_minute": 253.966842064539,
+      "clipped_fraction": 0.023413181756665312,
+      "final_return": -0.011428953199383196,
+      "role_volume_per_minute": {
+        "random": 216.55236620780144,
+        "inventory": 16.31234819716312,
+        "short": 21.102127659574467
+      },
+      "inventory_final_net": -205.404545
+    },
+    "20261031": {
+      "fills_per_minute": 5.200709219858156,
+      "cycle_minutes": 42.166666666666664,
+      "cycle_n": 59,
+      "up_minutes": 16.458333333333336,
+      "up_gain": 0.02449011274011681,
+      "cycle1pct_minutes": 22.833333333333332,
+      "range30": 0.019437477469191607,
+      "return10m_std": 0.007936450526344308,
+      "gap_rms": 0.016905627192585104,
+      "mean_abs_target": 292.9030146579739,
+      "inventory_fills_per_minute": 1.2156028368794327,
+      "inventory_volume_share": 0.062478461803765296,
+      "volume_per_minute": 251.4924134361702,
+      "clipped_fraction": 0.03019728895450275,
+      "final_return": 0.00035512665871784144,
+      "role_volume_per_minute": {
+        "random": 214.67742662978725,
+        "inventory": 15.712859146808512,
+        "short": 21.102127659574467
+      },
+      "inventory_final_net": 409.415872
+    },
+    "20261102": {
+      "fills_per_minute": 5.253900709219858,
+      "cycle_minutes": 43.75,
+      "cycle_n": 54,
+      "up_minutes": 27.291666666666664,
+      "up_gain": 0.030846776458881342,
+      "cycle1pct_minutes": 23.0,
+      "range30": 0.024715322145431488,
+      "return10m_std": 0.010413172297028487,
+      "gap_rms": 0.014076355250358588,
+      "mean_abs_target": 237.89421230923048,
+      "inventory_fills_per_minute": 1.1602836879432623,
+      "inventory_volume_share": 0.06491643451479834,
+      "volume_per_minute": 269.5223926460993,
+      "clipped_fraction": 0.030975804307365063,
+      "final_return": -0.017234997654215434,
+      "role_volume_per_minute": {
+        "random": 212.7323428723404,
+        "inventory": 17.49643275248227,
+        "short": 39.293617021276596
+      },
+      "inventory_final_net": -404.039466
+    }
+  },
+  "ema5": {
+    "20261029": {
+      "fills_per_minute": 5.484397163120567,
+      "cycle_minutes": 44.75,
+      "cycle_n": 54,
+      "up_minutes": 14.458333333333332,
+      "up_gain": 0.026111930808660255,
+      "cycle1pct_minutes": 20.708333333333336,
+      "range30": 0.023919000714122236,
+      "return10m_std": 0.009901691845351987,
+      "gap_rms": 0.005931871122904273,
+      "mean_abs_target": 108.1754592392408,
+      "inventory_fills_per_minute": 1.2042553191489362,
+      "inventory_volume_share": 0.048882439975494386,
+      "volume_per_minute": 284.7737095241134,
+      "clipped_fraction": 0.019959058341862845,
+      "final_return": -0.0025039211275418305,
+      "role_volume_per_minute": {
+        "random": 223.07029703829787,
+        "inventory": 13.92043376241135,
+        "short": 47.782978723404256
+      },
+      "inventory_final_net": 402.814932
+    },
+    "20261030": {
+      "fills_per_minute": 5.287943262411347,
+      "cycle_minutes": 40.291666666666664,
+      "cycle_n": 56,
+      "up_minutes": 17.5,
+      "up_gain": 0.02475855277384309,
+      "cycle1pct_minutes": 21.5,
+      "range30": 0.023687592202781868,
+      "return10m_std": 0.009392386104837405,
+      "gap_rms": 0.00566786932768008,
+      "mean_abs_target": 100.78766318491174,
+      "inventory_fills_per_minute": 1.1595744680851063,
+      "inventory_volume_share": 0.049425371219002305,
+      "volume_per_minute": 278.93764545886523,
+      "clipped_fraction": 0.022968667020711632,
+      "final_return": 0.011921953751625747,
+      "role_volume_per_minute": {
+        "random": 217.3680700617021,
+        "inventory": 13.786596673758867,
+        "short": 47.782978723404256
+      },
+      "inventory_final_net": 35.736798
+    },
+    "20261031": {
+      "fills_per_minute": 5.284397163120567,
+      "cycle_minutes": 47.583333333333336,
+      "cycle_n": 49,
+      "up_minutes": 22.25,
+      "up_gain": 0.025763593039270116,
+      "cycle1pct_minutes": 21.166666666666668,
+      "range30": 0.020192638342566217,
+      "return10m_std": 0.008870430588899449,
+      "gap_rms": 0.005598693254586142,
+      "mean_abs_target": 96.84061543665783,
+      "inventory_fills_per_minute": 1.2319148936170212,
+      "inventory_volume_share": 0.051298469712961245,
+      "volume_per_minute": 263.81516946950353,
+      "clipped_fraction": 0.029726516052318668,
+      "final_return": -0.024854139061400105,
+      "role_volume_per_minute": {
+        "random": 216.32440818014183,
+        "inventory": 13.533314480851065,
+        "short": 33.95744680851064
+      },
+      "inventory_final_net": 403.710579
+    },
+    "20261102": {
+      "fills_per_minute": 5.2858156028368795,
+      "cycle_minutes": 43.83333333333333,
+      "cycle_n": 50,
+      "up_minutes": 14.625,
+      "up_gain": 0.033640689109717625,
+      "cycle1pct_minutes": 26.083333333333332,
+      "range30": 0.023339998501518487,
+      "return10m_std": 0.009863209238215355,
+      "gap_rms": 0.005650277054541511,
+      "mean_abs_target": 99.30758858440987,
+      "inventory_fills_per_minute": 1.1624113475177305,
+      "inventory_volume_share": 0.04858127556367177,
+      "volume_per_minute": 272.68159205035465,
+      "clipped_fraction": 0.030795664816283375,
+      "final_return": -0.03064225059436887,
+      "role_volume_per_minute": {
+        "random": 213.8343724858156,
+        "inventory": 13.247219564539007,
+        "short": 45.6
+      },
+      "inventory_final_net": 143.998963
+    }
+  },
+  "ema10": {
+    "20261029": {
+      "fills_per_minute": 5.4361702127659575,
+      "cycle_minutes": 44.16666666666667,
+      "cycle_n": 50,
+      "up_minutes": 27.375,
+      "up_gain": 0.02637532326359404,
+      "cycle1pct_minutes": 18.125,
+      "range30": 0.022837384477346553,
+      "return10m_std": 0.009260823250396828,
+      "gap_rms": 0.007204884985734084,
+      "mean_abs_target": 130.75005861510536,
+      "inventory_fills_per_minute": 1.1978723404255318,
+      "inventory_volume_share": 0.055922709789293604,
+      "volume_per_minute": 276.42601842127664,
+      "clipped_fraction": 0.020389727706800878,
+      "final_return": 0.021886391456082954,
+      "role_volume_per_minute": {
+        "random": 222.1590157765958,
+        "inventory": 15.45849200638298,
+        "short": 38.808510638297875
+      },
+      "inventory_final_net": 89.618754
+    },
+    "20261030": {
+      "fills_per_minute": 5.221276595744681,
+      "cycle_minutes": 44.625,
+      "cycle_n": 48,
+      "up_minutes": 18.291666666666664,
+      "up_gain": 0.024942631294071815,
+      "cycle1pct_minutes": 21.5,
+      "range30": 0.019530327923460437,
+      "return10m_std": 0.007899886729433647,
+      "gap_rms": 0.006347758054137541,
+      "mean_abs_target": 113.52362979111186,
+      "inventory_fills_per_minute": 1.1588652482269504,
+      "inventory_volume_share": 0.054083692283485044,
+      "volume_per_minute": 255.9062020106383,
+      "clipped_fraction": 0.023121387283236993,
+      "final_return": 0.026639875672744617,
+      "role_volume_per_minute": {
+        "random": 217.3254241957447,
+        "inventory": 13.840352282978724,
+        "short": 24.740425531914894
+      },
+      "inventory_final_net": -82.549607
+    },
+    "20261031": {
+      "fills_per_minute": 5.290070921985816,
+      "cycle_minutes": 51.833333333333336,
+      "cycle_n": 51,
+      "up_minutes": 17.833333333333332,
+      "up_gain": 0.023930852961435933,
+      "cycle1pct_minutes": 18.583333333333332,
+      "range30": 0.02139378198338538,
+      "return10m_std": 0.010089288970592773,
+      "gap_rms": 0.007001158105971075,
+      "mean_abs_target": 120.0533765467063,
+      "inventory_fills_per_minute": 1.2283687943262411,
+      "inventory_volume_share": 0.056616882835914234,
+      "volume_per_minute": 269.0671449113475,
+      "clipped_fraction": 0.030087094220110848,
+      "final_return": -0.013702938399344888,
+      "role_volume_per_minute": {
+        "random": 216.23765721205672,
+        "inventory": 15.233743018439718,
+        "short": 37.59574468085106
+      },
+      "inventory_final_net": 153.400613
+    },
+    "20261102": {
+      "fills_per_minute": 5.258156028368794,
+      "cycle_minutes": 49.95833333333333,
+      "cycle_n": 48,
+      "up_minutes": 22.333333333333332,
+      "up_gain": 0.02757607856997435,
+      "cycle1pct_minutes": 21.0,
+      "range30": 0.019901082487139822,
+      "return10m_std": 0.00885498039830821,
+      "gap_rms": 0.00666260410577972,
+      "mean_abs_target": 124.0059939154424,
+      "inventory_fills_per_minute": 1.1624113475177305,
+      "inventory_volume_share": 0.05666335154680638,
+      "volume_per_minute": 262.4369109617021,
+      "clipped_fraction": 0.030693595535477014,
+      "final_return": -0.029097168268848117,
+      "role_volume_per_minute": {
+        "random": 214.09401559148938,
+        "inventory": 14.870554944680851,
+        "short": 33.47234042553192
+      },
+      "inventory_final_net": 153.673905
+    }
+  },
+  "ema30": {
+    "20261029": {
+      "fills_per_minute": 5.399290780141844,
+      "cycle_minutes": 43.08333333333333,
+      "cycle_n": 56,
+      "up_minutes": 14.25,
+      "up_gain": 0.028557742726781576,
+      "cycle1pct_minutes": 20.791666666666664,
+      "range30": 0.02040246598870485,
+      "return10m_std": 0.00916470528995054,
+      "gap_rms": 0.010612373606648538,
+      "mean_abs_target": 189.96362764265413,
+      "inventory_fills_per_minute": 1.1907801418439716,
+      "inventory_volume_share": 0.05794352197319626,
+      "volume_per_minute": 273.72109648652486,
+      "clipped_fraction": 0.0204002079002079,
+      "final_return": 0.017573676408175753,
+      "role_volume_per_minute": {
+        "random": 220.5075406283688,
+        "inventory": 15.860364368794327,
+        "short": 37.353191489361706
+      },
+      "inventory_final_net": -223.844765
+    },
+    "20261030": {
+      "fills_per_minute": 5.225531914893617,
+      "cycle_minutes": 42.25,
+      "cycle_n": 58,
+      "up_minutes": 21.208333333333332,
+      "up_gain": 0.02452699343774012,
+      "cycle1pct_minutes": 22.5,
+      "range30": 0.02077666443738782,
+      "return10m_std": 0.009193272339656257,
+      "gap_rms": 0.00837890078456383,
+      "mean_abs_target": 149.58582405225712,
+      "inventory_fills_per_minute": 1.1602836879432623,
+      "inventory_volume_share": 0.06362879869791556,
+      "volume_per_minute": 259.6272533248227,
+      "clipped_fraction": 0.023233951114692453,
+      "final_return": 0.01747857317000978,
+      "role_volume_per_minute": {
+        "random": 217.39684478865246,
+        "inventory": 16.51977023829787,
+        "short": 25.71063829787234
+      },
+      "inventory_final_net": -171.042062
+    },
+    "20261031": {
+      "fills_per_minute": 5.323404255319149,
+      "cycle_minutes": 42.54166666666667,
+      "cycle_n": 50,
+      "up_minutes": 19.5,
+      "up_gain": 0.024880669087293472,
+      "cycle1pct_minutes": 22.833333333333336,
+      "range30": 0.019684689755308828,
+      "return10m_std": 0.008714119444660821,
+      "gap_rms": 0.01092595610726106,
+      "mean_abs_target": 168.60779253539042,
+      "inventory_fills_per_minute": 1.2397163120567376,
+      "inventory_volume_share": 0.06491354226809495,
+      "volume_per_minute": 269.83949898085103,
+      "clipped_fraction": 0.03029110936270653,
+      "final_return": -0.007434697474320684,
+      "role_volume_per_minute": {
+        "random": 218.12326125815602,
+        "inventory": 17.51623772269504,
+        "short": 34.2
+      },
+      "inventory_final_net": 352.327496
+    },
+    "20261102": {
+      "fills_per_minute": 5.231205673758865,
+      "cycle_minutes": 51.666666666666664,
+      "cycle_n": 43,
+      "up_minutes": 28.75,
+      "up_gain": 0.029609154010412975,
+      "cycle1pct_minutes": 23.833333333333332,
+      "range30": 0.02153032689743003,
+      "return10m_std": 0.01001333946350994,
+      "gap_rms": 0.009042735967924518,
+      "mean_abs_target": 150.4308548323281,
+      "inventory_fills_per_minute": 1.1673758865248227,
+      "inventory_volume_share": 0.06253525517154743,
+      "volume_per_minute": 254.0349840432624,
+      "clipped_fraction": 0.03124165554072096,
+      "final_return": -0.030862725371143207,
+      "role_volume_per_minute": {
+        "random": 213.89352234468083,
+        "inventory": 15.886142549645392,
+        "short": 24.25531914893617
+      },
+      "inventory_final_net": 127.993911
+    }
+  }
+}

@@ -5,6 +5,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](./LICENSE)
 
+> **活动玩法与数值设计：[FX 玩法文档](./docs/fx-gameplay-design.md)** — 一周预热、6 小时活动、100 万本币侧交易池，以及央行事件和机器人波动的测算依据。
+
+> **行情研究：[统计特征与指标说明](./MARKET_STATISTICS.md)**，包括 Chiarella 等人的复现结果及我们采用的诊断方法。
+
+> **机器人研究进展：[参数网格与复现记录](./FX_RESEARCH.md)**，覆盖三因子、窗口、人数、订单规模与独立指标审查。
+
 > ⚠️ **同人项目声明**：本项目为基于东方 Project 的非官方、非营利同人创作，与 ZUN 及上海爱丽丝幻乐团无任何官方关联。东方 Project 相关角色名称与世界观版权归 ZUN 所有，依其二次创作规约（仅限非商业用途）使用。MIT 许可证仅覆盖本仓库的**源代码**，不授予任何东方 Project IP 或美术/音频素材的权利。
 
 > 📖 **性质说明（研究 / 学习项目）**：本项目是一个非商业的**社团趣味活动 + 研究学习项目**——借一个东方主题的游戏直观演示并帮助理解**预测市场**、**LMSR 自动做市**、滑点、无风险套利等机制。代码与文档中的「买入 / 卖出 / 杠杆 / 利息 / 清算」等金融术语**仅作学习类比与游戏规则说明，不构成任何投资建议**；站内积分（「金圆券」）是纯虚拟数值，不代表人民币或任何真实货币。完整法律免责声明见规则书末尾的「免责声明」章节（`docs/latex/rulebook.tex` / `docs/latex/rulebook.pdf`）。
@@ -67,6 +73,8 @@ loadtest/        k6 压测脚本
 
 | 文档 | 内容 |
 |------|------|
+| [docs/fx-gameplay-design.md](./docs/fx-gameplay-design.md) | FX 活动玩法与数值设计，区分已确认参数和待试跑建议 |
+| [research/fx/README.md](./research/fx/README.md) | FX 离线研究壳子：AMM、机器人基类、模拟时钟与央行注资 |
 | [docs/architecture.md](./docs/architecture.md) | 系统架构总览 |
 | [docs/deploy.md](./docs/deploy.md) | 生产部署 |
 | [docs/development.md](./docs/development.md) | 本地开发环境 |

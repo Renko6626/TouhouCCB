@@ -1,0 +1,9 @@
+{
+  "selected_candidate": "memory2_noise72_exit2_rate07",
+  "additional_validation_paths": 1,
+  "finite_series": true,
+  "assets_conserved": true,
+  "wallets_nonnegative": true,
+  "wealth_and_trade_counts_verified": true,
+  "original_frozen_config_unchanged": true
+}

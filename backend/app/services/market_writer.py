@@ -110,6 +110,12 @@ class OpOutcome:
     candle_rows: list[dict] = field(default_factory=list)
     tick_trade: Optional[dict] = None        # 本笔成交 payload，投喂 tick 帧
     tick_settlement: Optional[dict] = None   # 仅 resolve：{"winning_outcome_id", "settled_at"}
+    account_changes: Optional[list[tuple[int, int]]] = None
+
+
+@dataclass(frozen=True)
+class _ReloadCmd:
+    market_id: int
 
 
 class MarketWriter:
@@ -123,6 +129,7 @@ class MarketWriter:
         self._market_by_outcome: dict[int, int] = {}
         self._ops: dict[type, Any] = {}
         self._enabled = False
+        self._bootstrap_lock = asyncio.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -152,6 +159,8 @@ class MarketWriter:
 
     async def stop(self) -> None:
         self._enabled = False
+        for market_id in self._states:
+            self._invalidate_read_state(market_id)
         for t in self._tasks.values():
             t.cancel()
         for t in list(self._tasks.values()):
@@ -164,21 +173,61 @@ class MarketWriter:
         self._states.clear()
         self._market_by_outcome.clear()
 
+    @staticmethod
+    def _invalidate_read_state(market_id: int) -> None:
+        from app.schemas.trading_context import GroupKey
+        from app.services.trading_prices import REGISTRY
+        REGISTRY.invalidate(GroupKey(product="lmsr", id=market_id))
+
+    def _install_read_state(self, st: MarketState) -> None:
+        from app.services.market_read_state import LmsrReadState
+        from app.services.trading_prices import REGISTRY
+        try:
+            REGISTRY.install_committed(LmsrReadState(
+                id=st.market_id, b=st.b, outcome_ids=tuple(st.outcome_ids),
+                q_dec=tuple(st.q_dec), status=st.status, closes_at=st.closes_at,
+            ))
+        except BaseException:
+            self._invalidate_read_state(st.market_id)
+            logger.exception(
+                "LMSR database committed; snapshot installation failed: market_id=%d",
+                st.market_id,
+            )
+            raise
+
     async def register_market(self, market_id: int) -> None:
-        async with async_session_maker() as s:
-            m = await s.get(Market, market_id)
-            if m is None:
+        if market_id in self._queues:
+            await self.reload_state(market_id)
+            return
+        # New IDs bootstrap once; existing IDs reload through their consumer.
+        async with self._bootstrap_lock:
+            if market_id not in self._queues:
+                self._invalidate_read_state(market_id)
+                try:
+                    async with async_session_maker() as s:
+                        m = await s.get(Market, market_id)
+                        if m is None:
+                            return
+                        st = await _load_one(s, m)
+                    self._install(st)
+                except BaseException:
+                    self._invalidate_read_state(market_id)
+                    raise
                 return
-            st = await _load_one(s, m)
-        self._install(st)
+        await self.reload_state(market_id)
 
     async def reload_state(self, market_id: int) -> None:
-        """自愈：从 DB 镜像重读 q / status。失败则标记 unavailable。"""
+        """Serialize external reloads with every command for this market."""
+        await self.submit(_ReloadCmd(market_id))
+
+    async def _reload_state(self, market_id: int) -> None:
+        """Reload the whole committed pricing source; failure discards old reads."""
+        self._invalidate_read_state(market_id)
+        existing = self._states.get(market_id)
+        if existing is not None:
+            existing.unavailable = True
         try:
-            # ring 要从 OutcomeCandle 镜像重建，而 flusher 里 ≤5s 未落库的行不会再回到
-            # 新 ring——不先 flush，ring 与 DB 永久分叉，且 /history/ 防线 2 读 ring 的
-            # 窗口段会被 nginx 30d immutable 缓存固化（审计 M5）。flush 失败会回炉并
-            # 返回 0，此时仍继续重建（与旧行为相同），只是会少那几笔。
+            # Flush before rebuilding rings so pending candles are preserved.
             from app.services.candle_flusher import CANDLE_FLUSHER
             if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
                 logger.error("reload_state: candle flush failed, ring may miss pending rows")
@@ -188,24 +237,37 @@ class MarketWriter:
                     raise RuntimeError(f"market {market_id} vanished")
                 st_new = await _load_one(s, m)
             st = self._states[market_id]
+            # Prices were derived with st_new.b: keep that exact source and
+            # outcome ordering, rather than pairing new q with old metadata.
+            for oid in st.outcome_ids:
+                self._market_by_outcome.pop(oid, None)
+            st.b = st_new.b
+            st.outcome_ids, st.outcome_labels = st_new.outcome_ids, st_new.outcome_labels
             st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
             st.status, st.closes_at = st_new.status, st_new.closes_at
-            st.rings = st_new.rings   # 自愈同样从镜像重建 ring（resync 保证镜像可信）
+            st.rings = st_new.rings
+            for oid in st.outcome_ids:
+                self._market_by_outcome[oid] = market_id
+            self._install_read_state(st)
             st.unavailable = False
             logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
         except Exception:
-            # .get() 防 KeyError：stop() 可能已清空 _states；KeyError 穿出会静默
-            # 杀死 consumer task，让该市场所有后续请求硬等 10s 后 503 且无日志
-            # （final review MIN-3）
+            # stop() may already have cleared _states; do not kill consumer.
             st = self._states.get(market_id)
             if st is not None:
                 st.unavailable = True
+            self._invalidate_read_state(market_id)
             logger.critical(
                 "market_writer reload FAILED, market %d marked unavailable", market_id,
                 exc_info=True,
             )
 
     def _install(self, st: MarketState) -> None:
+        self._install_read_state(st)
+        previous = self._states.get(st.market_id)
+        if previous is not None:
+            for oid in previous.outcome_ids:
+                self._market_by_outcome.pop(oid, None)
         self._states[st.market_id] = st
         for oid in st.outcome_ids:
             self._market_by_outcome[oid] = st.market_id
@@ -219,15 +281,12 @@ class MarketWriter:
         self._ops[cmd_type] = op
 
     async def submit(self, cmd) -> Any:
-        from app.services.credit.gates import GATES
-        if GATES.held_keys_by_current_task():
-            raise RuntimeError("Release all symbol gates before awaiting a writer command")
         market_id = cmd.market_id
         q = self._queues.get(market_id)
         st = self._states.get(market_id)
         if q is None or st is None:
             raise HTTPException(status_code=400, detail="市场当前不可交易")
-        if st.unavailable:
+        if st.unavailable and not isinstance(cmd, _ReloadCmd):
             raise HTTPException(status_code=503, detail="市场状态异常，暂停服务，请稍后重试")
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         try:
@@ -251,10 +310,20 @@ class MarketWriter:
                 continue
             st = self._states[market_id]
             try:
+                if isinstance(cmd, _ReloadCmd):
+                    # Maintenance must remain available when economic writes are
+                    # blocked. Recovery calls the same private loader directly.
+                    await self._reload_state(market_id)
+                    if not fut.done():
+                        fut.set_result(None)
+                    continue
                 if st.unavailable:
                     raise HTTPException(status_code=503, detail="市场状态异常，暂停服务")
                 op = self._ops[type(cmd)]
-                outcome: OpOutcome = await self._execute_gated(st, cmd, op)
+                outcome: OpOutcome = await self._execute_command(st, cmd, op)
+                if outcome.account_changes is not None:
+                    from app.services.account_events import publish_accounts
+                    publish_accounts(outcome.account_changes, "lmsr")
                 # ── tick 帧投喂（spec § 5.1）──
                 prices_8dp = [float(quantize_price(p)) for p in st.prices]
                 if outcome.tick_trade is not None:
@@ -285,45 +354,21 @@ class MarketWriter:
                 if not fut.done():
                     fut.set_exception(HTTPException(
                         status_code=500, detail="交易处理异常，结果未知，请刷新后确认"))
-                await self.reload_state(market_id)
+                await self._reload_state(market_id)
 
-    async def _execute_gated(self, st, cmd, op):
-        from app.services.credit.gates import GATES
-        from app.services.credit.keys import GroupKey
-        from app.services.credit.flags import get_flags
+    async def _execute_command(self, st, cmd, op):
         from app.services.credit.ownership import OWNERSHIP
-        from app.services.credit.risk import discover_dependencies
-        from app.services.writer_ops import CREDIT_DEPS, CreditRetry
-        target = GroupKey("lmsr", int(st.market_id))
-        deps = None
-        # First attempt is target-only and adds no SQL for debt-free accounts.
-        for attempt in range(get_flags().credit_risk_retry_limit + 2):
-            try:
-                async with GATES.hold(exclusive=[target], shared=deps.groups if deps else ()):
-                    OWNERSHIP.require_writes()
-                    token = CREDIT_DEPS.set(deps)
-                    try:
-                        outcome = await op(st, cmd)
-                        try:
-                            self._apply_outcome(st, outcome)
-                        except BaseException:
-                            st.unavailable = True
-                            raise
-                    except (CreditRetry, HTTPException):
-                        raise
-                    except BaseException:
-                        # Isolate before releasing gates; recovery runs outside this scope.
-                        st.unavailable = True
-                        raise
-                    finally:
-                        CREDIT_DEPS.reset(token)
-                    return outcome
-            except CreditRetry:
-                if attempt >= get_flags().credit_risk_retry_limit + 1:
-                    raise HTTPException(409, "version_conflict")
-                async with async_session_maker() as session:
-                    deps = await discover_dependencies(session, cmd.user_id, extra_groups=[target])
-        raise HTTPException(409, "version_conflict")
+        OWNERSHIP.require_writes()
+        try:
+            outcome = await op(st, cmd)
+            self._apply_outcome(st, outcome)
+            return outcome
+        except HTTPException:
+            raise
+        except BaseException:
+            st.unavailable = True
+            self._invalidate_read_state(st.market_id)
+            raise
 
     def _apply_outcome(self, st, outcome):
         # ── commit 已成功（op 返回即视为已 commit）→ apply 内存（spec § 4.4）──
@@ -345,6 +390,9 @@ class MarketWriter:
                     ring.merge_row(row)
             if outcome.tick_trade is not None:
                 st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
+
+        # The consumer publishes account hints only after this complete install.
+        self._install_read_state(st)
 
     def _merge_candles(self, rows: list[dict]) -> None:
         from app.services.candle_flusher import CANDLE_FLUSHER

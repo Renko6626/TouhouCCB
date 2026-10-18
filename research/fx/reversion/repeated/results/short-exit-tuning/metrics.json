@@ -1,0 +1,3134 @@
+[
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.015604478880672377,
+      "p10": 0.012735920597832115,
+      "p90": 0.02142202251632124
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5075,
+      "mean": -8.505597909688381e-07,
+      "std": 0.0009477998811795108,
+      "skew": -0.08247051336827715,
+      "excess_kurtosis": 4.5931098972138145
+    },
+    "mean_intensity": 0.8473612509325725,
+    "peak_intensity": 1.6289470240392145,
+    "max_arrivals": 6,
+    "trades": 6739,
+    "clipped_fraction": 0.040878673261565315,
+    "executed_fraction": 0.9595744448704866,
+    "holding_median_minutes": 9.333333333333334,
+    "holding_mean_minutes": 11.095029239766083,
+    "short_realized_per_account": -56.8225366,
+    "short_mean_wealth": 9900.06194053734,
+    "short_mean_vs_hold": -57.59042120963568,
+    "short_win_fraction": 0.4280701754385965,
+    "signed_acf_lag1": -0.04993317305172022,
+    "abs_acf_5_30m": 0.0004952002444095494,
+    "sq_acf_5_30m": -0.0008774240095597857,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 3,
+    "events": [],
+    "short_completed": 285,
+    "short_completed_per_account": 57.0,
+    "holding_p90_minutes": 22.366666666666664,
+    "short_pnl_per_completed": -0.9968866070175438,
+    "stop_loss_fraction": 0.45263157894736844,
+    "stop_loss_per_account_hour": 1.8576,
+    "trades_per_minute": 8.0868,
+    "short_trades_per_minute": 0.6876,
+    "exits": {
+      "take_profit": {
+        "count": 92,
+        "pnl": 635.010759
+      },
+      "stop_loss": {
+        "count": 129,
+        "pnl": -890.88467
+      },
+      "trailing": {
+        "count": 64,
+        "pnl": -28.238772
+      }
+    },
+    "unfinished_max_age_minutes": 9.083333333333334,
+    "variant": "baseline",
+    "scenario": "normal",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-normal-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.015422015209751816,
+      "p10": 0.012908913855822943,
+      "p90": 0.02079249164550978
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5122,
+      "mean": -1.4930900325693885e-06,
+      "std": 0.0009342219345620622,
+      "skew": -0.061075085543840134,
+      "excess_kurtosis": 4.339530299654792
+    },
+    "mean_intensity": 0.8494363521551975,
+    "peak_intensity": 1.6428730364164206,
+    "max_arrivals": 6,
+    "trades": 6664,
+    "clipped_fraction": 0.04844392248972402,
+    "executed_fraction": 0.9511631287009323,
+    "holding_median_minutes": 9.25,
+    "holding_mean_minutes": 11.139568764568764,
+    "short_realized_per_account": -27.8216876,
+    "short_mean_wealth": 9900.01480899804,
+    "short_mean_vs_hold": -25.885255347653583,
+    "short_win_fraction": 0.458041958041958,
+    "signed_acf_lag1": -0.032639175572765806,
+    "abs_acf_5_30m": 0.0032859411891237823,
+    "sq_acf_5_30m": 0.0026610165491590615,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 286,
+    "short_completed_per_account": 57.2,
+    "holding_p90_minutes": 23.291666666666668,
+    "short_pnl_per_completed": -0.4863931398601399,
+    "stop_loss_fraction": 0.4090909090909091,
+    "stop_loss_per_account_hour": 1.6847999999999999,
+    "trades_per_minute": 7.9967999999999995,
+    "short_trades_per_minute": 0.6911999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 99,
+        "pnl": 690.946937
+      },
+      "stop_loss": {
+        "count": 117,
+        "pnl": -791.003842
+      },
+      "trailing": {
+        "count": 70,
+        "pnl": -39.051533
+      }
+    },
+    "unfinished_max_age_minutes": 33.166666666666664,
+    "variant": "baseline",
+    "scenario": "normal",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-normal-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.01606476539533763,
+      "p10": 0.012878804757161548,
+      "p90": 0.020426730182287398
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5367,
+      "mean": -2.7873758013787643e-06,
+      "std": 0.0009065405556710893,
+      "skew": -0.08422722822493849,
+      "excess_kurtosis": 5.339238074202598
+    },
+    "mean_intensity": 0.790675017669787,
+    "peak_intensity": 1.1304342443017998,
+    "max_arrivals": 7,
+    "trades": 6227,
+    "clipped_fraction": 0.04461901021209741,
+    "executed_fraction": 0.95864978051221,
+    "holding_median_minutes": 9.625,
+    "holding_mean_minutes": 13.179,
+    "short_realized_per_account": -72.78194959999999,
+    "short_mean_wealth": 9791.102844386516,
+    "short_mean_vs_hold": -71.45280955777162,
+    "short_win_fraction": 0.388,
+    "signed_acf_lag1": -0.023092530197982953,
+    "abs_acf_5_30m": -0.001651642336692141,
+    "sq_acf_5_30m": -0.001796724693075998,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 3,
+    "events": [],
+    "short_completed": 250,
+    "short_completed_per_account": 50.0,
+    "holding_p90_minutes": 32.36666666666667,
+    "short_pnl_per_completed": -1.455638992,
+    "stop_loss_fraction": 0.472,
+    "stop_loss_per_account_hour": 1.6992,
+    "trades_per_minute": 7.4723999999999995,
+    "short_trades_per_minute": 0.6036,
+    "exits": {
+      "take_profit": {
+        "count": 75,
+        "pnl": 496.999441
+      },
+      "stop_loss": {
+        "count": 118,
+        "pnl": -822.078414
+      },
+      "trailing": {
+        "count": 57,
+        "pnl": -38.830775
+      }
+    },
+    "unfinished_max_age_minutes": 8.916666666666666,
+    "variant": "baseline",
+    "scenario": "normal",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-normal-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.020303104002326093,
+      "p10": 0.0132351418297559,
+      "p90": 0.055985907163044496
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4141,
+      "mean": 1.3582695901399593e-06,
+      "std": 0.0010336303205127613,
+      "skew": 0.23876713625746868,
+      "excess_kurtosis": 7.780099529107019
+    },
+    "mean_intensity": 1.2018260167739159,
+    "peak_intensity": 5.464886259432516,
+    "max_arrivals": 12,
+    "trades": 9556,
+    "clipped_fraction": 0.04647353874500972,
+    "executed_fraction": 0.9547376107188963,
+    "holding_median_minutes": 5.083333333333333,
+    "holding_mean_minutes": 7.37929061784897,
+    "short_realized_per_account": -127.4320252,
+    "short_mean_wealth": 9401.147550415122,
+    "short_mean_vs_hold": -127.49165719999837,
+    "short_win_fraction": 0.4576659038901602,
+    "signed_acf_lag1": -0.024743529590226732,
+    "abs_acf_5_30m": 0.008268740623901406,
+    "sq_acf_5_30m": 0.0027640426207695594,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.25,
+        "sustained_half_start_minutes": 1.25,
+        "price_10m": 5.012664272251411,
+        "retraced_10m": 0.597847265346204,
+        "arrivals_100s": 29,
+        "trades_100s": 27,
+        "mean_intensity_100s": 1.782868659912884
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.166666666666667,
+        "sustained_half_start_minutes": 65.66666666666667,
+        "price_10m": 4.978494162443098,
+        "retraced_10m": 0.42524080163531885,
+        "arrivals_100s": 30,
+        "trades_100s": 28,
+        "mean_intensity_100s": 2.1802218001669664
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.0833333333333335,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.8885612643565635,
+        "retraced_10m": 0.39089245841892256,
+        "arrivals_100s": 48,
+        "trades_100s": 42,
+        "mean_intensity_100s": 2.196037559851705
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.5,
+        "sustained_half_start_minutes": 3.5,
+        "price_10m": 4.984283359868351,
+        "retraced_10m": 0.5990818959317549,
+        "arrivals_100s": 52,
+        "trades_100s": 46,
+        "mean_intensity_100s": 2.2809911879571794
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.6666666666666667,
+        "sustained_half_start_minutes": 4.5,
+        "price_10m": 5.172203589599209,
+        "retraced_10m": 0.5610413048875144,
+        "arrivals_100s": 55,
+        "trades_100s": 50,
+        "mean_intensity_100s": 2.764610030602374
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.416666666666667,
+        "sustained_half_start_minutes": 4.416666666666667,
+        "price_10m": 5.087679438687853,
+        "retraced_10m": 0.491250176702238,
+        "arrivals_100s": 50,
+        "trades_100s": 40,
+        "mean_intensity_100s": 2.3649940508482206
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.811467361350574,
+        "retraced_10m": 0.1539476679085377,
+        "arrivals_100s": 98,
+        "trades_100s": 79,
+        "mean_intensity_100s": 4.535690060045897
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.8333333333333333,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.6198572593779526,
+        "retraced_10m": 0.40453342667240133,
+        "arrivals_100s": 48,
+        "trades_100s": 43,
+        "mean_intensity_100s": 2.9170974500235958
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.708047287177998,
+        "retraced_10m": 0.3256098508197382,
+        "arrivals_100s": 46,
+        "trades_100s": 42,
+        "mean_intensity_100s": 1.8797862139312034
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.43882720536918113,
+    "mean_trades_100s": 44.111111111111114,
+    "mean_intensity_100s": 2.544699668148892,
+    "half_reached": 7,
+    "half_sustained": 5,
+    "short_completed": 437,
+    "short_completed_per_account": 87.4,
+    "holding_p90_minutes": 16.033333333333335,
+    "short_pnl_per_completed": -1.4580323249427918,
+    "stop_loss_fraction": 0.448512585812357,
+    "stop_loss_per_account_hour": 2.8224,
+    "trades_per_minute": 11.4672,
+    "short_trades_per_minute": 1.0535999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 169,
+        "pnl": 1583.976538
+      },
+      "stop_loss": {
+        "count": 196,
+        "pnl": -2195.523419
+      },
+      "trailing": {
+        "count": 72,
+        "pnl": -25.613245000000003
+      }
+    },
+    "unfinished_max_age_minutes": 21.25,
+    "variant": "baseline",
+    "scenario": "shock",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-shock-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.018791132729251526,
+      "p10": 0.01250068189955687,
+      "p90": 0.05447243919549276
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.427,
+      "mean": 1.921930692317965e-06,
+      "std": 0.0009893366953011133,
+      "skew": -0.03913616611793011,
+      "excess_kurtosis": 5.591240200092642
+    },
+    "mean_intensity": 1.1824551063697002,
+    "peak_intensity": 8.822895860056784,
+    "max_arrivals": 10,
+    "trades": 9297,
+    "clipped_fraction": 0.04632066533319297,
+    "executed_fraction": 0.9536530768863123,
+    "holding_median_minutes": 4.75,
+    "holding_mean_minutes": 7.537212984956453,
+    "short_realized_per_account": -28.320263,
+    "short_mean_wealth": 9525.88751759654,
+    "short_mean_vs_hold": -28.34994359999837,
+    "short_win_fraction": 0.42992874109263657,
+    "signed_acf_lag1": -0.009911049798065555,
+    "abs_acf_5_30m": 0.007571459572403777,
+    "sq_acf_5_30m": 0.002556602026792191,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.75,
+        "sustained_half_start_minutes": 5.083333333333333,
+        "price_10m": 5.097636090045343,
+        "retraced_10m": 0.40671133657184666,
+        "arrivals_100s": 41,
+        "trades_100s": 39,
+        "mean_intensity_100s": 1.895150852989529
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.75,
+        "sustained_half_start_minutes": 4.666666666666667,
+        "price_10m": 5.014275529672682,
+        "retraced_10m": 0.575075529371062,
+        "arrivals_100s": 30,
+        "trades_100s": 30,
+        "mean_intensity_100s": 1.6537325026030718
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 26.0,
+        "sustained_half_start_minutes": 75.33333333333333,
+        "price_10m": 4.768552598345328,
+        "retraced_10m": 0.28255035611128604,
+        "arrivals_100s": 64,
+        "trades_100s": 57,
+        "mean_intensity_100s": 3.876348040074359
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.0223187746547335,
+        "retraced_10m": 0.29169065643307424,
+        "arrivals_100s": 63,
+        "trades_100s": 53,
+        "mean_intensity_100s": 3.729764125664919
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 0.75,
+        "sustained_half_start_minutes": 0.75,
+        "price_10m": 5.10061089569098,
+        "retraced_10m": 0.6464347967991035,
+        "arrivals_100s": 56,
+        "trades_100s": 53,
+        "mean_intensity_100s": 1.9551028603233782
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.25,
+        "sustained_half_start_minutes": 15.833333333333334,
+        "price_10m": 5.003287591241083,
+        "retraced_10m": 0.39843669242630425,
+        "arrivals_100s": 48,
+        "trades_100s": 42,
+        "mean_intensity_100s": 2.3015807602838754
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.8333333333333333,
+        "sustained_half_start_minutes": 3.1666666666666665,
+        "price_10m": 4.79971540536373,
+        "retraced_10m": 0.5871532278236737,
+        "arrivals_100s": 66,
+        "trades_100s": 60,
+        "mean_intensity_100s": 4.260079405586185
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.25,
+        "sustained_half_start_minutes": 3.9166666666666665,
+        "price_10m": 4.5731255106930915,
+        "retraced_10m": 0.7796786037204374,
+        "arrivals_100s": 100,
+        "trades_100s": 84,
+        "mean_intensity_100s": 6.358638398223526
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.6825245942182105,
+        "retraced_10m": 0.4289587434230585,
+        "arrivals_100s": 45,
+        "trades_100s": 39,
+        "mean_intensity_100s": 2.4127005687538383
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.48852110474220517,
+    "mean_trades_100s": 50.77777777777778,
+    "mean_intensity_100s": 3.1603441682780757,
+    "half_reached": 7,
+    "half_sustained": 7,
+    "short_completed": 421,
+    "short_completed_per_account": 84.2,
+    "holding_p90_minutes": 17.916666666666668,
+    "short_pnl_per_completed": -0.33634516627078387,
+    "stop_loss_fraction": 0.4584323040380047,
+    "stop_loss_per_account_hour": 2.7792,
+    "trades_per_minute": 11.1564,
+    "short_trades_per_minute": 1.0151999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 155,
+        "pnl": 1597.795005
+      },
+      "stop_loss": {
+        "count": 193,
+        "pnl": -1688.016568
+      },
+      "trailing": {
+        "count": 73,
+        "pnl": -51.379751999999996
+      }
+    },
+    "unfinished_max_age_minutes": 25.333333333333332,
+    "variant": "baseline",
+    "scenario": "shock",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-shock-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.020392699053282715,
+      "p10": 0.014601486827469042,
+      "p90": 0.05613238651306658
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.3982,
+      "mean": 9.909862947810016e-07,
+      "std": 0.0010028490124090667,
+      "skew": 0.13540114571338116,
+      "excess_kurtosis": 5.279273602494673
+    },
+    "mean_intensity": 1.2788215993619014,
+    "peak_intensity": 7.777775369994,
+    "max_arrivals": 12,
+    "trades": 10021,
+    "clipped_fraction": 0.04169921875,
+    "executed_fraction": 0.9594993888415321,
+    "holding_median_minutes": 5.083333333333333,
+    "holding_mean_minutes": 7.357253086419752,
+    "short_realized_per_account": -79.5044396,
+    "short_mean_wealth": 9441.503602932187,
+    "short_mean_vs_hold": -70.53317699717445,
+    "short_win_fraction": 0.42824074074074076,
+    "signed_acf_lag1": -0.03320742098710568,
+    "abs_acf_5_30m": 0.01740537269118612,
+    "sq_acf_5_30m": 0.009089589944904266,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.5,
+        "sustained_half_start_minutes": 17.083333333333332,
+        "price_10m": 5.098766298263606,
+        "retraced_10m": 0.5239229776796298,
+        "arrivals_100s": 55,
+        "trades_100s": 49,
+        "mean_intensity_100s": 2.3608472363422193
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.666666666666667,
+        "sustained_half_start_minutes": 14.833333333333334,
+        "price_10m": 4.998502680988719,
+        "retraced_10m": 0.4098645823926995,
+        "arrivals_100s": 56,
+        "trades_100s": 52,
+        "mean_intensity_100s": 2.638489977137705
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 10.75,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.7082081078325695,
+        "retraced_10m": 0.3145184033388105,
+        "arrivals_100s": 120,
+        "trades_100s": 100,
+        "mean_intensity_100s": 5.899525081788044
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 16.5,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.782951804814695,
+        "retraced_10m": 0.3057179202967365,
+        "arrivals_100s": 23,
+        "trades_100s": 22,
+        "mean_intensity_100s": 1.083058528255759
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.1666666666666665,
+        "sustained_half_start_minutes": 3.1666666666666665,
+        "price_10m": 4.948366698633821,
+        "retraced_10m": 0.42319708982678106,
+        "arrivals_100s": 82,
+        "trades_100s": 68,
+        "mean_intensity_100s": 3.4447094904926012
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.967101003342549,
+        "retraced_10m": 0.33836659783807205,
+        "arrivals_100s": 28,
+        "trades_100s": 25,
+        "mean_intensity_100s": 1.5816913558046541
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.756805814972135,
+        "retraced_10m": 0.19991772273180966,
+        "arrivals_100s": 57,
+        "trades_100s": 49,
+        "mean_intensity_100s": 3.117368606173495
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.25,
+        "sustained_half_start_minutes": 10.333333333333334,
+        "price_10m": 4.558717962632979,
+        "retraced_10m": 0.5001420818194743,
+        "arrivals_100s": 116,
+        "trades_100s": 99,
+        "mean_intensity_100s": 5.312056498005018
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.6652637497948595,
+        "retraced_10m": 0.3502694558394263,
+        "arrivals_100s": 59,
+        "trades_100s": 52,
+        "mean_intensity_100s": 2.5757928115939466
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.3739907590848266,
+    "mean_trades_100s": 57.333333333333336,
+    "mean_intensity_100s": 3.1126155095103822,
+    "half_reached": 6,
+    "half_sustained": 4,
+    "short_completed": 432,
+    "short_completed_per_account": 86.4,
+    "holding_p90_minutes": 17.125000000000014,
+    "short_pnl_per_completed": -0.9201902731481482,
+    "stop_loss_fraction": 0.45601851851851855,
+    "stop_loss_per_account_hour": 2.8367999999999998,
+    "trades_per_minute": 12.0252,
+    "short_trades_per_minute": 1.0428,
+    "exits": {
+      "take_profit": {
+        "count": 156,
+        "pnl": 1709.629593
+      },
+      "stop_loss": {
+        "count": 197,
+        "pnl": -2064.181025
+      },
+      "trailing": {
+        "count": 79,
+        "pnl": -42.970766
+      }
+    },
+    "unfinished_max_age_minutes": 41.75,
+    "variant": "baseline",
+    "scenario": "shock",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/population-5s/n20-shock-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.017043450066899963,
+      "p10": 0.013033604628165826,
+      "p90": 0.021775468621436766
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5133,
+      "mean": -1.9603898677079956e-07,
+      "std": 0.0009618942089476664,
+      "skew": -0.04681121529096675,
+      "excess_kurtosis": 4.802454403645999
+    },
+    "mean_intensity": 0.8414959063496568,
+    "peak_intensity": 1.8440631622275017,
+    "max_arrivals": 7,
+    "trades": 6708,
+    "clipped_fraction": 0.040783511182575644,
+    "executed_fraction": 0.9599188388324019,
+    "holding_median_minutes": 7.333333333333333,
+    "holding_mean_minutes": 10.697383390216153,
+    "short_realized_per_account": -50.8412402,
+    "short_mean_wealth": 9939.555044895542,
+    "short_mean_vs_hold": -50.65260731170929,
+    "short_win_fraction": 0.43686006825938567,
+    "signed_acf_lag1": -0.05263063317620453,
+    "abs_acf_5_30m": 0.003259075152953297,
+    "sq_acf_5_30m": 0.0011002712557299948,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 3,
+    "events": [],
+    "short_completed": 293,
+    "short_completed_per_account": 58.6,
+    "holding_p90_minutes": 24.36666666666667,
+    "short_pnl_per_completed": -0.8675979556313993,
+    "stop_loss_fraction": 0.46757679180887374,
+    "stop_loss_per_account_hour": 1.9727999999999999,
+    "trades_per_minute": 8.0496,
+    "short_trades_per_minute": 0.7068,
+    "exits": {
+      "take_profit": {
+        "count": 124,
+        "pnl": 740.5946
+      },
+      "stop_loss": {
+        "count": 137,
+        "pnl": -942.89339
+      },
+      "trailing": {
+        "count": 32,
+        "pnl": -51.907411
+      }
+    },
+    "unfinished_max_age_minutes": 7.166666666666667,
+    "variant": "profit04",
+    "scenario": "normal",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-normal-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.014190247316228194,
+      "p10": 0.009729557535065785,
+      "p90": 0.01927592796250417
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5441,
+      "mean": -1.8353371993689336e-06,
+      "std": 0.000877020280692853,
+      "skew": -0.026763796831009216,
+      "excess_kurtosis": 5.332088015935248
+    },
+    "mean_intensity": 0.7911542409159691,
+    "peak_intensity": 1.1019856228806242,
+    "max_arrivals": 7,
+    "trades": 6184,
+    "clipped_fraction": 0.04445499129884512,
+    "executed_fraction": 0.9579738469250182,
+    "holding_median_minutes": 9.833333333333334,
+    "holding_mean_minutes": 13.19206008583691,
+    "short_realized_per_account": -41.519468,
+    "short_mean_wealth": 9865.994489437857,
+    "short_mean_vs_hold": -43.07563791737266,
+    "short_win_fraction": 0.44206008583690987,
+    "signed_acf_lag1": -0.030873193371255114,
+    "abs_acf_5_30m": 0.00015127421467224934,
+    "sq_acf_5_30m": -0.0006733972901064182,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [],
+    "short_completed": 233,
+    "short_completed_per_account": 46.6,
+    "holding_p90_minutes": 29.816666666666674,
+    "short_pnl_per_completed": -0.8909757081545064,
+    "stop_loss_fraction": 0.4334763948497854,
+    "stop_loss_per_account_hour": 1.4544,
+    "trades_per_minute": 7.4208,
+    "short_trades_per_minute": 0.5651999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 87,
+        "pnl": 501.147286
+      },
+      "stop_loss": {
+        "count": 101,
+        "pnl": -667.929724
+      },
+      "trailing": {
+        "count": 45,
+        "pnl": -40.814902
+      }
+    },
+    "unfinished_max_age_minutes": 46.0,
+    "variant": "profit04",
+    "scenario": "normal",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-normal-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.016511754074701346,
+      "p10": 0.012721058212538813,
+      "p90": 0.02172154546747593
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5209,
+      "mean": -1.074934533372977e-06,
+      "std": 0.0009495236795005498,
+      "skew": -0.1127205680977091,
+      "excess_kurtosis": 4.784127877106844
+    },
+    "mean_intensity": 0.8398804825313516,
+    "peak_intensity": 1.8143060729133498,
+    "max_arrivals": 7,
+    "trades": 6658,
+    "clipped_fraction": 0.04819985304922851,
+    "executed_fraction": 0.9523718854843309,
+    "holding_median_minutes": 7.25,
+    "holding_mean_minutes": 9.926332288401253,
+    "short_realized_per_account": -92.96456859999999,
+    "short_mean_wealth": 9853.877430995877,
+    "short_mean_vs_hold": -92.6636811155422,
+    "short_win_fraction": 0.4043887147335423,
+    "signed_acf_lag1": -0.027465226519080677,
+    "abs_acf_5_30m": 0.003928602784422439,
+    "sq_acf_5_30m": 0.0023719496499292085,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [],
+    "short_completed": 319,
+    "short_completed_per_account": 63.8,
+    "holding_p90_minutes": 22.466666666666665,
+    "short_pnl_per_completed": -1.4571248996865203,
+    "stop_loss_fraction": 0.5141065830721003,
+    "stop_loss_per_account_hour": 2.3615999999999997,
+    "trades_per_minute": 7.989599999999999,
+    "short_trades_per_minute": 0.7716,
+    "exits": {
+      "take_profit": {
+        "count": 123,
+        "pnl": 753.643489
+      },
+      "stop_loss": {
+        "count": 164,
+        "pnl": -1171.685597
+      },
+      "trailing": {
+        "count": 32,
+        "pnl": -46.780735
+      }
+    },
+    "unfinished_max_age_minutes": 6.916666666666667,
+    "variant": "profit04",
+    "scenario": "normal",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-normal-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.020992670579841274,
+      "p10": 0.012915424337128239,
+      "p90": 0.05694842612028841
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4118,
+      "mean": 6.416195671958322e-07,
+      "std": 0.0010153324826950327,
+      "skew": -0.08102319629438594,
+      "excess_kurtosis": 4.921004816677362
+    },
+    "mean_intensity": 1.2604820492080218,
+    "peak_intensity": 7.277723689850968,
+    "max_arrivals": 12,
+    "trades": 10035,
+    "clipped_fraction": 0.041833252072159925,
+    "executed_fraction": 0.9598476635802489,
+    "holding_median_minutes": 4.333333333333333,
+    "holding_mean_minutes": 6.767553191489362,
+    "short_realized_per_account": -87.96854959999999,
+    "short_mean_wealth": 9373.635343985923,
+    "short_mean_vs_hold": -122.66538496745852,
+    "short_win_fraction": 0.4702127659574468,
+    "signed_acf_lag1": -0.040776698957505214,
+    "abs_acf_5_30m": 0.01569049917255173,
+    "sq_acf_5_30m": 0.007611587117434017,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.1097740246533085,
+        "retraced_10m": 0.3613469879738343,
+        "arrivals_100s": 58,
+        "trades_100s": 53,
+        "mean_intensity_100s": 2.6083761073560887
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.583333333333333,
+        "sustained_half_start_minutes": 5.583333333333333,
+        "price_10m": 5.034476815751434,
+        "retraced_10m": 0.5567849005790596,
+        "arrivals_100s": 59,
+        "trades_100s": 56,
+        "mean_intensity_100s": 2.9000608444675797
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.690582957317124,
+        "retraced_10m": 0.1420615236936167,
+        "arrivals_100s": 119,
+        "trades_100s": 102,
+        "mean_intensity_100s": 6.157656873719832
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.3333333333333333,
+        "sustained_half_start_minutes": 1.3333333333333333,
+        "price_10m": 4.735255245973845,
+        "retraced_10m": 0.6508778480503967,
+        "arrivals_100s": 27,
+        "trades_100s": 26,
+        "mean_intensity_100s": 1.0673157831709648
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.97531819924664,
+        "retraced_10m": 0.24634307354169044,
+        "arrivals_100s": 79,
+        "trades_100s": 68,
+        "mean_intensity_100s": 3.599625764264684
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.166666666666667,
+        "sustained_half_start_minutes": 11.583333333333334,
+        "price_10m": 4.978914744298391,
+        "retraced_10m": 0.46024941025949173,
+        "arrivals_100s": 34,
+        "trades_100s": 31,
+        "mean_intensity_100s": 2.0616392699315687
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.752868612844295,
+        "retraced_10m": 0.26324198881322775,
+        "arrivals_100s": 66,
+        "trades_100s": 54,
+        "mean_intensity_100s": 3.318601576301797
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 16.75,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.566944054046576,
+        "retraced_10m": 0.39177812843930687,
+        "arrivals_100s": 86,
+        "trades_100s": 77,
+        "mean_intensity_100s": 4.063172904750072
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 13.416666666666666,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.692515460582589,
+        "retraced_10m": 0.33031398797478034,
+        "arrivals_100s": 37,
+        "trades_100s": 35,
+        "mean_intensity_100s": 1.9754307819349666
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.3781108721472672,
+    "mean_trades_100s": 55.77777777777778,
+    "mean_intensity_100s": 3.0835422117663946,
+    "half_reached": 5,
+    "half_sustained": 3,
+    "short_completed": 470,
+    "short_completed_per_account": 94.0,
+    "holding_p90_minutes": 15.691666666666672,
+    "short_pnl_per_completed": -0.9358356340425531,
+    "stop_loss_fraction": 0.4574468085106383,
+    "stop_loss_per_account_hour": 3.096,
+    "trades_per_minute": 12.042,
+    "short_trades_per_minute": 1.1328,
+    "exits": {
+      "take_profit": {
+        "count": 204,
+        "pnl": 1740.748467
+      },
+      "stop_loss": {
+        "count": 215,
+        "pnl": -2146.131484
+      },
+      "trailing": {
+        "count": 51,
+        "pnl": -34.459731
+      }
+    },
+    "unfinished_max_age_minutes": 21.416666666666668,
+    "variant": "profit04",
+    "scenario": "shock",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-shock-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.021696519107308642,
+      "p10": 0.014562487950478232,
+      "p90": 0.05722655139594873
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4097,
+      "mean": 1.9638046304032735e-06,
+      "std": 0.0010119173585947856,
+      "skew": -0.006572381840509869,
+      "excess_kurtosis": 5.27822687948454
+    },
+    "mean_intensity": 1.1905056527086064,
+    "peak_intensity": 5.986639298643367,
+    "max_arrivals": 9,
+    "trades": 9565,
+    "clipped_fraction": 0.04603109656301146,
+    "executed_fraction": 0.9557229704447492,
+    "holding_median_minutes": 4.583333333333333,
+    "holding_mean_minutes": 6.692443502824858,
+    "short_realized_per_account": -79.7389596,
+    "short_mean_wealth": 9466.291751724346,
+    "short_mean_vs_hold": -89.85314743367962,
+    "short_win_fraction": 0.4872881355932203,
+    "signed_acf_lag1": 0.007410234826881258,
+    "abs_acf_5_30m": 0.00263139633072506,
+    "sq_acf_5_30m": 0.00025653644237007896,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.1666666666666665,
+        "sustained_half_start_minutes": 2.75,
+        "price_10m": 5.026659015920354,
+        "retraced_10m": 0.4312655985046546,
+        "arrivals_100s": 33,
+        "trades_100s": 31,
+        "mean_intensity_100s": 1.7567784840993432
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.75,
+        "sustained_half_start_minutes": 9.416666666666666,
+        "price_10m": 4.980046116629012,
+        "retraced_10m": 0.527918416189155,
+        "arrivals_100s": 33,
+        "trades_100s": 31,
+        "mean_intensity_100s": 2.0124241758435053
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.5833333333333333,
+        "sustained_half_start_minutes": 1.5833333333333333,
+        "price_10m": 4.9176760621907745,
+        "retraced_10m": 0.6404547590946447,
+        "arrivals_100s": 45,
+        "trades_100s": 39,
+        "mean_intensity_100s": 2.0080690067768248
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.4166666666666667,
+        "sustained_half_start_minutes": 14.916666666666666,
+        "price_10m": 5.018726586113226,
+        "retraced_10m": 0.3419335042210554,
+        "arrivals_100s": 42,
+        "trades_100s": 36,
+        "mean_intensity_100s": 2.249693080043733
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.4166666666666667,
+        "sustained_half_start_minutes": 3.0,
+        "price_10m": 5.143211920623135,
+        "retraced_10m": 0.7412723865793251,
+        "arrivals_100s": 75,
+        "trades_100s": 67,
+        "mean_intensity_100s": 3.9873136185085736
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.416666666666667,
+        "sustained_half_start_minutes": 13.416666666666666,
+        "price_10m": 5.080565759307109,
+        "retraced_10m": 0.5093429798060979,
+        "arrivals_100s": 59,
+        "trades_100s": 49,
+        "mean_intensity_100s": 2.6541641858838445
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.814302113877405,
+        "retraced_10m": 0.17050888334885994,
+        "arrivals_100s": 90,
+        "trades_100s": 69,
+        "mean_intensity_100s": 4.254111155159455
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.0833333333333333,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.611415647327677,
+        "retraced_10m": 0.4577185344789504,
+        "arrivals_100s": 52,
+        "trades_100s": 49,
+        "mean_intensity_100s": 3.0181884853123933
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.333333333333333,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.666763135666509,
+        "retraced_10m": 0.43657339329450995,
+        "arrivals_100s": 35,
+        "trades_100s": 35,
+        "mean_intensity_100s": 1.6740285600014198
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.4729987172796948,
+    "mean_trades_100s": 45.111111111111114,
+    "mean_intensity_100s": 2.623863416847677,
+    "half_reached": 8,
+    "half_sustained": 6,
+    "short_completed": 472,
+    "short_completed_per_account": 94.4,
+    "holding_p90_minutes": 15.666666666666666,
+    "short_pnl_per_completed": -0.8446923686440678,
+    "stop_loss_fraction": 0.4427966101694915,
+    "stop_loss_per_account_hour": 3.0096,
+    "trades_per_minute": 11.478,
+    "short_trades_per_minute": 1.1388,
+    "exits": {
+      "take_profit": {
+        "count": 219,
+        "pnl": 1889.720036
+      },
+      "stop_loss": {
+        "count": 209,
+        "pnl": -2246.756423
+      },
+      "trailing": {
+        "count": 44,
+        "pnl": -41.658411
+      }
+    },
+    "unfinished_max_age_minutes": 20.25,
+    "variant": "profit04",
+    "scenario": "shock",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-shock-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.019174367520521287,
+      "p10": 0.01297231635782543,
+      "p90": 0.05725303298065621
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4169,
+      "mean": 1.8715052716426921e-06,
+      "std": 0.0009758519938257018,
+      "skew": -0.12186410994329047,
+      "excess_kurtosis": 5.245977278382062
+    },
+    "mean_intensity": 1.1896854167206081,
+    "peak_intensity": 7.571657410940444,
+    "max_arrivals": 10,
+    "trades": 9369,
+    "clipped_fraction": 0.04688805346700083,
+    "executed_fraction": 0.9529361973261816,
+    "holding_median_minutes": 5.0,
+    "holding_mean_minutes": 7.220599688473521,
+    "short_realized_per_account": -30.486527799999998,
+    "short_mean_wealth": 9503.283244273684,
+    "short_mean_vs_hold": -48.65830246120822,
+    "short_win_fraction": 0.47897196261682246,
+    "signed_acf_lag1": -0.023830928078481632,
+    "abs_acf_5_30m": 0.005960422139689934,
+    "sq_acf_5_30m": 0.0019072069795382652,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.5,
+        "sustained_half_start_minutes": 6.083333333333333,
+        "price_10m": 5.073421499839012,
+        "retraced_10m": 0.4984684909504035,
+        "arrivals_100s": 43,
+        "trades_100s": 40,
+        "mean_intensity_100s": 2.2345448535957537
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.75,
+        "sustained_half_start_minutes": 13.083333333333334,
+        "price_10m": 5.0104540045013195,
+        "retraced_10m": 0.5117107023328401,
+        "arrivals_100s": 32,
+        "trades_100s": 30,
+        "mean_intensity_100s": 1.5844860576910687
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 17.583333333333332,
+        "sustained_half_start_minutes": 44.416666666666664,
+        "price_10m": 4.764515168310174,
+        "retraced_10m": 0.27707851098439673,
+        "arrivals_100s": 66,
+        "trades_100s": 58,
+        "mean_intensity_100s": 4.3089427187904725
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.583333333333333,
+        "sustained_half_start_minutes": 10.25,
+        "price_10m": 5.007399396849284,
+        "retraced_10m": 0.43570832978956076,
+        "arrivals_100s": 84,
+        "trades_100s": 73,
+        "mean_intensity_100s": 4.393874837077755
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.1666666666666667,
+        "sustained_half_start_minutes": 5.333333333333333,
+        "price_10m": 5.106529875174271,
+        "retraced_10m": 0.7404906463492932,
+        "arrivals_100s": 70,
+        "trades_100s": 66,
+        "mean_intensity_100s": 2.6526034532717606
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.916666666666667,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.001626760852025,
+        "retraced_10m": 0.37649261689712415,
+        "arrivals_100s": 63,
+        "trades_100s": 53,
+        "mean_intensity_100s": 2.7298180102698355
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 10.5,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.797871006109486,
+        "retraced_10m": 0.45652357216307593,
+        "arrivals_100s": 65,
+        "trades_100s": 59,
+        "mean_intensity_100s": 4.067147759748642
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.0833333333333335,
+        "sustained_half_start_minutes": 2.5,
+        "price_10m": 4.575354493480801,
+        "retraced_10m": 0.6788314874966317,
+        "arrivals_100s": 73,
+        "trades_100s": 67,
+        "mean_intensity_100s": 5.235381717987196
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.083333333333333,
+        "sustained_half_start_minutes": 4.083333333333333,
+        "price_10m": 4.674552179336662,
+        "retraced_10m": 0.5061903399312964,
+        "arrivals_100s": 42,
+        "trades_100s": 38,
+        "mean_intensity_100s": 2.8953723598306356
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.4979438552105136,
+    "mean_trades_100s": 53.77777777777778,
+    "mean_intensity_100s": 3.3446857520292355,
+    "half_reached": 9,
+    "half_sustained": 7,
+    "short_completed": 428,
+    "short_completed_per_account": 85.6,
+    "holding_p90_minutes": 16.02500000000001,
+    "short_pnl_per_completed": -0.35615102570093454,
+    "stop_loss_fraction": 0.45560747663551404,
+    "stop_loss_per_account_hour": 2.808,
+    "trades_per_minute": 11.242799999999999,
+    "short_trades_per_minute": 1.032,
+    "exits": {
+      "take_profit": {
+        "count": 189,
+        "pnl": 1771.669205
+      },
+      "stop_loss": {
+        "count": 195,
+        "pnl": -1888.032676
+      },
+      "trailing": {
+        "count": 44,
+        "pnl": -36.069168
+      }
+    },
+    "unfinished_max_age_minutes": 46.0,
+    "variant": "profit04",
+    "scenario": "shock",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit04-shock-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.017043450066899963,
+      "p10": 0.011899270153552348,
+      "p90": 0.026125616024217424
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5104,
+      "mean": -9.298181340146045e-07,
+      "std": 0.0009514912482359598,
+      "skew": 0.08600320818698998,
+      "excess_kurtosis": 4.545411188723245
+    },
+    "mean_intensity": 0.8403888381441067,
+    "peak_intensity": 1.6683537382718052,
+    "max_arrivals": 6,
+    "trades": 6697,
+    "clipped_fraction": 0.041264266900790166,
+    "executed_fraction": 0.9603024643413924,
+    "holding_median_minutes": 7.75,
+    "holding_mean_minutes": 10.334988962472407,
+    "short_realized_per_account": -49.420265799999996,
+    "short_mean_wealth": 9905.764967358647,
+    "short_mean_vs_hold": -47.95959803118603,
+    "short_win_fraction": 0.45364238410596025,
+    "signed_acf_lag1": -0.02663608382173543,
+    "abs_acf_5_30m": 0.00028652949891801394,
+    "sq_acf_5_30m": -0.0001250776189283645,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 302,
+    "short_completed_per_account": 60.4,
+    "holding_p90_minutes": 22.416666666666668,
+    "short_pnl_per_completed": -0.818216321192053,
+    "stop_loss_fraction": 0.4370860927152318,
+    "stop_loss_per_account_hour": 1.9007999999999998,
+    "trades_per_minute": 8.0364,
+    "short_trades_per_minute": 0.7295999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 119,
+        "pnl": 726.936136
+      },
+      "stop_loss": {
+        "count": 132,
+        "pnl": -924.009986
+      },
+      "trailing": {
+        "count": 51,
+        "pnl": -50.027479
+      }
+    },
+    "unfinished_max_age_minutes": 27.916666666666668,
+    "variant": "profit_trail04",
+    "scenario": "normal",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-normal-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.014490944915585845,
+      "p10": 0.011311868435366006,
+      "p90": 0.020146011137443052
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5357,
+      "mean": -2.488666952566464e-06,
+      "std": 0.0009150726790916087,
+      "skew": 0.1355062398974235,
+      "excess_kurtosis": 5.453367496830436
+    },
+    "mean_intensity": 0.7922620278691948,
+    "peak_intensity": 1.2523777582073414,
+    "max_arrivals": 8,
+    "trades": 6304,
+    "clipped_fraction": 0.04362676603011955,
+    "executed_fraction": 0.9599824319600391,
+    "holding_median_minutes": 8.0,
+    "holding_mean_minutes": 10.965909090909092,
+    "short_realized_per_account": -78.46943780000001,
+    "short_mean_wealth": 9799.526227208962,
+    "short_mean_vs_hold": -77.57602592537296,
+    "short_win_fraction": 0.3881118881118881,
+    "signed_acf_lag1": -0.03665253071243915,
+    "abs_acf_5_30m": -0.0007799521862544008,
+    "sq_acf_5_30m": -0.0012017629167769682,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [],
+    "short_completed": 286,
+    "short_completed_per_account": 57.2,
+    "holding_p90_minutes": 22.25,
+    "short_pnl_per_completed": -1.3718433181818181,
+    "stop_loss_fraction": 0.46503496503496505,
+    "stop_loss_per_account_hour": 1.9152,
+    "trades_per_minute": 7.5648,
+    "short_trades_per_minute": 0.6924,
+    "exits": {
+      "take_profit": {
+        "count": 96,
+        "pnl": 553.773342
+      },
+      "stop_loss": {
+        "count": 133,
+        "pnl": -878.5456819999999
+      },
+      "trailing": {
+        "count": 57,
+        "pnl": -67.574849
+      }
+    },
+    "unfinished_max_age_minutes": 10.666666666666666,
+    "variant": "profit_trail04",
+    "scenario": "normal",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-normal-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.016022929170295182,
+      "p10": 0.012011795483989653,
+      "p90": 0.0212646222662467
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5166,
+      "mean": -5.129761502146598e-07,
+      "std": 0.0009577730572693937,
+      "skew": 0.011376802789114827,
+      "excess_kurtosis": 4.391301777855867
+    },
+    "mean_intensity": 0.8376112795456269,
+    "peak_intensity": 1.713767987731767,
+    "max_arrivals": 7,
+    "trades": 6690,
+    "clipped_fraction": 0.048259725065808716,
+    "executed_fraction": 0.952088586635523,
+    "holding_median_minutes": 6.333333333333333,
+    "holding_mean_minutes": 9.155419222903886,
+    "short_realized_per_account": -33.5431662,
+    "short_mean_wealth": 9940.362119374817,
+    "short_mean_vs_hold": -34.054746902156694,
+    "short_win_fraction": 0.46319018404907975,
+    "signed_acf_lag1": -0.0258370960615804,
+    "abs_acf_5_30m": 0.005039569774406655,
+    "sq_acf_5_30m": 0.0036209857494547883,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 326,
+    "short_completed_per_account": 65.2,
+    "holding_p90_minutes": 20.041666666666664,
+    "short_pnl_per_completed": -0.5144657392638037,
+    "stop_loss_fraction": 0.4233128834355828,
+    "stop_loss_per_account_hour": 1.9872,
+    "trades_per_minute": 8.028,
+    "short_trades_per_minute": 0.7872,
+    "exits": {
+      "take_profit": {
+        "count": 131,
+        "pnl": 832.308446
+      },
+      "stop_loss": {
+        "count": 138,
+        "pnl": -954.190172
+      },
+      "trailing": {
+        "count": 57,
+        "pnl": -45.834105
+      }
+    },
+    "unfinished_max_age_minutes": 20.75,
+    "variant": "profit_trail04",
+    "scenario": "normal",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-normal-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.0195132372330161,
+      "p10": 0.014696458450265962,
+      "p90": 0.05805168023165573
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4072,
+      "mean": 1.4886422030037497e-06,
+      "std": 0.0010182561198711737,
+      "skew": 0.11808222811957657,
+      "excess_kurtosis": 6.176525081480968
+    },
+    "mean_intensity": 1.195067780940618,
+    "peak_intensity": 7.350844369032838,
+    "max_arrivals": 10,
+    "trades": 9635,
+    "clipped_fraction": 0.04550071094860857,
+    "executed_fraction": 0.9557719554618272,
+    "holding_median_minutes": 4.5,
+    "holding_mean_minutes": 6.230902777777777,
+    "short_realized_per_account": 125.61500799999999,
+    "short_mean_wealth": 9650.762296758227,
+    "short_mean_vs_hold": 116.2151335291619,
+    "short_win_fraction": 0.5395833333333333,
+    "signed_acf_lag1": -0.020334242235569882,
+    "abs_acf_5_30m": 0.007196246128173501,
+    "sq_acf_5_30m": 0.002655076336032639,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.1666666666666667,
+        "sustained_half_start_minutes": 1.1666666666666667,
+        "price_10m": 5.016889214329333,
+        "retraced_10m": 0.6128844898036835,
+        "arrivals_100s": 29,
+        "trades_100s": 27,
+        "mean_intensity_100s": 1.6446875631467062
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.416666666666667,
+        "sustained_half_start_minutes": 5.916666666666667,
+        "price_10m": 5.004489981733499,
+        "retraced_10m": 0.5360310320834754,
+        "arrivals_100s": 28,
+        "trades_100s": 24,
+        "mean_intensity_100s": 1.8745201658525574
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.75,
+        "sustained_half_start_minutes": 2.6666666666666665,
+        "price_10m": 4.862431212225569,
+        "retraced_10m": 0.42558077547161516,
+        "arrivals_100s": 45,
+        "trades_100s": 40,
+        "mean_intensity_100s": 2.2254174763934045
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 16.25,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.026350613208494,
+        "retraced_10m": 0.4281406225430826,
+        "arrivals_100s": 60,
+        "trades_100s": 53,
+        "mean_intensity_100s": 2.714567833089448
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.3333333333333333,
+        "sustained_half_start_minutes": 1.3333333333333333,
+        "price_10m": 5.166085880682853,
+        "retraced_10m": 0.6693060703523809,
+        "arrivals_100s": 62,
+        "trades_100s": 54,
+        "mean_intensity_100s": 2.7606542034073156
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.8333333333333333,
+        "sustained_half_start_minutes": 11.5,
+        "price_10m": 5.07010527374468,
+        "retraced_10m": 0.5629257054051003,
+        "arrivals_100s": 61,
+        "trades_100s": 58,
+        "mean_intensity_100s": 2.497945835860231
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.803153065986387,
+        "retraced_10m": 0.3249316885782826,
+        "arrivals_100s": 99,
+        "trades_100s": 74,
+        "mean_intensity_100s": 4.856168413669018
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.0833333333333333,
+        "sustained_half_start_minutes": 1.0833333333333333,
+        "price_10m": 4.602886924044692,
+        "retraced_10m": 0.5722220973830576,
+        "arrivals_100s": 71,
+        "trades_100s": 64,
+        "mean_intensity_100s": 4.197947047569867
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.703964837764284,
+        "retraced_10m": 0.19794372348452177,
+        "arrivals_100s": 40,
+        "trades_100s": 35,
+        "mean_intensity_100s": 1.911257609889406
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.48110735612280003,
+    "mean_trades_100s": 47.666666666666664,
+    "mean_intensity_100s": 2.742574016541995,
+    "half_reached": 7,
+    "half_sustained": 6,
+    "short_completed": 480,
+    "short_completed_per_account": 96.0,
+    "holding_p90_minutes": 14.008333333333335,
+    "short_pnl_per_completed": 1.3084896666666666,
+    "stop_loss_fraction": 0.375,
+    "stop_loss_per_account_hour": 2.592,
+    "trades_per_minute": 11.562,
+    "short_trades_per_minute": 1.158,
+    "exits": {
+      "take_profit": {
+        "count": 235,
+        "pnl": 2299.266306
+      },
+      "stop_loss": {
+        "count": 180,
+        "pnl": -1614.080235
+      },
+      "trailing": {
+        "count": 65,
+        "pnl": -57.111031000000004
+      }
+    },
+    "unfinished_max_age_minutes": 24.583333333333332,
+    "variant": "profit_trail04",
+    "scenario": "shock",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-shock-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.025078245070182695,
+      "p10": 0.012694939650536924,
+      "p90": 0.05718049019668392
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.3973,
+      "mean": 3.526772374058046e-07,
+      "std": 0.0010526163975141509,
+      "skew": -0.031810861369498365,
+      "excess_kurtosis": 4.90832823062267
+    },
+    "mean_intensity": 1.2823481257613287,
+    "peak_intensity": 7.928164977688232,
+    "max_arrivals": 15,
+    "trades": 10340,
+    "clipped_fraction": 0.04090521730896696,
+    "executed_fraction": 0.9607684172625983,
+    "holding_median_minutes": 3.625,
+    "holding_mean_minutes": 5.7354473039215685,
+    "short_realized_per_account": -11.3146456,
+    "short_mean_wealth": 9460.856759273047,
+    "short_mean_vs_hold": -22.47100483565191,
+    "short_win_fraction": 0.4724264705882353,
+    "signed_acf_lag1": -0.016717295260894615,
+    "abs_acf_5_30m": 0.026551851051442775,
+    "sq_acf_5_30m": 0.013629225712020467,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 3,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 12.666666666666666,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.154217340814229,
+        "retraced_10m": 0.2039425851326842,
+        "arrivals_100s": 57,
+        "trades_100s": 53,
+        "mean_intensity_100s": 2.39301144791023
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.583333333333333,
+        "sustained_half_start_minutes": 9.166666666666666,
+        "price_10m": 5.026130810876903,
+        "retraced_10m": 0.5666150648027218,
+        "arrivals_100s": 60,
+        "trades_100s": 56,
+        "mean_intensity_100s": 2.8567467554955597
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.713053370603415,
+        "retraced_10m": 0.30314032776827193,
+        "arrivals_100s": 94,
+        "trades_100s": 78,
+        "mean_intensity_100s": 5.0122098172805405
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.083333333333333,
+        "sustained_half_start_minutes": 8.0,
+        "price_10m": 4.729070785371188,
+        "retraced_10m": 0.5602122152797925,
+        "arrivals_100s": 27,
+        "trades_100s": 24,
+        "mean_intensity_100s": 1.4439883907361466
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.980800524489366,
+        "retraced_10m": 0.181815829730995,
+        "arrivals_100s": 94,
+        "trades_100s": 79,
+        "mean_intensity_100s": 3.713671334930267
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.75,
+        "sustained_half_start_minutes": 3.75,
+        "price_10m": 5.020828925845202,
+        "retraced_10m": 0.6301105481776484,
+        "arrivals_100s": 27,
+        "trades_100s": 26,
+        "mean_intensity_100s": 1.4282352193713215
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.768647076213576,
+        "retraced_10m": 0.3646470418479447,
+        "arrivals_100s": 100,
+        "trades_100s": 79,
+        "mean_intensity_100s": 4.8549117640459185
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.1666666666666667,
+        "sustained_half_start_minutes": 3.5,
+        "price_10m": 4.553155324797417,
+        "retraced_10m": 0.5653034328016588,
+        "arrivals_100s": 102,
+        "trades_100s": 91,
+        "mean_intensity_100s": 4.809831994509166
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.6666666666666665,
+        "sustained_half_start_minutes": 6.083333333333333,
+        "price_10m": 4.649927624135838,
+        "retraced_10m": 0.5446414921796735,
+        "arrivals_100s": 37,
+        "trades_100s": 33,
+        "mean_intensity_100s": 2.178235591025606
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.4356031708579324,
+    "mean_trades_100s": 57.666666666666664,
+    "mean_intensity_100s": 3.1878713683671953,
+    "half_reached": 6,
+    "half_sustained": 5,
+    "short_completed": 544,
+    "short_completed_per_account": 108.8,
+    "holding_p90_minutes": 12.391666666666666,
+    "short_pnl_per_completed": -0.1039949044117647,
+    "stop_loss_fraction": 0.41544117647058826,
+    "stop_loss_per_account_hour": 3.2544,
+    "trades_per_minute": 12.408,
+    "short_trades_per_minute": 1.3092,
+    "exits": {
+      "take_profit": {
+        "count": 229,
+        "pnl": 2130.927267
+      },
+      "stop_loss": {
+        "count": 226,
+        "pnl": -2115.02738
+      },
+      "trailing": {
+        "count": 89,
+        "pnl": -72.47311499999999
+      }
+    },
+    "unfinished_max_age_minutes": 6.166666666666667,
+    "variant": "profit_trail04",
+    "scenario": "shock",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-shock-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.02009588340130102,
+      "p10": 0.012823899227181836,
+      "p90": 0.0561991067315394
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4168,
+      "mean": 1.807384161136911e-06,
+      "std": 0.0010041404948402481,
+      "skew": 0.02543039023363692,
+      "excess_kurtosis": 4.50874506008262
+    },
+    "mean_intensity": 1.1843617756589102,
+    "peak_intensity": 7.644061349730812,
+    "max_arrivals": 10,
+    "trades": 9442,
+    "clipped_fraction": 0.045525251477755886,
+    "executed_fraction": 0.9547004350618692,
+    "holding_median_minutes": 4.25,
+    "holding_mean_minutes": 6.527543859649123,
+    "short_realized_per_account": 104.3129856,
+    "short_mean_wealth": 9653.387444238007,
+    "short_mean_vs_hold": 104.36371739999959,
+    "short_win_fraction": 0.49894736842105264,
+    "signed_acf_lag1": -0.021540960565303566,
+    "abs_acf_5_30m": 0.008557112764356101,
+    "sq_acf_5_30m": 0.003496546841178616,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 2,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 0.75,
+        "sustained_half_start_minutes": 1.5,
+        "price_10m": 5.044915088001686,
+        "retraced_10m": 0.7008762710666693,
+        "arrivals_100s": 41,
+        "trades_100s": 38,
+        "mean_intensity_100s": 1.9694132815104333
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.25,
+        "sustained_half_start_minutes": 1.25,
+        "price_10m": 5.023273018063894,
+        "retraced_10m": 0.6754738211780466,
+        "arrivals_100s": 34,
+        "trades_100s": 34,
+        "mean_intensity_100s": 1.7933874116138984
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 17.0,
+        "sustained_half_start_minutes": 48.0,
+        "price_10m": 4.795065584611295,
+        "retraced_10m": 0.41852462979783933,
+        "arrivals_100s": 72,
+        "trades_100s": 61,
+        "mean_intensity_100s": 4.190686103082705
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.166666666666667,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.030443157744503,
+        "retraced_10m": 0.35891104137986135,
+        "arrivals_100s": 61,
+        "trades_100s": 51,
+        "mean_intensity_100s": 4.041823591281959
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 0.8333333333333334,
+        "sustained_half_start_minutes": 0.8333333333333334,
+        "price_10m": 5.160198308296356,
+        "retraced_10m": 0.48416853273104365,
+        "arrivals_100s": 58,
+        "trades_100s": 55,
+        "mean_intensity_100s": 2.163746967473316
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.6666666666666667,
+        "sustained_half_start_minutes": 2.8333333333333335,
+        "price_10m": 5.030305266274678,
+        "retraced_10m": 0.5709446846438492,
+        "arrivals_100s": 62,
+        "trades_100s": 58,
+        "mean_intensity_100s": 2.907024562400827
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.3333333333333335,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.791634817162088,
+        "retraced_10m": 0.4489768802375667,
+        "arrivals_100s": 48,
+        "trades_100s": 46,
+        "mean_intensity_100s": 3.743924405776073
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.75,
+        "sustained_half_start_minutes": 10.416666666666666,
+        "price_10m": 4.542564945685546,
+        "retraced_10m": 0.5003056583835414,
+        "arrivals_100s": 82,
+        "trades_100s": 72,
+        "mean_intensity_100s": 5.236243191490031
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 10.833333333333334,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.6947940013429035,
+        "retraced_10m": 0.4626700626914225,
+        "arrivals_100s": 52,
+        "trades_100s": 43,
+        "mean_intensity_100s": 2.945566736709079
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.5134279535677599,
+    "mean_trades_100s": 50.888888888888886,
+    "mean_intensity_100s": 3.2213129168153696,
+    "half_reached": 9,
+    "half_sustained": 6,
+    "short_completed": 475,
+    "short_completed_per_account": 95.0,
+    "holding_p90_minutes": 14.833333333333334,
+    "short_pnl_per_completed": 1.098031427368421,
+    "stop_loss_fraction": 0.37894736842105264,
+    "stop_loss_per_account_hour": 2.592,
+    "trades_per_minute": 11.3304,
+    "short_trades_per_minute": 1.1423999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 208,
+        "pnl": 2109.770277
+      },
+      "stop_loss": {
+        "count": 180,
+        "pnl": -1509.072138
+      },
+      "trailing": {
+        "count": 87,
+        "pnl": -79.133211
+      }
+    },
+    "unfinished_max_age_minutes": 4.833333333333333,
+    "variant": "profit_trail04",
+    "scenario": "shock",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/profit_trail04-shock-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.017327841183082913,
+      "p10": 0.012651351461942293,
+      "p90": 0.023624363142917736
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5076,
+      "mean": -1.164033628401752e-06,
+      "std": 0.0009714654502110434,
+      "skew": -0.2223553213776488,
+      "excess_kurtosis": 4.208418566643815
+    },
+    "mean_intensity": 0.84137005160287,
+    "peak_intensity": 1.580879265334439,
+    "max_arrivals": 10,
+    "trades": 6838,
+    "clipped_fraction": 0.04043590478921709,
+    "executed_fraction": 0.9618146236311572,
+    "holding_median_minutes": 5.5,
+    "holding_mean_minutes": 8.228703703703705,
+    "short_realized_per_account": -65.0275164,
+    "short_mean_wealth": 9879.960127548136,
+    "short_mean_vs_hold": -62.175624056788365,
+    "short_win_fraction": 0.4166666666666667,
+    "signed_acf_lag1": -0.03769178017212539,
+    "abs_acf_5_30m": 0.001821969598536401,
+    "sq_acf_5_30m": 0.0008065108635455456,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 360,
+    "short_completed_per_account": 72.0,
+    "holding_p90_minutes": 19.675000000000004,
+    "short_pnl_per_completed": -0.90315995,
+    "stop_loss_fraction": 0.48333333333333334,
+    "stop_loss_per_account_hour": 2.5056,
+    "trades_per_minute": 8.2056,
+    "short_trades_per_minute": 0.8687999999999999,
+    "exits": {
+      "take_profit": {
+        "count": 130,
+        "pnl": 798.984425
+      },
+      "stop_loss": {
+        "count": 174,
+        "pnl": -1081.230065
+      },
+      "trailing": {
+        "count": 56,
+        "pnl": -42.891942
+      }
+    },
+    "unfinished_max_age_minutes": 34.833333333333336,
+    "variant": "symmetric04",
+    "scenario": "normal",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-normal-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.016306508543274135,
+      "p10": 0.011405452186658439,
+      "p90": 0.02035482415860232
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.527,
+      "mean": -1.736092798434997e-06,
+      "std": 0.0009441450766551374,
+      "skew": 0.020903108979397657,
+      "excess_kurtosis": 4.83788937471059
+    },
+    "mean_intensity": 0.7913956688812039,
+    "peak_intensity": 1.4043139322140321,
+    "max_arrivals": 6,
+    "trades": 6411,
+    "clipped_fraction": 0.043212704229653384,
+    "executed_fraction": 0.9612330317134156,
+    "holding_median_minutes": 7.25,
+    "holding_mean_minutes": 8.805393586005831,
+    "short_realized_per_account": -66.47145520000001,
+    "short_mean_wealth": 9848.533117014933,
+    "short_mean_vs_hold": -65.41140596185505,
+    "short_win_fraction": 0.39067055393586003,
+    "signed_acf_lag1": -0.0444037209779975,
+    "abs_acf_5_30m": -0.0001434382377587661,
+    "sq_acf_5_30m": -0.0007707080054015184,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 343,
+    "short_completed_per_account": 68.6,
+    "holding_p90_minutes": 17.71666666666667,
+    "short_pnl_per_completed": -0.9689716501457726,
+    "stop_loss_fraction": 0.4839650145772595,
+    "stop_loss_per_account_hour": 2.3904,
+    "trades_per_minute": 7.6932,
+    "short_trades_per_minute": 0.828,
+    "exits": {
+      "take_profit": {
+        "count": 120,
+        "pnl": 703.181417
+      },
+      "stop_loss": {
+        "count": 166,
+        "pnl": -976.019868
+      },
+      "trailing": {
+        "count": 57,
+        "pnl": -59.518825
+      }
+    },
+    "unfinished_max_age_minutes": 13.916666666666666,
+    "variant": "symmetric04",
+    "scenario": "normal",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-normal-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.015403047882113613,
+      "p10": 0.0129537070275788,
+      "p90": 0.02272888835315358
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.5071,
+      "mean": -1.0913876759508126e-06,
+      "std": 0.0009833573923287546,
+      "skew": 0.15141146259260382,
+      "excess_kurtosis": 4.683469100995917
+    },
+    "mean_intensity": 0.8403649458650229,
+    "peak_intensity": 1.9266085424728352,
+    "max_arrivals": 6,
+    "trades": 6769,
+    "clipped_fraction": 0.04686821929697671,
+    "executed_fraction": 0.9546911512578756,
+    "holding_median_minutes": 6.0,
+    "holding_mean_minutes": 7.40975935828877,
+    "short_realized_per_account": -96.3180416,
+    "short_mean_wealth": 9849.68999780672,
+    "short_mean_vs_hold": -96.03731979209624,
+    "short_win_fraction": 0.3770053475935829,
+    "signed_acf_lag1": -0.014170270236047885,
+    "abs_acf_5_30m": 0.00370026746379207,
+    "sq_acf_5_30m": 0.0033448743111350004,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [],
+    "short_completed": 374,
+    "short_completed_per_account": 74.8,
+    "holding_p90_minutes": 15.066666666666663,
+    "short_pnl_per_completed": -1.2876743529411765,
+    "stop_loss_fraction": 0.516042780748663,
+    "stop_loss_per_account_hour": 2.7792,
+    "trades_per_minute": 8.1228,
+    "short_trades_per_minute": 0.9024,
+    "exits": {
+      "take_profit": {
+        "count": 120,
+        "pnl": 742.695796
+      },
+      "stop_loss": {
+        "count": 193,
+        "pnl": -1189.530348
+      },
+      "trailing": {
+        "count": 61,
+        "pnl": -34.755656
+      }
+    },
+    "unfinished_max_age_minutes": 41.083333333333336,
+    "variant": "symmetric04",
+    "scenario": "normal",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-normal-seed83/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.022275676192656343,
+      "p10": 0.01347196061423264,
+      "p90": 0.0556217017338582
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4087,
+      "mean": 1.5326165767225182e-06,
+      "std": 0.0010393924991365178,
+      "skew": 0.2114676029231643,
+      "excess_kurtosis": 5.142390124915671
+    },
+    "mean_intensity": 1.1738227640976504,
+    "peak_intensity": 6.293577191607265,
+    "max_arrivals": 10,
+    "trades": 9611,
+    "clipped_fraction": 0.04431991849210392,
+    "executed_fraction": 0.9578030984038959,
+    "holding_median_minutes": 3.9166666666666665,
+    "holding_mean_minutes": 5.425688073394495,
+    "short_realized_per_account": 50.9624998,
+    "short_mean_wealth": 9587.504140026413,
+    "short_mean_vs_hold": 50.96249959999841,
+    "short_win_fraction": 0.45871559633027525,
+    "signed_acf_lag1": 0.0080836728904199,
+    "abs_acf_5_30m": 0.008978676000381682,
+    "sq_acf_5_30m": 0.004253429177978215,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 2,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.6666666666666667,
+        "sustained_half_start_minutes": 1.8333333333333333,
+        "price_10m": 5.006093011962627,
+        "retraced_10m": 0.5698841679040866,
+        "arrivals_100s": 35,
+        "trades_100s": 31,
+        "mean_intensity_100s": 2.042706926035662
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 7.416666666666667,
+        "sustained_half_start_minutes": 14.666666666666666,
+        "price_10m": 4.961465201091802,
+        "retraced_10m": 0.4592640664051519,
+        "arrivals_100s": 32,
+        "trades_100s": 30,
+        "mean_intensity_100s": 1.8401009706803522
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 2.0,
+        "sustained_half_start_minutes": 3.4166666666666665,
+        "price_10m": 4.881041704462662,
+        "retraced_10m": 0.5011189377785489,
+        "arrivals_100s": 38,
+        "trades_100s": 34,
+        "mean_intensity_100s": 1.845245575981155
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 8.083333333333334,
+        "sustained_half_start_minutes": 10.416666666666666,
+        "price_10m": 4.967676820534212,
+        "retraced_10m": 0.5112559257486811,
+        "arrivals_100s": 43,
+        "trades_100s": 42,
+        "mean_intensity_100s": 2.2041771578660496
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.8333333333333333,
+        "sustained_half_start_minutes": 2.5833333333333335,
+        "price_10m": 5.170196964555839,
+        "retraced_10m": 0.615159817303874,
+        "arrivals_100s": 77,
+        "trades_100s": 67,
+        "mean_intensity_100s": 3.8825791786667763
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.6666666666666667,
+        "sustained_half_start_minutes": 6.75,
+        "price_10m": 5.088037954171959,
+        "retraced_10m": 0.5761793354414463,
+        "arrivals_100s": 54,
+        "trades_100s": 49,
+        "mean_intensity_100s": 2.2392244778008212
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.777058510620367,
+        "retraced_10m": 0.19454123336539622,
+        "arrivals_100s": 90,
+        "trades_100s": 72,
+        "mean_intensity_100s": 4.110276307796661
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.75,
+        "sustained_half_start_minutes": 4.0,
+        "price_10m": 4.614522927309075,
+        "retraced_10m": 0.47832812525492685,
+        "arrivals_100s": 54,
+        "trades_100s": 49,
+        "mean_intensity_100s": 3.3698456974415962
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 12.0,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.679371900280355,
+        "retraced_10m": 0.3812299776498646,
+        "arrivals_100s": 36,
+        "trades_100s": 35,
+        "mean_intensity_100s": 1.666584562486468
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.47632906520577517,
+    "mean_trades_100s": 45.44444444444444,
+    "mean_intensity_100s": 2.577860094972838,
+    "half_reached": 8,
+    "half_sustained": 7,
+    "short_completed": 545,
+    "short_completed_per_account": 109.0,
+    "holding_p90_minutes": 12.400000000000006,
+    "short_pnl_per_completed": 0.46754586972477064,
+    "stop_loss_fraction": 0.44403669724770645,
+    "stop_loss_per_account_hour": 3.4848,
+    "trades_per_minute": 11.533199999999999,
+    "short_trades_per_minute": 1.3104,
+    "exits": {
+      "take_profit": {
+        "count": 212,
+        "pnl": 2165.397057
+      },
+      "stop_loss": {
+        "count": 242,
+        "pnl": -1857.222426
+      },
+      "trailing": {
+        "count": 91,
+        "pnl": -53.362132
+      }
+    },
+    "unfinished_max_age_minutes": 8.833333333333334,
+    "variant": "symmetric04",
+    "scenario": "shock",
+    "seed": 81,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-shock-seed81/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.023287352575473774,
+      "p10": 0.015318144242654394,
+      "p90": 0.057324250097079046
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4003,
+      "mean": 1.2850410381481187e-06,
+      "std": 0.0010751107980984283,
+      "skew": 0.15248532639310375,
+      "excess_kurtosis": 5.124096522379563
+    },
+    "mean_intensity": 1.2856274699946106,
+    "peak_intensity": 7.806815859715168,
+    "max_arrivals": 13,
+    "trades": 10446,
+    "clipped_fraction": 0.040873722696165744,
+    "executed_fraction": 0.9622113551578799,
+    "holding_median_minutes": 3.25,
+    "holding_mean_minutes": 4.777956989247311,
+    "short_realized_per_account": -111.26047779999999,
+    "short_mean_wealth": 9396.664968390129,
+    "short_mean_vs_hold": -128.65919623035916,
+    "short_win_fraction": 0.41451612903225804,
+    "signed_acf_lag1": -0.021444771921160913,
+    "abs_acf_5_30m": 0.026061623184027775,
+    "sq_acf_5_30m": 0.014024690232596016,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 4,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 3.6666666666666665,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.109770841518512,
+        "retraced_10m": 0.42555283261094945,
+        "arrivals_100s": 52,
+        "trades_100s": 47,
+        "mean_intensity_100s": 2.1453849108226626
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.0,
+        "sustained_half_start_minutes": 6.0,
+        "price_10m": 5.04008571312746,
+        "retraced_10m": 0.6318578096148907,
+        "arrivals_100s": 51,
+        "trades_100s": 49,
+        "mean_intensity_100s": 2.293348563592816
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.713245388581053,
+        "retraced_10m": 0.19666147669074546,
+        "arrivals_100s": 131,
+        "trades_100s": 114,
+        "mean_intensity_100s": 6.1500488799392325
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 7.083333333333333,
+        "sustained_half_start_minutes": 7.666666666666667,
+        "price_10m": 4.724221165549234,
+        "retraced_10m": 0.6565271738107038,
+        "arrivals_100s": 33,
+        "trades_100s": 32,
+        "mean_intensity_100s": 1.4415041318691932
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.9886652707801185,
+        "retraced_10m": 0.11083971216018955,
+        "arrivals_100s": 88,
+        "trades_100s": 73,
+        "mean_intensity_100s": 3.769119657563446
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.5,
+        "sustained_half_start_minutes": 6.5,
+        "price_10m": 5.022962759729435,
+        "retraced_10m": 0.6397909606191091,
+        "arrivals_100s": 38,
+        "trades_100s": 35,
+        "mean_intensity_100s": 1.7538109822972594
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 8.083333333333334,
+        "sustained_half_start_minutes": 22.833333333333332,
+        "price_10m": 4.764936588894562,
+        "retraced_10m": 0.4271660163016967,
+        "arrivals_100s": 95,
+        "trades_100s": 73,
+        "mean_intensity_100s": 4.760607033496921
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 6.25,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.572876153960266,
+        "retraced_10m": 0.45634553796370636,
+        "arrivals_100s": 132,
+        "trades_100s": 110,
+        "mean_intensity_100s": 5.5392791174842015
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 5.416666666666667,
+        "sustained_half_start_minutes": 5.416666666666667,
+        "price_10m": 4.652053698386863,
+        "retraced_10m": 0.4588165876215308,
+        "arrivals_100s": 39,
+        "trades_100s": 33,
+        "mean_intensity_100s": 2.0640728257392675
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.4448397897103913,
+    "mean_trades_100s": 62.888888888888886,
+    "mean_intensity_100s": 3.3241306780894444,
+    "half_reached": 7,
+    "half_sustained": 5,
+    "short_completed": 620,
+    "short_completed_per_account": 124.0,
+    "holding_p90_minutes": 10.5,
+    "short_pnl_per_completed": -0.8972619177419354,
+    "stop_loss_fraction": 0.482258064516129,
+    "stop_loss_per_account_hour": 4.3056,
+    "trades_per_minute": 12.5352,
+    "short_trades_per_minute": 1.4928,
+    "exits": {
+      "take_profit": {
+        "count": 225,
+        "pnl": 1927.45866
+      },
+      "stop_loss": {
+        "count": 299,
+        "pnl": -2411.60063
+      },
+      "trailing": {
+        "count": 96,
+        "pnl": -72.160419
+      }
+    },
+    "unfinished_max_age_minutes": 6.5,
+    "variant": "symmetric04",
+    "scenario": "shock",
+    "seed": 82,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-shock-seed82/trace"
+  },
+  {
+    "tick_seconds": 5,
+    "hours": 13.88888888888889,
+    "range30": {
+      "windows": 27,
+      "ticks_per_window": 360,
+      "median": 0.020080813472494435,
+      "p10": 0.014338592216514309,
+      "p90": 0.05640678052632497
+    },
+    "shape": {
+      "n": 10000,
+      "zero_fraction": 0.4081,
+      "mean": 1.4999469783932878e-06,
+      "std": 0.0010169757039149058,
+      "skew": -0.019036885229041116,
+      "excess_kurtosis": 4.279958836678336
+    },
+    "mean_intensity": 1.1979426607006218,
+    "peak_intensity": 6.461153175073808,
+    "max_arrivals": 9,
+    "trades": 9605,
+    "clipped_fraction": 0.045866884109672816,
+    "executed_fraction": 0.9554137313611335,
+    "holding_median_minutes": 3.8333333333333335,
+    "holding_mean_minutes": 5.497498436522827,
+    "short_realized_per_account": 53.1830292,
+    "short_mean_wealth": 9633.855244468423,
+    "short_mean_vs_hold": 98.79543188289426,
+    "short_win_fraction": 0.5028142589118199,
+    "signed_acf_lag1": -0.004001197924536255,
+    "abs_acf_5_30m": 0.007228516654451028,
+    "sq_acf_5_30m": 0.0034344752620532803,
+    "acf_band_ticks": [
+      61,
+      360
+    ],
+    "unfinished": 5,
+    "events": [
+      {
+        "tick": 1000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.5833333333333333,
+        "sustained_half_start_minutes": 3.75,
+        "price_10m": 5.072098237630137,
+        "retraced_10m": 0.51729788395367,
+        "arrivals_100s": 43,
+        "trades_100s": 39,
+        "mean_intensity_100s": 1.9807317984975483
+      },
+      {
+        "tick": 2000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 1.25,
+        "sustained_half_start_minutes": 1.8333333333333333,
+        "price_10m": 5.003344758122181,
+        "retraced_10m": 0.7125248932742534,
+        "arrivals_100s": 42,
+        "trades_100s": 41,
+        "mean_intensity_100s": 2.0727247113666962
+      },
+      {
+        "tick": 3000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 7.75,
+        "sustained_half_start_minutes": 49.5,
+        "price_10m": 4.78719797395197,
+        "retraced_10m": 0.414664829760901,
+        "arrivals_100s": 59,
+        "trades_100s": 54,
+        "mean_intensity_100s": 3.9126405060376674
+      },
+      {
+        "tick": 4000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 7.416666666666667,
+        "sustained_half_start_minutes": 12.666666666666666,
+        "price_10m": 5.033912441133985,
+        "retraced_10m": 0.39738796830671486,
+        "arrivals_100s": 68,
+        "trades_100s": 61,
+        "mean_intensity_100s": 3.8728252477545917
+      },
+      {
+        "tick": 5000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 0.75,
+        "sustained_half_start_minutes": 1.6666666666666667,
+        "price_10m": 5.121366190550196,
+        "retraced_10m": 0.6517012337358266,
+        "arrivals_100s": 74,
+        "trades_100s": 66,
+        "mean_intensity_100s": 2.954857833925942
+      },
+      {
+        "tick": 6000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 5.0236248668730195,
+        "retraced_10m": 0.4577948109808683,
+        "arrivals_100s": 62,
+        "trades_100s": 55,
+        "mean_intensity_100s": 2.752693106361886
+      },
+      {
+        "tick": 7000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 4.5,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.780619245478662,
+        "retraced_10m": 0.4206615131368661,
+        "arrivals_100s": 49,
+        "trades_100s": 49,
+        "mean_intensity_100s": 3.9501011622025985
+      },
+      {
+        "tick": 8000,
+        "jump": -0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": 7.916666666666667,
+        "sustained_half_start_minutes": 7.916666666666667,
+        "price_10m": 4.569844554531146,
+        "retraced_10m": 0.5170490857952816,
+        "arrivals_100s": 78,
+        "trades_100s": 71,
+        "mean_intensity_100s": 4.946510012371349
+      },
+      {
+        "tick": 9000,
+        "jump": 0.05,
+        "observed_followup_ticks": 999,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": 4.701411054919011,
+        "retraced_10m": 0.33992792680865025,
+        "arrivals_100s": 54,
+        "trades_100s": 47,
+        "mean_intensity_100s": 2.995800554815647
+      },
+      {
+        "tick": 10000,
+        "jump": -0.05,
+        "observed_followup_ticks": 0,
+        "first_half_minutes": null,
+        "sustained_half_start_minutes": null,
+        "price_10m": null,
+        "retraced_10m": null,
+        "arrivals_100s": null,
+        "trades_100s": null,
+        "mean_intensity_100s": null
+      }
+    ],
+    "observed_events": 9,
+    "mean_retraced_10m": 0.49211223841700363,
+    "mean_trades_100s": 53.666666666666664,
+    "mean_intensity_100s": 3.270987214814881,
+    "half_reached": 7,
+    "half_sustained": 6,
+    "short_completed": 533,
+    "short_completed_per_account": 106.6,
+    "holding_p90_minutes": 12.316666666666668,
+    "short_pnl_per_completed": 0.49890271294559096,
+    "stop_loss_fraction": 0.4202626641651032,
+    "stop_loss_per_account_hour": 3.2255999999999996,
+    "trades_per_minute": 11.526,
+    "short_trades_per_minute": 1.2852,
+    "exits": {
+      "take_profit": {
+        "count": 237,
+        "pnl": 2058.162478
+      },
+      "stop_loss": {
+        "count": 224,
+        "pnl": -1761.870427
+      },
+      "trailing": {
+        "count": 72,
+        "pnl": -30.376905
+      }
+    },
+    "unfinished_max_age_minutes": 32.416666666666664,
+    "variant": "symmetric04",
+    "scenario": "shock",
+    "seed": 83,
+    "data_prefix": "research/fx/reversion/repeated/results/short-exit-tuning/symmetric04-shock-seed83/trace"
+  }
+]

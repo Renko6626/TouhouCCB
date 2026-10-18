@@ -1,0 +1,30 @@
+[
+  {
+    "phase": "smoke",
+    "pair_id": 2,
+    "command": "NetTrade",
+    "submit_route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "queue_wait",
+    "boundary": "started",
+    "count": 8,
+    "mean_ms": 0.10701967403292656,
+    "p50_ms": 0.06694532930850983,
+    "p95_ms": 0.21195225417613983,
+    "p99_ms": 0.21195225417613983,
+    "max_ms": 0.2765189856290817
+  },
+  {
+    "phase": "smoke",
+    "pair_id": 2,
+    "command": "NetTrade",
+    "submit_route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "execution",
+    "boundary": "next_dequeue_call",
+    "count": 8,
+    "mean_ms": 212.18337956815958,
+    "p50_ms": 180.71666173636913,
+    "p95_ms": 317.93621741235256,
+    "p99_ms": 317.93621741235256,
+    "max_ms": 376.17417611181736
+  }
+]

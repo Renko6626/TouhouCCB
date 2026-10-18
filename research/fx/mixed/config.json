@@ -1,0 +1,10 @@
+{
+  "random_counts": [0, 5, 10, 15, 20],
+  "population_seed": 301,
+  "spread": 1.0,
+  "market_seeds": [81, 82, 83],
+  "b_values": [0, 0.25],
+  "ticks": 100000,
+  "burn_in": 5000,
+  "workers": 6
+}

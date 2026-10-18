@@ -121,24 +121,49 @@ async def increase_debt(
     stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
     result = await session.execute(stmt)
     u = result.scalar_one()
+    return await increase_debt_locked(
+        session, u, amount, grant_cash=grant_cash, daily_rate=daily_rate,
+        source=source, operator_user_id=operator_user_id, reason=reason, now=now,
+    )
+
+
+async def increase_debt_locked(
+    session: AsyncSession,
+    user: User,
+    amount: Decimal,
+    *,
+    grant_cash: bool,
+    daily_rate: Decimal,
+    source: str,
+    operator_user_id: Optional[int] = None,
+    reason: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> User:
+    """Borrow using a User already locked by the caller in this transaction.
+
+    Keep interest, cash, version, ledger and audit behavior shared with
+    increase_debt; the caller owns commit and the user row lock.
+    """
+    if amount <= 0:
+        raise ValueError("amount must be positive")
     _require_writes()
-    now = now or _compat_now(u)
-    debt_pre_accrual = u.debt
-    accrue_interest(u, daily_rate, now)
-    interest = (u.debt - debt_pre_accrual).quantize(_QUANT)
+    now = now or _compat_now(user)
+    debt_pre_accrual = user.debt
+    accrue_interest(user, daily_rate, now)
+    interest = (user.debt - debt_pre_accrual).quantize(_QUANT)
     # A new principal starts accruing at this operation's timestamp even when
     # the old principal's pending interest rounded to zero. Keeping its old
     # timestamp would retroactively charge the new loan historical interest.
-    u.debt_last_accrued_at = now
-    u.debt = (u.debt + amount).quantize(_QUANT)
+    user.debt_last_accrued_at = now
+    user.debt = (user.debt + amount).quantize(_QUANT)
     if grant_cash:
-        u.cash = (u.cash + amount).quantize(_QUANT)
+        user.cash = (user.cash + amount).quantize(_QUANT)
     # 防御性兜底：debt/cash 不应出现负值
-    if u.debt < 0 or u.cash < 0:
-        raise LoanServiceError(f"invariant violated post-increase: debt={u.debt} cash={u.cash}")
-    bump_economic_version(u)
+    if user.debt < 0 or user.cash < 0:
+        raise LoanServiceError(f"invariant violated post-increase: debt={user.debt} cash={user.cash}")
+    bump_economic_version(user)
     await ledger_service.record_entry(
-        session, user=u, entry_type=source,
+        session, user=user, entry_type=source,
         cash_delta=(amount if grant_cash else Decimal("0")),
         debt_delta=amount,
         daily_rate=daily_rate,
@@ -146,8 +171,8 @@ async def increase_debt(
         reason=reason,
         interest_accrued=interest,
     )
-    session.add(u)
-    return u
+    session.add(user)
+    return user
 
 
 async def decrease_debt_locked(

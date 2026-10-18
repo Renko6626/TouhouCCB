@@ -1,0 +1,7 @@
+{
+  "t": 1792311600.9153802,
+  "reason": "uncontrolled host load; stop experiment rather than report misleading A/B",
+  "loadavg": "1308.62 786.38 347.74 1463/74319 3896955",
+  "runner_pid": 3746485,
+  "signal": "SIGINT"
+}

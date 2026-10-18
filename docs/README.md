@@ -2,6 +2,8 @@
 
 模拟 Polymarket 风格的预测市场交易小游戏。用户用虚拟货币买卖事件结果份额，价格由 LMSR 算法驱动。
 
+> **活动玩法与数值设计：[FX 玩法文档](fx-gameplay-design.md)** — 当前活动的数值讨论入口：一周预热、6 小时活动、100 万本币侧交易池、央行注资与机器人模式。
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -150,6 +152,9 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 
 | 文档 | 用途 |
 |------|------|
+| [FX 活动玩法与数值设计](fx-gameplay-design.md) | 当前设计基准、池子冲击测算、央行注资比例和机器人两种模式建议 |
+| [FX 离线研究](../research/fx/README.md) | 标准库离线模拟壳子，复用 AMM 数学函数，保留机器人基类与注资入口 |
+| [FX 长期规律与因子尺度实验](../research/fx/long-run-findings.md) | 6 条 20 万 tick 序列的尾部、相关性诊断，以及三因子实际量级 |
 | `CONTRIBUTING.md`（仓库根） | 贡献指南：代码规范、ORM 守则、提交与验证流程 |
 | `docs/architecture.md` | 系统架构总览：分层、核心概念、数据流 |
 | `docs/api.md` | 后端 REST API 规范（按代码核对） |
@@ -157,7 +162,7 @@ K 线和走势图的数据不是只查目标选项的交易记录，而是查**�
 | `docs/deploy.md` | 部署：Docker Compose / CI-CD / nginx / 回滚 |
 | `docs/fx.md` | 幻想外汇 (FX) 迁移、开市护栏、事件运营与赛季重置 |
 | [FX 到价挂单验证](fx-trigger-orders-validation-2026-10-14.md) | 3 槽、授权与触发语义；隔离分支检查证据，最终审阅 Ready，尚未发布 |
-| [FX 一周活动参数草案](fx-week-activity-config.md) | 50 人窗口活动的池子、波动、新闻、统一信贷参数及测算 |
+| [FX 一周活动参数草案（历史）](fx-week-activity-config.md) | 旧参数与旧干预机制的回顾；当前活动数值讨论以 FX 玩法文档为准 |
 | [FX 做空与统一债务风控设计](superpowers/specs/2026-09-30-fx-short-debt-design.md) | 待审阅 spec：借币、锁金、统一额度、回补与反向强平 |
 | [统一信贷运行手册](unified-credit-risk-2026-10.md) | 操作响应、账户刷新、冻结与风险等级、扫描统计及离线改息 |
 | [统一信贷历史验证（2026-09-30）](unified-credit-risk-validation-2026-09-30.md) | 历史回归、性能证据及未完成发布验收 |

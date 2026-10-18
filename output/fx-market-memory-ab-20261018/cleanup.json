@@ -1,0 +1,19 @@
+{
+  "t": 1792300681.656853,
+  "http_18543_listening": false,
+  "temporary_token_files": [],
+  "output_jwt_matching_files": [],
+  "pg_postmaster_pid_exists": false,
+  "pg_owner": "main agent: stopped after harness and correctness checks",
+  "monitor_processes": "run.py waited for both independent monitors and HTTP servers to exit",
+  "databases_kept": [
+    "fx_market_memory_before_test (failed startup, no load)",
+    "fx_market_memory_before_r1_test",
+    "fx_market_memory_after_r1_test"
+  ],
+  "old_database_untouched": "fx_market_memory_test",
+  "http_server_pids_still_exist": [],
+  "harness_left_pg_running": true,
+  "main_pg_stop_command": "pg_ctl -D /tmp/sunyunbo/fx-pool-incident-20261017/pgdata -m fast stop",
+  "main_pg_stop_exit_code": 0
+}

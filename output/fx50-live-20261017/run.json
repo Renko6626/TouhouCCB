@@ -1,0 +1,33 @@
+{
+  "run_id": "fx50_20261017_live",
+  "target": "https://thccb.secret-sealing.club",
+  "requested_users": 50,
+  "roles": {
+    "cash": 30,
+    "finance": 10,
+    "short": 10
+  },
+  "sse_target": 100,
+  "prepare_run": 39021695809,
+  "source_pair_id": 8,
+  "nginx_changed": false,
+  "business_code_changed": false,
+  "planned_cycles_per_s": {
+    "normal": 1.25,
+    "active": 3.75,
+    "stress": 12.5
+  },
+  "status": "stopped_on_p99_and_cleaned",
+  "cleanup_run": 39022219831,
+  "observe_run": 39021758497,
+  "test_pair_id": 10,
+  "reserved_accounts": 100,
+  "actual_connected_users": 50,
+  "cleanup_success": true,
+  "normal_http_success": 439,
+  "normal_http_timeout": 0,
+  "normal_successful_trades": 56,
+  "normal_trade_p50_ms": 283.963,
+  "normal_trade_p95_ms": 1762.522,
+  "normal_trade_p99_ms": 2259.433
+}

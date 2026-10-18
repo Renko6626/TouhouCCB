@@ -1,0 +1,32 @@
+{
+  "screen_summary_sha256": "ebf5adc84e0057ec70f833b293d3c08c09bd467b7c7f5c09bafad856c438672c",
+  "candidates": [
+    {
+      "id": "g148",
+      "reasons": [
+        "volatility",
+        "paired_gain",
+        "volatility_per_direction"
+      ]
+    },
+    {
+      "id": "g154",
+      "reasons": [
+        "volatility",
+        "volatility_per_direction"
+      ]
+    },
+    {
+      "id": "g069",
+      "reasons": [
+        "paired_gain"
+      ]
+    },
+    {
+      "id": "g072",
+      "reasons": [
+        "original_parameters"
+      ]
+    }
+  ]
+}

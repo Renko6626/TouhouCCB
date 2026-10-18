@@ -149,15 +149,22 @@ async def setup_db():
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
     from app.services.fx.market_state import FX_MARKET_DATA
+    from app.services.trading_prices import REGISTRY
 
     # Drop previous state before replacing the schema. The client loads markets
     # seeded by each test before its first LMSR request.
     await WRITER.stop()
+    from app.services.fx.writer import FX_WRITER
+    await FX_WRITER.stop()
     CANDLE_FLUSHER._pending.clear()
     # The FX market-data singleton owns a background consumer and a bounded ring;
     # stop it (best effort) and drop all local state before the schema is dropped.
     await FX_MARKET_DATA.stop()
     FX_MARKET_DATA.reset()
+    # Lifespan can enable memory reads, but this fixture replaces the database.
+    # Ordinary tests use DB mode; dedicated memory fixtures opt in explicitly.
+    REGISTRY.reset()
+    REGISTRY.configure(memory_products=frozenset())
     # Unit tests invoke economic services without the app lifespan. Establish
     # the same ownership precondition on their disposable SQLite database.
     from app.services.credit.ownership import OWNERSHIP
@@ -206,3 +213,84 @@ async def _dispose_engine_after_session():
     """
     yield
     await engine.dispose()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _fx_writer_for_directly_seeded_pairs(monkeypatch):
+    """Tests seed pairs outside creation services; bootstrap them explicitly.
+
+    Production submit never creates actors. Preserve that rule while allowing
+    existing service fixtures to populate their own isolated databases.
+    """
+    import asyncio
+    from app.services.fx.writer import FX_WRITER
+    original_submit = FX_WRITER.submit
+    original_register = FX_WRITER.register_pair
+    bootstrap_lock = asyncio.Lock()
+
+    async def submit_seeded(command):
+        async with bootstrap_lock:
+            if not FX_WRITER.enabled:
+                await FX_WRITER.start()
+            elif FX_WRITER.get_state(command.pair_id) is None:
+                await original_register(command.pair_id)
+        return await original_submit(command)
+
+    async def register_created(pair_id):
+        async with bootstrap_lock:
+            if not FX_WRITER.enabled:
+                await FX_WRITER.start()
+                return
+        return await original_register(pair_id)
+
+    monkeypatch.setattr(FX_WRITER, 'register_pair', register_created)
+    monkeypatch.setattr(FX_WRITER, 'submit', submit_seeded)
+    yield
+    await FX_WRITER.stop()
+
+
+async def publish_seeded_market_records(session_factory=None):
+    """Explicit fixture bootstrap from committed rows, never an execution fallback."""
+    from sqlalchemy import select
+    from app.core.database import async_session_maker
+    from app.models.base import Market, Outcome
+    from app.models.fx import FxPair
+    from app.services.market_read_state import FxReadState, LmsrReadState
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
+    async with (session_factory or async_session_maker)() as session:
+        pairs = (await session.execute(select(FxPair))).scalars().all()
+        markets = (await session.execute(select(Market))).scalars().all()
+        outcomes = (await session.execute(select(Outcome).order_by(Outcome.id))).scalars().all()
+        for pair in pairs:
+            REGISTRY.install_committed(FxReadState.from_pair(pair))
+        for market in markets:
+            own = [o for o in outcomes if o.market_id == market.id]
+            REGISTRY.install_committed(LmsrReadState(id=market.id, b=market.liquidity_b,
+                outcome_ids=tuple(o.id for o in own), q_dec=tuple(o.total_shares for o in own),
+                status=market.status, closes_at=market.closes_at))
+
+
+@pytest_asyncio.fixture
+async def published_markets(setup_db, monkeypatch, request):
+    """Risk fixture modules explicitly publish their committed seed helpers.
+
+    Real production writes retain their actual writer publication path. Tests
+    changing market rows directly must call publish_seeded_market_records again.
+    """
+    import inspect
+    from functools import wraps
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
+    for name, value in list(vars(request.module).items()):
+        if (inspect.iscoroutinefunction(value) and value.__module__.startswith("tests.")
+                and (name.startswith('_seed') or name in ('seed', '_market', '_pair'))
+                and not (name == '_pair' and set(inspect.signature(value).parameters) == {'pid'})):
+            def wrap(function):
+                @wraps(function)
+                async def seeded(*args, **kwargs):
+                    result = await function(*args, **kwargs)
+                    await publish_seeded_market_records()
+                    return result
+                return seeded
+            monkeypatch.setattr(request.module, name, wrap(value))

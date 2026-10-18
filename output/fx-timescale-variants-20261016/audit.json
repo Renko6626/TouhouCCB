@@ -1,0 +1,34 @@
+{
+  "baseline": {
+    "no_shocks": true,
+    "all_series_finite": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "wallet_values_verified": true,
+    "trade_counts_verified": true,
+    "realized_episode_pnl_verified": true,
+    "elapsed_seconds": 2.960220390930772
+  },
+  "A_inventory015": {
+    "no_shocks": true,
+    "all_series_finite": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "wallet_values_verified": true,
+    "trade_counts_verified": true,
+    "realized_episode_pnl_verified": true,
+    "elapsed_seconds": 2.493190947920084
+  },
+  "B_wider_exits": {
+    "no_shocks": true,
+    "all_series_finite": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "wallet_values_verified": true,
+    "trade_counts_verified": true,
+    "realized_episode_pnl_verified": true,
+    "elapsed_seconds": 2.4487976767122746
+  },
+  "frozen_sources_and_previous_outputs_unchanged": true,
+  "baseline_exactly_reproduces_previous_trace": true
+}

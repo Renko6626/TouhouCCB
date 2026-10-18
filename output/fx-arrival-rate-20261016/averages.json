@@ -1,0 +1,62 @@
+{
+  "current": {
+    "trades_per_minute": 3.050207468879668,
+    "range30": 0.027035575650214794,
+    "range60": 0.032729233230761254,
+    "efficiency5_median": 0.19090602775425267,
+    "completed_holding_minutes": 14.291666666666666,
+    "cycle1_minutes": 16.583333333333332,
+    "amplitude1": 0.018010631903932484,
+    "gross_foreign_per_minute": 290.07082968008297,
+    "per_seed_trades_per_minute": [
+      2.9775933609958507,
+      3.0697095435684645,
+      3.1033195020746884
+    ]
+  },
+  "rate2": {
+    "trades_per_minute": 5.955186721991701,
+    "range30": 0.030232279545901058,
+    "range60": 0.03865320031136939,
+    "efficiency5_median": 0.12565017637242787,
+    "completed_holding_minutes": 7.361111111111112,
+    "cycle1_minutes": 7.736111111111112,
+    "amplitude1": 0.01759671054956108,
+    "gross_foreign_per_minute": 565.3228417863071,
+    "per_seed_trades_per_minute": [
+      6.434439834024896,
+      5.729875518672199,
+      5.7012448132780085
+    ]
+  },
+  "rate2.5": {
+    "trades_per_minute": 7.507053941908713,
+    "range30": 0.035280210952191894,
+    "range60": 0.041805541349944624,
+    "efficiency5_median": 0.11437404700544511,
+    "completed_holding_minutes": 6.0,
+    "cycle1_minutes": 6.3055555555555545,
+    "amplitude1": 0.017645157049856048,
+    "gross_foreign_per_minute": 705.493313966805,
+    "per_seed_trades_per_minute": [
+      7.661825726141078,
+      7.320746887966805,
+      7.538589211618257
+    ]
+  },
+  "rate3": {
+    "trades_per_minute": 8.924066390041494,
+    "range30": 0.035325848997608066,
+    "range60": 0.04462580081430262,
+    "efficiency5_median": 0.0907011383990356,
+    "completed_holding_minutes": 4.861111111111112,
+    "cycle1_minutes": 5.583333333333333,
+    "amplitude1": 0.017611684338230942,
+    "gross_foreign_per_minute": 836.6299528717842,
+    "per_seed_trades_per_minute": [
+      9.225311203319501,
+      8.770954356846472,
+      8.775933609958505
+    ]
+  }
+}

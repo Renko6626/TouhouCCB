@@ -1,6 +1,8 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, delete, select
 from sqlmodel import Session, SQLModel
@@ -29,6 +31,8 @@ class AsyncCompatSession:
     async def get(self, model, key): return self._session.get(model, key)
     @property
     def sync_session(self): return self._session
+    @property
+    def info(self): return self._session.info
     def get_bind(self): return self._session.get_bind()
     async def close(self): self._session.close()
     @property
@@ -64,13 +68,18 @@ async def fx_db(monkeypatch):
     owner = WriteOwnership(url="sqlite+aiosqlite:///:memory:")
     await owner.acquire()
     for module in ("app.api.v1.admin_fx", "app.services.fx.liquidity", "app.services.fx.trading",
-                   "app.services.credit.ownership"):
+                   "app.services.credit.ownership", "app.services.fx.writer"):
         monkeypatch.setattr(f"{module}.OWNERSHIP", owner)
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
     tables = [Title.__table__, User.__table__, SiteConfig.__table__, FxPair.__table__,
               FxTreasury.__table__, FxWallet.__table__, FxShortPosition.__table__, FxTrade.__table__,
               FxCandle.__table__, FxMarketDataState.__table__, AuditEvent.__table__]
     SQLModel.metadata.create_all(engine)
+    @asynccontextmanager
+    async def writer_session_maker():
+        with Session(engine, expire_on_commit=False) as writer_raw:
+            yield AsyncCompatSession(writer_raw)
+    monkeypatch.setattr('app.core.database.async_session_maker', writer_session_maker)
     try:
         with Session(engine, expire_on_commit=False) as raw:
             db = AsyncCompatSession(raw)
@@ -125,3 +134,29 @@ async def backfill_fx_history(db, pair_id: int) -> str:
     state.history_ready = True
     await db.commit()
     return version
+
+
+@pytest.fixture
+def committed_fx_registry(monkeypatch):
+    """Isolate the shared projection while exercising real commit owners."""
+    from app.services import trading_prices
+    registry = trading_prices.PricingRegistry()
+    registry.configure(memory_products=frozenset({'fx'}))
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    return registry
+
+
+async def assert_committed_fx(registry, db, pair_id):
+    from app.services.market_read_state import FxReadState
+    pair = await db.get(FxPair, pair_id)
+    await db.refresh(pair)
+    actual = registry.peek_fx(pair_id)
+    expected = FxReadState.from_pair(pair)
+    assert actual is not None
+    from dataclasses import asdict
+    from app.services.trading_prices import clock_string
+    # SQLite returns naive UTC timestamps after refresh; published clocks use UTC.
+    def values(state):
+        return {key: clock_string(value) if isinstance(value, datetime) else value
+                for key, value in asdict(state).items()}
+    assert values(actual) == values(expected), (actual, expected)

@@ -1,0 +1,127 @@
+{
+  "events": [
+    {
+      "tick": 1000,
+      "direction": "up",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 7.0,
+      "sustained_12_closes_start_minutes": 7.0,
+      "trailing_12_close_mean_half_minutes": 8.0,
+      "max_observed_retracement": 0.6753163863200856,
+      "last_observed_retracement": 0.0996158167415564
+    },
+    {
+      "tick": 2000,
+      "direction": "down",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 11.5,
+      "sustained_12_closes_start_minutes": 12.5,
+      "trailing_12_close_mean_half_minutes": 13.0,
+      "max_observed_retracement": 0.65436902806118,
+      "last_observed_retracement": 0.5153537943953235
+    },
+    {
+      "tick": 3000,
+      "direction": "down",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 26.833333333333332,
+      "sustained_12_closes_start_minutes": 29.833333333333332,
+      "trailing_12_close_mean_half_minutes": 28.0,
+      "max_observed_retracement": 0.7028389677446683,
+      "last_observed_retracement": 0.3878006929560821
+    },
+    {
+      "tick": 4000,
+      "direction": "up",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 28.666666666666668,
+      "sustained_12_closes_start_minutes": 30.666666666666668,
+      "trailing_12_close_mean_half_minutes": 29.666666666666668,
+      "max_observed_retracement": 0.6786771733571231,
+      "last_observed_retracement": -0.012634128046926874
+    },
+    {
+      "tick": 5000,
+      "direction": "up",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 10.666666666666666,
+      "sustained_12_closes_start_minutes": 17.666666666666668,
+      "trailing_12_close_mean_half_minutes": 12.0,
+      "max_observed_retracement": 0.5724998923989362,
+      "last_observed_retracement": 0.28861167283691913
+    },
+    {
+      "tick": 6000,
+      "direction": "down",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 49.833333333333336,
+      "sustained_12_closes_start_minutes": null,
+      "trailing_12_close_mean_half_minutes": null,
+      "max_observed_retracement": 0.5039429358433569,
+      "last_observed_retracement": 0.06255479684715881
+    },
+    {
+      "tick": 7000,
+      "direction": "down",
+      "observed_minutes": 166.5,
+      "first_half_minutes": null,
+      "sustained_12_closes_start_minutes": null,
+      "trailing_12_close_mean_half_minutes": null,
+      "max_observed_retracement": 0.346922817361192,
+      "last_observed_retracement": -0.012932338112503938
+    },
+    {
+      "tick": 8000,
+      "direction": "down",
+      "observed_minutes": 166.5,
+      "first_half_minutes": null,
+      "sustained_12_closes_start_minutes": null,
+      "trailing_12_close_mean_half_minutes": null,
+      "max_observed_retracement": 0.31840028442195867,
+      "last_observed_retracement": -0.04010358831832517
+    },
+    {
+      "tick": 9000,
+      "direction": "up",
+      "observed_minutes": 166.5,
+      "first_half_minutes": 22.333333333333332,
+      "sustained_12_closes_start_minutes": null,
+      "trailing_12_close_mean_half_minutes": null,
+      "max_observed_retracement": 0.5040791413283046,
+      "last_observed_retracement": 0.016322622912148255
+    },
+    {
+      "tick": 10000,
+      "direction": "down",
+      "observed_minutes": 0.0,
+      "first_half_minutes": null,
+      "sustained_12_closes_start_minutes": null,
+      "trailing_12_close_mean_half_minutes": null,
+      "max_observed_retracement": 0.0,
+      "last_observed_retracement": 0.0
+    }
+  ],
+  "aggregate": {
+    "observed_events": 9,
+    "first_half_count": 7,
+    "sustained_half_count": 5,
+    "mean_curve_reaches_half": false,
+    "peak_mean_retracement": 0.4278064424574528,
+    "peak_mean_minutes": 20.5,
+    "sample_mean_retracement": {
+      "5": 0.1794022781593898,
+      "10": 0.33070780114801535,
+      "15": 0.3890031661061413,
+      "20": 0.4202905528122689,
+      "30": 0.37960237084036375,
+      "60": 0.28874379931546157,
+      "120": 0.20116638343251247,
+      "166.5": 0.14495437135682587
+    }
+  },
+  "sources_sha256": {
+    "shock.npz": "bb5d14a6bc47b9107121b7e1f7a8227e232bd8b375f54122e75f789d0bfe3a66",
+    "summary.json": "111e612e009499e56d8f84efc65720ed77deebccb309ea2f8e8f01613f0b8478"
+  },
+  "definition": "Remaining=(P_after_n_ticks-P_immediately_before_event)/(P_immediately_after_event-P_immediately_before_event). Half is remaining<=0.5. Subsequent event tick excluded; terminal event has zero follow-up. Sustained means 12 consecutive closes (~2 min), labeled by first close; known only after 11 further ticks. No permanent-impact adjustment or exponential fit."
+}

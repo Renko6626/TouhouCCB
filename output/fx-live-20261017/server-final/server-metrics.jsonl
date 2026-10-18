@@ -1,0 +1,100 @@
+{"sample_at":"2026-10-17T09:18:46Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"33.45%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.91%","MemUsage":"139.2MiB / 7.101GiB","Name":"thccb-backend","NetIO":"11.8MB / 22.2MB","PIDs":"6"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"5.01%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.21%","MemUsage":"160.5MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.16GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:18:56Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"17.43%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.92%","MemUsage":"139.4MiB / 7.101GiB","Name":"thccb-backend","NetIO":"12.2MB / 22.6MB","PIDs":"5"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"5.36%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.21%","MemUsage":"160.6MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.16GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:07Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"17.23%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.92%","MemUsage":"139.6MiB / 7.101GiB","Name":"thccb-backend","NetIO":"12.5MB / 22.9MB","PIDs":"5"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"5.94%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.21%","MemUsage":"160.6MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:17Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"9.83%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.92%","MemUsage":"139.8MiB / 7.101GiB","Name":"thccb-backend","NetIO":"12.9MB / 23.3MB","PIDs":"5"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"7.63%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.21%","MemUsage":"160.7MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:28Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"18.50%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.92%","MemUsage":"139.9MiB / 7.101GiB","Name":"thccb-backend","NetIO":"13.2MB / 23.7MB","PIDs":"5"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"9.73%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.21%","MemUsage":"160.7MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:38Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"86.52%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.95%","MemUsage":"141.7MiB / 7.101GiB","Name":"thccb-backend","NetIO":"13.8MB / 25MB","PIDs":"6"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"38.42%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.46%","MemUsage":"179MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"29"}
+{"connections" : 32, "active" : 5, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:49Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"3.24%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.03%","MemUsage":"147.8MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.2MB / 25.5MB","PIDs":"6"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"4.70%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.91%","MemUsage":"211.7MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:19:59Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"5.93%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.12%","MemUsage":"154.2MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.2MB / 25.6MB","PIDs":"8"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"4.59%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.91%","MemUsage":"211.7MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:20:10Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"4.27%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.14%","MemUsage":"155.4MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.3MB / 25.6MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"4.52%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.91%","MemUsage":"211.7MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:20:20Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"33.30%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.21%","MemUsage":"160.5MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.4MB / 25.6MB","PIDs":"6"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.01%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.92%","MemUsage":"212.2MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:20:30Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"2.96%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.20%","MemUsage":"159.7MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.5MB / 25.7MB","PIDs":"6"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"6.16%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.92%","MemUsage":"212.2MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:20:41Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"12.79%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.22%","MemUsage":"161.6MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.5MB / 25.7MB","PIDs":"8"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"6.55%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.92%","MemUsage":"212.2MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:20:51Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"13.00%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.22%","MemUsage":"161.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.5MB / 25.8MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"1.30%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.93%","MemUsage":"213.4MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:21:01Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"0.51%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.21%","MemUsage":"161MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.5MB / 25.8MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.09%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.93%","MemUsage":"213.4MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:21:11Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"1.81%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.2MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.5MB / 25.8MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"11.67%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.96%","MemUsage":"215MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"37"}
+{"connections" : 32, "active" : 3, "waiting" : 1}
+{"sample_at":"2026-10-17T09:21:22Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"0.79%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.7MB / 26MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.34%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.02%","MemUsage":"146.8MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:21:32Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"0.67%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.7MB / 26MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.44%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.02%","MemUsage":"147.1MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:21:43Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"1.28%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.7MB / 26MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.42%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.02%","MemUsage":"147.1MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:21:53Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"1.24%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.8MB / 26.1MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.11%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.03%","MemUsage":"147.4MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:03Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"0.64%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.8MB / 26.1MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.25%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.03%","MemUsage":"147.6MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:13Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"0.66%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.8MB / 26.1MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.69%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.04%","MemUsage":"148.3MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:24Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"3.77%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.8MB / 26.1MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"1.50%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.04%","MemUsage":"148.4MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:34Z"}
+{"BlockIO":"856kB / 0B","CPUPerc":"3.44%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"2.19%","MemUsage":"159MiB / 7.101GiB","Name":"thccb-backend","NetIO":"14.8MB / 26.2MB","PIDs":"7"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"11.08%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"2.04%","MemUsage":"148.5MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"17"}
+{"connections" : 12, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:45Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"0.00%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"0.00%","MemUsage":"0B / 0B","Name":"thccb-backend","NetIO":"0B / 0B","PIDs":"0"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"1.56%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"1.48%","MemUsage":"107.5MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"6"}
+{"connections" : 1, "active" : 1, "waiting" : 0}
+{"sample_at":"2026-10-17T09:22:54Z"}
+{"BlockIO":"0B / 0B","CPUPerc":"0.34%","Container":"thccb-backend","ID":"195797e1be36","MemPerc":"1.54%","MemUsage":"112.1MiB / 7.101GiB","Name":"thccb-backend","NetIO":"450kB / 39.3kB","PIDs":"3"}
+{"BlockIO":"396MB / 4.15GB","CPUPerc":"0.02%","Container":"thccb-postgres","ID":"3424791b63c6","MemPerc":"1.55%","MemUsage":"112.8MiB / 7.101GiB","Name":"thccb-postgres","NetIO":"1.79GB / 2.17GB","PIDs":"8"}
+{"connections" : 3, "active" : 1, "waiting" : 0}

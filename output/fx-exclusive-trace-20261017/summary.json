@@ -1,0 +1,173 @@
+[
+  {
+    "name": "cash_new_wallet",
+    "label": "现金买入，首次钱包",
+    "sql": 15,
+    "selects": 6,
+    "dml": 9,
+    "locked_sql": 15,
+    "gate_entries": 1,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 1,
+    "persisted": {
+      "cash": "990.000000",
+      "debt": "0.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "cash_existing",
+    "label": "现金买入，已有钱包",
+    "sql": 15,
+    "selects": 6,
+    "dml": 9,
+    "locked_sql": 15,
+    "gate_entries": 1,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 1,
+    "persisted": {
+      "cash": "990.000000",
+      "debt": "0.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "cash_sell",
+    "label": "无债现金卖出",
+    "sql": 15,
+    "selects": 6,
+    "dml": 9,
+    "locked_sql": 15,
+    "gate_entries": 1,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 1,
+    "persisted": {
+      "cash": "1004.925618",
+      "debt": "0.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "financed_buy",
+    "label": "显式融资买入",
+    "sql": 40,
+    "selects": 27,
+    "dml": 13,
+    "locked_sql": 35,
+    "gate_entries": 2,
+    "flushes": 5,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "990.000000",
+      "debt": "10.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "debt_cash_buy",
+    "label": "已有金债后买入",
+    "sql": 35,
+    "selects": 26,
+    "dml": 9,
+    "locked_sql": 30,
+    "gate_entries": 2,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "990.000000",
+      "debt": "10.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "short_open",
+    "label": "新开空头",
+    "sql": 35,
+    "selects": 26,
+    "dml": 9,
+    "locked_sql": 30,
+    "gate_entries": 2,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "1004.925618",
+      "debt": "0.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "short_cover",
+    "label": "仅回补空头",
+    "sql": 28,
+    "selects": 19,
+    "dml": 9,
+    "locked_sql": 24,
+    "gate_entries": 2,
+    "flushes": 3,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "995.000000",
+      "debt": "0.000000",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  },
+  {
+    "name": "cross_zero_sell",
+    "label": "卖出越过零点，现货＋开空",
+    "sql": 40,
+    "selects": 24,
+    "dml": 16,
+    "locked_sql": 36,
+    "gate_entries": 2,
+    "flushes": 4,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "1014.632703",
+      "debt": "0.000000",
+      "trades": 2,
+      "receipts": 1,
+      "pool_events": 2
+    }
+  },
+  {
+    "name": "debt_repay_sell",
+    "label": "卖出现货自动还款，含非零计息",
+    "sql": 33,
+    "selects": 19,
+    "dml": 14,
+    "locked_sql": 29,
+    "gate_entries": 2,
+    "flushes": 4,
+    "commits": 1,
+    "rollbacks": 3,
+    "persisted": {
+      "cash": "1000.000000",
+      "debt": "5.174382",
+      "trades": 1,
+      "receipts": 1,
+      "pool_events": 1
+    }
+  }
+]

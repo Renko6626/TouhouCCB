@@ -1,0 +1,282 @@
+{
+  "backend/app/api/v1/admin_fx.py": {
+    "existed": true,
+    "sha256": "b0320a95a4db6adf75c2c53efe874dab4e08ad6307be5ce31d00e7fd94c5a8fc"
+  },
+  "backend/app/api/v1/loan.py": {
+    "existed": true,
+    "sha256": "3ce90a48f8501d1bccc1190f7dfe9f5b46ecab01efb59319638820c10dbba1cd"
+  },
+  "backend/app/api/v1/market.py": {
+    "existed": true,
+    "sha256": "e9c0d0eb107f6c5db22d832034622e3b5c29425bf4620e8c46e0ad29d49d87fb"
+  },
+  "backend/app/main.py": {
+    "existed": true,
+    "sha256": "301c32186309e2a41e7205933df3e46cdcc50f6fc3e3beb5667cfbf50afc46b8"
+  },
+  "backend/app/schemas/trading_context.py": {
+    "existed": true,
+    "sha256": "c66801096874a65b722f982c5c0bfeb8a2d441b856c3fffba868e69694b7d111"
+  },
+  "backend/app/services/account_events.py": {
+    "existed": true,
+    "sha256": "4d60f0862157a474e37070e2b13403b2ccbe147a45afeb23551e3a0bb84e647a"
+  },
+  "backend/app/services/admin_user_service.py": {
+    "existed": true,
+    "sha256": "244c88772a80c8222ed792055db018b071ced6182eaf4151750700e87b0b1383"
+  },
+  "backend/app/services/credit/execution.py": {
+    "existed": true,
+    "sha256": "fa0db4b2e1ec20e258411287bef1f76238c02ef759e15606ac3346cfc7434cb0"
+  },
+  "backend/app/services/credit/gates.py": {
+    "existed": true,
+    "sha256": "fe3fa4e44b3d1776e6942e0438903a0eb397926e3252c49df0c17904248ffddb"
+  },
+  "backend/app/services/credit/risk.py": {
+    "existed": true,
+    "sha256": "950bfc6442a0d9a010073014ad828a8e443ef812d593d6dfb3682dbda2f9da42"
+  },
+  "backend/app/services/credit/trading_context.py": {
+    "existed": true,
+    "sha256": "16325353069709a585f0d42fdac9045e6809721cb01fba0f89755010da5a5011"
+  },
+  "backend/app/services/credit/valuation.py": {
+    "existed": true,
+    "sha256": "6634326497e7d45e8aa2768af4e424c228f04b9bbc4a6ccb13884ce72f5dea56"
+  },
+  "backend/app/services/danmuku.py": {
+    "existed": true,
+    "sha256": "4c9f0f1a332f1baf8c3aa706b6061b74a1d05a313621e5f243019ae60b593c99"
+  },
+  "backend/app/services/fx/borrow_buy.py": {
+    "existed": true,
+    "sha256": "8b53d999ceb813c9d766e661d46acd342b7aba348f1dac50f9f74426754bf998"
+  },
+  "backend/app/services/fx/liquidity.py": {
+    "existed": true,
+    "sha256": "8991b367a42ae111a92fb2fe393876c8495fac3a7091e07c1d87826380bb2b05"
+  },
+  "backend/app/services/fx/net_trading.py": {
+    "existed": true,
+    "sha256": "1542cd448c7c3097c845251fc82aaa4157b47951dcff7474860f6b14e07eba59"
+  },
+  "backend/app/services/fx/orders.py": {
+    "existed": true,
+    "sha256": "277be38a8530b3e928c7af918b47163aa830d6c3b5c638d7960cda11671d24a5"
+  },
+  "backend/app/services/fx/shorts.py": {
+    "existed": true,
+    "sha256": "a3940afb4892b2b4091bf9eef38826f392605f139db0e1b02d9f1f1ac89475d1"
+  },
+  "backend/app/services/fx/trading.py": {
+    "existed": true,
+    "sha256": "600c51caace2eec69adf2833c73a8c775ffc7037579b5f42e7f0e3f973cb4de8"
+  },
+  "backend/app/services/fx/writer.py": {
+    "existed": false,
+    "sha256": null
+  },
+  "backend/app/services/fx/writer_ops.py": {
+    "existed": false,
+    "sha256": null
+  },
+  "backend/app/services/market_writer.py": {
+    "existed": true,
+    "sha256": "19ddfed4221043d1452940a19373e323be4bedd7bd6ecf6802dd1d8c3e18a5a8"
+  },
+  "backend/app/services/pve_fx/executor.py": {
+    "existed": true,
+    "sha256": "53d63ed93965b2d92efdf0d36236f42fb7a8c80a00b16edec35dfba65ce994a2"
+  },
+  "backend/app/services/redemption.py": {
+    "existed": true,
+    "sha256": "7d5d85791f3c8f3c44ae1481d4d82845f8b638da4f771cdde2db46d0733cbc06"
+  },
+  "backend/app/services/trading_prices.py": {
+    "existed": true,
+    "sha256": "dc8f5c470731d306a64745fed5e1dcba987032f642c8f30cac4736cd2341974e"
+  },
+  "backend/app/services/writer_ops.py": {
+    "existed": true,
+    "sha256": "c748dc5151a1f6ba54cb7b13cdba16e6cddbe76e6d9b13d6d1b327a9b48bdf57"
+  },
+  "backend/tests/conftest.py": {
+    "existed": true,
+    "sha256": "26b24c3a2e426f625dc1066201d73b46c99dfb3d2f166df154062bc525828b18"
+  },
+  "backend/tests/fx_test_helpers.py": {
+    "existed": true,
+    "sha256": "013f8f5ca84de6fbbda8bfbd8a594ee4d7b845dc993439f52efb5c967c29bd6b"
+  },
+  "backend/tests/pg/conftest.py": {
+    "existed": true,
+    "sha256": "28777c2a3d24ca42964c598bdc0194cc6f8e1febaea5b53ee98d76274b7c3700"
+  },
+  "backend/tests/pg/test_pg_credit_admission_contention.py": {
+    "existed": true,
+    "sha256": "3f22feaa12c1c2b5a796438fb6ddf949916411b7d3819c0f6b0cc27397fed221"
+  },
+  "backend/tests/pg/test_pg_credit_liquidation.py": {
+    "existed": true,
+    "sha256": "fde6d63c217d841c502411cb72b417645fad7c02261ebe123e17db122d6eeab6"
+  },
+  "backend/tests/pg/test_pg_fx_history_locking.py": {
+    "existed": true,
+    "sha256": "bdb6c0969856dd2398ee36f430ef900ec15275a13018f6d47ad110140c8464ea"
+  },
+  "backend/tests/pg/test_pg_fx_short_concurrency.py": {
+    "existed": true,
+    "sha256": "ee01a200a02ee07db65817aa1a82de92c791a0a04945ee0f91c59109c49e0f4c"
+  },
+  "backend/tests/pg/test_pg_fx_trigger_orders.py": {
+    "existed": true,
+    "sha256": "751d9b1e26b7099949b31da13006b917dad5bd52ba4cf931680934330d6e4003"
+  },
+  "backend/tests/pg/test_pg_trading_context.py": {
+    "existed": true,
+    "sha256": "b773fc7e7b755089441b7c2b94019662143b95fd6c8920bf370ea7e271fc17e0"
+  },
+  "backend/tests/test_admin_fx.py": {
+    "existed": true,
+    "sha256": "a31dad0caf625e6ce6c8656a452ad56ab6c219db8308ff035c832468ef7ef1d1"
+  },
+  "backend/tests/test_admin_fx_multi_pair.py": {
+    "existed": true,
+    "sha256": "c5d2fb5e2aa9532256d8f0c59e8feb2118be253e7c770bf1545cb916de7071bc"
+  },
+  "backend/tests/test_credit_execution.py": {
+    "existed": true,
+    "sha256": "32133f9c441b53b139cf2ffd340dac5d90091915a5714bdb80b8a0affaff4abe"
+  },
+  "backend/tests/test_credit_gates.py": {
+    "existed": true,
+    "sha256": "eded456b913f04178a296045e7320fbc2e8b8cfe7c133dcbc738006176c266a8"
+  },
+  "backend/tests/test_credit_liquidate_group.py": {
+    "existed": true,
+    "sha256": "74549869e61edea15802313355091cccf7d82b3b5382dfb8bc1b10d73d11227e"
+  },
+  "backend/tests/test_credit_risk.py": {
+    "existed": true,
+    "sha256": "55a7633ac6d7159e8ab9513fcb8682452f5333664de3ae9253cf3c97099f28f3"
+  },
+  "backend/tests/test_credit_short_risk.py": {
+    "existed": true,
+    "sha256": "328575bcb4d06c44d020dc344185f9b872aec20905bf82b68433f86d8d7f79c3"
+  },
+  "backend/tests/test_credit_wp6a1_admission.py": {
+    "existed": true,
+    "sha256": "3451044ce2b26bdf525a1ed8c57901a82c0b19cda1231b502412f857c9739e23"
+  },
+  "backend/tests/test_credit_wp6a2_lmsr.py": {
+    "existed": true,
+    "sha256": "e7efeca660debc21cc44a41e41b7f921bf49072f270121f44b70021b2ab06f32"
+  },
+  "backend/tests/test_credit_wp6b_admin.py": {
+    "existed": true,
+    "sha256": "312e86252d609d1166ab885063660f63dbed8fb146b027de4d4f1732354d08ce"
+  },
+  "backend/tests/test_credit_wp6b_consumption.py": {
+    "existed": true,
+    "sha256": "f8971ce10d0e38c503fcf55ce2d6dba55cd7c56fe2054414ebfea6731cb52bb7"
+  },
+  "backend/tests/test_credit_wp6b_fx_ops.py": {
+    "existed": true,
+    "sha256": "60f86d4eb2cf19ddeac32a4b38958fd9ad62cc615c1c14f1ba741e35abd81bae"
+  },
+  "backend/tests/test_fx_borrow_buy.py": {
+    "existed": true,
+    "sha256": "7b9d373309cedca5ad465e49bd9f606d3ee38187ccade385e6facdb53077e01d"
+  },
+  "backend/tests/test_fx_market_data_integration.py": {
+    "existed": true,
+    "sha256": "958e261610ecdd8a76d24e69a4ca974c776e611542daafe6d247f995c98cdfcd"
+  },
+  "backend/tests/test_fx_net_trading.py": {
+    "existed": true,
+    "sha256": "ade04bf816f47d42823f733f5dc9e4a676d440cf5eb5dcbacd0eeb33dc5694ab"
+  },
+  "backend/tests/test_fx_pve_execution.py": {
+    "existed": true,
+    "sha256": "645d35cc99a731cd96945ea8a3e64333477c890f21c73ee9f2bead0844531b80"
+  },
+  "backend/tests/test_fx_short_api.py": {
+    "existed": true,
+    "sha256": "e8eac472539016cd40c3b70137839fd0fe808e491fe037a3be14234645580435"
+  },
+  "backend/tests/test_fx_short_liquidation.py": {
+    "existed": true,
+    "sha256": "0bfeff19db5a6db4070418493883669ce1229c9d0664762b90ebe1355a0f8c32"
+  },
+  "backend/tests/test_fx_short_player_admission.py": {
+    "existed": true,
+    "sha256": "e68be5a32b6a2dc337d739c53a164e021e12d2c489e3dc36fcffc42504ee3d9b"
+  },
+  "backend/tests/test_fx_short_trading.py": {
+    "existed": true,
+    "sha256": "2d19964510d234a87af440d2207b6f3f458312229fda257555c970d60474d0ba"
+  },
+  "backend/tests/test_fx_trading_in_session.py": {
+    "existed": true,
+    "sha256": "9ad2963c549e878a6fa6b24cf90d75425873dde709a7f754f9709093217fdb88"
+  },
+  "backend/tests/test_fx_trading_service.py": {
+    "existed": true,
+    "sha256": "eb8c8be2223141a1bb27dd77a72a6c03318b843d24818f80d57123c0fa8cb01f"
+  },
+  "backend/tests/test_fx_trigger_orders.py": {
+    "existed": true,
+    "sha256": "b6fd2695444a5996fd4966ffe06b3ce9a39e7dec0ee2420dc979fab7dc57e2ff"
+  },
+  "backend/tests/test_fx_valuation.py": {
+    "existed": true,
+    "sha256": "1142108a88359769cb6aabe4909ac4cf95974c6d082af62f71c3e4a8d7439b8b"
+  },
+  "backend/tests/test_fx_writer.py": {
+    "existed": false,
+    "sha256": null
+  },
+  "backend/tests/test_market_read_state.py": {
+    "existed": true,
+    "sha256": "c7434dc3583f06fadac164958316e67af167037724646b26e7294c20f224fd66"
+  },
+  "backend/tests/test_market_writer_state.py": {
+    "existed": true,
+    "sha256": "bc6b5454e7844deedd3f6e0d071ea9fcd224a5f07d0f2f287060e6d6a3329d24"
+  },
+  "backend/tests/test_trading_context.py": {
+    "existed": true,
+    "sha256": "fcbe42d4648789bf90f7668219faad9c75cc873ac57d7b4416d24459f25de6ea"
+  },
+  "backend/tests/test_trading_stream.py": {
+    "existed": true,
+    "sha256": "f2af330255491ebddede8484750dd6e1bdef820c4c4c859558b92d95c76ce5d9"
+  },
+  "backend/tests/test_writer_admin_ops.py": {
+    "existed": true,
+    "sha256": "cf5340eb89894585f8ff7bb1cf92b42d18c7c9a0f099982e3ead45700cc3b52d"
+  },
+  "docs/api.md": {
+    "existed": true,
+    "sha256": "f53d3d737ef58c1d28f9654cbee040787de2f92cdf152dd1c18fa1a962714f40"
+  },
+  "docs/latex/trading-system-guide.pdf": {
+    "existed": true,
+    "sha256": "2301afd91909ede17eb8da718cc661fa57968435e9db838866b78d4317319564"
+  },
+  "docs/latex/trading-system-guide.tex": {
+    "existed": true,
+    "sha256": "b14c3e6dabebcfe106a9cff4c259fce97dc2ece54f010bb9fc6d57392e132857"
+  },
+  "docs/superpowers/plans/2026-10-18-single-writer-market-migration.md": {
+    "existed": true,
+    "sha256": "20a3f093e02fb35cf8b1e51f9beefa2430a6c8698abbc23fe6bd865466923efa"
+  },
+  "thccb-frontend/src/stores/tradingSession.ts": {
+    "existed": true,
+    "sha256": "06c109b615c8ecc88ed4a2721ebae75ea37d494bf2226489b242d8a20ce9f7a4"
+  }
+}

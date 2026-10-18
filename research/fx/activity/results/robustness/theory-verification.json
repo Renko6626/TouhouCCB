@@ -1,0 +1,34 @@
+{
+  "conditional_sixth_moment_checks": [
+    {
+      "z": 0.0,
+      "intensity": 0.75,
+      "poisson_gaussian_mixture": 3.420973385680924e-07,
+      "expanded_polynomial": 3.420973385682094e-07,
+      "agreement": true
+    },
+    {
+      "z": 1.0,
+      "intensity": 1.0,
+      "poisson_gaussian_mixture": 1.0242275046034595,
+      "expanded_polynomial": 1.02422750460346,
+      "agreement": true
+    },
+    {
+      "z": 2.0,
+      "intensity": 1.75,
+      "poisson_gaussian_mixture": 64.4564134398768,
+      "expanded_polynomial": 64.45641343987683,
+      "agreement": true
+    },
+    {
+      "z": 10.0,
+      "intensity": 25.75,
+      "poisson_gaussian_mixture": 1001716.7881542447,
+      "expanded_polynomial": 1001716.7881542462,
+      "agreement": true
+    }
+  ],
+  "method": "Direct Poisson sum of Gaussian conditional moments, truncated at CDF 1-1e-15",
+  "rtol": 1e-12
+}

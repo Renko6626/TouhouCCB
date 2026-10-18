@@ -1,0 +1,68 @@
+{
+  "impact_variance": [
+    {
+      "amplitude": 125,
+      "seed": 41,
+      "strategy_var_share": 0.5271793995633574,
+      "noise_var_share": 0.47951711192488206,
+      "two_cov_share": -0.006692629360723107
+    },
+    {
+      "amplitude": 125,
+      "seed": 42,
+      "strategy_var_share": 0.5112989353751379,
+      "noise_var_share": 0.4911167418611071,
+      "two_cov_share": -0.0024201190087478623
+    },
+    {
+      "amplitude": 125,
+      "seed": 43,
+      "strategy_var_share": 0.5176753667246861,
+      "noise_var_share": 0.4842345106935707,
+      "two_cov_share": -0.0019035355868874421
+    },
+    {
+      "amplitude": 250,
+      "seed": 41,
+      "strategy_var_share": 0.8359171907310196,
+      "noise_var_share": 0.16757038772186644,
+      "two_cov_share": -0.0034781790656472416
+    },
+    {
+      "amplitude": 250,
+      "seed": 42,
+      "strategy_var_share": 0.8285243278622736,
+      "noise_var_share": 0.1737737054506642,
+      "two_cov_share": -0.002297020866863813
+    },
+    {
+      "amplitude": 250,
+      "seed": 43,
+      "strategy_var_share": 0.8271427648249156,
+      "noise_var_share": 0.17087843052987012,
+      "two_cov_share": 0.00198825453836127
+    },
+    {
+      "amplitude": 500,
+      "seed": 41,
+      "strategy_var_share": 0.959982639268341,
+      "noise_var_share": 0.040542830780518534,
+      "two_cov_share": -0.000533484981704564
+    },
+    {
+      "amplitude": 500,
+      "seed": 42,
+      "strategy_var_share": 0.9596927545415396,
+      "noise_var_share": 0.04184969478955276,
+      "two_cov_share": -0.0015442747704098121
+    },
+    {
+      "amplitude": 500,
+      "seed": 43,
+      "strategy_var_share": 0.9579258336175188,
+      "noise_var_share": 0.040897409622219695,
+      "two_cov_share": 0.0011735329601385623
+    }
+  ],
+  "report_source_sha256": "1877acc66236a7b80d67600f0acf30d437ae01bef6da75528f46794c952b1f4c"
+}

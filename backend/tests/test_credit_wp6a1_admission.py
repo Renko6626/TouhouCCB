@@ -7,13 +7,12 @@ from app.models.base import User, SiteConfig
 from app.models.fx import FxPair, FxTreasury, FxWallet, FxTrade
 from app.services.credit import flags
 from app.services.credit.ownership import OWNERSHIP
-from app.services.credit.gates import GATES
 from app.services import loan_service, site_config
 from app.services.fx import trading
 from app.api.v1.loan import get_quota, borrow
 from app.schemas.loan import BorrowRequest
 from fastapi import HTTPException
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("published_markets")]
 @pytest.fixture(autouse=True)
 def unified(monkeypatch):
     flags.set_flags(flags.CreditFlags( credit_leverage=D('4'), credit_maintenance_ratio=D('.1')))
@@ -37,7 +36,6 @@ async def test_debtor_can_buy_fx_with_post_trade_margin():
         result=await trading.execute_trade(db,uid,pid,'buy',D('10'),D('0'),'allowed')
         u=await db.get(User,uid)
         assert result.output_amount>0 and u.economic_version==1
-        assert not GATES.held_keys()
 async def test_fees_can_reject_buyer_at_initial_boundary():
     async with async_session_maker() as db:
         uid,pid=await seed(db,cash='80',debt='60')
@@ -45,7 +43,6 @@ async def test_fees_can_reject_buyer_at_initial_boundary():
             await trading.execute_trade(db,uid,pid,'buy',D('10'),D('0'),'denied')
         assert exc.value.status_code==400
         assert (await db.execute(select(FxTrade))).scalars().all()==[]
-        assert not GATES.held_keys()
 async def test_quota_counts_fx_actual_liquidation_value():
     async with async_session_maker() as db:
         uid,pid=await seed(db,cash='0',debt='0')
@@ -90,21 +87,31 @@ async def test_debt_free_fx_does_not_discover_collateral(monkeypatch):
         uid, pid = await seed(db, debt='0')
         await trading.execute_trade(db, uid, pid, 'buy', D('10'), D('0'), 'fast')
 
-async def test_all_fx_collateral_gates_are_held_until_commit(monkeypatch):
+async def test_fx_buy_values_all_published_collateral(monkeypatch):
     from app.services.credit.keys import GroupKey
+    from tests.conftest import publish_seeded_market_records
     async with async_session_maker() as db:
         uid, pid = await seed(db)
-        other = FxPair(currency_code='LMD',currency_name='LMD',status='trading',gold_reserve=D('10000'),foreign_reserve=D('50000'))
+        other = FxPair(currency_code='LMD', currency_name='LMD', status='trading',
+                       gold_reserve=D('10000'), foreign_reserve=D('50000'))
         db.add(other); await db.flush()
         oid = other.id
-        db.add(FxWallet(user_id=uid,pair_id=oid,foreign_amount=D('100')))
+        db.add(FxWallet(user_id=uid, pair_id=oid, foreign_amount=D('100')))
         await db.commit()
-        real_commit = db.commit
-        async def checked_commit():
-            assert GATES.held_keys_by_current_task() == {GroupKey('fx',pid),GroupKey('fx',oid)}
-            await real_commit()
-        monkeypatch.setattr(db, 'commit', checked_commit)
-        await trading.execute_trade(db,uid,pid,'buy',D('10'),D('0'),'gates')
+        await publish_seeded_market_records()
+        check = trading.check_new_risk
+        async def observing(*args, **kwargs):
+            deps = kwargs['deps']
+            assert deps.holdings[GroupKey('fx', oid)] == {oid: D('100')}
+            assert deps.snapshots[GroupKey('fx', oid)].pair.gold_reserve == D('10000')
+            return await check(*args, **kwargs)
+        monkeypatch.setattr(trading, 'check_new_risk', observing)
+        result = await trading.execute_trade(db, uid, pid, 'buy', D('10'), D('0'), 'collateral')
+        user = await db.get(User, uid)
+        assert result.output_amount > 0
+        assert user.cash == D('90') and user.debt == D('50')
+        assert user.economic_version == 1
+
 
 async def test_read_only_rejects_flag_off_fx_and_loan(monkeypatch):
     flags.set_flags(flags.CreditFlags(read_only_instance=True))
@@ -140,33 +147,34 @@ async def test_fx_buy_materializes_pending_interest():
         await db.refresh(u)
         assert D('55')<=u.debt<D('55.001')
 
-async def test_stale_dependency_retries_are_bounded_and_release_gates(monkeypatch):
-    from dataclasses import replace
-    original=trading.discover_dependencies
-    calls=0
-    async def stale(*args,**kwargs):
-        nonlocal calls
-        calls+=1
-        deps=await original(*args,**kwargs)
-        return replace(deps,economic_version=deps.economic_version-1)
-    monkeypatch.setattr(trading,'discover_dependencies',stale)
+async def test_fx_buy_uses_cash_refreshed_at_user_lock(monkeypatch):
+    original = trading.lock_user
+    async def changed_account(db, user_id):
+        async with async_session_maker() as other:
+            user = await other.get(User, user_id)
+            user.cash = D('0')
+            user.economic_version += 1
+            await other.commit()
+        return await original(db, user_id)
+    monkeypatch.setattr(trading, 'lock_user', changed_account)
     async with async_session_maker() as db:
-        uid,pid=await seed(db)
+        uid, pid = await seed(db)
         with pytest.raises(HTTPException) as exc:
-            await trading.execute_trade(db,uid,pid,'buy',D('1'),D('0'),'stale')
-        assert exc.value.status_code==409
-        assert calls==flags.get_flags().credit_risk_retry_limit+1
-        assert not GATES.held_keys()
+            await trading.execute_trade(db, uid, pid, 'buy', D('1'), D('0'), 'fresh-cash')
+        assert exc.value.status_code == 400
         assert not db.in_transaction()
+        assert (await db.execute(select(FxTrade))).scalars().all() == []
+        user = await db.get(User, uid)
+        assert user.cash == D('0') and user.debt == D('50')
+        assert user.economic_version == 1
+
 
 async def test_fx_in_session_has_no_commit_or_publication(monkeypatch):
-    from app.services.credit.keys import GroupKey
     async with async_session_maker() as db:
         uid,pid=await seed(db,debt='0')
-        async with GATES.hold(exclusive=[GroupKey('fx',pid)]):
-            execution=await trading.execute_trade_in_session(db,uid,pid,'buy',D('1'),D('0'),'atomic')
-            assert execution.trade.id
-            await db.rollback()
+        execution=await trading.execute_trade_in_session(db,uid,pid,'buy',D('1'),D('0'),'atomic')
+        assert execution.trade.id
+        await db.rollback()
         assert (await db.execute(select(FxTrade))).scalars().all()==[]
 
 async def test_borrow_rejects_pending_interest_reducing_headroom():
@@ -182,7 +190,6 @@ async def test_borrow_rejects_pending_interest_reducing_headroom():
         with pytest.raises(HTTPException) as exc:
             await borrow(BorrowRequest(amount='90'),user=user,db=db)
         assert exc.value.status_code==400
-        assert not GATES.held_keys()
         from app.models.ledger import LedgerEntry
         assert (await db.execute(select(LedgerEntry).where(LedgerEntry.user_id == uid))).scalars().all() == []
         user = await db.get(User, uid)
@@ -201,7 +208,6 @@ async def test_owner_lost_during_fx_user_lock_is_rejected(monkeypatch):
         uid,pid=await seed(db,debt='0')
         with pytest.raises(EconomicWritesDisabled):
             await trading.execute_trade(db,uid,pid,'buy',D('1'),D('0'),'lost-owner')
-        assert not GATES.held_keys()
         assert (await db.execute(select(FxTrade))).scalars().all()==[]
 
 async def test_new_principal_starts_now_when_old_interest_rounds_to_zero():
@@ -255,7 +261,6 @@ async def test_loan_result_does_not_require_quota_valuation(monkeypatch, operati
             assert result.effective == D(effective) and result.max_borrow is None
         else:
             assert result.max_borrow == D('90')
-        assert not GATES.held_keys()
     async with async_session_maker() as db:
         user = await db.get(User, uid)
         assert user.cash == D(cash) and user.debt == D(debt)

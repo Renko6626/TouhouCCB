@@ -1,0 +1,15 @@
+{
+  "candidate": "d18445b8ca8e24f916a221b7b04e3798d223384d",
+  "paths": [
+    "backend/app/api/v1/user_trading.py",
+    "backend/app/services/account_events.py",
+    "backend/app/services/trading_prices.py",
+    "backend/tests/test_account_events.py",
+    "backend/tests/test_fx_net_trading.py",
+    "backend/tests/test_fx_trading_service.py",
+    "backend/tests/test_trading_context.py",
+    "backend/tests/test_trading_stream.py"
+  ],
+  "other_source_hashes_unchanged": 328,
+  "root_ip_cap": 10
+}

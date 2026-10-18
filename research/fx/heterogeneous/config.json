@@ -1,0 +1,8 @@
+{
+  "spreads": [0.5, 1.0],
+  "population_seeds": [301, 302, 303],
+  "market_seeds": [71, 72, 73],
+  "ticks": 100000,
+  "burn_in": 5000,
+  "workers": 9
+}

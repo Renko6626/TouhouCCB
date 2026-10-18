@@ -1,0 +1,640 @@
+{
+  "phases": {
+    "normal": {
+      "client_stage": {
+        "name": "normal",
+        "target_users": 100,
+        "active_users": 70,
+        "duration_s": 21.041,
+        "attempted_trade_cycles": 79,
+        "successful_trades": 78,
+        "successful_trades_per_s": 3.707,
+        "trade_cycle_starts_per_s": 3.754,
+        "schedule_lag": {
+          "count": 79,
+          "p50_ms": 0.943,
+          "p95_ms": 15.368,
+          "p99_ms": 24.356
+        },
+        "public_connected_at_end": 100,
+        "private_connected_at_end": 100,
+        "nominal_trade_cycles_per_s": 2.5,
+        "scheduled_trading_users": 70,
+        "sse_received": {
+          "public": {
+            "frames": 7800,
+            "payload_bytes": 4507100
+          },
+          "private": {
+            "frames": 8023,
+            "payload_bytes": 3933733
+          }
+        },
+        "completed_requests": 531,
+        "completed_requests_per_s": 25.236
+      },
+      "timings": [
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_wait",
+          "count": 102,
+          "total_ms": 4762.021,
+          "mean_ms": 46.686,
+          "p50_ms": 0.064,
+          "p95_ms": 211.129,
+          "p99_ms": 232.24,
+          "max_ms": 300.022
+        },
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "_simulate",
+          "count": 77,
+          "total_ms": 240.135,
+          "mean_ms": 3.119,
+          "p50_ms": 0.169,
+          "p95_ms": 14.452,
+          "p99_ms": 17.127,
+          "max_ms": 36.926
+        },
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "execute_net_trade_in_session",
+          "count": 102,
+          "total_ms": 4788.052,
+          "mean_ms": 46.942,
+          "p50_ms": 34.73,
+          "p95_ms": 123.827,
+          "p99_ms": 132.895,
+          "max_ms": 228.59
+        },
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_held",
+          "count": 102,
+          "total_ms": 5398.301,
+          "mean_ms": 52.925,
+          "p50_ms": 40.691,
+          "p95_ms": 128.687,
+          "p99_ms": 145.526,
+          "max_ms": 236.578
+        },
+        {
+          "phase": "normal",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 201,
+          "total_ms": 940.564,
+          "mean_ms": 4.679,
+          "p50_ms": 1.312,
+          "p95_ms": 15.062,
+          "p99_ms": 28.413,
+          "max_ms": 146.326
+        },
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "discover_dependencies",
+          "count": 50,
+          "total_ms": 926.898,
+          "mean_ms": 18.538,
+          "p50_ms": 14.36,
+          "p95_ms": 46.671,
+          "p99_ms": 57.705,
+          "max_ms": 65.868
+        },
+        {
+          "phase": "normal",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "check_new_risk",
+          "count": 24,
+          "total_ms": 226.094,
+          "mean_ms": 9.421,
+          "p50_ms": 7.518,
+          "p95_ms": 16.18,
+          "p99_ms": 16.887,
+          "max_ms": 36.706
+        }
+      ],
+      "sql_by_route": [
+        {
+          "route": "GET /api/v1/fx/pairs/:id/my-trades",
+          "sql_count": 156,
+          "cursor_elapsed_ms": 1014.963,
+          "requests_completed": 78,
+          "sql_per_request": 2.0
+        },
+        {
+          "route": "GET /api/v1/fx/pairs/:id/snapshot",
+          "sql_count": 234,
+          "cursor_elapsed_ms": 1295.414,
+          "requests_completed": 78,
+          "sql_per_request": 3.0
+        },
+        {
+          "route": "GET /api/v1/stream/trading",
+          "sql_count": 959,
+          "cursor_elapsed_ms": 2225.862,
+          "requests_completed": null,
+          "sql_per_request": null
+        },
+        {
+          "route": "GET /api/v1/user/trading-context",
+          "sql_count": 936,
+          "cursor_elapsed_ms": 2861.832,
+          "requests_completed": 78,
+          "sql_per_request": 12.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-prices",
+          "sql_count": 55,
+          "cursor_elapsed_ms": 311.403,
+          "requests_completed": 11,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-versions",
+          "sql_count": 903,
+          "cursor_elapsed_ms": 1961.258,
+          "requests_completed": 129,
+          "sql_per_request": 7.0
+        },
+        {
+          "route": "GET /history/fx/:id/50394ee8-f634-40b1-b1dc-504e21421803/15m/1791763200.json",
+          "sql_count": 5,
+          "cursor_elapsed_ms": 3.861,
+          "requests_completed": 1,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /history/fx/:id/50394ee8-f634-40b1-b1dc-504e21421803/15m/1791849600.json",
+          "sql_count": 5,
+          "cursor_elapsed_ms": 2.284,
+          "requests_completed": 1,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /history/fx/:id/50394ee8-f634-40b1-b1dc-504e21421803/15m/1791936000.json",
+          "sql_count": 5,
+          "cursor_elapsed_ms": 3.496,
+          "requests_completed": 1,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /history/fx/:id/50394ee8-f634-40b1-b1dc-504e21421803/15m/1792022400.json",
+          "sql_count": 2,
+          "cursor_elapsed_ms": 1.42,
+          "requests_completed": 1,
+          "sql_per_request": 2.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/quote",
+          "sql_count": 480,
+          "cursor_elapsed_ms": 1517.615,
+          "requests_completed": 77,
+          "sql_per_request": 6.234
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "sql_count": 1787,
+          "cursor_elapsed_ms": 4578.419,
+          "requests_completed": 77,
+          "sql_per_request": 23.208
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/cover",
+          "sql_count": 19,
+          "cursor_elapsed_ms": 33.364,
+          "requests_completed": 1,
+          "sql_per_request": 19.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/quote",
+          "sql_count": 13,
+          "cursor_elapsed_ms": 12.37,
+          "requests_completed": 1,
+          "sql_per_request": 13.0
+        },
+        {
+          "route": "background",
+          "sql_count": 954,
+          "cursor_elapsed_ms": 4068.047,
+          "requests_completed": null,
+          "sql_per_request": null
+        }
+      ],
+      "sql_total": 6513,
+      "gate_queue_peak": 4,
+      "pool_checkedout_sample_peak": 11
+    },
+    "active": {
+      "client_stage": {
+        "name": "active",
+        "target_users": 100,
+        "active_users": 90,
+        "duration_s": 21.686,
+        "attempted_trade_cycles": 161,
+        "successful_trades": 155,
+        "successful_trades_per_s": 7.148,
+        "trade_cycle_starts_per_s": 7.424,
+        "schedule_lag": {
+          "count": 161,
+          "p50_ms": 1.0,
+          "p95_ms": 16.8,
+          "p99_ms": 23.884
+        },
+        "public_connected_at_end": 100,
+        "private_connected_at_end": 100,
+        "nominal_trade_cycles_per_s": 7.5,
+        "scheduled_trading_users": 90,
+        "sse_received": {
+          "public": {
+            "frames": 14100,
+            "payload_bytes": 8373600
+          },
+          "private": {
+            "frames": 15595,
+            "payload_bytes": 7710173
+          }
+        },
+        "completed_requests": 936,
+        "completed_requests_per_s": 43.162
+      },
+      "timings": [
+        {
+          "phase": "active",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 200,
+          "total_ms": 1693.091,
+          "mean_ms": 8.465,
+          "p50_ms": 3.846,
+          "p95_ms": 21.09,
+          "p99_ms": 92.936,
+          "max_ms": 141.715
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_wait",
+          "count": 183,
+          "total_ms": 56119.479,
+          "mean_ms": 306.664,
+          "p50_ms": 184.236,
+          "p95_ms": 940.03,
+          "p99_ms": 1245.143,
+          "max_ms": 1258.146
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "_simulate",
+          "count": 141,
+          "total_ms": 510.301,
+          "mean_ms": 3.619,
+          "p50_ms": 0.156,
+          "p95_ms": 19.725,
+          "p99_ms": 27.991,
+          "max_ms": 47.189
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "execute_net_trade_in_session",
+          "count": 183,
+          "total_ms": 13375.93,
+          "mean_ms": 73.093,
+          "p50_ms": 69.57,
+          "p95_ms": 139.439,
+          "p99_ms": 191.612,
+          "max_ms": 227.299
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_held",
+          "count": 183,
+          "total_ms": 14935.087,
+          "mean_ms": 81.612,
+          "p50_ms": 79.524,
+          "p95_ms": 149.695,
+          "p99_ms": 198.935,
+          "max_ms": 237.712
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "discover_dependencies",
+          "count": 84,
+          "total_ms": 2260.513,
+          "mean_ms": 26.911,
+          "p50_ms": 25.127,
+          "p95_ms": 48.551,
+          "p99_ms": 58.914,
+          "max_ms": 74.496
+        },
+        {
+          "phase": "active",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "check_new_risk",
+          "count": 28,
+          "total_ms": 473.418,
+          "mean_ms": 16.908,
+          "p50_ms": 14.661,
+          "p95_ms": 27.673,
+          "p99_ms": 36.127,
+          "max_ms": 46.967
+        }
+      ],
+      "sql_by_route": [
+        {
+          "route": "GET /api/v1/fx/pairs/:id/my-trades",
+          "sql_count": 310,
+          "cursor_elapsed_ms": 3578.267,
+          "requests_completed": 155,
+          "sql_per_request": 2.0
+        },
+        {
+          "route": "GET /api/v1/fx/pairs/:id/snapshot",
+          "sql_count": 465,
+          "cursor_elapsed_ms": 4405.235,
+          "requests_completed": 155,
+          "sql_per_request": 3.0
+        },
+        {
+          "route": "GET /api/v1/stream/trading",
+          "sql_count": 1170,
+          "cursor_elapsed_ms": 5039.195,
+          "requests_completed": null,
+          "sql_per_request": null
+        },
+        {
+          "route": "GET /api/v1/user/trading-context",
+          "sql_count": 1860,
+          "cursor_elapsed_ms": 8597.738,
+          "requests_completed": 155,
+          "sql_per_request": 12.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-prices",
+          "sql_count": 145,
+          "cursor_elapsed_ms": 996.104,
+          "requests_completed": 29,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-versions",
+          "sql_count": 882,
+          "cursor_elapsed_ms": 3622.472,
+          "requests_completed": 126,
+          "sql_per_request": 7.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/quote",
+          "sql_count": 778,
+          "cursor_elapsed_ms": 3664.487,
+          "requests_completed": 147,
+          "sql_per_request": 5.293
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "sql_count": 3133,
+          "cursor_elapsed_ms": 13411.036,
+          "requests_completed": 141,
+          "sql_per_request": 22.22
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/cover",
+          "sql_count": 266,
+          "cursor_elapsed_ms": 1621.705,
+          "requests_completed": 14,
+          "sql_per_request": 19.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/quote",
+          "sql_count": 195,
+          "cursor_elapsed_ms": 869.993,
+          "requests_completed": 15,
+          "sql_per_request": 13.0
+        },
+        {
+          "route": "background",
+          "sql_count": 1787,
+          "cursor_elapsed_ms": 12713.025,
+          "requests_completed": null,
+          "sql_per_request": null
+        }
+      ],
+      "sql_total": 10991,
+      "gate_queue_peak": 11,
+      "pool_checkedout_sample_peak": 12
+    },
+    "stress": {
+      "client_stage": {
+        "name": "stress",
+        "target_users": 100,
+        "active_users": 100,
+        "duration_s": 35.546,
+        "attempted_trade_cycles": 372,
+        "successful_trades": 299,
+        "successful_trades_per_s": 8.412,
+        "trade_cycle_starts_per_s": 10.465,
+        "schedule_lag": {
+          "count": 372,
+          "p50_ms": 3157.472,
+          "p95_ms": 11165.945,
+          "p99_ms": 11894.351
+        },
+        "public_connected_at_end": 0,
+        "private_connected_at_end": 0,
+        "nominal_trade_cycles_per_s": 25.0,
+        "scheduled_trading_users": 100,
+        "sse_received": {
+          "public": {
+            "frames": 22200,
+            "payload_bytes": 13312400
+          },
+          "private": {
+            "frames": 24457,
+            "payload_bytes": 12094634
+          }
+        },
+        "completed_requests": 1964,
+        "completed_requests_per_s": 55.252
+      },
+      "timings": [
+        {
+          "phase": "stress",
+          "route": "background",
+          "name": "event_loop_lag",
+          "count": 328,
+          "total_ms": 3005.641,
+          "mean_ms": 9.164,
+          "p50_ms": 3.943,
+          "p95_ms": 21.966,
+          "p99_ms": 148.11,
+          "max_ms": 194.236
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_wait",
+          "count": 400,
+          "total_ms": 2697059.839,
+          "mean_ms": 6742.65,
+          "p50_ms": 7905.132,
+          "p95_ms": 8692.608,
+          "p99_ms": 8828.815,
+          "max_ms": 8931.747
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "_simulate",
+          "count": 311,
+          "total_ms": 853.5,
+          "mean_ms": 2.744,
+          "p50_ms": 0.143,
+          "p95_ms": 16.438,
+          "p99_ms": 37.141,
+          "max_ms": 79.21
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "execute_net_trade_in_session",
+          "count": 400,
+          "total_ms": 28542.284,
+          "mean_ms": 71.356,
+          "p50_ms": 64.346,
+          "p95_ms": 145.38,
+          "p99_ms": 308.269,
+          "max_ms": 380.057
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "market_gate_held",
+          "count": 400,
+          "total_ms": 32266.705,
+          "mean_ms": 80.667,
+          "p50_ms": 72.972,
+          "p95_ms": 159.316,
+          "p99_ms": 321.628,
+          "max_ms": 414.142
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "discover_dependencies",
+          "count": 132,
+          "total_ms": 3880.428,
+          "mean_ms": 29.397,
+          "p50_ms": 20.368,
+          "p95_ms": 71.204,
+          "p99_ms": 99.38,
+          "max_ms": 203.661
+        },
+        {
+          "phase": "stress",
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "name": "check_new_risk",
+          "count": 45,
+          "total_ms": 804.723,
+          "mean_ms": 17.883,
+          "p50_ms": 13.459,
+          "p95_ms": 38.124,
+          "p99_ms": 52.405,
+          "max_ms": 78.989
+        }
+      ],
+      "sql_by_route": [
+        {
+          "route": "GET /api/v1/fx/pairs/:id/my-trades",
+          "sql_count": 598,
+          "cursor_elapsed_ms": 6271.682,
+          "requests_completed": 299,
+          "sql_per_request": 2.0
+        },
+        {
+          "route": "GET /api/v1/fx/pairs/:id/snapshot",
+          "sql_count": 897,
+          "cursor_elapsed_ms": 7890.565,
+          "requests_completed": 299,
+          "sql_per_request": 3.0
+        },
+        {
+          "route": "GET /api/v1/stream/trading",
+          "sql_count": 1790,
+          "cursor_elapsed_ms": 8762.557,
+          "requests_completed": null,
+          "sql_per_request": null
+        },
+        {
+          "route": "GET /api/v1/user/trading-context",
+          "sql_count": 4332,
+          "cursor_elapsed_ms": 20153.559,
+          "requests_completed": 361,
+          "sql_per_request": 12.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-prices",
+          "sql_count": 390,
+          "cursor_elapsed_ms": 3092.027,
+          "requests_completed": 78,
+          "sql_per_request": 5.0
+        },
+        {
+          "route": "GET /api/v1/user/trading-versions",
+          "sql_count": 1386,
+          "cursor_elapsed_ms": 7957.105,
+          "requests_completed": 198,
+          "sql_per_request": 7.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/quote",
+          "sql_count": 1777,
+          "cursor_elapsed_ms": 11259.827,
+          "requests_completed": 349,
+          "sql_per_request": 5.092
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/net/trades",
+          "sql_count": 6459,
+          "cursor_elapsed_ms": 29969.082,
+          "requests_completed": 334,
+          "sql_per_request": 19.338
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/cover",
+          "sql_count": 437,
+          "cursor_elapsed_ms": 2148.39,
+          "requests_completed": 23,
+          "sql_per_request": 19.0
+        },
+        {
+          "route": "POST /api/v1/fx/pairs/:id/short/quote",
+          "sql_count": 286,
+          "cursor_elapsed_ms": 2170.194,
+          "requests_completed": 22,
+          "sql_per_request": 13.0
+        },
+        {
+          "route": "background",
+          "sql_count": 3261,
+          "cursor_elapsed_ms": 23252.375,
+          "requests_completed": null,
+          "sql_per_request": null
+        }
+      ],
+      "sql_total": 21613,
+      "gate_queue_peak": 102,
+      "pool_checkedout_sample_peak": 20
+    }
+  },
+  "db_lock_waiters_sample_peak": 1,
+  "abort": "30s window: successful trade P99 exceeds 2000ms"
+}

@@ -1,0 +1,194 @@
+[
+  {
+    "phase": "deterministic_versions_warmup",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_versions_measured",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 1000
+  },
+  {
+    "phase": "deterministic_prices_warmup",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 100
+  },
+  {
+    "phase": "deterministic_prices_measured",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 1000
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 216
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 1
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 161
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 20
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 200
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 208
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 400
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 559
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 37
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 36
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 7
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 9
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 2
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 297
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 647
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 69
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 61
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 31
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 55
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "kind": "dependency_union",
+    "executions": 472
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "kind": "dependency_union",
+    "executions": 198
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "kind": "dependency_short",
+    "executions": 75
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "kind": "dependency_union",
+    "executions": 70
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "kind": "dependency_short",
+    "executions": 18
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "kind": "dependency_short",
+    "executions": 52
+  }
+]

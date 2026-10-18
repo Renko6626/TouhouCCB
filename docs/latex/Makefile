@@ -2,6 +2,8 @@
 #
 # Targets:
 #   make        : build rulebook.pdf
+#   make fx     : build fx-rulebook.pdf
+#   make trading-guide : build trading-system-guide.pdf
 #   make clean  : remove intermediate files
 #   make distclean : remove everything including the PDF
 
@@ -18,10 +20,22 @@ $(PDF): $(SRC)
 	$(LATEX) $(LATEXOPTS) $(SRC)
 	$(LATEX) $(LATEXOPTS) $(SRC)
 
+fx: fx-rulebook.pdf
+
+fx-rulebook.pdf: fx-rulebook.tex fxrulebook.sty touhouccb.sty
+	$(LATEX) $(LATEXOPTS) fx-rulebook.tex
+	$(LATEX) $(LATEXOPTS) fx-rulebook.tex
+
+trading-guide: trading-system-guide.pdf
+
+trading-system-guide.pdf: trading-system-guide.tex touhouccb.sty
+	$(LATEX) $(LATEXOPTS) trading-system-guide.tex
+	$(LATEX) $(LATEXOPTS) trading-system-guide.tex
+
 clean:
 	@for ext in $(AUX_EXTS); do rm -f *.$$ext; done
 
 distclean: clean
 	rm -f $(PDF)
 
-.PHONY: all clean distclean
+.PHONY: all fx trading-guide clean distclean

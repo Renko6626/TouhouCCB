@@ -1,0 +1,11 @@
+{
+  "new_paths": 4,
+  "reused_paths": 2,
+  "protected_files_unchanged": 2119,
+  "both_assets_conserved": true,
+  "wallets_nonnegative": true,
+  "individual_wealth_verified": true,
+  "first_event_prefix_exact": true,
+  "event_sizes_exact": true,
+  "terminal_event_excluded_from_followup": true
+}

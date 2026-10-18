@@ -1,0 +1,58 @@
+{
+  "20261016": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.4860982578247786
+  },
+  "20261017": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.4569641202688217
+  },
+  "20261018": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.5418902169913054
+  },
+  "20261019": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.420001031830907
+  },
+  "20261020": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.4555645398795605
+  },
+  "20261021": {
+    "no_shocks": true,
+    "finite_series": true,
+    "wallets_nonnegative": true,
+    "assets_conserved": true,
+    "trade_counts_verified": true,
+    "reference_independently_recomputed": true,
+    "elapsed_seconds": 2.4350274857133627
+  },
+  "frozen_sources_unchanged": true,
+  "original_seed_trace_exactly_reproduced": true
+}

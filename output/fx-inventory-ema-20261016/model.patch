@@ -1,0 +1,19 @@
+--- frozen/model.py
++++ experimental_model.py
+@@ -74,8 +74,14 @@
+             if policy=='weak_trend':terms[0]*=settings['trend_multiplier']
+             forecast_terms[i]=terms
+             forecast[i] = terms.sum()
+-        history=logs[max(0,tick-cfg['inventory_window']):tick]
+-        reference=float(np.mean(history))
++        if settings.get('inventory_ema_half_life_minutes') is None:
++            history=logs[max(0,tick-cfg['inventory_window']):tick]
++            reference=float(np.mean(history))
++        else:
++            half_life_ticks=settings['inventory_ema_half_life_minutes']*60/5
++            alpha=-math.expm1(-math.log(2)/half_life_ticks)
++            if tick==1:reference=logs[0]
++            reference+=alpha*(logs[tick-1]-reference)
+         gap=reference-logs[tick-1]
+         x['slow_reference'][tick]=math.exp(reference)
+         x['slow_gap'][tick]=gap

@@ -1,0 +1,10 @@
+{
+  "paths": 54,
+  "episode_quotes": 35603,
+  "inventory_quotes": 45050,
+  "reference_ticks": 466560,
+  "protected_files_unchanged": 2062,
+  "causal_references": true,
+  "both_issued_assets_conserved": true,
+  "actual_quotes_replayed": true
+}

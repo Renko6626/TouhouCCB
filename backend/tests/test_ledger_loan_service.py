@@ -26,15 +26,24 @@ async def session_and_user(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_increase_debt_writes_borrow_ledger(session_and_user):
+@pytest.mark.parametrize('already_locked', [False, True])
+async def test_increase_debt_writes_borrow_ledger(session_and_user, already_locked):
     from app.services import loan_service
     from app.models.ledger import LedgerEntry
     from sqlalchemy import select
 
     maker, uid = session_and_user
     async with maker() as s:
-        await loan_service.increase_debt(
-            s, uid, Decimal("200"), grant_cash=True, daily_rate=Decimal("0.01"),
+        if already_locked:
+            from app.services.market_locks import lock_user
+            user = await lock_user(s, uid)
+            borrow = loan_service.increase_debt_locked
+            target = user
+        else:
+            borrow = loan_service.increase_debt
+            target = uid
+        await borrow(
+            s, target, Decimal("200"), grant_cash=True, daily_rate=Decimal("0.01"),
             source="borrow", operator_user_id=None,
         )
         await s.commit()

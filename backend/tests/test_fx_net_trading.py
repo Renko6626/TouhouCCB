@@ -1,4 +1,6 @@
 """Net money/identity coverage using existing real database fixtures."""
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+from tests.test_account_events import decode_event
 from decimal import Decimal as D
 
 import pytest
@@ -11,7 +13,7 @@ from app.schemas.fx import FxNetQuoteRequest
 from app.services.fx.net_trading import quote_net_trade
 from tests.test_fx_short_trading import _credit_flags, _seed
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 
 @pytest.mark.parametrize('amount,direction,purposes,remaining', [
@@ -78,7 +80,7 @@ async def _net(uid, pid, side, amount, *, key='net-test', borrowed='0', min_out=
 
 
 @pytest.mark.parametrize("auto_repay", [True, False])
-async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
+async def test_cross_zero_sell_receipt_replay_and_money(auto_repay, committed_fx_registry):
     from app.models.base import User
     from app.models.fx import FxExecution, FxShortPosition, FxWallet, FxTreasury, FxPair
     uid, pid = await _seed(wallet_foreign='100', debt='50', sell_fee='0.01')
@@ -99,6 +101,7 @@ async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
         short = (await db.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
         pair = await db.get(FxPair, pid)
+        await assert_committed_fx(committed_fx_registry, db, pid)
         assert wallet.foreign_amount == 0 and user.debt == (0 if auto_repay else 50)
         assert short.principal_foreign == 40
         assert short.proceeds_basis_gold == result.legs[1].output_amount
@@ -141,6 +144,17 @@ async def test_cross_zero_buy_repay_interest_and_finance_only_long(auto_repay):
         assert short.principal_foreign == short.interest_foreign == 0
         assert wallet.foreign_amount == result.legs[1].output_amount
         assert wallet.cost_basis == result.legs[1].input_amount
+
+        # A committed financed receipt survives later account/pair changes.
+        from app.models.fx import FxPair
+        user.credit_frozen = True
+        user.economic_version += 1
+        (await db.get(FxPair, pid)).status = 'paused'
+        await db.commit()
+    replay = await _net(uid, pid, 'buy', '30', borrowed='10', version=0)
+    assert replay.replay and replay.trade_ids == result.trade_ids
+    async with async_session_maker() as db:
+        assert (await db.execute(select(func.count()).select_from(FxTrade))).scalar_one() == 2
 
 
 @pytest.mark.parametrize('options,side,amount,borrowed,reason', [
@@ -498,7 +512,7 @@ async def test_private_commit_hints_skip_replay_and_failed_trade():
     sub = EVENTS.subscribe(uid)
     try:
         result = await _net(uid, pid, 'sell', '10', key='hint-once')
-        event, payload = sub.queue.get_nowait()
+        event, payload = decode_event(sub.queue.get_nowait())
         from app.models.base import User
         async with async_session_maker() as db:
             committed = await db.get(User, uid)
@@ -513,7 +527,6 @@ async def test_private_commit_hints_skip_replay_and_failed_trade():
 
 
 async def _instruction(uid, pid, instruction, *, key='instruction', rollback=False):
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
     from app.services.credit.risk import discover_dependencies
     from app.services.fx.net_trading import execute_fx_instruction_in_session
@@ -521,14 +534,13 @@ async def _instruction(uid, pid, instruction, *, key='instruction', rollback=Fal
         target = GroupKey('fx', pid)
         deps = await discover_dependencies(db, uid, extra_groups=[target])
         await db.rollback()
-        async with GATES.hold(exclusive=[target], shared=[g for g in deps.groups if g != target]):
-            result = await execute_fx_instruction_in_session(db, user_id=uid, pair_id=pid,
-                instruction=instruction, request_key=key, credit_deps=deps)
-            if rollback:
-                await db.rollback()
-            else:
-                await db.commit()
-            return result
+        result = await execute_fx_instruction_in_session(db, user_id=uid, pair_id=pid,
+            instruction=instruction, request_key=key, credit_deps=deps)
+        if rollback:
+            await db.rollback()
+        else:
+            await db.commit()
+        return result
 
 
 @pytest.mark.parametrize('limit,success', [('20', True), ('19', False)])

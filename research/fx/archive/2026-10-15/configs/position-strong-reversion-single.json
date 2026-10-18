@@ -1,0 +1,24 @@
+{
+  "defaults": {
+    "ticks": 300000,
+    "burn_in": 5000,
+    "bots": 20,
+    "rate": 0.05,
+    "order_size": 200,
+    "trend_window": 30,
+    "mean_window": 30,
+    "trend_strength": 30,
+    "reversion_strength": 1,
+    "noise_sigma": 0.001,
+    "sensitivity": 100,
+    "gold": 1000000,
+    "foreign": 200000,
+    "fee_rate": 0.0005,
+    "strategy": "position",
+    "position_cap": 250,
+    "adjustment": 0.2
+  },
+  "seeds": [
+    21
+  ]
+}

@@ -64,20 +64,28 @@ async def test_allocation_real_buy_sell_and_audit_replay():
         assert (await db.get(BotProfile, profile)).last_trade_at is not None
 
 @pytest.mark.asyncio
-async def test_cash_clipped_exact_out_replay_and_mode_identity():
+async def test_cash_clipped_exact_out_replay_and_mode_identity(monkeypatch):
     profile, uid, pid, _ = await seed(cash='1')
     result = await executor.execute_bot_order(profile, decision('buy_foreign', '20'), frame(pid))
     assert result.rejection is None
     assert 0 < result.fill.output_amount < 1 and result.fill.input_amount <= 1
     assert result.fill.requested_amount == 20
     before = await snapshot(uid, pid)
-    async def fail(*_): raise AssertionError('callback repeated')
+    def fail(*_): raise AssertionError('fill repeated on replay')
+    monkeypatch.setattr(executor.get_strategy('random'), 'on_fill', fail)
     async with async_session_maker() as db:
         key = (await db.get(FxTrade, result.fill.trade_id)).idempotency_key
-        replay = await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), key, bot_profile_id=profile, amount_mode='foreign_out', before_commit=fail)
+        replay = await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), key, bot_profile_id=profile, amount_mode='foreign_out')
         assert replay.output_amount == result.fill.output_amount
         with pytest.raises(Exception, match='idempotency key parameter mismatch'):
             await trading.execute_trade(db, uid, pid, 'buy', D('20'), D('0'), key, bot_profile_id=profile, bot_reference_price=D('1'))
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx.writer_ops import BotTrade
+    replay = await FX_WRITER.submit(BotTrade(pair_id=pid, user_id=uid,
+        side='buy', amount=D('20'), min_out=D('0'), idempotency_key=key,
+        amount_mode='foreign_out', bot_profile_id=profile,
+        bot_template='random', bot_action='buy_foreign', requested_amount=D('20')))
+    assert replay.fill is None
     assert await snapshot(uid, pid) == before
 
 @pytest.mark.asyncio

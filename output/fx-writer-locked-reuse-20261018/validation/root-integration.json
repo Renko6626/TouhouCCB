@@ -1,0 +1,9 @@
+{
+  "commit": "5cf0ee30ae7c364d456307828a6bae3c3982565f",
+  "paths": [
+    "backend/app/services/credit/risk.py",
+    "backend/app/services/fx/net_trading.py",
+    "backend/tests/test_credit_risk.py"
+  ],
+  "other_sources_unchanged": 333
+}

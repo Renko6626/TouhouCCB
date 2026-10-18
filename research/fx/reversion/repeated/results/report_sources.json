@@ -1,0 +1,12 @@
+{
+  "research/fx/reversion/repeated/report.py": "763da77773b2c268ec2463806a184c794050d790ecd8d982e1d2af74a354e754",
+  "research/fx/reversion/repeated/results/manifest.json": "6dc91e693044a2a7c1bf352190bba32d8f5d9bfc881b69b6d91f07b86e8704c7",
+  "research/fx/reversion/repeated/results/summary.json": "111e612e009499e56d8f84efc65720ed77deebccb309ea2f8e8f01613f0b8478",
+  "research/fx/reversion/repeated/results/audit.json": "a2981d526946ceb4a245a0fd4092e48fc275edc685af51dc6fd35e07bade2519",
+  "research/fx/reversion/repeated/results/accounts.csv": "77e25c05ce1aea4a35661e2ab8ba308982e798bfabd7d88e6c633797bcf0dfc2",
+  "research/fx/reversion/repeated/results/account_summary.csv": "d3c08be9fdf5c987c8f87e56cb6d8aca5a4a8a1f8b771961c5c6df6fba7d0c14",
+  "research/fx/reversion/repeated/results/groups.csv": "354bdccf69a79aa98e61e2696b2709059edecd47b2fd89987df1ce3e66158a4d",
+  "research/fx/reversion/repeated/results/market.csv": "313d9c4cc47ed51249cff5e09169859c3dc99b2352f55f77913afc6d4810a285",
+  "research/fx/reversion/repeated/results/event_responses.csv": "8d4f015ef9f1356154c8230e1a5105316cf723158559016be5308ffb22d2c134",
+  "research/fx/reversion/repeated/results/report.md": "79d6679ab54809ecf7385b0ebf85cc92b9b36255ea9dca7c321200cbd09e06f9"
+}

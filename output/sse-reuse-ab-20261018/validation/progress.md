@@ -1,0 +1,15 @@
+# SSE等价复用与writer只读SQL审计
+
+BASE58101e1; branchperf/sse-reuse-20261018; clean existing isolatedworktree reused, originalmigrationbranch preserved. Userexplicitlyauthorizedsolagents: SSEreview+optimization(datareuse/batchconstruction), writerfinance-buySQLanalysisONLY.
+
+Globalconstraints: preserveFIFO/JSON/eventtypes/heartbeat15s/auth/expiry/queue64/backpressure/accountandorderdelivery/historycursor+FORSHARE/immutablepublishedsnapshot/Userlocks/funds/version. No throttle/coalesce/drop/sharednewqueue/newdependency/architecturechange withoutuserapproval. Testsprojectproportional; nofullsuite/UIinteraction. Dirtyroot untoucheduntilreviewedpatchintegration.
+
+Tasks: SSEworker implementation+scopedchecks → independentreview+fixifneeded → controlledunprofiledABifready → guardedrootintegration; writerreadonlySQLreport independentparallel. No PG/server/loadcurrentlyrunning; controller owns future lifecycle.
+
+WriterreadonlySQLaudit complete: A1lockedUser+A2alllockedshortrowsreuse savesup2reads/discover,plaincashalreadybypass. Rawaggregate/sourceorderdistinguished,flushnotremoved,writerunchanged. Reportcopiedtodurableoutput. SSEpreflightapprovedprivatewirebytesonly; publicalreadysharednotmodified. Baseline41passed4.48s,implementationchecksrunning.
+
+SSEd18445b independenttask/overallreviewAPPROVEDnofindings. Baseline41/green66/finalaffected23passed. Fixedarchives58101e1→d18445b ready,writeridenticalandobserverpriorinterfacevalid. ControllerSTARTauthorizedsequentialAB,nootherCPUtests.
+
+SSEreviewAPPROVEDd18445b, nofindings. ABattempt interruptedbeforeconnect60s23+23SSEduehostload1300+,controllerSIGINT130; noafterload/no perfclaim; cleanupownprocesses/tokens/port/PGcomplete. Root8filesintegratedexactly,328otherbackendhashesunchanged,cap10preserved,pycompileanddiffcheck0. Writerreadonlyreportdurable, no writer changes. Deliverydocscommitnext.
+
+DELIVERY: SSEimplementationd18445b+docs34044fd onperf/sse-reuse-20261018; branch/worktreepreserved. CoreauthorizedSSEworkreviewed/integrated; writeranalysisdeliveredunchanged. Performancecomparisonunverifieddueexternalhostload,notclaimimprovement; finalreportdocumentsretryfuture. No push/deploy.

@@ -1,0 +1,9 @@
+{"t": 2.02, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 2.53, "rows": [["idle", "Client", "ClientRead", 10], ["active", "-", "-", 1]]}
+{"t": 3.05, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 3.58, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 4.09, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 4.61, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 5.13, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 5.65, "rows": [["idle", "Client", "ClientRead", 11]]}
+{"t": 6.16, "rows": [["idle", "Client", "ClientRead", 11]]}

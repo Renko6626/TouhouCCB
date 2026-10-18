@@ -1,0 +1,86 @@
+{
+  "pooled_statistics": {
+    "0.005": {
+      "legs_minutes": {
+        "n": 680,
+        "median": 2.6666666666666665,
+        "p10": 0.75,
+        "p90": 7.341666666666669
+      },
+      "cycles_minutes": {
+        "n": 677,
+        "median": 6.083333333333333,
+        "p10": 2.6666666666666665,
+        "p90": 12.616666666666665
+      },
+      "amplitude": {
+        "n": 680,
+        "median": 0.010258219762721343,
+        "p10": 0.005968855819842145,
+        "p90": 0.020469877767332844
+      }
+    },
+    "0.01": {
+      "legs_minutes": {
+        "n": 253,
+        "median": 7.75,
+        "p10": 2.266666666666667,
+        "p90": 17.63333333333334
+      },
+      "cycles_minutes": {
+        "n": 250,
+        "median": 16.458333333333336,
+        "p10": 7.733333333333333,
+        "p90": 31.941666666666666
+      },
+      "amplitude": {
+        "n": 253,
+        "median": 0.018128429973645388,
+        "p10": 0.011179748801736911,
+        "p90": 0.031363754271480505
+      }
+    },
+    "0.02": {
+      "legs_minutes": {
+        "n": 89,
+        "median": 19.416666666666668,
+        "p10": 8.883333333333333,
+        "p90": 52.71666666666667
+      },
+      "cycles_minutes": {
+        "n": 86,
+        "median": 41.08333333333333,
+        "p10": 24.458333333333336,
+        "p90": 83.70833333333333
+      },
+      "amplitude": {
+        "n": 89,
+        "median": 0.028923814145670357,
+        "p10": 0.02191686645256976,
+        "p90": 0.04370089838898266
+      }
+    }
+  },
+  "representative_cycle": {
+    "seed": 20261030,
+    "ticks": [
+      8506,
+      8629,
+      8705
+    ],
+    "duration": 16.583333333333332,
+    "amplitudes": [
+      0.018128429973645388,
+      0.017389711922815687
+    ]
+  },
+  "selection": "Nearest pooled median cycle duration and median leg amplitudes in log-ratio distance; all three seeds searched.",
+  "mechanics": {
+    "short_window_minutes": 6.25,
+    "inventory_window_minutes": 75.0,
+    "z_e_fold_minutes": 112.5,
+    "z_half_minutes": 77.97905781299384,
+    "z_squared_half_minutes": 38.98952890649692
+  },
+  "definition": "Swings confirmed by relative price reversals; durations use extremum times and are identified retrospectively. First 30min excluded."
+}

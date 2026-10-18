@@ -90,6 +90,7 @@ class TradingContext(BaseModel):
     account: AccountBasis
     rules: TradingRules
     groups: list[PricingGroup]
+    # Price floors for this response, not causal coverage of the account version.
     minimum_group_stamps: list[GroupCoverage]
     missing_groups: list[GroupKey]
     as_of: str

@@ -1,0 +1,2144 @@
+[
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 51
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "fx_current_pair_select",
+    "executions": 2
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "fx_market_metadata_select",
+    "executions": 3
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "trade_history_or_volume_select",
+    "executions": 1
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "write_authority_locked_select",
+    "executions": 2
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "insert",
+    "executions": 2
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "update",
+    "executions": 1
+  },
+  {
+    "phase": "startup",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "lmsr_market_input_or_dependency",
+    "executions": 2
+  },
+  {
+    "phase": "startup",
+    "route": "GET /api/v1/fx/pairs",
+    "family": "market_directory_retained",
+    "category": "fx_current_pair_select",
+    "executions": 2
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 2
+  },
+  {
+    "phase": "preflight",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 5
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 695
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 105
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs",
+    "family": "market_directory_retained",
+    "category": "fx_current_pair_select",
+    "executions": 201
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/announcements/latest",
+    "family": "other_http",
+    "category": "other_select",
+    "executions": 100
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 100
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 100
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "family": "other_http",
+    "category": "account_select",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/orders",
+    "family": "other_http",
+    "category": "other_select",
+    "executions": 200
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "family": "live_market_read",
+    "category": "fx_current_pair_select",
+    "executions": 500
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "family": "live_market_read",
+    "category": "fx_pool_version_lock",
+    "executions": 100
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 317
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 880
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 217
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 217
+  },
+  {
+    "phase": "connect",
+    "route": "GET /api/v1/fx/stream/:id",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 820
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792270800.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792274400.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792278000.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792281600.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792285200.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792288800.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792292400.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "connect",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/1m/1792296000.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 203
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 40
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 33
+  },
+  {
+    "phase": "smoke",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 39
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 56
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 16
+  },
+  {
+    "phase": "smoke",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 8
+  },
+  {
+    "phase": "smoke",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 3
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 2
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 1
+  },
+  {
+    "phase": "smoke",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 1
+  },
+  {
+    "phase": "connect",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 15
+  },
+  {
+    "phase": "connect",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_current_pair_select",
+    "executions": 9
+  },
+  {
+    "phase": "connect",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 9
+  },
+  {
+    "phase": "connect",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 9
+  },
+  {
+    "phase": "connect",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 3
+  },
+  {
+    "phase": "connect",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 1
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 369
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 140
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 626
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 7
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 110
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 490
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 106
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 40
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 401
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 361
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 156
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 170
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 602
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 85
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 91
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 71
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 71
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 200
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 20
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 20
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 20
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 100
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 80
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 20
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 20
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 80
+  },
+  {
+    "phase": "role_prepare",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 60
+  },
+  {
+    "phase": "role_prepare",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 138
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 148
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 400
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 599
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 405
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 300
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 430
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 300
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 60
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 60
+  },
+  {
+    "phase": "readheavy",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 2303
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 660
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 300
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 300
+  },
+  {
+    "phase": "readheavy",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 329
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 118
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 49
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 10
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 10
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 129
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 30
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 161
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 33
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 10
+  },
+  {
+    "phase": "readheavy",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 10
+  },
+  {
+    "phase": "readheavy",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 21
+  },
+  {
+    "phase": "readheavy",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "readheavy",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "write_authority_locked_select",
+    "executions": 16
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 208
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 400
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 200
+  },
+  {
+    "phase": "readonly",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 200
+  },
+  {
+    "phase": "readonly",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_current_pair_select",
+    "executions": 6
+  },
+  {
+    "phase": "readonly",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 6
+  },
+  {
+    "phase": "readonly",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 6
+  },
+  {
+    "phase": "readonly",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 476
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 205
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 796
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 398
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 556
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 398
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 832
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 172
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 680
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 748
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 564
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 304
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 159
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 409
+  },
+  {
+    "phase": "normal",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 153
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 414
+  },
+  {
+    "phase": "normal",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 306
+  },
+  {
+    "phase": "normal",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 1085
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 310
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 155
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 31
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 31
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 86
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 30
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 30
+  },
+  {
+    "phase": "normal",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 22
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 110
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 55
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 44
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 11
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 44
+  },
+  {
+    "phase": "normal",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 44
+  },
+  {
+    "phase": "normal",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "normal",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "write_authority_locked_select",
+    "executions": 24
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "normal",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 1
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1791849600.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 5
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1791936000.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 5
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792022400.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 5
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792108800.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 5
+  },
+  {
+    "phase": "normal",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792195200.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 5
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1791849600.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1791936000.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792022400.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792108800.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /history/fx/:id/0706157d-0014-4714-ba09-7ebbdf5bd4ba/15m/1792195200.json",
+    "family": "history",
+    "category": "history_http",
+    "executions": 18
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 2
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 2
+  },
+  {
+    "phase": "chart_switch",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 2
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 309
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 314
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 642
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 1028
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 437
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 1169
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 1763
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 365
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 1406
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 1630
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 582
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 291
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 292
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 609
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 2331
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 666
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 333
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 333
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 68
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 320
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 377
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 68
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 320
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 320
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 333
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 324
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 648
+  },
+  {
+    "phase": "active",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 329
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 167
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 62
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 61
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 16
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 300
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 30
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 30
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 30
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 150
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 120
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 30
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 30
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 120
+  },
+  {
+    "phase": "active",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 120
+  },
+  {
+    "phase": "active",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_current_pair_select",
+    "executions": 23
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "active",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 1
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "active",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "write_authority_locked_select",
+    "executions": 36
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 201
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 201
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/stream/trading",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 468
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "other_select",
+    "executions": 14
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 1046
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 334
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 444
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 167
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-versions",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 167
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 1053
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 1653
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 341
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 1307
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 1538
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "other_select",
+    "executions": 526
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 2191
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/snapshot",
+    "family": "live_market_read",
+    "category": "fx_market_metadata_select",
+    "executions": 626
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "account_select",
+    "executions": 313
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/fx/pairs/:id/my-trades",
+    "family": "personal_trade_join_retained",
+    "category": "trade_history_or_volume_select",
+    "executions": 313
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 73
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 73
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-context",
+    "family": "live_market_read",
+    "category": "other_select",
+    "executions": 317
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "write_authority_locked_select",
+    "executions": 286
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "other_select",
+    "executions": 329
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "insert",
+    "executions": 286
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "update",
+    "executions": 286
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_pool_version_lock",
+    "executions": 245
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_market_metadata_select",
+    "executions": 490
+  },
+  {
+    "phase": "stress",
+    "route": "background:market_data",
+    "family": "background:market_data",
+    "category": "fx_market_metadata_select",
+    "executions": 298
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 162
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 240
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "fx_current_pair_select",
+    "executions": 24
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 24
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/quote",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 24
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "account_select",
+    "executions": 120
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 60
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/net/trades",
+    "family": "business_quote_or_write",
+    "category": "dependency_identities",
+    "executions": 58
+  },
+  {
+    "phase": "stress",
+    "route": "background:public_fx_push",
+    "family": "background:public_fx_push",
+    "category": "fx_current_pair_select",
+    "executions": 37
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "write_authority_locked_select",
+    "executions": 96
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "other_select",
+    "executions": 24
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "trade_history_or_volume_select",
+    "executions": 24
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "insert",
+    "executions": 96
+  },
+  {
+    "phase": "stress",
+    "route": "POST /api/v1/fx/pairs/:id/short/cover",
+    "family": "business_quote_or_write",
+    "category": "update",
+    "executions": 96
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "account_select",
+    "executions": 40
+  },
+  {
+    "phase": "stress",
+    "route": "GET /api/v1/user/trading-prices",
+    "family": "live_market_read",
+    "category": "dependency_identities",
+    "executions": 40
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "account_select",
+    "executions": 1
+  },
+  {
+    "phase": "stress",
+    "route": "background",
+    "family": "background_untagged",
+    "category": "write_authority_locked_select",
+    "executions": 30
+  }
+]

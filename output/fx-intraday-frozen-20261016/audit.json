@@ -1,0 +1,15 @@
+{
+  "paths": 3,
+  "session_hours": 8,
+  "exact_prior_prefix_verified_seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "finite_series": true,
+  "assets_conserved": true,
+  "wallets_nonnegative": true,
+  "wealth_and_trade_counts_verified": true,
+  "no_shocks": true,
+  "source_hashes_unchanged": true
+}

@@ -1,0 +1,11 @@
+{
+  "ticks": 100000, "burn_in": 5000, "seeds": [41, 42, 43],
+  "bots": 20, "rate": 0.05, "gold": 1000000, "foreign": 200000,
+  "fee_rate": 0, "position_cap": 500, "adjustment": 0.2,
+  "trend_window": 30, "mean_window": 30,
+  "trend_strength": 1, "reversion_strength": 1,
+  "entry_threshold": 0.0005, "exit_threshold": 0.00025,
+  "noise_gold_size": 200, "type_counts": [8, 8, 4],
+  "adaptive_per_type": 4, "score_gammas": [0.0005, 0.001, 0.002],
+  "choice_rate": 0.001, "max_pool_fraction": 0.005
+}

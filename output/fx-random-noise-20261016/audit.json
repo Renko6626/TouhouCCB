@@ -1,0 +1,11 @@
+{
+  "reused_paths": 3,
+  "new_paths": 6,
+  "no_shocks": true,
+  "only_random_order_sigma_changed": true,
+  "source_hashes_unchanged": true,
+  "assets_conserved": true,
+  "finite_series_and_nonnegative_wallets": true,
+  "valuation_and_trade_counts_verified": true,
+  "endpoint_returns_and_realized_variance_identities_verified": true
+}

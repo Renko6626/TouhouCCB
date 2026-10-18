@@ -1,0 +1,26 @@
+[
+  {
+    "name": "moomoo",
+    "image": "https://uspubimg.moomoo.com/2023032200001356e426b6849ef.png",
+    "source": "https://www.moomoo.com/us/hans/support/topic4_45/",
+    "file": "moomoo.png"
+  },
+  {
+    "name": "tonghuashun",
+    "image": "https://gbres.dfcfw.com/Files/picture/20250827/2C00ED73EDB361B9B281D2C21454AA8B_w768h1662.jpg",
+    "source": "https://guba.eastmoney.com/news,300672,1590542807.html",
+    "file": "tonghuashun-clean.jpg"
+  },
+  {
+    "name": "tradingview",
+    "image": "https://storage.googleapis.com/oanda-prod-asne1-oj-jp-wordpress/2024/06/2024-06-03_13h24_19.png",
+    "source": "https://www.oanda.jp/lab-education/tradingviewstrategy/mobile/5826/",
+    "file": "tradingview-chart.png"
+  },
+  {
+    "name": "robinhood",
+    "image": "https://miro.medium.com/v2/resize%3Afit%3A800/1%2AoBD8ea1Gv16YkLnHZT2kVg.png",
+    "source": "https://chipaohong.medium.com/robinhood-%E7%BE%8E%E8%82%A1%E6%8A%95%E8%B3%87%E6%95%99%E5%AD%B8-c4a0c5bc5c2d",
+    "file": "robinhood.png"
+  }
+]

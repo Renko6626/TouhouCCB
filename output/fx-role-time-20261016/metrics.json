@@ -1,0 +1,847 @@
+{
+  "current": {
+    "20261029": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 282,
+            "median": 2.1666666666666665,
+            "p90": 6.083333333333333,
+            "mean": 2.840721040189125
+          },
+          "cycles_minutes": {
+            "n": 281,
+            "median": 4.583333333333333,
+            "p90": 10.583333333333334,
+            "mean": 5.695729537366548
+          },
+          "amplitude": {
+            "n": 282,
+            "median": 0.010197851179797768,
+            "p90": 0.019872191903510708,
+            "mean": 0.011814785466338589
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 109,
+            "median": 5.666666666666667,
+            "p90": 14.650000000000002,
+            "mean": 7.24770642201835
+          },
+          "cycles_minutes": {
+            "n": 108,
+            "median": 13.916666666666668,
+            "p90": 25.816666666666666,
+            "mean": 14.59182098765432
+          },
+          "amplitude": {
+            "n": 109,
+            "median": 0.017753938411288583,
+            "p90": 0.030721070445691015,
+            "mean": 0.0194235392124566
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 24,
+            "median": 23.541666666666664,
+            "p90": 74.46666666666667,
+            "mean": 32.48611111111111
+          },
+          "cycles_minutes": {
+            "n": 23,
+            "median": 51.5,
+            "p90": 128.98333333333335,
+            "mean": 63.75724637681159
+          },
+          "amplitude": {
+            "n": 24,
+            "median": 0.03396678875662884,
+            "p90": 0.057838912560856943,
+            "mean": 0.03932344830666596
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.027709172190783192,
+        "p90": 0.038037459218471494,
+        "mean": 0.028177941864722833
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.03998105036052026,
+        "p90": 0.05196651756347148,
+        "mean": 0.039426963851022845
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.007367800157108362,
+        "p90": 0.01580977399435296,
+        "mean": 0.008908526576327522
+      },
+      "trades_per_minute": 3.8439834024896262,
+      "clipped_fraction": 0.024335574767851424,
+      "executed_quantity_fraction": 0.9778463936169345,
+      "cash_saturated_arrivals": 0,
+      "foreign_saturated_arrivals": 35,
+      "tick_return_std": 0.0012907445313020767,
+      "net_change": -0.011901381099484576,
+      "max_abs_displacement": 0.08198385479768167,
+      "completed_holding_minutes": {
+        "n": 251,
+        "median": 13.166666666666666,
+        "p90": 33.916666666666664,
+        "mean": 16.568061088977426
+      },
+      "unfinished": 5,
+      "short_realized_per_account": -89.04358142857143,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 166070.827735,
+          "trades_per_minute": 2.487136929460581,
+          "final_mtm_vs_hold_per_account": 31.056771978426696,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 28571.279101,
+          "trades_per_minute": 0.720746887966805,
+          "final_mtm_vs_hold_per_account": 109.55386216131046,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 43920.0,
+          "trades_per_minute": 0.30373443983402487,
+          "final_mtm_vs_hold_per_account": -28.596466666667766,
+          "entry_dominance": {
+            "reversion": 107,
+            "noise": 15
+          },
+          "analyzed_entries": 122
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 48060.0,
+          "trades_per_minute": 0.33236514522821575,
+          "final_mtm_vs_hold_per_account": -133.90764350261452,
+          "entry_dominance": {
+            "trend": 113,
+            "noise": 18,
+            "reversion": 3
+          },
+          "analyzed_entries": 134
+        }
+      },
+      "efficiency5_median": 0.16928752598693386
+    },
+    "20261030": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 287,
+            "median": 2.1666666666666665,
+            "p90": 5.700000000000003,
+            "mean": 2.793554006968641
+          },
+          "cycles_minutes": {
+            "n": 286,
+            "median": 4.75,
+            "p90": 9.958333333333332,
+            "mean": 5.576048951048951
+          },
+          "amplitude": {
+            "n": 287,
+            "median": 0.009957349141834548,
+            "p90": 0.020083277399721846,
+            "mean": 0.011833334553937157
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 104,
+            "median": 6.291666666666666,
+            "p90": 15.558333333333334,
+            "mean": 7.558493589743589
+          },
+          "cycles_minutes": {
+            "n": 103,
+            "median": 14.333333333333334,
+            "p90": 25.666666666666668,
+            "mean": 15.199029126213597
+          },
+          "amplitude": {
+            "n": 104,
+            "median": 0.018133828207050895,
+            "p90": 0.03175252171541879,
+            "mean": 0.020171060460448715
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 37,
+            "median": 13.916666666666666,
+            "p90": 39.166666666666664,
+            "mean": 20.765765765765764
+          },
+          "cycles_minutes": {
+            "n": 36,
+            "median": 34.833333333333336,
+            "p90": 73.66666666666666,
+            "mean": 40.26851851851852
+          },
+          "amplitude": {
+            "n": 37,
+            "median": 0.029577152383472582,
+            "p90": 0.042786463063860136,
+            "mean": 0.03215714330171467
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.02665040916362217,
+        "p90": 0.03778466144525579,
+        "mean": 0.027609018920209952
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.03637949342647701,
+        "p90": 0.0448863273777846,
+        "mean": 0.03615944742576323
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.006523767012398762,
+        "p90": 0.01718036144103624,
+        "mean": 0.008866836122795745
+      },
+      "trades_per_minute": 3.851452282157676,
+      "clipped_fraction": 0.0411522633744856,
+      "executed_quantity_fraction": 0.9677018894498857,
+      "cash_saturated_arrivals": 19,
+      "foreign_saturated_arrivals": 46,
+      "tick_return_std": 0.0013266640699928101,
+      "net_change": 0.005408972268701628,
+      "max_abs_displacement": 0.05874130956183554,
+      "completed_holding_minutes": {
+        "n": 272,
+        "median": 10.333333333333332,
+        "p90": 31.15833333333334,
+        "mean": 14.19791666666667
+      },
+      "unfinished": 5,
+      "short_realized_per_account": -47.95685114285715,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 168155.608371,
+          "trades_per_minute": 2.4572614107883815,
+          "final_mtm_vs_hold_per_account": -29.277228514785747,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 30720.773062,
+          "trades_per_minute": 0.704564315352697,
+          "final_mtm_vs_hold_per_account": 212.23967881894532,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 44640.0,
+          "trades_per_minute": 0.30871369294605805,
+          "final_mtm_vs_hold_per_account": 68.05606563878064,
+          "entry_dominance": {
+            "reversion": 114,
+            "noise": 10
+          },
+          "analyzed_entries": 124
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 55080.0,
+          "trades_per_minute": 0.3809128630705394,
+          "final_mtm_vs_hold_per_account": -136.11748796862594,
+          "entry_dominance": {
+            "trend": 131,
+            "noise": 17,
+            "reversion": 5
+          },
+          "analyzed_entries": 153
+        }
+      },
+      "efficiency5_median": 0.1705759094917086
+    },
+    "20261031": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 297,
+            "median": 2.0,
+            "p90": 5.916666666666667,
+            "mean": 2.6888327721661054
+          },
+          "cycles_minutes": {
+            "n": 296,
+            "median": 4.458333333333334,
+            "p90": 9.541666666666666,
+            "mean": 5.364583333333334
+          },
+          "amplitude": {
+            "n": 297,
+            "median": 0.010388308559069692,
+            "p90": 0.019706261719342894,
+            "mean": 0.011998649287280175
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 118,
+            "median": 5.583333333333334,
+            "p90": 11.933333333333332,
+            "mean": 6.648305084745763
+          },
+          "cycles_minutes": {
+            "n": 117,
+            "median": 12.25,
+            "p90": 22.383333333333336,
+            "mean": 13.356837606837605
+          },
+          "amplitude": {
+            "n": 118,
+            "median": 0.017756772505676643,
+            "p90": 0.030189668758348408,
+            "mean": 0.0193995658265872
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 42,
+            "median": 14.25,
+            "p90": 35.04999999999999,
+            "mean": 18.41865079365079
+          },
+          "cycles_minutes": {
+            "n": 41,
+            "median": 33.416666666666664,
+            "p90": 65.5,
+            "mean": 36.97764227642276
+          },
+          "amplitude": {
+            "n": 42,
+            "median": 0.029379294988294058,
+            "p90": 0.04145931868582444,
+            "mean": 0.030451267483737526
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.027015510236174444,
+        "p90": 0.04110950630274843,
+        "mean": 0.0280234017766031
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.03546686146791325,
+        "p90": 0.04311689130803226,
+        "mean": 0.03484657473515056
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.006824737120354696,
+        "p90": 0.018631911569946924,
+        "mean": 0.008656724975232023
+      },
+      "trades_per_minute": 3.912448132780083,
+      "clipped_fraction": 0.046062869592281355,
+      "executed_quantity_fraction": 0.9627611100484668,
+      "cash_saturated_arrivals": 61,
+      "foreign_saturated_arrivals": 9,
+      "tick_return_std": 0.0013618152232964152,
+      "net_change": 0.029308987341258863,
+      "max_abs_displacement": 0.06335085214847735,
+      "completed_holding_minutes": {
+        "n": 272,
+        "median": 10.833333333333332,
+        "p90": 31.983333333333334,
+        "mean": 15.260723039215687
+      },
+      "unfinished": 3,
+      "short_realized_per_account": -63.216534857142854,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 168784.417878,
+          "trades_per_minute": 2.4572614107883815,
+          "final_mtm_vs_hold_per_account": 1.9403722706974804,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 31661.583232999998,
+          "trades_per_minute": 0.7692946058091286,
+          "final_mtm_vs_hold_per_account": 176.23654050984442,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 43920.0,
+          "trades_per_minute": 0.30373443983402487,
+          "final_mtm_vs_hold_per_account": 86.98987286904412,
+          "entry_dominance": {
+            "reversion": 108,
+            "noise": 13,
+            "trend": 1
+          },
+          "analyzed_entries": 122
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 55260.0,
+          "trades_per_minute": 0.3821576763485477,
+          "final_mtm_vs_hold_per_account": -175.8133895535666,
+          "entry_dominance": {
+            "trend": 126,
+            "noise": 23,
+            "reversion": 4
+          },
+          "analyzed_entries": 153
+        }
+      },
+      "efficiency5_median": 0.15263199270870814
+    }
+  },
+  "slower125": {
+    "20261029": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 215,
+            "median": 2.9166666666666665,
+            "p90": 7.216666666666666,
+            "mean": 3.692635658914729
+          },
+          "cycles_minutes": {
+            "n": 214,
+            "median": 6.916666666666666,
+            "p90": 12.25,
+            "mean": 7.4061526479750786
+          },
+          "amplitude": {
+            "n": 215,
+            "median": 0.010544171703950722,
+            "p90": 0.02051703657727537,
+            "mean": 0.01203852790451452
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 83,
+            "median": 7.583333333333333,
+            "p90": 19.416666666666664,
+            "mean": 9.201807228915664
+          },
+          "cycles_minutes": {
+            "n": 82,
+            "median": 14.083333333333334,
+            "p90": 32.666666666666664,
+            "mean": 18.36280487804878
+          },
+          "amplitude": {
+            "n": 83,
+            "median": 0.017355578159602092,
+            "p90": 0.0290721453005915,
+            "mean": 0.01963623488937122
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 25,
+            "median": 22.333333333333332,
+            "p90": 50.43333333333334,
+            "mean": 28.066666666666666
+          },
+          "cycles_minutes": {
+            "n": 24,
+            "median": 57.583333333333336,
+            "p90": 107.30833333333331,
+            "mean": 56.420138888888886
+          },
+          "amplitude": {
+            "n": 25,
+            "median": 0.03145792647231049,
+            "p90": 0.045603979630204836,
+            "mean": 0.03327189427137031
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.027150124034071625,
+        "p90": 0.03510361897039911,
+        "mean": 0.02645742651927269
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.03173233975678645,
+        "p90": 0.045342899181624305,
+        "mean": 0.03332762368371867
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.00513243350197351,
+        "p90": 0.020024496118836166,
+        "mean": 0.00793456733258571
+      },
+      "trades_per_minute": 2.9775933609958507,
+      "clipped_fraction": 0.025217031831335262,
+      "executed_quantity_fraction": 0.9778703629427433,
+      "cash_saturated_arrivals": 0,
+      "foreign_saturated_arrivals": 27,
+      "tick_return_std": 0.0011454547045964328,
+      "net_change": -0.07207835137701724,
+      "max_abs_displacement": 0.07297892400052464,
+      "completed_holding_minutes": {
+        "n": 202,
+        "median": 14.125,
+        "p90": 40.075,
+        "mean": 18.794554455445546
+      },
+      "unfinished": 4,
+      "short_realized_per_account": -25.105468000000002,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 126831.15868299999,
+          "trades_per_minute": 1.9307053941908712,
+          "final_mtm_vs_hold_per_account": 38.72221333019661,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 24073.996134,
+          "trades_per_minute": 0.537759336099585,
+          "final_mtm_vs_hold_per_account": 168.03164388933874,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 36540.0,
+          "trades_per_minute": 0.25269709543568464,
+          "final_mtm_vs_hold_per_account": 56.86138917378776,
+          "entry_dominance": {
+            "noise": 10,
+            "reversion": 92
+          },
+          "analyzed_entries": 102
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 37080.0,
+          "trades_per_minute": 0.2564315352697095,
+          "final_mtm_vs_hold_per_account": -96.99424075000206,
+          "entry_dominance": {
+            "noise": 23,
+            "reversion": 6,
+            "trend": 74
+          },
+          "analyzed_entries": 103
+        }
+      },
+      "efficiency5_median": 0.18545584007632024
+    },
+    "20261030": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 228,
+            "median": 2.5833333333333335,
+            "p90": 7.666666666666667,
+            "mean": 3.4798976608187138
+          },
+          "cycles_minutes": {
+            "n": 227,
+            "median": 6.0,
+            "p90": 12.616666666666667,
+            "mean": 6.923641703377386
+          },
+          "amplitude": {
+            "n": 228,
+            "median": 0.01000851558449345,
+            "p90": 0.020517048590368403,
+            "mean": 0.011802516306631358
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 89,
+            "median": 7.666666666666667,
+            "p90": 16.883333333333333,
+            "mean": 8.844569288389513
+          },
+          "cycles_minutes": {
+            "n": 88,
+            "median": 16.458333333333332,
+            "p90": 30.299999999999997,
+            "mean": 17.698863636363637
+          },
+          "amplitude": {
+            "n": 89,
+            "median": 0.017389711922815687,
+            "p90": 0.029250184819141812,
+            "mean": 0.019188026884188435
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 31,
+            "median": 18.0,
+            "p90": 54.916666666666664,
+            "mean": 24.91935483870968
+          },
+          "cycles_minutes": {
+            "n": 30,
+            "median": 42.04166666666667,
+            "p90": 81.275,
+            "mean": 48.70277777777777
+          },
+          "amplitude": {
+            "n": 31,
+            "median": 0.02872932252110405,
+            "p90": 0.03895592366860301,
+            "mean": 0.030286313989400616
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.02672000926191071,
+        "p90": 0.032627682922026044,
+        "mean": 0.025912832873973314
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.033328081247085105,
+        "p90": 0.042321400279218525,
+        "mean": 0.033830230462605346
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.0069473570962984565,
+        "p90": 0.01917887832338261,
+        "mean": 0.009210312206672656
+      },
+      "trades_per_minute": 3.0697095435684645,
+      "clipped_fraction": 0.04135188866799205,
+      "executed_quantity_fraction": 0.9675074025597681,
+      "cash_saturated_arrivals": 15,
+      "foreign_saturated_arrivals": 34,
+      "tick_return_std": 0.0011831196203167073,
+      "net_change": -0.0175461067258722,
+      "max_abs_displacement": 0.05426430157798001,
+      "completed_holding_minutes": {
+        "n": 212,
+        "median": 15.166666666666666,
+        "p90": 37.25833333333334,
+        "mean": 18.620283018867923
+      },
+      "unfinished": 7,
+      "short_realized_per_account": -53.46613614285714,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 134775.93781600002,
+          "trades_per_minute": 1.9556016597510373,
+          "final_mtm_vs_hold_per_account": 3.754735902126413,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 24083.937237000002,
+          "trades_per_minute": 0.5763485477178423,
+          "final_mtm_vs_hold_per_account": 122.78366003198425,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 32580.0,
+          "trades_per_minute": 0.22531120331950205,
+          "final_mtm_vs_hold_per_account": 56.400425386618736,
+          "entry_dominance": {
+            "reversion": 79,
+            "noise": 12
+          },
+          "analyzed_entries": 91
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 45180.0,
+          "trades_per_minute": 0.312448132780083,
+          "final_mtm_vs_hold_per_account": -134.0691965532842,
+          "entry_dominance": {
+            "trend": 98,
+            "noise": 27,
+            "reversion": 2
+          },
+          "analyzed_entries": 127
+        }
+      },
+      "efficiency5_median": 0.1797754654400155
+    },
+    "20261031": {
+      "swings": {
+        "0.005": {
+          "legs_minutes": {
+            "n": 237,
+            "median": 2.5,
+            "p90": 7.15,
+            "mean": 3.3263009845288325
+          },
+          "cycles_minutes": {
+            "n": 236,
+            "median": 5.541666666666666,
+            "p90": 12.875,
+            "mean": 6.658192090395481
+          },
+          "amplitude": {
+            "n": 237,
+            "median": 0.009775555962306726,
+            "p90": 0.020104997631503443,
+            "mean": 0.012148514554714423
+          }
+        },
+        "0.01": {
+          "legs_minutes": {
+            "n": 81,
+            "median": 8.75,
+            "p90": 16.583333333333332,
+            "mean": 9.47633744855967
+          },
+          "cycles_minutes": {
+            "n": 80,
+            "median": 19.208333333333332,
+            "p90": 31.5,
+            "mean": 19.114583333333336
+          },
+          "amplitude": {
+            "n": 81,
+            "median": 0.01928660562937967,
+            "p90": 0.03553568536897789,
+            "mean": 0.021669363296757047
+          }
+        },
+        "0.02": {
+          "legs_minutes": {
+            "n": 33,
+            "median": 17.833333333333332,
+            "p90": 38.95,
+            "mean": 22.88131313131313
+          },
+          "cycles_minutes": {
+            "n": 32,
+            "median": 40.29166666666667,
+            "p90": 84.0,
+            "mean": 46.6328125
+          },
+          "amplitude": {
+            "n": 33,
+            "median": 0.028923814145670357,
+            "p90": 0.044962484359147584,
+            "mean": 0.03229949477039641
+          }
+        }
+      },
+      "range30": {
+        "n": 26,
+        "median": 0.027236593654662057,
+        "p90": 0.039675574591121046,
+        "mean": 0.027386250097477218
+      },
+      "range60": {
+        "n": 13,
+        "median": 0.03312727868841221,
+        "p90": 0.05568258820767119,
+        "mean": 0.03731401063857295
+      },
+      "abs_net30": {
+        "n": 26,
+        "median": 0.008585206819742952,
+        "p90": 0.022330250294369025,
+        "mean": 0.010480401799011017
+      },
+      "trades_per_minute": 3.1033195020746884,
+      "clipped_fraction": 0.04549019607843137,
+      "executed_quantity_fraction": 0.9625628113607921,
+      "cash_saturated_arrivals": 50,
+      "foreign_saturated_arrivals": 7,
+      "tick_return_std": 0.0012213249155109845,
+      "net_change": 0.04602038546966858,
+      "max_abs_displacement": 0.05946989188091978,
+      "completed_holding_minutes": {
+        "n": 221,
+        "median": 13.583333333333334,
+        "p90": 35.166666666666664,
+        "mean": 16.687028657616892
+      },
+      "unfinished": 5,
+      "short_realized_per_account": -41.20957928571429,
+      "groups": {
+        "random": {
+          "accounts": 10,
+          "gross_foreign": 130897.746848,
+          "trades_per_minute": 1.9145228215767633,
+          "final_mtm_vs_hold_per_account": 23.415467705588526,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "inventory": {
+          "accounts": 3,
+          "gross_foreign": 25487.922810999997,
+          "trades_per_minute": 0.624896265560166,
+          "final_mtm_vs_hold_per_account": 99.77512895192558,
+          "entry_dominance": {},
+          "analyzed_entries": 0
+        },
+        "reversion": {
+          "accounts": 3,
+          "gross_foreign": 36000.0,
+          "trades_per_minute": 0.24896265560165973,
+          "final_mtm_vs_hold_per_account": 73.53689964089972,
+          "entry_dominance": {
+            "reversion": 90,
+            "noise": 10
+          },
+          "analyzed_entries": 100
+        },
+        "trend": {
+          "accounts": 4,
+          "gross_foreign": 45540.0,
+          "trades_per_minute": 0.3149377593360996,
+          "final_mtm_vs_hold_per_account": -123.82001649999984,
+          "entry_dominance": {
+            "noise": 18,
+            "trend": 100,
+            "reversion": 8
+          },
+          "analyzed_entries": 126
+        }
+      },
+      "efficiency5_median": 0.2074867777464222
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "preset": "pve-mixed-20-intraday-6-8h-v2",
+  "hours": 8,
+  "seeds": [
+    20261029,
+    20261030,
+    20261031
+  ],
+  "source_sha256": {
+    "research/fx/intraday_6_8h/FROZEN_CONFIG.json": "98c71d9be31b438e6dfd8ca44b649f16a3be185ee8b9378d86198a5d23d46e57",
+    "research/fx/intraday_6_8h/model.py": "cee61c5b7633e3cbbdba23978d15fd172a5f90e6a1ac63197273bc94f37ba38c",
+    "research/fx/intraday_6_8h/run.py": "a4baa85449821507ef05e466bd8c33fe32b63a4ee994b37460a0c21f15245101",
+    "research/fx/activity/model.py": "14306aa15f1d90d0b2122d148f71ad13b5e5568ab5dfda338512a5b7edce6849",
+    "research/fx/episodes/model.py": "87fdb518949f0075815fa89a6aec4acae2fabe33014883f711b6c8d7e32a135f",
+    "research/fx/common/clock.py": "f1ce4a90e18e6262b07e0f9696718ac4c8b5d4bbe67c5412249fa1d291711fd5",
+    "research/fx/reversion/inventory.py": "6209426f61b13119280ba292df9384c353000a2cf3c6e613d52fd5aaa6eb2735",
+    "backend/app/services/fx/amm.py": "8041cc6f01388b85a3e3ec4f0d3ee64c2fbd53fa69401458193ecae3d408c008"
+  },
+  "definition": "Each prefix starts at the same cold start; no shocks, players, fees or forced terminal liquidation."
+}

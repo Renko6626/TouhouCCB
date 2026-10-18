@@ -1,0 +1,9 @@
+{
+  "paths": 23,
+  "all_paths_conserved": true,
+  "wallets_nonnegative": true,
+  "wallet_values_verified": true,
+  "trade_counts_verified": true,
+  "frozen_sources_unchanged": true,
+  "selected_before_holdout": true
+}

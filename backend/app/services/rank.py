@@ -6,7 +6,7 @@ rank_title；/user/summary 把 RANK_THRESHOLDS 表下发给客户端本地映射
 否则服务端 rank 会和客户端显示的净值对不上）。阈值与文案改动只需改这一张表。
 
 约定：net_worth 含义由调用方决定（个人/财富榜 net_worth = cash - debt
-+ 持仓估值；消费榜 = 兑换消费总额 - 当前债务）。负值/0 都落到兜底档。
++ 持仓估值；消费榜 = 累计兑换及付费弹幕消费总额）。负值/0 都落到兜底档。
 """
 from decimal import Decimal
 from typing import Optional

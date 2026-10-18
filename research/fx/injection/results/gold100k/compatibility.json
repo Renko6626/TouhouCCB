@@ -1,0 +1,52 @@
+[
+  {
+    "random_count": 0,
+    "b": 0,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 0,
+    "b": 0.25,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 5,
+    "b": 0,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 5,
+    "b": 0.25,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 10,
+    "b": 0,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 10,
+    "b": 0.25,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 15,
+    "b": 0,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 15,
+    "b": 0.25,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 20,
+    "b": 0,
+    "exact_fields": 31
+  },
+  {
+    "random_count": 20,
+    "b": 0.25,
+    "exact_fields": 31
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "research/fx/injection/report.py": "ddab9095d791ecbdd922015dc0f1f5d8f169492a8388273c30fc1a691184263a",
+  "research/fx/injection/audit.py": "dc8d1a85689d3f5173784912d5dec38b4025f549acbd401af952913c518699d2",
+  "research/fx/injection/results/gold100k/summary.json": "993456ad9580a549fad341ea07e61b4fd2e09dbd6535c5bdce110475976a2f6f",
+  "research/fx/injection/results/gold100k/audit.json": "15a931858dbaf88fed6b8e67aa7ca38be0bd1d0c3ac5907b624401ed5bbcfd83",
+  "research/fx/injection/results/gold100k/manifest.json": "177805908dd57c60f94fde4a83c3ef2faf491c994c2bfc603e171c85351a84b3"
+}

@@ -13,6 +13,7 @@ import { describeFxOrderFailure, formatFxAmount } from '@/api/fx'
 import { formatUnits, units } from '@/utils/fxDecimal'
 export function compareVersion(a: string, b: string) { const x = BigInt(a), y = BigInt(b); return x < y ? -1 : x > y ? 1 : 0 }
 function covers(group: PricingGroup | undefined, minimum: GroupCoverage) {
+  // Pricing floors and account economic_version advance independently.
   return !!group && group.stamp.epoch === minimum.stamp.epoch && (compareVersion(group.stamp.revision, minimum.stamp.revision) > 0 || group.stamp.revision === minimum.stamp.revision && group.stamp.input_hash === minimum.stamp.input_hash)
 }
 /** Route owner: start is idempotent for the same group; stop releases all resources. */
@@ -78,7 +79,7 @@ export const useTradingSessionStore = defineStore('tradingSession', () => {
         } else {
           if (httpReceipt != null && (receipts.get(key) ?? 0) > httpReceipt) continue
           const retired = retiredEpochs.get(key) ?? new Set<string>(); retired.add(old.stamp.epoch); retiredEpochs.set(key, retired)
-          // Account coverage from a former server epoch cannot certify the new one.
+          // A pricing floor from a former server epoch cannot certify the new one.
           if (minimum.some(stamp => groupKey(stamp) === key && stamp.stamp.epoch !== group.stamp.epoch)) dirty = true
         }
       }
