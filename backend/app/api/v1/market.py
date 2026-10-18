@@ -230,18 +230,20 @@ async def create_market(
     )
 
     await db.commit()
-    notify_pricing_changed(())
 
-    from app.services.market_writer import WRITER
-    await WRITER.register_market(int(new_market.id))
-
-    return {
+    response = {
         "status": "success",
         "market_id": new_market.id,
         "title": new_market.title,
         "outcomes": data.outcomes,
         "created_by": admin.username,
     }
+    # Register takes the market GATE before opening its own read session.
+    await _release_request_connection(db)
+    from app.services.market_writer import WRITER
+    await WRITER.register_market(int(response["market_id"]))
+    notify_pricing_changed(())
+    return response
 
 
 async def _settled_market_without_state(db: AsyncSession, market_id: int) -> Market:

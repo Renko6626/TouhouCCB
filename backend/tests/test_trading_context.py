@@ -68,3 +68,25 @@ async def test_effective_rules_and_complete_revision():
             assert int(second[0].stamp.revision)>int(first.groups[0].stamp.revision)
             assert third[0].stamp==second[0].stamp
         finally: flags.clear_flags()
+
+
+@pytest.mark.asyncio
+async def test_lmsr_read_only_process_keeps_authoritative_database_reads(monkeypatch):
+    async with async_session_maker() as db:
+        market = Market(title='readonly', liquidity_b=1.234567890123)
+        db.add(market)
+        await db.flush()
+        outcome = Outcome(market_id=market.id, label='A', total_shares=Decimal('1.123456'))
+        db.add(outcome)
+        await db.commit()
+        registry = PricingRegistry(async_session_maker)
+        registry.configure(memory_products=frozenset({'lmsr'}))
+        key = GroupKey(product='lmsr', id=market.id)
+        assert (await registry.read_groups([key]))[0].q_dec == ['1.123456']
+        monkeypatch.setenv(flags.READ_ONLY_ENV, 'true')
+        await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('2.654321')))
+        await db.commit()
+        assert (await registry.read_groups([key]))[0].q_dec == ['2.654321']
+        await db.execute(update(Outcome).where(Outcome.id == outcome.id).values(total_shares=Decimal('3.987654')))
+        await db.commit()
+        assert (await registry.read_groups([key]))[0].q_dec == ['3.987654']

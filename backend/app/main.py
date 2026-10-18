@@ -175,7 +175,7 @@ async def _startup(app: FastAPI) -> None:
     # after every supported write path installs its committed snapshot.
     from app.services.trading_prices import REGISTRY
     REGISTRY.reset()
-    REGISTRY.configure(memory_products=frozenset({'fx'}))
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
     await REGISTRY.warm_fx()
     # ── FX 增量行情 runtime（计划 Task 3）──
     # owner 必须在该 runtime 补齐全部持久化游标/落库完成后，才启动任何能产生

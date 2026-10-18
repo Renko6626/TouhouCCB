@@ -1,6 +1,7 @@
 from tests.test_account_events import private_events
 """CloseCmd/ResumeCmd/ResolveCmd op 单元测试（fixture 拷贝自 test_writer_buy.py，文件间不共享 import）。"""
 from decimal import Decimal
+import asyncio
 
 import pytest
 import pytest_asyncio
@@ -11,12 +12,17 @@ from app.core.database import async_session_maker
 from app.models.base import (
     Market, MarketStatus, Outcome, Position, Transaction, TransactionType, User,
 )
+from app.schemas.trading_context import GroupKey
+from app.services import trading_prices
 from app.services.market_writer import WRITER
-from app.services.writer_ops import BuyCmd, CloseCmd, ResolveCmd, ResumeCmd
+from app.services.writer_ops import BuyCmd, CloseCmd, ResolveCmd, ResumeCmd, SellCmd
 
 
 @pytest_asyncio.fixture(autouse=True)
-async def _fresh_db():
+async def _fresh_db(monkeypatch):
+    registry = trading_prices.PricingRegistry(async_session_maker)
+    registry.configure(memory_products=frozenset({'lmsr'}))
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
     yield
     await WRITER.stop()
 
@@ -70,14 +76,22 @@ async def test_close_then_resume_updates_db_memory_and_rejects_trades():
     await WRITER.start()
     await WRITER.submit(CloseCmd(market_id=mid))
     assert WRITER.get_state(mid).status == MarketStatus.HALT
+    key = GroupKey(product='lmsr', id=mid)
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].status == MarketStatus.HALT
     async with async_session_maker() as s:
         assert (await s.get(Market, mid)).status == MarketStatus.HALT
     with pytest.raises(HTTPException):
         await WRITER.submit(_buy(mid, oids[0], uid, accept_any_slippage=True))
     await WRITER.submit(ResumeCmd(market_id=mid))
     assert WRITER.get_state(mid).status == MarketStatus.TRADING
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].status == MarketStatus.TRADING
     res = await WRITER.submit(_buy(mid, oids[0], uid, shares="1", accept_any_slippage=True))
     assert res["shares"] == 1.0
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '4.500000'
+    await WRITER.submit(SellCmd(market_id=mid, outcome_id=oids[0], user_id=uid,
+                               username='alice', shares=Decimal('1'), min_proceeds=None,
+                               max_slippage_bps=None, accept_any_slippage=True))
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '3.500000'
 
 
 @pytest.mark.asyncio
@@ -110,6 +124,7 @@ async def test_resolve_pays_winner_deletes_positions_and_settles(private_events)
     assert res.settled_positions == 2
     st = WRITER.get_state(mid)
     assert st.status == MarketStatus.SETTLED       # 状态留内存，后续交易被拒
+    assert (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0].status == MarketStatus.SETTLED
     async with async_session_maker() as s:
         assert (await s.get(User, uid_w)).cash == cash_w_before + Decimal("10")
         assert (await s.execute(select(Position))).scalars().first() is None
@@ -131,3 +146,74 @@ async def test_resolve_idempotent_second_call():
                                           payout=Decimal("1"), admin_id=uid))
     assert res2.total_payout == Decimal("0")       # 与老路径幂等语义一致
     assert res2.settled_positions == 0
+
+
+@pytest.mark.asyncio
+async def test_account_hint_context_waits_for_writer_projection(private_events):
+    from app.services.credit.trading_context import read_trading_context
+    from app.services.writer_ops import op_buy
+    mid, oids = await _seed_market(shares=('0', '0'))
+    uid = await _seed_user()
+    await WRITER.start()
+    key = GroupKey(product='lmsr', id=mid)
+    queue = private_events(uid)
+    committed, proceed, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    refresh = trading_prices.REGISTRY.refresh_groups
+    async def tracked_refresh(keys):
+        reading.set()
+        return await refresh(keys)
+    trading_prices.REGISTRY.refresh_groups = tracked_refresh
+    async def delayed_apply(state, cmd):
+        outcome = await op_buy(state, cmd)  # Original commit and account publication.
+        committed.set()
+        await proceed.wait()
+        return outcome
+    WRITER.register_op(BuyCmd, delayed_apply)
+    writing = asyncio.create_task(WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True)))
+    await committed.wait()
+    assert queue.get_nowait()[1]['reason'] == 'lmsr'
+    async def context():
+        async with async_session_maker() as db:
+            return await read_trading_context(db, uid, key, registry=trading_prices.REGISTRY)
+    covered = asyncio.create_task(context())
+    try:
+        public = await trading_prices.REGISTRY.read_groups([key], require_coverage=False)
+        assert public[0].q_dec[0] == '0.000000'
+        await reading.wait()
+        assert not covered.done()
+    finally:
+        proceed.set()
+        await writing
+    result = await covered
+    assert result.account.economic_version == '1'
+    assert result.account.lmsr_positions[0].amount == '1.000000'
+    assert result.groups[0].q_dec[0] == '1.000000'
+
+
+@pytest.mark.asyncio
+async def test_committed_install_failure_invalidates_before_failed_reload(monkeypatch, caplog):
+    mid, oids = await _seed_market(shares=('0', '0'))
+    uid = await _seed_user()
+    await WRITER.start()
+    registry = trading_prices.REGISTRY
+    retried = asyncio.Event()
+    attempts = 0
+    def fail_install(state):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 2:
+            retried.set()
+        raise RuntimeError('snapshot unavailable')
+    with monkeypatch.context() as patch:
+        patch.setattr(registry, 'install_committed', fail_install)
+        with pytest.raises(HTTPException) as exc:
+            await WRITER.submit(_buy(mid, oids[0], uid, shares='1', accept_any_slippage=True))
+        assert exc.value.status_code == 500
+        await retried.wait()
+    assert WRITER.get_state(mid).unavailable
+    assert 'LMSR database committed; snapshot installation failed' in caplog.text
+    async with async_session_maker() as db:
+        assert (await db.get(Outcome, oids[0])).total_shares == Decimal('1.000000')
+    # The previous zero-shares snapshot cannot be used after failed recovery.
+    group = (await registry.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
+    assert group.q_dec == ['1.000000', '0.000000']

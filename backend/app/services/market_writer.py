@@ -152,6 +152,8 @@ class MarketWriter:
 
     async def stop(self) -> None:
         self._enabled = False
+        for market_id in self._states:
+            self._invalidate_read_state(market_id)
         for t in self._tasks.values():
             t.cancel()
         for t in list(self._tasks.values()):
@@ -164,48 +166,103 @@ class MarketWriter:
         self._states.clear()
         self._market_by_outcome.clear()
 
+    @staticmethod
+    def _invalidate_read_state(market_id: int) -> None:
+        from app.schemas.trading_context import GroupKey
+        from app.services.trading_prices import REGISTRY
+        REGISTRY.invalidate(GroupKey(product="lmsr", id=market_id))
+
+    def _install_read_state(self, st: MarketState) -> None:
+        from app.services.market_read_state import LmsrReadState
+        from app.services.trading_prices import REGISTRY
+        try:
+            REGISTRY.install_committed(LmsrReadState(
+                id=st.market_id, b=st.b, outcome_ids=tuple(st.outcome_ids),
+                q_dec=tuple(st.q_dec), status=st.status, closes_at=st.closes_at,
+            ))
+        except BaseException:
+            self._invalidate_read_state(st.market_id)
+            logger.exception(
+                "LMSR database committed; snapshot installation failed: market_id=%d",
+                st.market_id,
+            )
+            raise
+
     async def register_market(self, market_id: int) -> None:
-        async with async_session_maker() as s:
-            m = await s.get(Market, market_id)
-            if m is None:
-                return
-            st = await _load_one(s, m)
-        self._install(st)
+        from app.services.credit.gates import GATES
+        from app.services.credit.keys import GroupKey
+        # Creation has committed and closed its transaction before registering.
+        # Serialize the DB load with cold readers and existing-market writes.
+        async with GATES.hold(exclusive=[GroupKey("lmsr", market_id)]):
+            self._invalidate_read_state(market_id)
+            existing = self._states.get(market_id)
+            if existing is not None:
+                existing.unavailable = True
+            try:
+                async with async_session_maker() as s:
+                    m = await s.get(Market, market_id)
+                    if m is None:
+                        return
+                    st = await _load_one(s, m)
+                self._install(st)
+            except BaseException:
+                st = self._states.get(market_id)
+                if st is not None:
+                    st.unavailable = True
+                self._invalidate_read_state(market_id)
+                raise
 
     async def reload_state(self, market_id: int) -> None:
-        """自愈：从 DB 镜像重读 q / status。失败则标记 unavailable。"""
-        try:
-            # ring 要从 OutcomeCandle 镜像重建，而 flusher 里 ≤5s 未落库的行不会再回到
-            # 新 ring——不先 flush，ring 与 DB 永久分叉，且 /history/ 防线 2 读 ring 的
-            # 窗口段会被 nginx 30d immutable 缓存固化（审计 M5）。flush 失败会回炉并
-            # 返回 0，此时仍继续重建（与旧行为相同），只是会少那几笔。
-            from app.services.candle_flusher import CANDLE_FLUSHER
-            if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
-                logger.error("reload_state: candle flush failed, ring may miss pending rows")
-            async with async_session_maker() as s:
-                m = await s.get(Market, market_id)
-                if m is None:
-                    raise RuntimeError(f"market {market_id} vanished")
-                st_new = await _load_one(s, m)
-            st = self._states[market_id]
-            st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
-            st.status, st.closes_at = st_new.status, st_new.closes_at
-            st.rings = st_new.rings   # 自愈同样从镜像重建 ring（resync 保证镜像可信）
-            st.unavailable = False
-            logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
-        except Exception:
-            # .get() 防 KeyError：stop() 可能已清空 _states；KeyError 穿出会静默
-            # 杀死 consumer task，让该市场所有后续请求硬等 10s 后 503 且无日志
-            # （final review MIN-3）
-            st = self._states.get(market_id)
-            if st is not None:
-                st.unavailable = True
-            logger.critical(
-                "market_writer reload FAILED, market %d marked unavailable", market_id,
-                exc_info=True,
-            )
+        """Reload the whole committed pricing source; failure discards old reads."""
+        from app.services.credit.gates import GATES
+        from app.services.credit.keys import GroupKey
+        async with GATES.hold(exclusive=[GroupKey("lmsr", market_id)]):
+            self._invalidate_read_state(market_id)
+            existing = self._states.get(market_id)
+            if existing is not None:
+                existing.unavailable = True
+            try:
+                # Flush before rebuilding rings so pending candles are preserved.
+                from app.services.candle_flusher import CANDLE_FLUSHER
+                if await CANDLE_FLUSHER.flush_once() == 0 and CANDLE_FLUSHER._pending:
+                    logger.error("reload_state: candle flush failed, ring may miss pending rows")
+                async with async_session_maker() as s:
+                    m = await s.get(Market, market_id)
+                    if m is None:
+                        raise RuntimeError(f"market {market_id} vanished")
+                    st_new = await _load_one(s, m)
+                st = self._states[market_id]
+                # Prices were derived with st_new.b: keep that exact source and
+                # outcome ordering, rather than pairing new q with old metadata.
+                for oid in st.outcome_ids:
+                    self._market_by_outcome.pop(oid, None)
+                st.b = st_new.b
+                st.outcome_ids, st.outcome_labels = st_new.outcome_ids, st_new.outcome_labels
+                st.q_dec, st.q, st.prices = st_new.q_dec, st_new.q, st_new.prices
+                st.status, st.closes_at = st_new.status, st_new.closes_at
+                st.rings = st_new.rings
+                for oid in st.outcome_ids:
+                    self._market_by_outcome[oid] = market_id
+                self._install_read_state(st)
+                st.unavailable = False
+                logger.warning("market_writer state reloaded from mirror: market_id=%d", market_id)
+            except Exception:
+                # stop() may already have cleared _states; do not kill consumer.
+                st = self._states.get(market_id)
+                if st is not None:
+                    st.unavailable = True
+                self._invalidate_read_state(market_id)
+                logger.critical(
+                    "market_writer reload FAILED, market %d marked unavailable", market_id,
+                    exc_info=True,
+                )
 
     def _install(self, st: MarketState) -> None:
+        self._install_read_state(st)
+        previous = self._states.get(st.market_id)
+        if previous is not None:
+            for oid in previous.outcome_ids:
+                self._market_by_outcome.pop(oid, None)
         self._states[st.market_id] = st
         for oid in st.outcome_ids:
             self._market_by_outcome[oid] = st.market_id
@@ -308,12 +365,14 @@ class MarketWriter:
                             self._apply_outcome(st, outcome)
                         except BaseException:
                             st.unavailable = True
+                            self._invalidate_read_state(st.market_id)
                             raise
                     except (CreditRetry, HTTPException):
                         raise
                     except BaseException:
                         # Isolate before releasing gates; recovery runs outside this scope.
                         st.unavailable = True
+                        self._invalidate_read_state(st.market_id)
                         raise
                     finally:
                         CREDIT_DEPS.reset(token)
@@ -345,6 +404,10 @@ class MarketWriter:
                     ring.merge_row(row)
             if outcome.tick_trade is not None:
                 st.last_ring_trade_id = int(outcome.tick_trade.get("id") or 0)
+
+        # Account notifications remain inside the op; covered readers wait on
+        # this still-held GATE until the complete committed projection is ready.
+        self._install_read_state(st)
 
     def _merge_candles(self, rows: list[dict]) -> None:
         from app.services.candle_flusher import CANDLE_FLUSHER

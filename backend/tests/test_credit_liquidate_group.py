@@ -183,7 +183,12 @@ async def test_group_liquidation_repays_debt_in_same_transaction():
 
 
 @pytest.mark.asyncio
-async def test_replay_same_run_round_does_not_sell_twice(private_events):
+async def test_replay_same_run_round_does_not_sell_twice(private_events, monkeypatch):
+    from app.schemas.trading_context import GroupKey
+    from app.services import trading_prices
+    registry = trading_prices.PricingRegistry(async_session_maker)
+    registry.configure(memory_products=frozenset({'lmsr'}))
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
     mid, oids = await _seed_market(("0", "0"))
     uid = await _seed_user(cash="0", debt="50", username="replay_user")
     await _give_position(uid, oids[0], "20", "10")
@@ -197,6 +202,9 @@ async def test_replay_same_run_round_does_not_sell_twice(private_events):
     assert queue.empty()
     assert first["replayed"] is False
     snap_first = await _snapshot(uid, oids)
+    key = GroupKey(product='lmsr', id=mid)
+    first_group = (await registry.read_groups([key]))[0]
+    assert first_group.q_dec == [str(q) for q in WRITER.get_state(mid).q_dec]
 
     second = await WRITER.submit(_cmd(mid, uid, run_id, mode="full",
                                       fee_rate=Decimal("0.01")))
@@ -217,6 +225,17 @@ async def test_replay_same_run_round_does_not_sell_twice(private_events):
         assert run.total_proceeds == first["gross"]
         assert run.total_repaid == first["repaid"]
         assert run.total_fee == first["fee"]
+
+    # A later actual trade must survive replay of the older liquidation result.
+    buyer = await _seed_user(cash='1000', debt='0', username='later_buyer')
+    await WRITER.submit(BuyCmd(market_id=mid, outcome_id=oids[0], user_id=buyer,
+                              username='later_buyer', shares=Decimal('1'), max_cost=None,
+                              max_slippage_bps=None, accept_any_slippage=True))
+    newer = (await registry.read_groups([key]))[0]
+    assert newer.q_dec != first_group.q_dec
+    await WRITER.submit(cmd)
+    replayed = (await registry.read_groups([key]))[0]
+    assert replayed.q_dec == newer.q_dec and replayed.stamp == newer.stamp
 
 
 @pytest.mark.asyncio
