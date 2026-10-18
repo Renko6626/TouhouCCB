@@ -125,7 +125,8 @@ async def test_mirror_failure_isolates_committed_market(monkeypatch):
     def broken(st,outcome):
         raise RuntimeError('mirror apply failure')
     monkeypatch.setattr(WRITER,'_apply_outcome',broken)
-    monkeypatch.setattr(WRITER,'reload_state',recovery)
+    # Consumer recovery uses the private loader; the public method queues a command.
+    monkeypatch.setattr(WRITER,'_reload_state',recovery)
     with pytest.raises(HTTPException) as err:
         await WRITER.submit(buy(uid,mid,oid))
     assert err.value.status_code==500
