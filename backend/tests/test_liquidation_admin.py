@@ -81,6 +81,7 @@ async def test_admin_run_now_returns_sweep_result(client):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures('published_markets')
 async def test_admin_run_now_trigger_source_is_admin_manual(client):
     """admin 端点触发的 LiquidationEvent.trigger_source 应为 'admin_manual'。"""
     from app.services.site_config import clear_cache

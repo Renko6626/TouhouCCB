@@ -7,8 +7,9 @@ from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.models.fx import FxShortPosition, FxTreasury
 from app.services import audit_replay, admin_user_service
+from tests.conftest import publish_seeded_market_records
 from tests.test_fx_short_trading import _seed, _open, _cover, _credit_flags
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 async def test_short_replay_interest_trades_cutoff_and_tampering():
     uid, pid = await _seed(rate="0.01", buy_fee="0.01", sell_fee="0.01")
@@ -102,6 +103,7 @@ async def _add_sibling(uid, *, principal="0", basis="0"):
                                   proceeds_basis_gold=Decimal(basis),
                                   interest_last_accrued_at=datetime.now(timezone.utc)))
         await db.commit()
+        await publish_seeded_market_records()
         return pair.id
 
 async def test_open_clears_other_pair_pre_accrual_anchors():

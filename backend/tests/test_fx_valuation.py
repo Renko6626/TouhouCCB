@@ -10,6 +10,7 @@ from app.api.v1.user import get_user_summary
 from app.api.v1.market import _leaderboard_uncached
 from fastapi import HTTPException
 from tests.fx_test_helpers import fx_db, add_pair  # noqa: F401
+from tests.conftest import publish_seeded_market_records
 from sqlmodel import SQLModel
 import pytest
 import pytest_asyncio
@@ -125,6 +126,8 @@ async def test_healthy_debt_user_can_buy_and_sell_repays_debt(fx_db, monkeypatch
                        foreign_amount=Decimal("2"), cost_basis=Decimal("2")))
     await fx_db.commit()
 
+    from app.core import database
+    await publish_seeded_market_records(database.async_session_maker)
     bought = await trading.execute_trade(fx_db, user.id, pair.id, "buy",
                                         Decimal("1"), Decimal("0"), "debt-buy")
     assert bought.input_amount == Decimal("1")

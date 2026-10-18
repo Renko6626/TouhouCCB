@@ -11,7 +11,6 @@ path, a same-pair spot buy silently opens a long beside an outstanding short,
 or the loan quota 500s / reports gold-only headroom when the short cover cost is
 unknown.
 """
-from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal as D
 
@@ -193,74 +192,82 @@ async def test_healthy_mixed_short_can_buy_another_pair_with_shared_margin():
         assert (await db.get(User, uid)).cash < D("100000")
 
 
-async def test_lockin_refresh_new_short_pair_retries_under_complete_gates(monkeypatch):
-    """Spec §11: a foreign short that surfaces only at the **lock-in** dependency."""
+@pytest.mark.parametrize('new_principal', ['10', '500'])
+async def test_writer_admission_reads_other_pair_short_added_after_producer_discovery(new_principal):
+    """Producer discovery cannot authorize a buy after another pair adds debt."""
     async with async_session_maker() as db:
-        user = await _user(db, name="fx_gate_race", cash="100000")
+        user = await _user(db, name="fx_ledger_refresh", cash="100")
         old_short = await _pair(db, code="FXGATERACEOLD")
         new_short = await _pair(db, code="FXGATERACENEW")
         target = await _pair(db, code="FXGATERACETG")
         await _short(db, user_id=user.id, pair_id=old_short.id, principal="10")
-        await _short(db, user_id=user.id, pair_id=new_short.id, principal="10")
         await _config(db, fx_enabled="true", loan_enabled="true", loan_daily_rate="0")
         await db.commit()
         await publish_seeded_market_records()
         site_config.clear_cache()
         uid, tpid, new_pid = user.id, target.id, new_short.id
 
-    new_key = GroupKey("fx", new_pid)
-    real_discover = trading.discover_dependencies
-    real_check = trading.check_new_risk
-    discover_calls = {"n": 0}
-    held_at_check: list[frozenset] = []
+    async with async_session_maker() as db:
+        stale_user = await db.get(User, uid)
+        deps = await trading.discover_dependencies(db, uid, extra_groups=[GroupKey('fx', tpid)])
+        assert new_pid not in deps.short_debts
+        from app.services.credit.risk import PostTradeState
+        before = await trading.check_new_risk(db,user=stale_user,deps=deps,
+            post=PostTradeState(cash=D('90'),debt=ZERO),thresholds=TH4,
+            partial_pct=D('1'),now=datetime.now(timezone.utc))
+        assert before.allowed
+        await db.commit()
 
-    async def stale_first_discovery(db, user_id, *, extra_groups=(), account_locked=False):
-        discover_calls["n"] += 1
-        deps = await real_discover(db, user_id, extra_groups=extra_groups,
-                                   account_locked=account_locked)
-        if not account_locked:
-            return replace(deps, groups=tuple(g for g in deps.groups if g != new_key),
-                holdings={k: v for k, v in deps.holdings.items() if k != new_key},
-                snapshots={k: v for k, v in deps.snapshots.items() if k != new_key})
-        return deps
+        async with async_session_maker() as other:
+            await _short(other, user_id=uid, pair_id=new_pid, principal=new_principal)
+            current = await other.get(User, uid)
+            current.economic_version += 1
+            await other.commit()
+        assert stale_user.economic_version == deps.economic_version
 
-    async def recording_check(*args, **kwargs):
-        basis = kwargs["deps"]
-        held_at_check.append(basis)
-        assert basis.account_locked and new_key in basis.groups
-        assert basis.short_debts[new_pid].principal_foreign == D("10")
-        return await real_check(*args, **kwargs)
-
-    monkeypatch.setattr(trading, "discover_dependencies", stale_first_discovery)
-    from app.services.fx import writer_ops
-    monkeypatch.setattr(writer_ops, "discover_dependencies", stale_first_discovery)
-    monkeypatch.setattr(trading, "check_new_risk", recording_check)
+        if new_principal == '500':
+            with pytest.raises(HTTPException) as exc:
+                await trading.execute_trade(db, uid, tpid, 'buy', D('10'), ZERO, 'fx-ledger-refresh')
+            assert exc.value.status_code == 400
+            assert exc.value.detail == 'insufficient_initial_margin'
+        else:
+            public = await trading.execute_trade(db, uid, tpid, 'buy', D('10'), ZERO, 'fx-ledger-refresh')
 
     async with async_session_maker() as db:
-        public = await trading.execute_trade(
-            db, uid, tpid, "buy", D("10"), D("0"), "fx-gate-race")
-    assert held_at_check
-
-    # The retry executed the order under the complete gate set, with the real
-    # economic writes the controller expects.
-    assert public.output_amount > 0
-    wallet = (await db.execute(select(FxWallet).where(
-        FxWallet.user_id == uid, FxWallet.pair_id == tpid))).scalars().one()
-    assert wallet.foreign_amount == public.output_amount
-    assert (await db.get(User, uid)).cash == D("100000") - public.input_amount
-    assert (await db.get(FxPair, tpid)).pool_version == 2
-    assert (await db.get(FxPair, new_pid)).pool_version == 1
-    trade = (await db.execute(select(FxTrade).where(
-        FxTrade.user_id == uid, FxTrade.idempotency_key == "fx-gate-race"))).scalars().one()
-    assert trade.pair_id == tpid and trade.side == "buy"
-    treasury = (await db.execute(select(FxTreasury).where(
-        FxTreasury.pair_id == tpid))).scalars().one()
-    assert treasury.gold_balance == D("1000") + public.fee_amount
-    # The new short was never covered or touched by this ordinary spot buy.
-    short = (await db.execute(select(FxShortPosition).where(
-        FxShortPosition.user_id == uid, FxShortPosition.pair_id == new_pid,
-    ))).scalars().one()
-    assert short.principal_foreign == D("10")
+        user = await db.get(User, uid)
+        pair = await db.get(FxPair, tpid)
+        treasury = (await db.execute(select(FxTreasury).where(
+            FxTreasury.pair_id == tpid))).scalars().one()
+        if new_principal == '500':
+            assert user.cash == D('100') and user.debt == ZERO
+            assert user.economic_version == deps.economic_version + 1
+            assert (await db.execute(select(FxWallet))).scalars().all() == []
+            assert (await db.execute(select(FxTrade))).scalars().all() == []
+            assert (pair.gold_reserve, pair.foreign_reserve) == (D('1000'), D('1000'))
+            assert pair.pool_version == 1
+            assert treasury.gold_balance == D('1000') and treasury.foreign_balance == D('1000')
+        else:
+            assert public.output_amount > ZERO
+            wallet = (await db.execute(select(FxWallet).where(
+                FxWallet.user_id == uid, FxWallet.pair_id == tpid))).scalars().one()
+            assert wallet.foreign_amount == public.output_amount
+            assert user.cash == D('100') - public.input_amount and user.debt == ZERO
+            assert user.economic_version == deps.economic_version + 2
+            assert pair.pool_version == 2
+            assert (pair.gold_reserve, pair.foreign_reserve) == (
+                D('1000') + public.input_amount - public.fee_amount,
+                D('1000') - public.output_amount)
+            trade = (await db.execute(select(FxTrade).where(
+                FxTrade.user_id == uid, FxTrade.idempotency_key == 'fx-ledger-refresh'))).scalars().one()
+            assert trade.pair_id == tpid and trade.side == 'buy'
+            assert treasury.gold_balance == D('1000') + public.fee_amount
+            assert treasury.foreign_balance == D('1000')
+        assert (await db.get(FxPair, new_pid)).pool_version == 1
+        # Ordinary spot trading leaves both foreign obligations intact.
+        shorts = (await db.execute(select(FxShortPosition).where(
+            FxShortPosition.user_id == uid))).scalars().all()
+        assert {p.pair_id: p.principal_foreign for p in shorts} == {
+            old_short.id: D('10'), new_pid: D(new_principal)}
 
 
 async def test_foreign_only_short_blocks_lmsr_writer_buy():

@@ -54,8 +54,11 @@ async def test_driver_finance_cross_and_cover_use_real_routes_and_refresh(tmp_pa
     from app.models.fx import FxShortPosition, FxWallet
     from sqlalchemy import select
     from tests.test_fx_short_trading import _seed
+    from tests.conftest import publish_seeded_market_records
 
     uid, pid = await _seed(cash='100000')
+    # Direct seeds bypass the writer's committed pricing publication.
+    await publish_seeded_market_records()
     user = {"uid": uid, "token": create_access_token(uid)}
     args = SimpleNamespace(amount="10")
     metrics = fx_http.Metrics(tmp_path / "report")
