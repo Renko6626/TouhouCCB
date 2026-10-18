@@ -263,6 +263,7 @@ class PricingPublisher:
 
     async def run(self):
         import logging
+        from app.services.account_events import encode_frame
         previous = {}
         while True:
             try:
@@ -276,13 +277,20 @@ class PricingPublisher:
                 groups = await REGISTRY.read_groups([GroupKey(product=p, id=i) for p, i in keys], require_coverage=False)
                 by_key = {(g.product, g.id): g for g in groups}
                 changed = {key for key in keys if previous.get(key) != (by_key[key].stamp.input_hash if key in by_key else None)}
-                # Serialize each changed group once; filtering only builds a
-                # subscriber-specific list of these read-only dictionaries.
+                # Dump changed groups once, then encode once per affected subset.
+                # Frames live only for this publication and contain immutable bytes.
                 dumped = {key: by_key[key].model_dump() for key in changed if key in by_key}
+                frames = {}
                 for subscription, wanted in tuple(self.subscriptions.items()):
-                    affected = changed & wanted
+                    affected = frozenset(changed & wanted)
                     if affected:
-                        subscription.offer('pricing', dict(groups=[dumped[k] for k in sorted(affected) if k in dumped], missing_groups=[dict(product=k[0], id=k[1]) for k in sorted(affected) if k not in by_key], server_time=now_string()))
+                        if affected not in frames:
+                            ordered = sorted(affected)
+                            frames[affected] = encode_frame('pricing', dict(
+                                groups=[dumped[k] for k in ordered if k in dumped],
+                                missing_groups=[dict(product=k[0], id=k[1]) for k in ordered if k not in by_key],
+                                server_time=now_string()))
+                        subscription.offer_encoded('pricing', frames[affected])
                 previous = {key: by_key[key].stamp.input_hash if key in by_key else None for key in keys}
             except asyncio.CancelledError:
                 raise

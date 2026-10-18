@@ -117,6 +117,8 @@ async def test_first_sync_recovers_commit_before_subscription():
 
 @pytest.mark.asyncio
 async def test_shared_pricing_frame_uses_committed_complete_inputs():
+    from app.services.account_events import enqueue_order_result
+    from app.schemas.fx import FxOrderResult
     uid, _, ids = await seed()
     frames = []
     async def on_frame(event,payload,stopped):
@@ -127,7 +129,12 @@ async def test_shared_pricing_frame_uses_committed_complete_inputs():
             PUBLISHER.wake.set()
         if event == 'pricing':
             if any(g['id']==ids[0] and g['gold_reserve']=='123.000000' for g in payload['groups']):
-                stopped.set()
+                enqueue_account_change(uid, 2, '成交')
+                enqueue_order_result(uid, FxOrderResult(order_id=3, pair_id=ids[0],
+                    currency_code='0', action='buy', status='succeeded',
+                    occurred_at=datetime.now(timezone.utc)))
+        if event == 'fx_order_result':
+            stopped.set()
     PUBLISHER.start()
     try:
         await request_stream(create_access_token(uid),on_frame)
@@ -137,6 +144,8 @@ async def test_shared_pricing_frame_uses_committed_complete_inputs():
     assert group['foreign_reserve']=='456.000000' and group['sell_fee_rate']=='0.12345678'
     fresh = await REGISTRY.refresh_groups([GroupKey(product='fx',id=ids[0])])
     assert group['stamp'] == fresh[0].stamp.model_dump()
+    assert [event for event, _ in frames][-3:] == ['pricing', 'account_changed', 'fx_order_result']
+    assert frames[-2][1]['reason'] == '成交' and frames[-1][1]['order_id'] == 3
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('change', ['rules', 'ban'])

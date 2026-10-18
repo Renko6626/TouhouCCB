@@ -1,3 +1,4 @@
+from tests.test_account_events import decode_event
 from decimal import Decimal
 from datetime import datetime, timezone
 import pytest
@@ -129,30 +130,50 @@ async def test_pricing_publisher_shares_serialization_and_filters_dependencies(m
     monkeypatch.setattr(FxPricingGroup, 'model_dump', dumped)
     event.listen(engine.sync_engine, 'before_cursor_execute', observed)
     publisher = trading_prices.PricingPublisher()
-    all_groups, first_only, second_only = [Subscription(i) for i in (11, 22, 33)]
+    all_groups, first_only, second_only, same_first = [Subscription(i) for i in (11, 22, 33, 44)]
     publisher.subscribe(all_groups, keys)
     publisher.subscribe(first_only, keys[:1])
     publisher.subscribe(second_only, keys[1:])
+    publisher.subscribe(same_first, keys[:1])
     publisher.start()
     publisher.wake.set()
     try:
-        _, both = await asyncio.wait_for(all_groups.queue.get(), 2)
-        _, first = await asyncio.wait_for(first_only.queue.get(), 2)
-        _, second = await asyncio.wait_for(second_only.queue.get(), 2)
+        both_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
+        first_frame = await asyncio.wait_for(first_only.queue.get(), 2)
+        second_frame = await asyncio.wait_for(second_only.queue.get(), 2)
+        assert first_frame[1] is (await same_first.queue.get())[1]
+        _, both = decode_event(both_frame)
+        _, first = decode_event(first_frame)
+        _, second = decode_event(second_frame)
         assert [g['id'] for g in first['groups']] == [states[0].id]
         assert [g['id'] for g in second['groups']] == [states[1].id]
-        assert both['groups'][0] is first['groups'][0]
-        assert both['groups'][1] is second['groups'][0]
+        assert both['groups'][0] == first['groups'][0]
+        assert both['groups'][1] == second['groups'][0]
         assert sorted(dumps) == sorted(state.id for state in states)
         registry.install_committed(replace(states[0], gold_reserve=Decimal('2'), pool_version=2))
         publisher.wake.set()
-        _, changed = await asyncio.wait_for(all_groups.queue.get(), 2)
-        _, changed_first = await asyncio.wait_for(first_only.queue.get(), 2)
+        changed_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
+        changed_first_frame = await asyncio.wait_for(first_only.queue.get(), 2)
+        assert changed_frame[1] is changed_first_frame[1] is (await same_first.queue.get())[1]
+        _, changed = decode_event(changed_frame)
+        _, changed_first = decode_event(changed_first_frame)
         assert changed['groups'][0]['gold_reserve'] == '2'
         assert changed['groups'][0]['stamp'] != first['groups'][0]['stamp']
-        assert changed['groups'][0] is changed_first['groups'][0]
+        assert changed['groups'][0] == changed_first['groups'][0]
         assert second_only.queue.empty()
         assert dumps.count(states[0].id) == 2 and dumps.count(states[1].id) == 1
+        registry.invalidate(keys[0])
+        # Model a deleted projection at the existing cold-read boundary.
+        original_record = registry._record_locked
+        async def missing_record(key):
+            return None if key == keys[0] else await original_record(key)
+        monkeypatch.setattr(registry, '_record_locked', missing_record)
+        publisher.wake.set()
+        missing_frame = await asyncio.wait_for(all_groups.queue.get(), 2)
+        assert missing_frame[1] is (await first_only.queue.get())[1] is (await same_first.queue.get())[1]
+        _, missing = decode_event(missing_frame)
+        assert missing['groups'] == [] and missing['missing_groups'] == [keys[0].model_dump()]
+        assert second_only.queue.empty()
         assert statements == []
     finally:
         await publisher.stop()

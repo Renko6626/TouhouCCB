@@ -47,13 +47,12 @@ async def prices(key: list[str] = Query(default=[]), user_id: int = Depends(trad
     return TradingPrices(groups=groups, missing_groups=missing_keys(keys, groups), server_time=now_string())
 
 import asyncio
-import json
 import time
 import jwt
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 from app.core.config import settings
-from app.services.account_events import EVENTS
+from app.services.account_events import EVENTS, encode_frame
 from app.services.trading_prices import REGISTRY, PUBLISHER
 from app.services.credit.trading_context import read_dependencies, read_rules, authoritative_version
 
@@ -67,9 +66,6 @@ async def stream_identity(credentials: HTTPAuthorizationCredentials = Depends(HT
     payload = jwt.decode(credentials.credentials, settings.SECRET_KEY, algorithms=['HS256'], options={'verify_exp': False})
     expiry = float(payload.get('exp', time.time() + 3600))
     return user_id, min(expiry, time.time() + 3600)
-
-def encode_frame(event, payload):
-    return 'event: ' + event + '\ndata: ' + json.dumps(payload, separators=(',', ':')) + '\n\n'
 
 @stream_router.get('/trading')
 async def trading_stream(request: Request, identity=Depends(stream_identity), group=Depends(current_group)):
@@ -124,7 +120,7 @@ async def trading_stream(request: Request, identity=Depends(stream_identity), gr
                 # Retain it in order and revalidate before private delivery.
                 if time.monotonic() >= next_check or time.time() >= deadline:
                     continue
-                event, payload = pending_frame
+                event, wire = pending_frame
                 pending_frame = None
                 if subscription.closed.is_set():
                     break
@@ -132,7 +128,7 @@ async def trading_stream(request: Request, identity=Depends(stream_identity), gr
                     async with async_session_maker() as db:
                         keys_now = await read_dependencies(db, user_id, group)
                     PUBLISHER.subscribe(subscription, keys_now)
-                yield encode_frame(event, payload)
+                yield wire
         finally:
             PUBLISHER.unsubscribe(subscription)
             EVENTS.unsubscribe(subscription)

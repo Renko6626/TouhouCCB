@@ -1,5 +1,5 @@
 from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
-from tests.test_account_events import private_events
+from tests.test_account_events import private_events, decode_event
 """Runnable FX service tests; independent of the application lifespan fixture."""
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -259,10 +259,10 @@ async def test_pricing_periodic_read_finds_trade_when_wake_is_lost(db_session, c
     publisher.start()
     publisher.wake.set()
     try:
-        _, first = await asyncio.wait_for(subscriber.queue.get(), 2)
+        _, first = decode_event(await asyncio.wait_for(subscriber.queue.get(), 2))
         await trading.execute_trade(db_session, uid, pid, 'buy', Decimal('1'), Decimal('0'), 'lost-wake')
         assert not publisher.wake.is_set()
-        _, second = await asyncio.wait_for(subscriber.queue.get(), 2)
+        _, second = decode_event(await asyncio.wait_for(subscriber.queue.get(), 2))
         assert first['groups'][0]['pool_version'] == '1'
         assert second['groups'][0]['pool_version'] == '2'
         assert second['groups'][0]['gold_reserve'] == format(committed_fx_registry.peek_fx(pid).gold_reserve, 'f')

@@ -1,5 +1,6 @@
 """Net money/identity coverage using existing real database fixtures."""
 from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
+from tests.test_account_events import decode_event
 from decimal import Decimal as D
 
 import pytest
@@ -511,7 +512,7 @@ async def test_private_commit_hints_skip_replay_and_failed_trade():
     sub = EVENTS.subscribe(uid)
     try:
         result = await _net(uid, pid, 'sell', '10', key='hint-once')
-        event, payload = sub.queue.get_nowait()
+        event, payload = decode_event(sub.queue.get_nowait())
         from app.models.base import User
         async with async_session_maker() as db:
             committed = await db.get(User, uid)

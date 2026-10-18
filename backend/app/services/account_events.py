@@ -1,5 +1,6 @@
 """Ephemeral private hints. Delivery failure never participates in money commits."""
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from uuid import uuid4
@@ -8,17 +9,28 @@ from app.schemas.fx import FxOrderResult
 
 logger = logging.getLogger(__name__)
 
+def encode_frame(event: str, payload) -> bytes:
+    """Freeze private SSE content once, using the existing compact JSON format."""
+    return ('event: ' + event + '\ndata: ' +
+            json.dumps(payload, separators=(',', ':')) + '\n\n').encode('utf-8')
+
+
 @dataclass(eq=False)
 class Subscription:
     user_id: int
-    queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=64))
+    queue: asyncio.Queue[tuple[str, bytes]] = field(default_factory=lambda: asyncio.Queue(maxsize=64))
     closed: asyncio.Event = field(default_factory=asyncio.Event)
 
     def offer(self, event, payload):
+        if not self.closed.is_set():
+            self.offer_encoded(event, encode_frame(event, payload))
+
+    def offer_encoded(self, event: str, wire: bytes):
+        """Offer a shared immutable frame to this connection's existing FIFO."""
         if self.closed.is_set():
             return
         try:
-            self.queue.put_nowait((event, payload))
+            self.queue.put_nowait((event, wire))
         except asyncio.QueueFull:
             self.closed.set()
 
@@ -45,11 +57,15 @@ class AccountEvents:
                 self.unsubscribe(subscriber)
 
     def enqueue(self, user_id, economic_version, reason, operation_ref=None):
+        subscribers = tuple(self._subscribers.get(user_id, ()))
+        if not subscribers:
+            return
         payload = dict(event_id=str(uuid4()), economic_version=str(economic_version), reason=reason, occurred_at=now_string())
         if operation_ref is not None:
             payload['operation_ref'] = str(operation_ref)
-        for subscriber in tuple(self._subscribers.get(user_id, ())):
-            subscriber.offer('account_changed', payload)
+        wire = encode_frame('account_changed', payload)
+        for subscriber in subscribers:
+            subscriber.offer_encoded('account_changed', wire)
 
 EVENTS = AccountEvents()
 
@@ -105,8 +121,11 @@ async def notifying_transaction(session, transaction, reason, *, defer_publicati
 def enqueue_order_result(user_id: int, payload: FxOrderResult) -> None:
     """Offer committed FX outcomes only to the owner's existing subscriptions."""
     try:
-        data = payload.model_dump(mode='json')
-        for subscriber in tuple(EVENTS._subscribers.get(user_id, ())):
-            subscriber.offer('fx_order_result', data)
+        subscribers = tuple(EVENTS._subscribers.get(user_id, ()))
+        if not subscribers:
+            return
+        wire = encode_frame('fx_order_result', payload.model_dump(mode='json'))
+        for subscriber in subscribers:
+            subscriber.offer_encoded('fx_order_result', wire)
     except Exception:
         logger.exception('Private FX order result dropped')
