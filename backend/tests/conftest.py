@@ -149,6 +149,7 @@ async def setup_db():
     from app.services.market_writer import WRITER
     from app.services.candle_flusher import CANDLE_FLUSHER
     from app.services.fx.market_state import FX_MARKET_DATA
+    from app.services.trading_prices import REGISTRY
 
     # Drop previous state before replacing the schema. The client loads markets
     # seeded by each test before its first LMSR request.
@@ -158,6 +159,10 @@ async def setup_db():
     # stop it (best effort) and drop all local state before the schema is dropped.
     await FX_MARKET_DATA.stop()
     FX_MARKET_DATA.reset()
+    # Lifespan can enable memory reads, but this fixture replaces the database.
+    # Ordinary tests use DB mode; dedicated memory fixtures opt in explicitly.
+    REGISTRY.reset()
+    REGISTRY.configure(memory_products=frozenset())
     # Unit tests invoke economic services without the app lifespan. Establish
     # the same ownership precondition on their disposable SQLite database.
     from app.services.credit.ownership import OWNERSHIP
