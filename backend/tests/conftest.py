@@ -247,3 +247,50 @@ async def _fx_writer_for_directly_seeded_pairs(monkeypatch):
     monkeypatch.setattr(FX_WRITER, 'submit', submit_seeded)
     yield
     await FX_WRITER.stop()
+
+
+async def publish_seeded_market_records(session_factory=None):
+    """Explicit fixture bootstrap from committed rows, never an execution fallback."""
+    from sqlalchemy import select
+    from app.core.database import async_session_maker
+    from app.models.base import Market, Outcome
+    from app.models.fx import FxPair
+    from app.services.market_read_state import FxReadState, LmsrReadState
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
+    async with (session_factory or async_session_maker)() as session:
+        pairs = (await session.execute(select(FxPair))).scalars().all()
+        markets = (await session.execute(select(Market))).scalars().all()
+        outcomes = (await session.execute(select(Outcome).order_by(Outcome.id))).scalars().all()
+        for pair in pairs:
+            REGISTRY.install_committed(FxReadState.from_pair(pair))
+        for market in markets:
+            own = [o for o in outcomes if o.market_id == market.id]
+            REGISTRY.install_committed(LmsrReadState(id=market.id, b=market.liquidity_b,
+                outcome_ids=tuple(o.id for o in own), q_dec=tuple(o.total_shares for o in own),
+                status=market.status, closes_at=market.closes_at))
+
+
+@pytest_asyncio.fixture
+async def published_markets(setup_db, monkeypatch, request):
+    """Risk fixture modules explicitly publish their committed seed helpers.
+
+    Real production writes retain their actual writer publication path. Tests
+    changing market rows directly must call publish_seeded_market_records again.
+    """
+    import inspect
+    from functools import wraps
+    from app.services.trading_prices import REGISTRY
+    REGISTRY.configure(memory_products=frozenset({'fx', 'lmsr'}))
+    for name, value in list(vars(request.module).items()):
+        if (inspect.iscoroutinefunction(value) and value.__module__.startswith("tests.")
+                and (name.startswith('_seed') or name in ('seed', '_market', '_pair'))
+                and not (name == '_pair' and set(inspect.signature(value).parameters) == {'pid'})):
+            def wrap(function):
+                @wraps(function)
+                async def seeded(*args, **kwargs):
+                    result = await function(*args, **kwargs)
+                    await publish_seeded_market_records()
+                    return result
+                return seeded
+            monkeypatch.setattr(request.module, name, wrap(value))

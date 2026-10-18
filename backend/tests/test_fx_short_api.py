@@ -33,11 +33,10 @@ from app.schemas.fx import FxShortCoverRequest, FxShortOpenRequest, FxShortQuote
 from app.services import site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit import risk as credit_risk
-from app.services.credit.gates import GATES
 from app.services.credit.valuation import value_user_detailed
 from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = D("0")
 Q6 = D("0.000001")
@@ -230,7 +229,6 @@ async def test_gate_off_blocks_open_then_enabled_open_and_cover_conserve_stock(c
     assert [trade["purpose"] for trade in history.json()] == ["short_cover", "short_open"]
 
     assert (await _stock(pair_id))["principal"] == ZERO
-    assert not GATES.held_keys()
 
 
 async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(client):
@@ -281,7 +279,6 @@ async def test_same_key_replays_once_and_cross_purpose_conflicts_both_ways(clien
         headers=user_headers,
     )
     assert reverse.status_code == 409, reverse.text
-    assert not GATES.held_keys()
 
 
 @pytest.mark.parametrize("status", ["trading", "paused"])
@@ -312,7 +309,6 @@ async def test_reduce_only_blocks_buy_and_open_but_allows_cover(client, status):
                            max_gold_in="1000000", key="k-cover-ro")
     assert covered.status_code == 200, covered.text
     assert (await _stock(pair_id))["principal"] == ZERO
-    assert not GATES.held_keys()
 
 
 async def test_opening_and_loan_gates_off_still_allow_cover(client):
@@ -335,7 +331,6 @@ async def test_opening_and_loan_gates_off_still_allow_cover(client):
                            max_gold_in="1000000", key="k-cover-off")
     assert covered.status_code == 200, covered.text
     assert (await _stock(pair_id))["principal"] == ZERO
-    assert not GATES.held_keys()
 
 
 async def test_malformed_open_requests_are_422_without_writes(client):
@@ -432,7 +427,6 @@ async def test_unknown_pair_is_404_not_500_for_short_writes(client):
     assert opened.status_code == 404, opened.text
     covered = await _cover(client, user_headers, 999999, cover_all=True, key="k-404c")
     assert covered.status_code == 404, covered.text
-    assert not GATES.held_keys()
 
 
 async def test_pair_limit_validation_admin_read_audit_and_public_boundary(client):

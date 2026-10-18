@@ -1,5 +1,6 @@
 """Disposable PostgreSQL liquidation acceptance; not a production SLO."""
 import asyncio
+from tests.conftest import publish_seeded_market_records
 import json
 import time
 from datetime import datetime, timezone
@@ -12,7 +13,6 @@ from app.models.credit import LiquidationAction
 from app.models.fx import FxPair, FxWallet, FxTreasury, FxTrade
 from app.services import site_config, market_writer, writer_ops
 from app.services.credit import execution, sweep, flags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.fx.trading import execute_trade, execute_liquidation_sell_in_session
@@ -22,6 +22,7 @@ pytestmark = [pytest.mark.pg, pytest.mark.asyncio]
 async def unified(pg_sessionmaker, monkeypatch):
     for module in (execution, sweep, market_writer, writer_ops):monkeypatch.setattr(module,'async_session_maker',pg_sessionmaker)
     monkeypatch.setattr(OWNERSHIP,'_writes_enabled',True)
+    monkeypatch.setattr(OWNERSHIP,'_is_owner',True)
     flags.set_flags(flags.CreditFlags(credit_leverage=D('20'),credit_maintenance_ratio=D('.04')))
     site_config.clear_cache()
     yield
@@ -45,6 +46,7 @@ async def seed(factory,count=1,mixed=False):
         s.add_all([FxTreasury(pair_id=p.id) for p in pairs])
         for k,v in [('loan_enabled','true'),('fx_enabled','true'),('loan_daily_rate','0'),('liquidation_enabled','true'),('liquidation_partial_pct','0.1'),('liquidation_sweep_interval_sec','600')]:s.add(SiteConfig(key=k,value=v,value_type='string'))
         await s.commit()
+        await publish_seeded_market_records(factory)
         return [u.id for u in users],t.id,[p.id for p in pairs]
 
 async def liquidate(uid):return await execution.execute_user(uid,rate=D('0'),pct=D('.1'),source='scheduler')
@@ -64,40 +66,44 @@ async def test_pg_liquidation_rollback_retry_and_fx_replay(pg_sessionmaker,monke
     async with pg_sessionmaker() as s:
         a=(await s.execute(select(LiquidationAction))).scalar_one()
         u=await s.get(User,ids[0]);before=(u.cash,u.debt);run_id,round_no=a.run_id,a.round_no
-    async with GATES.hold(exclusive=[GroupKey('fx',pairs[0])]):
-        async with pg_sessionmaker() as s:
-            async with s.begin():
-                replay=await execute_liquidation_sell_in_session(s,user_id=ids[0],pair_id=pairs[0],run_id=run_id,round_no=round_no,mode='full',partial_pct=D('.1'))
-                assert replay.replay
+    async with pg_sessionmaker() as s:
+        async with s.begin():
+            replay=await execute_liquidation_sell_in_session(s,user_id=ids[0],pair_id=pairs[0],run_id=run_id,round_no=round_no,mode='full',partial_pct=D('.1'))
+            assert replay.replay
     async with pg_sessionmaker() as s:
         u=await s.get(User,ids[0]);assert (u.cash,u.debt)==before
         for model in (LiquidationAction,LiquidationEvent,FxTrade):assert await s.scalar(select(func.count()).select_from(model))==1
 
-async def test_pg_liquidation_repayment_contention_and_other_symbol_progress(pg_sessionmaker):
+async def test_pg_liquidation_repayment_contention_and_other_symbol_progress(pg_sessionmaker, monkeypatch):
     from app.api.v1.loan import repay
     from app.schemas.loan import RepayRequest
     ids,trader,pairs=await seed(pg_sessionmaker)
-    async with GATES.hold(exclusive=[GroupKey('fx',pairs[0])]):
-        waiter=asyncio.create_task(liquidate(ids[0]))
-        try:
-            async with asyncio.timeout(5):
-                while not GATES.waiting_count():await asyncio.sleep(.005)
-            async with pg_sessionmaker() as s:payment=await asyncio.wait_for(repay(RepayRequest(amount='5'),user=await s.get(User,ids[0]),db=s),5)
-            async with pg_sessionmaker() as s:
-                trade=await asyncio.wait_for(asyncio.create_task(execute_trade(s,trader,pairs[1],'buy',D('1'),D('0'),'independent')),5)
-                assert trade.output_amount>0
-            assert not waiter.done()
-        except BaseException:
-            waiter.cancel();await asyncio.gather(waiter,return_exceptions=True);raise
+    from app.services.fx import writer_ops
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = writer_ops.execute_liquidation_round
+    async def held(*args):
+        entered.set()
+        await release.wait()
+        return await original(*args)
+    monkeypatch.setattr(writer_ops, 'execute_liquidation_round', held)
+    waiter=asyncio.create_task(liquidate(ids[0]))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        async with pg_sessionmaker() as s:payment=await asyncio.wait_for(repay(RepayRequest(amount='5'),user=await s.get(User,ids[0]),db=s),5)
+        async with pg_sessionmaker() as s:
+            trade=await asyncio.wait_for(asyncio.create_task(execute_trade(s,trader,pairs[1],'buy',D('1'),D('0'),'independent')),5)
+            assert trade.output_amount>0
+        assert not waiter.done()
+    finally:
+        release.set()
     assert await asyncio.wait_for(waiter,10)=='triggered'
     async with pg_sessionmaker() as s:
         u=await s.get(User,ids[0]);a=(await s.execute(select(LiquidationAction))).scalar_one()
         assert u.debt==D('2000')-a.repaid-payment.effective
         assert u.cash==D('10')+a.proceeds-a.repaid-payment.effective
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==1
-    assert not GATES.held_keys()
 
-async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker,tmp_path):
+async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker,tmp_path,caplog):
     ids,trader,pairs=await seed(pg_sessionmaker,100,mixed=True)
     await market_writer.WRITER.start()
     async def trades():
@@ -109,14 +115,25 @@ async def test_pg_100_user_mixed_scan_with_concurrent_trades(pg_sessionmaker,tmp
     start=time.monotonic()
     result,count=await asyncio.wait_for(asyncio.gather(sweep.run_sweep(),trades()),120)
     elapsed=time.monotonic()-start
-    assert result['scanned_count']==100 and result['triggered_count']==100
-    assert result['errors']==0 and result['deadlocks']==0 and elapsed<600
+    assert result['scanned_count'] == 100
+    assert result['triggered_count'] + result['retry_exhausted_count'] == 100
+    assert result['errors'] == 0 and result['deadlocks'] == 0 and elapsed < 600
+    async with pg_sessionmaker() as s:
+        completed = set((await s.execute(select(LiquidationAction.user_id))).scalars())
+    retry_users = sorted(set(ids) - completed)
+    assert len(retry_users) == result['retry_exhausted_count']
+    # Unfrozen foreign prices can change the selected target while a command
+    # waits. The existing next tick retries these nonmutating results; exercise
+    # exactly one further attempt per affected account after the wave quiesces.
+    for user_id in retry_users:
+        assert await liquidate(user_id) == 'triggered'
+    assert result['triggered_count'] + len(retry_users) == 100
     async with pg_sessionmaker() as s:
         actions=list((await s.execute(select(LiquidationAction))).scalars())
         assert len(actions)==100 and {a.product for a in actions}=={'fx','lmsr'}
         assert len({a.user_id for a in actions})==100
         assert await s.scalar(select(func.count()).select_from(LiquidationEvent))==100
-    evidence={'users':100,'fx_pairs':3,'lmsr_markets':1,'concurrent_fx_buys':count,'scan':result,'total_wall_sec':elapsed,'scope':'One real PG scan, three bounded workers, FX/LMSR liquidation, concurrent debt-free FX buys. No HTTP/WebSocket, production DB, sustained load or concurrent LMSR player orders.'}
+    evidence={'users':100,'fx_pairs':3,'lmsr_markets':1,'concurrent_fx_buys':count,'first_wave_scan':result,'next_tick_retry_users':retry_users,'total_wall_sec':elapsed,'scope':'One real PG scan, three bounded workers, FX/LMSR liquidation, concurrent debt-free FX buys. No HTTP/WebSocket, production DB, sustained load or concurrent LMSR player orders.'}
     path=tmp_path/'pg-mixed-scan.json'
     path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(evidence,indent=2)+'\n')
     print(json.dumps(evidence))

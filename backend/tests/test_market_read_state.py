@@ -13,8 +13,6 @@ from app.models.base import Market, Outcome
 from app.models.fx import FxPair
 from app.schemas.trading_context import GroupKey
 from app.services.credit import flags
-from app.services.credit.gates import GATES
-from app.services.credit.keys import GroupKey as GateKey
 from app.services.credit.ownership import OWNERSHIP
 from app.services.market_read_state import FxReadState
 from app.services.trading_prices import PricingRegistry
@@ -107,10 +105,9 @@ async def test_all_warm_reads_pass_writer_with_last_complete_publication():
     held, release = asyncio.Event(), asyncio.Event()
 
     async def writer():
-        async with GATES.hold(exclusive=[GateKey('fx', state.id)]):
-            held.set()
-            await release.wait()
-            registry.install_committed(replace(state, pool_version=2))
+        held.set()
+        await release.wait()
+        registry.install_committed(replace(state, pool_version=2))
 
     writing = asyncio.create_task(writer())
     await held.wait()
@@ -129,8 +126,7 @@ async def test_all_warm_reads_pass_writer_with_last_complete_publication():
     assert (await registry.read_groups([key]))[0].pool_version == '2'
     assert captured[('fx', state.id)].state == state
     assert calls == []
-    async with GATES.hold(shared=[GateKey('fx', state.id)]):
-        assert (await registry.read_groups_locked([key]))[0].pool_version == '2'
+    assert (await registry.read_groups([key]))[0].pool_version == '2'
 
 
 @pytest.mark.asyncio

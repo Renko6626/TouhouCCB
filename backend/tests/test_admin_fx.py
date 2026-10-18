@@ -357,7 +357,6 @@ async def test_edit_draft_duplicate_currency_code_leaves_original_intact(ctx):
 @pytest.mark.parametrize('action', ['archive', 'delete'])
 async def test_cleanup_holds_unified_gate_until_commit(ctx, action, monkeypatch):
     from app.services.credit import flags
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
     client, db, app, admin, normal = ctx
     pair_id = (await client.post('/api/v1/admin/fx/pairs', json=PAIR)).json()['id']
@@ -368,14 +367,13 @@ async def test_cleanup_holds_unified_gate_until_commit(ctx, action, monkeypatch)
     commit = AsyncCompatSession.commit
     gates_at_commit = []
     async def checked_commit(session):
-        gates_at_commit.append(GroupKey('fx', pair_id) in GATES.held_keys_by_current_task())
+        gates_at_commit.append(__import__('asyncio').current_task().get_name() == f'fx-writer-{pair_id}')
         await commit(session)
     monkeypatch.setattr(AsyncCompatSession, 'commit', checked_commit)
     url = f'/api/v1/admin/fx/pairs/{pair_id}'
     response = await client.post(url + '/archive') if action == 'archive' else await client.delete(url)
     assert response.status_code == (200 if action == 'archive' else 204), response.text
     assert gates_at_commit == [True]
-    assert not GATES.held_keys_by_current_task()
 
 
 @pytest.mark.asyncio

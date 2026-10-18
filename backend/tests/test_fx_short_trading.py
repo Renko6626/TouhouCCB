@@ -26,7 +26,6 @@ from app.models.fx import FxPoolEvent, FxPair, FxShortPosition, FxTrade, FxTreas
 from app.services import audit_replay, site_config
 from app.services.credit import flags as credit_flags
 from app.services.credit.flags import CreditFlags
-from app.services.credit.gates import GATES
 from app.services.credit.keys import GroupKey
 from app.services.credit.risk import discover_dependencies
 from app.services.fx import trading
@@ -38,7 +37,7 @@ from app.services.fx.shorts import (
     execute_short_open_in_session,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = D("0")
 UNIFIED = CreditFlags(
@@ -137,24 +136,20 @@ async def _open(uid, pid, q, *, min_out="0", key=None, attempts=5):
             deps = await discover_dependencies(db, uid, extra_groups=[target])
             if db.in_transaction():
                 await db.rollback()
-            async with GATES.hold(
-                exclusive=[target],
-                shared=[g for g in deps.groups if g != target],
-            ):
-                try:
-                    execution = await execute_short_open_in_session(
-                        db, user_id=uid, pair_id=pid, foreign_amount=D(q),
-                        min_gold_out=D(min_out), idempotency_key=key,
-                        credit_deps=deps,
-                    )
-                    await db.commit()
-                    return execution
-                except ShortRetryCredit:
-                    await db.rollback()
-                    continue
-                except BaseException:
-                    await db.rollback()
-                    raise
+            try:
+                execution = await execute_short_open_in_session(
+                    db, user_id=uid, pair_id=pid, foreign_amount=D(q),
+                    min_gold_out=D(min_out), idempotency_key=key,
+                    credit_deps=deps,
+                )
+                await db.commit()
+                return execution
+            except ShortRetryCredit:
+                await db.rollback()
+                continue
+            except BaseException:
+                await db.rollback()
+                raise
     raise AssertionError("short-open retries exhausted")
 
 
@@ -174,25 +169,21 @@ async def _cover(uid, pid, *, q=None, cover_all=False, max_gold_in="1000000",
             deps = await discover_dependencies(db, uid, extra_groups=[target])
             if db.in_transaction():
                 await db.rollback()
-            async with GATES.hold(
-                exclusive=[target],
-                shared=[g for g in deps.groups if g != target],
-            ):
-                try:
-                    execution = await execute_short_cover_in_session(
-                        db, user_id=uid, pair_id=pid,
-                        foreign_amount=None if q is None else D(q),
-                        cover_all=cover_all, max_gold_in=D(max_gold_in),
-                        idempotency_key=key, credit_deps=deps,
-                    )
-                    await db.commit()
-                    return execution
-                except ShortRetryCredit:
-                    await db.rollback()
-                    continue
-                except BaseException:
-                    await db.rollback()
-                    raise
+            try:
+                execution = await execute_short_cover_in_session(
+                    db, user_id=uid, pair_id=pid,
+                    foreign_amount=None if q is None else D(q),
+                    cover_all=cover_all, max_gold_in=D(max_gold_in),
+                    idempotency_key=key, credit_deps=deps,
+                )
+                await db.commit()
+                return execution
+            except ShortRetryCredit:
+                await db.rollback()
+                continue
+            except BaseException:
+                await db.rollback()
+                raise
     raise AssertionError("short-cover retries exhausted")
 
 
@@ -577,7 +568,6 @@ async def test_positive_spot_wallet_blocks_short_without_mutation():
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
     assert after == before
-    assert not GATES.held_keys()
 
 
 # Task 3b: exact-output short cover ledger (user-requested quantity / full)
@@ -785,7 +775,6 @@ async def test_cover_rejections_change_nothing(seed_overrides, cover_kwargs, kin
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
     assert after == before
-    assert not GATES.held_keys()
 
 
 @pytest.mark.parametrize("status, reduce_only, archived", [
@@ -856,7 +845,6 @@ async def test_cover_without_short_rejects_and_creates_nothing():
         assert after == before
         assert (await db.execute(select(FxWallet))).scalars().all() == []
         assert (await db.execute(select(FxShortPosition))).scalars().all() == []
-    assert not GATES.held_keys()
 
 
 @pytest.mark.parametrize("cover_kwargs", [
@@ -886,7 +874,6 @@ async def test_malformed_cover_numbers_are_cover_rejections(cover_kwargs):
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
     assert after == before
-    assert not GATES.held_keys()
 
 
 async def test_cover_treasury_gold_overflow_rejects_before_any_mutation():
@@ -908,7 +895,6 @@ async def test_cover_treasury_gold_overflow_rejects_before_any_mutation():
     async with async_session_maker() as db:
         after = await _full_state(db, uid, pid)
     assert after == before
-    assert not GATES.held_keys()
 
 
 @pytest.mark.parametrize("operation", ["open", "cover"])

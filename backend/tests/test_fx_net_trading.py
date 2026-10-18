@@ -12,7 +12,7 @@ from app.schemas.fx import FxNetQuoteRequest
 from app.services.fx.net_trading import quote_net_trade
 from tests.test_fx_short_trading import _credit_flags, _seed
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 
 @pytest.mark.parametrize('amount,direction,purposes,remaining', [
@@ -526,7 +526,6 @@ async def test_private_commit_hints_skip_replay_and_failed_trade():
 
 
 async def _instruction(uid, pid, instruction, *, key='instruction', rollback=False):
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
     from app.services.credit.risk import discover_dependencies
     from app.services.fx.net_trading import execute_fx_instruction_in_session
@@ -534,14 +533,13 @@ async def _instruction(uid, pid, instruction, *, key='instruction', rollback=Fal
         target = GroupKey('fx', pid)
         deps = await discover_dependencies(db, uid, extra_groups=[target])
         await db.rollback()
-        async with GATES.hold(exclusive=[target], shared=[g for g in deps.groups if g != target]):
-            result = await execute_fx_instruction_in_session(db, user_id=uid, pair_id=pid,
-                instruction=instruction, request_key=key, credit_deps=deps)
-            if rollback:
-                await db.rollback()
-            else:
-                await db.commit()
-            return result
+        result = await execute_fx_instruction_in_session(db, user_id=uid, pair_id=pid,
+            instruction=instruction, request_key=key, credit_deps=deps)
+        if rollback:
+            await db.rollback()
+        else:
+            await db.commit()
+        return result
 
 
 @pytest.mark.parametrize('limit,success', [('20', True), ('19', False)])

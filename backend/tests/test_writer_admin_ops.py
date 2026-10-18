@@ -212,6 +212,10 @@ async def test_committed_install_failure_invalidates_before_failed_reload(monkey
     async with async_session_maker() as db:
         assert (await db.get(Outcome, oids[0])).total_shares == Decimal('1.000000')
     # The previous zero-shares snapshot cannot be used after failed recovery.
+    with pytest.raises(HTTPException) as unavailable:
+        await registry.read_groups([GroupKey(product='lmsr', id=mid)])
+    assert unavailable.value.status_code == 503
+    await WRITER.reload_state(mid)
     group = (await registry.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
     assert group.q_dec == ['1.000000', '0.000000']
 

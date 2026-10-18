@@ -80,8 +80,6 @@ async def test_expired_credentials_and_slow_queue_cleanup():
 
 @pytest.mark.asyncio
 async def test_first_sync_recovers_commit_before_subscription():
-    from app.services.credit.gates import GATES
-    from app.services.credit.keys import GroupKey as GateKey
     from app.services.credit.trading_context import read_trading_context
 
     uid, _, ids = await seed()
@@ -96,9 +94,8 @@ async def test_first_sync_recovers_commit_before_subscription():
     held, release = asyncio.Event(), asyncio.Event()
 
     async def pending_publication():
-        async with GATES.hold(exclusive=[GateKey('fx', ids[0])]):
-            held.set()
-            await release.wait()
+        held.set()
+        await release.wait()
 
     writing = asyncio.create_task(pending_publication())
     await held.wait()

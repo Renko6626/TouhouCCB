@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from sqlalchemy import update
 
 import pytest
+from fastapi import HTTPException
 import pytest_asyncio
 from sqlmodel import SQLModel
 
@@ -87,7 +88,9 @@ async def test_register_market_after_start():
     mid, oids = await _seed_market()
     assert WRITER.get_state(mid) is None
     key = GroupKey(product='lmsr', id=mid)
-    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '3.500000'
+    with pytest.raises(HTTPException) as unavailable:
+        await trading_prices.REGISTRY.read_groups([key])
+    assert unavailable.value.status_code == 503
     async with async_session_maker() as db:
         await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(total_shares=Decimal('9.123456')))
         await db.commit()
@@ -106,6 +109,10 @@ async def test_stop_disables():
     async with async_session_maker() as db:
         await db.execute(update(Outcome).where(Outcome.id == oids[0]).values(total_shares=Decimal('8.000001')))
         await db.commit()
+    with pytest.raises(HTTPException) as unavailable:
+        await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)])
+    assert unavailable.value.status_code == 503
+    await WRITER.start()
     group = (await trading_prices.REGISTRY.read_groups([GroupKey(product='lmsr', id=mid)]))[0]
     assert group.q_dec[0] == '8.000001'
 
@@ -138,8 +145,11 @@ async def test_reload_installs_complete_source_and_failure_discards_old_projecti
         patch.setattr(market_writer, '_load_one', fail_load)
         await WRITER.reload_state(mid)
         assert state.unavailable
-    # Cold fallback may recover from DB, never from the writer's old q.
-    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '7.654321'
+    # Ordinary reads cannot recover an unavailable active writer via SQL.
+    with pytest.raises(HTTPException) as unavailable:
+        await trading_prices.REGISTRY.read_groups([key])
+    assert unavailable.value.status_code == 503
     # External maintenance can recover an actor that rejects economic commands.
     await WRITER.reload_state(mid)
     assert not state.unavailable and state.q_dec[0] == Decimal('7.654321')
+    assert (await trading_prices.REGISTRY.read_groups([key]))[0].q_dec[0] == '7.654321'

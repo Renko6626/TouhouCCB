@@ -4,6 +4,7 @@ Barriers keep production GATES/row locks intact. Ownership is acquired on the
 same disposable database used by the PG fixtures.
 """
 import asyncio
+from tests.conftest import publish_seeded_market_records
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -24,7 +25,6 @@ from app.models.ledger import LedgerEntry
 from app.schemas.loan import BorrowRequest
 from app.services import danmuku, loan_sweep, site_config
 from app.services.credit import flags, ownership
-from app.services.credit.gates import GATES
 from app.services.fx import borrow_buy, shorts, trading
 from app.services.fx.amm import quote_buy_exact_out, quote_sell
 
@@ -46,7 +46,6 @@ async def writer(pg_engine, monkeypatch):
     site_config.clear_cache()
     try:
         yield
-        assert not GATES.held_keys()
     finally:
         flags.clear_flags()
         flags.set_new_risk_frozen(None)
@@ -72,6 +71,7 @@ async def seed(factory, *, cash='1000', debt='0'):
                                  ('loan_daily_rate', '0', 'decimal')]:
             db.add(SiteConfig(key=key, value=value, value_type=kind))
         await db.commit()
+        await publish_seeded_market_records(factory)
         return user.id, pair.id
 
 
@@ -145,20 +145,23 @@ async def test_same_key_short_and_spot_execute_only_one_ledger(
     uid, pid = await seed(pg_sessionmaker)
     before = await state(pg_sessionmaker, uid, pid)
     leader_holds_gate, contender_reached_gate = asyncio.Event(), asyncio.Event()
-    original_hold = GATES.hold
-
-    @asynccontextmanager
-    async def ordered_hold(*args, **kwargs):
-        leader = asyncio.current_task().get_name() == 'leader'
-        if not leader:
+    from app.services.fx.writer import FX_WRITER
+    from app.services.fx import writer_ops
+    original_execute, original_submit = writer_ops._execute_in_session, FX_WRITER.submit
+    first_command = True
+    async def ordered_execute(*args, **kwargs):
+        nonlocal first_command
+        if first_command:
+            first_command = False
+            leader_holds_gate.set()
+            await contender_reached_gate.wait()
+        return await original_execute(*args, **kwargs)
+    async def observed_submit(command):
+        if asyncio.current_task().get_name() == 'contender':
             contender_reached_gate.set()
-        async with original_hold(*args, **kwargs):
-            if leader:
-                leader_holds_gate.set()
-                await contender_reached_gate.wait()
-            yield
-
-    monkeypatch.setattr(GATES, 'hold', ordered_hold)
+        return await original_submit(command)
+    monkeypatch.setattr(writer_ops, '_execute_in_session', ordered_execute)
+    monkeypatch.setattr(FX_WRITER, 'submit', observed_submit)
     operations = (open_short, spot_buy) if first == 'short' else (spot_buy, open_short)
 
     async def attempt(operation):
@@ -218,7 +221,7 @@ async def test_cover_waits_for_gold_repayment_and_replays_without_double_return(
 
     async def repayment():
         async with pg_sessionmaker() as db:
-            return await loan.repay_all(user=await db.get(User, uid), db=db)
+            return await loan.repay(loan.RepayRequest(amount='200'), user=await db.get(User, uid), db=db)
 
     async def cover():
         async with pg_sessionmaker() as db:
@@ -261,17 +264,14 @@ async def test_pair_mutation_rejects_stale_short_open(
         new = quote_sell(D('100'), D('1000'), D('1000'), D('.1'))
         assert new.output_amount < min_out < old.output_amount
     order_discovered, mutation_committed = asyncio.Event(), asyncio.Event()
-    original_hold = GATES.hold
-
-    @asynccontextmanager
-    async def delay_order_gate(*args, **kwargs):
+    from app.services.fx.writer import FX_WRITER
+    original_submit = FX_WRITER.submit
+    async def delayed_submit(command):
         if asyncio.current_task().get_name() == 'stale-open':
             order_discovered.set()
             await mutation_committed.wait()
-        async with original_hold(*args, **kwargs):
-            yield
-
-    monkeypatch.setattr(GATES, 'hold', delay_order_gate)
+        return await original_submit(command)
+    monkeypatch.setattr(FX_WRITER, 'submit', delayed_submit)
 
     async def opening():
         async with pg_sessionmaker() as db:
@@ -518,17 +518,14 @@ async def test_cover_requotes_after_concurrent_player_buy_changes_pool(
         buyer_id = buyer.id
     before = await state(pg_sessionmaker, uid, pid)
     cover_discovered, buy_committed = asyncio.Event(), asyncio.Event()
-    original_hold = GATES.hold
-
-    @asynccontextmanager
-    async def delay_cover_gate(*args, **kwargs):
+    from app.services.fx.writer import FX_WRITER
+    original_submit = FX_WRITER.submit
+    async def delayed_submit(command):
         if asyncio.current_task().get_name() == 'pre-buy-cover':
             cover_discovered.set()
             await buy_committed.wait()
-        async with original_hold(*args, **kwargs):
-            yield
-
-    monkeypatch.setattr(GATES, 'hold', delay_cover_gate)
+        return await original_submit(command)
+    monkeypatch.setattr(FX_WRITER, 'submit', delayed_submit)
 
     async def covering():
         async with pg_sessionmaker() as db:

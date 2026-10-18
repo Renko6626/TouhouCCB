@@ -169,6 +169,7 @@ async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market
     from app.services.fx import trading
     from app.services.fx.writer import FX_WRITER
     uid, pid = await seed(pg_sessionmaker)
+    market_registry.invalidate(GroupKey(product="fx", id=pid))
     queried, release = asyncio.Event(), asyncio.Event()
     snapshot = market_registry._snapshot
     async def old_read(db, key):

@@ -466,3 +466,5 @@ async def test_invalid_group_cmd_rejected_before_db():
         with pytest.raises(HTTPException) as exc_info:
             await op_liquidate_group(state, LiquidateGroupCmd(**{**base, **overrides}))
         assert exc_info.value.status_code == 422, overrides
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("published_markets")]

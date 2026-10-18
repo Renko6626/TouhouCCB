@@ -26,7 +26,7 @@ def exact_disposable_database():
                   and url.database == 'thccb_fx_orders_test')
     committed_reads = (url.query.get('host') == '/tmp/sunyunbo/fx-pool-incident-20261017/socket'
                        and url.query.get('port') == '55489'
-                       and url.database == 'fx_market_memory_test')
+                       and url.database in {'fx_market_memory_test', 'fx_single_writer_correctness_test'})
     if url.drivername != 'postgresql+asyncpg' or not (old_orders or committed_reads):
         raise pytest.UsageError('Requires an approved disposable FX test database')
 

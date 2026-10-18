@@ -1,3 +1,4 @@
+from tests.conftest import publish_seeded_market_records
 from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from tests.test_account_events import private_events
 from decimal import Decimal as D
@@ -140,7 +141,6 @@ async def test_fx_crash_before_action_rolls_back_and_retry(monkeypatch, private_
 @pytest.mark.asyncio
 async def test_queued_lmsr_rechecks_all_collateral_and_selection(monkeypatch):
     from app.services.credit import execution
-    from app.services.credit.gates import GATES
     from app.services.credit.keys import GroupKey
     uid=await seed(debt='500',fx=['200'],lmsr='100')
     await WRITER.start()
@@ -148,17 +148,17 @@ async def test_queued_lmsr_rechecks_all_collateral_and_selection(monkeypatch):
     changed=False
     async def submit(cmd):
         nonlocal changed
-        assert not GATES.held_keys_by_current_task()
         if not changed:
             changed=True
             async with async_session_maker() as s:
                 pair=(await s.execute(select(FxPair))).scalar_one()
                 pair.gold_reserve=D('100000');pair.pool_version+=1;await s.commit()
+                await publish_seeded_market_records()
         return await original_submit(cmd)
     monkeypatch.setattr(WRITER,'submit',submit)
     original_prepare=execution.prepare_locked
     async def prepare(session,user,deps,**kwargs):
-        assert set(deps.groups)<=GATES.held_keys_by_current_task()
+        assert deps.account_locked
         return await original_prepare(session,user,deps,**kwargs)
     monkeypatch.setattr(execution,'prepare_locked',prepare)
     assert await execute(uid)=='triggered'
@@ -198,6 +198,7 @@ async def test_paused_resume_between_thresholds_continues_same_run():
         # 500 / (50000+500) * 10554.5 = 104.5 LCV; E/D=4.5%.
         pair.gold_reserve=D('10554.5');pair.status='trading';pair.pool_version+=1
         await s.commit()
+        await publish_seeded_market_records()
         value=await value_user_detailed(s,uid,daily_rate=D('0'))
         assert D('4') < value.liquidation_equity < D('100')/D('19')
     assert await execute(uid)=='triggered'
@@ -305,3 +306,45 @@ async def test_fx_round_preparation_and_funding_share_pair_queue(monkeypatch):
         release.set()
         await asyncio.gather(*(task for task in (round_task, funding) if task is not None),
                              return_exceptions=True)
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("published_markets")]
+
+
+@pytest.mark.asyncio
+async def test_post_liquidation_uses_actual_target_and_keeps_foreign_capture():
+    from dataclasses import replace
+    from app.services.credit import execution, risk
+    from app.services.credit.fx_quote import quote_fx_group
+    from app.services.credit.keys import GroupKey
+    from app.services.market_locks import lock_user
+    from app.services.market_read_state import FxReadState
+    from app.services.trading_prices import REGISTRY
+    uid = await seed(cash='10', debt='100', fx=['500', '200'])
+    async with async_session_maker() as session:
+        user = await lock_user(session, uid)
+        deps = await risk.discover_dependencies(session, uid, account_locked=True)
+        first, foreign = sorted(deps.groups)
+        old_foreign = deps.snapshots[foreign].pair
+        # Another writer can commit and publish after the capture. Its quote
+        # must not enter this account's already prepared liquidation check.
+        async with async_session_maker() as other:
+            pair = await other.get(FxPair, foreign.group_id)
+            pair.gold_reserve = D('90000')
+            await other.commit()
+            REGISTRY.install_committed(FxReadState.from_pair(pair))
+        target = await session.get(FxPair, first.group_id)
+        target.gold_reserve = D('9000')
+        wallet = (await session.execute(select(FxWallet).where(
+            FxWallet.user_id == uid, FxWallet.pair_id == first.group_id))).scalar_one()
+        wallet.foreign_amount = D('450')
+        user.cash = D('20')
+        await session.flush()
+        post = await execution._value_captured(session, uid, deps, rate=D('0'), target=first)
+        actual_target = replace(deps.snapshots[first].pair, gold_reserve=D('9000'))
+        target_value = quote_fx_group(actual_target, foreign_amount=D('450'),
+            mode='full', partial_pct=D('1')).gold_out
+        foreign_value = quote_fx_group(old_foreign, foreign_amount=D('200'),
+            mode='full', partial_pct=D('1')).gold_out
+        assert post.cash == D('20') and post.debt_effective == D('100')
+        assert post.liquidation_equity == D('20') + target_value + foreign_value - D('100')
+        assert {g.key: g.value for g in post.groups} == {first: target_value, foreign: foreign_value}

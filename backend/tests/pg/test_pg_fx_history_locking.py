@@ -185,7 +185,8 @@ async def test_public_frame_waits_for_row_and_reads_commit_before_memory_install
                     await original()
                     committed.set()
                     await release_install.wait()
-                monkeypatch.setattr(db, 'commit', held_commit)
+                if asyncio.current_task().get_name().startswith('fx-writer-'):
+                    monkeypatch.setattr(db, 'commit', held_commit)
                 yield db
 
         monkeypatch.setattr(database, 'async_session_maker', execution_session)

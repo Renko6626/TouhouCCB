@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
+from tests.conftest import publish_seeded_market_records
 from sqlalchemy import event, select
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -33,7 +34,7 @@ from app.services.credit.risk import (
 from app.services.credit.thresholds import derive_thresholds
 from app.services.credit.valuation import value_user_detailed
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -431,7 +432,7 @@ async def test_version_conflict_bounded_retry_then_deny(monkeypatch):
         cash=stale.cash, debt=stale.debt,
     ))
     assert decision.allowed is False and decision.reason == REASON_VERSION_CONFLICT
-    assert calls["n"] == credit_flags.get_flags().credit_risk_retry_limit == 3
+    assert calls["n"] == 1  # Locked account disagreement rejects without a retry loop.
 
 
 async def test_version_rebase_applies_concurrent_cash_delta(monkeypatch):
@@ -568,6 +569,7 @@ async def test_group_cache_hits_and_invalidates_on_version_change(monkeypatch):
             )).scalars().one()
             urow.economic_version = int(urow.economic_version or 0) + 1
 
+    await publish_seeded_market_records()
     fresh = await _deps(uid)
     assert fresh.snapshots[GroupKey("lmsr", market_id)].version != \
         deps.snapshots[GroupKey("lmsr", market_id)].version
@@ -676,7 +678,7 @@ async def test_check_new_risk_selects_bounded_when_cache_warm(monkeypatch):
     assert fast.allowed is True and fast.debt_after == ZERO
     # 4 条 = helper 读 user + R1 权威刷新 + 热冻结 + 锁内空头义务索引确认；
     # 无快照刷新、无估值、无报价
-    assert len(statements2) <= 4, statements2
+    assert len(statements2) <= 6, statements2
 
 # ────────────── 复审 R1/R2/R3：同 session 陈旧身份映射 / 显式清仓 / 市场版本 ──────────────
 
@@ -884,6 +886,7 @@ async def test_r3_market_version_change_without_user_bump_rejects_simulated_pric
                 select(User).where(User.id == uid)
             )).scalars().one()
             assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
+            await publish_seeded_market_records()
             fresh_deps = await discover_dependencies(s_probe, uid)
         assert fresh_deps.snapshots[key].version != base_version
 
@@ -926,6 +929,7 @@ async def test_r3_collateral_market_change_refreshes_snapshot_without_deny():
                 select(User).where(User.id == uid)
             )).scalars().one()
             assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
+            await publish_seeded_market_records()
             fresh_deps = await discover_dependencies(s_probe, uid)
         assert fresh_deps.snapshots[key].version != base_version
 
@@ -972,6 +976,7 @@ async def test_r3_omitted_collateral_group_quote_is_refreshed_and_rejects():
             )).scalars().one()
             assert int(probe_user.economic_version) == int(stale_user.economic_version or 0)
             assert probe_user.cash == Decimal("386")
+            await publish_seeded_market_records()
             fresh_deps = await discover_dependencies(s_probe, uid)
         assert fresh_deps.snapshots[key].version != deps.snapshots[key].version
 

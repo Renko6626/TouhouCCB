@@ -11,7 +11,7 @@ from app.schemas.fx import FxTriggerOrderCreate
 from app.services.fx.orders import create_order, list_orders, cancel_order
 from tests.test_fx_short_trading import _seed
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures('published_markets')]
 
 
 def request(pid, **changes):
