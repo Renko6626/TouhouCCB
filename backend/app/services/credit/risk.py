@@ -503,15 +503,24 @@ async def _ensure_snapshots(session, deps, needed):
 async def discover_dependencies(
     session: AsyncSession, user_id: int, *,
     extra_groups: Sequence[GroupKey] = (), account_locked: bool = False,
+    locked_user: User | None = None,
+    locked_short_rows: Sequence[FxShortPosition] | None = None,
 ) -> DependencySet:
     """Read the complete own ledger, then synchronously capture its prices once.
 
     Execution passes account_locked only after obtaining User FOR UPDATE. A
     discovery made before that lock is prefetch, never execution authorization.
     SQL is used for account amounts and identifiers, never market quote inputs.
+
+    Locked inputs must belong to this session's current User-locked transaction;
+    short rows must be the complete locked set, including closed positions.
+    An empty set means that the account has no short rows. Other callers retain
+    the authoritative User refresh and short-debt query by omitting these inputs.
     """
     uid = int(user_id)
-    user = await _refresh_user_authority(session, uid)
+    if (locked_user is not None or locked_short_rows is not None) and not account_locked:
+        raise ValueError("locked account inputs require account_locked=True")
+    user = locked_user if locked_user is not None else await _refresh_user_authority(session, uid)
     pos_rows = (await session.execute(select(
         Position.outcome_id, Position.amount, Outcome.market_id,
     ).join(Outcome, Outcome.id == Position.outcome_id).where(
@@ -524,12 +533,17 @@ async def discover_dependencies(
     ).where(FxWallet.user_id == uid, FxWallet.foreign_amount > ZERO))).all()
     for pid, amount in wallet_rows:
         holdings[GroupKey("fx", int(pid))] = {int(pid): Decimal(amount)}
-    rows = (await session.execute(select(
-        FxShortPosition.pair_id, FxShortPosition.principal_foreign,
-        FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
-    ).where(FxShortPosition.user_id == uid,
-        (FxShortPosition.principal_foreign > ZERO)
-        | (FxShortPosition.interest_foreign > ZERO)))).all()
+    if locked_short_rows is None:
+        rows = (await session.execute(select(
+            FxShortPosition.pair_id, FxShortPosition.principal_foreign,
+            FxShortPosition.interest_foreign, FxShortPosition.interest_last_accrued_at,
+        ).where(FxShortPosition.user_id == uid,
+            (FxShortPosition.principal_foreign > ZERO)
+            | (FxShortPosition.interest_foreign > ZERO)))).all()
+    else:
+        rows = [(p.pair_id, p.principal_foreign, p.interest_foreign, p.interest_last_accrued_at)
+                for p in locked_short_rows
+                if p.principal_foreign > ZERO or p.interest_foreign > ZERO]
     short_debts = {int(pid): ShortDebtSnapshot(Decimal(principal), Decimal(interest), accrued)
                    for pid, principal, interest, accrued in rows}
     deps = DependencySet(economic_version=economic_version_of(user),

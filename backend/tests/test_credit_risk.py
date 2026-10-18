@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from app.core.database import async_session_maker, engine
 from app.models.base import Market, Outcome, Position, SiteConfig, User
-from app.models.fx import FxPair, FxWallet
+from app.models.fx import FxPair, FxShortPosition, FxWallet
 from app.services.credit import flags as credit_flags
 from app.services.credit import risk
 from app.services.credit.keys import GroupKey
@@ -164,14 +164,22 @@ async def _check_spend(uid: int, spend, *, deps=None, thresholds=TH):
 
 # ────────────────────────────── 发现依赖 ──────────────────────────────
 
-async def test_discover_dependencies_reads_full_collateral_set():
+@pytest.mark.parametrize('reuse_locked_rows', [False, True])
+async def test_discover_dependencies_reads_full_collateral_set(reuse_locked_rows):
     await _seed_config(loan_daily_rate="0.01", sell_fee_rate="0.02")
     async with async_session_maker() as s:
         user, market, outcomes, pair = await _rich_user(s, "disc", fx_foreign="30")
         uid = int(user.id)
         market_id, outcome_id, pair_id = int(market.id), int(outcomes[0].id), int(pair.id)
 
-    deps = await _deps(uid)
+    async with async_session_maker() as s:
+        inputs = {}
+        if reuse_locked_rows:
+            from app.services.market_locks import lock_user
+            from app.services.fx.shorts import _lock_short_rows
+            inputs = dict(account_locked=True, locked_user=await lock_user(s, uid),
+                          locked_short_rows=await _lock_short_rows(s, uid))
+        deps = await discover_dependencies(s, uid, **inputs)
     lmsr_key = GroupKey("lmsr", market_id)
     fx_key = GroupKey("fx", pair_id)
     assert deps.groups == (fx_key, lmsr_key)          # (product, id) 全序：fx < lmsr
@@ -187,6 +195,39 @@ async def test_discover_dependencies_reads_full_collateral_set():
         int(item.outcome_id) for item in lmsr_snapshot.outcomes
     )
     assert lmsr_snapshot.version and deps.snapshots[fx_key].version
+
+
+async def test_locked_discovery_keeps_other_pair_interest_and_ignores_closed_short():
+    from app.services.market_locks import lock_user
+    from app.services.fx.shorts import _lock_short_rows
+
+    async with async_session_maker() as s:
+        user = await _user(s, 'locked_shorts', cash='0')
+        target = await _pair(s, 'locked_target')
+        other = await _pair(s, 'locked_interest')
+        s.add_all([
+            FxShortPosition(user_id=user.id, pair_id=target.id, principal_foreign=ZERO,
+                            interest_foreign=ZERO),
+            FxShortPosition(user_id=user.id, pair_id=other.id, principal_foreign=ZERO,
+                            interest_foreign=Decimal('10'), interest_last_accrued_at=NOW),
+        ])
+        await s.commit()
+        uid, target_id, other_id = user.id, target.id, other.id
+
+    async with async_session_maker() as s:
+        user = await lock_user(s, uid)
+        positions = await _lock_short_rows(s, uid)
+        deps = await discover_dependencies(s, uid, account_locked=True,
+            extra_groups=[GroupKey('fx', target_id)], locked_user=user,
+            locked_short_rows=positions)
+        assert set(deps.short_debts) == {other_id}
+        assert deps.short_debts[other_id].principal_foreign == ZERO
+        assert deps.short_debts[other_id].interest_foreign == Decimal('10')
+        assert deps.groups == (GroupKey('fx', other_id),)
+        decision = await check_new_risk(s, user=user, deps=deps,
+            post=PostTradeState(cash=ZERO, debt=ZERO), thresholds=TH, partial_pct=PCT, now=NOW)
+        assert decision.allowed is False
+        assert decision.reason == REASON_INSUFFICIENT_INITIAL_MARGIN
 
 
 async def test_discover_extra_groups_prefetches_unheld_market():
@@ -713,7 +754,8 @@ async def _check_spend_in(session, uid, spend, *, user, deps, thresholds=TH):
     )
 
 
-async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze():
+@pytest.mark.parametrize('reuse_locked_rows', [False, True])
+async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze(reuse_locked_rows):
     """R1：外部冻结后，同 session 的旧 User 身份映射不得让 check_new_risk 放行。"""
     await _seed_config(loan_daily_rate="0.01")
     async with async_session_maker() as s:
@@ -732,7 +774,13 @@ async def test_r1_same_session_stale_user_cannot_allow_after_external_freeze():
             assert probe.credit_frozen is True
             assert int(probe.economic_version) == int(stale_user.economic_version or 0) + 1
 
-        deps = await discover_dependencies(s1, uid)
+        inputs = {}
+        if reuse_locked_rows:
+            from app.services.market_locks import lock_user
+            from app.services.fx.shorts import _lock_short_rows
+            inputs = dict(account_locked=True, locked_user=await lock_user(s1, uid),
+                          locked_short_rows=await _lock_short_rows(s1, uid))
+        deps = await discover_dependencies(s1, uid, **inputs)
         assert deps.cash == Decimal("500")          # 冻结不改现金
         assert deps.economic_version == int(probe.economic_version)   # 修复后：权威版本
         decision = await _check_in(s1, uid, user=stale_user, deps=deps)

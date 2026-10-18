@@ -287,7 +287,8 @@ async def execute_net_trade_in_session(db: AsyncSession, *, user_id: int, pair_i
     requires_deps = bool(req.borrow_amount or (_instruction and _instruction.auto_borrow) or user.debt or any(
         p.principal_foreign or p.interest_foreign for p in positions)
         or (req.side == 'sell' and req.amount > (wallet.foreign_amount if wallet else 0)))
-    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
+    deps = (await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True,
+                                       locked_user=user, locked_short_rows=positions)
             if requires_deps else None)
     treasury = await shorts._lock_treasury(db, pair_id)
     now = _now or trading.utcnow()
