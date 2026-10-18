@@ -1,4 +1,5 @@
 """Private trigger order storage; no funds are reserved here."""
+from app.services.market_read_state import commit_fx_changes
 from datetime import datetime, timezone
 from decimal import Decimal
 import logging
@@ -161,7 +162,7 @@ async def attempt_order(order_id: int, observed_price: Decimal) -> FxTriggerOrde
                         result = FxTriggerOrderRead.model_validate(order)
                         post_price = execution.post_price
                         hints = capture_accounts(db)
-                        await db.commit()
+                        await commit_fx_changes(db)
                     except BaseException:
                         await db.rollback()
                         raise

@@ -3,6 +3,7 @@
 The spot executor owns product math/rows; this wrapper owns one transaction.
 Quotes and writes share credit.check_new_risk's full valuation projection.
 """
+from app.services.market_read_state import commit_fx_changes
 from app.services.account_events import capture_accounts, publish_accounts
 from dataclasses import replace
 from datetime import timedelta
@@ -77,7 +78,7 @@ async def execute_borrow_buy(db: AsyncSession, user_id: int, pair_id: int,
                         return result
                     trading._require_writes()
                     account_hints = capture_accounts(db)
-                    await db.commit()
+                    await commit_fx_changes(db)
                     publish_accounts(account_hints, "borrow_buy")
                     trading.notify_market_data_committed(pair_id)
                 except BaseException:

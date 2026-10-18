@@ -1,3 +1,4 @@
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from tests.test_account_events import private_events
 """Runnable FX service tests; independent of the application lifespan fixture."""
 from contextlib import asynccontextmanager
@@ -108,18 +109,23 @@ async def test_buy_sell_update_balances_and_audit(db_session, private_events):
 
 
 @pytest.mark.asyncio
-async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session):
+async def test_stale_min_out_is_409_and_idempotency_replay_is_exact(db_session, committed_fx_registry):
     uid, pid = await seed(db_session)
     q = await trading.quote(db_session, pid, "buy", Decimal("10"), uid)
     with pytest.raises(HTTPException) as exc:
         await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount + 1, "stale")
     assert exc.value.status_code == 409
     trade = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount, "idem")
+    await assert_committed_fx(committed_fx_registry, db_session, pid)
+    await trading.execute_trade(db_session, uid, pid, "buy", Decimal("1"), Decimal("0"), "later")
+    latest = committed_fx_registry.peek_fx(pid)
     replay = await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount, "idem")
+    assert committed_fx_registry.peek_fx(pid) == latest
     assert replay.id == trade.id
     with pytest.raises(HTTPException) as mismatch:
         await trading.execute_trade(db_session, uid, pid, "buy", Decimal("10"), q.output_amount - 1, "idem")
     assert mismatch.value.status_code == 409
+    assert committed_fx_registry.peek_fx(pid) == latest
 
 
 @pytest.mark.asyncio
@@ -233,3 +239,31 @@ async def test_snapshot_spread_is_non_negative_on_imbalanced_zero_fee_pool(db_se
     assert snapshot.sell_price == (sell.output_amount / sell.input_amount).quantize(q8)
     assert snapshot.spread == snapshot.buy_price - snapshot.sell_price
     assert snapshot.spread > 0
+
+
+@pytest.mark.asyncio
+async def test_pricing_periodic_read_finds_trade_when_wake_is_lost(db_session, committed_fx_registry, monkeypatch):
+    import asyncio
+    from app.schemas.trading_context import GroupKey
+    from app.services import trading_prices
+    from app.services.account_events import Subscription
+    uid, pid = await seed(db_session)
+    pair = await db_session.get(FxPair, pid)
+    from app.services.market_read_state import FxReadState
+    committed_fx_registry.install_committed(FxReadState.from_pair(pair))
+    publisher = trading_prices.PricingPublisher()
+    subscriber = Subscription(uid)
+    publisher.subscribe(subscriber, [GroupKey(product='fx', id=pid)])
+    monkeypatch.setattr(trading_prices, 'notify_pricing_changed', lambda keys: None)
+    publisher.start()
+    publisher.wake.set()
+    try:
+        _, first = await asyncio.wait_for(subscriber.queue.get(), 2)
+        await trading.execute_trade(db_session, uid, pid, 'buy', Decimal('1'), Decimal('0'), 'lost-wake')
+        assert not publisher.wake.is_set()
+        _, second = await asyncio.wait_for(subscriber.queue.get(), 2)
+        assert first['groups'][0]['pool_version'] == '1'
+        assert second['groups'][0]['pool_version'] == '2'
+        assert second['groups'][0]['gold_reserve'] == format(committed_fx_registry.peek_fx(pid).gold_reserve, 'f')
+    finally:
+        await publisher.stop()

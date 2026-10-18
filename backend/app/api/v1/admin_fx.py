@@ -1,5 +1,6 @@
 """Superuser-only FX operations."""
 from __future__ import annotations
+from app.services.market_read_state import stage_fx_pair, commit_fx_changes
 from app.services.trading_prices import notify_pricing_changed
 
 import asyncio
@@ -301,9 +302,11 @@ async def create_pair(req: PairCreate, admin: User = Depends(current_superuser),
         append_pool_event(db, pair_id=pair.id, kind="initialize", created_at=pair.created_at,
                           pre_reserves=None, post_reserves=(pair.gold_reserve, pair.foreign_reserve),
                           gold_volume=Decimal("0"), audit_id=audit.id)
-        await db.commit()
+        stage_fx_pair(db, pair)
+        await db.flush()
+        await db.refresh(pair)
+        await commit_fx_changes(db)
         notify_pricing_changed(())
-    await db.refresh(pair)
     return pair
 
 
@@ -350,13 +353,15 @@ async def update_pair(pair_id: int, req: PairPatch, admin: User = Depends(curren
             action = "reduce_only_toggle"
         _admin_audit(db, "fx_pair_update", admin.id, "fx_pair", pair.id, before,
                      {key: str(value) for key, value in values.items()}, action=action)
+        stage_fx_pair(db, pair)
         try:
-            await db.commit()
+            await db.flush()
+            await db.refresh(pair)
+            await commit_fx_changes(db)
             notify_pricing_changed(())
         except IntegrityError:
             await db.rollback()
             raise HTTPException(409, "currency code already exists") from None
-    await db.refresh(pair)
     return pair
 
 
@@ -406,9 +411,11 @@ async def archive_pair(pair_id: int, admin: User = Depends(current_superuser), d
             pair.updated_at = datetime.now(timezone.utc)
             _admin_audit(db, "fx_pair_archive", admin.id, "fx_pair", pair_id, before,
                          {"status": "closed", "archived": True})
-        await db.commit()
+        stage_fx_pair(db, pair)
+        await db.flush()
+        await db.refresh(pair)
+        await commit_fx_changes(db)
         notify_pricing_changed(())
-    await db.refresh(pair)
     return pair
 
 
@@ -427,7 +434,12 @@ async def delete_pair(pair_id: int, admin: User = Depends(current_superuser), db
         for model in (FxPoolEvent, FxCandle, FxMarketDataState, FxWallet, FxShortPosition, FxTreasury):
             await db.execute(delete(model).where(model.pair_id == pair_id))
         await db.execute(delete(FxPair).where(FxPair.id == pair_id))
-        await db.commit()
+        try:
+            await db.commit()
+        finally:
+            from app.schemas.trading_context import GroupKey as ReadKey
+            from app.services.trading_prices import REGISTRY
+            REGISTRY.invalidate(ReadKey(product='fx', id=pair_id))
         notify_pricing_changed(())
     return Response(status_code=204)
 

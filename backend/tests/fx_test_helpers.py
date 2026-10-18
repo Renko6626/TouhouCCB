@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import create_engine, delete, select
 from sqlmodel import Session, SQLModel
@@ -125,3 +126,29 @@ async def backfill_fx_history(db, pair_id: int) -> str:
     state.history_ready = True
     await db.commit()
     return version
+
+
+@pytest.fixture
+def committed_fx_registry(monkeypatch):
+    """Isolate the shared projection while exercising real commit owners."""
+    from app.services import trading_prices
+    registry = trading_prices.PricingRegistry()
+    registry.configure(memory_products=frozenset({'fx'}))
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    return registry
+
+
+async def assert_committed_fx(registry, db, pair_id):
+    from app.services.market_read_state import FxReadState
+    pair = await db.get(FxPair, pair_id)
+    await db.refresh(pair)
+    actual = registry.peek_fx(pair_id)
+    expected = FxReadState.from_pair(pair)
+    assert actual is not None
+    from dataclasses import asdict
+    from app.services.trading_prices import clock_string
+    # SQLite returns naive UTC timestamps after refresh; published clocks use UTC.
+    def values(state):
+        return {key: clock_string(value) if isinstance(value, datetime) else value
+                for key, value in asdict(state).items()}
+    assert values(actual) == values(expected), (actual, expected)

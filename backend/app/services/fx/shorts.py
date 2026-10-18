@@ -24,6 +24,7 @@ gold proceeds to unified account cash; covering never credits ``FxWallet`` and n
 debt.
 """
 from __future__ import annotations
+from app.services.market_read_state import stage_fx_pair, commit_fx_changes
 from app.services.account_events import capture_accounts, publish_accounts
 
 import logging
@@ -481,6 +482,7 @@ async def _write_open_ledger(db, *, user, pair, positions, target, treasury,
     pair.foreign_reserve = q.post_foreign_reserve
     pair.pool_version = int(pair.pool_version) + 1
     pair.updated_at = now
+    stage_fx_pair(db, pair)
 
     treasury.foreign_balance = pre_treasury_foreign - amount + q.fee_amount
     treasury.updated_at = now
@@ -663,6 +665,7 @@ async def _write_cover_ledger(
     pair.foreign_reserve = quote.post_foreign_reserve
     pair.pool_version = int(pair.pool_version) + 1
     pair.updated_at = now
+    stage_fx_pair(db, pair)
     treasury.gold_balance = (pre_treasury_gold + quote.fee_amount).quantize(_Q6)
     treasury.foreign_balance = (pre_treasury_foreign + q).quantize(_Q6)
     treasury.updated_at = now
@@ -1444,7 +1447,7 @@ async def _execute_player_short_write(
                         return response
                     _require_writes()
                     account_hints = capture_accounts(db)
-                    await db.commit()
+                    await commit_fx_changes(db)
                     publish_accounts(account_hints, "shorts")
                 except IntegrityError as exc:
                     await _rollback_quietly(db)

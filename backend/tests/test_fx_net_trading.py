@@ -1,4 +1,5 @@
 """Net money/identity coverage using existing real database fixtures."""
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from decimal import Decimal as D
 
 import pytest
@@ -78,7 +79,7 @@ async def _net(uid, pid, side, amount, *, key='net-test', borrowed='0', min_out=
 
 
 @pytest.mark.parametrize("auto_repay", [True, False])
-async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
+async def test_cross_zero_sell_receipt_replay_and_money(auto_repay, committed_fx_registry):
     from app.models.base import User
     from app.models.fx import FxExecution, FxShortPosition, FxWallet, FxTreasury, FxPair
     uid, pid = await _seed(wallet_foreign='100', debt='50', sell_fee='0.01')
@@ -99,6 +100,7 @@ async def test_cross_zero_sell_receipt_replay_and_money(auto_repay):
         short = (await db.execute(select(FxShortPosition).where(FxShortPosition.user_id == uid))).scalar_one()
         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pid))).scalar_one()
         pair = await db.get(FxPair, pid)
+        await assert_committed_fx(committed_fx_registry, db, pid)
         assert wallet.foreign_amount == 0 and user.debt == (0 if auto_repay else 50)
         assert short.principal_foreign == 40
         assert short.proceeds_basis_gold == result.legs[1].output_amount

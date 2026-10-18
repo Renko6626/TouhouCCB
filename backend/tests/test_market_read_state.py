@@ -204,3 +204,56 @@ async def test_late_missing_cold_load_keeps_newly_committed_creation():
     assert registry.peek_fx(state.id) == committed
     assert (await registry.read_fx(state.id)).currency_code == 'CREATED'
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_rolled_back_descriptor_cannot_publish_in_next_transaction(monkeypatch):
+    from app.services import trading_prices
+    from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+    state = await create_pair()
+    registry, _ = memory_registry()
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    registry.install_committed(state)
+    async with async_session_maker() as db:
+        pair = await db.get(FxPair, state.id)
+        pair.gold_reserve += 10
+        stage_fx_pair(db, pair)
+        await db.rollback()
+        # A later unrelated commit on this session cannot install rolled-back data.
+        await db.get(FxPair, state.id)
+        await commit_fx_changes(db)
+    assert registry.peek_fx(state.id) == state
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['acknowledgement', 'cancelled', 'installation'])
+async def test_durable_commit_failure_invalidates_old_projection(monkeypatch, failure, caplog):
+    from app.services import trading_prices
+    from app.services.market_read_state import stage_fx_pair, commit_fx_changes
+    state = await create_pair()
+    registry, _ = memory_registry()
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    registry.install_committed(state)
+    async with async_session_maker() as db:
+        pair = await db.get(FxPair, state.id)
+        pair.gold_reserve += 10
+        stage_fx_pair(db, pair)
+        if failure == 'installation':
+            def broken_install(state):
+                raise RuntimeError('test installation failure')
+            monkeypatch.setattr(registry, 'install_committed', broken_install)
+            await commit_fx_changes(db)
+            assert 'database committed' in caplog.text
+        else:
+            original = db.commit
+            async def uncertain_commit():
+                await original()
+                if failure == 'cancelled':
+                    raise asyncio.CancelledError()
+                raise RuntimeError('test lost acknowledgement')
+            monkeypatch.setattr(db, 'commit', uncertain_commit)
+            with pytest.raises(asyncio.CancelledError if failure == 'cancelled' else RuntimeError):
+                await commit_fx_changes(db)
+        assert registry.peek_fx(state.id) is None
+    async with async_session_maker() as db:
+        assert (await db.get(FxPair, state.id)).gold_reserve == state.gold_reserve + 10

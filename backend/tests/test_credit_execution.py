@@ -1,3 +1,4 @@
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from tests.test_account_events import private_events
 from decimal import Decimal as D
 import pytest
@@ -59,14 +60,26 @@ async def test_cash_recovers_without_selling_and_event_product_nullable(private_
         assert len(list((await s.execute(select(LiquidationEvent))).scalars()))==1
 
 @pytest.mark.asyncio
-async def test_fx_partial_exactly_one_group_and_one_action():
+async def test_fx_partial_exactly_one_group_and_one_action(committed_fx_registry, monkeypatch):
+    from app.services.credit import execution
     uid=await seed(debt='135',fx=['500','200'])
+    published = []
+    original = execution.publish_accounts
+    def observe(changes, reason):
+        # Account hints must only expose a price projection already installed.
+        state = committed_fx_registry.peek_fx(1)
+        assert state is not None and state.pool_version == 2
+        published.append(reason)
+        original(changes, reason)
+    monkeypatch.setattr(execution, 'publish_accounts', observe)
     assert await execute(uid)=='triggered'
+    assert published == ['liquidation']
     async with async_session_maker() as s:
         wallets=list((await s.execute(select(FxWallet).order_by(FxWallet.pair_id))).scalars())
         assert [w.foreign_amount for w in wallets]==[D('450'),D('200')]
         a=(await s.execute(select(LiquidationAction))).scalar_one()
         assert a.mode=='partial' and a.product=='fx' and a.repaid>0
+        await assert_committed_fx(committed_fx_registry, s, a.group_id)
         assert (await s.execute(select(LiquidationEvent))).scalar_one().sold_positions_count==1
 
 @pytest.mark.asyncio

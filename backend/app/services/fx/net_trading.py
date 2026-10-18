@@ -3,6 +3,7 @@
 AMM math and physical ledgers belong to the existing FX primitives. This
 module owns whole-request classification, funding, risk and identity.
 """
+from app.services.market_read_state import commit_fx_changes
 from app.services.account_events import capture_accounts, publish_accounts
 from dataclasses import dataclass, replace
 from datetime import timedelta
@@ -399,7 +400,7 @@ async def execute_net_trade(db, user_id, pair_id, req):
                         await db.rollback()
                         return result
                     account_hints = capture_accounts(db)
-                    await db.commit()
+                    await commit_fx_changes(db)
                     publish_accounts(account_hints, "net_trading")
                     trading.notify_market_data_committed(pair_id)
                 except BaseException:

@@ -23,6 +23,7 @@ state (``trading`` / ``paused`` x ``reduce_only``); the full matrix is
 documented on :func:`_player_side_allowed`.
 """
 from __future__ import annotations
+from app.services.market_read_state import stage_fx_pair, commit_fx_changes
 from app.services.account_events import capture_accounts, publish_accounts
 
 import logging
@@ -538,6 +539,7 @@ async def _write_spot_ledger(db, *, user, pair, wallet, normalized, q, min_out,
     pair.gold_reserve, pair.foreign_reserve = q.post_gold_reserve, q.post_foreign_reserve
     pair.pool_version += 1
     pair.updated_at = utcnow()
+    stage_fx_pair(db, pair)
     if treasury is None:
         treasury = (await db.execute(select(FxTreasury).where(FxTreasury.pair_id == pair_id)
                                      .with_for_update().execution_options(populate_existing=True))).scalars().first()
@@ -623,7 +625,7 @@ async def execute_trade(db: AsyncSession, user_id: int, pair_id: int, side: str,
                         await before_commit(db, execution)
                     _require_writes()
                     account_hints = capture_accounts(db)
-                    await db.commit()
+                    await commit_fx_changes(db)
                     publish_accounts(account_hints, "trading")
                 except BaseException:
                     await _rollback_quietly(db)
@@ -777,6 +779,7 @@ async def execute_liquidation_sell_in_session(
     pair.foreign_reserve = quote.post_foreign_reserve
     pair.pool_version += 1
     pair.updated_at = utcnow()
+    stage_fx_pair(db, pair)
     # Sell fees are charged in foreign inside the AMM; they accrue to treasury
     # while the pool receives the net input.
     treasury.foreign_balance += quote.fee_foreign

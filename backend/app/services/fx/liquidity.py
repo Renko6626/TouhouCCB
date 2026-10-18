@@ -1,5 +1,6 @@
 """FX liquidity funding and withdrawals, preserving accounting and pair gates."""
 from __future__ import annotations
+from app.services.market_read_state import stage_fx_pair, commit_fx_changes
 from app.services.trading_prices import notify_pricing_changed
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -53,6 +54,7 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
     pair.gold_reserve += gold_amount; pair.foreign_reserve += foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance += gold_amount; treasury.foreign_balance += foreign_amount; treasury.updated_at = _utc()
     pair.pool_version += 1
+    stage_fx_pair(db, pair)
     audit = audit_service.record(db, "fx_fund", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
@@ -64,7 +66,7 @@ async def _fund_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decimal, 
                       pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
                       post_reserves=(pair.gold_reserve, pair.foreign_reserve),
                       gold_volume=Decimal("0"), audit_id=audit.id)
-    await db.commit()
+    await commit_fx_changes(db)
     notify_pricing_changed(())
     await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)
@@ -98,6 +100,7 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
     pair.gold_reserve -= gold_amount; pair.foreign_reserve -= foreign_amount; pair.updated_at = _utc()
     treasury.gold_balance -= gold_amount; treasury.foreign_balance -= foreign_amount; treasury.updated_at = _utc()
     pair.pool_version += 1
+    stage_fx_pair(db, pair)
     audit = audit_service.record(db, "fx_withdraw", operator_user_id=operator_user_id, ref_table="fx_pair", ref_id=pair.id,
                          payload={"gold_amount": str(gold_amount), "foreign_amount": str(foreign_amount),
                                   "pool_before": {"gold": before["pool_gold"], "foreign": before["pool_foreign"]},
@@ -109,7 +112,7 @@ async def _withdraw_pair_impl(db: AsyncSession, pair_id: int, gold_amount: Decim
                       pre_reserves=(Decimal(before["pool_gold"]), Decimal(before["pool_foreign"])),
                       post_reserves=(pair.gold_reserve, pair.foreign_reserve),
                       gold_volume=Decimal("0"), audit_id=audit.id)
-    await db.commit()
+    await commit_fx_changes(db)
     notify_pricing_changed(())
     await db.refresh(pair)
     return FxPairAdmin.model_validate(pair)

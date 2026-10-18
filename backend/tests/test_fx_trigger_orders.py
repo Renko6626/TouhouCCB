@@ -1,4 +1,5 @@
 """Private order lifecycle and account slot limit, using real storage."""
+from tests.fx_test_helpers import committed_fx_registry, assert_committed_fx
 from decimal import Decimal as D
 
 import pytest
@@ -109,7 +110,7 @@ async def _order(uid, pid, **changes):
 
 
 @pytest.mark.parametrize('action', ['buy', 'sell'])
-async def test_trigger_condition_cross_zero_and_repeat(action):
+async def test_trigger_condition_cross_zero_and_repeat(action, committed_fx_registry):
     from sqlalchemy import select
     from app.models.base import User
     from app.models.fx import FxExecution, FxShortPosition, FxTrade, FxWallet
@@ -121,6 +122,8 @@ async def test_trigger_condition_cross_zero_and_repeat(action):
     assert await attempt_order(order.id, D('0.5') if action == 'sell' else D('2')) is None
     result = await attempt_order(order.id, D('1'))
     assert result.status == 'succeeded' and result.observed_trigger_price == 1
+    async with async_session_maker() as db:
+        await assert_committed_fx(committed_fx_registry, db, pid)
     assert await attempt_order(order.id, D('1')) is None
     async with async_session_maker() as db:
         receipts = (await db.execute(select(FxExecution))).scalars().all()
@@ -140,9 +143,22 @@ async def test_trigger_condition_cross_zero_and_repeat(action):
         assert notification.order_id == order.id and notification.input_amount == 20
         assert notification.borrow_amount == 0
 
+    # A later real execution must survive scanning an already successful order.
+    from app.services.fx.net_trading import execute_net_trade
+    from app.schemas.fx import FxNetTradeRequest
+    async with async_session_maker() as db:
+        from app.models.base import User
+        user = await db.get(User, uid)
+        await execute_net_trade(db, uid, pid, FxNetTradeRequest(side=action,
+            amount=D('1'), min_out=D('0'), expected_economic_version=user.economic_version,
+            idempotency_key='after-order', allow_growth=True))
+    latest = committed_fx_registry.peek_fx(pid)
+    assert await attempt_order(order.id, D('1')) is None
+    assert committed_fx_registry.peek_fx(pid) == latest
+
 
 @pytest.mark.parametrize('failure', ['cash', 'authorization', 'paused', 'disabled'])
-async def test_business_failure_rolls_back_and_releases_slot(failure):
+async def test_business_failure_rolls_back_and_releases_slot(failure, committed_fx_registry):
     from sqlalchemy import func, select
     from app.models.base import User, SiteConfig
     from app.models.fx import FxExecution, FxPair, FxTrade, FxTriggerOrder, FxWallet
@@ -161,8 +177,13 @@ async def test_business_failure_rolls_back_and_releases_slot(failure):
             config = (await db.execute(select(SiteConfig).where(SiteConfig.key == 'fx_enabled'))).scalar_one()
             config.value = 'false'
         await db.commit()
+    from app.services.market_read_state import FxReadState
+    async with async_session_maker() as db:
+        committed_fx_registry.install_committed(FxReadState.from_pair(await db.get(FxPair, pid)))
+    before = committed_fx_registry.peek_fx(pid)
     site_config.clear_cache()
     result = await attempt_order(order.id, D('1'))
+    assert committed_fx_registry.peek_fx(pid) == before
     assert result.status == 'failed' and result.failure_reason and result.execution_id is None
     async with async_session_maker() as db:
         assert (await db.get(User, uid)).cash == (0 if failure in ('cash','authorization') else 1000)

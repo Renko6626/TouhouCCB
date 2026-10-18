@@ -1,7 +1,7 @@
 import asyncio
 from decimal import Decimal
 import pytest
-from sqlalchemy import update
+from sqlalchemy import select, update
 from app.models.base import User
 from app.models.fx import FxPair,FxWallet
 from app.schemas.trading_context import GroupKey
@@ -92,3 +92,111 @@ async def test_authenticated_reads_release_connection_before_business_read(pg_en
         assert [(group['product'], group['id']) for group in groups] == [('fx', pair_id)]
     finally:
         await engine.dispose()
+
+
+from tests.pg.test_pg_fx_short_concurrency import seed, writer
+from tests.fx_test_helpers import assert_committed_fx
+
+
+@pytest.fixture
+def market_registry(pg_sessionmaker, monkeypatch):
+    from app.services import trading_prices
+    from app.services.credit import ownership
+    registry = PricingRegistry(pg_sessionmaker)
+    registry.configure(memory_products=frozenset({'fx'}))
+    monkeypatch.setattr(trading_prices, 'OWNERSHIP', ownership.OWNERSHIP)
+    monkeypatch.setattr(trading_prices, 'REGISTRY', registry)
+    return registry
+
+
+async def test_context_waits_between_real_commit_and_snapshot_install(pg_sessionmaker, market_registry, monkeypatch):
+    from app.services.fx import trading
+    uid, pid = await seed(pg_sessionmaker)
+    await market_registry.read_fx(pid)
+    committed, release, reading = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def write():
+        async with pg_sessionmaker() as db:
+            original = db.commit
+            async def held_commit():
+                await original()
+                committed.set()
+                await release.wait()
+            monkeypatch.setattr(db, 'commit', held_commit)
+            return await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'context-gap')
+
+    async def context():
+        async with pg_sessionmaker() as db:
+            reading.set()
+            return await read_trading_context(db, uid, registry=market_registry,
+                                               session_factory=pg_sessionmaker)
+
+    writing = asyncio.create_task(write())
+    await asyncio.wait_for(committed.wait(), 5)
+    result = asyncio.create_task(context())
+    try:
+        await reading.wait()
+        await asyncio.sleep(.05)
+        assert not result.done()
+        assert market_registry.peek_fx(pid).pool_version == 1
+    finally:
+        release.set()
+    await asyncio.wait_for(writing, 5)
+    snapshot = await asyncio.wait_for(result, 5)
+    assert snapshot.account.cash == '990.000000'
+    assert snapshot.account.economic_version == '1'
+    async with pg_sessionmaker() as db:
+        pair = await db.get(FxPair, pid)
+        assert snapshot.groups[0].gold_reserve == format(pair.gold_reserve, 'f')
+        assert snapshot.groups[0].pool_version == str(pair.pool_version)
+        await assert_committed_fx(market_registry, db, pid)
+
+
+async def test_old_cold_read_cannot_overwrite_real_trade(pg_sessionmaker, market_registry):
+    from app.services.fx import trading
+    uid, pid = await seed(pg_sessionmaker)
+    queried, release = asyncio.Event(), asyncio.Event()
+    snapshot = market_registry._snapshot
+    async def old_read(db, key):
+        state = await snapshot(db, key)
+        queried.set()
+        await release.wait()
+        return state
+    market_registry._snapshot = old_read
+    cold = asyncio.create_task(market_registry.read_fx(pid))
+    await asyncio.wait_for(queried.wait(), 5)
+    async def trade():
+        async with pg_sessionmaker() as db:
+            await trading.execute_trade(db, uid, pid, 'buy', Decimal('10'), Decimal('0'), 'after-cold')
+    writing = asyncio.create_task(trade())
+    try:
+        await asyncio.sleep(.05)
+        assert not writing.done()
+    finally:
+        release.set()
+    assert (await cold).pool_version == 1
+    await asyncio.wait_for(writing, 5)
+    assert (await market_registry.read_fx(pid)).pool_version == 2
+    async with pg_sessionmaker() as db:
+        await assert_committed_fx(market_registry, db, pid)
+
+
+async def test_admin_fee_snapshot_uses_postgres_stored_precision(pg_sessionmaker, market_registry):
+    from app.api.v1.admin_fx import create_pair, update_pair, PairCreate, PairPatch
+    async with pg_sessionmaker() as db:
+        admin = User(username='precision-admin', is_superuser=True)
+        db.add(admin)
+        await db.commit()
+        created = await create_pair(PairCreate(currency_code='PRECISE', currency_name='Precision',
+            buy_fee_rate=Decimal('0.123456785'), gold_reserve=Decimal('100.123456'),
+            foreign_reserve=Decimal('200.654321')), admin, db)
+        pid = created.id
+        await assert_committed_fx(market_registry, db, pid)
+        stored = (await db.execute(select(FxPair.buy_fee_rate).where(FxPair.id == pid))).scalar_one()
+        assert market_registry.peek_fx(pid).buy_fee_rate == stored
+        assert format(market_registry.peek_fx(pid).buy_fee_rate, 'f') == format(stored, 'f')
+        await update_pair(pid, PairPatch(sell_fee_rate=Decimal('0.123456785')), admin, db)
+        await assert_committed_fx(market_registry, db, pid)
+        stored = (await db.execute(select(FxPair.sell_fee_rate).where(FxPair.id == pid))).scalar_one()
+        assert market_registry.peek_fx(pid).sell_fee_rate == stored
+        assert format(market_registry.peek_fx(pid).sell_fee_rate, 'f') == format(stored, 'f')
