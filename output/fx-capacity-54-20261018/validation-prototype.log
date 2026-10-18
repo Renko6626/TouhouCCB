@@ -1,0 +1,31 @@
+SECRET_KEY 未配置，已自动生成随机值（仅限开发环境）。
+Casdoor SSO 未配置，OAuth 登录不可用。
+============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.0.2, pluggy-1.6.0
+rootdir: /home/tonrac/code/TouhouCCB/repository/backend
+configfile: pytest.ini
+plugins: asyncio-1.3.0, timeout-2.3.1, anyio-4.12.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=session, asyncio_default_test_loop_scope=session
+timeout: 30.0s
+timeout method: thread
+timeout func_only: False
+collected 67 items
+
+tests/test_fx_loadtest_driver.py ...                                     [  4%]
+tests/test_trading_stream.py ........                                    [ 16%]
+tests/test_credit_final_guards.py ..........                             [ 31%]
+tests/test_fx_publisher.py ...........                                   [ 47%]
+tests/test_history_endpoint.py ......                                    [ 56%]
+tests/test_fx_history.py .............................                   [100%]
+
+=============================== warnings summary ===============================
+../../../../miniforge3/envs/touhouccb/lib/python3.13/site-packages/_pytest/config/__init__.py:1303
+  /home/tonrac/miniforge3/envs/touhouccb/lib/python3.13/site-packages/_pytest/config/__init__.py:1303: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; pytest_asyncio
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+../../../../miniforge3/envs/touhouccb/lib/python3.13/site-packages/_pytest/config/__init__.py:1303
+  /home/tonrac/miniforge3/envs/touhouccb/lib/python3.13/site-packages/_pytest/config/__init__.py:1303: PytestAssertRewriteWarning: Module already imported so cannot be rewritten; anyio
+    self._mark_plugins_for_rewrite(hook, disable_autoload)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 67 passed, 2 warnings in 6.47s ========================

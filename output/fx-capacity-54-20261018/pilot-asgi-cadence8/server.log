@@ -1,0 +1,4 @@
+Casdoor SSO 未配置，OAuth 登录不可用。
+Run time of job "_tick_safe (trigger: interval[0:00:05], next run at: 2026-10-18 15:13:18 UTC)" was missed by 0:00:01.034584
+Run time of job "_tick_safe (trigger: interval[0:00:20], next run at: 2026-10-18 15:13:38 UTC)" was missed by 0:00:01.035673
+Run time of job "_tick_safe (trigger: interval[0:00:10], next run at: 2026-10-18 15:13:28 UTC)" was missed by 0:00:01.035178

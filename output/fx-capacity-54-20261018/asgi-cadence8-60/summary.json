@@ -1,0 +1,1092 @@
+{
+  "metadata": {
+    "users": 100,
+    "streams": 200,
+    "requested_tps": 54.0,
+    "seconds": 60.0,
+    "variant": "asgi_cadence8",
+    "transport": "HTTP/1.1 over Unix socket",
+    "roles": "60% cash / 20% financed / 20% short (including cross-zero)",
+    "started_at": "2026-10-18T15:28:31.082723+00:00"
+  },
+  "abort_reason": null,
+  "stages": [
+    {
+      "name": "warmup",
+      "requested_rate": 10,
+      "arrival_window_s": 10,
+      "total_with_drain_s": 10.003721102999407,
+      "arrivals": {
+        "offered": 100,
+        "successful_cycles": 100
+      },
+      "trade_responses_by_deadline": {
+        "ok": 100
+      },
+      "completed_cycles_by_deadline": 100,
+      "completed_cycle_latency": {
+        "count": 100,
+        "p50_ms": 30.391,
+        "p95_ms": 42.486,
+        "p99_ms": 51.379
+      },
+      "client_schedule_lag": {
+        "count": 100,
+        "p50_ms": 0.807,
+        "p95_ms": 2.001,
+        "p99_ms": 3.721
+      },
+      "sse_delta": {
+        "private": {
+          "frames": 8134,
+          "payload_bytes": 4046500
+        },
+        "public": {
+          "frames": 8000,
+          "payload_bytes": 4926100
+        }
+      },
+      "connected_at_end": {
+        "public": 100,
+        "private": 100
+      }
+    },
+    {
+      "name": "capacity",
+      "requested_rate": 54.0,
+      "arrival_window_s": 60.0,
+      "total_with_drain_s": 60.868389932002174,
+      "arrivals": {
+        "offered": 3240,
+        "successful_cycles": 2749,
+        "failed_cycles": 119,
+        "busy_user_skipped": 372
+      },
+      "trade_responses_by_deadline": {
+        "ok": 2704
+      },
+      "completed_cycles_by_deadline": 2703,
+      "completed_cycle_latency": {
+        "count": 2868,
+        "p50_ms": 1227.17,
+        "p95_ms": 1867.206,
+        "p99_ms": 1890.184
+      },
+      "client_schedule_lag": {
+        "count": 3240,
+        "p50_ms": 0.574,
+        "p95_ms": 2.207,
+        "p99_ms": 4.173
+      },
+      "sse_delta": {
+        "private": {
+          "frames": 51269,
+          "payload_bytes": 24733898
+        },
+        "public": {
+          "frames": 48100,
+          "payload_bytes": 62433200
+        }
+      },
+      "connected_at_end": {
+        "public": 100,
+        "private": 100
+      }
+    }
+  ],
+  "requests": [
+    {
+      "phase": "preflight",
+      "name": "snapshot",
+      "results": {
+        "ok": 1
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 1,
+          "p50_ms": 9.647,
+          "p95_ms": 9.647,
+          "p99_ms": 9.647
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_context",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 4.528,
+          "p95_ms": 5.018,
+          "p99_ms": 5.525
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_pairs",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.309,
+          "p95_ms": 1.56,
+          "p99_ms": 1.805
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_announcement",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.158,
+          "p95_ms": 1.339,
+          "p99_ms": 1.679
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_snapshot",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 2.1,
+          "p95_ms": 2.396,
+          "p99_ms": 2.584
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_my_trades",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.732,
+          "p95_ms": 2.101,
+          "p99_ms": 2.265
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_orders_waiting",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.669,
+          "p95_ms": 1.972,
+          "p99_ms": 2.165
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_orders_history",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.648,
+          "p95_ms": 1.987,
+          "p99_ms": 2.065
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "initial_order_pairs",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 1.238,
+          "p95_ms": 1.412,
+          "p99_ms": 1.492
+        }
+      }
+    },
+    {
+      "phase": "connect",
+      "name": "history_segment",
+      "results": {
+        "ok": 800
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 800,
+          "p50_ms": 1.604,
+          "p95_ms": 1.927,
+          "p99_ms": 2.861
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_financed_buy",
+      "results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 4.431,
+          "p95_ms": 8.743,
+          "p99_ms": 10.624
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "trade",
+      "results": {
+        "ok": 85
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 85,
+          "p50_ms": 8.847,
+          "p95_ms": 14.529,
+          "p99_ms": 25.186
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "snapshot_after_trade",
+      "results": {
+        "ok": 85
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 85,
+          "p50_ms": 5.195,
+          "p95_ms": 10.682,
+          "p99_ms": 18.373
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "my_trades_after_trade",
+      "results": {
+        "ok": 85
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 85,
+          "p50_ms": 4.907,
+          "p95_ms": 10.645,
+          "p99_ms": 18.509
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "context_after_trade",
+      "results": {
+        "ok": 85
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 85,
+          "p50_ms": 11.938,
+          "p95_ms": 17.578,
+          "p99_ms": 20.572
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_sell_repay",
+      "results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 2.545,
+          "p95_ms": 4.478,
+          "p99_ms": 7.045
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_cash_buy",
+      "results": {
+        "ok": 5
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 5,
+          "p50_ms": 2.549,
+          "p95_ms": 7.232,
+          "p99_ms": 7.232
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_cross_zero",
+      "results": {
+        "ok": 5
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 5,
+          "p50_ms": 4.596,
+          "p95_ms": 5.533,
+          "p99_ms": 5.533
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_short_cover",
+      "results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 5.189,
+          "p95_ms": 9.223,
+          "p99_ms": 10.923
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "name": "quote_short_open",
+      "results": {
+        "ok": 15
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 15,
+          "p50_ms": 4.554,
+          "p95_ms": 11.634,
+          "p99_ms": 11.634
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "quote_cash_buy",
+      "results": {
+        "ok": 65
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 65,
+          "p50_ms": 6.984,
+          "p95_ms": 11.139,
+          "p99_ms": 14.894
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "trade",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 8.922,
+          "p95_ms": 14.623,
+          "p99_ms": 15.783
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "snapshot_after_trade",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 5.18,
+          "p95_ms": 10.914,
+          "p99_ms": 11.551
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "my_trades_after_trade",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 5.114,
+          "p95_ms": 10.861,
+          "p99_ms": 13.685
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "context_after_trade",
+      "results": {
+        "ok": 100
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 100,
+          "p50_ms": 12.303,
+          "p95_ms": 17.453,
+          "p99_ms": 19.587
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "versions",
+      "results": {
+        "ok": 67
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 67,
+          "p50_ms": 7.96,
+          "p95_ms": 15.841,
+          "p99_ms": 29.771
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "quote_financed_buy",
+      "results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 6.601,
+          "p95_ms": 13.101,
+          "p99_ms": 16.137
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "prices_repair",
+      "results": {
+        "ok": 40
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 40,
+          "p50_ms": 3.266,
+          "p95_ms": 8.563,
+          "p99_ms": 9.726
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "name": "quote_short_open",
+      "results": {
+        "ok": 15
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 15,
+          "p50_ms": 11.1,
+          "p95_ms": 20.78,
+          "p99_ms": 20.78
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_cash_sell",
+      "results": {
+        "ok": 873
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 873,
+          "p50_ms": 9.331,
+          "p95_ms": 15.811,
+          "p99_ms": 32.054
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "trade",
+      "results": {
+        "ok": 2749
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 2749,
+          "p50_ms": 1203.793,
+          "p95_ms": 1830.648,
+          "p99_ms": 1853.744
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "my_trades_after_trade",
+      "results": {
+        "ok": 2749
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 2749,
+          "p50_ms": 9.501,
+          "p95_ms": 15.608,
+          "p99_ms": 18.478
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "snapshot_after_trade",
+      "results": {
+        "ok": 2749
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 2749,
+          "p50_ms": 9.897,
+          "p95_ms": 15.773,
+          "p99_ms": 18.694
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_sell_repay",
+      "results": {
+        "ok": 264
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 264,
+          "p50_ms": 9.425,
+          "p95_ms": 15.707,
+          "p99_ms": 17.341
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "context_after_trade",
+      "results": {
+        "ok": 2749
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 2749,
+          "p50_ms": 27.869,
+          "p95_ms": 38.556,
+          "p99_ms": 45.092
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_cross_zero",
+      "results": {
+        "ok": 55
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 55,
+          "p50_ms": 15.465,
+          "p95_ms": 23.401,
+          "p99_ms": 84.121
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_short_cover",
+      "results": {
+        "ok": 240
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 240,
+          "p50_ms": 20.186,
+          "p95_ms": 29.108,
+          "p99_ms": 72.879
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "versions",
+      "results": {
+        "ok": 400
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 400,
+          "p50_ms": 21.468,
+          "p95_ms": 30.818,
+          "p99_ms": 66.249
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "prices_repair",
+      "results": {
+        "ok": 364
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 364,
+          "p50_ms": 19.149,
+          "p95_ms": 27.52,
+          "p99_ms": 32.531
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "cycle",
+      "results": {
+        "quote_blocked": 119
+      },
+      "latency_by_result": {
+        "quote_blocked": {
+          "count": 119,
+          "p50_ms": 0,
+          "p95_ms": 0,
+          "p99_ms": 0
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_cash_buy",
+      "results": {
+        "ok": 889
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 889,
+          "p50_ms": 9.441,
+          "p95_ms": 16.178,
+          "p99_ms": 46.834
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_financed_buy",
+      "results": {
+        "ok": 310
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 310,
+          "p50_ms": 17.186,
+          "p95_ms": 26.06,
+          "p99_ms": 93.401
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "name": "quote_short_open",
+      "results": {
+        "ok": 237
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 237,
+          "p50_ms": 17.024,
+          "p95_ms": 25.284,
+          "p99_ms": 54.075
+        }
+      }
+    }
+  ],
+  "coverage": {
+    "chart_sse_tail_reused": 3034,
+    "financed_buy": 290,
+    "sell_repay": 284,
+    "cash_buy": 959,
+    "cross_zero": 51,
+    "short_cover": 260,
+    "short_open": 217,
+    "cash_sell": 873
+  },
+  "scenario_details": {},
+  "actions": [
+    {
+      "phase": "capacity",
+      "action": "cash_buy",
+      "planned_attempts": 889,
+      "write_results": {
+        "ok": 889
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 889,
+          "p50_ms": 1200.136,
+          "p95_ms": 1830.648,
+          "p99_ms": 1853.236
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "cash_sell",
+      "planned_attempts": 873,
+      "write_results": {
+        "ok": 873
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 873,
+          "p50_ms": 1208.586,
+          "p95_ms": 1831.919,
+          "p99_ms": 1859.04
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "cross_zero",
+      "planned_attempts": 55,
+      "write_results": {
+        "ok": 46
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 46,
+          "p50_ms": 1184.762,
+          "p95_ms": 1825.372,
+          "p99_ms": 1867.406
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "financed_buy",
+      "planned_attempts": 310,
+      "write_results": {
+        "ok": 250
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 250,
+          "p50_ms": 1203.662,
+          "p95_ms": 1824.9,
+          "p99_ms": 1846.036
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "sell_repay",
+      "planned_attempts": 264,
+      "write_results": {
+        "ok": 264
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 264,
+          "p50_ms": 1185.41,
+          "p95_ms": 1834.238,
+          "p99_ms": 1864.917
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "short_cover",
+      "planned_attempts": 240,
+      "write_results": {
+        "ok": 240
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 240,
+          "p50_ms": 1150.268,
+          "p95_ms": 1816.776,
+          "p99_ms": 1841.79
+        }
+      }
+    },
+    {
+      "phase": "capacity",
+      "action": "short_open",
+      "planned_attempts": 237,
+      "write_results": {
+        "ok": 187
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 187,
+          "p50_ms": 1263.37,
+          "p95_ms": 1831.159,
+          "p99_ms": 1854.283
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "cash_buy",
+      "planned_attempts": 5,
+      "write_results": {
+        "ok": 5
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 5,
+          "p50_ms": 8.015,
+          "p95_ms": 10.365,
+          "p99_ms": 10.365
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "cross_zero",
+      "planned_attempts": 5,
+      "write_results": {
+        "ok": 5
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 5,
+          "p50_ms": 10.517,
+          "p95_ms": 15.38,
+          "p99_ms": 15.38
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "financed_buy",
+      "planned_attempts": 20,
+      "write_results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 9.366,
+          "p95_ms": 14.458,
+          "p99_ms": 25.186
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "sell_repay",
+      "planned_attempts": 20,
+      "write_results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 9.095,
+          "p95_ms": 14.118,
+          "p99_ms": 14.529
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "short_cover",
+      "planned_attempts": 20,
+      "write_results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 7.923,
+          "p95_ms": 10.255,
+          "p99_ms": 15.609
+        }
+      }
+    },
+    {
+      "phase": "role_prepare",
+      "action": "short_open",
+      "planned_attempts": 15,
+      "write_results": {
+        "ok": 15
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 15,
+          "p50_ms": 8.492,
+          "p95_ms": 12.402,
+          "p99_ms": 12.402
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "action": "cash_buy",
+      "planned_attempts": 65,
+      "write_results": {
+        "ok": 65
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 65,
+          "p50_ms": 8.734,
+          "p95_ms": 13.86,
+          "p99_ms": 17.921
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "action": "financed_buy",
+      "planned_attempts": 20,
+      "write_results": {
+        "ok": 20
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 20,
+          "p50_ms": 9.732,
+          "p95_ms": 14.846,
+          "p99_ms": 15.783
+        }
+      }
+    },
+    {
+      "phase": "warmup",
+      "action": "short_open",
+      "planned_attempts": 15,
+      "write_results": {
+        "ok": 15
+      },
+      "latency_by_result": {
+        "ok": {
+          "count": 15,
+          "p50_ms": 8.746,
+          "p95_ms": 14.741,
+          "p99_ms": 14.741
+        }
+      }
+    }
+  ],
+  "sse": {
+    "public": {
+      "first_frame": {
+        "count": 100,
+        "p50_ms": 10.271,
+        "p95_ms": 12.292,
+        "p99_ms": 25.596
+      },
+      "receive_interval": {
+        "count": 58200,
+        "p50_ms": 126.441,
+        "p95_ms": 144.782,
+        "p99_ms": 160.973
+      },
+      "event_age_ms_clock_dependent": {
+        "count": 58300,
+        "p50_ms": 6.888,
+        "p95_ms": 10.51,
+        "p99_ms": 12.172
+      },
+      "counts": {
+        "frames": 58300,
+        "payload_bytes": 69691620
+      }
+    },
+    "private": {
+      "first_frame": {
+        "count": 100,
+        "p50_ms": 6.213,
+        "p95_ms": 8.071,
+        "p99_ms": 21.152
+      },
+      "receive_interval": {
+        "count": 61554,
+        "p50_ms": 125.77,
+        "p95_ms": 128.596,
+        "p99_ms": 145.506
+      },
+      "event_age_ms_clock_dependent": {
+        "count": 61654,
+        "p50_ms": 3.56,
+        "p95_ms": 7.191,
+        "p99_ms": 10.477
+      },
+      "counts": {
+        "frames": 61654,
+        "payload_bytes": 29900628
+      }
+    }
+  },
+  "trade_visibility": {
+    "role_prepare": {
+      "first_observer_ms_from_request_start": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null,
+        "p99_ms": null
+      },
+      "unmatched": 0
+    },
+    "warmup": {
+      "first_observer_ms_from_request_start": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null,
+        "p99_ms": null
+      },
+      "unmatched": 0
+    },
+    "capacity": {
+      "first_observer_ms_from_request_start": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null,
+        "p99_ms": null
+      },
+      "unmatched": 0
+    }
+  }
+}

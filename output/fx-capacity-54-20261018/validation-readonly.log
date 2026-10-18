@@ -1,0 +1,6 @@
+SECRET_KEY 未配置，已自动生成随机值（仅限开发环境）。
+Casdoor SSO 未配置，OAuth 登录不可用。
+read-only instance (THCCB_READ_ONLY_INSTANCE): skip seed_current_config/resync/writer/flusher/all schedulers
+SQLAdmin 未挂载（read_only=True owner=False）：只读/非 owner 实例不得暴露直写 API
+writes disabled (read_only=True owner=False reason=read_only_instance): all write schedulers skipped
+{"readonly_owner": false, "fx_writer_enabled": false, "authenticated_get": 200, "anonymous_get": 401, "mutation": 503, "api_no_store": true, "balances_and_audit_unchanged": true}

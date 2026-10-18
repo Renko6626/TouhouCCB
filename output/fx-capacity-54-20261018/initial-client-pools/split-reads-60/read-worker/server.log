@@ -1,0 +1,4 @@
+Casdoor SSO 未配置，OAuth 登录不可用。
+read-only instance (THCCB_READ_ONLY_INSTANCE): skip seed_current_config/resync/writer/flusher/all schedulers
+SQLAdmin 未挂载（read_only=True owner=False）：只读/非 owner 实例不得暴露直写 API
+writes disabled (read_only=True owner=False reason=read_only_instance): all write schedulers skipped
