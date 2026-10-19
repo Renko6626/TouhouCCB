@@ -12,7 +12,7 @@ beforeEach(() => {
 })
 function switchUser() { auth.user = { id: 2 }; auth.accessToken = 'access-B'; auth.refreshToken = 'refresh-B' }
 
-it('never refreshes or resends a delayed 401 under a different user', async () => {
+it.each(['post', 'put'] as const)('%s never refreshes or resends a delayed 401 under a different user', async (method) => {
   let fail!: () => void
   let reached!: () => void
   const started = new Promise<void>(resolve => { reached = resolve })
@@ -24,7 +24,8 @@ it('never refreshes or resends a delayed 401 under a different user', async () =
       undefined, { status: 401, data: {}, statusText: '', headers: new AxiosHeaders(), config })) })
   }
   const refresh = vi.spyOn(axios, 'post')
-  const result = api.postForCurrentUser('/finance', { amount: '50' }, { adapter })
+  const send = method === 'post' ? api.postForCurrentUser : api.putForCurrentUser
+  const result = send('/finance', { amount: '50' }, { adapter })
   await started
   switchUser()
   fail()

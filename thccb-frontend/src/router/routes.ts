@@ -82,6 +82,12 @@ export const routes: RouteRecordRaw[] = [
 
       // 兑换中心
       {
+        path: 'wavelength',
+        name: 'wavelength',
+        component: () => import('@/pages/Wavelength.vue'),
+        meta: { title: '心灵波长', requiresAuth: true, requiresVerified: true },
+      },
+      {
         path: 'redemption',
         name: 'redemption-list',
         component: () => import('@/pages/redemption/RedemptionList.vue'),
