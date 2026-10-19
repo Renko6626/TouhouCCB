@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, reactive } from 'vue'
 import type { ReturnedRound, ReturnedPrediction } from '@/api/returned'
 
-const mocks = vi.hoisted(() => ({ current: vi.fn(), mine: vi.fn(), submit: vi.fn(), subscribe: vi.fn() }))
+const mocks = vi.hoisted(() => ({ current: vi.fn(), mine: vi.fn(), submit: vi.fn(), results: vi.fn(), subscribe: vi.fn() }))
 vi.mock('@/api/returned', () => ({ returnedApi: mocks }))
 const auth = reactive({ user: { id: 1, cash: '500' }, sessionGeneration: 1, fetchCurrentUser: vi.fn() })
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
@@ -26,6 +26,7 @@ beforeEach(() => {
   auth.fetchCurrentUser.mockReset()
   auth.user = { id: 1, cash: '500' }; auth.sessionGeneration = 1
   mocks.current.mockResolvedValue({ ...round }); mocks.mine.mockResolvedValue({ ...empty })
+  mocks.results.mockResolvedValue({ round_key: 'g:1', target_position: 500, top_five: [{ username: 'closest', position: 505, distance: 5, payout: '300' }] })
   stop = vi.fn()
   mocks.subscribe.mockImplementation((onChange, onConnection) => {
     change = onChange; connection = onConnection; return stop
@@ -72,6 +73,8 @@ it('shows committed settlement after a round event without making another paid r
   mocks.mine.mockResolvedValue({ ...empty, status: 'settled', position: 510, stake: '100', distance: 10, payout: '300', net_profit: '200' })
   change()
   await vi.waitFor(() => expect(page.round.value?.status).toBe('settled'))
+  await vi.waitFor(() => expect(page.results.value?.top_five[0]?.username).toBe('closest'))
+  expect(mocks.results).toHaveBeenCalledExactlyOnceWith('g:1')
   expect(page.prediction.value?.payout).toBe('300')
   expect(page.canSubmit.value).toBe(false)
   expect(mocks.submit).not.toHaveBeenCalled()
@@ -94,4 +97,17 @@ it('does not let an older response overwrite a sealed round, and blocks edits wh
   expect(mocks.submit).not.toHaveBeenCalled()
   scope.stop(); await nextTick()
   expect(stop).toHaveBeenCalled()
+})
+
+
+it('keeps personal settlement visible when the leaderboard request fails', async () => {
+  const page = await create()
+  mocks.current.mockResolvedValue({ ...round, status: 'settled', target_position: 500 })
+  mocks.mine.mockResolvedValue({ ...empty, status: 'settled', position: 510, stake: '100', payout: '300' })
+  mocks.results.mockRejectedValue(new Error('暂时无法连接'))
+  await page.refresh()
+  expect(page.round.value?.target_position).toBe(500)
+  expect(page.prediction.value?.payout).toBe('300')
+  expect(page.resultsError.value).toBeTruthy()
+  expect(page.error.value).toBe('')
 })
