@@ -7,9 +7,9 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.core.database import managed_transaction
-from app.models.wavelength import WavelengthPrediction, WavelengthRound, utcnow
-from app.schemas.wavelength import MyPrediction, RoundPublic, RoundSummary
-from app.services import ledger_service, wavelength_events
+from app.models.returned import ReturnedPrediction, ReturnedRound, utcnow
+from app.schemas.returned import MyPrediction, RoundPublic, RoundSummary
+from app.services import ledger_service, returned_events
 from app.services.account_events import notifying_transaction
 from app.services.credit.flags import get_flags
 from app.services.credit.ownership import OWNERSHIP
@@ -40,7 +40,7 @@ def public_round(round):
 
 
 async def get_round(db, key, *, lock=False):
-    stmt = select(WavelengthRound).where(WavelengthRound.round_key == key)
+    stmt = select(ReturnedRound).where(ReturnedRound.round_key == key)
     if lock:
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
     round = (await db.execute(stmt)).scalar_one_or_none()
@@ -51,9 +51,9 @@ async def get_round(db, key, *, lock=False):
 
 async def summary(db, round):
     count, paid, staked = (await db.execute(select(
-        func.count(WavelengthPrediction.id), func.coalesce(func.sum(WavelengthPrediction.payout), 0),
-        func.coalesce(func.sum(WavelengthPrediction.stake), 0),
-    ).where(WavelengthPrediction.round_id == round.id))).one()
+        func.count(ReturnedPrediction.id), func.coalesce(func.sum(ReturnedPrediction.payout), 0),
+        func.coalesce(func.sum(ReturnedPrediction.stake), 0),
+    ).where(ReturnedPrediction.round_id == round.id))).one()
     return RoundSummary(**public_round(round).model_dump(), participant_count=count,
                         total_payout=paid, total_refund=staked if round.status == 'cancelled' else ZERO)
 
@@ -62,23 +62,23 @@ async def start_round(db, req):
     async with _start_lock:
         async with managed_transaction(db):
             OWNERSHIP.require_writes()
-            existing = (await db.execute(select(WavelengthRound).where(
-                WavelengthRound.round_key == req.round_key))).scalar_one_or_none()
+            existing = (await db.execute(select(ReturnedRound).where(
+                ReturnedRound.round_key == req.round_key))).scalar_one_or_none()
             if existing is not None:
                 if any(getattr(existing, key) != value for key, value in req.model_dump().items()):
                     raise HTTPException(409, '轮次编号已用于不同题目')
                 return public_round(existing)
-            active = (await db.execute(select(WavelengthRound.id).where(
-                WavelengthRound.status.in_(['open', 'closed'])).limit(1))).first()
+            active = (await db.execute(select(ReturnedRound.id).where(
+                ReturnedRound.status.in_(['open', 'closed'])).limit(1))).first()
             if active:
                 raise HTTPException(409, '请先结算或取消上一轮竞猜')
-            round = WavelengthRound(**req.model_dump(), rules={
+            round = ReturnedRound(**req.model_dump(), rules={
                 'stake': str(STAKE), 'bands': [{'max_distance': d, 'payout': p} for d, p in BANDS],
             })
             db.add(round)
             await db.flush()
             result = public_round(round)
-        wavelength_events.publish(round.round_key, round.status)
+        returned_events.publish(round.round_key, round.status)
         return result
 
 
@@ -91,7 +91,7 @@ async def close_round(db, key):
         if round.status == 'open':
             round.status, round.closed_at = 'closed', utcnow()
         result = public_round(round)
-    wavelength_events.publish(key, round.status)
+    returned_events.publish(key, round.status)
     return result
 
 
@@ -109,8 +109,8 @@ def my_prediction(round, prediction):
 
 async def get_mine(db, key, uid):
     round = await get_round(db, key)
-    prediction = (await db.execute(select(WavelengthPrediction).where(
-        WavelengthPrediction.round_id == round.id, WavelengthPrediction.user_id == uid))).scalar_one_or_none()
+    prediction = (await db.execute(select(ReturnedPrediction).where(
+        ReturnedPrediction.round_id == round.id, ReturnedPrediction.user_id == uid))).scalar_one_or_none()
     return my_prediction(round, prediction)
 
 
@@ -119,7 +119,7 @@ async def _money(db, user, delta, kind, key, *, operator_user_id=None):
     user.cash += delta
     bump_economic_version(user)
     await ledger_service.record_entry(db, user=user, entry_type=kind,
-        cash_delta=delta, debt_delta=ZERO, daily_rate=None, reason=f'wavelength:{key}',
+        cash_delta=delta, debt_delta=ZERO, daily_rate=None, reason=f'returned:{key}',
         operator_user_id=operator_user_id)
 
 
@@ -129,8 +129,8 @@ async def submit_prediction(db, key, uid, position):
         OWNERSHIP.require_writes()
         if round.status != 'open':
             raise HTTPException(409, '本轮竞猜已停止提交')
-        prediction = (await db.execute(select(WavelengthPrediction).where(
-            WavelengthPrediction.round_id == round.id, WavelengthPrediction.user_id == uid))).scalar_one_or_none()
+        prediction = (await db.execute(select(ReturnedPrediction).where(
+            ReturnedPrediction.round_id == round.id, ReturnedPrediction.user_id == uid))).scalar_one_or_none()
         user = await lock_user(db, uid)
         if not user.is_active:
             raise HTTPException(403, 'USER_BANNED')
@@ -147,7 +147,7 @@ async def submit_prediction(db, key, uid, position):
             if not decision.allowed:
                 raise HTTPException(409, f'竞猜投入被资金风控拒绝：{decision.reason}')
             await _money(db, user, -stake, 'wavelength_stake', key)
-            prediction = WavelengthPrediction(round_id=round.id, user_id=uid, position=position, stake=stake)
+            prediction = ReturnedPrediction(round_id=round.id, user_id=uid, position=position, stake=stake)
             db.add(prediction)
         else:
             prediction.position, prediction.submitted_at = position, utcnow()
@@ -167,8 +167,8 @@ async def finish_round(db, key, *, target=None, cancel=False, operator_user_id=N
             raise HTTPException(409, '本轮已结束，不能改变结算结果')
         if not cancel and round.status != 'closed':
             raise HTTPException(409, '请先停止竞猜，再公布结果')
-        predictions = (await db.execute(select(WavelengthPrediction).where(
-            WavelengthPrediction.round_id == round.id).order_by(WavelengthPrediction.user_id))).scalars().all()
+        predictions = (await db.execute(select(ReturnedPrediction).where(
+            ReturnedPrediction.round_id == round.id).order_by(ReturnedPrediction.user_id))).scalars().all()
         for prediction in predictions:
             user = await lock_user(db, prediction.user_id)
             if cancel:
@@ -185,5 +185,5 @@ async def finish_round(db, key, *, target=None, cancel=False, operator_user_id=N
         round.finished_at = utcnow()
         await db.flush()
         result = await summary(db, round)
-    wavelength_events.publish(key, round.status)
+    returned_events.publish(key, round.status)
     return result

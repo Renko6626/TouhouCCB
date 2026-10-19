@@ -48,7 +48,7 @@ from app.models.fx import (
     FxTriggerOrder, FxPoolEvent, FxExecution, FxCandle, FxMarketDataState, FxPair, FxTrade, FxTreasury, FxWallet, FxShortPosition,
 )  # noqa: E402
 from app.models.title import MarketRequiredTitle  # noqa: E402
-from app.models.wavelength import WavelengthPrediction, WavelengthRound  # noqa: E402
+from app.models.returned import ReturnedPrediction, ReturnedRound  # noqa: E402
 from app.services import audit_replay, audit_service, site_config  # noqa: E402
 from app.services.credit.version import bump_economic_version  # noqa: E402
 
@@ -56,7 +56,7 @@ from app.services.credit.version import bump_economic_version  # noqa: E402
 # LiquidationAction.run_id → LiquidationRun.id：action 必须先删。
 # LiquidationEvent.run_id → LiquidationRun.id 是 SET NULL，放前面只为顺序清晰。
 CLEAR_ORDER = [
-    WavelengthPrediction, WavelengthRound,
+    ReturnedPrediction, ReturnedRound,
     AuditEvent, BotProfile, BotSuspicion,
     LiquidationAction, LiquidationEvent, LiquidationRun,
     LedgerEntry, Transaction, Position, OutcomeCandle,

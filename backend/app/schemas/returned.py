@@ -12,7 +12,7 @@ Position = Annotated[int, Field(strict=True, ge=0, le=1000)]
 class IntegrationConfigUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     enabled: bool = Field(strict=True)
-    wavelength_url: str = Field(default='', max_length=2048)
+    returned_url: str = Field(default='', max_length=2048)
     secret: str = Field(default='', max_length=512, repr=False)
 
     @field_validator('secret')
@@ -22,7 +22,7 @@ class IntegrationConfigUpdate(BaseModel):
             raise ValueError('密钥至少需要 32 个字符，留空则保留原密钥')
         return value
 
-    @field_validator('wavelength_url')
+    @field_validator('returned_url')
     @classmethod
     def valid_url(cls, value):
         if not value:
@@ -40,7 +40,7 @@ class IntegrationConfigUpdate(BaseModel):
 
 class IntegrationConfigRead(BaseModel):
     enabled: bool
-    wavelength_url: str
+    returned_url: str
     secret_configured: bool
     active_round_key: str | None
 

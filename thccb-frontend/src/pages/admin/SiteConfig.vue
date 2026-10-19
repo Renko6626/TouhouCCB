@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import BackendMaintenance from '@/components/BackendMaintenance.vue'
-import WavelengthConfig from '@/components/WavelengthConfig.vue'
+import ReturnedConfig from '@/components/ReturnedConfig.vue'
 import { compareConfigKeys, getConfigMeta as baseConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
 function getConfigMeta(key: string) {
@@ -247,7 +247,7 @@ onMounted(load)
       :saving="loading || applying || activeSaves > 0 || integrationSaving"
       @busy="systemBusy = $event"
     />
-    <WavelengthConfig :disabled="systemBusy" @dirty="integrationDirty = $event" @saving="integrationSaving = $event" />
+    <ReturnedConfig :disabled="systemBusy" @dirty="integrationDirty = $event" @saving="integrationSaving = $event" />
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" />
 

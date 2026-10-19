@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { effectScope, nextTick, reactive } from 'vue'
-import type { WavelengthRound, WavelengthPrediction } from '@/api/wavelength'
+import type { ReturnedRound, ReturnedPrediction } from '@/api/returned'
 
 const mocks = vi.hoisted(() => ({ current: vi.fn(), mine: vi.fn(), submit: vi.fn(), subscribe: vi.fn() }))
-vi.mock('@/api/wavelength', () => ({ wavelengthApi: mocks }))
+vi.mock('@/api/returned', () => ({ returnedApi: mocks }))
 const auth = reactive({ user: { id: 1, cash: '500' }, sessionGeneration: 1, fetchCurrentUser: vi.fn() })
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
-import { useWavelength } from '../useWavelength'
+import { useReturned } from '../useReturned'
 
-const round: WavelengthRound = {
+const round: ReturnedRound = {
   round_key: 'g:1', game_key: 'g', round_number: 1, left_label: '寒冷', right_label: '炎热',
   team_name: '蓝队', status: 'open', stake: '100', bands: [{ max_distance: 16, payout: '300' }],
   target_position: null, created_at: '', closed_at: null, finished_at: null,
 }
-const empty: WavelengthPrediction = {
+const empty: ReturnedPrediction = {
   round_key: 'g:1', status: 'open', position: null, stake: '0', distance: null,
   payout: null, refund: '0', net_profit: null, submitted_at: null,
 }
@@ -34,7 +34,7 @@ beforeEach(() => {
 })
 afterEach(() => scope.stop())
 async function create() {
-  const page = scope.run(() => useWavelength())!
+  const page = scope.run(() => useReturned())!
   await page.start()
   connection(true)
   return page
@@ -80,8 +80,8 @@ it('shows committed settlement after a round event without making another paid r
 
 it('does not let an older response overwrite a sealed round, and blocks edits while disconnected', async () => {
   const page = await create()
-  let resolve!: (value: WavelengthRound) => void
-  mocks.current.mockReturnValueOnce(new Promise<WavelengthRound>(done => { resolve = done }))
+  let resolve!: (value: ReturnedRound) => void
+  mocks.current.mockReturnValueOnce(new Promise<ReturnedRound>(done => { resolve = done }))
   const old = page.refresh()
   mocks.current.mockResolvedValue({ ...round, status: 'closed' })
   mocks.mine.mockResolvedValue({ ...empty, status: 'closed' })
