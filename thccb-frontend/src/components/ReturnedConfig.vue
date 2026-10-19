@@ -118,7 +118,7 @@ onMounted(load)
         <a v-if="saved?.returned_url" :href="saved.returned_url" target="_blank" rel="noopener noreferrer">打开逆转录者</a>
       </div>
     </NForm>
-    <p class="config-note">每轮投入 100 金圆券；误差不超过 1.6、5.6、10、15 个百分点时，分别到账 300、200、150、75。</p>
+    <p class="config-note">每轮投入 100 金圆券；误差不超过 3.2、11.2、20、30 个百分点时，分别到账 300、200、150、75。</p>
   </section>
 </template>
 

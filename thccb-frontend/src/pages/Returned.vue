@@ -13,7 +13,10 @@ const finished = computed(() => round.value?.status === 'settled' || round.value
 const locked = computed(() => round.value?.status !== 'open' || submitting.value)
 const buttonLabel = computed(() => submitting.value ? '正在提交…' : !joined.value
   ? '投入 100 金圆券参与' : changed.value ? '保存竞猜位置' : '已提交竞猜')
-const formatPosition = (value: number) => `${(value / 10).toFixed(1)}%`
+const formatPosition = (value: number) => {
+  const percent = value / 5 - 100
+  return `${percent > 0 ? '+' : ''}${percent.toFixed(1)}%`
+}
 const money = (value: string | number | null | undefined) => Number(value ?? 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 const netProfit = computed(() => {
   const value = Number(prediction.value?.net_profit ?? 0)
@@ -84,7 +87,7 @@ onMounted(start)
           <div><span>真实位置</span><strong>{{ round.target_position == null ? '同步中…' : formatPosition(round.target_position) }}</strong></div>
           <template v-if="joined">
             <div><span>你的选择</span><strong>{{ formatPosition(prediction!.position!) }}</strong></div>
-            <div><span>相差</span><strong>{{ prediction!.distance == null ? '—' : (prediction!.distance / 10).toFixed(1) }}<small> 个百分点</small></strong></div>
+            <div><span>相差</span><strong>{{ prediction!.distance == null ? '—' : (prediction!.distance / 5).toFixed(1) }}<small> 个百分点</small></strong></div>
           </template>
           <div class="result-payout"><span>奖励等级</span><strong>{{ rewardTier }}</strong></div>
         </div>
@@ -98,14 +101,14 @@ onMounted(start)
         <div class="slider-wrap">
           <NSlider :value="position" :min="0" :max="1000" :step="1" :format-tooltip="formatPosition"
             :disabled="locked" aria-label="竞猜位置" @update:value="setPosition" />
-          <div class="ruler" aria-hidden="true"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+          <div class="ruler" aria-hidden="true"><span>−100%</span><span>−50%</span><span>0%</span><span>+50%</span><span>+100%</span></div>
         </div>
 
         <div v-if="round.status === 'open'" class="prediction-controls">
           <div class="position-input">
             <label for="returned-position">我的选择</label>
-            <NInputNumber id="returned-position" :value="position / 10" :min="0" :max="100" :step="0.1" :precision="1"
-              :disabled="locked" aria-label="竞猜百分比" @update:value="v => { if (v != null) setPosition(v * 10) }">
+            <NInputNumber id="returned-position" :value="position / 5 - 100" :min="-100" :max="100" :step="0.2" :precision="1"
+              :disabled="locked" aria-label="竞猜百分比" @update:value="v => { if (v != null) setPosition((v + 100) * 5) }">
               <template #suffix>%</template>
             </NInputNumber>
           </div>
@@ -146,7 +149,7 @@ onMounted(start)
                 <thead><tr><th scope="col">名次</th><th scope="col">玩家</th><th scope="col">竞猜位置</th><th scope="col">误差</th><th scope="col">到账金圆券</th></tr></thead>
                 <tbody><tr v-for="(entry, index) in results.top_five" :key="entry.username">
                   <td>{{ index + 1 }}</td><td class="player-name">{{ entry.username }}</td><td data-label="竞猜位置">{{ formatPosition(entry.position) }}</td>
-                  <td data-label="误差">{{ (entry.distance / 10).toFixed(1) }} 个百分点</td><td data-label="到账金圆券">{{ money(entry.payout) }}</td>
+                  <td data-label="误差">{{ (entry.distance / 5).toFixed(1) }} 个百分点</td><td data-label="到账金圆券">{{ money(entry.payout) }}</td>
                 </tr></tbody>
               </table>
             </div>
@@ -161,9 +164,9 @@ onMounted(start)
       <p>与你竞猜的位置相比，真实目标越接近，结算到账越多。边界取较高一档。</p>
       <div class="reward-grid">
         <div v-for="band in bands" :key="band.max_distance" class="reward-cell">
-          <span>相差 ≤ {{ band.max_distance / 10 }} 个百分点</span><strong>{{ money(band.payout) }}</strong><small>金圆券到账</small>
+          <span>相差 ≤ {{ band.max_distance / 5 }} 个百分点</span><strong>{{ money(band.payout) }}</strong><small>金圆券到账</small>
         </div>
-        <div class="reward-cell"><span>相差 &gt; 15 个百分点</span><strong>0</strong><small>金圆券到账</small></div>
+        <div class="reward-cell"><span>相差 &gt; 30 个百分点</span><strong>0</strong><small>金圆券到账</small></div>
       </div>
       <p class="rules-note">每轮只投入一次，封盘前可以修改。结算金额已包含本轮全部到账，不另退本金；取消则原额退款。</p>
     </section>
