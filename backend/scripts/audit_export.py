@@ -60,13 +60,29 @@ def _ev_dict(e: AuditEvent) -> dict:
 def _snap_dict(snap: audit_replay.Snapshot) -> dict:
     return {
         "last_event_id": snap.last_event_id,
-        "users": {str(k): {"cash": str(v.cash), "debt": str(v.debt), "anchored": v.anchored}
+        "users": {str(k): {"cash": str(v.cash), "debt": str(v.debt), "anchored": v.anchored,
+                            "debt_last_accrued_at": audit_replay.utc_clock(v.debt_last_accrued_at).isoformat()
+                            if v.debt_last_accrued_at is not None else None}
                   for k, v in snap.users.items()},
         "positions": [{"user_id": k[0], "outcome_id": k[1], "amount": str(v)}
                       for k, v in snap.positions.items() if v != 0],
         "markets": {str(k): {"outcome_ids": v.outcome_ids, "q": [str(x) for x in v.q],
                              "b": v.b, "prices": v.prices, "status": v.status, "anchored": v.anchored}
                     for k, v in snap.markets.items()},
+        "fx_pairs": {str(k): {"gold": str(v.gold), "foreign": str(v.foreign),
+                              "treasury_gold": str(v.treasury_gold),
+                              "treasury_foreign": str(v.treasury_foreign), "anchored": v.anchored}
+                     for k, v in snap.fx_pairs.items()},
+        "fx_wallets": [{"user_id": k[0], "pair_id": k[1], "amount": str(v)}
+                       for k, v in snap.fx_wallets.items()],
+        "fx_shorts": [{"user_id": k[0], "pair_id": k[1],
+                       "principal_foreign": str(v.principal_foreign),
+                       "interest_foreign": str(v.interest_foreign),
+                       "restricted_gold": str(v.restricted_gold) if v.restricted_gold is not None else None,
+                       "proceeds_basis_gold": str(v.proceeds_basis_gold),
+                       "interest_last_accrued_at": audit_replay.utc_clock(v.interest_last_accrued_at).isoformat()
+                       if v.interest_last_accrued_at is not None else None}
+                      for k, v in snap.fx_shorts.items()],
     }
 
 
