@@ -29,9 +29,16 @@ export interface ReturnedPrediction {
   submitted_at: string | null
 }
 
+export interface ReturnedResults {
+  round_key: string
+  target_position: number
+  top_five: Array<{ username: string; position: number; distance: number; payout: string }>
+}
+
 const prefix = '/api/v1/returned'
 export const returnedApi = {
   current: () => api.get<ReturnedRound | null>(`${prefix}/current`),
+  results: (key: string) => api.getForCurrentUser<ReturnedResults>(`${prefix}/rounds/${encodeURIComponent(key)}/results`),
   mine: (key: string) => api.getForCurrentUser<ReturnedPrediction>(`${prefix}/rounds/${encodeURIComponent(key)}/me`),
   submit: (key: string, position: number) => api.putForCurrentUser<ReturnedPrediction>(
     `${prefix}/rounds/${encodeURIComponent(key)}/prediction`, { position }),

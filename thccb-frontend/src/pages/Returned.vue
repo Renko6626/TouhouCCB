@@ -5,7 +5,7 @@ import { useReturned } from '@/composables/useReturned'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const { round, prediction, position, loading, submitting, connected, disabled, error, feedback,
+const { round, prediction, results, resultsLoading, resultsError, position, loading, submitting, connected, disabled, error, feedback,
   joined, changed, canSubmit, setPosition, submit, start } = useReturned()
 const labels = { open: '竞猜进行中', closed: '已封盘', settled: '结果已公布', cancelled: '本轮已取消' }
 const status = computed(() => round.value ? labels[round.value.status] : '等待开题')
@@ -23,6 +23,11 @@ const bands = computed(() => round.value?.bands ?? [
   { max_distance: 16, payout: '300' }, { max_distance: 56, payout: '200' },
   { max_distance: 100, payout: '150' }, { max_distance: 150, payout: '75' },
 ])
+const rewardTier = computed(() => {
+  if (!joined.value || prediction.value?.payout == null) return '未参与'
+  const payout = Number(prediction.value.payout)
+  return payout > 0 ? `${money(payout)} 金圆券档` : '未中奖'
+})
 const visibleBands = computed(() => [...bands.value].reverse())
 function bandStyle(distance: number) {
   const center = round.value?.target_position ?? 500
@@ -75,6 +80,15 @@ onMounted(start)
           <h2>{{ round.right_label }}</h2>
         </div>
 
+        <div v-if="round.status === 'settled'" class="result-grid result-overview" aria-live="polite">
+          <div><span>真实位置</span><strong>{{ round.target_position == null ? '同步中…' : formatPosition(round.target_position) }}</strong></div>
+          <template v-if="joined">
+            <div><span>你的选择</span><strong>{{ formatPosition(prediction!.position!) }}</strong></div>
+            <div><span>相差</span><strong>{{ prediction!.distance == null ? '—' : (prediction!.distance / 10).toFixed(1) }}<small> 个百分点</small></strong></div>
+          </template>
+          <div class="result-payout"><span>奖励等级</span><strong>{{ rewardTier }}</strong></div>
+        </div>
+
         <div v-if="round.status === 'settled' && round.target_position != null" class="result-track" aria-label="真实目标与我的竞猜位置">
           <span v-for="band in visibleBands" :key="band.max_distance" :class="['result-band', 'band-' + band.payout]" :style="bandStyle(band.max_distance)" />
           <span class="target-marker" :style="{ left: round.target_position / 10 + '%' }"><b>目标</b></span>
@@ -112,15 +126,7 @@ onMounted(start)
         </div>
 
         <div v-else-if="round.status === 'settled'" class="settlement" aria-live="polite">
-          <h3>本轮结果</h3>
-          <div class="result-grid">
-            <div><span>真实位置</span><strong>{{ round.target_position == null ? '同步中…' : formatPosition(round.target_position) }}</strong></div>
-            <template v-if="joined">
-              <div><span>你的选择</span><strong>{{ formatPosition(prediction!.position!) }}</strong></div>
-              <div><span>相差</span><strong>{{ prediction!.distance == null ? '—' : (prediction!.distance / 10).toFixed(1) }}<small> 个百分点</small></strong></div>
-              <div class="result-payout"><span>结算到账</span><strong>{{ money(prediction!.payout) }}<small> 金圆券</small></strong></div>
-            </template>
-          </div>
+          <h3>结算到账 {{ joined ? money(prediction!.payout) : 0 }} 金圆券</h3>
           <p v-if="joined">本轮投入 {{ money(prediction!.stake) }}，净盈亏 <strong>{{ netProfit }}</strong> 金圆券。奖励已由系统结算，无需领取。</p>
           <p v-else>你没有参与本轮。下一道题会自动出现在这里。</p>
         </div>
@@ -130,6 +136,23 @@ onMounted(start)
           <p v-if="joined">已退回 {{ money(prediction!.refund) }} 金圆券，等待下一道题。</p>
           <p v-else>本轮没有扣款，等待下一道题。</p>
         </div>
+        <section v-if="round.status === 'settled'" class="leaderboard" aria-live="polite">
+          <h3>最接近目标的前五名</h3>
+          <p v-if="resultsLoading && !results">正在加载竞猜结果…</p>
+          <p v-else-if="resultsError" class="warning">{{ resultsError }}</p>
+          <template v-if="results">
+            <div v-if="results.top_five.length" class="leaderboard-scroll">
+              <table>
+                <thead><tr><th scope="col">名次</th><th scope="col">玩家</th><th scope="col">竞猜位置</th><th scope="col">误差</th><th scope="col">到账金圆券</th></tr></thead>
+                <tbody><tr v-for="(entry, index) in results.top_five" :key="entry.username">
+                  <td>{{ index + 1 }}</td><td class="player-name">{{ entry.username }}</td><td data-label="竞猜位置">{{ formatPosition(entry.position) }}</td>
+                  <td data-label="误差">{{ (entry.distance / 10).toFixed(1) }} 个百分点</td><td data-label="到账金圆券">{{ money(entry.payout) }}</td>
+                </tr></tbody>
+              </table>
+            </div>
+            <p v-else>本轮还没有人参与竞猜。</p>
+          </template>
+        </section>
       </section>
     </NSpin>
 
@@ -148,6 +171,13 @@ onMounted(start)
 </template>
 
 <style scoped>
+.leaderboard { border-top: 1px solid #ddd; margin-top: 24px; padding-top: 20px; }
+.leaderboard h3 { margin: 0 0 16px; font-size: 17px; }
+.leaderboard-scroll { overflow-x: auto; }
+.leaderboard table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+.leaderboard th, .leaderboard td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #ddd; white-space: nowrap; }
+.leaderboard th { font-weight: 600; color: #666; }
+.leaderboard .player-name { white-space: normal; overflow-wrap: anywhere; min-width: 6em; max-width: 14em; font-weight: 700; }
 .returned-page { max-width: 1040px; margin: 0 auto; padding: 16px 12px 32px; color: #000; }
 .page-heading, .sync-bar, .round-heading, .prediction-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .page-heading { align-items: flex-start; margin-bottom: 20px; }
@@ -207,6 +237,14 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 6px; }
 .reward-cell strong { display: block; font-size: 25px; margin: 4px 0; font-variant-numeric: tabular-nums; }
 .rules-panel .rules-note { font-size: 12px; }
 @media (max-width: 640px) {
+  .leaderboard table, .leaderboard tbody { display: block; }
+  .leaderboard thead { display: none; }
+  .leaderboard tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 0; border-bottom: 1px solid #ddd; gap: 10px 8px; }
+  .leaderboard td { padding: 0; border: 0; white-space: normal; font-size: 12px; }
+  .leaderboard td:first-child { font-weight: 700; }
+  .leaderboard .player-name { grid-column: 2 / -1; min-width: 0; max-width: none; font-size: 14px; }
+  .leaderboard td[data-label]::before { content: attr(data-label); display: block; color: #777; font-size: 11px; margin-bottom: 4px; }
+
   .returned-page { padding: 8px 0 24px; }.panel { padding: 18px 14px; box-shadow: 3px 3px 0 #000; }
   h1 { font-size: 24px; }.page-account strong { font-size: 20px; }.page-heading p { font-size: 12px; }
   .prediction-controls { align-items: stretch; flex-direction: column; }.position-input { justify-content: space-between; }

@@ -7,8 +7,9 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.core.database import managed_transaction
+from app.models.base import User
 from app.models.returned import ReturnedPrediction, ReturnedRound, utcnow
-from app.schemas.returned import MyPrediction, RoundPublic, RoundSummary
+from app.schemas.returned import MyPrediction, RoundPublic, RoundSummary, RoundResults, TopPrediction
 from app.services import ledger_service, returned_events
 from app.services.account_events import notifying_transaction
 from app.services.credit.flags import get_flags
@@ -187,3 +188,18 @@ async def finish_round(db, key, *, target=None, cancel=False, operator_user_id=N
         result = await summary(db, round)
     returned_events.publish(key, round.status)
     return result
+
+
+async def round_results(db, key):
+    round = await get_round(db, key)
+    if round.status != 'settled':
+        raise HTTPException(409, '本轮尚未公布竞猜结果')
+    rows = (await db.execute(select(User.username, ReturnedPrediction.position,
+        ReturnedPrediction.distance, ReturnedPrediction.payout)
+        .join(User, User.id == ReturnedPrediction.user_id)
+        .where(ReturnedPrediction.round_id == round.id)
+        .order_by(ReturnedPrediction.distance, ReturnedPrediction.submitted_at, ReturnedPrediction.user_id)
+        .limit(5))).all()
+    return RoundResults(round_key=round.round_key, target_position=round.target_position,
+        top_five=[TopPrediction(username=name, position=position, distance=distance, payout=payout)
+                  for name, position, distance, payout in rows])

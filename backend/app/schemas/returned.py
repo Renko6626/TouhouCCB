@@ -96,3 +96,16 @@ class MyPrediction(BaseModel):
     refund: Decimal
     net_profit: Decimal | None
     submitted_at: datetime | None
+
+
+class TopPrediction(BaseModel):
+    username: str
+    position: int
+    distance: int
+    payout: Decimal
+
+
+class RoundResults(BaseModel):
+    round_key: str
+    target_position: int
+    top_five: list[TopPrediction]

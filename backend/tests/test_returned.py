@@ -213,3 +213,53 @@ async def test_round_stream_notifies_committed_changes(api):
         assert (await api.get(BASE + '/current')).json()['status'] == 'open'
     finally:
         await frames.aclose()
+
+
+@pytest.mark.asyncio
+async def test_results_require_auth_and_publish_only_settled_top_five(api):
+    from datetime import datetime, timedelta, timezone
+    from app.models.returned import ReturnedPrediction
+
+    await start(api)
+    players = []
+    for name, position in [('first', 510), ('second', 490), ('third', 530),
+                           ('fourth', 560), ('fifth', 610), ('sixth', 700)]:
+        uid, headers = await player(name)
+        assert (await predict(api, headers, position)).status_code == 200
+        players.append((uid, headers))
+    async with async_session_maker() as db:
+        records = (await db.execute(select(ReturnedPrediction).order_by(ReturnedPrediction.user_id))).scalars().all()
+        now = datetime.now(timezone.utc)
+        for i, record in enumerate(records):
+            record.submitted_at = now + timedelta(seconds=1 - i if i < 2 else i)
+        await db.commit()
+    path = BASE + '/rounds/' + TOPIC['round_key'] + '/results'
+    assert (await api.get(path)).status_code in (401, 403)
+    assert (await api.get(path, headers={'Authorization': 'Bearer invalid'})).status_code == 401
+    assert (await api.get(path, headers=SOURCE)).status_code == 409
+    await api.post(BASE + '/rounds/' + TOPIC['round_key'] + '/close', headers=SOURCE)
+    assert (await api.get(path, headers=players[0][1])).status_code == 409
+    await api.post(BASE + '/rounds/' + TOPIC['round_key'] + '/result',
+                   json={'target_position': 500}, headers=SOURCE)
+    result = await api.get(path, headers=SOURCE)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body['round_key'] == TOPIC['round_key'] and body['target_position'] == 500
+    assert [(p['username'], p['position'], p['distance'], Decimal(p['payout'])) for p in body['top_five']] == [
+        ('second', 490, 10, Decimal('300')), ('first', 510, 10, Decimal('300')),
+        ('third', 530, 30, Decimal('200')), ('fourth', 560, 60, Decimal('150')),
+        ('fifth', 610, 110, Decimal('75'))]
+    assert (await api.get(path, headers=players[0][1])).json() == body
+    async with async_session_maker() as db:
+        user = await db.get(User, players[0][0]); user.is_active = False
+        await db.commit()
+    assert (await api.get(path, headers=players[0][1])).status_code == 403
+    await start(api, round_key='empty')
+    await api.post(BASE + '/rounds/empty/close', headers=SOURCE)
+    await api.post(BASE + '/rounds/empty/result', json={'target_position': 500}, headers=SOURCE)
+    assert (await api.get(BASE + '/rounds/empty/results', headers=SOURCE)).json()['top_five'] == []
+    await start(api, round_key='cancelled')
+    await api.post(BASE + '/rounds/cancelled/cancel', headers=SOURCE)
+    assert (await api.get(BASE + '/rounds/cancelled/results', headers=SOURCE)).status_code == 409
+    await config_value('wavelength_enabled', 'false')
+    assert (await api.get(path, headers=SOURCE)).status_code == 404

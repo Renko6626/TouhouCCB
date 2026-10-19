@@ -4,6 +4,7 @@ import hmac
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
@@ -13,7 +14,7 @@ from app.core.users import current_active_user
 from app.models.base import User
 from app.models.returned import ReturnedRound
 from app.schemas.returned import (MyPrediction, PredictionInput, RoundKey,
-    RoundPublic, RoundResult, RoundStart, RoundSummary)
+    RoundPublic, RoundResult, RoundStart, RoundSummary, RoundResults)
 from app.services import returned as svc, returned_events, returned_config
 from app.services.account_events import encode_frame
 
@@ -33,6 +34,19 @@ def require_source(request: Request, config=Depends(require_enabled)):
     scheme, _, credential = request.headers.get('authorization', '').partition(' ')
     if scheme.lower() != 'bearer' or not hmac.compare_digest(returned_config.secret_digest(credential), config['secret_hash']):
         raise HTTPException(401, '联动密钥无效')
+
+
+async def require_results_reader(
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    config=Depends(require_enabled), db: AsyncSession = Depends(get_async_session),
+):
+    if credentials is None:
+        raise HTTPException(401, '请登录或提供联动密钥')
+    if config['secret_hash'] and hmac.compare_digest(
+        returned_config.secret_digest(credentials.credentials), config['secret_hash']
+    ):
+        return
+    await current_active_user(credentials=credentials, db=db)
 
 
 router = APIRouter(dependencies=[Depends(require_enabled)])
@@ -78,6 +92,12 @@ async def mine(round_key: RoundKey, user: User = Depends(current_active_user),
 async def prediction(round_key: RoundKey, req: PredictionInput,
                      user: User = Depends(current_active_user), db: AsyncSession = Depends(get_async_session)):
     return await svc.submit_prediction(db, round_key, user.id, req.position)
+
+
+@router.get('/rounds/{round_key}/results', response_model=RoundResults,
+            dependencies=[Depends(require_results_reader)])
+async def results(round_key: RoundKey, db: AsyncSession = Depends(get_async_session)):
+    return await svc.round_results(db, round_key)
 
 
 @router.get('/stream')

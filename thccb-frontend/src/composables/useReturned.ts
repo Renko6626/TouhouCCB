@@ -1,5 +1,5 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { returnedApi, type ReturnedRound, type ReturnedPrediction } from '@/api/returned'
+import { returnedApi, type ReturnedRound, type ReturnedPrediction, type ReturnedResults } from '@/api/returned'
 import { useAuthStore } from '@/stores/auth'
 
 /** Page state only; submissions are explicit and never replayed by this page. */
@@ -7,6 +7,9 @@ export function useReturned() {
   const auth = useAuthStore()
   const round = ref<ReturnedRound | null>(null)
   const prediction = ref<ReturnedPrediction | null>(null)
+  const results = ref<ReturnedResults | null>(null)
+  const resultsLoading = ref(false)
+  const resultsError = ref('')
   const position = ref(500)
   const loading = ref(false)
   const submitting = ref(false)
@@ -41,17 +44,35 @@ export function useReturned() {
         edited = false
       }
       if (newRound) feedback.value = ''
+      if (newRound || mine?.status !== 'settled') results.value = null
+      resultsError.value = ''
       round.value = current && mine ? { ...current, status: mine.status } : current
       prediction.value = mine
       disabled.value = false
       ready.value = true
       void auth.fetchCurrentUser()
+      if (mine?.status === 'settled' && current) {
+        resultsLoading.value = true
+        try {
+          const settled = await returnedApi.results(current.round_key)
+          if (disposed || ticket !== request) return
+          results.value = settled
+          round.value = { ...round.value!, target_position: settled.target_position }
+        } catch {
+          if (!disposed && ticket === request) resultsError.value = '前五名暂时未能加载，请点击刷新状态重试。'
+        } finally {
+          if (!disposed && ticket === request) resultsLoading.value = false
+        }
+      } else {
+        resultsLoading.value = false
+      }
     } catch (e) {
       if (disposed || ticket !== request) return
       if ((e as { status?: number }).status === 404) {
         disabled.value = true
         round.value = null
         prediction.value = null
+        results.value = null; resultsLoading.value = false; resultsError.value = ''
         closeStream?.(); closeStream = undefined; connected.value = false
       } else {
         error.value = (e as Error).message || '无法同步竞猜，请刷新后重试'
@@ -104,11 +125,12 @@ export function useReturned() {
   watch([() => auth.user?.id, () => auth.sessionGeneration], () => {
     ++request
     round.value = null; prediction.value = null; position.value = 500
+    results.value = null; resultsLoading.value = false; resultsError.value = ''
     edited = false; submitting.value = false; feedback.value = ''; error.value = ''
     if (started) void refresh()
   })
   onScopeDispose(() => { disposed = true; ++request; closeStream?.() })
 
-  return { round, prediction, position, loading, submitting, connected, disabled, error, feedback,
+  return { round, prediction, results, resultsLoading, resultsError, position, loading, submitting, connected, disabled, error, feedback,
     joined, changed, canSubmit, setPosition, submit, refresh, start }
 }
