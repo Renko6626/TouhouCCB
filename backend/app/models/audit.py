@@ -12,6 +12,7 @@ from sqlalchemy import BigInteger, Column, DateTime, Index, Integer, JSON
 
 
 AUDIT_EVENT_TYPES = frozenset({
+    "wavelength_stake", "wavelength_reward", "wavelength_refund",
     "user_register",
     "trade_buy", "trade_sell", "trade_liquidate",
     "settle_win", "settle_lose",

@@ -15,6 +15,9 @@ from app.services import audit_service
 
 # ledger entry_type → audit event_type（同名）
 _AUDIT_TYPE = {
+    "wavelength_stake": "wavelength_stake",
+    "wavelength_reward": "wavelength_reward",
+    "wavelength_refund": "wavelength_refund",
     "borrow": "loan_borrow",
     "repay": "loan_repay",
     "admin_adjust_cash": "admin_adjust_cash",

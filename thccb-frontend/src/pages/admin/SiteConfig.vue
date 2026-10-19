@@ -6,6 +6,7 @@ import {
 } from 'naive-ui'
 import { adminSiteConfigApi, type SiteConfigItem } from '@/api/loan'
 import BackendMaintenance from '@/components/BackendMaintenance.vue'
+import WavelengthConfig from '@/components/WavelengthConfig.vue'
 import { compareConfigKeys, getConfigMeta as baseConfigMeta, groupLabel, groupOrder, type ConfigGroup } from '@/utils/configMeta'
 
 function getConfigMeta(key: string) {
@@ -33,7 +34,9 @@ const error = ref<string | null>(null)
 const drafts = ref<Record<string, string>>({})
 const systemBusy = ref(false)
 const activeSaves = ref(0)
-const hasUnsavedChanges = computed(() => configs.value.some(c => drafts.value[c.key] !== c.value))
+const integrationDirty = ref(false)
+const integrationSaving = ref(false)
+const hasUnsavedChanges = computed(() => integrationDirty.value || configs.value.some(c => drafts.value[c.key] !== c.value))
 const msg = useMessage()
 const dialog = useDialog()
 function presetLabel(preset: Preset): string { return preset.label }
@@ -241,9 +244,10 @@ onMounted(load)
   <div class="admin-site-config">
     <BackendMaintenance
       :has-unsaved-changes="hasUnsavedChanges"
-      :saving="loading || applying || activeSaves > 0"
+      :saving="loading || applying || activeSaves > 0 || integrationSaving"
       @busy="systemBusy = $event"
     />
+    <WavelengthConfig :disabled="systemBusy" @dirty="integrationDirty = $event" @saving="integrationSaving = $event" />
     <NSpin :show="loading">
       <NAlert v-if="error" type="error" :title="error" />
 
