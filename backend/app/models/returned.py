@@ -11,7 +11,7 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-class WavelengthRound(SQLModel, table=True):
+class ReturnedRound(SQLModel, table=True):
     __tablename__ = 'wavelength_round'
     __table_args__ = (
         CheckConstraint("status IN ('open', 'closed', 'settled', 'cancelled')", name='ck_wavelength_round_status'),
@@ -32,7 +32,7 @@ class WavelengthRound(SQLModel, table=True):
     finished_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True)))
 
 
-class WavelengthPrediction(SQLModel, table=True):
+class ReturnedPrediction(SQLModel, table=True):
     __tablename__ = 'wavelength_prediction'
     __table_args__ = (
         UniqueConstraint('round_id', 'user_id', name='uq_wavelength_prediction_round_user'),

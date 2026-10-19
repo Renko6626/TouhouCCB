@@ -29,4 +29,4 @@ def publish(round_key, status):
                 queue.get_nowait()
             queue.put_nowait(wire)
     except Exception:
-        logger.exception('Wavelength round hint dropped')
+        logger.exception('Returned round hint dropped')

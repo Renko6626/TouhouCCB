@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { NAlert, NButton, NInputNumber, NSlider, NSpin, NTag } from 'naive-ui'
-import { useWavelength } from '@/composables/useWavelength'
+import { useReturned } from '@/composables/useReturned'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const { round, prediction, position, loading, submitting, connected, disabled, error, feedback,
-  joined, changed, canSubmit, setPosition, submit, start } = useWavelength()
+  joined, changed, canSubmit, setPosition, submit, start } = useReturned()
 const labels = { open: '竞猜进行中', closed: '已封盘', settled: '结果已公布', cancelled: '本轮已取消' }
 const status = computed(() => round.value ? labels[round.value.status] : '等待开题')
 const finished = computed(() => round.value?.status === 'settled' || round.value?.status === 'cancelled')
@@ -33,10 +33,10 @@ onMounted(start)
 </script>
 
 <template>
-  <div class="wavelength-page">
+  <div class="returned-page">
     <header class="page-heading">
       <div>
-        <h1>心灵波长</h1>
+        <h1>逆转录者</h1>
         <p>听台上的线索，在两个概念之间选出你心中的位置。</p>
       </div>
       <div class="page-account">
@@ -89,8 +89,8 @@ onMounted(start)
 
         <div v-if="round.status === 'open'" class="prediction-controls">
           <div class="position-input">
-            <label for="wavelength-position">我的选择</label>
-            <NInputNumber id="wavelength-position" :value="position / 10" :min="0" :max="100" :step="0.1" :precision="1"
+            <label for="returned-position">我的选择</label>
+            <NInputNumber id="returned-position" :value="position / 10" :min="0" :max="100" :step="0.1" :precision="1"
               :disabled="locked" aria-label="竞猜百分比" @update:value="v => { if (v != null) setPosition(v * 10) }">
               <template #suffix>%</template>
             </NInputNumber>
@@ -148,7 +148,7 @@ onMounted(start)
 </template>
 
 <style scoped>
-.wavelength-page { max-width: 1040px; margin: 0 auto; padding: 16px 12px 32px; color: #000; }
+.returned-page { max-width: 1040px; margin: 0 auto; padding: 16px 12px 32px; color: #000; }
 .page-heading, .sync-bar, .round-heading, .prediction-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .page-heading { align-items: flex-start; margin-bottom: 20px; }
 h1 { font-size: 28px; font-weight: 800; margin: 0 0 6px; }
@@ -207,7 +207,7 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 6px; }
 .reward-cell strong { display: block; font-size: 25px; margin: 4px 0; font-variant-numeric: tabular-nums; }
 .rules-panel .rules-note { font-size: 12px; }
 @media (max-width: 640px) {
-  .wavelength-page { padding: 8px 0 24px; }.panel { padding: 18px 14px; box-shadow: 3px 3px 0 #000; }
+  .returned-page { padding: 8px 0 24px; }.panel { padding: 18px 14px; box-shadow: 3px 3px 0 #000; }
   h1 { font-size: 24px; }.page-account strong { font-size: 20px; }.page-heading p { font-size: 12px; }
   .prediction-controls { align-items: stretch; flex-direction: column; }.position-input { justify-content: space-between; }
   .result-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }

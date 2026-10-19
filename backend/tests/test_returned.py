@@ -11,10 +11,10 @@ from app.core.users import create_access_token
 from app.main import app
 from app.models.base import SiteConfig, User
 from app.services import audit_replay, audit_service
-from app.services.wavelength_config import secret_digest
+from app.services.returned_config import secret_digest
 
-BASE = '/api/v1/wavelength'
-KEY = 'wavelength-test-secret-32-characters'
+BASE = '/api/v1/returned'
+KEY = 'returned-test-secret-32-characters'
 SOURCE = {'Authorization': f'Bearer {KEY}'}
 TOPIC = dict(round_key='game-1-round-1', game_key='game-1', round_number=1,
              left_label='寒冷', right_label='炎热', team_name='红队')
@@ -195,7 +195,7 @@ async def test_result_failure_rolls_back_all_rewards_and_can_retry(api, monkeypa
 @pytest.mark.asyncio
 async def test_round_stream_notifies_committed_changes(api):
     import json
-    from app.api.v1.wavelength import stream
+    from app.api.v1.returned import stream
 
     class Connection:
         async def is_disconnected(self):

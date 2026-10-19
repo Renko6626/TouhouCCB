@@ -1,6 +1,6 @@
-# Wavelength 观众竞猜接口
+# Returned 观众竞猜接口
 
-已实现 THCCB 后端、管理员配置页及观众竞猜页，以及 Wavelength 控制器配置与通知发送端。
+已实现 THCCB 后端、管理员配置页及观众竞猜页，以及 Returned 控制器配置与通知发送端。
 
 ## 规则
 
@@ -14,25 +14,25 @@
 | ≤15 | ≤150 | 75 | −25 |
 | >15 | >150 | 0 | −100 |
 
-这是固定区间，与 Wavelength 默认 4/3/2 分区对齐后加上 75 区，不跟随其自定义 bandWidth。边界取高档。金额包含结算到账总额，不另退本金；取消未结算轮次则原额退款。
+这是固定区间，与 Returned 默认 4/3/2 分区对齐后加上 75 区，不跟随其自定义 bandWidth。边界取高档。金额包含结算到账总额，不另退本金；取消未结算轮次则原额退款。
 
 ## 页面配置
 
-无需配置联动环境变量。在 THCCB 管理员「站点配置」页的「Wavelength 观众竞猜」区填写 Wavelength 地址、密钥和启用开关。可生成新密钥并复制到 Wavelength 控制器。Wavelength 地址可选，用于打开控制器。
+无需配置联动环境变量。在 THCCB 管理员「站点配置」页的「Returned 观众竞猜」区填写 Returned 地址、密钥和启用开关。可生成新密钥并复制到 Returned 控制器。Returned 地址可选，用于打开控制器。
 
 THCCB 配置由数据库保存，仅保留密钥的 SHA-256 摘要。管理员读取接口只返回是否已配置；留空保存保留原密钥。保存立即生效，默认关闭；启用前必须设置至少 32 字符密钥。配置与密钥不进入通用站点配置列表，密钥及摘要均不写入审计内容或校验错误响应。
 
-管理接口：`GET /api/v1/admin/wavelength/config`、`PUT /api/v1/admin/wavelength/config`，使用管理员 JWT。更新体为 `{"enabled":true,"wavelength_url":"https://wavelength.example","secret":"至少32字符的新密钥"}`；读取返回 `enabled`、`wavelength_url`、`secret_configured`、`active_round_key`。地址只接受不含账号、查询参数或片段的 HTTP(S) 地址。
+管理接口：`GET /api/v1/admin/returned/config`、`PUT /api/v1/admin/returned/config`，使用管理员 JWT。更新体为 `{"enabled":true,"returned_url":"https://returned.example","secret":"至少32字符的新密钥"}`；读取返回 `enabled`、`returned_url`、`secret_configured`、`active_round_key`。地址只接受不含账号、查询参数或片段的 HTTP(S) 地址。
 
-有尚未结束的竞猜时不能更换开关、地址或密钥。先完成该轮，或由管理员在此处点击「取消当前竞猜并退款」（`POST /api/v1/admin/wavelength/rounds/{round_key}/cancel`）。该操作沿用同一退款事务，重复操作不重复退款，也不能撤销已结算轮次。
+有尚未结束的竞猜时不能更换开关、地址或密钥。先完成该轮，或由管理员在此处点击「取消当前竞猜并退款」（`POST /api/v1/admin/returned/rounds/{round_key}/cancel`）。该操作沿用同一退款事务，重复操作不重复退款，也不能撤销已结算轮次。
 
 关闭时观众及来源通知接口返回 404；管理员配置与取消接口仍可使用。外部密钥仅可调用四个轮次通知接口，不能操作管理员接口或代表玩家提交竞猜。玩家使用现有 THCCB 登录 JWT。
 
 按现有部署流程在启动新版后端前执行 `alembic upgrade head`（工作目录 `backend`）；需要访问正确的应用数据库。本次实现不自动执行生产迁移或部署。
 
-## Wavelength 通知
+## Returned 通知
 
-所有通知经 HTTPS 发到 `/api/v1/wavelength`，请求头：
+所有通知经 HTTPS 发到 `/api/v1/returned`，请求头：
 
 ```http
 Authorization: Bearer <管理员页面配置的联动密钥>
@@ -72,7 +72,7 @@ Content-Type: application/json
 {"target_position": 500}
 ```
 
-位置必须是 **0–1000 整数**，直接传 Wavelength 的 `state.target.center`，不要传已四舍五入的 `targetPct`。玩家提交也使用同一单位。必须先成功封盘，再公布结果。未封盘返回 409。
+位置必须是 **0–1000 整数**，直接传 Returned 的 `state.target.center`，不要传已四舍五入的 `targetPct`。玩家提交也使用同一单位。必须先成功封盘，再公布结果。未封盘返回 409。
 
 结算响应含公开轮次信息、`participant_count`、`total_payout`、`total_refund`。重复相同结果返回原结算摘要，不再发钱；不同结果返回 409，由工作人员查看记录处理，不自动回滚已发奖金。
 
@@ -84,7 +84,7 @@ Content-Type: application/json
 
 ## 观众参与入口
 
-登录后，从侧栏「心灵波长」进入 `/wavelength`，手机端通过现有导航抽屉进入。页面沿用现有 THCCB 黑白主题，不需要访问 Wavelength 控制器。
+登录后，从侧栏「逆转录者」进入 `/returned`，手机端通过现有导航抽屉进入。页面沿用现有 THCCB 黑白主题，不需要访问 Returned 控制器。
 
 - 出题结束后，页面通过 SSE 自动同步概念两端和当前轮次。
 - 拖动滑块或填写百分比只改变预览；首次点击「投入 100 金圆券参与」才扣款。
@@ -107,7 +107,7 @@ data: {"round_key":"8fbe2c-round-1","status":"settled"}
 
 页面先建立 SSE，在收到 sync 后查询当前状态，可避免进入页面时错过切换。结算与资金审计先提交，再发 SSE 和现有 `account_changed` 通知；页面关闭不影响结果。不要依赖每个中间事件都送达，始终以查询结果为准。
 
-## Wavelength 发送端
+## Returned 发送端
 
 在联网控制器的「高级选项」中配置 THCCB 地址、相同密钥及启用开关，保存后立即生效。配置由服务端 `config.json` 的 `thccb` 对象保存；密钥留空保留原值，浏览器查询只得到 `secret_configured`。沿用共享密码和设备会话，须先配置非空访问密码并登录。任何持有共享密码的人都可选择控制器，未新增独立管理员体系。
 
@@ -120,10 +120,14 @@ data: {"round_key":"8fbe2c-round-1","status":"settled"}
 3. `reveal` 产生结果：发送 result。
 4. 新游戏或跳题导致旧竞猜终止：发送 cancel；下一题使用新 round_key。
 
-关闭总开关时完全不发通知，本地热座模式也不触发。发送失败显示错误，不推进对应阶段，由工作人员用原操作和编号重试；不增加持久补发队列。服务器意外重启后，可在 THCCB 管理页取消未结束竞猜并退款。观众只连接 THCCB，不开放 Wavelength 当前包含隐藏答案的完整 SSE。
+关闭总开关时完全不发通知，本地热座模式也不触发。发送失败显示错误，不推进对应阶段，由工作人员用原操作和编号重试；不增加持久补发队列。服务器意外重启后，可在 THCCB 管理页取消未结束竞猜并退款。观众只连接 THCCB，不开放 Returned 当前包含隐藏答案的完整 SSE。
 
 ## 审计与运维
 
 投入、奖励、退款分别记录 `wavelength_stake`、`wavelength_reward`、`wavelength_refund` 资金流水及审计，reason 含轮次编号。与用户余额和竞猜记录同事务提交；零奖励只记录竞猜结果。现有 `scripts/audit_verify.py` 能核对这些现金增量。
 
 奖励是普通现金，不主动调用自动还款，仍可被既有强平流程用于还债或回补。赛季重置按现有业务重置语义清理竞猜记录；不对旧竞猜补发或退款。运行重置前应停止后端，并处理完当前活动。
+
+## 更名兼容
+
+活动名称为「逆转录者」（Returned），观众路径为 `/returned`，联动与管理接口分别为 `/api/v1/returned`、`/api/v1/admin/returned`。两端须使用新版接口。为保留已有数据和密钥，数据库表、SiteConfig 存储键及历史资金流水类型继续使用原有 `wavelength_*` 标识；管理接口的地址字段为 `returned_url`。无需数据库迁移或重新配置密钥。

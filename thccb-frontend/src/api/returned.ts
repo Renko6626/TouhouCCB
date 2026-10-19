@@ -1,14 +1,14 @@
 import api, { apiBaseUrl } from './index'
 
-export type WavelengthStatus = 'open' | 'closed' | 'settled' | 'cancelled'
-export interface WavelengthRound {
+export type ReturnedStatus = 'open' | 'closed' | 'settled' | 'cancelled'
+export interface ReturnedRound {
   round_key: string
   game_key: string
   round_number: number
   left_label: string
   right_label: string
   team_name: string
-  status: WavelengthStatus
+  status: ReturnedStatus
   stake: string
   bands: Array<{ max_distance: number; payout: string }>
   target_position: number | null
@@ -17,9 +17,9 @@ export interface WavelengthRound {
   finished_at: string | null
 }
 
-export interface WavelengthPrediction {
+export interface ReturnedPrediction {
   round_key: string
-  status: WavelengthStatus
+  status: ReturnedStatus
   position: number | null
   stake: string
   distance: number | null
@@ -29,11 +29,11 @@ export interface WavelengthPrediction {
   submitted_at: string | null
 }
 
-const prefix = '/api/v1/wavelength'
-export const wavelengthApi = {
-  current: () => api.get<WavelengthRound | null>(`${prefix}/current`),
-  mine: (key: string) => api.getForCurrentUser<WavelengthPrediction>(`${prefix}/rounds/${encodeURIComponent(key)}/me`),
-  submit: (key: string, position: number) => api.putForCurrentUser<WavelengthPrediction>(
+const prefix = '/api/v1/returned'
+export const returnedApi = {
+  current: () => api.get<ReturnedRound | null>(`${prefix}/current`),
+  mine: (key: string) => api.getForCurrentUser<ReturnedPrediction>(`${prefix}/rounds/${encodeURIComponent(key)}/me`),
+  submit: (key: string, position: number) => api.putForCurrentUser<ReturnedPrediction>(
     `${prefix}/rounds/${encodeURIComponent(key)}/prediction`, { position }),
   subscribe: (changed: () => void, connection: (connected: boolean) => void) => {
     const stream = new EventSource(`${apiBaseUrl.replace(/\/$/, '')}${prefix}/stream`)
@@ -45,16 +45,16 @@ export const wavelengthApi = {
   },
 }
 
-export interface WavelengthConfig {
+export interface ReturnedConfig {
   enabled: boolean
-  wavelength_url: string
+  returned_url: string
   secret_configured: boolean
   active_round_key: string | null
 }
 
-export const wavelengthAdminApi = {
-  getConfig: () => api.get<WavelengthConfig>('/api/v1/admin/wavelength/config'),
-  saveConfig: (value: { enabled: boolean; wavelength_url: string; secret: string }) =>
-    api.put<WavelengthConfig>('/api/v1/admin/wavelength/config', value),
-  cancelRound: (key: string) => api.post(`/api/v1/admin/wavelength/rounds/${encodeURIComponent(key)}/cancel`),
+export const returnedAdminApi = {
+  getConfig: () => api.get<ReturnedConfig>('/api/v1/admin/returned/config'),
+  saveConfig: (value: { enabled: boolean; returned_url: string; secret: string }) =>
+    api.put<ReturnedConfig>('/api/v1/admin/returned/config', value),
+  cancelRound: (key: string) => api.post(`/api/v1/admin/returned/rounds/${encodeURIComponent(key)}/cancel`),
 }

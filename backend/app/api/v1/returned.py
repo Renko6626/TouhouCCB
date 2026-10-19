@@ -1,4 +1,4 @@
-"""Wavelength server notifications and audience API use separate credentials."""
+"""Returned server notifications and audience API use separate credentials."""
 import asyncio
 import hmac
 import time
@@ -11,17 +11,17 @@ from starlette.responses import StreamingResponse
 from app.core.database import async_session_maker, get_async_session
 from app.core.users import current_active_user
 from app.models.base import User
-from app.models.wavelength import WavelengthRound
-from app.schemas.wavelength import (MyPrediction, PredictionInput, RoundKey,
+from app.models.returned import ReturnedRound
+from app.schemas.returned import (MyPrediction, PredictionInput, RoundKey,
     RoundPublic, RoundResult, RoundStart, RoundSummary)
-from app.services import wavelength as svc, wavelength_events, wavelength_config
+from app.services import returned as svc, returned_events, returned_config
 from app.services.account_events import encode_frame
 
 
 async def require_enabled():
     # Own a short read session; an SSE connection must not retain a DB connection.
     async with async_session_maker() as db:
-        config = await wavelength_config.read_config(db)
+        config = await returned_config.read_config(db)
     if not config['enabled']:
         raise HTTPException(404, 'Not Found')
     return config
@@ -29,9 +29,9 @@ async def require_enabled():
 
 def require_source(request: Request, config=Depends(require_enabled)):
     if not config['secret_hash']:
-        raise HTTPException(503, 'Wavelength 联动密钥未配置')
+        raise HTTPException(503, '逆转录者联动密钥未配置')
     scheme, _, credential = request.headers.get('authorization', '').partition(' ')
-    if scheme.lower() != 'bearer' or not hmac.compare_digest(wavelength_config.secret_digest(credential), config['secret_hash']):
+    if scheme.lower() != 'bearer' or not hmac.compare_digest(returned_config.secret_digest(credential), config['secret_hash']):
         raise HTTPException(401, '联动密钥无效')
 
 
@@ -64,7 +64,7 @@ router.include_router(source)
 
 @router.get('/current', response_model=RoundPublic | None)
 async def current(db: AsyncSession = Depends(get_async_session)):
-    round = (await db.execute(select(WavelengthRound).order_by(WavelengthRound.id.desc()).limit(1))).scalar_one_or_none()
+    round = (await db.execute(select(ReturnedRound).order_by(ReturnedRound.id.desc()).limit(1))).scalar_one_or_none()
     return svc.public_round(round) if round else None
 
 
@@ -83,7 +83,7 @@ async def prediction(round_key: RoundKey, req: PredictionInput,
 @router.get('/stream')
 async def stream(request: Request):
     try:
-        queue = wavelength_events.subscribe()
+        queue = returned_events.subscribe()
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from None
 
@@ -99,11 +99,11 @@ async def stream(request: Request):
                     yield await asyncio.wait_for(queue.get(), timeout=15)
                 except asyncio.TimeoutError:
                     async with async_session_maker() as db:
-                        if not (await wavelength_config.read_config(db))['enabled']:
+                        if not (await returned_config.read_config(db))['enabled']:
                             break
                     yield b': keepalive\n\n'
         finally:
-            wavelength_events.unsubscribe(queue)
+            returned_events.unsubscribe(queue)
 
     return StreamingResponse(frames(), media_type='text/event-stream',
         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})

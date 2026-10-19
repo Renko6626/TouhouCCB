@@ -1,12 +1,12 @@
 import { computed, onScopeDispose, ref, watch } from 'vue'
-import { wavelengthApi, type WavelengthRound, type WavelengthPrediction } from '@/api/wavelength'
+import { returnedApi, type ReturnedRound, type ReturnedPrediction } from '@/api/returned'
 import { useAuthStore } from '@/stores/auth'
 
 /** Page state only; submissions are explicit and never replayed by this page. */
-export function useWavelength() {
+export function useReturned() {
   const auth = useAuthStore()
-  const round = ref<WavelengthRound | null>(null)
-  const prediction = ref<WavelengthPrediction | null>(null)
+  const round = ref<ReturnedRound | null>(null)
+  const prediction = ref<ReturnedPrediction | null>(null)
   const position = ref(500)
   const loading = ref(false)
   const submitting = ref(false)
@@ -32,8 +32,8 @@ export function useWavelength() {
     ready.value = false
     error.value = ''
     try {
-      const current = await wavelengthApi.current()
-      const mine = current ? await wavelengthApi.mine(current.round_key) : null
+      const current = await returnedApi.current()
+      const mine = current ? await returnedApi.mine(current.round_key) : null
       if (disposed || ticket !== request) return
       const newRound = current?.round_key !== round.value?.round_key
       if (newRound || !edited) {
@@ -74,7 +74,7 @@ export function useWavelength() {
     submitting.value = true
     error.value = ''
     try {
-      const accepted = await wavelengthApi.submit(key, value)
+      const accepted = await returnedApi.submit(key, value)
       if (disposed || generation !== auth.sessionGeneration || round.value?.round_key !== key) return
       prediction.value = accepted
       edited = false
@@ -97,7 +97,7 @@ export function useWavelength() {
     started = true
     closeStream?.()
     connected.value = false
-    closeStream = wavelengthApi.subscribe(() => { void refresh() }, value => { connected.value = value })
+    closeStream = returnedApi.subscribe(() => { void refresh() }, value => { connected.value = value })
     await refresh()
   }
 

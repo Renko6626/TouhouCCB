@@ -18,7 +18,7 @@ from app.models import audit as _audit_models  # noqa: F401  注册审计事件�
 from app.models import fx as _fx_models  # noqa: F401  注册 FX 表到 SQLModel.metadata
 from app.models import bot as _bot_models  # noqa: F401  注册 bot_profile 到 SQLModel.metadata
 from app.models import credit as _credit_models  # noqa: F401  注册 liquidation_run/action 到 SQLModel.metadata
-from app.models import wavelength as _wavelength_models  # noqa: F401
+from app.models import returned as _returned_models  # noqa: F401
 
 
 async def init_db():

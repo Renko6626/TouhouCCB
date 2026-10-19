@@ -21,7 +21,7 @@ const isGroup = (e: NavEntry): e is NavGroup => 'children' in e
 const navItems: NavEntry[] = [
   { label: '首页', path: '/', icon: 'i-mdi-home-outline', activeIcon: 'i-mdi-home' },
   { label: '外汇交易', path: '/fx', icon: 'i-mdi-lightning-bolt', activeIcon: 'i-mdi-lightning-bolt' },
-  { label: '心灵波长', path: '/wavelength', icon: 'i-mdi-tune-vertical', activeIcon: 'i-mdi-tune-vertical' },
+  { label: '逆转录者', path: '/returned', icon: 'i-mdi-tune-vertical', activeIcon: 'i-mdi-tune-vertical' },
   { label: '我的资产', path: '/user/portfolio', icon: 'i-mdi-wallet-outline', activeIcon: 'i-mdi-wallet' },
   { label: '交易记录', path: '/user/transactions', icon: 'i-mdi-history', activeIcon: 'i-mdi-history' },
   { label: '预测市场', path: '/market/list', icon: 'i-mdi-chart-areaspline', activeIcon: 'i-mdi-chart-areaspline' },
