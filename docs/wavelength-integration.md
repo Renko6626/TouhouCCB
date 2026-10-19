@@ -1,0 +1,118 @@
+# Wavelength 观众竞猜接口
+
+已实现 THCCB 后端和管理员配置页，以及 Wavelength 控制器配置与通知发送端。THCCB 观众竞猜页面尚未实现。
+
+## 规则
+
+每轮首次提交扣 100 金圆券；封盘前修改位置不再次扣款，不允许追加投入。后端按最终提交位置与真实目标的绝对距离结算：
+
+| 误差（百分点） | API 距离单位 | 结算到账 | 净盈亏 |
+|---|---:|---:|---:|
+| ≤1.6 | ≤16 | 300 | +200 |
+| ≤5.6 | ≤56 | 200 | +100 |
+| ≤10 | ≤100 | 150 | +50 |
+| ≤15 | ≤150 | 75 | −25 |
+| >15 | >150 | 0 | −100 |
+
+这是固定区间，与 Wavelength 默认 4/3/2 分区对齐后加上 75 区，不跟随其自定义 bandWidth。边界取高档。金额包含结算到账总额，不另退本金；取消未结算轮次则原额退款。
+
+## 页面配置
+
+无需配置联动环境变量。在 THCCB 管理员「站点配置」页的「Wavelength 观众竞猜」区填写 Wavelength 地址、密钥和启用开关。可生成新密钥并复制到 Wavelength 控制器。Wavelength 地址可选，用于打开控制器。
+
+THCCB 配置由数据库保存，仅保留密钥的 SHA-256 摘要。管理员读取接口只返回是否已配置；留空保存保留原密钥。保存立即生效，默认关闭；启用前必须设置至少 32 字符密钥。配置与密钥不进入通用站点配置列表，密钥及摘要均不写入审计内容或校验错误响应。
+
+管理接口：`GET /api/v1/admin/wavelength/config`、`PUT /api/v1/admin/wavelength/config`，使用管理员 JWT。更新体为 `{"enabled":true,"wavelength_url":"https://wavelength.example","secret":"至少32字符的新密钥"}`；读取返回 `enabled`、`wavelength_url`、`secret_configured`、`active_round_key`。地址只接受不含账号、查询参数或片段的 HTTP(S) 地址。
+
+有尚未结束的竞猜时不能更换开关、地址或密钥。先完成该轮，或由管理员在此处点击「取消当前竞猜并退款」（`POST /api/v1/admin/wavelength/rounds/{round_key}/cancel`）。该操作沿用同一退款事务，重复操作不重复退款，也不能撤销已结算轮次。
+
+关闭时观众及来源通知接口返回 404；管理员配置与取消接口仍可使用。外部密钥仅可调用四个轮次通知接口，不能操作管理员接口或代表玩家提交竞猜。玩家使用现有 THCCB 登录 JWT。
+
+按现有部署流程在启动新版后端前执行 `alembic upgrade head`（工作目录 `backend`）；需要访问正确的应用数据库。本次实现不自动执行生产迁移或部署。
+
+## Wavelength 通知
+
+所有通知经 HTTPS 发到 `/api/v1/wavelength`，请求头：
+
+```http
+Authorization: Bearer <管理员页面配置的联动密钥>
+Content-Type: application/json
+```
+
+密钥不要写入 URL、前端 JS、localStorage 或日志。通知中无需发送用户、奖金或管理员身份。
+
+### 开放竞猜
+
+`POST /rounds/start`
+
+```json
+{
+  "round_key": "8fbe2c-round-1",
+  "game_key": "8fbe2c",
+  "round_number": 1,
+  "left_label": "寒冷",
+  "right_label": "炎热",
+  "team_name": "红队"
+}
+```
+
+`round_key` 必须全局唯一；建议每场用随机 UUID 作为 game_key，再拼接该场的题目序号（跳题也使用新序号）。编号允许字母、数字、下划线、连字符、句点、冒号，最长 128。相同编号和信息重复发送返回当前轮次；信息冲突或上一轮尚未结束返回 409。
+
+响应公开轮次信息，包含 `status`、`stake`、`bands`、`target_position` 及 UTC 时间。金额为十进制字符串。开始请求不接受隐藏目标或自定义奖金。
+
+### 封盘
+
+`POST /rounds/{round_key}/close`，无请求体。状态变为 `closed`，后续玩家提交返回 409。重复封盘无副作用。
+
+### 公布结果
+
+`POST /rounds/{round_key}/result`
+
+```json
+{"target_position": 500}
+```
+
+位置必须是 **0–1000 整数**，直接传 Wavelength 的 `state.target.center`，不要传已四舍五入的 `targetPct`。玩家提交也使用同一单位。必须先成功封盘，再公布结果。未封盘返回 409。
+
+结算响应含公开轮次信息、`participant_count`、`total_payout`、`total_refund`。重复相同结果返回原结算摘要，不再发钱；不同结果返回 409，由工作人员查看记录处理，不自动回滚已发奖金。
+
+### 取消
+
+`POST /rounds/{round_key}/cancel`，无请求体。取消尚未结算的轮次并原额退还投入。重复取消不再退款，已结算轮次不能取消。
+
+不存在轮次返回 404；密钥无效返回 401；参数错误返回 422；只读实例或经济写入不可用时拒绝资金变更。
+
+## 观众页面接入约定
+
+- `GET /current`：免登录读取当前/最近一轮，尚无轮次返回 null。未结算时 `target_position=null`。
+- `GET /rounds/{round_key}/me`：使用玩家 JWT 获取本人位置、投入、误差、到账金额、退款、净盈亏；未参与时 position/payout 为 null、stake 为 0。
+- `PUT /rounds/{round_key}/prediction`，请求 `{"position":500}`：首次成功扣 100，重复提交或改位置不重复扣。余额不足返回 422；现有支出风控拒绝返回 409。有债不一律禁止，但不自动借款凑投入。
+- `GET /stream`：公开 SSE，首帧 `sync` 提醒查询 `/current`。变化帧 `round_changed` 仅含 `round_key` 和 `status`，随后查询轮次与本人结果；每 15 秒保活，连接最多一小时，断线后重连并重新查询。
+
+```text
+event: round_changed
+data: {"round_key":"8fbe2c-round-1","status":"settled"}
+```
+
+页面先建立 SSE，在收到 sync 后查询当前状态，可避免进入页面时错过切换。结算与资金审计先提交，再发 SSE 和现有 `account_changed` 通知；页面关闭不影响结果。不要依赖每个中间事件都送达，始终以查询结果为准。
+
+## Wavelength 发送端
+
+在联网控制器的「高级选项」中配置 THCCB 地址、相同密钥及启用开关，保存后立即生效。配置由服务端 `config.json` 的 `thccb` 对象保存；密钥留空保留原值，浏览器查询只得到 `secret_configured`。沿用共享密码和设备会话，须先配置非空访问密码并登录。任何持有共享密码的人都可选择控制器，未新增独立管理员体系。
+
+静态服务已限制为公开游戏资源，禁止读取配置、认证会话和 `.git` 等内部文件。密钥只用于服务端 POST，不进入浏览器共享游戏状态。联动通知默认关闭；本地热座不通知。
+
+调用点放在 `server.js` 的 `/api/intent` 处理处，按有效状态变化通知：
+
+1. `donePsychic` 进入 `dial`：发送 start，取选定卡片面，而非候选题。
+2. `lock` 进入 `guess`：发送 close；THCCB 未确认封盘时提示工作人员并阻止揭晓。
+3. `reveal` 产生结果：发送 result。
+4. 新游戏或跳题导致旧竞猜终止：发送 cancel；下一题使用新 round_key。
+
+关闭总开关时完全不发通知，本地热座模式也不触发。发送失败显示错误，不推进对应阶段，由工作人员用原操作和编号重试；不增加持久补发队列。服务器意外重启后，可在 THCCB 管理页取消未结束竞猜并退款。观众只连接 THCCB，不开放 Wavelength 当前包含隐藏答案的完整 SSE。
+
+## 审计与运维
+
+投入、奖励、退款分别记录 `wavelength_stake`、`wavelength_reward`、`wavelength_refund` 资金流水及审计，reason 含轮次编号。与用户余额和竞猜记录同事务提交；零奖励只记录竞猜结果。现有 `scripts/audit_verify.py` 能核对这些现金增量。
+
+奖励是普通现金，不主动调用自动还款，仍可被既有强平流程用于还债或回补。赛季重置按现有业务重置语义清理竞猜记录；不对旧竞猜补发或退款。运行重置前应停止后端，并处理完当前活动。

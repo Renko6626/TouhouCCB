@@ -20,6 +20,7 @@ from app.models import title as _title_models  # noqa: F401 触发 metadata 注�
 from app.models import bot as _bot_models  # noqa: F401 触发 metadata 注册 bot_profile
 from app.models import fx as _fx_models  # noqa: F401 触发 metadata 注册 FX 表
 from app.models import credit as _credit_models  # noqa: F401 触发 metadata 注册 liquidation_run/action
+from app.models import wavelength as _wavelength_models  # noqa: F401
 from app.services.loan_sweep import (
     start_scheduler as start_loan_scheduler,
     stop_scheduler as stop_loan_scheduler,
@@ -500,6 +501,11 @@ from app.api.v1 import title as title_api
 app.include_router(title_api.router, prefix="/api/v1/title", tags=["Title"])
 app.include_router(fx_api.router, prefix="/api/v1/fx", tags=["FX"])
 app.include_router(admin_fx_api.router, prefix="/api/v1/admin/fx", tags=["AdminFX"])
+
+from app.api.v1 import wavelength as wavelength_api
+app.include_router(wavelength_api.router, prefix="/api/v1/wavelength", tags=["Wavelength"])
+from app.api.v1 import admin_wavelength
+app.include_router(admin_wavelength.router, prefix="/api/v1/admin/wavelength", tags=["AdminWavelength"])
 
 
 @app.get("/")

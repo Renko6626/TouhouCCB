@@ -26,6 +26,7 @@ import app.models.audit  # noqa: F401, E402
 import app.models.bot  # noqa: F401, E402
 import app.models.fx  # noqa: F401, E402
 import app.models.credit  # noqa: F401, E402  统一信贷 liquidation_run/action（WP1）
+import app.models.wavelength  # noqa: F401, E402
 from app.core.config import settings  # noqa: E402
 
 config = context.config

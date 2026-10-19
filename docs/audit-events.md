@@ -24,6 +24,7 @@
 | `market_create` / `market_close` / `market_resume` / `market_settle` | 市场生命周期 | create: title, liquidity_b, outcomes；settle: winning_outcome_id, payout_unit, total_payout | market |
 | `loan_borrow` / `loan_repay` | 用户借还 | cash_delta, debt_delta, daily_rate, **interest_accrued**（本次操作前隐式结进 debt 的利息） | user |
 | `admin_adjust_cash` / `admin_force_loan` / `admin_forgive_debt` / `admin_amnesty` | 管理员资金操作（经 `ledger_service.record_entry` 自动发） | 同上 + reason；operator_user_id | user |
+| `wavelength_stake` / `wavelength_reward` / `wavelength_refund` | 观众竞猜投入 / 结算 / 取消退款 | cash_delta, debt_delta=0, reason（含 round_key）；管理员取消带 operator_user_id | user |
 | `interest_accrual` | **定时结息 sweep**（`loan_sweep.run_sweep_once`，`source=scheduler`）。sweep 每 60s 跑，但对「距上次结息不足 `loan_sweep_min_accrual_sec`（默认 3600s）」的用户跳过，所以每个债务人**最多每小时一条**，而不是每分钟一条；还款/免债量化为 0 但已结息时也发一条（`source=<op>_noop`） | debt_before, debt_after, interest, daily_rate, elapsed_sec, source | user |
 | `liquidation_repay` | 强平后自动还债（不走 ledger，这里单独记） | repaid, interest_accrued, trigger_source | user |
 | `liquidation` | 强平汇总（= `LiquidationEvent` 全字段，`ref_id` 指向它） | pre_*/post_* | user |

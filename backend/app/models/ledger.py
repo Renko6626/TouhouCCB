@@ -15,6 +15,7 @@ from sqlalchemy import Column, DateTime, Numeric, ForeignKey, Index
 
 # 允许的 entry_type 取值（应用层收敛，不加 DB enum 约束，沿用 Transaction.type 惯例）
 LEDGER_ENTRY_TYPES = frozenset({
+    "wavelength_stake", "wavelength_reward", "wavelength_refund",
     "borrow",              # 用户借款
     "repay",               # 用户还款
     "admin_adjust_cash",   # 管理员调现金

@@ -93,7 +93,8 @@ class Mismatch:
 # 事件类型 → 对 user 的现金/债务影响（从 payload 推算）
 _TRADE_TYPES = {"trade_buy", "trade_sell", "trade_liquidate", "settle_win", "settle_lose"}
 _LEDGER_TYPES = {"loan_borrow", "loan_repay", "admin_adjust_cash", "admin_force_loan",
-                 "admin_forgive_debt", "admin_amnesty"}
+                 "admin_forgive_debt", "admin_amnesty",
+                 "wavelength_stake", "wavelength_reward", "wavelength_refund"}
 
 
 def _expected_user_delta(ev: AuditEvent) -> Optional[tuple[Decimal, Decimal]]:
