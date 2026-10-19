@@ -151,6 +151,11 @@ instance.interceptors.response.use(
 
 // 创建包装函数以提供更好的类型支持
 const api = {
+  putForCurrentUser: <T>(url: string, data: unknown, config?: AxiosRequestConfig): Promise<T> => {
+    if (useAuthStore().user?.id == null) return Promise.reject(changedAuthContext())
+    const bound: UserBoundConfig = { ...config, authContextGuard: authIdentityGuard() }
+    return instance.put(url, data, bound).then(res => res as T)
+  },
   /** Bound economic requests cannot be refreshed or replayed under a new login. */
   postForCurrentUser: <T>(url: string, data: unknown, config?: AxiosRequestConfig): Promise<T> => {
     const auth = useAuthStore(), userId = auth.user?.id

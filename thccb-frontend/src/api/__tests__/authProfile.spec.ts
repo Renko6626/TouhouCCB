@@ -14,6 +14,14 @@ function login(id: number, access: string, refresh: string) {
   const auth = useAuthStore(); auth.user = { id } as User; auth.accessToken = access; auth.refreshToken = refresh
   return auth
 }
+it('updates cash without changing the identity generation for the same user', async () => {
+  const auth = login(1, 'A', 'RA')
+  const generation = auth.sessionGeneration
+  vi.spyOn(authApi, 'getCurrentUser').mockResolvedValue({ id: 1, cash: '700' } as unknown as User)
+  await auth.fetchCurrentUser()
+  expect(auth.user!.cash).toBe('700')
+  expect(auth.sessionGeneration).toBe(generation)
+})
 for (const status of [401, 403]) it(`discards an old profile ${status} before renewal/logout/private dialogs in the new login`, async () => {
   const auth = login(1, 'A', 'RA')
   let reject!: () => void, started!: () => void

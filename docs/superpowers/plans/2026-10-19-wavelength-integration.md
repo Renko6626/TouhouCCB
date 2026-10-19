@@ -103,3 +103,12 @@
 - Wavelength 在 `feature/thccb-bridge` 分支完成控制器配置、4种通知、同轮手动重试与静态配置保护。
 - 最终后端相关检查 39 passed（竞猜、页面配置、迁移、审计导出及重放、账户通知、赛季重置）；前端 `npm run build` 通过。Wavelength logic/dom/server 检查通过。
 - 临时数据库下真实两端 HTTP 联调通过：配置、开盘、扣款、封盘、结果到账、取消退款。未运行浏览器自动交互，未触碰生产数据库。
+
+### 观众页面
+
+- 新增 `/wavelength` 与侧栏「心灵波长」入口，沿用 THCCB 主题及 Naive UI；所有私有查询/提交绑定当前账号。
+- 首次点击参与投入 100；滑动仅预览，修改需明确保存；SSE 自动同步轮次，保留未保存草稿，展示封盘、结算及退款。
+- 修复同账号 profile 替换导致身份版本变化及页面重复刷新的真实问题，watch 改为按用户 ID、令牌/身份版本分别观察；已先复现再验证修复。
+- 相关前端检查：`npm run test:unit -- src/composables/__tests__/useWavelength.spec.ts src/api/__tests__/authProfile.spec.ts src/api/__tests__/userBoundRequest.spec.ts src/api/__tests__/tradingStream.spec.ts`，17 passed。
+
+- 前端现有单元测试最终全量运行：`npm run test:unit`，25 个文件、263 passed。`npm run build` 通过。使用截图专用模拟数据核对桌面开盘与手机结算状态，均无横向溢出和页面异常；未执行浏览器自动点击或填写表单。

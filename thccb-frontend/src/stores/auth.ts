@@ -13,7 +13,7 @@ export const useAuthStore = defineStore('auth', () => {
   const autoRepaySaving = ref(false)
   const autoRepay = computed(() => user.value?.auto_repay !== false)
   const sessionGeneration = ref(0)
-  watch(() => [user.value?.id, refreshToken.value], () => { sessionGeneration.value++; autoRepaySaving.value = false }, { flush: 'sync' })
+  watch([() => user.value?.id, () => refreshToken.value], () => { sessionGeneration.value++; autoRepaySaving.value = false }, { flush: 'sync' })
 
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const isAdmin = computed(() => user.value?.is_superuser ?? false)
