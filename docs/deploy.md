@@ -860,6 +860,61 @@ docker compose logs -f backend          # 实时日志
 docker compose logs --tail 100 backend  # 最近 100 行
 ```
 
+### 风控请求日志（客户端指纹）
+
+用途：排查「某个用户是不是脚本 / 无头浏览器」。**只记录，不拦截**，由管理员人工判断后再决定是否封号。
+
+- **位置**：容器内 `/app/data/risk/`，宿主机 `backend/data/risk/`
+- **文件**：`risk-YYYY-MM-DD.jsonl`（UTC 日期），一行一条 JSON，保留 30 天
+- **范围**：只记非 GET 的 `/api/v1/*` 请求（下单、挂单/撤单、兑换、token 刷新等）；GET 轮询不记录，避免日志膨胀
+- **排除**：`is_bot=true` 的 PvE 机器人（含本机回环 HTTP），缓存 60 秒刷新
+- **失败隔离**：写日志出错只打 `risk log: write failed`，不影响业务请求
+- **不记录**：请求体、Authorization 原文
+
+字段：
+
+| 字段 | 说明 |
+|---|---|
+| `ts` | 请求完成时间，UTC，微秒 |
+| `user_id` | 从 Bearer token 解析；匿名/无效 token 为 `null` |
+| `method` / `path` / `status` / `duration_ms` | 请求与响应 |
+| `ip` | 优先 `ali-real-client-ip`，其次 `X-Forwarded-For` 第一跳 |
+| `ua` | User-Agent |
+| `sec_ch_ua` / `sec_ch_ua_mobile` / `sec_ch_ua_platform` | Chromium 客户端提示 |
+| `sec_fetch_mode` / `sec_fetch_site` / `sec_fetch_dest` | 浏览器请求上下文 |
+| `accept_language` / `referer` / `origin` | 语言与来源 |
+| `client_token` | `X-Client-Token` 校验结果：`valid` / `bad` / `missing` / `off`（未配置 `CLIENT_TOKEN_SECRET`） |
+| `client_hint` | 粗略分类：`script` / `headless` / `browser_like_missing_headers` / `browser` |
+
+常用排查：
+
+```bash
+# 实时跟踪（UTC 日期文件名）
+ssh ali-deploy "tail -f /home/deploy/TouhouCCB/backend/data/risk/risk-\$(date -u +%F).jsonl"
+
+# 只看非普通浏览器
+ssh ali-deploy "grep -v '\"client_hint\":\"browser\"' /home/deploy/TouhouCCB/backend/data/risk/risk-\$(date -u +%F).jsonl"
+
+# 按用户筛
+ssh ali-deploy "grep '\"user_id\":621' /home/deploy/TouhouCCB/backend/data/risk/risk-\$(date -u +%F).jsonl"
+
+# 统计每个可疑提示的数量
+ssh ali-deploy "grep -o '\"client_hint\":\"[^\"]*\"' /home/deploy/TouhouCCB/backend/data/risk/risk-\$(date -u +%F).jsonl | sort | uniq -c"
+```
+
+关闭 / 改目录（无需改代码，写进 `.env` 后重启后端）：
+
+```env
+RISK_LOG_ENABLED=0          # 关闭
+RISK_LOG_DIR=data/risk      # 自定义目录（相对容器 WORKDIR /app）
+```
+
+注意：
+
+- `client_hint` 只是启发式标记，UA 可以伪造；判定脚本要结合 `sec-ch-ua` / `sec-fetch-*` 是否齐全、IP、请求间隔一起看。
+- 新创建的 PvE 机器人最多 60 秒内可能出现在日志里（缓存刷新间隔）。
+- 日志按 UTC 日期切分，不按北京时间。
+
 ### 查看容器状态
 
 ```bash
