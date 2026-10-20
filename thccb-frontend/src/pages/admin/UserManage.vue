@@ -4,7 +4,7 @@
  * 资产（调现金）/ 贷款（强制放贷、免债）/ 账号（封禁、管理员）/ 称号。
  * 批量操作见 BatchOps.vue。
  */
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   useMessage, useDialog, NDataTable, NButton, NInput, NTabs, NTabPane, NSelect, NTag,
@@ -26,29 +26,62 @@ const route = useRoute()
 const router = useRouter()
 
 // ── 列表 ──
+const PAGE_SIZE = 200
 const users = ref<UserListItem[]>([])
 const allTitles = ref<TitleRead[]>([])
 const listLoading = ref(false)
+const moreLoading = ref(false)
+const hasMore = ref(false)
 const search = ref('')
 
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return users.value
-  return users.value.filter(u => String(u.id) === q || u.username.toLowerCase().includes(q))
-})
+// 搜索走服务端（用户名模糊 / 精确 ID），避免只过滤已加载的前 N 人
+let listSeq = 0
+let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadList() {
+  const seq = ++listSeq
   listLoading.value = true
   try {
-    const [u, t] = await Promise.all([adminUsersApi.list(), adminTitleApi.listTitles()])
+    const [u, t] = await Promise.all([
+      adminUsersApi.list(0, PAGE_SIZE, search.value.trim() || undefined),
+      allTitles.value.length ? Promise.resolve(allTitles.value) : adminTitleApi.listTitles(),
+    ])
+    if (seq !== listSeq) return
     users.value = u
+    hasMore.value = u.length === PAGE_SIZE
     allTitles.value = t
   } catch (e) {
-    message.error(extractErrorMessage(e, '加载失败'))
+    if (seq === listSeq) message.error(extractErrorMessage(e, '加载失败'))
   } finally {
-    listLoading.value = false
+    if (seq === listSeq) listLoading.value = false
   }
 }
+
+async function loadMore() {
+  if (moreLoading.value || !hasMore.value) return
+  moreLoading.value = true
+  try {
+    const next = await adminUsersApi.list(
+      users.value.length, PAGE_SIZE, search.value.trim() || undefined,
+    )
+    const seen = new Set(users.value.map(u => u.id))
+    users.value = [...users.value, ...next.filter(u => !seen.has(u.id))]
+    hasMore.value = next.length === PAGE_SIZE
+  } catch (e) {
+    message.error(extractErrorMessage(e, '加载更多失败'))
+  } finally {
+    moreLoading.value = false
+  }
+}
+
+watch(search, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => { void loadList() }, 300)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
 
 // ── 详情 ──
 const selectedId = ref<number | null>(null)
@@ -305,11 +338,17 @@ onMounted(async () => {
       <section class="card list-card">
         <NInput v-model:value="search" placeholder="搜索用户名 / 精确 ID" clearable size="small" class="mb-2" />
         <NDataTable
-          :columns="columns" :data="filtered" :loading="listLoading"
+          :columns="columns" :data="users" :loading="listLoading"
           :bordered="true" size="small" :max-height="560"
           :row-key="(r: UserListItem) => r.id" :row-props="rowProps"
         />
-        <p class="list-foot">共 {{ users.length }} 人（最多显示 200）</p>
+        <div class="list-foot">
+          <span>已加载 {{ users.length }} 人</span>
+          <button
+            v-if="hasMore" class="btn-outline btn-sm" :disabled="moreLoading"
+            @click="loadMore"
+          >{{ moreLoading ? '加载中…' : '加载更多 200 人' }}</button>
+        </div>
       </section>
 
       <section class="card detail-card">
@@ -489,6 +528,9 @@ onMounted(async () => {
   margin-top: 8px;
   font-size: 11px;
   color: #888;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 :deep(.row-selected td) {
   background: #000 !important;

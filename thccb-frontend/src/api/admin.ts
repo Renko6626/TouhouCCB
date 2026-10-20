@@ -187,7 +187,8 @@ export interface WealthStats {
 const U = '/api/v1/admin/users'
 
 export const adminUsersApi = {
-  list: () => api.get<UserListItem[]>(U),
+  list: (offset = 0, limit = 200, q?: string) =>
+    api.get<UserListItem[]>(U, { params: { offset, limit, ...(q ? { q } : {}) } }),
   get: (userId: number) => api.get<AdminUserSummary>(`${U}/${userId}`),
 
   adjustCash: (userId: number, amount: number | string, reason: string) =>

@@ -9,9 +9,9 @@ import logging
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -36,10 +36,20 @@ def _http(e: AdminUserError) -> HTTPException:
 
 @router.get("", summary="用户列表（仅管理员）")
 async def list_users(
+    offset: int = Query(0, ge=0, description="跳过条数（按 id 升序）"),
+    limit: int = Query(200, ge=1, le=1000, description="本页条数，最大 1000"),
+    q: Optional[str] = Query(None, max_length=100, description="服务端搜索：用户名模糊匹配 / 精确 ID"),
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    users = (await db.execute(select(User).order_by(User.id.asc()).limit(200))).scalars().all()
+    stmt = select(User).order_by(User.id.asc())
+    term = (q or "").strip()
+    if term:
+        conds = [User.username.ilike(f"%{term}%")]
+        if term.isdigit():
+            conds.append(User.id == int(term))
+        stmt = stmt.where(or_(*conds))
+    users = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
     return [
         {
             "id": u.id, "username": u.username,
