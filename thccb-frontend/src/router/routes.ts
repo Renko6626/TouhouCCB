@@ -85,7 +85,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'returned',
         name: 'returned',
         component: () => import('@/pages/Returned.vue'),
-        meta: { title: '逆转录者', requiresAuth: true, requiresVerified: true },
+        meta: { title: '逆转录者', requiresAuth: true, requiresVerified: true, requiresAdmin: true },
       },
       {
         path: 'redemption',
