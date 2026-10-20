@@ -871,6 +871,16 @@ docker compose logs --tail 100 backend  # 最近 100 行
 - **失败隔离**：写日志出错只打 `risk log: write failed`，不影响业务请求
 - **不记录**：请求体、Authorization 原文
 
+> **首次启用（或换服务器）要建目录**：容器运行用户与 `backend/data` 的属主可能不一致
+> （生产实测容器 `uid=1007`、挂载目录属主 `1000`），容器自己 `mkdir data/risk` 会
+> `PermissionError`。先在宿主机执行：
+>
+> ```bash
+> mkdir -p backend/data/risk && chmod 777 backend/data/risk
+> ```
+>
+> `backend/data` 不在 CI rsync 范围内，权限设置会一直保留；换机器/重建数据目录后需重做。
+
 字段：
 
 | 字段 | 说明 |
@@ -883,7 +893,7 @@ docker compose logs --tail 100 backend  # 最近 100 行
 | `sec_ch_ua` / `sec_ch_ua_mobile` / `sec_ch_ua_platform` | Chromium 客户端提示 |
 | `sec_fetch_mode` / `sec_fetch_site` / `sec_fetch_dest` | 浏览器请求上下文 |
 | `accept_language` / `referer` / `origin` | 语言与来源 |
-| `client_token` | `X-Client-Token` 校验结果：`valid` / `bad` / `missing` / `off`（未配置 `CLIENT_TOKEN_SECRET`） |
+| `client_token` | `X-Client-Token` 校验结果：`valid` / `bad` / `missing` / `off`（未配置 `CLIENT_TOKEN_SECRET`）。前端只对 `/api/v1/market/{buy,sell,quote}` 发送该头，**FX 路径正常就是 `missing`**，不能据此判脚本 |
 | `client_hint` | 粗略分类：`script` / `headless` / `browser_like_missing_headers` / `browser` |
 
 常用排查：
