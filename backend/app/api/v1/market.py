@@ -814,7 +814,8 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
         # 排行榜按 MTM 口径排序（瞬时价 × 数量），跟 /user/summary 主显示一致，
         # 用户对自己排名的认知 = 看到的"我的净资产"。LCV 更保守但偏低不直观,
         # 不适合做排名口径。详见 docs/holdings-value-semantics.md。
-        users_stmt = select(User)
+        # 封禁（is_active=false）用户不上榜；PvE 机器人另由开关控制
+        users_stmt = select(User).where(User.is_active == True)  # noqa: E712
         if not include_bots:
             users_stmt = users_stmt.where(User.is_bot == False)  # noqa: E712
         users = (await db.execute(users_stmt)).scalars().all()
@@ -898,6 +899,8 @@ async def _leaderboard_uncached(limit: int, mode: str, db: AsyncSession):
             .order_by(score_expr.desc())
             .limit(limit)
         )
+        # 封禁（is_active=false）用户不上榜；PvE 机器人另由开关控制
+        stmt = stmt.where(User.is_active == True)  # noqa: E712
         if not include_bots:
             stmt = stmt.where(User.is_bot == False)  # noqa: E712
         rows = (await db.execute(stmt)).all()
