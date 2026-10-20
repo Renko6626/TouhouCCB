@@ -25,6 +25,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # （480 测 × ~0.8s setup），/tmp 在磁盘上；/dev/shm 不存在时回落 /tmp。
 _PYTEST_DB_DIR = "/dev/shm" if os.path.isdir("/dev/shm") else "/tmp"
 os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_PYTEST_DB_DIR}/thccb_pytest_{os.getpid()}.db")
+# 风控日志在测试里关闭：不写 data/risk，也不为每个写请求查 is_bot
+os.environ["RISK_LOG_ENABLED"] = "0"
 
 import pytest
 import pytest_asyncio

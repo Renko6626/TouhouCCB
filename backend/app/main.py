@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core import risk_log
 from app.core.database import async_session_maker, engine
 from app.core.schema import require_schema_current
 from app.core.admin import setup_admin
@@ -445,6 +446,21 @@ async def log_requests(request: Request, call_next):
         elapsed_ms,
     )
     return _set_no_store_for_api(path, response)
+
+
+@app.middleware("http")
+async def record_risk_request(request: Request, call_next):
+    """风控指纹日志：只记录非 GET 的 /api/v1/* 请求，写失败不影响业务。"""
+    if request.method in {"GET", "HEAD", "OPTIONS"} or not request.url.path.startswith("/api/v1/"):
+        return await call_next(request)
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        await risk_log.record(request, 500, (time.perf_counter() - start) * 1000)
+        raise
+    await risk_log.record(request, response.status_code, (time.perf_counter() - start) * 1000)
+    return response
 
 # 注册认证模块
 # 最终路径示例：
