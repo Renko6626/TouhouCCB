@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from app.models.base import User
-from app.models.returned import ReturnedPrediction, ReturnedRound
+from app.models.returned import ReturnedPrediction, ReturnedRound, ReturnedRoundGuard
 
 
 def test_prediction_migration_preserves_accounts_and_round_trips(tmp_path):
@@ -34,6 +34,20 @@ def test_prediction_migration_preserves_accounts_and_round_trips(tmp_path):
         db.commit()
         assert db.get(User, uid).cash == Decimal('123.456789')
         assert inspect(engine).get_unique_constraints('wavelength_prediction')[0]['column_names'] == ['round_id', 'user_id']
+    with engine.begin() as connection:
+        cfg.attributes['connection'] = connection
+        command.upgrade(cfg, 'returned_cancel_20261023')
+    with Session(engine) as db:
+        db.add(ReturnedRoundGuard(round_key='never-created', cancelled=True))
+        db.commit()
+        assert db.get(ReturnedRoundGuard, 'never-created').cancelled
+        assert db.get(User, uid).cash == Decimal('123.456789')
+    with engine.begin() as connection:
+        cfg.attributes['connection'] = connection
+        command.downgrade(cfg, 'wavelength_predictions_20261019')
+    assert 'wavelength_round_guard' not in inspect(engine).get_table_names()
+    with Session(engine) as db:
+        assert db.query(ReturnedPrediction).count() == 1
     with engine.begin() as connection:
         cfg.attributes['connection'] = connection
         command.downgrade(cfg, 'fx_announcements_20261016')

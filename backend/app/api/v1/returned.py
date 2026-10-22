@@ -14,7 +14,7 @@ from app.core.users import current_active_user
 from app.models.base import User
 from app.models.returned import ReturnedRound
 from app.schemas.returned import (MyPrediction, PredictionInput, RoundKey,
-    RoundPublic, RoundResult, RoundStart, RoundSummary, RoundResults)
+    RoundPublic, RoundResult, RoundStart, RoundSummary, RoundResults, RoundState)
 from app.services import returned as svc, returned_events, returned_config
 from app.services.account_events import encode_frame
 
@@ -24,7 +24,7 @@ async def require_enabled():
     async with async_session_maker() as db:
         config = await returned_config.read_config(db)
     if not config['enabled']:
-        raise HTTPException(404, 'Not Found')
+        raise HTTPException(404, 'Not Found', headers={'X-Returned-Code': 'INTEGRATION_DISABLED'})
     return config
 
 
@@ -51,6 +51,24 @@ async def require_results_reader(
 
 router = APIRouter(dependencies=[Depends(require_enabled)])
 source = APIRouter(dependencies=[Depends(require_source)])
+
+
+@source.get('/capabilities')
+async def capabilities():
+    return {'round_state': True, 'durable_cancel': True}
+
+
+@source.get('/rounds/{round_key}/state', response_model=RoundState)
+async def state(round_key: RoundKey, db: AsyncSession = Depends(get_async_session)):
+    return await svc.round_state(db, round_key)
+
+
+@source.post('/rounds/{round_key}/abort', response_model=RoundState)
+async def abort(round_key: RoundKey, db: AsyncSession = Depends(get_async_session)):
+    result = await svc.finish_round(db, round_key, cancel=True, remember_cancel=True)
+    if isinstance(result, RoundState):
+        return result
+    return RoundState(round_key=round_key, status=result.status, exists=True, summary=result)
 
 
 @source.post('/rounds/start', response_model=RoundPublic)

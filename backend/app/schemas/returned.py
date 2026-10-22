@@ -86,6 +86,13 @@ class RoundSummary(RoundPublic):
     total_refund: Decimal
 
 
+class RoundState(BaseModel):
+    round_key: RoundKey
+    status: Literal['missing', 'open', 'closed', 'settled', 'cancelled']
+    exists: bool
+    summary: RoundSummary | None = None
+
+
 class MyPrediction(BaseModel):
     round_key: str
     status: str

@@ -82,6 +82,18 @@ Content-Type: application/json
 
 `POST /rounds/{round_key}/cancel`，无请求体。取消尚未结算的轮次并原额退还投入。重复取消不再退款，已结算轮次不能取消。
 
+### 取消意图与按轮查询（2026-10-23）
+
+先应用迁移 `returned_cancel_20261023`，再部署本次后端。既有接口保持兼容，新增接口也使用联动 Bearer 密钥：
+
+- `GET /capabilities`：返回 `{"round_state":true,"durable_cancel":true}`，供发送端协商新能力。
+- `GET /rounds/{round_key}/state`：返回 `{round_key,status,exists,summary}`。status 包括 `missing/open/closed/settled/cancelled`；尚未创建时 summary 为 null，存在时为原结算摘要。明确不存在返回 200/missing，与功能关闭或路径不存在的 404 区分。
+- `POST /rounds/{round_key}/abort`：无请求体。持久登记取消意图，并取消已有未结算轮次、原路退还投入。不存在的轮号返回 `cancelled, exists:false`；以后同号 start 返回 409，不创建竞猜。已结算则返回 `settled` 及原摘要，保留奖励，不做追缴。重复 abort 不重复退款。
+
+新增 `wavelength_round_guard` 保存取消意图。start、close、result、cancel/abort 在同一数据库事务内先锁定生命周期控制行，再锁竞猜轮，使用 PostgreSQL upsert 的行锁（SQLite 使用写锁）；因此不能被其他进程的迟到开盘或结算请求越过。控制行使用不符合公开 RoundKey 格式的内部编号。取消记录不能随意清理，否则会失去防迟到请求的能力。
+
+退款仍调用原有 `_money`、`ledger_service.record_entry`、经济版本更新与审计逻辑，并与竞猜终态一起提交。奖励和退款只能胜出一个结果；已结算时 abort 不产生资金写入。`X-Returned-Code` 为关键失败提供可选机器代码，保留原有 detail 文案。
+
 不存在轮次返回 404；密钥无效返回 401；参数错误返回 422；只读实例或经济写入不可用时拒绝资金变更。
 
 ## 观众参与入口
@@ -129,7 +141,7 @@ data: {"round_key":"8fbe2c-round-1","status":"settled"}
 
 ## Returned 发送端
 
-在联网控制器的「高级选项」中配置 THCCB 地址、相同密钥及启用开关，保存后立即生效。配置由服务端 `config.json` 的 `thccb` 对象保存；密钥留空保留原值，浏览器查询只得到 `secret_configured`。沿用共享密码和设备会话，须先配置非空访问密码并登录。任何持有共享密码的人都可选择控制器，未新增独立管理员体系。
+在联网控制器的「高级选项」中配置 THCCB 地址、相同密钥；联动开关位于右上角管理员菜单，允许局中切换。配置由服务端 `config.json` 的 `thccb` 对象保存；密钥留空保留原值，浏览器查询只得到 `secret_configured`。沿用共享密码和设备会话，须先配置非空访问密码并登录。任何持有共享密码的人都可选择控制器，未新增独立管理员体系。
 
 静态服务已限制为公开游戏资源，禁止读取配置、认证会话和 `.git` 等内部文件。密钥只用于服务端 POST，不进入浏览器共享游戏状态。联动通知默认关闭；本地热座不通知。
 
@@ -138,9 +150,9 @@ data: {"round_key":"8fbe2c-round-1","status":"settled"}
 1. `donePsychic` 进入 `dial`：发送 start，取选定卡片面，而非候选题。
 2. `lock` 进入 `guess`：发送 close；THCCB 未确认封盘时提示工作人员并阻止揭晓。
 3. `reveal` 产生结果：发送 result。
-4. 新游戏或跳题导致旧竞猜终止：发送 cancel；下一题使用新 round_key。
+4. 关闭联动、作废本轮或重置本局：本地立即生效，后台发送 abort；下一次符合条件的开盘使用新 round_key。
 
-关闭总开关时完全不发通知，本地热座模式也不触发。发送失败显示错误，不推进对应阶段，由工作人员用原操作和编号重试；不增加持久补发队列。服务器意外重启后，可在 THCCB 管理页取消未结束竞猜并退款。观众只连接 THCCB，不开放 Returned 当前包含隐藏答案的完整 SSE。
+关闭开关不再创建竞猜，但后台继续处理已登记的取消。正常开盘、封盘、揭晓等待确认；管理员操作不等待网络。Returned 私有持久队列保存取消和已提交结算意图，重启后恢复；未知旧轮可以在其管理员菜单核对后取消，无需手写请求。重新开启联动等待下一次关上遮挡条；旧轮未清理完时本轮跳过竞猜。观众只连接 THCCB，不开放 Returned 当前包含隐藏答案的完整 SSE。
 
 ## 审计与运维
 
@@ -150,4 +162,4 @@ data: {"round_key":"8fbe2c-round-1","status":"settled"}
 
 ## 更名兼容
 
-活动名称为「逆转录者」（Returned），观众路径为 `/returned`，联动与管理接口分别为 `/api/v1/returned`、`/api/v1/admin/returned`。两端须使用新版接口。为保留已有数据和密钥，数据库表、SiteConfig 存储键及历史资金流水类型继续使用原有 `wavelength_*` 标识；管理接口的地址字段为 `returned_url`。无需数据库迁移或重新配置密钥。
+活动名称为「逆转录者」（Returned），观众路径为 `/returned`，联动与管理接口分别为 `/api/v1/returned`、`/api/v1/admin/returned`。两端须使用新版接口。为保留已有数据和密钥，数据库表、SiteConfig 存储键及历史资金流水类型继续使用原有 `wavelength_*` 标识；管理接口的地址字段为 `returned_url`。当时的更名无需数据库迁移或重新配置密钥；2026-10-23 新增取消意图需要上文的数据库迁移。

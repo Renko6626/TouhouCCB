@@ -22,10 +22,17 @@ TOPIC = dict(round_key='game-1-round-1', game_key='game-1', round_number=1,
 
 @pytest_asyncio.fixture
 async def api():
+    from app.services.credit.ownership import OWNERSHIP
+    if OWNERSHIP.supported:
+        await OWNERSHIP.acquire(required=True)
     await config_value('wavelength_enabled', 'true')
     await config_value('wavelength_secret_hash', secret_digest(KEY))
-    async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
-        yield client
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url='http://test') as client:
+            yield client
+    finally:
+        if OWNERSHIP.supported:
+            await OWNERSHIP.release()
 
 
 async def config_value(key, value):
@@ -68,7 +75,7 @@ async def predict(api, headers, position, key=TOPIC['round_key']):
 @pytest.mark.asyncio
 async def test_source_switch_and_key_gate_all_source_writes(api):
     for suffix, body in [('/start', TOPIC), ('/x/close', {}),
-                         ('/x/result', {'target_position': 500}), ('/x/cancel', {})]:
+                         ('/x/result', {'target_position': 500}), ('/x/cancel', {}), ('/x/abort', {})]:
         path = BASE + '/rounds' + suffix
         assert (await api.post(path, json=body)).status_code == 401
         await config_value('wavelength_enabled', 'false')
@@ -80,6 +87,143 @@ async def test_source_switch_and_key_gate_all_source_writes(api):
     assert (await api.post(BASE + '/rounds/start', json=TOPIC, headers=headers)).status_code == 401
     await config_value('wavelength_secret_hash', '')
     assert (await api.post(BASE + '/rounds/start', json=TOPIC, headers=SOURCE)).status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_durable_abort_unknown_key_and_rewards_remain_final(api):
+    path = BASE + '/rounds/' + TOPIC['round_key']
+    assert (await api.get(BASE + '/capabilities')).status_code == 401
+    assert (await api.get(path + '/state')).status_code == 401
+    assert (await api.get(BASE + '/capabilities', headers=SOURCE)).json()['durable_cancel'] is True
+    assert (await api.get(path + '/state', headers=SOURCE)).json()['status'] == 'missing'
+    for _ in range(2):
+        cancelled = (await api.post(path + '/abort', headers=SOURCE)).json()
+        assert cancelled == dict(round_key=TOPIC['round_key'], status='cancelled', exists=False, summary=None)
+    assert (await api.post(BASE + '/rounds/start', json=TOPIC, headers=SOURCE)).status_code == 409
+    assert (await api.get(BASE + '/current')).json() is None  # No phantom betting round.
+    uid, headers = await player()
+    await start(api, round_key='paid')
+    await predict(api, headers, 500, key='paid')
+    await api.post(BASE + '/rounds/paid/close', headers=SOURCE)
+    await api.post(BASE + '/rounds/paid/result', json={'target_position': 500}, headers=SOURCE)
+    for _ in range(2):
+        response = await api.post(BASE + '/rounds/paid/abort', headers=SOURCE)
+        assert response.status_code == 200
+        assert response.json()['status'] == 'settled'
+        assert response.json()['summary']['participant_count'] == 1
+    assert await balance(uid) == 700
+    await start(api, round_key='refund')
+    await predict(api, headers, 500, key='refund')
+    for _ in range(2):
+        response = await api.post(BASE + '/rounds/refund/abort', headers=SOURCE)
+        assert response.json()['status'] == 'cancelled'
+        assert Decimal(response.json()['summary']['total_refund']) == 100
+    assert await balance(uid) == 700
+    async with async_session_maker() as db:
+        snap, errors = audit_replay.fold(await audit_replay.load_events(db), check=True)
+        assert errors == []
+        assert await audit_replay.compare_with_live(db, snap) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('first', ['abort', 'start'])
+async def test_start_and_abort_serialize_in_separate_database_transactions(api, monkeypatch, first):
+    """A paused transaction must fence the other connection before it can commit."""
+    import asyncio
+    from fastapi import HTTPException
+    from app.services import returned as svc
+    from app.schemas.returned import RoundStart
+
+    acquired, release = asyncio.Event(), asyncio.Event()
+    lock = svc._lock_lifecycle
+    calls = 0
+
+    async def paused_lock(db):
+        nonlocal calls
+        calls += 1
+        ordinal = calls
+        await lock(db)
+        if ordinal == 1:
+            acquired.set()
+            await release.wait()
+
+    monkeypatch.setattr(svc, '_lock_lifecycle', paused_lock)
+
+    async def operation(action):
+        async with async_session_maker() as db:
+            try:
+                if action == 'start':
+                    return await svc.start_round(db, RoundStart(**TOPIC))
+                return await svc.finish_round(db, TOPIC['round_key'], cancel=True, remember_cancel=True)
+            except HTTPException as exc:
+                return exc.status_code
+
+    task = asyncio.create_task(operation(first))
+    await asyncio.wait_for(acquired.wait(), 3)
+    other = asyncio.create_task(operation('start' if first == 'abort' else 'abort'))
+    try:
+        await asyncio.sleep(0.05)
+        assert not other.done(), 'the second DB transaction cannot overtake the lifecycle lock'
+    finally:
+        release.set()
+    results = await asyncio.gather(task, other)
+    if first == 'abort':
+        assert results[1] == 409
+    state = (await api.get(BASE + '/rounds/' + TOPIC['round_key'] + '/state', headers=SOURCE)).json()
+    assert state['status'] == 'cancelled'
+    assert state['exists'] is (first == 'start')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('first', ['result', 'abort'])
+async def test_result_racing_abort_has_one_auditable_money_outcome(api, monkeypatch, first):
+    import asyncio
+    from fastapi import HTTPException
+    from app.services import returned as svc
+
+    uid, headers = await player()
+    await start(api)
+    await predict(api, headers, 500)
+    await api.post(BASE + '/rounds/' + TOPIC['round_key'] + '/close', headers=SOURCE)
+    acquired, release = asyncio.Event(), asyncio.Event()
+    original = svc._lock_lifecycle
+    calls = 0
+
+    async def paused_lock(db):
+        nonlocal calls
+        calls += 1
+        ordinal = calls
+        await original(db)
+        if ordinal == 1:
+            acquired.set()
+            await release.wait()
+
+    monkeypatch.setattr(svc, '_lock_lifecycle', paused_lock)
+
+    async def finish(action):
+        async with async_session_maker() as db:
+            try:
+                return await svc.finish_round(db, TOPIC['round_key'], target=500 if action == 'result' else None,
+                    cancel=action == 'abort', remember_cancel=action == 'abort')
+            except HTTPException as exc:
+                return exc.status_code
+
+    task = asyncio.create_task(finish(first))
+    await asyncio.wait_for(acquired.wait(), 3)
+    other = asyncio.create_task(finish('abort' if first == 'result' else 'result'))
+    try:
+        await asyncio.sleep(0.05)
+        assert not other.done()
+    finally:
+        release.set()
+    results = await asyncio.gather(task, other)
+    assert await balance(uid) == (700 if first == 'result' else 500)
+    if first == 'abort':
+        assert results[1] == 409
+    async with async_session_maker() as db:
+        snap, errors = audit_replay.fold(await audit_replay.load_events(db), check=True)
+        assert errors == []
+        assert await audit_replay.compare_with_live(db, snap) == []
 
 
 @pytest.mark.asyncio

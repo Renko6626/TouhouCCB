@@ -8,8 +8,8 @@ from sqlalchemy import func, select
 
 from app.core.database import managed_transaction
 from app.models.base import User
-from app.models.returned import ReturnedPrediction, ReturnedRound, utcnow
-from app.schemas.returned import MyPrediction, RoundPublic, RoundSummary, RoundResults, TopPrediction
+from app.models.returned import ReturnedPrediction, ReturnedRound, ReturnedRoundGuard, utcnow
+from app.schemas.returned import MyPrediction, RoundPublic, RoundSummary, RoundResults, TopPrediction, RoundState
 from app.services import ledger_service, returned_events
 from app.services.account_events import notifying_transaction
 from app.services.credit.flags import get_flags
@@ -23,6 +23,28 @@ STAKE = Decimal('100')
 BANDS = ((16, '300'), (56, '200'), (100, '150'), (150, '75'))
 # Single economic writer already enforced by OWNERSHIP; serialize concurrent starts.
 _start_lock = asyncio.Lock()
+
+
+async def _lock_lifecycle(db):
+    # The upsert takes a transaction-held write lock, including when no round
+    # exists yet. Unlike asyncio.Lock this coordinates separate writer processes.
+    # SQLite also serializes writers here; PostgreSQL locks this one row.
+    if db.bind.dialect.name == 'postgresql':
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    key = '!lifecycle'  # Cannot be a user-supplied RoundKey.
+    stmt = insert(ReturnedRoundGuard).values(round_key=key, cancelled=False)
+    await db.execute(stmt.on_conflict_do_update(
+        index_elements=['round_key'], set_={'round_key': key}))
+
+
+async def round_state(db, key):
+    round = (await db.execute(select(ReturnedRound).where(ReturnedRound.round_key == key))).scalar_one_or_none()
+    if round is not None:
+        return RoundState(round_key=key, status=round.status, exists=True, summary=await summary(db, round))
+    guard = await db.get(ReturnedRoundGuard, key)
+    return RoundState(round_key=key, status='cancelled' if guard and guard.cancelled else 'missing', exists=False)
 
 
 def _utc(value):
@@ -46,7 +68,7 @@ async def get_round(db, key, *, lock=False):
         stmt = stmt.with_for_update().execution_options(populate_existing=True)
     round = (await db.execute(stmt)).scalar_one_or_none()
     if round is None:
-        raise HTTPException(404, '竞猜轮次不存在')
+        raise HTTPException(404, '竞猜轮次不存在', headers={'X-Returned-Code': 'ROUND_NOT_FOUND'})
     return round
 
 
@@ -63,16 +85,20 @@ async def start_round(db, req):
     async with _start_lock:
         async with managed_transaction(db):
             OWNERSHIP.require_writes()
+            await _lock_lifecycle(db)
             existing = (await db.execute(select(ReturnedRound).where(
                 ReturnedRound.round_key == req.round_key))).scalar_one_or_none()
             if existing is not None:
                 if any(getattr(existing, key) != value for key, value in req.model_dump().items()):
                     raise HTTPException(409, '轮次编号已用于不同题目')
                 return public_round(existing)
+            guard = await db.get(ReturnedRoundGuard, req.round_key)
+            if guard and guard.cancelled:
+                raise HTTPException(409, '本轮已登记取消，不能重新开盘', headers={'X-Returned-Code': 'ROUND_CANCELLED'})
             active = (await db.execute(select(ReturnedRound.id).where(
                 ReturnedRound.status.in_(['open', 'closed'])).limit(1))).first()
             if active:
-                raise HTTPException(409, '请先结算或取消上一轮竞猜')
+                raise HTTPException(409, '请先结算或取消上一轮竞猜', headers={'X-Returned-Code': 'ACTIVE_ROUND_CONFLICT'})
             round = ReturnedRound(**req.model_dump(), rules={
                 'stake': str(STAKE), 'bands': [{'max_distance': d, 'payout': p} for d, p in BANDS],
             })
@@ -85,6 +111,8 @@ async def start_round(db, req):
 
 async def close_round(db, key):
     async with managed_transaction(db):
+        OWNERSHIP.require_writes()
+        await _lock_lifecycle(db)
         round = await get_round(db, key, lock=True)
         OWNERSHIP.require_writes()
         if round.status == 'cancelled':
@@ -157,15 +185,32 @@ async def submit_prediction(db, key, uid, position):
     return result
 
 
-async def finish_round(db, key, *, target=None, cancel=False, operator_user_id=None):
+async def finish_round(db, key, *, target=None, cancel=False, operator_user_id=None, remember_cancel=False):
     reason = 'wavelength_refund' if cancel else 'wavelength_reward'
     async with notifying_transaction(db, managed_transaction(db), reason):
-        round = await get_round(db, key, lock=True)
         OWNERSHIP.require_writes()
+        await _lock_lifecycle(db)
+        if remember_cancel:
+            if not cancel:
+                raise ValueError('remember_cancel requires cancellation')
+            guard = await db.get(ReturnedRoundGuard, key)
+            if guard is None:
+                guard = ReturnedRoundGuard(round_key=key)
+                db.add(guard)
+            guard.cancelled = True
+            await db.flush()
+            round = (await db.execute(select(ReturnedRound).where(
+                ReturnedRound.round_key == key).with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+            if round is None:
+                return RoundState(round_key=key, status='cancelled', exists=False)
+            if round.status == 'settled':
+                return await summary(db, round)  # Paid rewards remain final.
+        else:
+            round = await get_round(db, key, lock=True)
         if round.status in ('settled', 'cancelled'):
             if (cancel and round.status == 'cancelled') or (not cancel and round.status == 'settled' and round.target_position == target):
                 return await summary(db, round)
-            raise HTTPException(409, '本轮已结束，不能改变结算结果')
+            raise HTTPException(409, '本轮已结束，不能改变结算结果', headers={'X-Returned-Code': 'ROUND_FINISHED'})
         if not cancel and round.status != 'closed':
             raise HTTPException(409, '请先停止竞猜，再公布结果')
         predictions = (await db.execute(select(ReturnedPrediction).where(
