@@ -16,6 +16,12 @@
 
 赛季维护工作流仍保留，由 root 所有的 `/usr/local/sbin/thccb-season-maintenance` 调用当前 Coolify Compose。`/etc/thccb-coolify-resource` 保存资源 UUID，sudo 仅授权这个受限命令。专用 Business database reset 仍依赖旧部署及前端目录，Coolify 接管后显式拒绝执行；需要清库时先单独适配并确认，不得对旧 Compose 操作。
 
+当前 Coolify 项目 UUID 为 `yfbwaij8ytaphygy22psfmai`，应用 UUID 为 `yootagfyu21rjdfspwmrdxny`。生产运行提交 `3e8fe17511f01d8aa42291a64ef2ac5097b45e83`，首次成功部署 ID 为 `hqmprpbnfvzarjj1bjqd4bnc`。
+
+ESA 会将 HTTP 验证请求跳转到 HTTPS。`/data/coolify/proxy/dynamic/thccb-acme.yaml` 将该域名 HTTPS 的 `/.well-known/acme-challenge/` 请求交给 Traefik `acme-http@internal`，用于后续自动续期。首次签发遇到重定向和 CAA DNS 查询失败，因此将原有效证书及私钥导入 Traefik 的 ACME 存储；证书有效期至 2027-01-20。原 Certbot renewal 配置已归档，避免双重续期。未实际执行未来续期。
+
+本次回退材料位于 `/root/thccb-coolify-20261023`，仅限 root。`rollback.sh` 会停止本应用的新容器、核对旧 schema、启动旧容器及恢复旧路由与 Certbot 配置。只适用于本次部署迁移；以后发生数据库 schema 变化需重新评估。不要执行第一阶段的全站回退来撤销本项目迁移。
+
 迁移时保留旧容器（停止状态）、旧 Nginx 配置及旧发布目录作为回退材料。恢复前必须停止新后端和新 PostgreSQL，避免同卷双实例。域名从旧 `legacy-https` HostSNI 列表移除后由 Coolify 路由。
 
 ---
