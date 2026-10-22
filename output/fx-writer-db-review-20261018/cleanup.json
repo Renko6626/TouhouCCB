@@ -1,0 +1,9 @@
+{
+  "postgres_stopped": true,
+  "postgres_data_retained": "/tmp/touhouccb-pg-data",
+  "environment": "/home/tonrac/miniforge3/envs/touhouccb",
+  "tcp_listener_created": false,
+  "production_touched": false,
+  "pushed": false,
+  "final_app_and_harness_hashes_verified": true
+}

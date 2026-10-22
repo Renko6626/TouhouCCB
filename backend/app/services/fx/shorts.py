@@ -54,6 +54,12 @@ if TYPE_CHECKING:  # risk imports this module, so only type-check the cycle.
     from app.services.credit.risk import DependencySet
 
 # Reuse immutable SQL structure, while reading fresh locked rows each time.
+_PAIR_LOCK = select(FxPair).where(
+    FxPair.id == bindparam('fx_pair_id')
+).with_for_update().execution_options(populate_existing=True)
+_WALLET_LOCK = select(FxWallet).where(
+    FxWallet.user_id == bindparam('fx_user_id'), FxWallet.pair_id == bindparam('fx_pair_id')
+).with_for_update().execution_options(populate_existing=True)
 _SHORT_ROWS_LOCK = select(FxShortPosition).where(
     FxShortPosition.user_id == bindparam('fx_user_id')
 ).order_by(FxShortPosition.pair_id.asc()).with_for_update().execution_options(populate_existing=True)
@@ -242,8 +248,7 @@ def _require_foreign_bound(
 
 async def _lock_pair(db: AsyncSession, pair_id: int) -> FxPair:
     pair = (await db.execute(
-        select(FxPair).where(FxPair.id == pair_id)
-        .with_for_update().execution_options(populate_existing=True)
+        _PAIR_LOCK, {'fx_pair_id': pair_id}
     )).scalars().first()
     if pair is None:
         raise HTTPException(status_code=404, detail="FX pair not found")
@@ -252,8 +257,7 @@ async def _lock_pair(db: AsyncSession, pair_id: int) -> FxPair:
 
 async def _lock_wallet(db: AsyncSession, user_id: int, pair_id: int) -> Optional[FxWallet]:
     return (await db.execute(
-        select(FxWallet).where(FxWallet.user_id == user_id, FxWallet.pair_id == pair_id)
-        .with_for_update().execution_options(populate_existing=True)
+        _WALLET_LOCK, {'fx_user_id': user_id, 'fx_pair_id': pair_id}
     )).scalars().first()
 
 
@@ -341,7 +345,7 @@ async def execute_short_open_in_session(
     from app.services.credit.risk import discover_dependencies
     if credit_deps is None or not credit_deps.account_locked:
         credit_deps = await discover_dependencies(db, user_id,
-            extra_groups=[target_key], account_locked=True)
+            extra_groups=[target_key], account_locked=True, locked_user=user)
     snapshot = credit_deps.snapshots.get(target_key)
     if snapshot is None:
         raise HTTPException(503, "market_pricing_unavailable")
@@ -819,7 +823,7 @@ async def execute_short_cover_in_session(
     from app.services.credit.risk import discover_dependencies
     if credit_deps is None or not credit_deps.account_locked:
         credit_deps = await discover_dependencies(db, user_id,
-            extra_groups=[target_key], account_locked=True)
+            extra_groups=[target_key], account_locked=True, locked_user=user)
     snapshot = credit_deps.snapshots.get(target_key)
     if snapshot is None:
         raise HTTPException(503, "market_pricing_unavailable")
@@ -1137,7 +1141,7 @@ async def execute_liquidation_cover_in_session(
     from app.services.credit.risk import discover_dependencies
     if credit_deps is None or not credit_deps.account_locked:
         credit_deps = await discover_dependencies(db, user_id,
-            extra_groups=[target_key], account_locked=True)
+            extra_groups=[target_key], account_locked=True, locked_user=user)
     snapshot = credit_deps.snapshots.get(target_key)
     if snapshot is None:
         raise HTTPException(503, "market_pricing_unavailable")

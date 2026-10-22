@@ -72,6 +72,7 @@ class Metrics:
         self.sse_counts = defaultdict(Counter)
         self.ready_users = set()
         self.trade_seen = {}  # First observer's local arrival time, indexed by trade ID.
+        self.pool_event_seen = {}  # Current FX wire protocol identifies pool events.
         self.visibility = defaultdict(list)
         self.visibility_missing = Counter()
         self.slot_lag = defaultdict(list)
@@ -253,6 +254,8 @@ class Runner:
                         if kind == "public" and user["uid"] == self.credentials["users"][0]["uid"]:
                             for trade in data.get("trades", []):
                                 self.m.trade_seen.setdefault(int(trade["id"]), now)
+                            for pool_event in data.get("events", []):
+                                self.m.pool_event_seen.setdefault(int(pool_event["id"]), now)
                         event, chunks = "", []
                 if not self.m.stop.is_set():
                     self.m.sse_counts[kind]["unexpected_disconnects"] += 1

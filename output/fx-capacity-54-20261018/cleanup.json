@@ -1,0 +1,7 @@
+{
+  "application_processes": "all benchmark orchestrators exited after stopping child applications",
+  "postgres_data_directory": "/tmp/touhouccb-pg-data",
+  "postgres": "pg_ctl -m fast -w stop completed",
+  "databases": "retained; no DROP/TRUNCATE",
+  "http_transport": "Unix sockets only; no TCP firewall changes"
+}

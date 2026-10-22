@@ -1,0 +1,9 @@
+Casdoor SSO 未配置，OAuth 登录不可用。
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> business_baseline_20261013, Frozen full business schema, 2026-10-13.
+INFO  [alembic.runtime.migration] Running upgrade business_baseline_20261013 -> fx_trigger_orders_20261014, Private FX trigger order history.
+INFO  [alembic.runtime.migration] Running upgrade fx_trigger_orders_20261014 -> account_auto_repay_20261014, Account preference for ordinary sale proceeds repayment.
+INFO  [alembic.runtime.migration] Running upgrade account_auto_repay_20261014 -> remove_short_cash_lock_20261014, Remove short proceeds cash restrictions without changing cash or obligations.
+INFO  [alembic.runtime.migration] Running upgrade remove_short_cash_lock_20261014 -> fx_pve_profiles_20261016, Bind shared bot profiles to an explicit market engine; preserve all assets.
+INFO  [alembic.runtime.migration] Running upgrade fx_pve_profiles_20261016 -> fx_announcements_20261016, Add append-only FX announcements.

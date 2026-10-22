@@ -1,0 +1,8 @@
+{
+  "database": "fxcapacity_pilot1_test",
+  "variant": "current",
+  "rate": 54,
+  "seconds": 10.0,
+  "private_directory": "/tmp/fxcap_pyunyzgg",
+  "git_head": "75d33eb78e06f14fabf75a2314c831e999760e50"
+}

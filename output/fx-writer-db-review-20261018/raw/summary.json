@@ -1,0 +1,1622 @@
+[
+  {
+    "variant": "baseline",
+    "repeat": 0,
+    "file": "0-cash-p1-baseline.json",
+    "database": "fx_ab_184951_1_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 199.45766712770006,
+    "handler_ms": {
+      "mean": 5.0037123585298104,
+      "p50": 4.899107996607199,
+      "p95": 5.615367990685627,
+      "p99": 5.722672998672351
+    },
+    "latency_ms": {
+      "mean": 70.8808544995918,
+      "p50": 79.85335799457971,
+      "p95": 80.80037101171911,
+      "p99": 81.21796599880327
+    },
+    "queue_wait_mean_ms": 65.877142141062,
+    "process_cpu_ms_per_command": 3.9033358593749954,
+    "sql_per_command": 15.0,
+    "select_per_command": 6.0,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 0,
+    "file": "0-cash-p1-queries.json",
+    "database": "fx_ab_184951_2_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 200.63054481151588,
+    "handler_ms": {
+      "mean": 4.974038749423926,
+      "p50": 4.891674994723871,
+      "p95": 5.585231992881745,
+      "p99": 5.666261989972554
+    },
+    "latency_ms": {
+      "mean": 70.44689649978864,
+      "p50": 78.89801000419538,
+      "p95": 80.98812300886493,
+      "p99": 81.58191699476447
+    },
+    "queue_wait_mean_ms": 65.47285775036471,
+    "process_cpu_ms_per_command": 3.898903234375001,
+    "sql_per_command": 15.0,
+    "select_per_command": 6.0,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 0,
+    "file": "0-cash-p1-combined.json",
+    "database": "fx_ab_184951_3_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 199.2757304974661,
+    "handler_ms": {
+      "mean": 5.007184499163486,
+      "p50": 4.931307994411327,
+      "p95": 5.718621003325097,
+      "p99": 5.926288009504788
+    },
+    "latency_ms": {
+      "mean": 70.39649543639825,
+      "p50": 79.22572099778336,
+      "p95": 81.11807200475596,
+      "p99": 82.96811599575449
+    },
+    "queue_wait_mean_ms": 65.38931093723477,
+    "process_cpu_ms_per_command": 3.8622903593750064,
+    "sql_per_command": 15.0,
+    "select_per_command": 6.0,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 0,
+    "file": "0-finance-p1-baseline.json",
+    "database": "fx_ab_184951_4_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 142.68785295684694,
+    "handler_ms": {
+      "mean": 6.997600484737632,
+      "p50": 6.957746998523362,
+      "p95": 7.5925470009678975,
+      "p99": 7.832868999685161
+    },
+    "latency_ms": {
+      "mean": 99.1156964835227,
+      "p50": 111.77051799313631,
+      "p95": 114.13852300029248,
+      "p99": 114.57692099793348
+    },
+    "queue_wait_mean_ms": 92.11809599878507,
+    "process_cpu_ms_per_command": 5.6558030781250075,
+    "sql_per_command": 21.0,
+    "select_per_command": 9.0,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 0,
+    "file": "0-finance-p1-queries.json",
+    "database": "fx_ab_184951_5_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 139.9625578315764,
+    "handler_ms": {
+      "mean": 7.133893280297343,
+      "p50": 7.025116996373981,
+      "p95": 8.034067010157742,
+      "p99": 8.487141007208265
+    },
+    "latency_ms": {
+      "mean": 100.88116362499022,
+      "p50": 112.84818800049834,
+      "p95": 116.1040309962118,
+      "p99": 116.82429400389083
+    },
+    "queue_wait_mean_ms": 93.74727034469288,
+    "process_cpu_ms_per_command": 5.49252871875,
+    "sql_per_command": 20.0,
+    "select_per_command": 8.0,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 0,
+    "file": "0-finance-p1-combined.json",
+    "database": "fx_ab_184951_6_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 158.7486207378704,
+    "handler_ms": {
+      "mean": 6.289049421411619,
+      "p50": 6.227550999028608,
+      "p95": 6.662520012469031,
+      "p99": 6.765220008674078
+    },
+    "latency_ms": {
+      "mean": 89.23836415692676,
+      "p50": 100.57432799658272,
+      "p95": 102.15294599765912,
+      "p99": 102.27889400266577
+    },
+    "queue_wait_mean_ms": 82.94931473551515,
+    "process_cpu_ms_per_command": 4.8670821562500075,
+    "sql_per_command": 20.0,
+    "select_per_command": 8.0,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 0,
+    "file": "0-legacy_finance-p1-baseline.json",
+    "database": "fx_ab_184951_7_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 120.4376723086095,
+    "handler_ms": {
+      "mean": 8.29258276598921,
+      "p50": 8.179773998563178,
+      "p95": 9.345015991129912,
+      "p99": 9.668521001003683
+    },
+    "latency_ms": {
+      "mean": 117.72217185875888,
+      "p50": 128.51178899290971,
+      "p95": 141.68441999936476,
+      "p99": 143.9810299925739
+    },
+    "queue_wait_mean_ms": 109.42958909276967,
+    "process_cpu_ms_per_command": 6.738998203124999,
+    "sql_per_command": 22.0,
+    "select_per_command": 12.0,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 0,
+    "file": "0-legacy_finance-p1-queries.json",
+    "database": "fx_ab_184951_8_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 142.39751229382398,
+    "handler_ms": {
+      "mean": 7.013676202177521,
+      "p50": 6.881516994326375,
+      "p95": 7.764976006001234,
+      "p99": 8.280887006549165
+    },
+    "latency_ms": {
+      "mean": 99.57952620243304,
+      "p50": 111.53281199221965,
+      "p95": 114.5660230104113,
+      "p99": 114.96587499277666
+    },
+    "queue_wait_mean_ms": 92.56585000025552,
+    "process_cpu_ms_per_command": 5.752610656250004,
+    "sql_per_command": 19.0,
+    "select_per_command": 9.0,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 0,
+    "file": "0-legacy_finance-p1-combined.json",
+    "database": "fx_ab_184951_9_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 151.51653826342908,
+    "handler_ms": {
+      "mean": 6.590888953269314,
+      "p50": 6.5045290102716535,
+      "p95": 7.172244004323147,
+      "p99": 7.324571997742169
+    },
+    "latency_ms": {
+      "mean": 93.0966343134969,
+      "p50": 105.201765007223,
+      "p95": 106.4251149946358,
+      "p99": 106.52624400972854
+    },
+    "queue_wait_mean_ms": 86.50574536022759,
+    "process_cpu_ms_per_command": 5.265502218749996,
+    "sql_per_command": 19.0,
+    "select_per_command": 9.0,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 0,
+    "file": "0-short-p1-baseline.json",
+    "database": "fx_ab_184951_10_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 155.23586109682213,
+    "handler_ms": {
+      "mean": 6.432948888914325,
+      "p50": 6.344933004584163,
+      "p95": 7.029259999399073,
+      "p99": 7.343929988564923
+    },
+    "latency_ms": {
+      "mean": 91.68629507848891,
+      "p50": 101.76531499018893,
+      "p95": 106.50699600228108,
+      "p99": 107.1589109924389
+    },
+    "queue_wait_mean_ms": 85.25334618957459,
+    "process_cpu_ms_per_command": 5.195863171874995,
+    "sql_per_command": 18.5,
+    "select_per_command": 11.5,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 0,
+    "file": "0-short-p1-queries.json",
+    "database": "fx_ab_184951_11_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 166.18395507228936,
+    "handler_ms": {
+      "mean": 6.008644032363009,
+      "p50": 5.977859007543884,
+      "p95": 6.707730994094163,
+      "p99": 6.9043370021972805
+    },
+    "latency_ms": {
+      "mean": 85.56552542245299,
+      "p50": 96.70954100147355,
+      "p95": 98.37176601286046,
+      "p99": 98.84387199417688
+    },
+    "queue_wait_mean_ms": 79.55688139008998,
+    "process_cpu_ms_per_command": 4.792144515624999,
+    "sql_per_command": 16.5,
+    "select_per_command": 9.5,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 0,
+    "file": "0-short-p1-combined.json",
+    "database": "fx_ab_184951_12_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 64,
+    "throughput_per_s": 188.2062267704634,
+    "handler_ms": {
+      "mean": 5.304345311287761,
+      "p50": 5.2220549987396225,
+      "p95": 5.75022998964414,
+      "p99": 6.224960001418367
+    },
+    "latency_ms": {
+      "mean": 75.55604562458029,
+      "p50": 84.62552999844775,
+      "p95": 88.5506990016438,
+      "p99": 88.78509100759402
+    },
+    "queue_wait_mean_ms": 70.25170031329253,
+    "process_cpu_ms_per_command": 4.131217171874993,
+    "sql_per_command": 16.5,
+    "select_per_command": 9.5,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 0,
+    "file": "0-finance-p4-baseline.json",
+    "database": "fx_ab_184951_13_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 64,
+    "throughput_per_s": 193.57626246844757,
+    "handler_ms": {
+      "mean": 20.488992031232556,
+      "p50": 20.573655012412928,
+      "p95": 21.435029004351236,
+      "p99": 21.78473000822123
+    },
+    "latency_ms": {
+      "mean": 74.39939481332658,
+      "p50": 81.72528599970974,
+      "p95": 84.33543199498672,
+      "p99": 85.3659939893987
+    },
+    "queue_wait_mean_ms": 53.910402782094025,
+    "process_cpu_ms_per_command": 5.185549562500002,
+    "sql_per_command": 21.0,
+    "select_per_command": 9.0,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 0,
+    "file": "0-finance-p4-queries.json",
+    "database": "fx_ab_184951_14_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 64,
+    "throughput_per_s": 199.29930413313846,
+    "handler_ms": {
+      "mean": 19.89158393848811,
+      "p50": 20.07283600687515,
+      "p95": 20.944311007042415,
+      "p99": 21.153781010070816
+    },
+    "latency_ms": {
+      "mean": 72.30727243677393,
+      "p50": 79.63084999937564,
+      "p95": 81.88613099628128,
+      "p99": 82.47259400377516
+    },
+    "queue_wait_mean_ms": 52.41568849828582,
+    "process_cpu_ms_per_command": 5.047861078125007,
+    "sql_per_command": 20.0,
+    "select_per_command": 8.0,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 0,
+    "file": "0-finance-p4-combined.json",
+    "database": "fx_ab_184951_15_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 64,
+    "throughput_per_s": 219.30504253702355,
+    "handler_ms": {
+      "mean": 18.044568656932825,
+      "p50": 18.032103005680256,
+      "p95": 18.97958001063671,
+      "p99": 19.249574004788883
+    },
+    "latency_ms": {
+      "mean": 65.67722186059655,
+      "p50": 71.99747099366505,
+      "p95": 75.18760200764518,
+      "p99": 75.3647249948699
+    },
+    "queue_wait_mean_ms": 47.63265320366372,
+    "process_cpu_ms_per_command": 4.591781406249995,
+    "sql_per_command": 20.0,
+    "select_per_command": 8.0,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 1,
+    "file": "1-cash-p1-queries.json",
+    "database": "fx_ab_184951_16_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 206.82348252568883,
+    "handler_ms": {
+      "mean": 4.826420472795689,
+      "p50": 4.744144011056051,
+      "p95": 5.422521993750706,
+      "p99": 6.164225997054018
+    },
+    "latency_ms": {
+      "mean": 76.22283687322806,
+      "p50": 77.37363000342157,
+      "p95": 80.20747400587425,
+      "p99": 85.06520700757392
+    },
+    "queue_wait_mean_ms": 71.39641640043237,
+    "process_cpu_ms_per_command": 3.7337368300781257,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 1,
+    "file": "1-cash-p1-combined.json",
+    "database": "fx_ab_184951_17_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 205.64056642667117,
+    "handler_ms": {
+      "mean": 4.853132777384417,
+      "p50": 4.734052010462619,
+      "p95": 5.612838009255938,
+      "p99": 6.907344999490306
+    },
+    "latency_ms": {
+      "mean": 76.63423298822636,
+      "p50": 76.121323989355,
+      "p95": 86.33795700734481,
+      "p99": 91.25476301414892
+    },
+    "queue_wait_mean_ms": 71.78110021084194,
+    "process_cpu_ms_per_command": 3.7211842988281263,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 1,
+    "file": "1-cash-p1-baseline.json",
+    "database": "fx_ab_184951_18_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 206.81164604502095,
+    "handler_ms": {
+      "mean": 4.826757179586139,
+      "p50": 4.742271004943177,
+      "p95": 5.56878000497818,
+      "p99": 5.965805990854278
+    },
+    "latency_ms": {
+      "mean": 76.19018650714793,
+      "p50": 77.12283499131445,
+      "p95": 80.65512700704858,
+      "p99": 82.23586999520194
+    },
+    "queue_wait_mean_ms": 71.36342932756179,
+    "process_cpu_ms_per_command": 3.7361433828124997,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 1,
+    "file": "1-finance-p1-queries.json",
+    "database": "fx_ab_184951_19_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 150.80732706978773,
+    "handler_ms": {
+      "mean": 6.622291707316208,
+      "p50": 6.537959998240694,
+      "p95": 7.382001000223681,
+      "p99": 7.8745619975961745
+    },
+    "latency_ms": {
+      "mean": 104.56459015998121,
+      "p50": 105.66823100089096,
+      "p95": 109.6225270011928,
+      "p99": 111.79656699823681
+    },
+    "queue_wait_mean_ms": 97.942298452665,
+    "process_cpu_ms_per_command": 5.321065496093749,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 1,
+    "file": "1-finance-p1-combined.json",
+    "database": "fx_ab_184951_20_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 159.53380865891248,
+    "handler_ms": {
+      "mean": 6.259607234511577,
+      "p50": 6.141881007351913,
+      "p95": 6.980517995543778,
+      "p99": 8.016179999685846
+    },
+    "latency_ms": {
+      "mean": 98.84395381257605,
+      "p50": 99.25022399693262,
+      "p95": 110.03095100750215,
+      "p99": 116.7505949997576
+    },
+    "queue_wait_mean_ms": 92.58434657806447,
+    "process_cpu_ms_per_command": 4.92824498828125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 1,
+    "file": "1-finance-p1-baseline.json",
+    "database": "fx_ab_184951_21_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 145.101676273852,
+    "handler_ms": {
+      "mean": 6.882850320238276,
+      "p50": 6.793808002839796,
+      "p95": 7.777644001180306,
+      "p99": 8.316284001921304
+    },
+    "latency_ms": {
+      "mean": 108.63819900225735,
+      "p50": 110.04038699320517,
+      "p95": 114.53634699864779,
+      "p99": 118.2942559971707
+    },
+    "queue_wait_mean_ms": 101.75534868201908,
+    "process_cpu_ms_per_command": 5.513164107421875,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 1,
+    "file": "1-legacy_finance-p1-queries.json",
+    "database": "fx_ab_184951_22_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 144.20391609891809,
+    "handler_ms": {
+      "mean": 6.927341603329751,
+      "p50": 6.866260999231599,
+      "p95": 7.702361006522551,
+      "p99": 8.226973994169384
+    },
+    "latency_ms": {
+      "mean": 109.28195921439965,
+      "p50": 110.35602299671154,
+      "p95": 115.92581399600022,
+      "p99": 119.53983799321577
+    },
+    "queue_wait_mean_ms": 102.3546176110699,
+    "process_cpu_ms_per_command": 5.660512267578124,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 1,
+    "file": "1-legacy_finance-p1-combined.json",
+    "database": "fx_ab_184951_23_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 157.16542403703585,
+    "handler_ms": {
+      "mean": 6.355303198859019,
+      "p50": 6.305684000835754,
+      "p95": 6.9931750040268525,
+      "p99": 7.3627200035844
+    },
+    "latency_ms": {
+      "mean": 100.29825310365936,
+      "p50": 101.56493401154876,
+      "p95": 103.70220799813978,
+      "p99": 104.057816992281
+    },
+    "queue_wait_mean_ms": 93.94294990480034,
+    "process_cpu_ms_per_command": 5.1305689472656235,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 1,
+    "file": "1-legacy_finance-p1-baseline.json",
+    "database": "fx_ab_184951_24_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 129.84659375888148,
+    "handler_ms": {
+      "mean": 7.694087137025463,
+      "p50": 7.624624005984515,
+      "p95": 8.466043000225909,
+      "p99": 8.828333986457437
+    },
+    "latency_ms": {
+      "mean": 121.36476458610446,
+      "p50": 123.28257100307383,
+      "p95": 126.9424140045885,
+      "p99": 127.68369600235019
+    },
+    "queue_wait_mean_ms": 113.670677449079,
+    "process_cpu_ms_per_command": 6.353264416015626,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 1,
+    "file": "1-short-p1-queries.json",
+    "database": "fx_ab_184951_25_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 172.12030734618605,
+    "handler_ms": {
+      "mean": 5.802036771285657,
+      "p50": 5.758569997851737,
+      "p95": 6.55812700279057,
+      "p99": 7.059652998577803
+    },
+    "latency_ms": {
+      "mean": 91.63528548248223,
+      "p50": 93.0048349982826,
+      "p95": 96.81247099069878,
+      "p99": 97.69019900704734
+    },
+    "queue_wait_mean_ms": 85.83324871119657,
+    "process_cpu_ms_per_command": 4.659575576171875,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 1,
+    "file": "1-short-p1-combined.json",
+    "database": "fx_ab_184951_26_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 193.06614035600586,
+    "handler_ms": {
+      "mean": 5.172460171792181,
+      "p50": 5.12031999824103,
+      "p95": 5.791839997982606,
+      "p99": 6.2126260017976165
+    },
+    "latency_ms": {
+      "mean": 81.6792301154976,
+      "p50": 82.60207799321506,
+      "p95": 85.48889700614382,
+      "p99": 86.90592300263233
+    },
+    "queue_wait_mean_ms": 76.50676994370542,
+    "process_cpu_ms_per_command": 4.0181340332031255,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 1,
+    "file": "1-short-p1-baseline.json",
+    "database": "fx_ab_184951_27_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 159.09603324262224,
+    "handler_ms": {
+      "mean": 6.278171976134672,
+      "p50": 6.229013990378007,
+      "p95": 6.91609299974516,
+      "p99": 7.367201003944501
+    },
+    "latency_ms": {
+      "mean": 99.12231573849795,
+      "p50": 100.37764901062474,
+      "p95": 103.70232400600798,
+      "p99": 106.4245080051478
+    },
+    "queue_wait_mean_ms": 92.84414376236327,
+    "process_cpu_ms_per_command": 5.0829720566406245,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 1,
+    "file": "1-finance-p4-queries.json",
+    "database": "fx_ab_184951_28_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 205.8038487740753,
+    "handler_ms": {
+      "mean": 19.39388372656481,
+      "p50": 19.386674000998028,
+      "p95": 20.214405987644568,
+      "p99": 20.858767005847767
+    },
+    "latency_ms": {
+      "mean": 76.68107983769801,
+      "p50": 77.50309100083541,
+      "p95": 79.58562800195068,
+      "p99": 80.4975599894533
+    },
+    "queue_wait_mean_ms": 57.2871961111332,
+    "process_cpu_ms_per_command": 4.981525892578125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 1,
+    "file": "1-finance-p4-combined.json",
+    "database": "fx_ab_184951_29_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 229.64784584837074,
+    "handler_ms": {
+      "mean": 17.386495089454,
+      "p50": 17.37522700568661,
+      "p95": 18.242343998281285,
+      "p99": 18.6766010010615
+    },
+    "latency_ms": {
+      "mean": 68.81421567788948,
+      "p50": 69.51971500529908,
+      "p95": 71.46188599290326,
+      "p99": 72.67294799385127
+    },
+    "queue_wait_mean_ms": 51.42772058843548,
+    "process_cpu_ms_per_command": 4.41374984375,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 1,
+    "file": "1-finance-p4-baseline.json",
+    "database": "fx_ab_184951_30_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 197.39184877946826,
+    "handler_ms": {
+      "mean": 20.209743367530564,
+      "p50": 20.191643008729443,
+      "p95": 21.221087998128496,
+      "p99": 21.91919699544087
+    },
+    "latency_ms": {
+      "mean": 80.03643018591333,
+      "p50": 81.05449500726536,
+      "p95": 82.93951798987109,
+      "p99": 83.83948799746577
+    },
+    "queue_wait_mean_ms": 59.82668681838277,
+    "process_cpu_ms_per_command": 5.144634152343751,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 2,
+    "file": "2-cash-p1-combined.json",
+    "database": "fx_ab_184951_31_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 210.07096486043713,
+    "handler_ms": {
+      "mean": 4.751938372805853,
+      "p50": 4.649745998904109,
+      "p95": 5.366361001506448,
+      "p99": 5.888269995921291
+    },
+    "latency_ms": {
+      "mean": 75.0563970686926,
+      "p50": 75.81486699928064,
+      "p95": 79.06924599956255,
+      "p99": 87.73822599323466
+    },
+    "queue_wait_mean_ms": 70.30445869588675,
+    "process_cpu_ms_per_command": 3.6434385996093748,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 2,
+    "file": "2-cash-p1-baseline.json",
+    "database": "fx_ab_184951_32_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 205.45693045507147,
+    "handler_ms": {
+      "mean": 4.858788593793406,
+      "p50": 4.774696993990801,
+      "p95": 5.524510008399375,
+      "p99": 5.774908000603318
+    },
+    "latency_ms": {
+      "mean": 76.68854012058546,
+      "p50": 77.86307099740952,
+      "p95": 79.33167499140836,
+      "p99": 79.98386899998877
+    },
+    "queue_wait_mean_ms": 71.82975152679205,
+    "process_cpu_ms_per_command": 3.7654484296875004,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 2,
+    "file": "2-cash-p1-queries.json",
+    "database": "fx_ab_184951_33_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 203.43204198352686,
+    "handler_ms": {
+      "mean": 4.90707373199939,
+      "p50": 4.81222799862735,
+      "p95": 5.5953139963094145,
+      "p99": 6.132787006208673
+    },
+    "latency_ms": {
+      "mean": 77.42862341996215,
+      "p50": 78.47108099667821,
+      "p95": 81.99704899743665,
+      "p99": 87.05810600076802
+    },
+    "queue_wait_mean_ms": 72.52154968796276,
+    "process_cpu_ms_per_command": 3.7527468066406255,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 2,
+    "file": "2-finance-p1-combined.json",
+    "database": "fx_ab_184951_34_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 155.36162588461588,
+    "handler_ms": {
+      "mean": 6.427647232385425,
+      "p50": 6.291840996709652,
+      "p95": 7.4041000043507665,
+      "p99": 8.639045991003513
+    },
+    "latency_ms": {
+      "mean": 101.39989530679827,
+      "p50": 101.92574199754745,
+      "p95": 110.7035890017869,
+      "p99": 122.09888400684576
+    },
+    "queue_wait_mean_ms": 94.97224807441285,
+    "process_cpu_ms_per_command": 5.016498453125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 2,
+    "file": "2-finance-p1-baseline.json",
+    "database": "fx_ab_184951_35_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 148.64001395382206,
+    "handler_ms": {
+      "mean": 6.71890443555867,
+      "p50": 6.655029996181838,
+      "p95": 7.434589002514258,
+      "p99": 7.897178002167493
+    },
+    "latency_ms": {
+      "mean": 106.05116425014671,
+      "p50": 106.86085899942555,
+      "p95": 115.20057800225914,
+      "p99": 118.96719600190409
+    },
+    "queue_wait_mean_ms": 99.33225981458804,
+    "process_cpu_ms_per_command": 5.506236142578126,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 2,
+    "file": "2-finance-p1-queries.json",
+    "database": "fx_ab_184951_36_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 149.26196620577724,
+    "handler_ms": {
+      "mean": 6.690020068447211,
+      "p50": 6.629332012380473,
+      "p95": 7.4338629929116,
+      "p99": 7.749857002636418
+    },
+    "latency_ms": {
+      "mean": 105.60050428341583,
+      "p50": 106.95289699651767,
+      "p95": 110.51059799501672,
+      "p99": 112.25436899985652
+    },
+    "queue_wait_mean_ms": 98.91048421496862,
+    "process_cpu_ms_per_command": 5.4546896484375,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 2,
+    "file": "2-legacy_finance-p1-combined.json",
+    "database": "fx_ab_184951_37_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 153.8451391523503,
+    "handler_ms": {
+      "mean": 6.492412324064389,
+      "p50": 6.45865399565082,
+      "p95": 7.1216710057342425,
+      "p99": 7.449128010193817
+    },
+    "latency_ms": {
+      "mean": 102.4781865038733,
+      "p50": 103.88421200332232,
+      "p95": 105.57614899880718,
+      "p99": 106.06249699776527
+    },
+    "queue_wait_mean_ms": 95.98577417980891,
+    "process_cpu_ms_per_command": 5.239093392578125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 2,
+    "file": "2-legacy_finance-p1-baseline.json",
+    "database": "fx_ab_184951_38_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 130.41720184714168,
+    "handler_ms": {
+      "mean": 7.6598734417814285,
+      "p50": 7.610610002302565,
+      "p95": 8.458039999823086,
+      "p99": 8.902273999410681
+    },
+    "latency_ms": {
+      "mean": 120.87705309335206,
+      "p50": 122.62841100164223,
+      "p95": 128.1905950017972,
+      "p99": 131.0854479961563
+    },
+    "queue_wait_mean_ms": 113.21717965157063,
+    "process_cpu_ms_per_command": 6.33751055078125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 2,
+    "file": "2-legacy_finance-p1-queries.json",
+    "database": "fx_ab_184951_39_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 134.9773116452576,
+    "handler_ms": {
+      "mean": 7.400777956945603,
+      "p50": 7.411432001390494,
+      "p95": 8.264241012511775,
+      "p99": 8.791172003839165
+    },
+    "latency_ms": {
+      "mean": 116.78704697433773,
+      "p50": 120.93578299391083,
+      "p95": 124.14716801140457,
+      "p99": 126.99637899640948
+    },
+    "queue_wait_mean_ms": 109.38626901739212,
+    "process_cpu_ms_per_command": 6.028227636718749,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 2,
+    "file": "2-short-p1-combined.json",
+    "database": "fx_ab_184951_40_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 182.7221105641513,
+    "handler_ms": {
+      "mean": 5.465230189400927,
+      "p50": 5.4454070050269365,
+      "p95": 6.286246993113309,
+      "p99": 6.694424009765498
+    },
+    "latency_ms": {
+      "mean": 86.36394399638903,
+      "p50": 84.9634479964152,
+      "p95": 95.40875999664422,
+      "p99": 101.46541200811043
+    },
+    "queue_wait_mean_ms": 80.8987138069881,
+    "process_cpu_ms_per_command": 4.225063341796875,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 2,
+    "file": "2-short-p1-baseline.json",
+    "database": "fx_ab_184951_41_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 158.02356173302485,
+    "handler_ms": {
+      "mean": 6.320823310687729,
+      "p50": 6.266518001211807,
+      "p95": 7.133273989893496,
+      "p99": 7.603018995723687
+    },
+    "latency_ms": {
+      "mean": 99.81484062294044,
+      "p50": 101.75447400251869,
+      "p95": 105.43898498872295,
+      "p99": 106.2079779949272
+    },
+    "queue_wait_mean_ms": 93.49401731225271,
+    "process_cpu_ms_per_command": 5.158873648437499,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 2,
+    "file": "2-short-p1-queries.json",
+    "database": "fx_ab_184951_42_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 176.48043559569234,
+    "handler_ms": {
+      "mean": 5.659141589859473,
+      "p50": 5.60935799148865,
+      "p95": 6.298763997619972,
+      "p99": 6.84066500980407
+    },
+    "latency_ms": {
+      "mean": 89.37384623837374,
+      "p50": 90.60754301026464,
+      "p95": 94.4581880030455,
+      "p99": 97.10167800949421
+    },
+    "queue_wait_mean_ms": 83.71470464851427,
+    "process_cpu_ms_per_command": 4.6747866835937515,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 2,
+    "file": "2-finance-p4-combined.json",
+    "database": "fx_ab_184951_43_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 229.17425990074673,
+    "handler_ms": {
+      "mean": 17.429595076123405,
+      "p50": 17.43155298754573,
+      "p95": 18.232294998597354,
+      "p99": 18.530250003095716
+    },
+    "latency_ms": {
+      "mean": 68.97297716216144,
+      "p50": 69.72643898916431,
+      "p95": 72.19529499707278,
+      "p99": 72.92382100422401
+    },
+    "queue_wait_mean_ms": 51.54338208603804,
+    "process_cpu_ms_per_command": 4.4175788417968755,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 2,
+    "file": "2-finance-p4-baseline.json",
+    "database": "fx_ab_184951_44_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 195.89766093980748,
+    "handler_ms": {
+      "mean": 20.35382842797162,
+      "p50": 20.347618003142998,
+      "p95": 21.567610005149618,
+      "p99": 22.085025993874297
+    },
+    "latency_ms": {
+      "mean": 80.62349771714139,
+      "p50": 81.5915120037971,
+      "p95": 84.07382000586949,
+      "p99": 84.87818599678576
+    },
+    "queue_wait_mean_ms": 60.26966928916977,
+    "process_cpu_ms_per_command": 5.169381505859374,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 2,
+    "file": "2-finance-p4-queries.json",
+    "database": "fx_ab_184951_45_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 204.37194239452649,
+    "handler_ms": {
+      "mean": 19.537428667860013,
+      "p50": 19.538558000931516,
+      "p95": 20.58762799424585,
+      "p99": 21.009225005400367
+    },
+    "latency_ms": {
+      "mean": 77.33799801198415,
+      "p50": 77.99572999647353,
+      "p95": 80.7381729973713,
+      "p99": 82.07169000525028
+    },
+    "queue_wait_mean_ms": 57.80056934412414,
+    "process_cpu_ms_per_command": 4.95228128125,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 3,
+    "file": "3-cash-p1-baseline.json",
+    "database": "fx_ab_184951_46_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 204.51033981744197,
+    "handler_ms": {
+      "mean": 4.88116776173797,
+      "p50": 4.778846996487118,
+      "p95": 5.446462004329078,
+      "p99": 6.0200680018169805
+    },
+    "latency_ms": {
+      "mean": 77.09230184036642,
+      "p50": 77.50157699047122,
+      "p95": 83.68065000104252,
+      "p99": 87.87052800471429
+    },
+    "queue_wait_mean_ms": 72.21113407862845,
+    "process_cpu_ms_per_command": 3.7513923593749996,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 3,
+    "file": "3-cash-p1-queries.json",
+    "database": "fx_ab_184951_47_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 204.88892408732815,
+    "handler_ms": {
+      "mean": 4.87239983164045,
+      "p50": 4.78645900147967,
+      "p95": 5.541727994568646,
+      "p99": 6.032620993210003
+    },
+    "latency_ms": {
+      "mean": 76.9180156561049,
+      "p50": 77.82758599205408,
+      "p95": 80.91673901071772,
+      "p99": 82.82504600356333
+    },
+    "queue_wait_mean_ms": 72.04561582446445,
+    "process_cpu_ms_per_command": 3.743568689453126,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 3,
+    "file": "3-cash-p1-combined.json",
+    "database": "fx_ab_184951_48_test",
+    "scenario": "cash",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 208.17792481997293,
+    "handler_ms": {
+      "mean": 4.794978980157794,
+      "p50": 4.680653000832535,
+      "p95": 5.450141994515434,
+      "p99": 6.309292002697475
+    },
+    "latency_ms": {
+      "mean": 75.7108135875626,
+      "p50": 76.13194300211035,
+      "p95": 80.52372300880961,
+      "p99": 94.05534699908458
+    },
+    "queue_wait_mean_ms": 70.9158346074048,
+    "process_cpu_ms_per_command": 3.641273759765624,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 3,
+    "file": "3-finance-p1-baseline.json",
+    "database": "fx_ab_184951_49_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 147.4441684570424,
+    "handler_ms": {
+      "mean": 6.773120839852709,
+      "p50": 6.7082230088999495,
+      "p95": 7.5553700007731095,
+      "p99": 7.7572580048581585
+    },
+    "latency_ms": {
+      "mean": 106.97217110384827,
+      "p50": 107.42626500723418,
+      "p95": 112.50854100217111,
+      "p99": 117.811553995125
+    },
+    "queue_wait_mean_ms": 100.19905026399556,
+    "process_cpu_ms_per_command": 5.545896808593751,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 3,
+    "file": "3-finance-p1-queries.json",
+    "database": "fx_ab_184951_50_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 150.2848104832765,
+    "handler_ms": {
+      "mean": 6.64515548851341,
+      "p50": 6.57366200175602,
+      "p95": 7.389203005004674,
+      "p99": 7.847766013583168
+    },
+    "latency_ms": {
+      "mean": 104.8952094267861,
+      "p50": 106.63104899867903,
+      "p95": 112.24867899727542,
+      "p99": 113.64292599319015
+    },
+    "queue_wait_mean_ms": 98.25005393827269,
+    "process_cpu_ms_per_command": 5.380981904296875,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 3,
+    "file": "3-finance-p1-combined.json",
+    "database": "fx_ab_184951_51_test",
+    "scenario": "finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 161.36921735492083,
+    "handler_ms": {
+      "mean": 6.1882882168617925,
+      "p50": 6.092823008657433,
+      "p95": 6.879682012367994,
+      "p99": 7.577515993034467
+    },
+    "latency_ms": {
+      "mean": 97.69172665031078,
+      "p50": 98.55938800319564,
+      "p95": 101.82860100758262,
+      "p99": 114.76285100798123
+    },
+    "queue_wait_mean_ms": 91.50343843344899,
+    "process_cpu_ms_per_command": 4.892848386718751,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 3,
+    "file": "3-legacy_finance-p1-baseline.json",
+    "database": "fx_ab_184951_52_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 129.24932820702753,
+    "handler_ms": {
+      "mean": 7.729148632677152,
+      "p50": 7.6675400050589815,
+      "p95": 8.505167992552742,
+      "p99": 8.848593002767302
+    },
+    "latency_ms": {
+      "mean": 121.97652293511396,
+      "p50": 123.7472860084381,
+      "p95": 125.61478299903683,
+      "p99": 128.9174319972517
+    },
+    "queue_wait_mean_ms": 114.24737430243681,
+    "process_cpu_ms_per_command": 6.416433462890624,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 3,
+    "file": "3-legacy_finance-p1-queries.json",
+    "database": "fx_ab_184951_53_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 142.7967685106561,
+    "handler_ms": {
+      "mean": 6.995667455242938,
+      "p50": 6.953787000384182,
+      "p95": 7.651438994798809,
+      "p99": 8.268303994555026
+    },
+    "latency_ms": {
+      "mean": 110.42878503727138,
+      "p50": 112.00839800585527,
+      "p95": 114.64675300521776,
+      "p99": 115.82469299901277
+    },
+    "queue_wait_mean_ms": 103.43311758202844,
+    "process_cpu_ms_per_command": 5.757948947265626,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 3,
+    "file": "3-legacy_finance-p1-combined.json",
+    "database": "fx_ab_184951_54_test",
+    "scenario": "legacy_finance",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 153.80850316105176,
+    "handler_ms": {
+      "mean": 6.49420866187711,
+      "p50": 6.447890002164058,
+      "p95": 7.207162998383865,
+      "p99": 7.5944540003547445
+    },
+    "latency_ms": {
+      "mean": 102.52096928942933,
+      "p50": 103.69022599479649,
+      "p95": 108.48969599464908,
+      "p99": 110.51493100239895
+    },
+    "queue_wait_mean_ms": 96.02676062755222,
+    "process_cpu_ms_per_command": 5.225946529296876,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 3,
+    "file": "3-short-p1-baseline.json",
+    "database": "fx_ab_184951_55_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 156.04303925208404,
+    "handler_ms": {
+      "mean": 6.401003166502051,
+      "p50": 6.307474002824165,
+      "p95": 7.324706006329507,
+      "p99": 8.180507997167297
+    },
+    "latency_ms": {
+      "mean": 101.04612386930967,
+      "p50": 101.69774100359064,
+      "p95": 111.5004349994706,
+      "p99": 116.72011000337079
+    },
+    "queue_wait_mean_ms": 94.64512070280762,
+    "process_cpu_ms_per_command": 5.12601262109375,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 3,
+    "file": "3-short-p1-queries.json",
+    "database": "fx_ab_184951_56_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 160.53381350779495,
+    "handler_ms": {
+      "mean": 6.221106112889174,
+      "p50": 6.169228989165276,
+      "p95": 7.068294013151899,
+      "p99": 7.765928996377625
+    },
+    "latency_ms": {
+      "mean": 98.26416003082272,
+      "p50": 99.1757269948721,
+      "p95": 104.91338498832192,
+      "p99": 106.4072790031787
+    },
+    "queue_wait_mean_ms": 92.04305391793355,
+    "process_cpu_ms_per_command": 4.8130978671874995,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 3,
+    "file": "3-short-p1-combined.json",
+    "database": "fx_ab_184951_57_test",
+    "scenario": "short",
+    "pairs": 1,
+    "commands": 512,
+    "throughput_per_s": 182.9585297840763,
+    "handler_ms": {
+      "mean": 5.458129445059967,
+      "p50": 5.411028003436513,
+      "p95": 6.268519005971029,
+      "p99": 6.839399997261353
+    },
+    "latency_ms": {
+      "mean": 86.1065841658899,
+      "p50": 86.13424199575093,
+      "p95": 94.97955700499006,
+      "p99": 97.10804399219342
+    },
+    "queue_wait_mean_ms": 80.64845472082993,
+    "process_cpu_ms_per_command": 4.013518234374999,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "baseline",
+    "repeat": 3,
+    "file": "3-finance-p4-baseline.json",
+    "database": "fx_ab_184951_58_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 192.5080182163036,
+    "handler_ms": {
+      "mean": 20.740586871255573,
+      "p50": 20.772465999471024,
+      "p95": 21.79331600200385,
+      "p99": 22.247480010264553
+    },
+    "latency_ms": {
+      "mean": 82.13586904471981,
+      "p50": 83.31492700381204,
+      "p95": 85.40380198974162,
+      "p99": 86.0408809967339
+    },
+    "queue_wait_mean_ms": 61.39528217346424,
+    "process_cpu_ms_per_command": 5.193053261718751,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "queries",
+    "repeat": 3,
+    "file": "3-finance-p4-queries.json",
+    "database": "fx_ab_184951_59_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 211.2733924911433,
+    "handler_ms": {
+      "mean": 18.888485509506836,
+      "p50": 18.71611099340953,
+      "p95": 20.58591099921614,
+      "p99": 21.000413995352574
+    },
+    "latency_ms": {
+      "mean": 74.82088126420194,
+      "p50": 74.96611500391737,
+      "p95": 81.41514299495611,
+      "p99": 82.26388999901246
+    },
+    "queue_wait_mean_ms": 55.93239575469511,
+    "process_cpu_ms_per_command": 5.013385544921873,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  },
+  {
+    "variant": "combined",
+    "repeat": 3,
+    "file": "3-finance-p4-combined.json",
+    "database": "fx_ab_184951_60_test",
+    "scenario": "finance",
+    "pairs": 4,
+    "commands": 512,
+    "throughput_per_s": 239.63317919043126,
+    "handler_ms": {
+      "mean": 16.66743892585032,
+      "p50": 16.688895993866026,
+      "p95": 17.935106996446848,
+      "p99": 18.310389001271687
+    },
+    "latency_ms": {
+      "mean": 65.95133498265682,
+      "p50": 66.07688599615358,
+      "p95": 70.58568399224896,
+      "p99": 71.16967199544888
+    },
+    "queue_wait_mean_ms": 49.2838960568065,
+    "process_cpu_ms_per_command": 4.351489763671874,
+    "sql_per_command": null,
+    "select_per_command": null,
+    "errors": []
+  }
+]

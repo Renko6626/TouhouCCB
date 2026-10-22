@@ -169,7 +169,16 @@ async def test_discover_dependencies_reads_full_collateral_set(reuse_locked_rows
     await _seed_config(loan_daily_rate="0.01", sell_fee_rate="0.02")
     async with async_session_maker() as s:
         user, market, outcomes, pair = await _rich_user(s, "disc", fx_foreign="30")
+        # Two users and closed rows exercise bound-parameter isolation and the
+        # full positive-asset filter in both products (IDs can overlap).
+        other = await _user(s, "disc_other", cash="17")
+        await _position(s, other, outcomes[0], "7.123456")
+        await _wallet(s, other, pair, "8.654321")
+        await _position(s, user, outcomes[1], "0")
+        empty_pair = await _pair(s, "disc_empty")
+        await _wallet(s, user, empty_pair, "0")
         uid = int(user.id)
+        other_id = int(other.id)
         market_id, outcome_id, pair_id = int(market.id), int(outcomes[0].id), int(pair.id)
 
     async with async_session_maker() as s:
@@ -195,6 +204,31 @@ async def test_discover_dependencies_reads_full_collateral_set(reuse_locked_rows
         int(item.outcome_id) for item in lmsr_snapshot.outcomes
     )
     assert lmsr_snapshot.version and deps.snapshots[fx_key].version
+    other_deps = await _deps(other_id)
+    assert other_deps.cash == Decimal("17")
+    assert other_deps.holdings == {
+        lmsr_key: {outcome_id: Decimal("7.123456")},
+        fx_key: {pair_id: Decimal("8.654321")},
+    }
+    assert (await _deps(uid)).holdings == deps.holdings
+
+
+async def test_locked_discovery_reads_pending_own_holdings():
+    """Risk must not authorize using balances from before this transaction's writes."""
+    from app.services.market_locks import lock_user
+    from app.services.fx.shorts import _lock_short_rows
+
+    async with async_session_maker() as s:
+        user, market, outcomes, pair = await _rich_user(s, "pending_assets", fx_foreign="30")
+        user = await lock_user(s, user.id)
+        positions = await _lock_short_rows(s, user.id)
+        position = (await s.execute(select(Position).where(Position.user_id == user.id))).scalar_one()
+        wallet = (await s.execute(select(FxWallet).where(FxWallet.user_id == user.id))).scalar_one()
+        position.amount = Decimal("12.345678")
+        wallet.foreign_amount = ZERO
+        deps = await discover_dependencies(s, user.id, account_locked=True,
+                                          locked_user=user, locked_short_rows=positions)
+        assert deps.holdings == {GroupKey("lmsr", market.id): {outcomes[0].id: Decimal("12.345678")}}
 
 
 async def test_locked_discovery_keeps_other_pair_interest_and_ignores_closed_short():

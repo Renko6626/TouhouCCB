@@ -1,0 +1,582 @@
+[
+  {
+    "run": "current-60",
+    "seconds": 60.0,
+    "offered": 3240,
+    "submitted": 1527,
+    "success_including_drain": 1527,
+    "success_by_deadline": 1448,
+    "success_per_s_in_window": 24.133333333333333,
+    "offered_not_completed_percent": 52.870370370370374,
+    "skipped": 1665,
+    "quote_or_trade_failed": 48,
+    "trade_latency": {
+      "ok": {
+        "count": 1527,
+        "p50_ms": 2894.889,
+        "p95_ms": 3835.477,
+        "p99_ms": 3940.449
+      }
+    },
+    "cycle_latency": {
+      "count": 1575,
+      "p50_ms": 2948.782,
+      "p95_ms": 3914.482,
+      "p99_ms": 4029.677
+    },
+    "connected": {
+      "public": 100,
+      "private": 100
+    },
+    "sse": {
+      "public": {
+        "frames": 131600,
+        "payload_bytes": 79641100
+      },
+      "private": {
+        "frames": 154654,
+        "payload_bytes": 77350094
+      }
+    },
+    "owner": {
+      "samples": 62,
+      "seconds": 62.27424191198952,
+      "cpu_percent": 102.27728110928226,
+      "sql_per_s": 1140.8729808450944,
+      "pool_peak": 22,
+      "queue_peak": 96,
+      "handler": {
+        "count": 1508,
+        "p50_ms": 38.12,
+        "p95_ms": 54.927,
+        "p99_ms": 135.016
+      },
+      "loop_lag": {
+        "count": 2633,
+        "p50_ms": 1.839,
+        "p95_ms": 6.966,
+        "p99_ms": 85.914
+      }
+    },
+    "integrity": {
+      "net_user_gold": "999270.214038",
+      "pool_gold": "10000729.784774",
+      "pool_foreign": "9999270.269355",
+      "wallet_foreign": "1014.339411",
+      "short_principal": "284.611146",
+      "trade_legs": 1744,
+      "trade_events": 1744,
+      "executions": 1548,
+      "sum_user_versions": 2103,
+      "gold_net_delta": "-0.001188",
+      "foreign_physical_delta": "-0.002380",
+      "accrued_gold_interest": "0.001188",
+      "gold_with_treasury_and_interest_delta": "0.000000",
+      "foreign_with_treasury_delta": "0.000000",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "visibility": {
+      "latency": {
+        "role_prepare": {
+          "count": 85,
+          "p50_ms": 39.981,
+          "p95_ms": 44.35,
+          "p99_ms": 122.578
+        },
+        "warmup": {
+          "count": 100,
+          "p50_ms": 41.156,
+          "p95_ms": 47.997,
+          "p99_ms": 124.935
+        },
+        "capacity": {
+          "count": 1527,
+          "p50_ms": 2982.355,
+          "p95_ms": 3897.599,
+          "p99_ms": 3999.685
+        }
+      },
+      "missing": {}
+    },
+    "client_schedule_lag": {
+      "count": 3240,
+      "p50_ms": 0.698,
+      "p95_ms": 3.53,
+      "p99_ms": 4.318
+    },
+    "client_cpu_percent": 38.41559772976869
+  },
+  {
+    "run": "cadence8-60",
+    "seconds": 60.0,
+    "offered": 3240,
+    "submitted": 2290,
+    "success_including_drain": 2290,
+    "success_by_deadline": 2242,
+    "success_per_s_in_window": 37.36666666666667,
+    "offered_not_completed_percent": 29.320987654320987,
+    "skipped": 873,
+    "quote_or_trade_failed": 77,
+    "trade_latency": {
+      "ok": {
+        "count": 2290,
+        "p50_ms": 1504.883,
+        "p95_ms": 2074.722,
+        "p99_ms": 2166.107
+      }
+    },
+    "cycle_latency": {
+      "count": 2367,
+      "p50_ms": 1526.818,
+      "p95_ms": 2121.597,
+      "p99_ms": 2220.934
+    },
+    "connected": {
+      "public": 100,
+      "private": 100
+    },
+    "sse": {
+      "public": {
+        "frames": 47700,
+        "payload_bytes": 55268000
+      },
+      "private": {
+        "frames": 50716,
+        "payload_bytes": 24610280
+      }
+    },
+    "owner": {
+      "samples": 61,
+      "seconds": 61.157974213012494,
+      "cpu_percent": 101.50403464441732,
+      "sql_per_s": 1625.4299014837072,
+      "pool_peak": 19,
+      "queue_peak": 95,
+      "handler": {
+        "count": 2260,
+        "p50_ms": 24.586,
+        "p95_ms": 41.439,
+        "p99_ms": 62.804
+      },
+      "loop_lag": {
+        "count": 2769,
+        "p50_ms": 1.131,
+        "p95_ms": 4.861,
+        "p99_ms": 8.037
+      }
+    },
+    "integrity": {
+      "net_user_gold": "999048.935430",
+      "pool_gold": "10000951.063425",
+      "pool_foreign": "9999049.028293",
+      "wallet_foreign": "1114.899102",
+      "short_principal": "163.929547",
+      "trade_legs": 2519,
+      "trade_events": 2519,
+      "executions": 2246,
+      "sum_user_versions": 3019,
+      "gold_net_delta": "-0.001145",
+      "foreign_physical_delta": "-0.002152",
+      "accrued_gold_interest": "0.001145",
+      "gold_with_treasury_and_interest_delta": "0.000000",
+      "foreign_with_treasury_delta": "0.000000",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "visibility": {
+      "latency": {
+        "role_prepare": {
+          "count": 85,
+          "p50_ms": 81.29,
+          "p95_ms": 144.594,
+          "p99_ms": 196.853
+        },
+        "warmup": {
+          "count": 100,
+          "p50_ms": 87.549,
+          "p95_ms": 135.879,
+          "p99_ms": 140.233
+        },
+        "capacity": {
+          "count": 2290,
+          "p50_ms": 1601.733,
+          "p95_ms": 2167.697,
+          "p99_ms": 2263.815
+        }
+      },
+      "missing": {}
+    },
+    "client_schedule_lag": {
+      "count": 3240,
+      "p50_ms": 0.592,
+      "p95_ms": 2.568,
+      "p99_ms": 4.411
+    },
+    "client_cpu_percent": 31.949627905606654
+  },
+  {
+    "run": "asgi-cadence8-60",
+    "seconds": 60.0,
+    "offered": 3240,
+    "submitted": 2749,
+    "success_including_drain": 2749,
+    "success_by_deadline": 2704,
+    "success_per_s_in_window": 45.06666666666667,
+    "offered_not_completed_percent": 15.154320987654321,
+    "skipped": 372,
+    "quote_or_trade_failed": 119,
+    "trade_latency": {
+      "ok": {
+        "count": 2749,
+        "p50_ms": 1203.793,
+        "p95_ms": 1830.648,
+        "p99_ms": 1853.744
+      }
+    },
+    "cycle_latency": {
+      "count": 2868,
+      "p50_ms": 1227.17,
+      "p95_ms": 1867.206,
+      "p99_ms": 1890.184
+    },
+    "connected": {
+      "public": 100,
+      "private": 100
+    },
+    "sse": {
+      "private": {
+        "frames": 51269,
+        "payload_bytes": 24733898
+      },
+      "public": {
+        "frames": 48100,
+        "payload_bytes": 62433200
+      }
+    },
+    "owner": {
+      "samples": 61,
+      "seconds": 61.08768827500171,
+      "cpu_percent": 102.27950107348902,
+      "sql_per_s": 1943.9923715135326,
+      "pool_peak": 18,
+      "queue_peak": 90,
+      "handler": {
+        "count": 2737,
+        "p50_ms": 21.429,
+        "p95_ms": 29.804,
+        "p99_ms": 34.598
+      },
+      "loop_lag": {
+        "count": 2859,
+        "p50_ms": 1.025,
+        "p95_ms": 2.783,
+        "p99_ms": 4.281
+      }
+    },
+    "integrity": {
+      "net_user_gold": "999020.831267",
+      "pool_gold": "10000979.167609",
+      "pool_foreign": "9999020.929749",
+      "wallet_foreign": "1200.928198",
+      "short_principal": "221.859977",
+      "trade_legs": 2985,
+      "trade_events": 2985,
+      "executions": 2674,
+      "sum_user_versions": 3559,
+      "gold_net_delta": "-0.001124",
+      "foreign_physical_delta": "-0.002030",
+      "accrued_gold_interest": "0.001124",
+      "gold_with_treasury_and_interest_delta": "0.000000",
+      "foreign_with_treasury_delta": "0.000000",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "visibility": {
+      "latency": {
+        "role_prepare": {
+          "count": 85,
+          "p50_ms": 82.944,
+          "p95_ms": 140.068,
+          "p99_ms": 147.861
+        },
+        "warmup": {
+          "count": 100,
+          "p50_ms": 89.317,
+          "p95_ms": 137.558,
+          "p99_ms": 145.055
+        },
+        "capacity": {
+          "count": 2749,
+          "p50_ms": 1298.097,
+          "p95_ms": 1938.326,
+          "p99_ms": 1973.754
+        }
+      },
+      "missing": {}
+    },
+    "client_schedule_lag": {
+      "count": 3240,
+      "p50_ms": 0.574,
+      "p95_ms": 2.207,
+      "p99_ms": 4.173
+    },
+    "client_cpu_percent": 31.501502279606182
+  },
+  {
+    "run": "split-reads-60",
+    "seconds": 60.0,
+    "offered": 3240,
+    "submitted": 3216,
+    "success_including_drain": 3216,
+    "success_by_deadline": 3216,
+    "success_per_s_in_window": 53.6,
+    "offered_not_completed_percent": 0.7407407407407407,
+    "skipped": 0,
+    "quote_or_trade_failed": 24,
+    "trade_latency": {
+      "ok": {
+        "count": 3216,
+        "p50_ms": 11.818,
+        "p95_ms": 24.266,
+        "p99_ms": 79.21
+      }
+    },
+    "cycle_latency": {
+      "count": 3240,
+      "p50_ms": 27.629,
+      "p95_ms": 43.382,
+      "p99_ms": 108.871
+    },
+    "connected": {
+      "public": 100,
+      "private": 100
+    },
+    "sse": {
+      "public": {
+        "frames": 47700,
+        "payload_bytes": 69346800
+      },
+      "private": {
+        "frames": 51416,
+        "payload_bytes": 24653577
+      }
+    },
+    "owner": {
+      "samples": 60,
+      "seconds": 60.04166065399477,
+      "cpu_percent": 95.56049126729573,
+      "sql_per_s": 1798.4512557418013,
+      "pool_peak": 11,
+      "queue_peak": 4,
+      "handler": {
+        "count": 3181,
+        "p50_ms": 8.395,
+        "p95_ms": 15.526,
+        "p99_ms": 20.118
+      },
+      "loop_lag": {
+        "count": 2893,
+        "p50_ms": 0.369,
+        "p95_ms": 2.383,
+        "p99_ms": 3.688
+      }
+    },
+    "integrity": {
+      "net_user_gold": "998900.895842",
+      "pool_gold": "10001099.102947",
+      "pool_foreign": "9998901.019599",
+      "wallet_foreign": "1417.941569",
+      "short_principal": "318.963435",
+      "trade_legs": 3461,
+      "trade_events": 3461,
+      "executions": 3087,
+      "sum_user_versions": 4156,
+      "gold_net_delta": "-0.001211",
+      "foreign_physical_delta": "-0.002267",
+      "accrued_gold_interest": "0.001211",
+      "gold_with_treasury_and_interest_delta": "0.000000",
+      "foreign_with_treasury_delta": "0.000000",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "visibility": {
+      "latency": {
+        "role_prepare": {
+          "count": 85,
+          "p50_ms": 80.774,
+          "p95_ms": 136.118,
+          "p99_ms": 145.579
+        },
+        "warmup": {
+          "count": 100,
+          "p50_ms": 81.229,
+          "p95_ms": 132.521,
+          "p99_ms": 142.777
+        },
+        "capacity": {
+          "count": 3216,
+          "p50_ms": 88.898,
+          "p95_ms": 147.363,
+          "p99_ms": 178.73
+        }
+      },
+      "missing": {}
+    },
+    "client_schedule_lag": {
+      "count": 3240,
+      "p50_ms": 0.55,
+      "p95_ms": 2.022,
+      "p99_ms": 3.645
+    },
+    "reader": {
+      "samples": 59,
+      "seconds": 59.03989046700008,
+      "cpu_percent": 37.15141072841241,
+      "sql_per_s": 589.2117977326524,
+      "pool_peak": 5,
+      "queue_peak": 0,
+      "handler": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null,
+        "p99_ms": null
+      },
+      "loop_lag": {
+        "count": 2879,
+        "p50_ms": 0.421,
+        "p95_ms": 1.19,
+        "p99_ms": 1.9
+      }
+    },
+    "client_cpu_percent": 28.473584474816064
+  },
+  {
+    "run": "split-reads-300",
+    "seconds": 300.0,
+    "offered": 16200,
+    "submitted": 16111,
+    "success_including_drain": 16111,
+    "success_by_deadline": 16110,
+    "success_per_s_in_window": 53.7,
+    "offered_not_completed_percent": 0.5493827160493827,
+    "skipped": 0,
+    "quote_or_trade_failed": 89,
+    "trade_latency": {
+      "ok": {
+        "count": 16111,
+        "p50_ms": 12.076,
+        "p95_ms": 24.596,
+        "p99_ms": 81.333
+      }
+    },
+    "cycle_latency": {
+      "count": 16200,
+      "p50_ms": 28.762,
+      "p95_ms": 45.066,
+      "p99_ms": 108.757
+    },
+    "connected": {
+      "public": 100,
+      "private": 100
+    },
+    "sse": {
+      "public": {
+        "frames": 239000,
+        "payload_bytes": 349144900
+      },
+      "private": {
+        "frames": 257110,
+        "payload_bytes": 123567473
+      }
+    },
+    "owner": {
+      "samples": 299,
+      "seconds": 299.3282226910087,
+      "cpu_percent": 96.40448887704167,
+      "sql_per_s": 1819.4575676955012,
+      "pool_peak": 10,
+      "queue_peak": 4,
+      "handler": {
+        "count": 16061,
+        "p50_ms": 8.499,
+        "p95_ms": 15.375,
+        "p99_ms": 19.391
+      },
+      "loop_lag": {
+        "count": 14403,
+        "p50_ms": 0.401,
+        "p95_ms": 2.439,
+        "p99_ms": 3.689
+      }
+    },
+    "integrity": {
+      "net_user_gold": "998024.533064",
+      "pool_gold": "10001975.461549",
+      "pool_foreign": "9998024.936923",
+      "wallet_foreign": "2325.310259",
+      "short_principal": "350.257032",
+      "trade_legs": 16570,
+      "trade_events": 16570,
+      "executions": 14814,
+      "sum_user_versions": 19835,
+      "gold_net_delta": "-0.005387",
+      "foreign_physical_delta": "-0.009850",
+      "accrued_gold_interest": "0.005387",
+      "gold_with_treasury_and_interest_delta": "0.000000",
+      "foreign_with_treasury_delta": "0.000000",
+      "fsync": "on",
+      "synchronous_commit": "on"
+    },
+    "visibility": {
+      "latency": {
+        "role_prepare": {
+          "count": 85,
+          "p50_ms": 84.516,
+          "p95_ms": 143.567,
+          "p99_ms": 148.59
+        },
+        "warmup": {
+          "count": 100,
+          "p50_ms": 87.269,
+          "p95_ms": 138.353,
+          "p99_ms": 143.336
+        },
+        "capacity": {
+          "count": 16111,
+          "p50_ms": 89.984,
+          "p95_ms": 148.788,
+          "p99_ms": 173.451
+        }
+      },
+      "missing": {}
+    },
+    "client_schedule_lag": {
+      "count": 16200,
+      "p50_ms": 0.55,
+      "p95_ms": 2.296,
+      "p99_ms": 4.142
+    },
+    "reader": {
+      "samples": 300,
+      "seconds": 300.1955437190045,
+      "cpu_percent": 40.991154353438134,
+      "sql_per_s": 624.6062072643941,
+      "pool_peak": 8,
+      "queue_peak": 0,
+      "handler": {
+        "count": 0,
+        "p50_ms": null,
+        "p95_ms": null,
+        "p99_ms": null
+      },
+      "loop_lag": {
+        "count": 14638,
+        "p50_ms": 0.406,
+        "p95_ms": 1.153,
+        "p99_ms": 1.864
+      }
+    },
+    "client_cpu_percent": 29.400981332621804
+  }
+]

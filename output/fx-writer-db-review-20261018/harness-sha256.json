@@ -1,0 +1,6 @@
+{
+  "loadtest/fx_writer_db.py": "a48eb909802fb00bc14a2afca961bdb841f64f8bdf1061a9e10b3010eecb674b",
+  "loadtest/fx_writer_db_ab.py": "7800783bc1325338f4099434e5b4241cd6f2204ea122fb850ed1d5b8c7d0f80c",
+  "output/fx-writer-db-review-20261018/queries.patch": "7828b6942a4674f3668c68d593294f1eb7d40f5c09c7a0e8871cdfa5e55221f8",
+  "output/fx-writer-db-review-20261018/combined.patch": "6922cd5b7c329ddc50d1fb30369525a4f9adecd90a63102868658d9868ce841c"
+}

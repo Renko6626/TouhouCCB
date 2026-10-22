@@ -415,7 +415,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
     requires_credit = normalized == "buy" and (financed or user.debt > 0 or has_short_debt)
     same_pair_short = False
     if requires_credit:
-        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key], account_locked=True)
+        credit_deps = await discover_dependencies(db, user_id, extra_groups=[key],
+                                                  account_locked=True, locked_user=user)
         # 同一 pair 已欠币时普通现货买入不得建立多头（spec §1/§9），必须走回补
         # 入口；判定放在幂等回放之后，保证重试返回原成交而不是被新规则误拒。
         snapshot = credit_deps.snapshots.get(key)
@@ -511,8 +512,8 @@ async def execute_trade_in_session(db: AsyncSession, user_id: int, pair_id: int,
         _require_writes()
         before_debt = user.debt
         if financed:
-            user = await loan_service.increase_debt(
-                db, user_id, borrow_amount, grant_cash=True, daily_rate=credit_deps.daily_rate,
+            user = await loan_service.increase_debt_locked(
+                db, user, borrow_amount, grant_cash=True, daily_rate=credit_deps.daily_rate,
                 source='borrow', reason=f'fx_borrow_buy:{pair_id}:{idempotency_key}', now=trade_now)
         else:
             loan_service.accrue_interest(user, credit_deps.daily_rate, trade_now)
