@@ -18,14 +18,15 @@ if [ "$ACTION" = execute ] && [ "${SEASON_CONFIRM:-}" != RESET ]; then
     exit 1
 fi
 
+SCRIPT_PATH="$(realpath "$0")"
 cd "$(dirname "$0")/.."
-PROJECT_ROOT="$(pwd)"
+PROJECT_ROOT="${THCCB_PROJECT_ROOT:-$(pwd)}"
 # Bound the remote process itself. Reserve two minutes to stop/wait maintenance
 # containers and restore the backend after TERM; total is fourteen minutes.
 if [ "${SEASON_RESET_WITH_DEADLINE:-}" != 1 ]; then
     export SEASON_RESET_WITH_DEADLINE=1
     exec timeout --signal=TERM --kill-after=120s 720 \
-        bash "$PROJECT_ROOT/deploy/season_reset.sh" "$ACTION"
+        bash "$SCRIPT_PATH" "$ACTION"
 fi
 
 RULESET=2026-09-27
@@ -138,7 +139,7 @@ run_oneoff() {
     local stage=$1 input_path=$2 result=0
     shift 2
     ONEOFF_NAME="thccb-season-${OWNER_TOKEN}-${stage}"
-    docker compose -f "$PROJECT_ROOT/docker-compose.yml" -f "$OVERRIDE_PATH" \
+    docker compose -f "${COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.yml}" -f "$OVERRIDE_PATH" \
         run --rm --no-deps -T --pull never --name "$ONEOFF_NAME" \
         --label "thccb.season-reset.owner=$OWNER_TOKEN" backend python "$@" < "$input_path" &
     COMPOSE_PID=$!

@@ -1,0 +1,7 @@
+**
+!deploy/
+!deploy/frontend.Dockerfile
+!deploy/nginx.container.conf
+!thccb-frontend/
+!thccb-frontend/dist/
+!thccb-frontend/dist/**

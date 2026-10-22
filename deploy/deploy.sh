@@ -9,7 +9,21 @@ set -euo pipefail
 umask 077
 cd "$(dirname "$0")/.."
 
-PROJECT_ROOT="$(pwd)"
+PROJECT_ROOT="${THCCB_PROJECT_ROOT:-$(pwd)}"
+if [ "${THCCB_COOLIFY:-}" = 1 ]; then
+    # Invoked by Coolify on the host, with the generated Compose and .env.
+    if docker ps --format '{{.Names}}' | grep -qx thccb-postgres; then
+        echo 'Legacy PostgreSQL is still running. Stop it before mounting its data volume in Coolify.' >&2
+        exit 1
+    fi
+    export COMPOSE_FILE="$PWD/docker-compose.coolify.yml"
+    export COMPOSE_PROJECT_NAME="${PWD##*/}"
+    [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z0-9]+$ ]] || exit 1
+    BACKEND_IMAGE=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["backend"]["image"])')
+    EXPECTED_BUILD_SHA="${BACKEND_IMAGE##*:}"
+    FRONTEND_IMAGE=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["frontend"]["image"])')
+    [ "${FRONTEND_IMAGE##*:}" = "$EXPECTED_BUILD_SHA" ] || { echo "Frontend/backend image SHA mismatch" >&2; exit 1; }
+fi
 BACKUP_DIR="$PROJECT_ROOT/backups"
 HEALTH_URL="http://127.0.0.1:8004/api/v1/market/list"
 HEALTH_TIMEOUT=10
@@ -179,6 +193,7 @@ docker compose run --rm --no-deps -T backend python scripts/audit_verify.py
 # ── 4. 重启 backend ──
 log "[4/5] Starting backend..."
 docker compose up -d backend
+if [ "${THCCB_COOLIFY:-}" = 1 ]; then docker compose up -d frontend; fi
 
 # ── 5. 健康检查 ──
 log "[5/5] Waiting for backend to be ready..."
@@ -187,11 +202,11 @@ if ! health_check; then
     fail "Health check failed after deploy; inspect backend logs before recovery"
 fi
 
-RUNNING_SHA=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' thccb-backend \
+RUNNING_SHA=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' "$(docker compose ps -q backend)" \
     | sed -n 's/^APP_BUILD_SHA=//p')
 [ "$RUNNING_SHA" = "$EXPECTED_BUILD_SHA" ] || fail "Running backend build SHA differs from deployed frontend"
 
-NEW_IMAGE=$(docker inspect --format='{{.Image}}' thccb-backend 2>/dev/null | cut -c8-19)
+NEW_IMAGE=$(docker inspect --format='{{.Image}}' "$(docker compose ps -q backend)" 2>/dev/null | cut -c8-19)
 echo ""
 echo "===================================="
 echo "  Deploy complete!"

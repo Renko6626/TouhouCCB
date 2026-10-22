@@ -35,6 +35,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
+      - name: Require a maintenance plan for Coolify
+        env:
+          COOLIFY_APPLICATION_UUID: ${{ vars.COOLIFY_APPLICATION_UUID }}
+        run: |
+          if [ -n "$COOLIFY_APPLICATION_UUID" ]; then
+            echo "Business reset uses the retired Compose deployment. Prepare a Coolify-specific reset before running it."
+            exit 1
+          fi
       - name: Validate request and immutable build
         id: build
         env:

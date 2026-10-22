@@ -1,0 +1,57 @@
+# Coolify Git Compose application. Images are built by CI, never on production.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: thccb
+      POSTGRES_DB: thccb
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thccb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    stop_grace_period: 30s
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    image: ${BACKEND_IMAGE:?}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Retain the loopback port for existing read-only operational tools.
+    ports:
+      - "127.0.0.1:8004:8004"
+    volumes:
+      - /home/deploy/TouhouCCB/.env:/app/.env:ro
+      - /home/deploy/TouhouCCB/backend/data:/app/data
+      - /home/deploy/TouhouCCB/backups:/app/backups
+    environment:
+      PYTHONPATH: .
+      ADMIN_RESTART_ENABLED: "true"
+    user: "1007:1008"
+    stop_grace_period: 8s
+    logging: *logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "80"
+    logging: *logging
+
+volumes:
+  pgdata:
+    external: true
+    name: touhouccb_pgdata

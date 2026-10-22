@@ -32,14 +32,19 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           SEASON_ACTION: ${{ inputs.action }}
+          COOLIFY_APPLICATION_UUID: ${{ vars.COOLIFY_APPLICATION_UUID }}
           SEASON_CONFIRM: ${{ inputs.confirmation }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
-          envs: SEASON_ACTION,SEASON_CONFIRM
+          envs: SEASON_ACTION,SEASON_CONFIRM,COOLIFY_APPLICATION_UUID
           command_timeout: 15m
           script: |
             set -e
-            cd /home/deploy/TouhouCCB
-            bash deploy/season_reset.sh "$SEASON_ACTION"
+            if [ -n "$COOLIFY_APPLICATION_UUID" ]; then
+              sudo -n /usr/local/sbin/thccb-season-maintenance "$SEASON_ACTION" "$SEASON_CONFIRM"
+            else
+              cd /home/deploy/TouhouCCB
+              bash deploy/season_reset.sh "$SEASON_ACTION"
+            fi

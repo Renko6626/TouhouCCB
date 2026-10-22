@@ -166,6 +166,30 @@ jobs:
           VITE_CASDOOR_APP: ${{ secrets.VITE_CASDOOR_APP }}
           VITE_BUILD_SHA: ${{ github.sha }}
 
+      - name: Log in to Aliyun ACR
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend image
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/frontend.Dockerfile
+          push: true
+          tags: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-frontend:${{ github.sha }}
+          provenance: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
       # 上传 dist/ 供 deploy job 使用
       - name: Upload dist artifact
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && github.repository_owner == 'Renko6626'
@@ -189,70 +213,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # checkout 让 runner 拿到 docker-compose.yml + deploy/，准备 rsync 推服务器
       - uses: actions/checkout@v4
-
-      # 拿到前端构建产物
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: dist/
-
-      # rsync 前端静态文件到服务器
-      - name: Deploy frontend via rsync
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avz --delete
-          path: dist/
-          remote_path: /home/deploy/TouhouCCB/thccb-frontend/dist/
-          remote_host: ${{ secrets.DEPLOY_HOST }}
-          remote_user: ${{ secrets.DEPLOY_USER }}
-          remote_key: ${{ secrets.DEPLOY_KEY }}
-
-      # rsync 后端部署配置（compose 文件 + deploy/ 目录）到服务器
-      # 不再让服务器 git pull——国内到 github HTTPS 抖动严重、几乎每次都把重试用满
-      # 才能拿到代码。runner（Azure 美国）→ 服务器 rsync 走我们自己的 ssh 通道稳定。
-      - name: Deploy backend config via rsync
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avz
-          # deploy 不带尾斜杠：rsync 语义上 "deploy/" 只拷目录内容（nginx.conf 曾落到仓库根目录），
-          # "deploy" 才会在远端保留 deploy/ 目录层级
-          path: docker-compose.yml deploy
-          remote_path: /home/deploy/TouhouCCB/
-          remote_host: ${{ secrets.DEPLOY_HOST }}
-          remote_user: ${{ secrets.DEPLOY_USER }}
-          remote_key: ${{ secrets.DEPLOY_KEY }}
-
-      # SSH 执行后端部署脚本（docker compose pull + up）
-      # 之前要先 git fetch/pull，国内 GitHub 网络抖动每次重试用满 50s 才进 deploy.sh。
-      # 现在配置文件已由上一步 rsync 推到位，直接跑 deploy.sh 即可。
-      - name: Deploy backend
-        uses: appleboy/ssh-action@v1
+      - name: Deploy with Coolify
         env:
-          DEPLOY_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-backend:${{ github.sha }}
-          DEPLOY_SHA: ${{ github.sha }}
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          envs: DEPLOY_IMAGE,DEPLOY_SHA
-          script_stop: true
-          # 默认 10 分钟；网络抽风时镜像拉取可能更慢，给到 30 分钟兜底
-          command_timeout: 30m
-          script: |
-            cd /home/deploy/TouhouCCB
-            BACKEND_IMAGE="$DEPLOY_IMAGE" EXPECTED_BUILD_SHA="$DEPLOY_SHA" bash deploy/deploy.sh
-
-      # 远程健康检查
-      - name: Remote health check
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_KEY }}
-          script_stop: true
-          script: |
-            sleep 5
-            curl -sf --max-time 10 http://127.0.0.1:8004/api/v1/market/list > /dev/null
-            echo "Health check passed"
+          COOLIFY_URL: https://coolify.secret-sealing.club
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APPLICATION_UUID: ${{ vars.COOLIFY_APPLICATION_UUID }}
+          BACKEND_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-backend:${{ github.sha }}
+          FRONTEND_IMAGE: ${{ secrets.ACR_REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/thccb-frontend:${{ github.sha }}
+          BUILD_SHA: ${{ github.sha }}
+        run: python3 deploy/coolify_release.py

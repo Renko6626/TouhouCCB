@@ -1,5 +1,25 @@
 # TouhouCCB 部署指南
 
+## 2026-10-23 起的生产发布：Coolify
+
+生产项目使用 `docker-compose.coolify.yml`，管理入口 https://coolify.secret-sealing.club 。下文旧 SSH/rsync 教程仅保留为历史参考，不要再按其中 Nginx 监听和证书步骤覆盖生产配置。
+
+- GitHub Actions 保留后端检查、测试和前端类型检查；构建后端与前端 Nginx 镜像，推送 ACR，均使用完整提交 SHA。
+- 发布 job 调用 `deploy/coolify_release.py`，写入镜像版本并锁定 Git 提交，然后触发 Coolify，等待发布结果。需仓库 Secret `COOLIFY_API_TOKEN` 和 Variable `COOLIFY_APPLICATION_UUID`。
+- Coolify 使用 GitHub App `renko6626`、main 分支、Docker Compose 构建方式，Compose 路径 `/docker-compose.coolify.yml`。关闭 push 自动部署及预览部署，由 CI 成功后触发。
+- 开启 Preserve Repository。Custom Build Command 为 `true`；Custom Start Command 为 `THCCB_COOLIFY=1 THCCB_PROJECT_ROOT=/home/deploy/TouhouCCB bash deploy/deploy.sh`。不要替换为普通 `compose up`，否则会跳过备份、迁移和账本校验。
+- 前端服务绑定 `https://thccb.secret-sealing.club`，后端和数据库不绑定公网域名；后端保留回环端口 8004。TLS 由 Traefik 管理，容器 Nginx 保留限流、SSE 和历史缓存。
+- Coolify 变量为 `PG_PASSWORD`、`BACKEND_IMAGE`、`FRONTEND_IMAGE`；应用配置继续只读挂载 `/home/deploy/TouhouCCB/.env`。口令沿用现有 PostgreSQL，不生成新口令。旧数据卷 `touhouccb_pgdata` 声明为 external，不允许删除或与另一个 PostgreSQL 同时使用。
+- `backend/data` 和 `backups` 沿用旧目录，后端 UID:GID 为生产现有的 `1007:1008`，无须移动文件或放宽权限。
+- Coolify 原生 Compose 发布会停止并移除旧服务，再执行自定义启动命令；数据库因此也会短暂重启。自定义命令启动数据库，验证备份完整恢复后执行 Alembic 和账本校验，最后启动后端、前端。
+- 可在 Coolify 查看日志、状态及重启。数据库迁移失败时保持后端停止，按发布日志人工恢复；有 schema 改动时不能直接把镜像退回旧版。
+
+赛季维护工作流仍保留，由 root 所有的 `/usr/local/sbin/thccb-season-maintenance` 调用当前 Coolify Compose。`/etc/thccb-coolify-resource` 保存资源 UUID，sudo 仅授权这个受限命令。专用 Business database reset 仍依赖旧部署及前端目录，Coolify 接管后显式拒绝执行；需要清库时先单独适配并确认，不得对旧 Compose 操作。
+
+迁移时保留旧容器（停止状态）、旧 Nginx 配置及旧发布目录作为回退材料。恢复前必须停止新后端和新 PostgreSQL，避免同卷双实例。域名从旧 `legacy-https` HostSNI 列表移除后由 Coolify 路由。
+
+---
+
 本文档覆盖从零开始的完整部署流程：服务器环境准备 → 首次部署 → GitHub Actions CI/CD 自动化。
 
 ## 日常重启后端

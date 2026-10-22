@@ -200,7 +200,7 @@ def runner(tmp_path):
         path.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND)
         path.chmod(0o755)
 
-    def run(action="preview", *, confirmation=None, failure="", running=True):
+    def run(action="preview", *, confirmation=None, failure="", running=True, persistent_root=None):
         state_path = tmp_path / "state.json"
         state_path.write_text(json.dumps({
             "running": running, "databases": [], "restored": [],
@@ -214,6 +214,8 @@ def runner(tmp_path):
             "FAKE_STATE": str(state_path), "FAKE_LOG": str(log_path),
             "FAKE_FAILURE": failure,
         }
+        if persistent_root is not None:
+            env["THCCB_PROJECT_ROOT"] = str(persistent_root)
         env.pop("SEASON_CONFIRM", None)
         if confirmation is not None:
             env["SEASON_CONFIRM"] = confirmation
@@ -375,3 +377,12 @@ def test_docker_api_failure_is_not_treated_as_container_disappearance(runner):
     assert result.returncode != 0 and state["running"] is False
     assert "start" not in event_names(events)
     assert "manual recovery required" in result.stderr
+
+
+def test_separate_persistent_root_keeps_running_current_maintenance_script(runner, tmp_path):
+    persistent_root = tmp_path / "legacy-data"
+    persistent_root.mkdir()
+    result, state, events, _ = runner(persistent_root=persistent_root)
+    assert result.returncode == 0, result.stderr
+    assert event_names(events) == ["preview"]
+    assert state["running"] is True and state["reset_count"] == 0
