@@ -1,0 +1,32 @@
+{
+  "old_pr_commit": "b3f78ceceb9349b3bdfe0099c45b1975b8281fd3",
+  "old_recorded_app_base": "75d33eb",
+  "old_app_diff_to_pr_head": [],
+  "original_harness_hash_match": {
+    "loadtest/fx_capacity.py": true,
+    "loadtest/fx_capacity_server.py": true,
+    "loadtest/fx_http.py": true
+  },
+  "old_current_host": {
+    "rate": 50,
+    "seconds": 40,
+    "users": 100,
+    "streams": 200,
+    "variant": "asgi_cadence8"
+  },
+  "historical": {
+    "rate": 54,
+    "seconds": 60,
+    "cpu": "i7-14700/WSL2",
+    "python": "3.13.16"
+  },
+  "current_host": {
+    "cpu": "Xeon Gold6330/Linux",
+    "python": "3.13.5",
+    "postgres": "16.15",
+    "socket": "local Unix",
+    "fsync": "on",
+    "synchronous_commit": "on"
+  },
+  "private_directory_cleaned": true
+}

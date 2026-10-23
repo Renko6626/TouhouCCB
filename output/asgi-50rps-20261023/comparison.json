@@ -1,0 +1,176 @@
+{
+  "users": 100,
+  "rate": 50.0,
+  "label": "candidate",
+  "run": "current",
+  "status": "completed",
+  "abort_reason": null,
+  "seconds": 40.0,
+  "success_tps": 22.0,
+  "completed_cycles_tps": 21.975,
+  "post_latency": {
+    "ok": {
+      "count": 942,
+      "p50_ms": 2697.203,
+      "p95_ms": 4227.531,
+      "p99_ms": 4458.739
+    }
+  },
+  "post_results": {
+    "ok": 942
+  },
+  "cycle_latency": {
+    "count": 983,
+    "p50_ms": 2947.082,
+    "p95_ms": 4523.548,
+    "p99_ms": 5910.072
+  },
+  "arrivals": {
+    "offered": 2000,
+    "successful_cycles": 942,
+    "failed_cycles": 41,
+    "busy_user_skipped": 1017
+  },
+  "skipped": 1017,
+  "rejected": 0,
+  "capacity_request_results": {
+    "quote_cash_sell": {
+      "ok": 300
+    },
+    "quote_sell_repay": {
+      "ok": 97
+    },
+    "trade": {
+      "ok": 942
+    },
+    "my_trades_after_trade": {
+      "ok": 942
+    },
+    "snapshot_after_trade": {
+      "ok": 942
+    },
+    "context_after_trade": {
+      "ok": 942
+    },
+    "quote_cross_zero": {
+      "ok": 22
+    },
+    "quote_short_cover": {
+      "ok": 89
+    },
+    "versions": {
+      "ok": 261
+    },
+    "prices_repair": {
+      "ok": 222
+    },
+    "quote_cash_buy": {
+      "ok": 287
+    },
+    "quote_financed_buy": {
+      "ok": 109
+    },
+    "cycle": {
+      "quote_blocked": 41
+    },
+    "quote_short_open": {
+      "ok": 79
+    }
+  },
+  "owner": {
+    "samples": 43,
+    "seconds": 43.09076595120132,
+    "cpu_percent": 96.58213487578942,
+    "sql_per_s": 993.6003469626505,
+    "pool_peak": 30,
+    "queue_peak": 96,
+    "handler": {
+      "count": 947,
+      "p50_ms": 37.564,
+      "p95_ms": 83.061,
+      "p99_ms": 139.466
+    },
+    "loop_lag": {
+      "count": 2013,
+      "p50_ms": 0.778,
+      "p95_ms": 4.93,
+      "p99_ms": 7.674
+    },
+    "rss_mb_peak": 167.48828125
+  },
+  "connected": {
+    "public": 100,
+    "private": 100
+  },
+  "sse": {
+    "private": {
+      "frames": 18023,
+      "payload_bytes": 8622874
+    },
+    "public": {
+      "frames": 13700,
+      "payload_bytes": 20192600
+    }
+  },
+  "client_cpu_percent": 52.928717856255126,
+  "client_schedule_lag": {
+    "count": 2000,
+    "p50_ms": 1.02,
+    "p95_ms": 282.445,
+    "p99_ms": 409.517
+  },
+  "visibility": {
+    "latency": {
+      "role_prepare": {
+        "count": 85,
+        "p50_ms": 194.525,
+        "p95_ms": 319.056,
+        "p99_ms": 366.142
+      },
+      "warmup": {
+        "count": 100,
+        "p50_ms": 222.252,
+        "p95_ms": 347.587,
+        "p99_ms": 390.203
+      },
+      "capacity": {
+        "count": 942,
+        "p50_ms": 2928.926,
+        "p95_ms": 4419.889,
+        "p99_ms": 4675.067
+      }
+    },
+    "missing": {}
+  },
+  "integrity": {
+    "net_user_gold": "998950.759285",
+    "pool_gold": "10001049.239893",
+    "pool_foreign": "9998950.870763",
+    "wallet_foreign": "1248.024834",
+    "short_principal": "198.897171",
+    "trade_legs": 1151,
+    "trade_events": 1151,
+    "executions": 1018,
+    "sum_user_versions": 1395,
+    "users": 100,
+    "expected_user_cash": "1000000",
+    "gold_net_delta": "-0.000822",
+    "foreign_physical_delta": "-0.001574",
+    "accrued_gold_interest": "0.000822",
+    "gold_with_treasury_and_interest_delta": "0.000000",
+    "foreign_with_treasury_delta": "0.000000",
+    "fsync": "on",
+    "synchronous_commit": "on",
+    "checks_passed": true
+  },
+  "coverage": {
+    "chart_sse_tail_reused": 1227,
+    "financed_buy": 127,
+    "sell_repay": 117,
+    "cash_buy": 357,
+    "cross_zero": 24,
+    "short_cover": 109,
+    "short_open": 93,
+    "cash_sell": 300
+  }
+}

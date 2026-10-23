@@ -1,0 +1,14 @@
+{
+  "database": "fxcapacity_asgi50_test",
+  "label": "candidate",
+  "users": 100,
+  "streams": 200,
+  "stream_pool": 400,
+  "rate": 50.0,
+  "seconds": 40.0,
+  "repo": "/data/sunyunbo/www/TouhouCCB",
+  "variant": "current",
+  "admission_overrides": [],
+  "git_head": "cf62986cbe74565a1a991957d95d77946d053b08",
+  "git_diff": ""
+}

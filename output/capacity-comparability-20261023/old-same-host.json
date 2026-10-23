@@ -1,0 +1,90 @@
+{
+  "success_tps": 21.525,
+  "seconds": 40.0,
+  "offered": {
+    "offered": 2000,
+    "successful_cycles": 921,
+    "failed_cycles": 19,
+    "busy_user_skipped": 1060
+  },
+  "post_latency": {
+    "ok": {
+      "count": 921,
+      "p50_ms": 3074.195,
+      "p95_ms": 4263.596,
+      "p99_ms": 4538.564
+    }
+  },
+  "owner": {
+    "samples": 42,
+    "seconds": 42.14202029258013,
+    "cpu_percent": 97.121396112104,
+    "sql_per_s": 991.2671416788975,
+    "pool_peak": 30,
+    "queue_peak": 96,
+    "handler": {
+      "count": 908,
+      "p50_ms": 40.936,
+      "p95_ms": 81.574,
+      "p99_ms": 125.641
+    },
+    "loop_lag": {
+      "count": 1937,
+      "p50_ms": 0.923,
+      "p95_ms": 5.33,
+      "p99_ms": 8.302
+    }
+  },
+  "connected": {
+    "public": 100,
+    "private": 100
+  },
+  "schedule_lag": {
+    "count": 2000,
+    "p50_ms": 0.959,
+    "p95_ms": 15.015,
+    "p99_ms": 24.455
+  },
+  "visibility": {
+    "latency": {
+      "role_prepare": {
+        "count": 85,
+        "p50_ms": 103.794,
+        "p95_ms": 173.921,
+        "p99_ms": 207.527
+      },
+      "warmup": {
+        "count": 100,
+        "p50_ms": 99.217,
+        "p95_ms": 172.528,
+        "p99_ms": 173.924
+      },
+      "capacity": {
+        "count": 921,
+        "p50_ms": 3210.312,
+        "p95_ms": 4376.437,
+        "p99_ms": 4615.986
+      }
+    },
+    "missing": {}
+  },
+  "integrity": {
+    "net_user_gold": "999313.252223",
+    "pool_gold": "10000686.746890",
+    "pool_foreign": "9999313.300826",
+    "wallet_foreign": "764.633820",
+    "short_principal": "77.936290",
+    "trade_legs": 1128,
+    "trade_events": 1128,
+    "executions": 996,
+    "sum_user_versions": 1371,
+    "gold_net_delta": "-0.000887",
+    "foreign_physical_delta": "-0.001644",
+    "accrued_gold_interest": "0.000887",
+    "gold_with_treasury_and_interest_delta": "0.000000",
+    "foreign_with_treasury_delta": "0.000000",
+    "fsync": "on",
+    "synchronous_commit": "on"
+  },
+  "abort": null
+}

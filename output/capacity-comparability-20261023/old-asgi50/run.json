@@ -1,0 +1,8 @@
+{
+  "database": "fxcapacity_old_asgi50_test",
+  "variant": "asgi_cadence8",
+  "rate": 50.0,
+  "seconds": 40.0,
+  "private_directory": "/tmp/sunyunbo/fxcap_78fqx4zx",
+  "git_head": "b3f78ceceb9349b3bdfe0099c45b1975b8281fd3"
+}
