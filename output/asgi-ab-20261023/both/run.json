@@ -1,0 +1,14 @@
+{
+  "database": "fxcapacity_asgi_both_test",
+  "label": "candidate",
+  "users": 100,
+  "streams": 200,
+  "stream_pool": 400,
+  "rate": 20.0,
+  "seconds": 40.0,
+  "repo": "/tmp/sunyunbo/thccb-asgi-20261023/candidate",
+  "variant": "current",
+  "admission_overrides": [],
+  "git_head": "9224cec6a2070ae7a8d0a071a7a223f903f7e190",
+  "git_diff": ""
+}

@@ -1,0 +1,21 @@
+{
+  "net_user_gold": "999772.372196",
+  "pool_gold": "10000227.626849",
+  "pool_foreign": "9999772.378784",
+  "wallet_foreign": "394.495612",
+  "short_principal": "166.875958",
+  "trade_legs": 895,
+  "trade_events": 895,
+  "executions": 792,
+  "sum_user_versions": 1088,
+  "users": 100,
+  "expected_user_cash": "1000000",
+  "gold_net_delta": "-0.000955",
+  "foreign_physical_delta": "-0.001562",
+  "accrued_gold_interest": "0.000955",
+  "gold_with_treasury_and_interest_delta": "0.000000",
+  "foreign_with_treasury_delta": "0.000000",
+  "fsync": "on",
+  "synchronous_commit": "on",
+  "checks_passed": true
+}

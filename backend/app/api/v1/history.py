@@ -1,6 +1,6 @@
 """/history/ 不可变历史段端点（spec § 7.2 / § 7.4 / D4）。
 
-不挂在 /api/v1 下：main.py 的 _set_no_store_for_api 只对 /api/v1/ 打
+不挂在 /api/v1 下：AccessPolicyMiddleware 只对 /api/v1/ 打
 no-store，本路由的 immutable 缓存头因此不被覆盖。nginx 对 /history/ 叠
 proxy_cache（deploy/nginx.conf），回源次数 ≈ 段数，与在线人数无关。
 

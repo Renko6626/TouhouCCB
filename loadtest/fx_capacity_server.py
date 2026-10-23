@@ -1,6 +1,11 @@
 """Local capacity experiment wrapper; never use as a deployment entrypoint.
 
-The cadence variant changes only replaceable public/pricing notifications.
+The current variant samples the actual checked-out application unchanged.
+Historical cadence8/asgi_cadence8/split_reads experiments require their recorded
+historical checkout; their patches are not supported against production ASGI
+middleware introduced after the original experiment.
+
+The historical cadence variant changes only replaceable public/pricing notifications.
 Account changes, order results, transaction durability and admission are intact.
 """
 import asyncio

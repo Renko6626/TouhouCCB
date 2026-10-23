@@ -1,0 +1,14 @@
+{
+  "database": "fxcapacity_asgi_baseline_test",
+  "label": "baseline",
+  "users": 100,
+  "streams": 200,
+  "stream_pool": 400,
+  "rate": 20.0,
+  "seconds": 40.0,
+  "repo": "/tmp/sunyunbo/thccb-asgi-20261023/baseline",
+  "variant": "current",
+  "admission_overrides": [],
+  "git_head": "65897eb077c0fcb4a0414ba23aaa32a4e7ce2bf7",
+  "git_diff": ""
+}
