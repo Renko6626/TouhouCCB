@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core import risk_log
+from app.core.http_middleware import AccessPolicyMiddleware
 from app.core.database import async_session_maker, engine
 from app.core.schema import require_schema_current
 from app.core.admin import setup_admin
@@ -64,35 +65,6 @@ async def start_fx_market_data(write_owner: bool) -> None:
 async def stop_fx_market_data() -> None:
     """Lifespan alias: drain + flush the FX market-data runtime on shutdown."""
     await FX_MARKET_DATA.stop()
-
-access_logger = logging.getLogger("thccb.access")
-
-# 跳过高频或长连接路径，避免淹没日志：
-# - /health 容器探活 10s/次
-# - /api/v1/stream/* SSE，单连接可能持续一小时
-# - /docs /redoc /openapi.json 仅开发调试用
-_LOG_SKIP_PREFIXES = (
-    "/health",
-    "/api/v1/stream",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-    "/favicon.ico",
-    # SQLAdmin 自身的静态资源（/api/v1/admin/statics/*）和 UI 渲染请求噪声大，
-    # 业务性动作（创建/结算/调整现金等）都走 /api/v1/market/* 和 /api/v1/user/*/adjust-cash
-    # 等业务端点，会被正常记录，不依赖 admin 路径。
-    "/api/v1/admin",
-    # 阶段 4：不可变历史段，nginx 缓存回源为主，量大且无审计价值
-    "/history/",
-)
-
-
-def _set_no_store_for_api(path: str, response):
-    if path.startswith("/api/v1/"):
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-    return response
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -404,48 +376,7 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """简单请求日志：method / path / status / elapsed_ms。
-
-    跳过高频探活（/health）与长连接（SSE），避免淹没日志；
-    5xx 用 warning 级别提升告警敏感度。
-    """
-    # Readonly instances intentionally cannot POST login/register (SSO may issue
-    # initial cash). Authenticate on the writer; existing-token GETs remain usable.
-    if request.method not in {"GET", "HEAD", "OPTIONS"}:
-        from app.services.credit.ownership import OWNERSHIP, EconomicWritesDisabled
-        if credit_flags.read_only_from_env() or OWNERSHIP.reason is not None:
-            try:
-                OWNERSHIP.require_writes()
-            except EconomicWritesDisabled as exc:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=503, content={"detail": str(exc)})
-    path = request.url.path
-    if any(path.startswith(p) for p in _LOG_SKIP_PREFIXES):
-        return _set_no_store_for_api(path, await call_next(request))
-
-    start = time.perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception:
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        access_logger.exception(
-            "%s %s EXC %.1fms", request.method, path, elapsed_ms,
-        )
-        raise
-
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    level = logging.WARNING if response.status_code >= 500 else logging.INFO
-    access_logger.log(
-        level,
-        "%s %s %d %.1fms",
-        request.method,
-        path,
-        response.status_code,
-        elapsed_ms,
-    )
-    return _set_no_store_for_api(path, response)
+app.add_middleware(AccessPolicyMiddleware)
 
 
 @app.middleware("http")
