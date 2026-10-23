@@ -11,6 +11,13 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+class ReturnedRoundGuard(SQLModel, table=True):
+    """Permanent cancellation intents, plus the shared lifecycle serialization row."""
+    __tablename__ = 'wavelength_round_guard'
+    round_key: str = Field(max_length=128, primary_key=True)
+    cancelled: bool = Field(default=False)
+
+
 class ReturnedRound(SQLModel, table=True):
     __tablename__ = 'wavelength_round'
     __table_args__ = (
