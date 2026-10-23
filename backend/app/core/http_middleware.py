@@ -1,13 +1,15 @@
-"""HTTP access policy and response-header logging."""
+"""HTTP access policy and response-header access/risk logging."""
 from __future__ import annotations
 
 import logging
 import time
 
 from starlette.datastructures import MutableHeaders
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core import risk_log
 from app.services.credit import flags as credit_flags
 from app.services.credit.ownership import OWNERSHIP, EconomicWritesDisabled
 
@@ -33,7 +35,6 @@ _LOG_SKIP_PREFIXES = (
 )
 
 
-
 class AccessPolicyMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -55,6 +56,7 @@ class AccessPolicyMiddleware:
         path = scope["path"]
         log_request = not any(path.startswith(prefix) for prefix in _LOG_SKIP_PREFIXES)
         start = time.perf_counter()
+        # Mark before forwarding: body/background/send failures must not log twice.
         response_started = False
 
         async def send_response(message: Message) -> None:
@@ -83,4 +85,39 @@ class AccessPolicyMiddleware:
                     "%s %s EXC %.1fms", method, path,
                     (time.perf_counter() - start) * 1000,
                 )
+            raise
+
+
+class RiskRequestMiddleware:
+    """Record mutating API requests when their response headers are ready."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope["type"] != "http"
+            or scope["method"] in {"GET", "HEAD", "OPTIONS"}
+            or not scope["path"].startswith("/api/v1/")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        start = time.perf_counter()
+        # Mark before forwarding: body/background/send failures must not log twice.
+        response_started = False
+
+        async def send_response(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+                await risk_log.record(request, message["status"], (time.perf_counter() - start) * 1000)
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_response)
+        except Exception:
+            if not response_started:
+                await risk_log.record(request, 500, (time.perf_counter() - start) * 1000)
             raise
