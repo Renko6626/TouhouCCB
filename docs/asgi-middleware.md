@@ -15,4 +15,4 @@
 
 验证：37项既有权限/流/历史检查与15项中间件检查通过，Sol High规格和代码质量均通过。正式落地保持已测实现一致，没有重复压测。详细命令、边界及数据见[验证记录](../output/asgi-ab-20261023/validation.md)、[审阅](superpowers/reviews/2026-10-23-asgi-middleware-code-review.md)、[性能报告](../output/asgi-ab-20261023/report.md)。
 
-当前只完成代码与文档的本地落地，未推送或触发生产发布。
+已于2026-10-23通过GitHub Actions和Coolify发布生产，代码版本5a57577。云端4Hz、双层ASGI、容器健康及公网只读检查均通过，见[发布记录](deployment-2026-10-23-sse-asgi.md)。
