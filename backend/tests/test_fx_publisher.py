@@ -6,6 +6,8 @@ in-process broker.
 """
 import asyncio
 import json
+import time
+from types import SimpleNamespace
 from decimal import Decimal
 
 import pytest
@@ -49,8 +51,10 @@ async def test_start_is_idempotent_and_stop_is_safe_when_never_started():
 async def test_publication_is_coalesced_per_pair_to_the_latest_price():
     entered, release = asyncio.Event(), asyncio.Event()
     published = []
+    started = []
 
     async def hook(publication):
+        started.append(time.monotonic())
         published.append((publication.pair_id, publication.post_price,
                           publication.trade_id))
         entered.set()
@@ -69,6 +73,7 @@ async def test_publication_is_coalesced_per_pair_to_the_latest_price():
         await instance.drain(2)
         assert _prices(published) == [Decimal("1"), Decimal("5")]
         assert instance.stats()["published"] == 2
+        assert started[1] - started[0] >= 0.25
     finally:
         release.set()
         await instance.stop()
@@ -246,3 +251,88 @@ async def test_module_level_lifecycle_hooks_drive_the_singleton(monkeypatch):
     await publisher.stop_publisher()
     assert instance.running is False
     assert publisher.publisher_stats()["dropped"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_window", [False, True])
+async def test_idle_window_holds_first_item_until_publish_or_cancel(monkeypatch, cancel_window):
+    entered, release = asyncio.Event(), asyncio.Event()
+    published = []
+
+    async def window(delay):
+        entered.set()
+        await release.wait()
+
+    async def hook(publication):
+        published.append(publication.post_price)
+
+    monkeypatch.setattr(publisher, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": window}))
+    instance = FxPublisher(publish=hook, stop_drain_timeout=.01)
+    await instance.start()
+    queue = instance._queue
+    try:
+        # Let the worker reach its empty queue wait; no window starts at idle.
+        await asyncio.sleep(0)
+        assert not entered.is_set()
+        await instance.drain(1)
+        instance.enqueue(1, Decimal("1"))
+        await asyncio.wait_for(entered.wait(), 1)
+        assert instance.queue_depth == 0
+        draining = asyncio.create_task(instance.drain(2))
+        await asyncio.sleep(0)
+        assert not draining.done() and published == []
+        if cancel_window:
+            draining.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await draining
+            await instance.stop()
+            # A held first item must be acknowledged exactly once on cancel.
+            await asyncio.wait_for(queue.join(), 1)
+            assert published == []
+        else:
+            instance.enqueue(1, Decimal("2"))
+            release.set()
+            await draining
+            assert published == [Decimal("2")]
+            entered.clear()
+            await asyncio.sleep(0)
+            assert not entered.is_set()
+    finally:
+        release.set()
+        await instance.stop()
+
+
+@pytest.mark.asyncio
+async def test_batch_keeps_other_pair_ahead_of_inflight_requeue(monkeypatch):
+    entered = asyncio.Queue()
+    releases = [asyncio.Event(), asyncio.Event()]
+    published = []
+
+    async def window(delay):
+        release = releases.pop(0)
+        await entered.put(release)
+        await release.wait()
+
+    async def hook(publication):
+        published.append((publication.pair_id, publication.post_price))
+        if len(published) == 1:
+            instance.enqueue(1, Decimal("4"))
+
+    monkeypatch.setattr(publisher, "asyncio", SimpleNamespace(**{**vars(asyncio), "sleep": window}))
+    instance = FxPublisher(publish=hook)
+    await instance.start()
+    try:
+        instance.enqueue(1, Decimal("1"))
+        first = await asyncio.wait_for(entered.get(), 1)
+        instance.enqueue(2, Decimal("2"))
+        instance.enqueue(1, Decimal("3"))
+        first.set()
+        second = await asyncio.wait_for(entered.get(), 1)
+        assert published == [(1, Decimal("3")), (2, Decimal("2"))]
+        second.set()
+        await instance.drain(1)
+        assert published == [(1, Decimal("3")), (2, Decimal("2")), (1, Decimal("4"))]
+    finally:
+        for release in releases:
+            release.set()
+        await instance.stop()

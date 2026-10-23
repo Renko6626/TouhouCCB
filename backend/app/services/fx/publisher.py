@@ -35,6 +35,8 @@ from typing import Awaitable, Callable, Optional
 
 _logger = logging.getLogger(__name__)
 
+PUBLISH_INTERVAL = 0.25
+
 DEFAULT_QUEUE_MAXSIZE = 256
 DEFAULT_DRAIN_TIMEOUT = 5.0
 DEFAULT_STOP_DRAIN_TIMEOUT = 2.0
@@ -197,26 +199,40 @@ class FxPublisher:
         assert queue is not None
         while True:
             pair_id = await queue.get()
+            # Keep the first pair pending throughout the merge window. It is
+            # already outside the queue, so cancellation must acknowledge it.
+            window_complete = False
             try:
-                publication = self._pending.pop(pair_id, None)
-                if publication is not None:
-                    await self._publish(publication)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                self._failed += 1
-                _logger.exception("fx public frame publication failed for pair %s", pair_id)
+                await asyncio.sleep(PUBLISH_INTERVAL)
+                window_complete = True
             finally:
-                queue.task_done()
-            self._queued.discard(pair_id)
-            # A newer value may have arrived while this frame was in flight.
-            if pair_id in self._pending:
+                if not window_complete:
+                    queue.task_done()
+            batch_size = 1 + queue.qsize()
+            for index in range(batch_size):
+                if index:
+                    pair_id = queue.get_nowait()
                 try:
-                    queue.put_nowait(pair_id)
-                    self._queued.add(pair_id)
-                except asyncio.QueueFull:
-                    self._pending.pop(pair_id, None)
-                    self._dropped += 1
+                    publication = self._pending.pop(pair_id, None)
+                    if publication is not None:
+                        await self._publish(publication)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    self._failed += 1
+                    _logger.exception("fx public frame publication failed for pair %s", pair_id)
+                finally:
+                    queue.task_done()
+                self._queued.discard(pair_id)
+                # In-flight updates go behind the remaining batch, so each
+                # pair is published at most once before the next window.
+                if pair_id in self._pending:
+                    try:
+                        queue.put_nowait(pair_id)
+                        self._queued.add(pair_id)
+                    except asyncio.QueueFull:
+                        self._pending.pop(pair_id, None)
+                        self._dropped += 1
             if queue.empty() and not self._pending:
                 if self._idle is not None:
                     self._idle.set()

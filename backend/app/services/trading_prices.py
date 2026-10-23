@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
@@ -15,6 +16,8 @@ from app.services.market_read_state import FxReadState, LmsrReadState, PricingRe
 from app.services.credit.ownership import OWNERSHIP
 from app.services.credit import flags
 from app.schemas.trading_context import GroupKey, GroupStamp, FxPricingGroup, LmsrPricingGroup
+
+PUBLISH_INTERVAL = 0.25
 
 def decimal_string(value):
     return format(Decimal(str(value)), 'f')
@@ -265,13 +268,19 @@ class PricingPublisher:
         import logging
         from app.services.account_events import encode_frame
         previous = {}
+        last_round_started = None
         while True:
             try:
                 try:
                     await asyncio.wait_for(self.wake.wait(), 1)
                 except asyncio.TimeoutError:
                     pass
+                if last_round_started is not None:
+                    remaining = PUBLISH_INTERVAL - (time.monotonic() - last_round_started)
+                    if remaining > 0:
+                        await asyncio.sleep(remaining)
                 self.wake.clear()
+                last_round_started = time.monotonic()
                 keys = set().union(*self.subscriptions.values()) if self.subscriptions else set()
                 # Public pricing does not claim coverage of a just-read account.
                 groups = await REGISTRY.read_groups([GroupKey(product=p, id=i) for p, i in keys], require_coverage=False)

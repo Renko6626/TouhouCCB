@@ -306,26 +306,36 @@ def _patch_publish(monkeypatch, runtime):
 
 @pytest.mark.asyncio
 async def test_publish_pair_frame_drains_deltas_once_after_owner_catch_up(monkeypatch):
+    from app.services.fx.publisher import FxPublisher
+
     stub = _StubRuntime(
-        trades=[{"id": 3, "ts": "2026-10-01T00:00:00+00:00",
+        trades=[{"id": 2, "ts": "2026-10-01T00:00:00+00:00",
+                 "post_price": "1.10", "gold_volume": "1.5"},
+                {"id": 3, "ts": "2026-10-01T00:00:00+00:00",
                  "post_price": "1.11", "gold_volume": "2.5"}],
         state={"history_version": "V", "history_ready": True,
                "applied_event_id": 3, "durable_event_id": 3},
     )
-    market_data = _patch_publish(monkeypatch, stub)
+    _patch_publish(monkeypatch, stub)
     broker = MarketEventBroker()
     sub, _ = await broker.subscribe('fx:5')
+    instance = FxPublisher(broker=broker)
+    await instance.start()
     try:
-        await market_data.publish_pair_frame(5, Decimal("1.25"), broker=broker)
+        instance.enqueue(5, Decimal("1.10"), trade_id=2)
+        instance.enqueue(5, Decimal("1.25"), trade_id=3)
+        await instance.drain(2)
         payload = json.loads((await sub.q.get()).decode().split("data: ", 1)[1])
         data = payload["data"]
         assert data["price"] == "1.2"
         assert data["volume"] == "9.5"
         assert data["history_version"] == "V"
         assert data["history_tail_through_event_id"] == 3
-        assert data["events"][0]["gold_volume"] == "2.5"
+        assert [event["id"] for event in data["events"]] == [2, 3]
+        assert [event["gold_volume"] for event in data["events"]] == ["1.5", "2.5"]
         assert stub.caught_up == [5]
     finally:
+        await instance.stop()
         await broker.unsubscribe('fx:5', sub)
 
 

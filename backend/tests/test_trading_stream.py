@@ -213,3 +213,133 @@ async def test_fx_order_result_private_stream(status):
     await request_stream(create_access_token(uid), on_frame)
     assert [(p['order_id'],p['status']) for e,p in seen if e == 'fx_order_result'] == [(1,status)]
     assert not any(e == 'account_changed' for e,p in seen)
+
+
+@pytest.mark.asyncio
+async def test_pricing_coalesces_before_read_and_keeps_wake_during_read(monkeypatch):
+    import time
+    from types import SimpleNamespace
+    from app.services import trading_prices
+
+    uid, _, ids = await seed()
+    read_entered, release_read = asyncio.Event(), asyncio.Event()
+    waiting, release_window = asyncio.Event(), asyncio.Event()
+    read_groups = REGISTRY.read_groups
+    started, frames = [], []
+
+    async def change(gold):
+        async with async_session_maker() as db:
+            await db.execute(update(FxPair).where(FxPair.id == ids[0]).values(
+                gold_reserve=gold, foreign_reserve=gold * 2, sell_fee_rate='0.12345678'))
+            await db.commit()
+        PUBLISHER.wake.set()
+
+    async def read(keys, **kwargs):
+        own_round = asyncio.current_task() is PUBLISHER.task
+        if own_round:
+            started.append(time.monotonic())
+        groups = await read_groups(keys, **kwargs)
+        if own_round and len(started) == 2:
+            read_entered.set()
+            await release_read.wait()
+        return groups
+
+    async def window(delay):
+        waiting.set()
+        await asyncio.sleep(delay)
+        await release_window.wait()
+
+    monkeypatch.setattr(trading_prices, 'asyncio', SimpleNamespace(**{**vars(asyncio), 'sleep': window}))
+    monkeypatch.setattr(REGISTRY, 'read_groups', read)
+
+    async def update_during_read():
+        await read_entered.wait()
+        await change(400)
+        release_read.set()
+
+    async def on_frame(event, payload, stopped):
+        if event == 'sync':
+            await change(100)
+        elif event == 'pricing':
+            group = next(g for g in payload['groups'] if g['id'] == ids[0])
+            frames.append(group)
+            if len(frames) == 1:
+                await change(200)
+                await asyncio.wait_for(waiting.wait(), 1)
+                await change(300)
+                release_window.set()
+            elif group['gold_reserve'] == '400.000000':
+                stopped.set()
+
+    updater = asyncio.create_task(update_during_read())
+    PUBLISHER.start()
+    try:
+        await request_stream(create_access_token(uid), on_frame)
+        await updater
+    finally:
+        release_window.set()
+        release_read.set()
+        updater.cancel()
+        await PUBLISHER.stop()
+    assert [g['gold_reserve'] for g in frames] == ['100.000000', '300.000000', '400.000000']
+    assert [g['foreign_reserve'] for g in frames] == ['200.000000', '600.000000', '800.000000']
+    assert all(g['sell_fee_rate'] == '0.12345678' for g in frames)
+    assert all(b - a >= 0.25 for a, b in zip(started, started[1:]))
+
+
+@pytest.mark.asyncio
+async def test_private_notifications_flow_while_pricing_waits(monkeypatch):
+    from types import SimpleNamespace
+    from app.services import trading_prices
+    from app.services.account_events import enqueue_order_result
+    from app.schemas.fx import FxOrderResult
+
+    uid, other, ids = await seed()
+    waiting, release = asyncio.Event(), asyncio.Event()
+    seen = []
+
+    async def window(delay):
+        waiting.set()
+        await release.wait()
+
+    monkeypatch.setattr(trading_prices, 'asyncio', SimpleNamespace(**{**vars(asyncio), 'sleep': window}))
+
+    async def notify_while_waiting():
+        await waiting.wait()
+        for order_id, status in [(31, 'succeeded'), (32, 'failed')]:
+            result = FxOrderResult(order_id=order_id, pair_id=ids[0], currency_code='0',
+                action='buy', status=status, occurred_at=datetime.now(timezone.utc))
+            enqueue_order_result(uid, result)
+            enqueue_order_result(other, result.model_copy(update={'order_id': order_id + 100}))
+        enqueue_account_change(other, 9, 'foreign')
+        enqueue_account_change(uid, 3, 'liquidation')
+
+    async def on_frame(event, payload, stopped):
+        seen.append((event, payload))
+        if event == 'sync':
+            PUBLISHER.wake.set()
+        elif event == 'pricing':
+            if release.is_set():
+                stopped.set()
+            else:
+                async with async_session_maker() as db:
+                    await db.execute(update(FxPair).where(FxPair.id == ids[0]).values(gold_reserve=321))
+                    await db.commit()
+                PUBLISHER.wake.set()
+        elif event == 'account_changed':
+            assert waiting.is_set() and not release.is_set()
+            assert [(p['order_id'], p['status']) for e, p in seen if e == 'fx_order_result'] == [(31, 'succeeded'), (32, 'failed')]
+            release.set()
+
+    notifier = asyncio.create_task(notify_while_waiting())
+    PUBLISHER.start()
+    try:
+        await request_stream(create_access_token(uid), on_frame)
+        await notifier
+    finally:
+        release.set()
+        notifier.cancel()
+        await PUBLISHER.stop()
+    assert [(e, p.get('order_id', p.get('reason'))) for e, p in seen if e in ('fx_order_result', 'account_changed')] == [
+        ('fx_order_result', 31), ('fx_order_result', 32), ('account_changed', 'liquidation')]
+    assert any(g['gold_reserve'] == '321.000000' for e, p in seen if e == 'pricing' for g in p['groups'])

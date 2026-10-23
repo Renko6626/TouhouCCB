@@ -1,0 +1,14 @@
+{
+  "database": "fxcapacity_sse_candidate_u100_r20_test",
+  "label": "candidate",
+  "users": 100,
+  "streams": 200,
+  "stream_pool": 400,
+  "rate": 20.0,
+  "seconds": 40.0,
+  "repo": "/tmp/sunyunbo/thccb-sse-20261023/implementation",
+  "variant": "current",
+  "admission_overrides": [],
+  "git_head": "e9c0242019cc5aecd4cbcd29ca5d27b4191cee62",
+  "git_diff": ""
+}

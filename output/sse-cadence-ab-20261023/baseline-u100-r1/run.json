@@ -1,0 +1,14 @@
+{
+  "database": "fxcapacity_sse_baseline_u100_r1_test",
+  "label": "baseline",
+  "users": 100,
+  "streams": 200,
+  "stream_pool": 400,
+  "rate": 1.0,
+  "seconds": 40.0,
+  "repo": "/tmp/sunyunbo/thccb-sse-20261023/baseline",
+  "variant": "current",
+  "admission_overrides": [],
+  "git_head": "8904d1a362cfb28b19ceba53a2538e3c2cf7edff",
+  "git_diff": ""
+}
