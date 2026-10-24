@@ -73,6 +73,68 @@ async def predict(api, headers, position, key=TOPIC['round_key']):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('action,expected_status,expected_cash', [
+    ('result', 'settled', Decimal('700')),
+    ('abort', 'cancelled', Decimal('500')),
+])
+async def test_site_closure_allows_source_settlement_and_refund(api, action, expected_status, expected_cash):
+    from app.services.site_config import clear_cache
+
+    uid, headers = await player()
+    await start(api)
+    assert (await predict(api, headers, 500)).status_code == 200
+    assert await balance(uid) == Decimal('400')
+    await config_value('site_access_disabled', 'true')
+    clear_cache()
+
+    path = BASE + '/rounds/' + TOPIC['round_key']
+    assert (await api.get(BASE + '/capabilities', headers=SOURCE)).status_code == 200
+    current = await api.get(BASE + '/current', headers=SOURCE)
+    assert current.status_code == 200, current.text
+    assert current.json()['round_key'] == TOPIC['round_key']
+    assert (await api.get(path + '/state', headers=SOURCE)).json()['status'] == 'open'
+    assert (await api.post(path + '/close', headers=SOURCE)).status_code == 200
+    result = await api.post(path + '/' + action, headers=SOURCE,
+                           json={'target_position': 500} if action == 'result' else None)
+    assert result.status_code == 200, result.text
+    assert result.json()['status'] == expected_status
+    assert await balance(uid) == expected_cash
+    if action == 'result':
+        results = await api.get(path + '/results', headers=SOURCE)
+        assert results.status_code == 200, results.text
+        assert Decimal(results.json()['top_five'][0]['payout']) == Decimal('300')
+
+    await start(api, round_key='new-round', round_number=2)
+    cancelled = await api.post(BASE + '/rounds/new-round/cancel', headers=SOURCE)
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()['status'] == 'cancelled'
+
+
+@pytest.mark.asyncio
+async def test_site_closure_limits_source_exception_to_enabled_integration(api):
+    from app.services.site_config import clear_cache
+
+    _, viewer = await player()
+    await start(api)
+    await config_value('site_access_disabled', 'true')
+    clear_cache()
+    path = BASE + '/rounds/' + TOPIC['round_key']
+    for headers in ({}, viewer, {'Authorization': 'Bearer wrong-source-key'}):
+        for url in (BASE + '/current', BASE + '/capabilities', path + '/state'):
+            assert (await api.get(url, headers=headers)).status_code in (401, 403)
+        assert (await api.post(path + '/close', headers=headers)).status_code in (401, 403)
+    for url in ('/api/v1/site/homepage', '/api/v1/admin/returned/config'):
+        assert (await api.get(url, headers=SOURCE)).status_code in (401, 403)
+    assert (await predict(api, SOURCE, 500)).status_code == 401
+    assert (await api.get(BASE + '/current', headers=SOURCE)).status_code == 200
+    await config_value('wavelength_enabled', 'false')
+    assert (await api.get(BASE + '/current', headers=SOURCE)).status_code in (401, 403)
+    await config_value('wavelength_enabled', 'true')
+    await config_value('wavelength_secret_hash', '')
+    assert (await api.get(BASE + '/current', headers=SOURCE)).status_code in (401, 403)
+
+
+@pytest.mark.asyncio
 async def test_source_switch_and_key_gate_all_source_writes(api):
     for suffix, body in [('/start', TOPIC), ('/x/close', {}),
                          ('/x/result', {'target_position': 500}), ('/x/cancel', {}), ('/x/abort', {})]:

@@ -25,7 +25,7 @@ if [ "${THCCB_COOLIFY:-}" = 1 ]; then
     [ "${FRONTEND_IMAGE##*:}" = "$EXPECTED_BUILD_SHA" ] || { echo "Frontend/backend image SHA mismatch" >&2; exit 1; }
 fi
 BACKUP_DIR="$PROJECT_ROOT/backups"
-HEALTH_URL="http://127.0.0.1:8004/api/v1/market/list"
+HEALTH_URL="http://127.0.0.1:8004/health"
 HEALTH_TIMEOUT=10
 # 20×3s=60s 窗口：给冷启动期（schema check + seed_current_config + admin setup + APS）留余地
 HEALTH_RETRIES=20

@@ -1,5 +1,6 @@
 """Private admin configuration. Only a digest of the incoming key is stored."""
 import hashlib
+import hmac
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -18,6 +19,11 @@ KEYS = ('wavelength_enabled', 'wavelength_secret_hash', 'wavelength_url')
 
 def secret_digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def matches_secret(credential, config):
+    return bool(config['secret_hash']) and hmac.compare_digest(
+        secret_digest(credential), config['secret_hash'])
 
 
 async def read_config(db):

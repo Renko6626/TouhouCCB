@@ -46,7 +46,7 @@ def done(event, data=None, fail=None):
 if command == "sleep":
     sys.exit(0)
 if command == "curl":
-    assert args[-1] == "http://127.0.0.1:8004/api/v1/market/list", args
+    assert args[-1] == "http://127.0.0.1:8004/health", args
     assert state["running"], "health check while backend stopped"
     done("health")
     sys.exit(0)

@@ -99,7 +99,7 @@ run_tool() {
 }
 health() {
     for attempt in $(seq 1 30); do
-        if curl -sf --max-time 10 http://127.0.0.1:8004/api/v1/market/list >/dev/null; then
+        if curl -sf --max-time 10 http://127.0.0.1:8004/health >/dev/null; then
             actual=$(docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' thccb-backend | sed -n 's/^APP_BUILD_SHA=//p')
             [ "$actual" = "$EXPECTED_BUILD_SHA" ] || fail 'Running build SHA differs'
             return

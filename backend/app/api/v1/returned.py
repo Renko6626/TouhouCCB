@@ -1,6 +1,5 @@
 """Returned server notifications and audience API use separate credentials."""
 import asyncio
-import hmac
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -32,7 +31,7 @@ def require_source(request: Request, config=Depends(require_enabled)):
     if not config['secret_hash']:
         raise HTTPException(503, '逆转录者联动密钥未配置')
     scheme, _, credential = request.headers.get('authorization', '').partition(' ')
-    if scheme.lower() != 'bearer' or not hmac.compare_digest(returned_config.secret_digest(credential), config['secret_hash']):
+    if scheme.lower() != 'bearer' or not returned_config.matches_secret(credential, config):
         raise HTTPException(401, '联动密钥无效')
 
 
@@ -42,9 +41,7 @@ async def require_results_reader(
 ):
     if credentials is None:
         raise HTTPException(401, '请登录或提供联动密钥')
-    if config['secret_hash'] and hmac.compare_digest(
-        returned_config.secret_digest(credentials.credentials), config['secret_hash']
-    ):
+    if returned_config.matches_secret(credentials.credentials, config):
         return
     await current_active_user(credentials=credentials, db=db)
 
