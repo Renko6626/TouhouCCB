@@ -1249,7 +1249,7 @@ select {
     font-size: 19px;
   }
 }
-@media (max-width: 760px) {
+@media (max-width: 950px) {
   .terminal-header {
     padding: 0 14px;
     height: 62px;

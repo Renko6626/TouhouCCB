@@ -239,7 +239,7 @@ select,
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   #app {
     width: 100%;
     padding: 8px;

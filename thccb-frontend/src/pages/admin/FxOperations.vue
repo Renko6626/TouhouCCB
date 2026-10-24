@@ -138,5 +138,5 @@ onBeforeUnmount(()=>{clearTimeout(timer); generation++; selection++})
 .fx-balances h3 { margin:0 0 10px; font-size:14px; }
 .fx-balances p { font-variant-numeric:tabular-nums; margin:6px 0; }
 .fx-setup-fields label { font-size:13px; display:flex; flex-direction:column; gap:6px; margin:12px 0; }
-@media(max-width:650px) { .fx-balances { grid-template-columns:1fr; } .fx-balances > div + div { border-left:0; border-top:2px solid #000; } }
+@media(max-width: 950px) { .fx-balances { grid-template-columns:1fr; } .fx-balances > div + div { border-left:0; border-top:2px solid #000; } }
 </style>

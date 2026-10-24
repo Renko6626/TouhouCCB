@@ -239,7 +239,7 @@ h1 { font-size: 28px; font-weight: 800; margin: 0 0 6px; }
 .reward-cell span, .reward-cell small { display: block; font-size: 11px; color: #666; line-height: 1.6; }
 .reward-cell strong { display: block; font-size: 25px; margin: 4px 0; font-variant-numeric: tabular-nums; }
 .rules-panel .rules-note { font-size: 12px; }
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .leaderboard table, .leaderboard tbody { display: block; }
   .leaderboard thead { display: none; }
   .leaderboard tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 0; border-bottom: 1px solid #ddd; gap: 10px 8px; }

@@ -23,7 +23,7 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
-@media (min-width: 640px) {
+@media (width > 950px) {
   .filter-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }

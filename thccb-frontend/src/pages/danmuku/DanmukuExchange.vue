@@ -383,7 +383,7 @@ onMounted(refreshSummary)
   gap: 12px;
   margin-bottom: 16px;
 }
-@media (min-width: 540px) {
+@media (width > 950px) {
   .form-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }

@@ -239,7 +239,7 @@ select:focus-visible, button:focus-visible { outline: 2px solid #222; outline-of
 
 .fx-playback-message p { margin: 0; }
 
-@media (max-width: 600px) {
+@media (max-width: 950px) {
   .fx-playback-toolbar { gap: 10px 12px; padding: 10px 12px; }
   .fx-playback-title { display: none; }
   .fx-playback-pair { flex-basis: 100%; }

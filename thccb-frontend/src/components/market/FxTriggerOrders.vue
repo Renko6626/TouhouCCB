@@ -214,7 +214,7 @@ li { border-bottom: 1px solid #eee; padding: 8px 0; line-height: 1.5; overflow-w
 .result-state { margin-left: auto; color: #777; white-space: nowrap; } .result-state.order-error { color: var(--color-down, #b52819); }
 .row-detail time { margin-left: auto; white-space: nowrap; } .failure-cause { margin-top: 3px; font-size: 11px; }
 .pagination { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .order-heading { padding: 10px; }
   .order-body { padding: 0 10px 10px; }
   button, select, input[type=text] { min-height: 36px; box-sizing: border-box; }

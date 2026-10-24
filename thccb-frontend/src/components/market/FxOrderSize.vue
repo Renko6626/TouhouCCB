@@ -252,7 +252,7 @@ button:disabled {
   outline: 2px solid var(--size-color);
   outline-offset: 4px;
 }
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .amount input {
     min-height: 44px;
     font-size: 16px;

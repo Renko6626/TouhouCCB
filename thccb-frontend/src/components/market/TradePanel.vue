@@ -756,7 +756,7 @@ const actionHint = computed<string>(() => {
 }
 
 /* 移动端：防 iOS 聚焦放大 + 更大的触控目标 */
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .trade-panel :deep(.n-input-number .n-input__input-el),
   .trade-panel :deep(.n-base-selection-label) {
     font-size: 16px;

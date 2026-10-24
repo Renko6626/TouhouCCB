@@ -362,7 +362,7 @@ const goTrade = (marketId: number) => router.push(`/market/${marketId}/trade`)
 .c-down { color: var(--color-down); }
 .c-flat { color: var(--color-text-muted); }
 
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .strip-scroller {
     grid-auto-columns: 56vw;
     overflow-x: auto;

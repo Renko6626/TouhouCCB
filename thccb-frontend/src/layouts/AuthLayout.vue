@@ -187,7 +187,7 @@ const pageTitle = route.meta?.title as string | undefined
   color: #999999;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 950px) {
   .auth-wrapper {
     padding: 24px 12px;
   }

@@ -732,7 +732,7 @@ const showPnlHero = computed(() => authStore.isAuthenticated && userStore.summar
 }
 
 /* 响应式 */
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .hero-section {
     padding: 22px 18px;
   }

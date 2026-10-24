@@ -301,7 +301,7 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
   grid-template-columns: minmax(0, 1fr);
   gap: 24px;
 }
-@media (min-width: 800px) {
+@media (width > 950px) {
   .two-col {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -436,7 +436,7 @@ const giniLevel = computed<'low' | 'mid' | 'high'>(() => {
   color: #888;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .bracket-row {
     grid-template-columns: 1fr;
     gap: 6px;

@@ -253,7 +253,7 @@ const handleOpen = (id: number) => router.push(`/market/${id}/trade`)
   margin-top: 8px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .market-grid { grid-template-columns: 1fr; }
   .filter-right { width: 100%; justify-content: flex-end; }
 }

@@ -321,7 +321,7 @@ const truncate = (s: string, n: number) => s.length > n ? s.slice(0, n - 1) + 'â
   text-align: center;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .movers-head {
     flex-direction: column;
     align-items: flex-start;

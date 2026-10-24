@@ -1068,7 +1068,7 @@ h3 {
   min-width: 180px;
   overflow-wrap: anywhere;
 }
-@media (max-width: 600px) {
+@media (max-width: 950px) {
   .pve-manage {
     padding: 8px;
   }

@@ -147,7 +147,7 @@ onBeforeUnmount(() => {
   opacity: 0.45;
   cursor: not-allowed;
 }
-@media (min-width: 1280px) {
+@media (width > 950px) {
   .mobile-trade-dock {
     display: none;
   }

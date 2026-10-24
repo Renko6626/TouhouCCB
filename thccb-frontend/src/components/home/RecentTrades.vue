@@ -266,7 +266,7 @@ const goToMarket = (id: number) => router.push(`/market/${id}/trade`)
   transition: transform 0.25s ease;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .rt-row {
     grid-template-columns: 56px 64px 44px 52px 1fr auto;
     gap: 8px;

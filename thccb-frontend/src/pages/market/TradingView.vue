@@ -450,11 +450,11 @@ const relTime = (iso: string): string => {
 
       <!--
         布局：手机端按 DOM 顺序单列堆叠 → 图表 → 选项 → 交易面板 → 最近成交。
-        桌面 xl+：两列网格，交易面板固定在右侧并跨三行 sticky。
+        桌面（>950px）：两列网格，交易面板固定在右侧并跨三行 sticky。
       -->
-      <div class="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div class="trading-grid grid grid-cols-1 gap-6">
         <!-- 1. 图表 (手机 row1 / 桌面 col1 row1) -->
-        <NCard class="xl:col-start-1 xl:row-start-1">
+        <NCard class="trading-chart-card">
           <template #header>
             <div class="flex items-center justify-between gap-4">
               <div>
@@ -479,7 +479,7 @@ const relTime = (iso: string): string => {
             </div>
           </template>
 
-          <div class="h-[300px] sm:h-[400px] md:h-[560px]">
+          <div class="trading-chart-body">
             <PriceChart
               v-if="activeChartType === 'price' && selectedOutcomeId && marketStore.currentMarket"
               :outcome-id="selectedOutcomeId"
@@ -496,7 +496,7 @@ const relTime = (iso: string): string => {
         </NCard>
 
         <!-- 2. 市场选项 (手机 row2 / 桌面 col1 row2) -->
-        <NCard class="xl:col-start-1 xl:row-start-2">
+        <NCard class="trading-outcomes-card">
           <template #header>
             <div class="flex items-center justify-between gap-4">
               <span class="font-bold text-black">市场选项</span>
@@ -517,7 +517,7 @@ const relTime = (iso: string): string => {
 
         <!-- 3. 交易面板 (手机 row3，紧跟选项；桌面 col2 row1 sticky 跨3行) -->
         <div
-          class="space-y-4 self-start xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-6"
+          class="trading-panel-column space-y-4 self-start"
         >
           <h2 ref="tradePanelRef" tabindex="-1" class="trade-entry-anchor">交易面板</h2>
           <TradePanel
@@ -547,7 +547,7 @@ const relTime = (iso: string): string => {
         <NCard
           v-if="marketStore.marketTrades.length"
           title="最近成交"
-          class="xl:col-start-1 xl:row-start-3"
+          class="trading-trades-card"
         >
           <ul class="trades-list">
             <TransitionGroup name="trade-flip">
@@ -641,6 +641,23 @@ const relTime = (iso: string): string => {
 </template>
 
 <style scoped>
+.trading-chart-body {
+  height: 300px;
+}
+@media (width > 950px) {
+  .trading-grid { grid-template-columns: minmax(0, 1fr) 320px; }
+  .trading-chart-card { grid-column: 1; grid-row: 1; }
+  .trading-outcomes-card { grid-column: 1; grid-row: 2; }
+  .trading-panel-column {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    position: sticky;
+    top: 24px;
+  }
+  .trading-trades-card { grid-column: 1; grid-row: 3; }
+  .trading-chart-body { height: 560px; }
+}
+
 .trading-view-page {
   max-width: 1400px;
   margin: 0 auto;
@@ -879,7 +896,7 @@ const relTime = (iso: string): string => {
   .trade-gross { display: none; }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .trade-row {
     grid-template-columns: 56px 64px 44px 1fr auto;
   }
@@ -995,7 +1012,7 @@ const relTime = (iso: string): string => {
 }
 
 /* 移动端响应式 */
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .trading-view-page {
     padding: 0 4px;
   }
@@ -1046,7 +1063,7 @@ const relTime = (iso: string): string => {
   outline: 3px solid #555;
   outline-offset: 4px;
 }
-@media (max-width: 1279px) {
+@media (max-width: 950px) {
   .trading-view-page {
     padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }

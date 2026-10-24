@@ -88,7 +88,7 @@ const emit = defineEmits<{ openTos: [] }>()
   color: #333333;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .app-footer { padding: 0 12px; font-size: 10px; }
   .footer-sep,
   .footer-tagline,

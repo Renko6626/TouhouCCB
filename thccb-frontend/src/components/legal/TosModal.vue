@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .tos-card {
     box-shadow: 4px 4px 0 #000;
     max-height: calc(100vh - 24px);

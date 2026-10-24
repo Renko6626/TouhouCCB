@@ -708,7 +708,7 @@ onMounted(async () => {
   text-align: center;
   color: #888;
 }
-@media (max-width: 900px) {
+@media (max-width: 950px) {
   .fx-setup-fields {
     grid-template-columns: 1fr;
   }

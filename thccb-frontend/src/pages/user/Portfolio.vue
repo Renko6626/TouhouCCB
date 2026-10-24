@@ -694,7 +694,7 @@ const holdingsByMarketArray = computed(() => {
   padding: 48px 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .asset-grid {
     grid-template-columns: repeat(2, 1fr);
   }

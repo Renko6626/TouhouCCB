@@ -145,7 +145,7 @@ const heatLabel = computed(() => {
 }
 
 /* 小屏减小阴影偏移，避免裁切/溢出 */
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .outcome-card--selected {
     box-shadow: 3px 3px 0 #000 !important;
   }

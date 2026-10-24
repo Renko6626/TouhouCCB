@@ -139,7 +139,7 @@ defineExpose({ download })
   width: 100%;
   height: 352px;
 }
-@media (max-width: 760px) {
+@media (max-width: 950px) {
   .promo-chart {
     height: 300px;
   }

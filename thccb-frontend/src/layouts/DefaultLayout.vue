@@ -15,10 +15,10 @@ const authStore = useAuthStore()
 const tosViewOpen = ref(false)
 
 // 桌面默认展开侧栏，移动端默认收起为抽屉。
-const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth <= 768 : false)
+const isMobile = ref(typeof window !== 'undefined' ? window.matchMedia('(max-width: 950px)').matches : false)
 const collapsed = ref(isMobile.value)
 const updateViewport = () => {
-  const mobile = window.innerWidth <= 768
+  const mobile = window.matchMedia('(max-width: 950px)').matches
   if (mobile !== isMobile.value) collapsed.value = mobile
   isMobile.value = mobile
 }
@@ -195,7 +195,7 @@ const sidebarActive = computed(() =>
 }
 
 /* 移动端：侧栏变 drawer */
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .app-sidebar-wrap {
     position: fixed;
     top: 56px;

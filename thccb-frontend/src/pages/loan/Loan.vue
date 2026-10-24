@@ -479,11 +479,11 @@ summary { cursor: pointer; }
 #gold-loan, #short-debt, #loan-rules { scroll-margin-top: 90px; }
 .cover-link:focus-visible, .details-link:focus-visible, summary:focus-visible { outline: 2px solid #000; outline-offset: 3px; }
 
-@media (max-width: 1000px) {
+@media (max-width: 950px) {
   .loan-workbench { grid-template-columns: minmax(0, 1fr); }
   .short-debt-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .loan-page { padding: 4px; }
   .loan-header h1 { font-size: 20px; }
   .loan-actions, .short-debt-list { grid-template-columns: minmax(0, 1fr); }

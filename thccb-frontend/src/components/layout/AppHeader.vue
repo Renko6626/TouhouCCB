@@ -276,7 +276,7 @@ const handleUserMenuClick = (key: string) => {
   color: #fff;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 950px) {
   .app-header { padding: 0 12px; }
   .brand-name { display: none; }
   .user-name { display: none; }

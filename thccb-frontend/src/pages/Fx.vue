@@ -156,7 +156,7 @@ const workbenchHeight = ref<string>()
 let workbenchObserver: ResizeObserver | null = null
 function resizeWorkbench() {
   const el = workbenchRef.value
-  if (!el || window.innerWidth <= 950) {
+  if (!el || window.matchMedia('(max-width: 950px)').matches) {
     workbenchHeight.value = undefined
     return
   }
@@ -3197,7 +3197,7 @@ onUnmounted(() => {
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 950px) {
   .fx-page {
     padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0px));
   }
@@ -3333,7 +3333,7 @@ onUnmounted(() => {
     flex-wrap: wrap;
   }
 }
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   /* Let the chart reach both screen edges without clipping in app-main. */
   :global(#app:has(.fx-page)) {
     padding-inline: 0;

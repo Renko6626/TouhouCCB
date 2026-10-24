@@ -422,7 +422,7 @@ onMounted(load)
   color: #555;
 }
 
-@media (max-width: 540px) {
+@media (max-width: 950px) {
   .row-head {
     flex-direction: column;
     align-items: flex-start;

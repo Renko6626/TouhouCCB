@@ -134,5 +134,5 @@ p { line-height: 1.6; }
 .secret-actions { margin-top: 10px; }
 .cancel-action { margin-top: 10px; }
 .config-note { color: #666; font-size: 13px; }
-@media (max-width: 600px) { .returned-config { padding: 14px; } }
+@media (max-width: 950px) { .returned-config { padding: 14px; } }
 </style>

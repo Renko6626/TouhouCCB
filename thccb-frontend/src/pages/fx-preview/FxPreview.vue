@@ -1439,7 +1439,7 @@ const candles = computed(() =>
     display: none;
   }
 }
-@media (max-width: 720px) {
+@media (max-width: 950px) {
   .preview-strip {
     padding: 8px 16px;
     font-size: 10px;

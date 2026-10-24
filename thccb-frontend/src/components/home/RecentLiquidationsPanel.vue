@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
 }
 
 /* responsive */
-@media (max-width: 768px) {
+@media (max-width: 950px) {
   .liq-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

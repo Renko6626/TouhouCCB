@@ -513,7 +513,7 @@ onMounted(async () => {
   gap: 16px;
   align-items: start;
 }
-@media (min-width: 960px) {
+@media (width > 950px) {
   .split {
     grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
   }

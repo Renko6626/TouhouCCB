@@ -354,7 +354,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .action-form textarea { width: 100%; resize: vertical; }
 .note-count { text-align: right; }
 .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
-@media (max-width: 720px) {
+@media (max-width: 950px) {
   .code-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .row-actions { align-items: flex-start; border-top: 1px solid #ccc; padding-top: 12px; }
   .filters { gap: 10px; }
