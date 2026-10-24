@@ -20,6 +20,7 @@ public_router = APIRouter()
 logger = logging.getLogger("thccb.site_config")
 
 _WHITELIST = {
+    "site_access_disabled": "bool",
     "fx_order_scan_interval_sec": "int",
     "homepage_fx_enabled": "bool",
     "loan_enabled": "bool",
@@ -62,6 +63,12 @@ async def homepage_mode(db: AsyncSession = Depends(get_async_session)):
         SiteConfig.key == "homepage_fx_enabled"))).scalar_one_or_none()
     enabled = value is None or value.strip().lower() == "true"
     return {"mode": "fx" if enabled else "prediction"}
+
+
+@public_router.get("/access")
+async def site_access_status(db: AsyncSession = Depends(get_async_session)):
+    from app.services.site_access import is_disabled
+    return {"disabled": await is_disabled(db)}
 
 
 def _validate(key: str, value: str) -> None:
@@ -133,6 +140,8 @@ async def list_configs(
     db: AsyncSession = Depends(get_async_session),
 ):
     rows = await site_config.get_all(db)
+    if not any(row.key == "site_access_disabled" for row in rows):
+        rows.append(SiteConfig(key="site_access_disabled", value="false", value_type="bool"))
     return [SiteConfigItem(
         key=r.key, value=r.value, value_type=r.value_type,
         updated_at=r.updated_at, updated_by=r.updated_by,
@@ -154,6 +163,8 @@ async def update_config(
     if key == "fx_order_scan_interval_sec":
         await _ensure_config_row(db, key, "10")
     if key == "fx_short_enabled":
+        await _ensure_config_row(db, key)
+    if key == "site_access_disabled":
         await _ensure_config_row(db, key)
 
     try:

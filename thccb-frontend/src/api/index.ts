@@ -96,6 +96,11 @@ instance.interceptors.response.use(
     const originalRequest = error.config as UserBoundInternalConfig
     assertAuthContext(originalRequest)
 
+    if (error.response?.status === 403 && error.response?.data?.detail === 'SITE_ACCESS_DISABLED') {
+      window.dispatchEvent(new CustomEvent('site-access-disabled'))
+      return Promise.reject({ message: '网站暂时禁止访问', status: 403, data: error.response.data })
+    }
+
     // 403 + detail USER_BANNED → 触发全局封号弹窗 (BannedDialog 监听这个事件)
     // 后端 core/users.py + auth.py 用此 marker 区分"被封"vs"无效凭证"
     if (

@@ -14,6 +14,7 @@ CREDIT_LEVERAGE_KEY = "credit_leverage"
 CREDIT_MAINTENANCE_KEY = "credit_maintenance_ratio"
 
 DEFAULT_CONFIGS = [
+    ("site_access_disabled", "false", "bool"),
     ("homepage_fx_enabled", "true", "bool"),  # 仅首页展示，保留管理员已有选择
     ("loan_enabled", "true", "bool"),
     ("loan_daily_rate", "0.01", "decimal"),

@@ -3,7 +3,7 @@ import { apiBaseUrl, authIdentityGuard, refreshAccessToken } from './index'
 import { groupQuery } from './tradingContext'
 import type { GroupKey } from '@/types/tradingContext'
 export interface StreamFrame { event: string; data: string; id?: string }
-export interface TradingStreamHandlers { frame: (frame: StreamFrame) => void; disconnected?: () => void; error?: (error: unknown) => void }
+export interface TradingStreamHandlers { frame: (frame: StreamFrame) => void; opened?: () => void; disconnected?: () => void; error?: (error: unknown) => void }
 /** Incremental SSE framing. TextDecoder retains split UTF-8 codepoints. */
 export async function readSse(body: ReadableStream<Uint8Array>, receive: (frame: StreamFrame) => void, signal?: AbortSignal) {
   const reader = body.getReader(), decoder = new TextDecoder()
@@ -45,6 +45,10 @@ export class TradingStream {
   private timer: ReturnType<typeof setTimeout> | null = null
   close() { this.controller?.abort(); this.controller = null; if (this.timer) clearTimeout(this.timer); this.timer = null }
   connect(group: GroupKey | null, handlers: TradingStreamHandlers) {
+    this.connectUrl(`${apiBaseUrl.replace(/\/$/, '')}/api/v1/stream/trading?${groupQuery(group)}`, handlers)
+  }
+  /** Also used by authenticated public streams, sharing framing and token renewal. */
+  connectUrl(url: string, handlers: TradingStreamHandlers) {
     this.close()
     const controller = new AbortController(), valid = authIdentityGuard()
     this.controller = controller
@@ -53,7 +57,6 @@ export class TradingStream {
     const run = async () => {
       try {
         const auth = useAuthStore()
-        const url = `${apiBaseUrl.replace(/\/$/, '')}/api/v1/stream/trading?${groupQuery(group)}`
         const request = () => fetch(url, { headers: { Authorization: `Bearer ${auth.accessToken}`, Accept: 'text/event-stream' }, signal: controller.signal })
         let response = await request()
         if (!active()) { void response.body?.cancel(); return }
@@ -66,11 +69,13 @@ export class TradingStream {
         if (response.status === 403) {
           const payload = await response.json().catch(() => null)
           if (active() && payload?.detail === 'USER_BANNED' && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('user-banned'))
+          if (active() && payload?.detail === 'SITE_ACCESS_DISABLED' && typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('site-access-disabled'))
           if (active()) { handlers.disconnected?.(); this.close() }
           return
         }
         if (!response.ok || !response.body) throw new Error(`Trading stream HTTP ${response.status}`)
         if (!active()) { void response.body.cancel(); return }
+        handlers.opened?.()
         await readSse(response.body, frame => { if (active()) { failures = 0; handlers.frame(frame) } }, controller.signal)
         if (active()) handlers.disconnected?.()
       } catch (error) { if (active()) { handlers.disconnected?.(); handlers.error?.(error) } }

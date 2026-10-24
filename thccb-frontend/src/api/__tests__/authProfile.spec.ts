@@ -52,3 +52,21 @@ it('loads an initial user-null profile with same-session credential renewal', as
   await auth.fetchCurrentUser()
   expect(auth.user!.id).toBe(1); expect(sent).toEqual(['Bearer A', 'Bearer renewed-A'])
 })
+
+it('dispatches site closure without renewal or logout for a denied business request', async () => {
+  const auth=login(1, 'A', 'RA')
+  vi.stubGlobal('CustomEvent', class { constructor(public type: string) {} })
+  const adapter: AxiosAdapter=async config => {
+    throw new AxiosError('closed', 'ERR_BAD_REQUEST', config, undefined, {
+      status:403, data:{ detail:'SITE_ACCESS_DISABLED' }, statusText:'Forbidden',
+      headers:new AxiosHeaders(), config,
+    })
+  }
+  const renew=vi.spyOn(axios, 'post')
+  const logout=vi.spyOn(auth, 'logout')
+  const api=(await import('../index')).default
+  await expect(api.get('/api/v1/site/homepage', { adapter })).rejects.toMatchObject({ status:403 })
+  expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type:'site-access-disabled' }))
+  expect(renew).not.toHaveBeenCalled()
+  expect(logout).not.toHaveBeenCalled()
+})

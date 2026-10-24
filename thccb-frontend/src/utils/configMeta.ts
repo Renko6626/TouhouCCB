@@ -26,6 +26,11 @@ export interface ConfigMeta {
 
 /** 显式 metadata。未列出的 key 用 fallback (group=general, label=key)。*/
 const META: Record<string, ConfigMeta> = {
+  site_access_disabled: {
+    group: 'display',
+    label: '禁止普通用户访问',
+    description: '开启后游客和普通用户进入红黑接管页面，业务 API 同时禁止访问。管理员与必要的登录接口放行，后台任务继续运行；关闭后刷新页面即可恢复。',
+  },
   homepage_fx_enabled: {
     group: 'display',
     label: '首页使用 FX 模式',
@@ -176,6 +181,7 @@ const GROUP_ORDER: ConfigGroup[] = ['display', 'fx', 'loan', 'liquidation', 'eco
 
 // 按管理任务排列；未登记的新配置仍显示在所属组末尾。
 const CONFIG_ORDER = [
+  'site_access_disabled',
   'homepage_fx_enabled',
   'fx_enabled', 'fx_short_enabled',
   'loan_enabled', 'credit_new_risk_frozen',

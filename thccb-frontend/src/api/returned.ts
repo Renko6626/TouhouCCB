@@ -1,4 +1,5 @@
 import api, { apiBaseUrl } from './index'
+import { openSiteEventSource } from './siteTransport'
 
 export type ReturnedStatus = 'open' | 'closed' | 'settled' | 'cancelled'
 export interface ReturnedRound {
@@ -43,7 +44,7 @@ export const returnedApi = {
   submit: (key: string, position: number) => api.putForCurrentUser<ReturnedPrediction>(
     `${prefix}/rounds/${encodeURIComponent(key)}/prediction`, { position }),
   subscribe: (changed: () => void, connection: (connected: boolean) => void) => {
-    const stream = new EventSource(`${apiBaseUrl.replace(/\/$/, '')}${prefix}/stream`)
+    const stream = openSiteEventSource(`${apiBaseUrl.replace(/\/$/, '')}${prefix}/stream`)
     stream.onopen = () => connection(true)
     stream.onerror = () => connection(false)
     stream.addEventListener('sync', changed)

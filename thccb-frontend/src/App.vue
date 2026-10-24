@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onErrorCaptured } from 'vue'
-import { RouterView } from 'vue-router'
+import { ref, onErrorCaptured, onMounted, onBeforeUnmount } from 'vue'
+import { RouterView, useRouter } from 'vue-router'
 import { NConfigProvider, NNotificationProvider, NDialogProvider, NLoadingBarProvider, NMessageProvider } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 import { useNotificationStore } from '@/stores/notification'
@@ -9,6 +9,15 @@ import MarketGateToast from '@/components/global/MarketGateToast.vue'
 
 // 使用通知store
 const notificationStore = useNotificationStore()
+const router = useRouter()
+function showSiteClosure() {
+  if (router.currentRoute.value.name !== 'access-denied') {
+    globalError.value = null
+    void router.replace('/access-denied')
+  }
+}
+onMounted(() => window.addEventListener('site-access-disabled', showSiteClosure))
+onBeforeUnmount(() => window.removeEventListener('site-access-disabled', showSiteClosure))
 
 // 全局错误边界：捕获子组件运行时错误，避免白屏
 const globalError = ref<string | null>(null)
@@ -125,8 +134,9 @@ const industrialThemeOverrides = {
             <MarketGateToast />
 
             <!-- 主应用内容 -->
-            <RouterView v-if="!globalError" v-slot="{ Component }">
-              <Transition name="fade" mode="out-in">
+            <RouterView v-if="!globalError" v-slot="{ Component, route }">
+              <component :is="Component" v-if="route.name === 'access-denied'" />
+              <Transition v-else name="fade" mode="out-in">
                 <component :is="Component" />
               </Transition>
             </RouterView>

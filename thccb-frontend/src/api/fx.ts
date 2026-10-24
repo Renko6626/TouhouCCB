@@ -1,6 +1,7 @@
 // FX 玩家/管理 API 封装 + 可测试纯函数（金额格式化、min-out/滑点、SSE 白名单、
 // 错误映射）。所有金额保持字符串/十进制语义，不用 Number() 破坏 6 位精度。
 import api from './index'
+import { fetchSiteResource, openSiteEventSource, type SiteEventSource } from './siteTransport'
 import { FxPendingOrder, type FxPendingStorage } from './fxPendingOrder'
 import type {
   FxTriggerOrderCreate,
@@ -592,7 +593,7 @@ export async function getChartWithMeta(
   signal?: AbortSignal,
 ): Promise<FxChartMeta> {
   const params = new URLSearchParams({ interval, from: fromIso, to: toIso })
-  const resp = await fetch(
+  const resp = await fetchSiteResource(
     `${fxPublicBaseUrl()}/api/v1/fx/pairs/${pairId}/chart?${params.toString()}`,
     { signal },
   )
@@ -606,7 +607,7 @@ export async function getChartWithMeta(
 }
 
 /**
- * 取一段不可变封存历史（公开 fetch，不带 auth）。
+ * 取一段不可变封存历史（登录时携带现有凭证，保留管理员访问）。
  * - 404（尚未封存/竞态窗口）→ null，调用方按不完整处理；
  * - 503（后端历史未就绪）或结构非法/与请求 interval·segment 错位 → 抛出，让调用方
  *   显式回退 `/chart`，不静默吞错。
@@ -622,7 +623,7 @@ export async function fetchFxHistorySegment(
   if (!historyVersion || !isFxHistoryInterval(interval)) return null
   if (!Number.isSafeInteger(segmentEpoch) || segmentEpoch < 0) return null
   const path = `${fxPublicBaseUrl()}/history/fx/${pairId}/${encodeURIComponent(historyVersion)}/${interval}/${segmentEpoch}.json`
-  const resp = await fetch(path, { signal })
+  const resp = await fetchSiteResource(path, { signal })
   if (resp.status === 404) return null
   if (!resp.ok) throw new Error(`FX history segment ${segmentEpoch} failed: ${resp.status}`)
   const segment = sanitizeFxHistorySegment(await resp.json(), { interval, t0: segmentEpoch })
@@ -877,7 +878,7 @@ type FxVoidListener = () => void
 type FxErrorListener = (error: unknown) => void
 
 export class FxStream {
-  private source: EventSource | null = null
+  private source: SiteEventSource | null = null
   private pairId: number | null = null
   private reconnectAttempts = 0
   private readonly baseDelay = 1000
@@ -911,7 +912,7 @@ export class FxStream {
     )
     const url = `${baseUrl}/api/v1/fx/stream/${pairId}`
     try {
-      const source = new EventSource(url)
+      const source = openSiteEventSource(url)
       const generation = this.gen
       this.source = source
       const current = () => this.source === source && this.gen === generation

@@ -64,7 +64,11 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer),
     db: AsyncSession = Depends(get_async_session),
 ) -> User:
-    token = credentials.credentials
+    return await user_from_access_token(credentials.credentials, db)
+
+
+async def user_from_access_token(token: str, db: AsyncSession) -> User:
+    """Shared token validation for route dependencies and the site access gate."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
         if payload.get("type") == "refresh":

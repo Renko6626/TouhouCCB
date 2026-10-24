@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.http_middleware import AccessPolicyMiddleware, RiskRequestMiddleware
+from app.core.site_access import SiteAccessMiddleware
 from app.core.database import async_session_maker, engine
 from app.core.schema import require_schema_current
 from app.core.admin import setup_admin
@@ -358,6 +359,9 @@ async def _resync_recent_candles(window_hours: int = 1) -> None:
 
 
 app = FastAPI(title="东方炒炒币 (Touhou Exchange)", lifespan=lifespan)
+
+# Inside CORS and the existing access logger, so denied requests keep both policies.
+app.add_middleware(SiteAccessMiddleware)
 
 # CORS — 从配置读取允许的源
 app.add_middleware(

@@ -3,6 +3,7 @@
 // 双层缓存，重复进入图表几乎零请求。进行中的尾巴不走这里——由 SSE
 // snapshot.history_tail 携带（useCandleHistory 组装）。
 import type { Candle, ChartInterval } from '@/types/api'
+import { fetchSiteResource } from './siteTransport'
 
 export interface EncodedSegment {
   t0: number; step: number; n_buckets: number
@@ -49,7 +50,7 @@ export function sealedSegmentEpochs(interval: ChartInterval, fromSec: number, no
 export async function fetchSegment(
   outcomeId: number, interval: ChartInterval, epoch: number,
 ): Promise<EncodedSegment | null> {
-  const resp = await fetch(`${baseUrl}/history/o/${outcomeId}/${interval}/${epoch}.json`)
+  const resp = await fetchSiteResource(`${baseUrl}/history/o/${outcomeId}/${interval}/${epoch}.json`)
   if (resp.status === 404) return null
   if (!resp.ok) throw new Error(`history segment ${epoch} failed: ${resp.status}`)
   return (await resp.json()) as EncodedSegment

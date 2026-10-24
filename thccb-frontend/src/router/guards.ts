@@ -1,6 +1,7 @@
 import type { RouteLocationNormalized, NavigationGuardNext } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { getLoginUrl } from '@/api/casdoor'
+import { siteAccessApi } from '@/api/siteAccess'
 
 export const globalBeforeEach = async (
   to: RouteLocationNormalized,
@@ -9,8 +10,22 @@ export const globalBeforeEach = async (
 ) => {
   const authStore = useAuthStore()
 
+  // The backend remains authoritative; never trust a cached browser administrator role.
+  if (!['access-denied', 'login', 'auth-callback'].includes(String(to.name))) {
+    try {
+      const { disabled } = await siteAccessApi.status()
+      if (disabled) {
+        const user = await authStore.fetchCurrentUser()
+        if (!user?.is_superuser) return next('/access-denied')
+      }
+    } catch {
+      // Network failures still reach the normal error UI; business APIs enforce the gate.
+    }
+  }
+
   // 已登录用户访问 login/register 时跳首页
-  if (to.matched.some((r) => r.meta.hideIfLoggedIn) && authStore.isAuthenticated) {
+  if (to.matched.some((r) => r.meta.hideIfLoggedIn) && authStore.isAuthenticated
+      && !(to.name === 'login' && to.query.admin === '1')) {
     return next('/')
   }
 

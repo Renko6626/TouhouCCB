@@ -1,7 +1,8 @@
 import type { MarketEvent } from '@/types/api'
+import { openSiteEventSource, type SiteEventSource } from './siteTransport'
 
 export class MarketStream {
-  private eventSource: EventSource | null = null
+  private eventSource: SiteEventSource | null = null
   private marketId: number | null = null
   private reconnectAttempts = 0
   // 无限重连 + 指数退避（1s, 2s, 4s … 封顶 30s）+ jitter。
@@ -43,7 +44,7 @@ export class MarketStream {
     const url = `${normalizedBaseUrl}/api/v1/stream/market/${marketId}`
 
     try {
-      this.eventSource = new EventSource(url)
+      this.eventSource = openSiteEventSource(url)
       this.setupEventHandlers()
       if (import.meta.env.DEV) console.log(`Opening market stream: ${marketId}`)
     } catch (error) {

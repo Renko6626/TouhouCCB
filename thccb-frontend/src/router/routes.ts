@@ -8,6 +8,12 @@ import NotFound from '@/pages/NotFound.vue'
  * 顶层用 layout 组件作为 component，子路由通过 layout 内部的 <router-view /> 渲染。
  */
 export const routes: RouteRecordRaw[] = [
+  {
+    path: '/access-denied',
+    name: 'access-denied',
+    component: () => import('@/pages/AccessDenied.vue'),
+    meta: { title: '访问终止', requiresAuth: false },
+  },
   // FX 独立播放页：公开行情，不使用主布局，也不添加导航入口。
   {
     path: '/fx/play',
