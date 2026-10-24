@@ -22,8 +22,8 @@
 
 - [x] 将实际容器及现有运维探针地址改用 `/health`，同步现有维护脚本测试协议。
 - [x] 集中执行：`pytest tests/test_returned.py tests/test_returned_config.py tests/test_site_access.py tests/test_http_middleware.py tests/test_season_reset_runner.py -q`，以及受影响脚本 `bash -n`、`git diff --check`。
-- [ ] 独立只读审阅一次，处理具体问题后提交并推送 main，等待既有 CI/CD 成功。
-- [ ] 线上只读确认镜像 SHA、三个容器健康、封站值保持、管理员可查询竞猜、普通请求仍被拒绝。尽可能从发送端现有私有配置在内存使用实际密钥验证 GET，不输出密钥或摘要；拿不到原密钥则明确这项限制，不重设密钥。
+- [x] 独立只读审阅一次，处理具体问题后提交并推送 main，等待既有 CI/CD 成功。
+- [x] 线上只读确认镜像 SHA、三个容器健康、封站值保持、管理员可查询竞猜、普通请求仍被拒绝。尽可能从发送端现有私有配置在内存使用实际密钥验证 GET，不输出密钥或摘要；拿不到原密钥则明确这项限制，不重设密钥。
 
 ## Review Focus
 
@@ -39,4 +39,14 @@
 
 - 新增三个回归场景修复前均返回 401 失败；修复后相关 72 项测试通过（21.71 秒），bash -n 与 git diff --check 通过。
 - 独立只读审阅无阻断项；不重复全量本地测试，沿用既有 CI 全量检查后部署。
-- 发送端不在本 VPS，现有本机配置也无原始密钥；上线后优先观察其真实轮询恢复，不重置密钥。
+- 现有可用配置中未找到发送端原始密钥；通过线上外部轮询日志验证恢复，不重置密钥。
+
+## 发布结果（2026-10-25 北京时间）
+
+- 业务提交 `f853fb42b2178e76c8e0e0b3dc4458f092e1fd27` 已合入 main 并发布；[CI 40111824921](https://github.com/Renko6626/TouhouCCB/actions/runs/40111824921) 第五次尝试 success。全量后端 1595 passed / 1 skipped / 59 deselected（287.52 秒），隔离 FX 14 passed，前端检查和镜像通过。
+- 前四次均在 GitHub 仓库读取阶段遇到 TLS EOF 或连接超时，业务切换前失败；仅重试 Deploy，未改变代理、DNS、Git 全局配置或部署路线。
+- Coolify `pcbelwzedmkpsegcdsxwpnae` finished，容器后缀 `20261024T165248`，前后端镜像均为业务提交 SHA，前端、后端与 PostgreSQL 均 healthy。
+- 备份 `/home/deploy/TouhouCCB/backups/thccb_20261024_165322_2602434.dump` 已完整恢复验证，现有 schema 和账本校验通过，健康检查首次即通过。
+- 线上只读核对 `/health` 返回服务和数据库正常；容器探针实际为 `/health`。封站开关仍为 true，更新时间未变。管理员查询正常，匿名和普通账号仍为 403，错误来源密钥 401。
+- 外部 `GET /api/v1/returned/current` 已记录 200。后台仍为 45 轮 settled、2 轮 cancelled，无活动竞猜；未主动创建、取消、重结算竞猜或调整金额。
+- 验证记录 `output/returned-site-access/release-verification.json`。未执行浏览器交互；朋友控制器本地的待处理提示是否清除需其实际刷新核对。
