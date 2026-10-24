@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
@@ -39,25 +38,43 @@ async def list_users(
     offset: int = Query(0, ge=0, description="跳过条数（按 id 升序）"),
     limit: int = Query(200, ge=1, le=1000, description="本页条数，最大 1000"),
     q: Optional[str] = Query(None, max_length=100, description="服务端搜索：用户名模糊匹配 / 精确 ID"),
+    user_ids: Optional[str] = Query(None, max_length=1200),
+    is_active: Optional[bool] = None,
+    has_positions: Optional[bool] = None,
+    has_shorts: Optional[bool] = None,
+    include_bots: bool = True,
     admin: User = Depends(current_superuser),
     db: AsyncSession = Depends(get_async_session),
 ):
-    stmt = select(User).order_by(User.id.asc())
-    term = (q or "").strip()
-    if term:
-        conds = [User.username.ilike(f"%{term}%")]
-        if term.isdigit():
-            conds.append(User.id == int(term))
-        stmt = stmt.where(or_(*conds))
-    users = (await db.execute(stmt.offset(offset).limit(limit))).scalars().all()
-    return [
-        {
-            "id": u.id, "username": u.username,
-            "cash": svc._money(u.cash), "debt": svc._money(u.debt),
-            "is_active": u.is_active, "is_superuser": u.is_superuser,
-        }
-        for u in users
-    ]
+    from app.services import admin_user_reads
+    ids = None
+    if user_ids is not None:
+        parts = user_ids.split(",")
+        if not parts or len(parts) > 100 or any(
+            not p.strip().isascii() or not p.strip().isdigit()
+            or not 0 < int(p.strip()) <= 2147483647 for p in parts
+        ):
+            raise HTTPException(422, "用户 ID 须为最多 100 个正整数，以逗号分隔")
+        ids = list(dict.fromkeys(int(p.strip()) for p in parts))
+    return await admin_user_reads.list_users(
+        db, offset=offset, limit=limit, q=q, user_ids=ids,
+        is_active=is_active, has_positions=has_positions,
+        has_shorts=has_shorts, include_bots=include_bots,
+    )
+
+
+@router.get("/{user_id}/activity", summary="用户持仓、近期交易和管理记录")
+async def user_activity(
+    user_id: int,
+    limit: int = Query(50, ge=1, le=100),
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.services import admin_user_reads
+    try:
+        return await admin_user_reads.get_activity(db, user_id, limit=limit)
+    except AdminUserError as e:
+        raise _http(e)
 
 
 @router.get("/{user_id}", summary="用户快照（仅管理员）")
@@ -194,6 +211,42 @@ async def unban_user(
 
 # ── 批量 ─────────────────────────────────────
 # 流程：先 dry_run=true 拿预览 → 前端二次确认 → dry_run=false 执行。
+
+class BatchAccountRequest(BaseModel):
+    user_ids: list[int] = Field(..., min_length=1, max_length=100)
+    action: Literal["ban", "unban", "close", "ban_and_close"]
+    reason: str = Field(..., min_length=1, max_length=500)
+    dry_run: bool = True
+
+    @field_validator("user_ids")
+    @classmethod
+    def validate_ids(cls, ids):
+        if any(uid <= 0 or uid > 2147483647 for uid in ids):
+            raise ValueError("用户 ID 必须为有效的正整数")
+        return list(dict.fromkeys(ids))
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, reason):
+        if not reason.strip():
+            raise ValueError("请填写操作原因")
+        return reason.strip()
+
+
+@router.post("/batch/accounts", summary="预览或执行选定用户的账号操作与平仓")
+async def batch_accounts(
+    req: BatchAccountRequest,
+    admin: User = Depends(current_superuser),
+    db: AsyncSession = Depends(get_async_session),
+):
+    from app.services import admin_user_batch
+    try:
+        return await admin_user_batch.run_batch(
+            db, user_ids=req.user_ids, action=req.action, reason=req.reason,
+            dry_run=req.dry_run, admin_id=admin.id,
+        )
+    except AdminUserError as e:
+        raise _http(e)
 
 class BatchAdjustCashRequest(BaseModel):
     filter: UserFilter

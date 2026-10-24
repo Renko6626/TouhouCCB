@@ -387,14 +387,16 @@ async def ban(db: AsyncSession, *, target_id: int, admin_id: int, reason: Option
     return {"user_id": t.id, "username": t.username, "is_active": False, "changed": was_active}
 
 
-async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = None) -> Dict[str, Any]:
+async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = None,
+                reason: Optional[str] = None) -> Dict[str, Any]:
     async with notifying_transaction(db, managed_transaction(db), "admin_account"):
         t = await _lock_user(db, target_id)
         was_active = t.is_active
         t.is_active = True
         if not was_active:
             bump_economic_version(t)
-            audit_service.record(db, "admin_unban", user_id=t.id, operator_user_id=admin_id)
+            audit_service.record(db, "admin_unban", user_id=t.id, operator_user_id=admin_id,
+                                 payload={"reason": reason})
     return {"user_id": t.id, "username": t.username, "is_active": True, "changed": not was_active}
 
 
@@ -403,6 +405,7 @@ async def unban(db: AsyncSession, *, target_id: int, admin_id: Optional[int] = N
 # ==========================================
 
 class UserFilter(BaseModel):
+    user_ids: Optional[list[int]] = Field(default=None, min_length=1, max_length=100)
     user_id_min: Optional[int] = Field(default=None, description="包含")
     user_id_max: Optional[int] = Field(default=None, description="包含")
     cash_min: Optional[Decimal] = None
@@ -416,6 +419,10 @@ class UserFilter(BaseModel):
 def build_user_filter_stmt(f: UserFilter):
     """select(User) + filter 条件，按 id ASC（事务内锁顺序一致防死锁）。"""
     stmt = select(User)
+    if f.user_ids is not None:
+        if any(uid <= 0 or uid > 2147483647 for uid in f.user_ids):
+            raise AdminUserError(400, "用户 ID 必须为有效的正整数")
+        stmt = stmt.where(User.id.in_(f.user_ids))
     if f.user_id_min is not None:
         stmt = stmt.where(User.id >= f.user_id_min)
     if f.user_id_max is not None:

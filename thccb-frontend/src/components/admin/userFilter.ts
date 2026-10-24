@@ -26,7 +26,8 @@ const toOptInt = (s: string): number | undefined => {
   return Number.isFinite(n) ? n : undefined
 }
 
-export function toApiFilter(f: UserFilterState): BatchAdjustFilter {
+export function toApiFilter(f: UserFilterState, userIds?: number[]): BatchAdjustFilter {
+  if (userIds) return { user_ids: [...userIds] }
   return {
     user_id_min: toOptInt(f.userIdMin),
     user_id_max: toOptInt(f.userIdMax),

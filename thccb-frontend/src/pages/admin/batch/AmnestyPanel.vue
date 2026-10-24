@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { adminUsersApi, type AmnestyDryRunResponse, type AmnestyExecuteResponse } from '@/api/admin'
 import { extractErrorMessage } from '@/utils/errors'
@@ -8,6 +8,8 @@ import { emptyUserFilter, toApiFilter } from '@/components/admin/userFilter'
 
 const CONFIRM_PHRASE = '大赦天下'
 
+const props = defineProps<{ userIds?: number[] }>()
+const emit = defineEmits<{ changed: []; busy: [value: boolean] }>()
 const message = useMessage()
 
 const filter = ref(emptyUserFilter())
@@ -21,6 +23,8 @@ const dryRunResult = ref<AmnestyDryRunResponse | null>(null)
 const executeResult = ref<AmnestyExecuteResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
+watch(loading, value => emit('busy', value))
+watch([filter, resetCashTo, forgiveDebt, reason, () => props.userIds?.join(',')], () => { dryRunResult.value = null }, { deep: true })
 
 const resetValid = computed(() => {
   const t = resetCashTo.value.trim()
@@ -34,7 +38,7 @@ const confirmOk = computed(() => confirmText.value.trim() === CONFIRM_PHRASE)
 function payload(dryRun: boolean) {
   const t = resetCashTo.value.trim()
   return {
-    filter: toApiFilter(filter.value),
+    filter: toApiFilter(filter.value, props.userIds),
     reset_cash_to: t === '' ? null : t,
     forgive_debt: forgiveDebt.value,
     reason: reason.value.trim(),
@@ -73,6 +77,7 @@ async function execute() {
       dryRunResult.value = null
       confirmText.value = ''
       message.success(`大赦完成：${resp.updated_count} 人`)
+      emit('changed')
     }
   } catch (e) {
     error.value = extractErrorMessage(e, '执行失败')
@@ -95,19 +100,21 @@ function resetAll() {
 
 <template>
   <div>
+    <fieldset :disabled="loading" class="busy-fields">
     <p class="panel-intro">
       对匹配用户<strong>清零债务（先结息）并把现金还原到目标值</strong>——现金高于目标的同样被降下来，这是「还原」不是「补足」。
-      <strong>持仓不动</strong>，市场状态不受影响。每人写一条 <code>admin_amnesty</code> 流水；
+      <strong>持仓不动</strong>，市场状态不受影响。每人保留操作记录；
       此操作会在资产统计 / 排行榜上留下一个不可逆的断层。
     </p>
 
     <section class="card">
-      <h2 class="card-title">1 · 筛选条件</h2>
-      <UserFilterFields v-model="filter" />
+      <h2 class="card-title">1 筛选条件</h2>
+      <p v-if="userIds">仅操作已选择的 {{ userIds.length }} 人。</p>
+      <UserFilterFields v-else v-model="filter" />
     </section>
 
     <section class="card">
-      <h2 class="card-title">2 · 大赦参数</h2>
+      <h2 class="card-title">2 大赦参数</h2>
 
       <div class="adjust-grid">
         <label class="field">
@@ -115,7 +122,7 @@ function resetAll() {
           <input
             v-model="resetCashTo" type="text" inputmode="decimal"
             class="input tabular-nums" :class="{ 'input--invalid': !resetValid }"
-            placeholder="留空 = 站点配置 initial_balance"
+            placeholder="留空使用站点初始余额"
           />
         </label>
         <label class="field field--full">
@@ -142,7 +149,7 @@ function resetAll() {
 
     <!-- 预览 -->
     <section v-if="dryRunResult" class="card card--preview">
-      <h2 class="card-title">3 · 预览（dry-run）</h2>
+      <h2 class="card-title">3 预览</h2>
 
       <div class="preview-stats">
         <div class="stat">
@@ -250,10 +257,12 @@ function resetAll() {
         </div>
       </details>
     </section>
+    </fieldset>
   </div>
 </template>
 
 <style scoped src="./_batch.css"></style>
+<style scoped>.busy-fields{border:0;padding:0;margin:0;min-width:0}</style>
 <style scoped>
 .input--invalid {
   border-color: #dc2626;

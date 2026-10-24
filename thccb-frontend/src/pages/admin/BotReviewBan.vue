@@ -211,7 +211,7 @@ const bannedCount = computed(() => stats.value?.banned_users ?? '—')
               <td class="mono">#{{ s.id }}</td>
               <td>
                 <div class="user-cell">
-                  <strong>{{ s.username }}</strong>
+                  <RouterLink :to="`/admin/users?uid=${s.user_id}`"><strong>{{ s.username }}</strong></RouterLink>
                   <code class="user-id">uid={{ s.user_id }}</code>
                 </div>
               </td>
@@ -273,7 +273,7 @@ const bannedCount = computed(() => stats.value?.banned_users ?? '—')
           </thead>
           <tbody>
             <tr v-for="u in banned" :key="u.user_id">
-              <td class="mono">#{{ u.user_id }}</td>
+              <td class="mono"><RouterLink :to="`/admin/users?uid=${u.user_id}`">#{{ u.user_id }}</RouterLink></td>
               <td><strong>{{ u.username }}</strong></td>
               <td class="mono small">{{ u.casdoor_id ?? '—' }}</td>
               <td>

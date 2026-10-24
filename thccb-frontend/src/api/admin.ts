@@ -24,6 +24,12 @@ export interface UserListItem {
   debt: number
   is_active: boolean
   is_superuser: boolean
+  spot_count?: number
+  short_count?: number
+  lmsr_count?: number
+  registered_at?: string | null
+  last_trade_at?: string | null
+  is_bot?: boolean
 }
 
 export interface AdjustCashResult {
@@ -35,6 +41,7 @@ export interface AdjustCashResult {
 }
 
 export interface BatchAdjustFilter {
+  user_ids?: number[]
   user_id_min?: number | null
   user_id_max?: number | null
   cash_min?: number | string | null
@@ -187,8 +194,11 @@ export interface WealthStats {
 const U = '/api/v1/admin/users'
 
 export const adminUsersApi = {
-  list: (offset = 0, limit = 200, q?: string) =>
-    api.get<UserListItem[]>(U, { params: { offset, limit, ...(q ? { q } : {}) } }),
+  list: (offset = 0, limit = 200, q?: string, filters: AdminUserListFilters = {}) =>
+    api.get<UserListItem[]>(U, { params: { offset, limit, ...(q ? { q } : {}), ...filters } }),
+  activity: (userId: number) => api.get<AdminUserActivity>(`${U}/${userId}/activity`),
+  batchAccounts: (body: { user_ids: number[]; action: AccountBatchAction; reason: string; dry_run: boolean }) =>
+    api.post<AccountBatchResult>(`${U}/batch/accounts`, body),
   get: (userId: number) => api.get<AdminUserSummary>(`${U}/${userId}`),
 
   adjustCash: (userId: number, amount: number | string, reason: string) =>
@@ -342,4 +352,25 @@ export const adminTitleApi = {
     api.get<number[]>(`/api/v1/admin/markets/${mid}/required-titles`),
   putMarketRequired: (mid: number, title_ids: number[]) =>
     api.put(`/api/v1/admin/markets/${mid}/required-titles`, { title_ids }),
+}
+
+export interface AdminUserListFilters {
+  user_ids?: string
+  is_active?: boolean
+  has_positions?: boolean
+  has_shorts?: boolean
+  include_bots?: boolean
+}
+export interface AdminUserActivity {
+  positions: { product: string; group_id: number; market_name: string; asset_name: string; kind: string; quantity: number; interest: number; cost_basis: number }[]
+  transactions: { id: number; product: string; created_at: string; market_name: string; side: string; purpose: string; quantity: number; gold: number; source: string }[]
+  history: { id: number; created_at: string; event_type: string; operator_user_id: number | null; reason: string | null }[]
+  registered_at: string | null
+  last_trade_at: string | null
+}
+export type AccountBatchAction = 'ban' | 'unban' | 'close' | 'ban_and_close'
+export interface AccountBatchResult {
+  dry_run: boolean
+  items: { user_id: number; username: string; status: 'ready' | 'success' | 'failed' | 'skipped'; message: string; cash_before?: number; cash_after?: number; trades?: { product: string; group_id: number; side: string; quantity: number; gold: number }[] }[]
+  price_impacts: { pair_id: number; currency_name: string; price_before: number; price_after: number }[]
 }

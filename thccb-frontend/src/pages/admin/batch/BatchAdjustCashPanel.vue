@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useMessage } from 'naive-ui'
 import { adminUsersApi, type BatchAdjustDryRunResponse, type BatchAdjustExecuteResponse } from '@/api/admin'
 import { extractErrorMessage } from '@/utils/errors'
 import UserFilterFields from '@/components/admin/UserFilterFields.vue'
 import { emptyUserFilter, toApiFilter } from '@/components/admin/userFilter'
 
+const props = defineProps<{ userIds?: number[] }>()
+const emit = defineEmits<{ changed: []; busy: [value: boolean] }>()
 const message = useMessage()
 
 const filter = ref(emptyUserFilter())
@@ -16,6 +18,8 @@ const dryRunResult = ref<BatchAdjustDryRunResponse | null>(null)
 const executeResult = ref<BatchAdjustExecuteResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
+watch(loading, value => emit('busy', value))
+watch([filter, amount, reason, () => props.userIds?.join(',')], () => { dryRunResult.value = null }, { deep: true })
 
 const amountValid = computed(() => {
   const a = Number(amount.value)
@@ -30,7 +34,7 @@ async function runDryRun() {
   executeResult.value = null
   try {
     const resp = await adminUsersApi.batchAdjustCash({
-      filter: toApiFilter(filter.value), amount: amount.value, reason: reason.value.trim(), dry_run: true,
+      filter: toApiFilter(filter.value, props.userIds), amount: amount.value, reason: reason.value.trim(), dry_run: true,
     })
     if (resp.dry_run) dryRunResult.value = resp
   } catch (e) {
@@ -50,12 +54,14 @@ async function execute() {
   error.value = ''
   try {
     const resp = await adminUsersApi.batchAdjustCash({
-      filter: toApiFilter(filter.value), amount: amount.value, reason: reason.value.trim(), dry_run: false,
+      filter: toApiFilter(filter.value, props.userIds), amount: amount.value, reason: reason.value.trim(), dry_run: false,
     })
     if (!resp.dry_run) {
       executeResult.value = resp
       dryRunResult.value = null
-      message.success(`已调整 ${resp.updated_count} 个用户`)
+      if (resp.failed_count) message.warning(`已调整 ${resp.updated_count} 人，${resp.failed_count} 人未完成，请查看明细`)
+      else message.success(`已调整 ${resp.updated_count} 个用户`)
+      emit('changed')
     }
   } catch (e) {
     error.value = extractErrorMessage(e, '执行失败')
@@ -76,16 +82,18 @@ function resetAll() {
 
 <template>
   <div>
-    <p class="panel-intro">按 ID / 资产范围筛选用户，批量加减现金。先预览，后执行。每人写一条 <code>admin_adjust_cash</code> 流水。</p>
+    <fieldset :disabled="loading" class="busy-fields">
+    <p class="panel-intro">按 ID / 资产范围筛选用户，批量加减现金。先预览，后执行。每人保留操作记录。</p>
 
     <section class="card">
-      <h2 class="card-title">1 · 筛选条件</h2>
+      <h2 class="card-title">1 筛选条件</h2>
 
-      <UserFilterFields v-model="filter" />
+      <p v-if="userIds">仅操作已选择的 {{ userIds.length }} 人。</p>
+      <UserFilterFields v-else v-model="filter" />
     </section>
 
     <section class="card">
-      <h2 class="card-title">2 · 调整参数</h2>
+      <h2 class="card-title">2 调整参数</h2>
 
       <div class="adjust-grid">
         <label class="field">
@@ -115,7 +123,7 @@ function resetAll() {
 
     <!-- 预览结果 -->
     <section v-if="dryRunResult" class="card card--preview">
-      <h2 class="card-title">3 · 预览匹配（dry-run）</h2>
+      <h2 class="card-title">3 预览匹配</h2>
 
       <div class="preview-stats">
         <div class="stat">
@@ -195,7 +203,9 @@ function resetAll() {
         </ul>
       </details>
     </section>
+    </fieldset>
   </div>
 </template>
 
 <style scoped src="./_batch.css"></style>
+<style scoped>.busy-fields{border:0;padding:0;margin:0;min-width:0}</style>

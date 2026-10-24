@@ -47,7 +47,6 @@ const adminItems: NavEntry[] = [
     label: '用户与资金', icon: 'i-mdi-account-cash-outline', activeIcon: 'i-mdi-account-cash',
     children: [
       { label: '用户管理', path: '/admin/users', icon: 'i-mdi-account-group-outline', activeIcon: 'i-mdi-account-group' },
-      { label: '批量操作', path: '/admin/users/batch', icon: 'i-mdi-cash-multiple', activeIcon: 'i-mdi-cash-multiple' },
     ],
   },
   { label: '市场管理', path: '/admin/markets', icon: 'i-mdi-chart-box-outline', activeIcon: 'i-mdi-chart-box' },

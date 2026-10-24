@@ -2,21 +2,25 @@
 /**
  * 用户管理 — 管理员对单个用户的所有操作的唯一入口：
  * 资产（调现金）/ 贷款（强制放贷、免债）/ 账号（封禁、管理员）/ 称号。
- * 批量操作见 BatchOps.vue。
+ * 统一查看用户、持仓、记录和批量操作。
  */
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  useMessage, useDialog, NDataTable, NButton, NInput, NTabs, NTabPane, NSelect, NTag,
+  useMessage, useDialog, NDataTable, NButton, NInput, NTabs, NTabPane, NSelect, NTag, NDrawer, NDrawerContent, NCheckbox,
   type DataTableColumns,
 } from 'naive-ui'
 import {
   adminUsersApi, adminTitleApi,
-  type UserListItem, type AdminUserSummary, type UserTitleItem,
+  type UserListItem, type AdminUserSummary, type UserTitleItem, type AdminUserActivity, type AdminUserListFilters,
 } from '@/api/admin'
 import type { TitleRead } from '@/api/title'
 import { useAuthStore } from '@/stores/auth'
 import { extractErrorMessage } from '@/utils/errors'
+import AccountBatchPanel from '@/components/admin/AccountBatchPanel.vue'
+import UserActivityTabs from '@/components/admin/UserActivityTabs.vue'
+import BatchAdjustCashPanel from './batch/BatchAdjustCashPanel.vue'
+import AmnestyPanel from './batch/AmnestyPanel.vue'
 import TitleChip from '@/components/title/TitleChip.vue'
 
 const message = useMessage()
@@ -26,13 +30,50 @@ const route = useRoute()
 const router = useRouter()
 
 // ── 列表 ──
-const PAGE_SIZE = 200
+const PAGE_SIZE = 100
 const users = ref<UserListItem[]>([])
 const allTitles = ref<TitleRead[]>([])
 const listLoading = ref(false)
 const moreLoading = ref(false)
 const hasMore = ref(false)
 const search = ref('')
+const idInput = ref('')
+const activeFilter = ref<boolean | null>(null)
+const positionsFilter = ref<boolean | null>(null)
+const shortsFilter = ref<boolean | null>(null)
+const includeBots = ref(false)
+const checkedIds = ref<number[]>([])
+const batchBusy = ref(false)
+const tool = ref<string>(route.query.tool === 'amnesty' ? 'amnesty' : route.query.tool === 'cash' ? 'cash' : 'accounts')
+const detailOpen = ref(false)
+const activity = ref<AdminUserActivity | null>(null)
+const activityError = ref('')
+const activeOptions = [{ label: '全部', value: 'all' }, { label: '正常', value: 'yes' }, { label: '已封禁', value: 'no' }]
+const triOptions = [{ label: '全部', value: 'all' }, { label: '是', value: 'yes' }, { label: '否', value: 'no' }]
+const parseIds = computed(() => {
+  const ids = new Set<number>()
+  if (!idInput.value.trim()) return { ids: [], error: '' }
+  for (const token of idInput.value.split(/[,，\s]+/).filter(Boolean)) {
+    const match = token.match(/^(\d+)(?:-(\d+))?$/)
+    if (!match) return { ids: [], error: `无法识别“${token}”，请使用 ID 或起止范围` }
+    const start = Number(match[1]), end = Number(match[2] ?? match[1])
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start <= 0 || end > 2147483647 || end < start) return { ids: [], error: `无效范围：${token}` }
+    if (end - start >= 100) return { ids: [], error: '一次最多筛选 100 个 ID' }
+    for (let id = start; id <= end; id++) ids.add(id)
+    if (ids.size > 100) return { ids: [], error: '一次最多筛选 100 个 ID' }
+  }
+  return { ids: [...ids], error: '' }
+})
+function listFilters(): AdminUserListFilters {
+  return { user_ids: parseIds.value.ids.length ? parseIds.value.ids.join(',') : undefined, is_active: activeFilter.value ?? undefined, has_positions: positionsFilter.value ?? undefined, has_shorts: shortsFilter.value ?? undefined, include_bots: includeBots.value }
+}
+function triValue(v: boolean | null) { return v === null ? 'all' : v ? 'yes' : 'no' }
+function triBool(v: string) { return v === 'all' ? null : v === 'yes' }
+function updateChecked(keys: Array<string | number>) {
+  if (batchBusy.value) return
+  if (keys.length > 100) { message.warning('一次最多选择 100 人'); return }
+  checkedIds.value = keys.map(Number)
+}
 
 // 搜索走服务端（用户名模糊 / 精确 ID），避免只过滤已加载的前 N 人
 let listSeq = 0
@@ -40,14 +81,16 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 async function loadList() {
   const seq = ++listSeq
+  if (parseIds.value.error) { users.value = []; hasMore.value = false; listLoading.value = false; return }
   listLoading.value = true
   try {
     const [u, t] = await Promise.all([
-      adminUsersApi.list(0, PAGE_SIZE, search.value.trim() || undefined),
+      adminUsersApi.list(0, PAGE_SIZE, search.value.trim() || undefined, listFilters()),
       allTitles.value.length ? Promise.resolve(allTitles.value) : adminTitleApi.listTitles(),
     ])
     if (seq !== listSeq) return
     users.value = u
+    checkedIds.value = checkedIds.value.filter(id => u.some(row => row.id === id))
     hasMore.value = u.length === PAGE_SIZE
     allTitles.value = t
   } catch (e) {
@@ -60,10 +103,12 @@ async function loadList() {
 async function loadMore() {
   if (moreLoading.value || !hasMore.value) return
   moreLoading.value = true
+  const seq = listSeq
   try {
     const next = await adminUsersApi.list(
-      users.value.length, PAGE_SIZE, search.value.trim() || undefined,
+      users.value.length, PAGE_SIZE, search.value.trim() || undefined, listFilters(),
     )
+    if (seq !== listSeq) return
     const seen = new Set(users.value.map(u => u.id))
     users.value = [...users.value, ...next.filter(u => !seen.has(u.id))]
     hasMore.value = next.length === PAGE_SIZE
@@ -74,7 +119,11 @@ async function loadMore() {
   }
 }
 
-watch(search, () => {
+watch([search, idInput, activeFilter, positionsFilter, shortsFilter, includeBots], () => {
+  checkedIds.value = []
+  ++listSeq
+  users.value = []
+  hasMore.value = false
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { void loadList() }, 300)
 })
@@ -90,24 +139,37 @@ const userTitles = ref<UserTitleItem[]>([])
 const detailLoading = ref(false)
 const isSelf = computed(() => selectedId.value !== null && selectedId.value === authStore.user?.id)
 
+let detailSeq = 0
 async function loadDetail() {
   if (selectedId.value === null) return
+  const seq = ++detailSeq
+  const id = selectedId.value
+  activity.value = null
+  activityError.value = ''
   detailLoading.value = true
   try {
     const [s, t] = await Promise.all([
-      adminUsersApi.get(selectedId.value),
-      adminTitleApi.listUserTitles(selectedId.value),
+      adminUsersApi.get(id),
+      adminTitleApi.listUserTitles(id),
     ])
+    if (seq !== detailSeq) return
     summary.value = s
     userTitles.value = t
+    try {
+      const a = await adminUsersApi.activity(id)
+      if (seq === detailSeq) activity.value = a
+    } catch (e) {
+      if (seq === detailSeq) activityError.value = extractErrorMessage(e, '加载持仓与记录失败')
+    }
   } catch (e) {
     message.error(extractErrorMessage(e, '加载用户详情失败'))
   } finally {
-    detailLoading.value = false
+    if (seq === detailSeq) detailLoading.value = false
   }
 }
 
 function select(id: number) {
+  detailOpen.value = true
   selectedId.value = id
   summary.value = null
   userTitles.value = []
@@ -117,7 +179,10 @@ function select(id: number) {
 
 /** 任一操作成功后：刷新详情 + 列表里的那一行 */
 async function afterMutation() {
+  const hadSelection = checkedIds.value.length > 0
+  checkedIds.value = []
   await Promise.all([loadDetail(), loadList()])
+  if (hadSelection) message.info('列表已刷新，已清空选择。操作结果保留在下方。')
 }
 
 function confirmDialog(title: string, content: string, positiveText = '确认'): Promise<boolean> {
@@ -297,8 +362,11 @@ async function doRevoke(tid: number) {
 
 // ── 表格 ──
 const columns: DataTableColumns<UserListItem> = [
+  { type: 'selection', disabled: () => batchBusy.value },
   { title: 'ID', key: 'id', width: 52 },
-  { title: '用户名', key: 'username', minWidth: 120, ellipsis: { tooltip: true } },
+  { title: '用户名', key: 'username', minWidth: 140, render: r => h(NButton, { text: true, onClick: () => select(r.id) }, () => r.username) },
+  { title: '现货 / 空头 / 预测', key: 'positions', width: 150, render: r => `${r.spot_count ?? 0} / ${r.short_count ?? 0} / ${r.lmsr_count ?? 0}` },
+  { title: '最近交易', key: 'last_trade_at', width: 170, render: r => r.last_trade_at ? new Date(r.last_trade_at).toLocaleString('zh-CN') : '—' },
   { title: '现金', key: 'cash', width: 84, align: 'right', render: r => r.cash.toFixed(2) },
   { title: '债务', key: 'debt', width: 84, align: 'right', render: r => r.debt.toFixed(2) },
   {
@@ -306,6 +374,7 @@ const columns: DataTableColumns<UserListItem> = [
     render(r) {
       return h('div', { class: 'flex gap-1' }, [
         r.is_active ? null : h(NTag, { type: 'error', size: 'small' }, () => '封禁'),
+        r.is_bot ? h(NTag, { size: 'small' }, () => '机器人') : null,
         r.is_superuser ? h(NTag, { type: 'warning', size: 'small' }, () => '管理员') : null,
       ])
     },
@@ -314,7 +383,6 @@ const columns: DataTableColumns<UserListItem> = [
 const rowProps = (row: UserListItem) => ({
   style: 'cursor:pointer',
   class: row.id === selectedId.value ? 'row-selected' : '',
-  onClick: () => select(row.id),
 })
 
 onMounted(async () => {
@@ -329,30 +397,48 @@ onMounted(async () => {
     <header class="page-header">
       <div>
         <h1 class="page-title">用户管理</h1>
-        <p class="page-sub">点一行查看并操作该用户：资产 / 贷款 / 账号 / 称号。批量操作请去「批量操作」页。</p>
+        <p class="page-sub">搜索并勾选用户，查看持仓与记录，预览后执行批量操作。点击用户名查看详情。</p>
       </div>
-      <RouterLink to="/admin/users/batch" class="btn-outline">批量操作 →</RouterLink>
+
     </header>
 
     <div class="split">
       <section class="card list-card">
-        <NInput v-model:value="search" placeholder="搜索用户名 / 精确 ID" clearable size="small" class="mb-2" />
+        <fieldset :disabled="batchBusy" class="filters">
+          <NInput v-model:value="search" :disabled="batchBusy" placeholder="搜索用户名 / 精确 ID" clearable />
+          <NInput v-model:value="idInput" :disabled="batchBusy" placeholder="ID 列表或范围，例如 641,646,672-677" clearable />
+          <label>账号状态 <NSelect :value="triValue(activeFilter)" :options="activeOptions" :disabled="batchBusy" @update:value="v => activeFilter = triBool(v)" /></label>
+          <label>有持仓 <NSelect :value="triValue(positionsFilter)" :options="triOptions" :disabled="batchBusy" @update:value="v => positionsFilter = triBool(v)" /></label>
+          <label>有空头 <NSelect :value="triValue(shortsFilter)" :options="triOptions" :disabled="batchBusy" @update:value="v => shortsFilter = triBool(v)" /></label>
+          <NCheckbox v-model:checked="includeBots" :disabled="batchBusy">包括官方机器人</NCheckbox>
+        </fieldset>
+        <p v-if="parseIds.error" class="filter-error">{{ parseIds.error }}</p>
         <NDataTable
-          :columns="columns" :data="users" :loading="listLoading"
+          :columns="columns" :data="users" :loading="listLoading" :checked-row-keys="checkedIds" @update:checked-row-keys="updateChecked" :scroll-x="960"
           :bordered="true" size="small" :max-height="560"
           :row-key="(r: UserListItem) => r.id" :row-props="rowProps"
         />
         <div class="list-foot">
           <span>已加载 {{ users.length }} 人</span>
           <button
-            v-if="hasMore" class="btn-outline btn-sm" :disabled="moreLoading"
+            v-if="hasMore" class="btn-outline btn-sm" :disabled="moreLoading || batchBusy"
             @click="loadMore"
-          >{{ moreLoading ? '加载中…' : '加载更多 200 人' }}</button>
+          >{{ moreLoading ? '加载中…' : `加载更多 ${PAGE_SIZE} 人` }}</button>
         </div>
       </section>
 
-      <section class="card detail-card">
-        <div v-if="selectedId === null" class="empty-state">← 在左侧选择一个用户</div>
+      <section class="card tools-card">
+        <div class="tool-bar"><strong>已选择 {{ checkedIds.length }} 人</strong><NButton size="small" :disabled="batchBusy || !checkedIds.length" @click="checkedIds = []">清空选择</NButton></div>
+        <NTabs v-model:value="tool" type="line">
+          <NTabPane name="accounts" tab="账户操作" :disabled="batchBusy"><AccountBatchPanel :user-ids="checkedIds" @busy="batchBusy = $event" @changed="afterMutation" /></NTabPane>
+          <NTabPane name="cash" tab="批量调整现金" :disabled="batchBusy"><BatchAdjustCashPanel :user-ids="checkedIds.length ? checkedIds : undefined" @busy="batchBusy = $event" @changed="afterMutation" /></NTabPane>
+          <NTabPane name="amnesty" tab="大赦天下" :disabled="batchBusy"><AmnestyPanel :user-ids="checkedIds.length ? checkedIds : undefined" @busy="batchBusy = $event" @changed="afterMutation" /></NTabPane>
+        </NTabs>
+      </section>
+      <NDrawer v-model:show="detailOpen" :width="900" placement="right" :style="{ maxWidth: '100vw' }">
+      <NDrawerContent title="用户详情" closable>
+      <section class="detail-card">
+        <div v-if="selectedId === null" class="empty-state">选择用户名查看详情</div>
         <div v-else-if="!summary" class="empty-state">{{ detailLoading ? '加载中…' : '加载失败' }}</div>
         <template v-else>
           <div class="detail-head">
@@ -375,7 +461,7 @@ onMounted(async () => {
               <span class="kv-value tabular-nums">金 {{ summary.cash.toFixed(2) }}</span>
             </div>
             <div class="kv-item" :class="{ 'kv-item--warn': summary.debt > 0 }">
-              <span class="kv-label">债务</span>
+              <span class="kv-label">金币借款债务（含已结利息）</span>
               <span class="kv-value tabular-nums">金 {{ summary.debt.toFixed(2) }}</span>
             </div>
             <div class="kv-item">
@@ -384,7 +470,8 @@ onMounted(async () => {
             </div>
           </div>
 
-          <NTabs type="line" default-value="cash" size="small">
+          <NTabs :key="selectedId ?? 0" type="line" default-value="overview" size="small">
+            <NTabPane name="overview" tab="概况与记录"><UserActivityTabs :activity="activity" :error="activityError" /></NTabPane>
             <NTabPane name="cash" tab="资产">
               <div class="form">
                 <label class="field">
@@ -404,7 +491,7 @@ onMounted(async () => {
             <NTabPane name="loan" tab="贷款">
               <div class="form">
                 <h3 class="form-title">强制放贷</h3>
-                <p class="form-hint">受站点配置 loan_enabled 约束；现金与债务同时增加。</p>
+                <p class="form-hint">受站点贷款开关约束；现金与债务同时增加。</p>
                 <label class="field">
                   <span class="field-label">金额（&gt;0）</span>
                   <input v-model="loanAmount" type="text" inputmode="decimal" class="input tabular-nums" placeholder="例如 500" />
@@ -479,11 +566,30 @@ onMounted(async () => {
           </NTabs>
         </template>
       </section>
+      </NDrawerContent></NDrawer>
     </div>
   </div>
 </template>
 
 <style scoped>
+.filters {
+  border: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+  align-items: end;
+}
+@media (min-width: 768px) {
+  .filters {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .filters > :nth-child(-n + 2) {
+    grid-column: span 2;
+  }
+}
+.filters label{font-size:12px}.filter-error{color:#b91c1c;font-size:13px}.tool-bar{display:flex;align-items:center;gap:16px;margin-bottom:10px}
 .page {
   max-width: 1200px;
   margin: 0 auto;
@@ -515,7 +621,7 @@ onMounted(async () => {
 }
 @media (width > 950px) {
   .split {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 .card {

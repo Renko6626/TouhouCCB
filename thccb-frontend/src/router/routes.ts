@@ -175,7 +175,7 @@ export const routes: RouteRecordRaw[] = [
       },
       // 旧路径兼容（书签 / 外链）
       { path: 'admin/market-manage', redirect: '/admin/markets' },
-      { path: 'admin/batch-adjust-cash', redirect: '/admin/users/batch' },
+      { path: 'admin/batch-adjust-cash', redirect: '/admin/users?tool=cash' },
       { path: 'admin/bot-review-ban', redirect: '/admin/bot' },
       {
         path: 'admin/markets',
@@ -207,7 +207,7 @@ export const routes: RouteRecordRaw[] = [
       {
         path: 'admin/users/batch',
         name: 'admin-users-batch',
-        component: () => import('@/pages/admin/BatchOps.vue'),
+        redirect: to => ({ path: '/admin/users', query: { ...to.query, tool: to.query.tab === 'amnesty' || to.query.tool === 'amnesty' ? 'amnesty' : 'cash' } }),
         meta: { title: '批量操作', requiresAuth: true, requiresAdmin: true },
       },
       {

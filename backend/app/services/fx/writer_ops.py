@@ -193,7 +193,7 @@ def register_all_ops(writer):
     for command_type in (SpotTrade, BotTrade, BorrowBuy, NetTrade, ShortOpen, ShortCover):
         writer.register_op(command_type, execute_command)
     for command_type in (CreateOrder, CancelOrder, AttemptOrder, FailOrder, Liquidity,
-                         AdminPair, ObserveBot, WriteoffShort):
+                         AdminPair, ObserveBot, WriteoffShort, AdminCloseAccount):
         writer.register_op(command_type, execute_control)
     writer.register_op(LiquidateRound, execute_liquidation_round)
 
@@ -261,6 +261,14 @@ class WriteoffShort:
 
 
 @dataclass(frozen=True, slots=True)
+class AdminCloseAccount:
+    pair_id: int
+    user_id: int
+    admin_id: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class LiquidateRound:
     pair_id: int
     user_id: int
@@ -314,13 +322,21 @@ async def execute_control(writer, cmd):
             response = await writeoff_fx_short_in_session(db, target_id=cmd.target_id,
                 pair_id=cmd.pair_id, reason=cmd.reason, admin_id=cmd.admin_id,
                 idempotency_key=cmd.idempotency_key)
+        elif isinstance(cmd, AdminCloseAccount):
+            from app.services.admin_user_batch import close_fx_in_session
+            response = await close_fx_in_session(db, cmd)
         else:
             raise TypeError(type(cmd).__name__)
         await db.flush()
         hints = capture_accounts(db)
         await commit_and_install(writer, db)
-        if hints or isinstance(cmd, WriteoffShort):
+        if hints or isinstance(cmd, (WriteoffShort, AdminCloseAccount)):
             publish_accounts(hints, 'admin_account' if isinstance(cmd, WriteoffShort) else 'fx_control')
+        if isinstance(cmd, AdminCloseAccount) and response['trades']:
+            last = response['trades'][-1]
+            trading.notify_market_data_committed(cmd.pair_id)
+            publisher.enqueue_publication(pair_id=cmd.pair_id,
+                post_price=Decimal(str(response['post_price'])), trade_id=last['trade_id'])
         if isinstance(cmd, Liquidity):
             notify_pricing_changed(())
             liquidity._publish_liquidity(response)

@@ -708,6 +708,13 @@ class LiquidateGroupCmd:
     daily_rate: Decimal = Decimal("0")
     trigger_source: str = "scheduler"
     revalidate_account: bool = False
+    admin_id: int | None = None
+    admin_reason: str | None = None
+
+
+@dataclass
+class AdminCloseGroupCmd(LiquidateGroupCmd):
+    """Explicit administrator close, serialized by the existing market writer."""
 
 
 def _cmd_decimal(value: object, name: str) -> Decimal:
@@ -835,7 +842,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
     mode = str(cmd.mode)
     if mode not in ("partial", "full"):
         raise HTTPException(status_code=422, detail=f"未知强平模式: {cmd.mode!r}")
-    if int(cmd.run_id) <= 0:
+    if int(cmd.run_id) <= 0 and not isinstance(cmd, AdminCloseGroupCmd):
         raise HTTPException(status_code=422, detail="run_id 必须为正整数")
     if int(cmd.round_no) < 1:
         raise HTTPException(status_code=422, detail="round_no 必须 >= 1")
@@ -859,6 +866,13 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
         ) as account_changes:
             locked_user = await lock_user(session, cmd.user_id)
             OWNERSHIP.require_writes()
+            if isinstance(cmd, AdminCloseGroupCmd):
+                from app.services.admin_user_batch import validate_locked_target
+                await validate_locked_target(session, locked_user, cmd.admin_id, cmd.admin_reason)
+                run = await get_or_create_active_run(session, user_id=cmd.user_id,
+                    trigger_source='admin_close', now=datetime.now(timezone.utc))
+                from dataclasses import replace
+                cmd = replace(cmd, run_id=int(run.id), round_no=run.next_round)
             version_before = locked_user.economic_version
 
             # ── 1. 幂等预检：卖之前查业务键（用户行锁内；不是卖完再查）──
@@ -881,6 +895,9 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
 
             account_pre = None
             defer_repay = False
+            if isinstance(cmd, AdminCloseGroupCmd):
+                from app.services.credit.cash import has_foreign_debt
+                defer_repay = await has_foreign_debt(session, cmd.user_id)
             if cmd.revalidate_account:
                 from app.services.credit.execution import prepare_locked
                 from app.services.credit.risk import discover_dependencies
@@ -1064,7 +1081,8 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             if defer_repay:
                 from app.services.credit.execution import accrue_gold_only
                 await accrue_gold_only(session, locked_user, cmd.daily_rate, trigger_source)
-            if not defer_repay and locked_user.cash > ZERO and locked_user.debt > ZERO:
+            if (not defer_repay and locked_user.cash > ZERO and locked_user.debt > ZERO
+                    and (not isinstance(cmd, AdminCloseGroupCmd) or locked_user.auto_repay)):
                 from app.services import loan_service   # 局部 import 避免环
                 debt_before = locked_user.debt
                 now = loan_service._compat_now(locked_user)
@@ -1126,6 +1144,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
             audit_service.record(
                 session, "liquidation_action",
                 user_id=int(locked_user.id),
+                operator_user_id=cmd.admin_id,
                 ref_table="liquidation_action", ref_id=int(action.id),
                 payload={
                     "run_id": int(run.id), "round_no": int(cmd.round_no),
@@ -1138,6 +1157,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
                     "cash_after": format(locked_user.cash, "f"),
                     "economic_version_after": int(action.economic_version_after),
                     "trigger_source": trigger_source,
+                    "reason": cmd.admin_reason,
                 },
                 user_after=audit_service.user_snapshot(locked_user),
             )
@@ -1155,6 +1175,7 @@ async def op_liquidate_group(state: MarketState, cmd: LiquidateGroupCmd) -> OpOu
         account_changes=account_changes,
         response={
             "sold_count": len(quote.legs),
+            "quantity": sum((leg.amount for leg in quote.legs), ZERO),
             "gross": quote.gross,
             "fee": quote.fee,
             "net": quote.net,
@@ -1177,3 +1198,4 @@ def register_all_ops(writer: MarketWriter) -> None:
     writer.register_op(ResumeCmd, op_resume)
     writer.register_op(ResolveCmd, op_resolve)
     writer.register_op(LiquidateGroupCmd, op_liquidate_group)
+    writer.register_op(AdminCloseGroupCmd, op_liquidate_group)
