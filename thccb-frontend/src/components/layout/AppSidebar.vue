@@ -129,7 +129,7 @@ const navigate = (path: string) => router.push(path)
         </template>
         <!-- 叶子项 -->
         <button
-          v-else-if="item.path !== '/returned' || authStore.isAdmin"
+          v-else
           :class="['nav-item', { active: isActive(item.path), 'nav-item-featured': item.path === '/fx' }]"
           @click="navigate(item.path)"
           :title="props.collapsed ? item.label : undefined"
