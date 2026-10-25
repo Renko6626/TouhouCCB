@@ -37,6 +37,7 @@ services:
     environment:
       PYTHONPATH: .
       ADMIN_RESTART_ENABLED: "true"
+      DANMUKU_SECRET_KEY: ${DANMUKU_SECRET_KEY:?}
     user: "1007:1008"
     stop_grace_period: 8s
     logging: *logging
